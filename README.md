@@ -14,6 +14,11 @@ verifies each against reality. **No LLM anywhere in the verification path** —
 every verdict is reproducible byte-for-byte.
 
 ```console
+# today (from source):
+$ git clone https://github.com/sulmusic2-star/agent-vigil && cd agent-vigil
+$ node --experimental-strip-types src/cli.ts <session.jsonl> --repo <your-repo>
+
+# npm package (npx agent-vigil) landing shortly
 $ npx agent-vigil session.jsonl --repo .
 
   ✓ [tests_pass] 12 tests
