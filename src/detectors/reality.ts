@@ -130,3 +130,18 @@ function inferTestCommand(repo: string): string | null {
   if (existsSync(join(repo, "Cargo.toml"))) return "cargo test --quiet";
   return null;
 }
+
+/** Step-repetition: >=3 identical consecutive tool calls (arXiv: 17.14% of
+ *  agent failures are step repetitions that slip past output-only checks). */
+export function checkStepRepetition(toolCalls: string[]): CheckResult[] {
+  if (toolCalls.length === 0) return [];
+  let worst = 1, run = 1, worstCall = "";
+  for (let i = 1; i < toolCalls.length; i++) {
+    run = toolCalls[i] === toolCalls[i - 1] ? run + 1 : 1;
+    if (run > worst) { worst = run; worstCall = toolCalls[i]; }
+  }
+  const claim = { kind: "work_complete" as const, quote: "session behavior (automatic check)", subject: "no step-repetition loops" };
+  return [worst >= 3
+    ? { claim, verdict: "contradicted" as const, evidence: `agent repeated the identical tool call ${worst}x in a row (${worstCall.slice(0, 90)}…) — classic stuck-loop signature` }
+    : { claim, verdict: "verified" as const, evidence: `no identical tool call repeated 3+ times consecutively (${toolCalls.length} calls checked)` }];
+}

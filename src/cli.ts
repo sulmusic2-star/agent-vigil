@@ -4,8 +4,8 @@
 // Exit code 0 = nothing contradicted (safe CI gate). Exit 1 = contradictions found.
 
 import { resolve } from "node:path";
-import { loadNarrative, extractClaims } from "./transcript.ts";
-import { checkPathsExist, checkFilesChanged, checkTestsPass, checkCompletion } from "./detectors/reality.ts";
+import { loadNarrative, extractClaims, toolCallsFromClaudeJsonl } from "./transcript.ts";
+import { checkPathsExist, checkFilesChanged, checkTestsPass, checkCompletion, checkStepRepetition } from "./detectors/reality.ts";
 import { buildReport, type CheckResult } from "./report.ts";
 
 const args = process.argv.slice(2);
@@ -29,6 +29,7 @@ const results: CheckResult[] = [
   ...checkFilesChanged(claims, repo),
   ...checkPathsExist(claims.filter((c) => c.kind === "path_exists" && !claims.some((f) => f.kind === "file_changed" && f.subject === c.subject)), repo),
   ...checkCompletion(claims, repo),
+  ...(transcript.endsWith(".jsonl") ? checkStepRepetition(toolCallsFromClaudeJsonl(transcript)) : []),
 ];
 const report = buildReport(transcript, repo, results);
 

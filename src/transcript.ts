@@ -104,3 +104,20 @@ function snippet(text: string, at: number): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** Tool calls (name + input hash) in order, from a Claude Code session JSONL. */
+export function toolCallsFromClaudeJsonl(path: string): string[] {
+  const calls: string[] = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let row: any;
+    try { row = JSON.parse(line); } catch { continue; }
+    if (row?.type !== "assistant" || !row?.message?.content) continue;
+    for (const block of Array.isArray(row.message.content) ? row.message.content : []) {
+      if (block?.type === "tool_use") {
+        calls.push(`${block.name}:${JSON.stringify(block.input ?? {}).slice(0, 300)}`);
+      }
+    }
+  }
+  return calls;
+}

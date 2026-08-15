@@ -1,0 +1,24 @@
+name: "agent-vigil"
+description: "Deterministic trust report for AI agent sessions — fail the build when the agent's story doesn't match the repo"
+branding:
+  icon: "shield"
+  color: "green"
+inputs:
+  transcript:
+    description: "Path to the agent transcript (.jsonl) or summary (.md)"
+    required: true
+  repo:
+    description: "Repo path to verify against"
+    required: false
+    default: "."
+  test-cmd:
+    description: "Override test command for tests-pass claims"
+    required: false
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      run: |
+        ARGS="${{ inputs.transcript }} --repo ${{ inputs.repo }}"
+        if [ -n "${{ inputs.test-cmd }}" ]; then ARGS="$ARGS --test-cmd \"${{ inputs.test-cmd }}\""; fi
+        npx --yes agent-vigil $ARGS
