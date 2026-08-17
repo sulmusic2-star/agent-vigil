@@ -26,5 +26,18 @@
   "type": "module",
   "bin": {
     "vigil": "./src/cli.ts"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "files": [
+    "src",
+    "action.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sulmusic2-star/agent-vigil.git"
   }
 }
