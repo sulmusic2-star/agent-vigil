@@ -94,7 +94,7 @@ steps:
     with:
       fetch-depth: 0
 
-  - uses: sulmusic2-star/agent-vigil@main
+  - uses: sulmusic2-star/agent-vigil@v0.3.0
     with:
       transcript: agent-session.jsonl
       repo: .
