@@ -148,7 +148,10 @@ export function loadTranscript(path: string): LoadedTranscript {
   return looksCodex ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
 }
 
-const PATH_RE = /(?:^|[\s`("'])((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})(?=$|[\s`)"':,.])/gm;
+const PATH_EXISTS_RES = [
+  /\b(?:file|path|artifact|report|output|receipt)\s+(?:(?:exists?|is)\s+)?(?:at\s+)?[`"']?((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})[`"']?/gi,
+  /[`"']((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})[`"']\s+(?:exists?|is\s+present)\b/gi,
+];
 const TESTS_PASS_RE = /\b(?:all\s+)?(\d+)?\s*tests?\s+(?:are\s+|now\s+)?(?:pass(?:ing|ed)?|green)\b|\btest\s+suite\s+passes\b/gi;
 const FILE_CHANGED_RE = /\b(?:updated|edited|modified|created|added|wrote|refactored|fixed|implemented(?:\s+in)?)\s+(?:the\s+)?[`"']?((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})[`"']?/gi;
 const DONE_RE = /\b(?:done|complete[d]?|finished|fully\s+implemented|ready\s+to\s+merge|all\s+set)\b/i;
@@ -172,8 +175,10 @@ export function extractClaims(narrative: string): Claim[] {
   for (const match of narrative.matchAll(FILE_CHANGED_RE)) {
     push({ kind: "file_changed", quote: snippet(narrative, match.index ?? 0), subject: match[1] });
   }
-  for (const match of narrative.matchAll(PATH_RE)) {
-    push({ kind: "path_exists", quote: snippet(narrative, match.index ?? 0), subject: match[1] });
+  for (const pattern of PATH_EXISTS_RES) {
+    for (const match of narrative.matchAll(pattern)) {
+      push({ kind: "path_exists", quote: snippet(narrative, match.index ?? 0), subject: match[1] });
+    }
   }
   const done = narrative.match(DONE_RE);
   if (done) push({ kind: "work_complete", quote: snippet(narrative, done.index ?? 0), subject: "completion claim" });

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Claim, CheckResult } from "../report.ts";
 import type { SessionToolCall } from "../transcript.ts";
@@ -55,6 +55,18 @@ function withinRepo(repo: string, subject: string): string | null {
   return candidate === root || candidate.startsWith(`${root}${sep}`) ? candidate : null;
 }
 
+function existingPathStaysInsideRepo(repo: string, candidate: string): boolean {
+  if (!existsSync(candidate)) return false;
+  try {
+    const root = realpathSync(repo);
+    const target = realpathSync(candidate);
+    const fromRoot = relative(root, target);
+    return fromRoot === "" || (!isAbsolute(fromRoot) && fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`));
+  } catch {
+    return false;
+  }
+}
+
 export function checkPathsExist(claims: Claim[], repo: string): CheckResult[] {
   return claims.filter((claim) => claim.kind === "path_exists").map((claim) => {
     const candidate = withinRepo(repo, claim.subject);
@@ -62,11 +74,16 @@ export function checkPathsExist(claims: Claim[], repo: string): CheckResult[] {
       return { claim, verdict: "contradicted", evidence: "path escapes the repository boundary", ruleId: "path-outside-repo" };
     }
     const exists = existsSync(candidate);
+    const staysInside = exists && existingPathStaysInsideRepo(repo, candidate);
     return {
       claim,
-      verdict: exists ? "verified" : "contradicted",
-      evidence: exists ? `${claim.subject} exists inside the repository` : `${claim.subject} does not exist`,
-      ruleId: "path-exists",
+      verdict: staysInside ? "verified" : "contradicted",
+      evidence: staysInside
+        ? `${claim.subject} exists inside the repository`
+        : exists
+          ? `${claim.subject} resolves outside the repository boundary`
+          : `${claim.subject} does not exist`,
+      ruleId: staysInside || !exists ? "path-exists" : "path-outside-repo",
     };
   });
 }
@@ -79,14 +96,15 @@ export function checkFilesChanged(claims: Claim[], repo: string, base: string, h
     if (!candidate) {
       return { claim, verdict: "contradicted", evidence: "claimed file escapes the repository boundary", ruleId: "file-outside-repo" };
     }
-    const hit = touched.has(claim.subject) || list.some((path) => path.endsWith(claim.subject) || claim.subject.endsWith(path));
+    const subject = claim.subject.replace(/^\.\//, "");
+    const hit = touched.has(subject) || list.some((path) => path.endsWith(`/${subject}`));
     if (hit) {
       return { claim, verdict: "verified", evidence: `${claim.subject} changed in ${base}..${head}`, ruleId: "file-changed" };
     }
     return {
       claim,
-      verdict: existsSync(candidate) ? "unverifiable" : "contradicted",
-      evidence: existsSync(candidate)
+      verdict: existingPathStaysInsideRepo(repo, candidate) ? "unverifiable" : "contradicted",
+      evidence: existingPathStaysInsideRepo(repo, candidate)
         ? `${claim.subject} exists but is outside the selected ${base}..${head} change range`
         : `${claim.subject} was claimed as changed but does not exist`,
       ruleId: "file-changed",

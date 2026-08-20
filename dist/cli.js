@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { existsSync as existsSync2, realpathSync } from "node:fs";
+import { existsSync as existsSync2, realpathSync as realpathSync2 } from "node:fs";
 import { resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -128,7 +128,10 @@ function loadTranscript(path) {
   const looksCodex = rows.some((row) => row?.type === "response_item" || row?.type === "session_meta");
   return looksCodex ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
 }
-var PATH_RE = /(?:^|[\s`("'])((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})(?=$|[\s`)"':,.])/gm;
+var PATH_EXISTS_RES = [
+  /\b(?:file|path|artifact|report|output|receipt)\s+(?:(?:exists?|is)\s+)?(?:at\s+)?[`"']?((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})[`"']?/gi,
+  /[`"']((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})[`"']\s+(?:exists?|is\s+present)\b/gi
+];
 var TESTS_PASS_RE = /\b(?:all\s+)?(\d+)?\s*tests?\s+(?:are\s+|now\s+)?(?:pass(?:ing|ed)?|green)\b|\btest\s+suite\s+passes\b/gi;
 var FILE_CHANGED_RE = /\b(?:updated|edited|modified|created|added|wrote|refactored|fixed|implemented(?:\s+in)?)\s+(?:the\s+)?[`"']?((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})[`"']?/gi;
 var DONE_RE = /\b(?:done|complete[d]?|finished|fully\s+implemented|ready\s+to\s+merge|all\s+set)\b/i;
@@ -154,8 +157,10 @@ function extractClaims(narrative) {
   for (const match of narrative.matchAll(FILE_CHANGED_RE)) {
     push({ kind: "file_changed", quote: snippet(narrative, match.index ?? 0), subject: match[1] });
   }
-  for (const match of narrative.matchAll(PATH_RE)) {
-    push({ kind: "path_exists", quote: snippet(narrative, match.index ?? 0), subject: match[1] });
+  for (const pattern of PATH_EXISTS_RES) {
+    for (const match of narrative.matchAll(pattern)) {
+      push({ kind: "path_exists", quote: snippet(narrative, match.index ?? 0), subject: match[1] });
+    }
   }
   const done = narrative.match(DONE_RE);
   if (done) push({ kind: "work_complete", quote: snippet(narrative, done.index ?? 0), subject: "completion claim" });
@@ -181,8 +186,8 @@ function snippet(text, at) {
 
 // src/detectors/reality.ts
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync as readFileSync2 } from "node:fs";
-import { isAbsolute, resolve, sep } from "node:path";
+import { existsSync, readFileSync as readFileSync2, realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 function git(repo, args) {
   try {
     return execFileSync("git", args, {
@@ -228,6 +233,17 @@ function withinRepo(repo, subject) {
   const candidate = resolve(root, subject);
   return candidate === root || candidate.startsWith(`${root}${sep}`) ? candidate : null;
 }
+function existingPathStaysInsideRepo(repo, candidate) {
+  if (!existsSync(candidate)) return false;
+  try {
+    const root = realpathSync(repo);
+    const target = realpathSync(candidate);
+    const fromRoot = relative(root, target);
+    return fromRoot === "" || !isAbsolute(fromRoot) && fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`);
+  } catch {
+    return false;
+  }
+}
 function checkPathsExist(claims, repo) {
   return claims.filter((claim) => claim.kind === "path_exists").map((claim) => {
     const candidate = withinRepo(repo, claim.subject);
@@ -235,11 +251,12 @@ function checkPathsExist(claims, repo) {
       return { claim, verdict: "contradicted", evidence: "path escapes the repository boundary", ruleId: "path-outside-repo" };
     }
     const exists = existsSync(candidate);
+    const staysInside = exists && existingPathStaysInsideRepo(repo, candidate);
     return {
       claim,
-      verdict: exists ? "verified" : "contradicted",
-      evidence: exists ? `${claim.subject} exists inside the repository` : `${claim.subject} does not exist`,
-      ruleId: "path-exists"
+      verdict: staysInside ? "verified" : "contradicted",
+      evidence: staysInside ? `${claim.subject} exists inside the repository` : exists ? `${claim.subject} resolves outside the repository boundary` : `${claim.subject} does not exist`,
+      ruleId: staysInside || !exists ? "path-exists" : "path-outside-repo"
     };
   });
 }
@@ -251,14 +268,15 @@ function checkFilesChanged(claims, repo, base, head) {
     if (!candidate) {
       return { claim, verdict: "contradicted", evidence: "claimed file escapes the repository boundary", ruleId: "file-outside-repo" };
     }
-    const hit = touched.has(claim.subject) || list.some((path) => path.endsWith(claim.subject) || claim.subject.endsWith(path));
+    const subject = claim.subject.replace(/^\.\//, "");
+    const hit = touched.has(subject) || list.some((path) => path.endsWith(`/${subject}`));
     if (hit) {
       return { claim, verdict: "verified", evidence: `${claim.subject} changed in ${base}..${head}`, ruleId: "file-changed" };
     }
     return {
       claim,
-      verdict: existsSync(candidate) ? "unverifiable" : "contradicted",
-      evidence: existsSync(candidate) ? `${claim.subject} exists but is outside the selected ${base}..${head} change range` : `${claim.subject} was claimed as changed but does not exist`,
+      verdict: existingPathStaysInsideRepo(repo, candidate) ? "unverifiable" : "contradicted",
+      evidence: existingPathStaysInsideRepo(repo, candidate) ? `${claim.subject} exists but is outside the selected ${base}..${head} change range` : `${claim.subject} was claimed as changed but does not exist`,
       ruleId: "file-changed"
     };
   });
@@ -895,7 +913,7 @@ ${usage()}`);
 function isMainModule() {
   if (!process.argv[1]) return false;
   try {
-    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+    return realpathSync2(process.argv[1]) === realpathSync2(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }

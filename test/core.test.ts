@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -49,6 +49,14 @@ test("extracts changed files, paths, tests, and completion", () => {
 
 test("extracts root-level changed files", () => {
   assert.ok(extractClaims("Updated README.md and package.json").some((c) => c.subject === "README.md"));
+});
+
+test("does not treat ordinary dotted words as repository paths", () => {
+  assert.equal(extractClaims("The test suite passes on Node.js against example.com").filter((c) => c.kind === "path_exists").length, 0);
+});
+
+test("extracts paths only from explicit path contexts", () => {
+  assert.ok(extractClaims("Receipt at dist/vigil.json exists").some((c) => c.kind === "path_exists" && c.subject === "dist/vigil.json"));
 });
 
 test("extracts no claims from neutral prose", () => assert.equal(extractClaims("looked around").length, 0));
@@ -159,10 +167,23 @@ test("changed file claim verifies against explicit range", () => {
   const claim = { kind: "file_changed" as const, quote: "updated README.md", subject: "README.md" };
   assert.equal(checkFilesChanged([claim], repo, "HEAD~1", "HEAD")[0].verdict, "verified");
 });
+test("changed file matching respects path-component boundaries", () => {
+  const repo = initRepo(); writeFileSync(join(repo, "notfoo.ts"), "changed\n"); commit(repo, "change");
+  const claim = { kind: "file_changed" as const, quote: "updated foo.ts", subject: "foo.ts" };
+  assert.equal(checkFilesChanged([claim], repo, "HEAD~1", "HEAD")[0].verdict, "contradicted");
+});
 test("path traversal claim is contradicted", () => {
   const repo = initRepo();
   const claim = { kind: "path_exists" as const, quote: "../secret.txt", subject: "../secret.txt" };
   assert.equal(checkPathsExist([claim], repo)[0].verdict, "contradicted");
+});
+test("symlink targets outside the repository are contradicted", () => {
+  const repo = initRepo();
+  const outside = join(temp("vigil-outside-"), "secret.txt"); writeFileSync(outside, "secret\n");
+  symlinkSync(outside, join(repo, "inside.txt"));
+  const claim = { kind: "path_exists" as const, quote: "file inside.txt exists", subject: "inside.txt" };
+  const check = checkPathsExist([claim], repo)[0];
+  assert.equal(check.verdict, "contradicted"); assert.equal(check.ruleId, "path-outside-repo");
 });
 test("claimed test count must match observed count", () => {
   const repo = initRepo();
