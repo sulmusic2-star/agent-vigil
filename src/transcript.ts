@@ -125,7 +125,7 @@ export function toolCallsFromClaudeJsonl(path: string): string[] {
 /** Claims of having RUN something ("I ran the tests", "executed npm build"). */
 export function extractRunClaims(narrative: string): { quote: string; subject: string }[] {
   const out: { quote: string; subject: string }[] = [];
-  const re = /\b(?:I\s+)?(?:ran|executed|invoked|launched)\s+(?:the\s+)?[`"']?([\w./ -]{2,40}?)[`"']?(?=[\s,.;)]|$)/gi;
+  const re = /\b(?:I\s+)?(?:ran|executed|invoked|launched)\s+(?:the\s+)?[`"']?([\w./-]+(?:\s+(?!and\b|then\b|the\b|to\b|it\b|so\b|which\b)[\w./-]+){0,2})[`"']?/gi;
   for (const m of narrative.matchAll(re)) {
     const s = m[1].trim();
     if (s && !/^(it|them|this|that|a|an|into|out)$/i.test(s)) {
