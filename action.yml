@@ -64,11 +64,20 @@ runs:
         code=$?
         set -e
 
-        status=$(node -e 'const r=require("./agent-vigil-report.json"); process.stdout.write(r.summary.status)')
-        receipt_hash=$(node -e 'const r=require("./agent-vigil-report.json"); process.stdout.write(r.receiptHash)')
+        if [[ -s agent-vigil-report.json ]]; then
+          status=$(node -e 'const r=require("./agent-vigil-report.json"); process.stdout.write(r.summary.status)')
+          receipt_hash=$(node -e 'const r=require("./agent-vigil-report.json"); process.stdout.write(r.receiptHash)')
+          report_path="$PWD/agent-vigil-report.json"
+        else
+          # Preserve the verifier's original diagnostic and exit code when
+          # parsing or configuration fails before a receipt can be written.
+          status="INCONCLUSIVE"
+          receipt_hash="unavailable"
+          report_path=""
+        fi
         {
           echo "status=$status"
           echo "receipt_hash=$receipt_hash"
-          echo "report=$PWD/agent-vigil-report.json"
+          echo "report=$report_path"
         } >> "$GITHUB_OUTPUT"
         exit "$code"

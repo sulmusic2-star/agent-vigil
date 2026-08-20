@@ -26,6 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      - name: Enforce coverage floor
+        if: matrix.node == 22
+        run: npm run test:coverage
       - run: npm pack --dry-run
       - name: Dogfood Agent Vigil
         uses: ./
@@ -35,6 +38,22 @@ jobs:
           base: HEAD~1
           head: HEAD
           strict: true
+      - name: Dogfood malformed-transcript failure
+        id: malformed
+        continue-on-error: true
+        uses: ./
+        with:
+          transcript: examples/malformed.jsonl
+          repo: .
+          base: HEAD~1
+          head: HEAD
+          strict: true
+      - name: Assert malformed transcript failed closed
+        if: always()
+        env:
+          STEP_OUTCOME: ${{ steps.malformed.outcome }}
+          VIGIL_STATUS: ${{ steps.malformed.outputs.status }}
+        run: test "$STEP_OUTCOME" = "failure" && test "$VIGIL_STATUS" = "INCONCLUSIVE"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -43,3 +62,29 @@ jobs:
             agent-vigil-report.json
             agent-vigil.sarif
           if-no-files-found: warn
+
+  portability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: Dogfood Agent Vigil
+        uses: ./
+        with:
+          transcript: examples/demo-pass.md
+          repo: .
+          base: HEAD~1
+          head: HEAD
+          strict: true

@@ -36,10 +36,10 @@ An empty transcript is **INCONCLUSIVE**. A clean diff alone cannot earn PASS.
 If an agent claims 99 tests passed and the runner reports 42, the result is
 **FAIL** even though the command exited zero.
 
-## What v0.3 checks
+## What v0.4 checks
 
 - Claimed test success against a fresh test execution.
-- Claimed test counts against TAP, Jest, pytest, and Cargo summaries.
+- Claimed test counts across 18 output families: Node/TAP, Jest, Vitest, pytest, Cargo, Go JSON, Maven, Gradle, RSpec, PHPUnit, .NET, Mocha, Bun, AVA, Playwright, Cypress, and Minitest.
 - Claimed file changes against an explicit `base..head` range.
 - Referenced paths without allowing traversal outside the repository.
 - “I ran X” claims against a single matching Claude Code or Codex tool call.
@@ -48,6 +48,8 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
   loss, compiler suppressions, verification bypasses, and coverage gates set to
   zero.
 - Completion claims against objective evidence and unfinished-work markers.
+- Malformed or unknown JSONL fails loudly instead of silently selecting the wrong adapter.
+- Semantically identical structured tool calls are normalized before loop detection.
 
 Every run can emit a compact JSON receipt, Markdown, SARIF 2.1.0, and a GitHub
 Step Summary. The receipt has a deterministic SHA-256 content identifier. It is
@@ -94,7 +96,7 @@ steps:
     with:
       fetch-depth: 0
 
-  - uses: sulmusic2-star/agent-vigil@v0.3.0
+  - uses: sulmusic2-star/agent-vigil@v0.4.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -140,14 +142,19 @@ cover pieces of this problem. Agent Vigil's narrow position is:
 4. **Keep the hot path local, deterministic, small, and auditable.**
 
 The source-linked complaint and competitor review is in
-[docs/RESEARCH.md](docs/RESEARCH.md). Product limits are explicit in
+[docs/RESEARCH.md](docs/RESEARCH.md). The executed compatibility matrix is in
+[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Product limits are explicit in
 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## Evidence on this repository
 
-- 49 tests, including adversarial false-pass, empty-evidence, path traversal,
-  tool-loop, test-count, skip, suppression, and cross-agent transcript cases.
-- Linux CI on Node 20, 22, and 24.
+- 133 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families, plus adversarial false-pass, path, transcript,
+  tool-loop, test-count, skip, suppression, and adapter-drift cases.
+- Seven real-toolchain repositories exercised Node/npm, pnpm, pytest, Go,
+  Minitest, a Node monorepo, and .NET; all 14 exact/inflated verdicts matched.
+- Linux CI on Node 20, 22, and 24, plus Node 22 portability jobs on macOS
+  and Windows.
 - The GitHub Action dogfoods itself in CI.
 - `npm pack --dry-run` is part of the build gate.
 - Zero runtime dependencies.
