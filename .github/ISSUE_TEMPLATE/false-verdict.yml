@@ -1,0 +1,42 @@
+name: False verdict
+description: Report a minimized false PASS, false FAIL, or unexplained INCONCLUSIVE
+title: "[verdict] "
+labels: [false-verdict]
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach private transcripts, secrets, or proprietary source code.
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: Observed verdict
+      options: [PASS, FAIL, INCONCLUSIVE]
+    validations:
+      required: true
+  - type: dropdown
+    id: adapter
+    attributes:
+      label: Input adapter
+      options: [Claude Code JSONL, Codex JSONL, Markdown or plain text]
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result and why
+    validations:
+      required: true
+  - type: textarea
+    id: receipt
+    attributes:
+      label: Sanitized receipt or reproducer
+      description: Remove secrets, usernames, private paths, and proprietary code.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Agent Vigil version
+    validations:
+      required: true
