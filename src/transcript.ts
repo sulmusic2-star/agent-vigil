@@ -36,6 +36,35 @@ function safeJson(text: string): any | undefined {
   try { return JSON.parse(text); } catch { return undefined; }
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function serialiseToolValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try { return JSON.stringify(value ?? ""); }
+  catch { return String(value ?? ""); }
+}
+
+function toolOutputFailed(output: string): boolean {
+  const parsed = safeJson(output);
+  if (parsed && typeof parsed === "object") {
+    const row = parsed as Record<string, unknown>;
+    if (row.isError === true || row.is_error === true) return true;
+    for (const key of ["exit_code", "exitCode", "statusCode"]) {
+      if (typeof row[key] === "number" && row[key] !== 0) return true;
+    }
+  }
+  return /(?:"?isError"?\s*:\s*true|"?is_error"?\s*:\s*true|script error|exit[_ ]?code"?\s*[:=]\s*[1-9]\d*|exited with (?:code|status)\s*[1-9]\d*|terminated by signal\b|command (?:failed|timed out)\b)/i.test(output);
+}
+
 function textFromBlocks(content: unknown): string[] {
   if (typeof content === "string") return [content];
   if (!Array.isArray(content)) return [];
@@ -113,7 +142,7 @@ function parseCodex(rows: any[], transcriptSha256: string): LoadedTranscript {
       const call: SessionToolCall = {
         id,
         name: String(payload.name ?? payload.namespace ?? "unknown"),
-        input: String(payload.input ?? payload.arguments ?? ""),
+        input: serialiseToolValue(payload.input ?? payload.arguments ?? ""),
         timestamp: row.timestamp,
         sequence: sequence++,
       };
@@ -123,8 +152,8 @@ function parseCodex(rows: any[], transcriptSha256: string): LoadedTranscript {
     if (payload.type === "custom_tool_call_output" || payload.type === "function_call_output") {
       const call = byId.get(String(payload.call_id ?? ""));
       if (!call) continue;
-      call.output = typeof payload.output === "string" ? payload.output : JSON.stringify(payload.output ?? "");
-      call.isError = /(?:"isError"\s*:\s*true|script error|exit_code"?\s*:\s*[1-9])/i.test(call.output ?? "");
+      call.output = serialiseToolValue(payload.output ?? "");
+      call.isError = toolOutputFailed(call.output);
     }
   }
 
@@ -143,9 +172,27 @@ export function loadTranscript(path: string): LoadedTranscript {
   if (!path.endsWith(".jsonl")) {
     return { narrative: raw, assistantMessages: [raw], toolCalls: [], format: "markdown", transcriptSha256 };
   }
-  const rows = raw.split("\n").filter(Boolean).map(safeJson).filter(Boolean);
-  const looksCodex = rows.some((row) => row?.type === "response_item" || row?.type === "session_meta");
-  return looksCodex ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
+  const records = raw.replace(/^\uFEFF/, "").split("\n")
+    .map((line, index) => ({ line, lineNumber: index + 1 }))
+    .filter(({ line }) => line.trim());
+  const rows = records.map(({ line, lineNumber }) => {
+    const row = safeJson(line);
+    if (!row) throw new Error(`invalid JSONL at line ${lineNumber}`);
+    return row;
+  });
+  if (!rows.length) throw new Error("JSONL transcript contains no records");
+  const codexTypes = new Set(["session_meta", "turn_context", "event_msg", "response_item"]);
+  const claudeTypes = new Set(["assistant", "user", "system", "summary", "progress", "file-history-snapshot", "queue-operation"]);
+  const firstKnown = rows.findIndex((row) => codexTypes.has(row?.type) || claudeTypes.has(row?.type));
+  if (firstKnown === -1) throw new Error("unrecognized JSONL transcript schema");
+  const format = codexTypes.has(rows[firstKnown]?.type) ? "codex" : "claude-code";
+  const accepted = format === "codex" ? codexTypes : claudeTypes;
+  rows.forEach((row, index) => {
+    if (accepted.has(row?.type)) return;
+    const recordType = typeof row?.type === "string" ? ` record type ${JSON.stringify(row.type)}` : " record without a type";
+    throw new Error(`${format} JSONL contains unsupported${recordType} at line ${records[index].lineNumber}`);
+  });
+  return format === "codex" ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
 }
 
 const PATH_EXISTS_RES = [
@@ -189,7 +236,7 @@ export function extractRunClaims(narrative: string): Claim[] {
   const out: Claim[] = [];
   const re = /\b(?:I\s+)?(?:ran|executed|invoked|launched)\s+(?:the\s+)?[`"']?([\w./:-]+(?:\s+(?!and\b|then\b|the\b|to\b|it\b|so\b|which\b)[\w./:-]+){0,3})[`"']?/gi;
   for (const match of narrative.matchAll(re)) {
-    const subject = match[1].trim();
+    const subject = match[1].trim().replace(/[.,;:!?]+$/, "");
     if (subject && !/^(it|them|this|that|a|an|into|out)$/i.test(subject)) {
       out.push({ kind: "command_ran", quote: snippet(narrative, match.index ?? 0), subject });
     }
@@ -198,7 +245,9 @@ export function extractRunClaims(narrative: string): Claim[] {
 }
 
 export function toolCallFingerprint(call: SessionToolCall): string {
-  return `${call.name}:${createHash("sha256").update(call.input).digest("hex")}`;
+  const parsed = safeJson(call.input);
+  const normalized = parsed === undefined ? call.input.trim().replace(/\s+/g, " ") : canonicalJson(parsed);
+  return `${call.name.toLowerCase()}:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
 function snippet(text: string, at: number): string {

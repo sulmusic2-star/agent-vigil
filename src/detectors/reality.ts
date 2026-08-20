@@ -114,11 +114,77 @@ export function checkFilesChanged(claims: Claim[], repo: string, base: string, h
 
 export type TestSummary = { total?: number; passed?: number; failed?: number; skipped?: number };
 
+function allMatches(output: string, regex: RegExp): RegExpMatchArray[] {
+  const flags = regex.flags.includes("g") ? regex.flags : `${regex.flags}g`;
+  return [...output.matchAll(new RegExp(regex.source, flags))];
+}
+
+function sumSummaries(rows: RegExpMatchArray[], indexes: { total: number; failed: number; skipped?: number; errors?: number }): TestSummary | undefined {
+  if (!rows.length) return undefined;
+  const total = rows.reduce((sum, row) => sum + Number(row[indexes.total] ?? 0), 0);
+  const failed = rows.reduce((sum, row) => sum + Number(row[indexes.failed] ?? 0) + Number(indexes.errors ? row[indexes.errors] ?? 0 : 0), 0);
+  const skipped = rows.reduce((sum, row) => sum + Number(indexes.skipped ? row[indexes.skipped] ?? 0 : 0), 0);
+  if (failed + skipped > total) return undefined;
+  return { total, passed: total - failed - skipped, failed, skipped };
+}
+
 export function parseTestSummary(output: string): TestSummary {
+  const goTests = new Map<string, "pass" | "fail" | "skip">();
+  for (const line of output.split("\n")) {
+    try {
+      const row = JSON.parse(line) as Record<string, unknown>;
+      const action = row.Action;
+      const name = row.Test;
+      if ((action === "pass" || action === "fail" || action === "skip") && typeof name === "string" && !name.includes("/")) {
+        goTests.set(`${String(row.Package ?? "")}:${name}`, action);
+      }
+    } catch {}
+  }
+  if (goTests.size) {
+    const values = [...goTests.values()];
+    return {
+      total: values.length,
+      passed: values.filter((value) => value === "pass").length,
+      failed: values.filter((value) => value === "fail").length,
+      skipped: values.filter((value) => value === "skip").length,
+    };
+  }
+
+  const mavenRows = output.split("\n")
+    .filter((line) => !/--\s+in\s+\S+/i.test(line))
+    .flatMap((line) => allMatches(line, /Tests run:\s*(\d+),\s*Failures:\s*(\d+),\s*Errors:\s*(\d+),\s*Skipped:\s*(\d+)/i));
+  const maven = sumSummaries(mavenRows, { total: 1, failed: 2, errors: 3, skipped: 4 });
+  if (maven) return maven;
+
+  const gradle = sumSummaries(allMatches(output, /(\d+) tests completed,\s*(\d+) failed(?:,\s*(\d+) skipped)?/i), { total: 1, failed: 2, skipped: 3 });
+  if (gradle) return gradle;
+  const rspec = sumSummaries(allMatches(output, /(\d+) examples?,\s*(\d+) failures?(?:,\s*(\d+) pending)?/i), { total: 1, failed: 2, skipped: 3 });
+  if (rspec) return rspec;
+
+  const dotnetRows = allMatches(output, /Passed!\s*-\s*Failed:\s*(\d+),\s*Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+)/i);
+  if (dotnetRows.length) {
+    return {
+      total: dotnetRows.reduce((sum, row) => sum + Number(row[4]), 0),
+      passed: dotnetRows.reduce((sum, row) => sum + Number(row[2]), 0),
+      failed: dotnetRows.reduce((sum, row) => sum + Number(row[1]), 0),
+      skipped: dotnetRows.reduce((sum, row) => sum + Number(row[3]), 0),
+    };
+  }
+  const minitest = sumSummaries(allMatches(output, /(\d+) runs?,\s*\d+ assertions?,\s*(\d+) failures?,\s*(\d+) errors?,\s*(\d+) skips?/i), { total: 1, failed: 2, errors: 3, skipped: 4 });
+  if (minitest) return minitest;
+
+  const phpunit = output.match(/OK\s*\(\s*(\d+) tests?,\s*\d+ assertions?\s*\)/i);
+  if (phpunit) return { total: Number(phpunit[1]), passed: Number(phpunit[1]), failed: 0, skipped: 0 };
+
+  const bunTotal = output.match(/Ran\s+(\d+) tests?/i);
+  const bunPassed = output.match(/(?:^|\n)\s*(\d+) pass\b/i);
+  const bunFailed = output.match(/(?:^|\n)\s*(\d+) fail\b/i);
+  if (bunTotal && bunPassed) return { total: Number(bunTotal[1]), passed: Number(bunPassed[1]), failed: Number(bunFailed?.[1] ?? 0), skipped: 0 };
+
   const summary: TestSummary = {};
   const patterns: Array<[keyof TestSummary, RegExp[]]> = [
-    ["total", [/(?:#|ℹ)\s*tests\s+(\d+)/i, /Tests:\s+.*?(\d+) total/i, /(\d+) tests? collected/i]],
-    ["passed", [/(?:#|ℹ)\s*pass\s+(\d+)/i, /(\d+) passed\b/i, /test result:\s+ok\.\s+(\d+) passed/i]],
+    ["total", [/(?:#|ℹ)\s*tests\s+(\d+)/i, /Tests:\s+.*?(\d+) total/i, /(\d+) tests? collected/i, /(\d+) tests? passed\b/i]],
+    ["passed", [/(?:#|ℹ)\s*pass\s+(\d+)/i, /(\d+) pass(?:ed|ing)\b/i, /(\d+) tests? passed\b/i, /test result:\s+ok\.\s+(\d+) passed/i]],
     ["failed", [/(?:#|ℹ)\s*fail\s+(\d+)/i, /(\d+) failed\b/i, /test result:\s+FAILED\.\s+\d+ passed;\s+(\d+) failed/i]],
     ["skipped", [/(?:#|ℹ)\s*skipped\s+(\d+)/i, /(\d+) skipped\b/i, /(\d+) ignored\b/i]],
   ];
@@ -134,7 +200,7 @@ export function parseTestSummary(output: string): TestSummary {
   return summary;
 }
 
-function inferTestCommand(repo: string): string | null {
+export function inferTestCommand(repo: string, platform = process.platform): string | null {
   const pkg = resolve(repo, "package.json");
   if (existsSync(pkg)) {
     try {
@@ -144,7 +210,14 @@ function inferTestCommand(repo: string): string | null {
   }
   if (existsSync(resolve(repo, "pytest.ini")) || existsSync(resolve(repo, "pyproject.toml"))) return "python3 -m pytest -q";
   if (existsSync(resolve(repo, "Cargo.toml"))) return "cargo test --quiet";
-  if (existsSync(resolve(repo, "go.mod"))) return "go test ./...";
+  if (existsSync(resolve(repo, "go.mod"))) return "go test -json ./...";
+  if (existsSync(resolve(repo, "pom.xml"))) return "mvn test";
+  if (platform === "win32" && existsSync(resolve(repo, "gradlew.bat"))) return "gradlew.bat test";
+  if (existsSync(resolve(repo, "gradlew"))) return "./gradlew test";
+  if (existsSync(resolve(repo, "build.gradle")) || existsSync(resolve(repo, "build.gradle.kts"))) return "gradle test";
+  if (existsSync(resolve(repo, "Gemfile")) && existsSync(resolve(repo, "spec"))) return "bundle exec rspec";
+  if (existsSync(resolve(repo, "composer.json"))) return "./vendor/bin/phpunit";
+  if (existsSync(resolve(repo, "global.json")) || existsSync(resolve(repo, "Directory.Build.props"))) return "dotnet test";
   return null;
 }
 
@@ -184,6 +257,14 @@ export function checkTestsPass(claims: Claim[], repo: string, testCmd?: string):
         claim,
         verdict: "contradicted",
         evidence: `\`${command}\` exited ${exitCode ?? "without a status"}${tail ? ` (${tail})` : ""}`,
+        ruleId: "tests-pass",
+      };
+    }
+    if ((observed.failed ?? 0) > 0) {
+      return {
+        claim,
+        verdict: "contradicted",
+        evidence: `\`${command}\` exited 0 but its summary reported ${observed.failed} failed test(s)`,
         ruleId: "tests-pass",
       };
     }
@@ -287,6 +368,10 @@ function isGeneratedOrVendorPath(path: string): boolean {
   return /^(?:node_modules|vendor|dist|build|coverage|\.git)\//.test(path);
 }
 
+function isDocumentationPath(path: string): boolean {
+  return /^(?:docs?|examples?)\//i.test(path) || /(?:^|\/)(?:README|CHANGELOG|CONTRIBUTING|SECURITY|LICENSE)(?:\.[^/]*)?$/i.test(path) || /\.(?:md|mdx|rst|txt)$/i.test(path);
+}
+
 type FilePatch = { path: string; added: string[]; removed: string[] };
 
 function parseFilePatches(diff: string): FilePatch[] {
@@ -305,6 +390,22 @@ function parseFilePatches(diff: string): FilePatch[] {
     if (line.startsWith("-") && !line.startsWith("---")) current.removed.push(line.slice(1));
   }
   return patches.filter((patch) => patch.path && !isGeneratedOrVendorPath(patch.path));
+}
+
+function untrackedFilePatches(repo: string): FilePatch[] {
+  const paths = git(repo, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean);
+  const patches: FilePatch[] = [];
+  for (const path of paths) {
+    if (isGeneratedOrVendorPath(path)) continue;
+    const candidate = withinRepo(repo, path);
+    if (!candidate || !existingPathStaysInsideRepo(repo, candidate)) continue;
+    try {
+      const content = readFileSync(candidate);
+      if (content.byteLength > 1024 * 1024 || content.includes(0)) continue;
+      patches.push({ path, added: content.toString("utf8").split("\n"), removed: [] });
+    } catch {}
+  }
+  return patches;
 }
 
 function countTests(content: string): number {
@@ -354,22 +455,21 @@ export function checkIntegrity(repo: string, base: string, head: string): CheckR
     });
   }
 
-  const patches = parseFilePatches(diff);
-  const added = patches.flatMap((patch) => patch.added.filter((line) => !line.includes("vigil:detector-pattern")));
-  const removed = patches.flatMap((patch) => patch.removed);
+  const patches = [...parseFilePatches(diff), ...(head === "WORKTREE" ? untrackedFilePatches(repo) : [])];
   const checks: Array<[string, RegExp, string, (patch: FilePatch) => boolean]> = [
     ["focused or skipped test introduced", /\b(?:test|it|describe)\.(?:skip|only)\s*\(|\b(?:xit|xdescribe)\s*\(|@pytest\.mark\.skip|#\[ignore\]/i, "test-skip-added", (patch) => isTestPath(patch.path)], // vigil:detector-pattern
-    ["verification bypass introduced", /--no-verify|\|\|\s*true\b|passWithNoTests|allowEmptyTests/i, "verification-bypass", () => true], // vigil:detector-pattern
-    ["compiler or linter suppression introduced", /@ts-nocheck|@ts-ignore|eslint-disable|type:\s*ignore|noqa\b/i, "suppression-added", () => true], // vigil:detector-pattern
-    ["coverage gate weakened", /coverageThreshold\s*[:=]\s*0|--fail-under[=\s]+0|minimum_coverage\s*[:=]\s*0/i, "coverage-weakened", () => true], // vigil:detector-pattern
+    ["verification bypass introduced", /--no-verify|\|\|\s*true\b|passWithNoTests|allowEmptyTests/i, "verification-bypass", (patch) => !isDocumentationPath(patch.path)], // vigil:detector-pattern
+    ["compiler or linter suppression introduced", /@ts-nocheck|@ts-ignore|eslint-disable|type:\s*ignore|noqa\b/i, "suppression-added", (patch) => !isDocumentationPath(patch.path)], // vigil:detector-pattern
+    ["coverage gate weakened", /coverageThreshold\s*[:=]\s*0|--fail-under[=\s]+0|minimum_coverage\s*[:=]\s*0/i, "coverage-weakened", (patch) => !isDocumentationPath(patch.path)], // vigil:detector-pattern
   ];
   for (const [subject, regex, ruleId, inScope] of checks) {
     const line = patches.filter(inScope).flatMap((patch) => patch.added).find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
     if (line) results.push(finding(subject, line.slice(1).trim().slice(0, 220), ruleId));
   }
 
-  const removedAssertions = removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
-  const addedAssertions = added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+  const testPatches = patches.filter((patch) => isTestPath(patch.path));
+  const removedAssertions = testPatches.flatMap((patch) => patch.removed).filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+  const addedAssertions = testPatches.flatMap((patch) => patch.added).filter((line) => !line.includes("vigil:detector-pattern") && /\b(?:expect|assert|should)\b/i.test(line)).length;
   if (removedAssertions > addedAssertions) {
     results.push(finding(
       "assertion surface shrank",

@@ -5,15 +5,17 @@
 AI coding agents are good at writing the closing summary. That does not make the
 summary true.
 
-Agent Vigil v0.3 turns a Claude Code or Codex session into a deterministic
+Agent Vigil v0.4 turns a Claude Code or Codex session into a deterministic
 evidence receipt:
 
 - PASS, FAIL, or INCONCLUSIVE—empty evidence never passes
-- compares claimed and observed test counts
+- compares claimed and observed test counts across 18 runner formats
 - binds file claims to an explicit Git range
 - detects deleted/skipped tests, assertion loss, suppressions, bypasses, and
   exact tool-call loops
 - emits JSON, Markdown, SARIF, and a GitHub job summary
+- fails loudly on transcript schema drift
+- backed by 133 tests and seven real-toolchain repository trials
 - local only, zero runtime dependencies, no LLM judge
 
 The interesting part is not another confidence score. It is a falsifiable rule

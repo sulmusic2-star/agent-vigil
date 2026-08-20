@@ -61,6 +61,34 @@ outside v0.3 and is named as a limit rather than implied.
 **Built response:** exact consecutive-call fingerprints catch one high-signal
 loop family. General progress and background-process liveness remain roadmap work.
 
+### 5. Transcript adapters can silently drift
+
+- Claude Code issue [#53516](https://github.com/anthropics/claude-code/issues/53516)
+  asks for a stable, versioned JSONL schema because downstream consumers can
+  silently mis-parse sessions after format changes.
+- Claude Code issue [#37279](https://github.com/anthropics/claude-code/issues/37279)
+  reports subagents asserting missing files without first checking the repository.
+- Claude plugins issue [#4785](https://github.com/anthropics/claude-plugins-official/issues/4785)
+  reports verifier-like plugins claiming checks they did not actually execute.
+
+**Built response:** malformed and unknown JSONL now fails loudly; object-valued
+Codex tool inputs are preserved; more failed-command outputs are recognized.
+
+### 6. Teams pay for control surfaces, not isolated detectors
+
+- [CodeRabbit pricing](https://www.coderabbit.ai/pricing) puts multi-repository
+  analysis in Pro Plus and RBAC, SSO, audit logs, API access, self-hosting, SLA,
+  and multi-organization support in Enterprise.
+- [LangSmith pricing](https://www.langchain.com/pricing) separates a paid team
+  plan from custom enterprise hosting and access controls.
+- [Qodo pricing](https://www.qodo.ai/pricing/) positions enterprise code review
+  as SDLC governance under negotiated annual contracts.
+- GitHub documents a formal [Marketplace publication route for Actions](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace).
+
+**Product implication:** the open-source verifier is the wedge. A commercial
+product needs organization deployment, policy, attestation, audit retention,
+and procurement features. Pricing comparisons are not willingness-to-pay proof.
+
 ## Nearby open-source tools
 
 This category is crowded. Agent Vigil should win on precision and integration,
@@ -73,6 +101,37 @@ not pretend the category is new.
 | [Treeship](https://github.com/zerkerlabs/treeship) | Signed and chained portable receipts | Smaller coding-agent-specific verifier; no signature claim |
 | [agent-receipts](https://github.com/inchwormz/agent-receipts) | Fail-closed hash-chained execution receipts | Natural-language claim reconciliation plus Git-diff integrity checks |
 | [PromptWheel](https://github.com/promptwheel-ai/promptwheel) | Source-only replay to expose test gaming | Transcript/repository/trajectory reconciliation with a lower setup cost |
+
+Live GitHub metadata checked 2026-08-20 showed 0 stars for `did-it`, 0 for
+`backcheck`, 12 for Treeship, 2 for `agent-receipts`, and 1 for PromptWheel.
+These small counts make the narrow open-source category a weak standalone market
+signal. Agent Vigil should earn external usage before treating similarity to
+these projects as demand evidence.
+
+The most useful competitor evidence is the open Backcheck issue queue:
+
+- [#11](https://github.com/VectorInstitute/backcheck/issues/11) treats hook
+  reliability, configurable blocking, time budgets, and a `doctor` command as
+  prerequisites for an integration users will not regret installing.
+- [#10](https://github.com/VectorInstitute/backcheck/issues/10) identifies
+  Homebrew, `npx`, signed/checksummed binaries, and other low-friction install
+  paths as adoption work rather than polish.
+- [#9](https://github.com/VectorInstitute/backcheck/issues/9) requests evidence
+  for migrations, dependencies, docs, deploys, reverts, HTTP checks, PR creation,
+  and secret claims—not only tests.
+- [#8](https://github.com/VectorInstitute/backcheck/issues/8) identifies changed-line
+  coverage and opt-in mutation testing as the next proof that a green suite
+  actually exercises changed behavior.
+- [#7](https://github.com/VectorInstitute/backcheck/issues/7) describes the
+  privacy and transport problem of getting transcripts or minimal receipts into
+  CI. Agent Vigil already has the Action and receipt surface, but not signing.
+- [#5](https://github.com/VectorInstitute/backcheck/issues/5) calls Codex and
+  other adapters the highest-leverage expansion; Agent Vigil now supports Codex,
+  but Cursor, Gemini, opencode, Aider, and others remain open territory.
+
+These are another project's proposed features, not customer commitments. They
+are useful because they expose installation, false-block, privacy, and breadth
+risks that a narrow detector benchmark does not.
 
 ## Product decisions from the evidence
 
@@ -89,3 +148,7 @@ not pretend the category is new.
    paths, and secrets. Agent Vigil does not upload them.
 6. **Do not claim semantic correctness.** Browser behavior, requirement fit,
    security, and business outcomes need their own evidence providers.
+7. **Fail loudly on adapter drift.** Silently discarding malformed JSONL is an
+   untrustworthy success path even when the final status would be inconclusive.
+8. **Compatibility is a public artifact.** Runner support needs executed fixtures
+   and real-toolchain proof, not a list of logos.
