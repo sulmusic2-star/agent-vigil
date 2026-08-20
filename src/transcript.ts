@@ -121,3 +121,16 @@ export function toolCallsFromClaudeJsonl(path: string): string[] {
   }
   return calls;
 }
+
+/** Claims of having RUN something ("I ran the tests", "executed npm build"). */
+export function extractRunClaims(narrative: string): { quote: string; subject: string }[] {
+  const out: { quote: string; subject: string }[] = [];
+  const re = /\b(?:I\s+)?(?:ran|executed|invoked|launched)\s+(?:the\s+)?[`"']?([\w./ -]{2,40}?)[`"']?(?=[\s,.;)]|$)/gi;
+  for (const m of narrative.matchAll(re)) {
+    const s = m[1].trim();
+    if (s && !/^(it|them|this|that|a|an|into|out)$/i.test(s)) {
+      out.push({ quote: narrative.slice(Math.max(0, (m.index ?? 0) - 30), (m.index ?? 0) + 70).replace(/\s+/g, " ").trim(), subject: s });
+    }
+  }
+  return out;
+}

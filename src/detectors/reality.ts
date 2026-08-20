@@ -145,3 +145,22 @@ export function checkStepRepetition(toolCalls: string[]): CheckResult[] {
     ? { claim, verdict: "contradicted" as const, evidence: `agent repeated the identical tool call ${worst}x in a row (${worstCall.slice(0, 90)}…) — classic stuck-loop signature` }
     : { claim, verdict: "verified" as const, evidence: `no identical tool call repeated 3+ times consecutively (${toolCalls.length} calls checked)` }];
 }
+
+/** Reasoning-action mismatch (13.98% of documented agent failures): the agent
+ *  SAYS it ran something, but no tool call in the transcript matches. */
+export function checkRunClaims(
+  runClaims: { quote: string; subject: string }[],
+  toolCalls: string[],
+): CheckResult[] {
+  if (runClaims.length === 0 || toolCalls.length === 0) return [];
+  const haystack = toolCalls.join("\n").toLowerCase();
+  return runClaims.map((c) => {
+    // match on the command's distinctive tokens appearing in any tool call
+    const tokens = c.subject.toLowerCase().split(/[\s/]+/).filter((t) => t.length > 2);
+    const hit = tokens.length > 0 && tokens.every((t) => haystack.includes(t));
+    const claim = { kind: "work_complete" as const, quote: c.quote, subject: `ran: ${c.subject}` };
+    return hit
+      ? { claim, verdict: "verified" as const, evidence: `a tool call matching "${c.subject}" appears in the transcript` }
+      : { claim, verdict: "contradicted" as const, evidence: `the narrative says this was run, but no tool call in the transcript matches "${c.subject}" — classic say-do mismatch` };
+  });
+}

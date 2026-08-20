@@ -14,3 +14,10 @@ test("extracts fabricated-path, change, test, and completion claims", () => {
 test("no claims from empty narrative", () => {
   assert.equal(extractClaims("nothing to see").length, 0);
 });
+
+test("extracts run claims", () => {
+  const { extractRunClaims } = require("../src/transcript.ts");
+  const claims = extractRunClaims("Then I ran npm test and executed the deploy script.");
+  const subjects = claims.map((c: any) => c.subject);
+  assert.ok(subjects.some((s: string) => s.includes("npm test")));
+});
