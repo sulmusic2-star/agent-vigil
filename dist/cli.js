@@ -266,10 +266,10 @@ function checkFilesChanged(claims, repo, base, head) {
 function parseTestSummary(output) {
   const summary = {};
   const patterns = [
-    ["total", [/# tests\s+(\d+)/i, /Tests:\s+.*?(\d+) total/i, /(\d+) tests? collected/i]],
-    ["passed", [/# pass\s+(\d+)/i, /(\d+) passed\b/i, /test result:\s+ok\.\s+(\d+) passed/i]],
-    ["failed", [/# fail\s+(\d+)/i, /(\d+) failed\b/i, /test result:\s+FAILED\.\s+\d+ passed;\s+(\d+) failed/i]],
-    ["skipped", [/# skipped\s+(\d+)/i, /(\d+) skipped\b/i, /(\d+) ignored\b/i]]
+    ["total", [/(?:#|ℹ)\s*tests\s+(\d+)/i, /Tests:\s+.*?(\d+) total/i, /(\d+) tests? collected/i]],
+    ["passed", [/(?:#|ℹ)\s*pass\s+(\d+)/i, /(\d+) passed\b/i, /test result:\s+ok\.\s+(\d+) passed/i]],
+    ["failed", [/(?:#|ℹ)\s*fail\s+(\d+)/i, /(\d+) failed\b/i, /test result:\s+FAILED\.\s+\d+ passed;\s+(\d+) failed/i]],
+    ["skipped", [/(?:#|ℹ)\s*skipped\s+(\d+)/i, /(\d+) skipped\b/i, /(\d+) ignored\b/i]]
   ];
   for (const [key, regexes] of patterns) {
     for (const regex of regexes) {

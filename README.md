@@ -145,7 +145,7 @@ The source-linked complaint and competitor review is in
 
 ## Evidence on this repository
 
-- 44 tests, including adversarial false-pass, empty-evidence, path traversal,
+- 45 tests, including adversarial false-pass, empty-evidence, path traversal,
   tool-loop, test-count, skip, suppression, and cross-agent transcript cases.
 - Linux CI on Node 20, 22, and 24.
 - The GitHub Action dogfoods itself in CI.

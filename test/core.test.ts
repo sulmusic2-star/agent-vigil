@@ -66,6 +66,7 @@ test("tool fingerprints change with input", () => {
 });
 
 test("parses TAP totals", () => assert.deepEqual(parseTestSummary("# tests 12\n# pass 12\n# fail 0"), { total: 12, passed: 12, failed: 0 }));
+test("parses Node 24 spec reporter totals", () => assert.deepEqual(parseTestSummary("ℹ tests 12\nℹ pass 12\nℹ fail 0"), { total: 12, passed: 12, failed: 0 }));
 test("parses pytest totals", () => assert.deepEqual(parseTestSummary("47 passed, 2 skipped in 1.0s"), { total: 49, passed: 47, skipped: 2 }));
 test("parses Jest totals", () => assert.equal(parseTestSummary("Tests: 2 failed, 8 passed, 10 total").total, 10));
 test("parses cargo totals", () => assert.equal(parseTestSummary("test result: ok. 9 passed; 0 failed; 1 ignored").total, 10));
