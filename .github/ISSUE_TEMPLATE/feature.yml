@@ -1,0 +1,24 @@
+name: Detector or adapter request
+description: Propose a falsifiable detector, runner parser, or transcript adapter
+title: "[request] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: failure
+    attributes:
+      label: Concrete failure mode
+      description: What claim is made, and what deterministic evidence would support or contradict it?
+    validations:
+      required: true
+  - type: textarea
+    id: fixture
+    attributes:
+      label: Minimal sanitized fixture
+    validations:
+      required: true
+  - type: textarea
+    id: false-positive
+    attributes:
+      label: Honest behavior that must not be flagged
+    validations:
+      required: true

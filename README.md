@@ -1,99 +1,161 @@
-# agent-vigil
+# Agent Vigil
 
-**Did your agent actually do what it said?**
+[![CI](https://github.com/sulmusic2-star/agent-vigil/actions/workflows/ci.yml/badge.svg)](https://github.com/sulmusic2-star/agent-vigil/actions/workflows/ci.yml)
+[![MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
+[![Node 20+](https://img.shields.io/badge/node-20%2B-339933.svg)](package.json)
+[![No runtime dependencies](https://img.shields.io/badge/runtime_dependencies-0-0f766e.svg)](package.json)
 
-Agents end sessions with confident summaries: *"Updated the auth flow, all tests
-pass, ready to merge."* Sometimes that's true. Sometimes the tests never ran,
-the file doesn't exist, and the agent spent forty minutes in a loop. An
-output-only review can't tell the difference — that gap is why most agent
-pilots never reach production.
+**The agent said it was done. Agent Vigil asks for the receipt.**
 
-`vigil` is a deterministic trust report for agent sessions. Point it at a
-transcript and a repo; it extracts every checkable claim the agent made and
-verifies each against reality. **No LLM anywhere in the verification path** —
-every verdict is reproducible byte-for-byte.
+Agent Vigil reconciles an AI coding agent's final claims with its transcript,
+repository, selected Git range, and a fresh verification run. The verifier is
+local and deterministic: no model grades another model, and missing evidence
+does not become a green check.
 
-```console
-# today (from source):
-$ git clone https://github.com/sulmusic2-star/agent-vigil && cd agent-vigil
-$ node --experimental-strip-types src/cli.ts <session.jsonl> --repo <your-repo>
+```text
+  ✗ [test-count] 99 tests
+      evidence: claim says 99 tests; runner reported 42
 
-# npm package (npx agent-vigil) landing shortly
-$ npx agent-vigil session.jsonl --repo .
+  ✗ [file-changed] src/ghost/phantom.ts
+      evidence: claimed as changed but does not exist
 
-  ✓ [tests_pass] 12 tests
-      claim:    "All 12 tests pass"
-      reality:  `npm test --silent` exits 0
+  ✓ [integrity-scan] no obvious verification weakening
 
-  ✗ [file_changed] src/ghost/phantom.ts
-      claim:    "I also created src/ghost/phantom.ts with the handler"
-      reality:  claimed as changed but does not exist in the repo
-
-  ✗ [work_complete] no step-repetition loops
-      reality:  agent repeated the identical tool call 3x in a row — stuck-loop signature
-
-  1 verified · 2 contradicted · 0 unverifiable
-  FAIL — the narrative does not match the repo.
+  FAIL · sha256:c3128a2c6abc5f...
 ```
 
-Exit code `0` only when nothing is contradicted — safe to gate CI on.
+## The contract
 
-## What it checks (v0.2)
+| Status | Meaning | Exit |
+|---|---|---:|
+| **PASS** | The minimum objective evidence exists and no check contradicted the narrative. | `0` |
+| **FAIL** | Repository or transcript evidence contradicts at least one claim. | `1` |
+| **INCONCLUSIVE** | Evidence is absent, unparseable, or below policy. | `2` |
 
-| claim | how it's verified |
-|---|---|
-| "tests pass" | reruns the repo's own test command and compares |
-| "I updated/created X" | X must appear in git's changed files |
-| any path the summary references | must exist in the repo |
-| "done / complete / ready to merge" | diff must not ADD `TODO`/`FIXME`/`not implemented` markers |
-| session behavior | flags 3+ identical consecutive tool calls (stuck loops — 17% of documented agent failures) |
+An empty transcript is **INCONCLUSIVE**. A clean diff alone cannot earn PASS.
+If an agent claims 99 tests passed and the runner reports 42, the result is
+**FAIL** even though the command exited zero.
 
-Reads Claude Code session JSONL natively (`~/.claude/projects/<proj>/<session>.jsonl`)
-plus any plain-text/markdown agent summary. Adapters for other agent formats
-are small and welcome — see `src/transcript.ts`.
+## What v0.3 checks
 
-## True story
+- Claimed test success against a fresh test execution.
+- Claimed test counts against TAP, Jest, pytest, and Cargo summaries.
+- Claimed file changes against an explicit `base..head` range.
+- Referenced paths without allowing traversal outside the repository.
+- “I ran X” claims against a single matching Claude Code or Codex tool call.
+- Three or more identical consecutive tool calls.
+- Test-file deletion, shrinking test surfaces, new `.skip` / `.only`, assertion
+  loss, compiler suppressions, verification bypasses, and coverage gates set to
+  zero.
+- Completion claims against objective evidence and unfinished-work markers.
 
-We ran vigil on the transcript of the session that *built* vigil. It flagged a
-real stuck-loop: the author agent had re-read the same file three times in a
-row after a failed parse. The first bug it ever caught was in its own author.
+Every run can emit a compact JSON receipt, Markdown, SARIF 2.1.0, and a GitHub
+Step Summary. The receipt has a deterministic SHA-256 content identifier. It is
+**not a cryptographic signature**; see the [threat model](docs/THREAT_MODEL.md).
 
-## Run it on every session automatically (Claude Code hook)
+## Run locally
 
-```json
-{
-  "hooks": {
-    "Stop": [{
-      "hooks": [{
-        "type": "command",
-        "command": "npx agent-vigil \"$CLAUDE_TRANSCRIPT_PATH\" --repo ."
-      }]
-    }]
-  }
-}
+Node 20 or newer is required.
+
+```bash
+git clone https://github.com/sulmusic2-star/agent-vigil
+cd agent-vigil
+npm ci
+npm run build
+
+node dist/cli.js /path/to/session.jsonl \
+  --repo /path/to/repo \
+  --base origin/main \
+  --head HEAD \
+  --strict
 ```
 
-## CI (GitHub Action)
+Try three planted failures without configuring a project:
+
+```bash
+node dist/cli.js demo
+```
+
+The demo catches a fabricated test count, a nonexistent changed file, and an
+identical three-call tool loop. It exits zero only when all three planted
+contradictions are caught.
+
+Agent Vigil reads Claude Code JSONL, Codex rollout JSONL, and Markdown/plain-text
+summaries. Transcript contents stay local.
+
+## GitHub Action
 
 ```yaml
-- uses: sulmusic2-star/agent-vigil@main
-  with:
-    transcript: agent-session.jsonl
+permissions:
+  contents: read
+
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
+
+  - uses: sulmusic2-star/agent-vigil@v0.3.0
+    with:
+      transcript: agent-session.jsonl
+      repo: .
+      base: ${{ github.event.pull_request.base.sha }}
+      head: ${{ github.event.pull_request.head.sha }}
+      strict: true
 ```
 
-## Flags
+The Action runs the compiled verifier checked into this repository; it does not
+depend on an npm package being available. It writes `agent-vigil-report.json`,
+`agent-vigil.sarif`, and a readable job summary.
 
+> **Trust boundary:** test commands execute repository code. Do not accept a
+> `test-cmd` value from untrusted issue or pull-request text. Read
+> [SECURITY.md](SECURITY.md) before running on untrusted forks.
+
+## CLI
+
+```text
+vigil <transcript.jsonl|summary.md> [options]
+
+--repo <path>          repository to verify
+--base <sha>           baseline commit (default HEAD~1)
+--head <sha>           head commit (default HEAD)
+--test-cmd <command>   explicit verification command
+--format <kind>        text | json | markdown | sarif
+--output <path>        write full JSON receipt
+--sarif <path>         also write SARIF
+--github-summary       append Markdown to GITHUB_STEP_SUMMARY
+--strict               unresolved claims produce INCONCLUSIVE
+--min-verified <n>     objective-evidence floor (default 1)
 ```
-vigil <transcript.jsonl|summary.md> [--repo <path>] [--test-cmd "<cmd>"] [--json]
-```
 
-## Design principles
+## Why this shape
 
-1. **Deterministic or nothing.** If a claim can't be checked mechanically, it's
-   reported `unverifiable` — never guessed at by another model.
-2. **Over-extract, under-conclude.** A false `unverifiable` is cheap; a missed
-   contradiction is not.
-3. **The gate is the product.** Reports are for humans; the exit code is for
-   CI. Dependence lives in the exit code.
+Developers repeatedly report agents declaring completion without a runnable
+receipt, weakening tests to produce green, or looping on tools. Existing tools
+cover pieces of this problem. Agent Vigil's narrow position is:
+
+1. **Fail closed on missing evidence.**
+2. **Compare the story with the trajectory and the selected repository state.**
+3. **Detect common ways an agent can improve the scoreboard instead of the product.**
+4. **Keep the hot path local, deterministic, small, and auditable.**
+
+The source-linked complaint and competitor review is in
+[docs/RESEARCH.md](docs/RESEARCH.md). Product limits are explicit in
+[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+
+## Evidence on this repository
+
+- 49 tests, including adversarial false-pass, empty-evidence, path traversal,
+  tool-loop, test-count, skip, suppression, and cross-agent transcript cases.
+- Linux CI on Node 20, 22, and 24.
+- The GitHub Action dogfoods itself in CI.
+- `npm pack --dry-run` is part of the build gate.
+- Zero runtime dependencies.
+
+## Contributing
+
+The highest-value contribution is a small sanitized transcript that produces a
+false PASS, false FAIL, or unexplained INCONCLUSIVE. Add it as a regression test
+with the expected verdict. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 MIT.

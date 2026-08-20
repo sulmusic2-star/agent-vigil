@@ -1,136 +1,206 @@
-// Parse an agent session transcript into (a) the agent's final narrative and
-// (b) the concrete claims it makes. v1 supports Claude Code session JSONL
-// (~/.claude/projects/<proj>/<session>.jsonl) and plain-text/markdown summaries
-// (any agent). Codex/other JSONL shapes: adapters welcome — this boundary is
-// deliberately small.
-
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import type { Claim } from "./report.ts";
 
-/** Extract all assistant text from a Claude Code session JSONL, in order. */
-export function assistantTextFromClaudeJsonl(path: string): string[] {
-  const out: string[] = [];
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    if (!line.trim()) continue;
-    let row: any;
-    try {
-      row = JSON.parse(line);
-    } catch {
-      continue; // tolerate partial/corrupt lines — sessions get truncated
-    }
-    const msg = row?.message;
-    if (row?.type !== "assistant" || !msg?.content) continue;
-    for (const block of Array.isArray(msg.content) ? msg.content : []) {
-      if (block?.type === "text" && typeof block.text === "string") {
-        out.push(block.text);
-      }
-    }
-  }
-  return out;
-}
+export type TranscriptFormat = "claude-code" | "codex" | "markdown";
 
-export function loadNarrative(path: string): string {
-  if (path.endsWith(".jsonl")) {
-    const texts = assistantTextFromClaudeJsonl(path);
-    // The trailing messages carry the session's conclusions; keep the last few
-    // so early exploratory chatter doesn't drown the claims that matter.
-    return texts.slice(-8).join("\n\n");
+export type SessionToolCall = {
+  id: string;
+  name: string;
+  input: string;
+  output?: string;
+  isError?: boolean;
+  timestamp?: string;
+  sequence: number;
+};
+
+export type LoadedTranscript = {
+  narrative: string;
+  assistantMessages: string[];
+  toolCalls: SessionToolCall[];
+  format: TranscriptFormat;
+  transcriptSha256: string;
+};
+
+const MAX_TRANSCRIPT_BYTES = 50 * 1024 * 1024;
+
+function readBounded(path: string): string {
+  const size = statSync(path).size;
+  if (size > MAX_TRANSCRIPT_BYTES) {
+    throw new Error(`transcript is ${size} bytes; maximum is ${MAX_TRANSCRIPT_BYTES}`);
   }
   return readFileSync(path, "utf8");
 }
 
-// --- claim extraction (deterministic, pattern-based, over-inclusive by design:
-// a false "unverifiable" is cheap; a missed contradiction is not) ---
+function safeJson(text: string): any | undefined {
+  try { return JSON.parse(text); } catch { return undefined; }
+}
 
-const PATH_RE =
-  /(?:^|[\s`("'])((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z]{1,8})(?=$|[\s`)"':,.])/gm;
+function textFromBlocks(content: unknown): string[] {
+  if (typeof content === "string") return [content];
+  if (!Array.isArray(content)) return [];
+  const out: string[] = [];
+  for (const block of content) {
+    if (typeof block === "string") out.push(block);
+    else if (block && typeof block === "object") {
+      const b = block as Record<string, unknown>;
+      if ((b.type === "text" || b.type === "output_text" || b.type === "input_text") && typeof b.text === "string") {
+        out.push(b.text);
+      }
+    }
+  }
+  return out;
+}
 
-const TESTS_PASS_RE =
-  /\b(?:all\s+)?(\d+)?\s*tests?\s+(?:are\s+|now\s+)?(?:pass(?:ing|ed)?|green)\b|\btest\s+suite\s+passes\b/gi;
+function parseClaude(rows: any[], transcriptSha256: string): LoadedTranscript {
+  const messages: string[] = [];
+  const toolCalls: SessionToolCall[] = [];
+  const byId = new Map<string, SessionToolCall>();
+  let sequence = 0;
 
-const FILE_CHANGED_RE =
-  /\b(?:updated|edited|modified|created|added|wrote|refactored|fixed|implemented(?:\s+in)?)\s+(?:the\s+)?[`"']?((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z]{1,8})[`"']?/gi;
+  for (const row of rows) {
+    const msg = row?.message;
+    if (row?.type === "assistant" && Array.isArray(msg?.content)) {
+      for (const block of msg.content) {
+        if (block?.type === "text" && typeof block.text === "string") messages.push(block.text);
+        if (block?.type === "tool_use") {
+          const call: SessionToolCall = {
+            id: String(block.id ?? `claude-${sequence}`),
+            name: String(block.name ?? "unknown"),
+            input: JSON.stringify(block.input ?? {}),
+            timestamp: row.timestamp,
+            sequence: sequence++,
+          };
+          toolCalls.push(call);
+          byId.set(call.id, call);
+        }
+      }
+    }
+    if (row?.type === "user" && Array.isArray(msg?.content)) {
+      for (const block of msg.content) {
+        if (block?.type !== "tool_result") continue;
+        const call = byId.get(String(block.tool_use_id ?? ""));
+        if (!call) continue;
+        call.output = textFromBlocks(block.content).join("\n");
+        call.isError = Boolean(block.is_error);
+      }
+    }
+  }
+  return {
+    narrative: messages.slice(-8).join("\n\n"),
+    assistantMessages: messages,
+    toolCalls,
+    format: "claude-code",
+    transcriptSha256,
+  };
+}
 
-const DONE_RE =
-  /\b(?:done|complete[d]?|finished|fully\s+implemented|ready\s+to\s+merge|all\s+set)\b/i;
+function parseCodex(rows: any[], transcriptSha256: string): LoadedTranscript {
+  const messages: string[] = [];
+  const toolCalls: SessionToolCall[] = [];
+  const byId = new Map<string, SessionToolCall>();
+  let sequence = 0;
+
+  for (const row of rows) {
+    if (row?.type !== "response_item") continue;
+    const payload = row.payload ?? {};
+    if (payload.type === "message" && payload.role === "assistant") {
+      messages.push(...textFromBlocks(payload.content));
+    }
+    if (payload.type === "agent_message" && typeof payload.message === "string") messages.push(payload.message);
+    if (payload.type === "custom_tool_call" || payload.type === "function_call") {
+      const id = String(payload.call_id ?? payload.id ?? `codex-${sequence}`);
+      const call: SessionToolCall = {
+        id,
+        name: String(payload.name ?? payload.namespace ?? "unknown"),
+        input: String(payload.input ?? payload.arguments ?? ""),
+        timestamp: row.timestamp,
+        sequence: sequence++,
+      };
+      toolCalls.push(call);
+      byId.set(id, call);
+    }
+    if (payload.type === "custom_tool_call_output" || payload.type === "function_call_output") {
+      const call = byId.get(String(payload.call_id ?? ""));
+      if (!call) continue;
+      call.output = typeof payload.output === "string" ? payload.output : JSON.stringify(payload.output ?? "");
+      call.isError = /(?:"isError"\s*:\s*true|script error|exit_code"?\s*:\s*[1-9])/i.test(call.output ?? "");
+    }
+  }
+
+  return {
+    narrative: messages.slice(-8).join("\n\n"),
+    assistantMessages: messages,
+    toolCalls,
+    format: "codex",
+    transcriptSha256,
+  };
+}
+
+export function loadTranscript(path: string): LoadedTranscript {
+  const raw = readBounded(path);
+  const transcriptSha256 = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
+  if (!path.endsWith(".jsonl")) {
+    return { narrative: raw, assistantMessages: [raw], toolCalls: [], format: "markdown", transcriptSha256 };
+  }
+  const rows = raw.split("\n").filter(Boolean).map(safeJson).filter(Boolean);
+  const looksCodex = rows.some((row) => row?.type === "response_item" || row?.type === "session_meta");
+  return looksCodex ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
+}
+
+const PATH_EXISTS_RES = [
+  /\b(?:file|path|artifact|report|output|receipt)\s+(?:(?:exists?|is)\s+)?(?:at\s+)?[`"']?((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})[`"']?/gi,
+  /[`"']((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})[`"']\s+(?:exists?|is\s+present)\b/gi,
+];
+const TESTS_PASS_RE = /\b(?:all\s+)?(\d+)?\s*tests?\s+(?:are\s+|now\s+)?(?:pass(?:ing|ed)?|green)\b|\btest\s+suite\s+passes\b/gi;
+const FILE_CHANGED_RE = /\b(?:updated|edited|modified|created|added|wrote|refactored|fixed|implemented(?:\s+in)?)\s+(?:the\s+)?[`"']?((?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z][A-Za-z0-9]{0,11})[`"']?/gi;
+const DONE_RE = /\b(?:done|complete[d]?|finished|fully\s+implemented|ready\s+to\s+merge|all\s+set)\b/i;
 
 export function extractClaims(narrative: string): Claim[] {
   const claims: Claim[] = [];
   const seen = new Set<string>();
-  const push = (c: Claim) => {
-    const k = `${c.kind}:${c.subject}`;
-    if (!seen.has(k)) {
-      seen.add(k);
-      claims.push(c);
-    }
+  const push = (claim: Claim) => {
+    const key = `${claim.kind}:${claim.subject}`;
+    if (!seen.has(key)) { seen.add(key); claims.push(claim); }
   };
-
-  for (const m of narrative.matchAll(TESTS_PASS_RE)) {
+  for (const match of narrative.matchAll(TESTS_PASS_RE)) {
+    const expectedCount = match[1] ? Number(match[1]) : undefined;
     push({
       kind: "tests_pass",
-      quote: snippet(narrative, m.index ?? 0),
-      subject: m[1] ? `${m[1]} tests` : "tests",
+      quote: snippet(narrative, match.index ?? 0),
+      subject: expectedCount ? `${expectedCount} tests` : "test suite",
+      expectedCount,
     });
   }
-  for (const m of narrative.matchAll(FILE_CHANGED_RE)) {
-    push({
-      kind: "file_changed",
-      quote: snippet(narrative, m.index ?? 0),
-      subject: m[1],
-    });
+  for (const match of narrative.matchAll(FILE_CHANGED_RE)) {
+    push({ kind: "file_changed", quote: snippet(narrative, match.index ?? 0), subject: match[1] });
   }
-  for (const m of narrative.matchAll(PATH_RE)) {
-    push({
-      kind: "path_exists",
-      quote: snippet(narrative, m.index ?? 0),
-      subject: m[1],
-    });
+  for (const pattern of PATH_EXISTS_RES) {
+    for (const match of narrative.matchAll(pattern)) {
+      push({ kind: "path_exists", quote: snippet(narrative, match.index ?? 0), subject: match[1] });
+    }
   }
-  if (DONE_RE.test(narrative)) {
-    const m = narrative.match(DONE_RE)!;
-    push({
-      kind: "work_complete",
-      quote: snippet(narrative, m.index ?? 0),
-      subject: "completion claim",
-    });
-  }
+  const done = narrative.match(DONE_RE);
+  if (done) push({ kind: "work_complete", quote: snippet(narrative, done.index ?? 0), subject: "completion claim" });
   return claims;
 }
 
-function snippet(text: string, at: number): string {
-  const start = Math.max(0, at - 40);
-  return text
-    .slice(start, at + 80)
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Tool calls (name + input hash) in order, from a Claude Code session JSONL. */
-export function toolCallsFromClaudeJsonl(path: string): string[] {
-  const calls: string[] = [];
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    if (!line.trim()) continue;
-    let row: any;
-    try { row = JSON.parse(line); } catch { continue; }
-    if (row?.type !== "assistant" || !row?.message?.content) continue;
-    for (const block of Array.isArray(row.message.content) ? row.message.content : []) {
-      if (block?.type === "tool_use") {
-        calls.push(`${block.name}:${JSON.stringify(block.input ?? {}).slice(0, 300)}`);
-      }
-    }
-  }
-  return calls;
-}
-
-/** Claims of having RUN something ("I ran the tests", "executed npm build"). */
-export function extractRunClaims(narrative: string): { quote: string; subject: string }[] {
-  const out: { quote: string; subject: string }[] = [];
-  const re = /\b(?:I\s+)?(?:ran|executed|invoked|launched)\s+(?:the\s+)?[`"']?([\w./-]+(?:\s+(?!and\b|then\b|the\b|to\b|it\b|so\b|which\b)[\w./-]+){0,2})[`"']?/gi;
-  for (const m of narrative.matchAll(re)) {
-    const s = m[1].trim();
-    if (s && !/^(it|them|this|that|a|an|into|out)$/i.test(s)) {
-      out.push({ quote: narrative.slice(Math.max(0, (m.index ?? 0) - 30), (m.index ?? 0) + 70).replace(/\s+/g, " ").trim(), subject: s });
+export function extractRunClaims(narrative: string): Claim[] {
+  const out: Claim[] = [];
+  const re = /\b(?:I\s+)?(?:ran|executed|invoked|launched)\s+(?:the\s+)?[`"']?([\w./:-]+(?:\s+(?!and\b|then\b|the\b|to\b|it\b|so\b|which\b)[\w./:-]+){0,3})[`"']?/gi;
+  for (const match of narrative.matchAll(re)) {
+    const subject = match[1].trim();
+    if (subject && !/^(it|them|this|that|a|an|into|out)$/i.test(subject)) {
+      out.push({ kind: "command_ran", quote: snippet(narrative, match.index ?? 0), subject });
     }
   }
   return out;
+}
+
+export function toolCallFingerprint(call: SessionToolCall): string {
+  return `${call.name}:${createHash("sha256").update(call.input).digest("hex")}`;
+}
+
+function snippet(text: string, at: number): string {
+  return text.slice(Math.max(0, at - 45), at + 100).replace(/\s+/g, " ").trim();
 }

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm pack --dry-run
+      - name: Dogfood Agent Vigil
+        uses: ./
+        with:
+          transcript: examples/demo-pass.md
+          repo: .
+          base: HEAD~1
+          head: HEAD
+          strict: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-vigil-receipt-node-${{ matrix.node }}
+          path: |
+            agent-vigil-report.json
+            agent-vigil.sarif
+          if-no-files-found: warn

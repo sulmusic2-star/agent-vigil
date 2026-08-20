@@ -1,43 +1,58 @@
 {
   "name": "agent-vigil",
-  "version": "0.1.0",
-  "description": "Did your agent actually do what it said? Deterministic trust reports for AI agent sessions \u2014 no LLM judge.",
-  "main": "index.js",
+  "version": "0.3.0",
+  "description": "Fail-closed, deterministic evidence receipts for AI coding-agent sessions.",
+  "type": "module",
+  "bin": {
+    "agent-vigil": "./dist/cli.js",
+    "vigil": "./dist/cli.js"
+  },
   "scripts": {
-    "test": "node --experimental-strip-types --test test/*.test.ts",
-    "vigil": "node --experimental-strip-types src/cli.ts"
+    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:coverage": "node --import tsx --experimental-test-coverage --test test/*.test.ts",
+    "check": "npm run typecheck && npm run build && npm test && npm run smoke",
+    "smoke": "node dist/cli.js examples/demo-pass.md --repo . --base HEAD~1 --head HEAD --strict",
+    "prepack": "npm run build"
   },
   "keywords": [
     "ai-agents",
+    "coding-agents",
     "verification",
     "claude-code",
-    "trust",
+    "codex",
     "ci",
     "deterministic",
-    "eval"
+    "evals",
+    "receipts",
+    "reward-hacking"
   ],
-  "author": "",
+  "author": "Tim Sullivan",
   "license": "MIT",
-  "devDependencies": {
-    "@types/node": "^26.2.0",
-    "tsx": "^4.23.12",
-    "typescript": "^7.0.2"
-  },
-  "type": "module",
-  "bin": {
-    "vigil": "./src/cli.ts"
-  },
   "engines": {
-    "node": ">=23.6"
+    "node": ">=20"
   },
   "files": [
-    "src",
+    "dist",
     "action.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs",
+    "examples"
   ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sulmusic2-star/agent-vigil.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sulmusic2-star/agent-vigil/issues"
+  },
+  "homepage": "https://github.com/sulmusic2-star/agent-vigil#readme",
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "esbuild": "^0.25.9",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
   }
 }
