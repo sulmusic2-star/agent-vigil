@@ -2,7 +2,15 @@ import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import type { Claim } from "./report.ts";
 
-export type TranscriptFormat = "claude-code" | "codex" | "markdown";
+export type TranscriptFormat =
+  | "claude-code"
+  | "codex"
+  | "cursor"
+  | "gemini-cli"
+  | "github-copilot-cli"
+  | "opencode"
+  | "aider"
+  | "markdown";
 
 export type SessionToolCall = {
   id: string;
@@ -40,7 +48,7 @@ function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
       .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
       .join(",")}}`;
   }
@@ -51,6 +59,12 @@ function serialiseToolValue(value: unknown): string {
   if (typeof value === "string") return value;
   try { return JSON.stringify(value ?? ""); }
   catch { return String(value ?? ""); }
+}
+
+function isoTimestamp(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const date = new Date(value as string | number);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
 }
 
 function toolOutputFailed(output: string): boolean {
@@ -166,10 +180,168 @@ function parseCodex(rows: any[], transcriptSha256: string): LoadedTranscript {
   };
 }
 
+function parseCursor(rows: any[], transcriptSha256: string): LoadedTranscript {
+  const messages: string[] = [];
+  const toolCalls: SessionToolCall[] = [];
+  const byId = new Map<string, SessionToolCall>();
+  let sequence = 0;
+  for (const row of rows) {
+    if (row?.type === "assistant") messages.push(...textFromBlocks(row?.message?.content));
+    if (row?.type === "result" && typeof row.result === "string" && !messages.length) messages.push(row.result);
+    if (row?.type !== "tool_call" || !row.tool_call || typeof row.tool_call !== "object") continue;
+    const entry = Object.entries(row.tool_call as Record<string, unknown>)[0];
+    if (!entry) continue;
+    const [name, payloadValue] = entry;
+    const payload = payloadValue && typeof payloadValue === "object" ? payloadValue as Record<string, unknown> : {};
+    const explicitId = row.call_id ?? payload.toolCallId;
+    const id = explicitId === undefined || explicitId === null ? undefined : String(explicitId);
+    if (row.subtype === "started") {
+      const call: SessionToolCall = {
+        id: id ?? `cursor-${sequence}`,
+        name: name.replace(/ToolCall$/, ""),
+        input: serialiseToolValue(payload.args ?? {}),
+        timestamp: row.timestamp,
+        sequence: sequence++,
+      };
+      toolCalls.push(call);
+      byId.set(call.id, call);
+    } else if (row.subtype === "completed") {
+      const expectedName = name.replace(/ToolCall$/, "");
+      const call = id !== undefined
+        ? byId.get(id)
+        : [...toolCalls].reverse().find((candidate) => candidate.name === expectedName && candidate.output === undefined);
+      if (!call) continue;
+      call.output = serialiseToolValue(payload.result ?? "");
+      call.isError = Boolean(row.is_error) || toolOutputFailed(call.output);
+    }
+  }
+  return {
+    narrative: messages.join("").trim(),
+    assistantMessages: messages,
+    toolCalls,
+    format: "cursor",
+    transcriptSha256,
+  };
+}
+
+function parseGemini(rows: any[], transcriptSha256: string): LoadedTranscript {
+  const messages: string[] = [];
+  const toolCalls: SessionToolCall[] = [];
+  const byId = new Map<string, SessionToolCall>();
+  let sequence = 0;
+  for (const row of rows) {
+    if (row?.type === "message" && row.role === "assistant" && typeof row.content === "string") messages.push(row.content);
+    if (row?.type === "tool_use") {
+      const id = String(row.tool_id ?? `gemini-${sequence}`);
+      const call: SessionToolCall = {
+        id,
+        name: String(row.tool_name ?? "unknown"),
+        input: serialiseToolValue(row.parameters ?? {}),
+        timestamp: row.timestamp,
+        sequence: sequence++,
+      };
+      toolCalls.push(call);
+      byId.set(id, call);
+    }
+    if (row?.type === "tool_result") {
+      const call = byId.get(String(row.tool_id ?? ""));
+      if (!call) continue;
+      call.output = serialiseToolValue(row.output ?? row.error ?? "");
+      call.isError = row.status === "error" || Boolean(row.error);
+    }
+  }
+  return {
+    narrative: messages.join("").trim(),
+    assistantMessages: messages,
+    toolCalls,
+    format: "gemini-cli",
+    transcriptSha256,
+  };
+}
+
+function parseCopilot(rows: any[], transcriptSha256: string): LoadedTranscript {
+  const messages: string[] = [];
+  const toolCalls: SessionToolCall[] = [];
+  const byId = new Map<string, SessionToolCall>();
+  let sequence = 0;
+  for (const row of rows) {
+    const data = row?.data ?? {};
+    if (row?.type === "assistant.message" && typeof data.content === "string") messages.push(data.content);
+    if (row?.type === "tool.execution_start") {
+      const id = String(data.toolCallId ?? `copilot-${sequence}`);
+      const call: SessionToolCall = {
+        id,
+        name: String(data.toolName ?? "unknown"),
+        input: serialiseToolValue(data.arguments ?? {}),
+        timestamp: row.timestamp,
+        sequence: sequence++,
+      };
+      toolCalls.push(call);
+      byId.set(id, call);
+    }
+    if (row?.type === "tool.execution_complete") {
+      const call = byId.get(String(data.toolCallId ?? ""));
+      if (!call) continue;
+      call.output = serialiseToolValue(data.result ?? data.error ?? "");
+      call.isError = data.success === false || Boolean(data.error);
+    }
+  }
+  return {
+    narrative: messages.slice(-8).join("\n\n"),
+    assistantMessages: messages,
+    toolCalls,
+    format: "github-copilot-cli",
+    transcriptSha256,
+  };
+}
+
+function parseOpenCode(data: any, transcriptSha256: string): LoadedTranscript {
+  const messages: string[] = [];
+  const toolCalls: SessionToolCall[] = [];
+  let sequence = 0;
+  for (const message of data.messages ?? []) {
+    const assistant = message?.info?.role === "assistant";
+    for (const part of message?.parts ?? []) {
+      if (assistant && part?.type === "text" && typeof part.text === "string") messages.push(part.text);
+      if (part?.type !== "tool") continue;
+      const state = part.state ?? {};
+      toolCalls.push({
+        id: String(part.callID ?? part.id ?? `opencode-${sequence}`),
+        name: String(part.tool ?? state.title ?? "unknown"),
+        input: serialiseToolValue(state.input ?? {}),
+        output: state.output === undefined ? undefined : serialiseToolValue(state.output),
+        isError: state.status === "error",
+        timestamp: isoTimestamp(part.time?.start),
+        sequence: sequence++,
+      });
+    }
+  }
+  return {
+    narrative: messages.slice(-8).join("\n\n"),
+    assistantMessages: messages,
+    toolCalls,
+    format: "opencode",
+    transcriptSha256,
+  };
+}
+
 export function loadTranscript(path: string): LoadedTranscript {
   const raw = readBounded(path);
   const transcriptSha256 = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
-  if (!path.endsWith(".jsonl")) {
+  if (/\.aider\.chat\.history\.md$/i.test(path)) {
+    return { narrative: raw, assistantMessages: [raw], toolCalls: [], format: "aider", transcriptSha256 };
+  }
+  if (/\.json$/i.test(path)) {
+    const data = safeJson(raw);
+    if (!data) throw new Error("invalid JSON transcript");
+    if (Array.isArray(data?.messages) && data?.info) return parseOpenCode(data, transcriptSha256);
+    if (data?.type === "result" && typeof data.result === "string") return parseCursor([data], transcriptSha256);
+    if (typeof data?.response === "string") {
+      return { narrative: data.response, assistantMessages: [data.response], toolCalls: [], format: "gemini-cli", transcriptSha256 };
+    }
+    throw new Error("unrecognized JSON transcript schema");
+  }
+  if (!/\.(?:jsonl|ndjson)$/i.test(path)) {
     return { narrative: raw, assistantMessages: [raw], toolCalls: [], format: "markdown", transcriptSha256 };
   }
   const records = raw.replace(/^\uFEFF/, "").split("\n")
@@ -181,17 +353,38 @@ export function loadTranscript(path: string): LoadedTranscript {
     return row;
   });
   if (!rows.length) throw new Error("JSONL transcript contains no records");
+  const cursorTypes = new Set(["system", "user", "assistant", "tool_call", "result"]);
+  const geminiTypes = new Set(["init", "message", "tool_use", "tool_result", "error", "result"]);
   const codexTypes = new Set(["session_meta", "turn_context", "event_msg", "response_item"]);
   const claudeTypes = new Set(["assistant", "user", "system", "summary", "progress", "file-history-snapshot", "queue-operation"]);
-  const firstKnown = rows.findIndex((row) => codexTypes.has(row?.type) || claudeTypes.has(row?.type));
-  if (firstKnown === -1) throw new Error("unrecognized JSONL transcript schema");
-  const format = codexTypes.has(rows[firstKnown]?.type) ? "codex" : "claude-code";
-  const accepted = format === "codex" ? codexTypes : claudeTypes;
+  const copilotType = (type: unknown) => typeof type === "string" && /^(?:assistant|tool|session|user|permission|subagent|skill)\./.test(type);
+  const hasCursorMarker = rows.some((row) => row?.type === "tool_call")
+    || (rows.some((row) => row?.type === "system" && row?.subtype === "init")
+      && rows.some((row) => row?.type === "result" && typeof row?.subtype === "string"));
+  const hasGeminiMarker = rows.some((row) => row?.type === "init" || row?.type === "tool_use" || row?.type === "tool_result");
+  const hasCopilotMarker = rows.some((row) => row?.type === "assistant.message" || row?.type === "tool.execution_start");
+  const hasCodexMarker = rows.some((row) => row?.type === "session_meta" || row?.type === "response_item");
+  const hasClaudeMarker = rows.some((row) => row?.type === "assistant" && Array.isArray(row?.message?.content));
+  const format: TranscriptFormat | undefined = hasGeminiMarker ? "gemini-cli"
+      : hasCopilotMarker ? "github-copilot-cli"
+        : hasCodexMarker ? "codex"
+          : hasCursorMarker ? "cursor"
+            : hasClaudeMarker ? "claude-code"
+              : undefined;
+  if (!format) throw new Error("unrecognized JSONL transcript schema");
+  const accepted = format === "cursor" ? (type: unknown) => cursorTypes.has(String(type))
+    : format === "gemini-cli" ? (type: unknown) => geminiTypes.has(String(type))
+      : format === "github-copilot-cli" ? copilotType
+        : format === "codex" ? (type: unknown) => codexTypes.has(String(type))
+          : (type: unknown) => claudeTypes.has(String(type));
   rows.forEach((row, index) => {
-    if (accepted.has(row?.type)) return;
+    if (accepted(row?.type)) return;
     const recordType = typeof row?.type === "string" ? ` record type ${JSON.stringify(row.type)}` : " record without a type";
     throw new Error(`${format} JSONL contains unsupported${recordType} at line ${records[index].lineNumber}`);
   });
+  if (format === "cursor") return parseCursor(rows, transcriptSha256);
+  if (format === "gemini-cli") return parseGemini(rows, transcriptSha256);
+  if (format === "github-copilot-cli") return parseCopilot(rows, transcriptSha256);
   return format === "codex" ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
 }
 

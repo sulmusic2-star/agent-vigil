@@ -22,9 +22,10 @@ export function runDemo(run: RunFunction): number {
   writeFileSync(join(repo, "README.md"), "demo head\n");
   git(repo, "add", "README.md"); git(repo, "commit", "-qm", "head");
 
-  const count = join(repo, "false-count.md");
-  const ghost = join(repo, "ghost-file.md");
-  const loop = join(repo, "tool-loop.jsonl");
+  const evidence = mkdtempSync(join(tmpdir(), "agent-vigil-demo-evidence-"));
+  const count = join(evidence, "false-count.md");
+  const ghost = join(evidence, "ghost-file.md");
+  const loop = join(evidence, "tool-loop.jsonl");
   writeFileSync(count, "All 99 tests pass.\n");
   writeFileSync(ghost, "I created src/ghost.ts. The work is complete.\n");
   const rows = [

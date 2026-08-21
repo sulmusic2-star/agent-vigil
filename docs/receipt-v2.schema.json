@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.5.0/docs/receipt-v2.schema.json",
+  "title": "Agent Vigil AI Change Receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "vigilVersion", "transcript", "transcriptSha256",
+    "transcriptFormat", "repo", "base", "head", "generatedAt", "receiptHash",
+    "repository", "reproduction", "results", "summary", "policy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "2" },
+    "vigilVersion": { "type": "string" },
+    "transcript": { "type": "string" },
+    "transcriptSha256": { "$ref": "#/$defs/sha256" },
+    "transcriptFormat": {
+      "enum": ["claude-code", "codex", "cursor", "gemini-cli", "github-copilot-cli", "opencode", "aider", "markdown"]
+    },
+    "repo": { "type": "string" },
+    "base": { "type": "string" },
+    "head": { "type": "string" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "receiptHash": { "$ref": "#/$defs/sha256" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "remote": { "type": "string" },
+        "tree": { "type": "string" }
+      }
+    },
+    "reproduction": { "type": "string" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "publicKey", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "$ref": "#/$defs/sha256" },
+        "publicKey": { "type": "string", "contentEncoding": "base64" },
+        "value": { "type": "string", "contentEncoding": "base64" }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim", "verdict", "evidence"],
+        "properties": {
+          "claim": {
+            "type": "object",
+            "required": ["kind", "quote", "subject"],
+            "properties": {
+              "kind": { "type": "string" },
+              "quote": { "type": "string" },
+              "subject": { "type": "string" },
+              "expectedCount": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "verdict": { "enum": ["verified", "contradicted", "unverifiable"] },
+          "evidence": { "type": "string" },
+          "ruleId": { "type": "string" },
+          "contributesToPass": { "type": "boolean" },
+          "blocksPass": { "type": "boolean" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["verified", "contradicted", "unverifiable", "meaningfulVerified", "status", "pass"],
+      "properties": {
+        "verified": { "type": "integer", "minimum": 0 },
+        "contradicted": { "type": "integer", "minimum": 0 },
+        "unverifiable": { "type": "integer", "minimum": 0 },
+        "meaningfulVerified": { "type": "integer", "minimum": 0 },
+        "status": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+        "pass": { "type": "boolean" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["minVerified", "strict", "sha256"],
+      "properties": {
+        "minVerified": { "type": "integer", "minimum": 1 },
+        "strict": { "type": "boolean" },
+        "source": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

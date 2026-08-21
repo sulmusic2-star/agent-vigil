@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { existsSync as existsSync2, realpathSync as realpathSync2 } from "node:fs";
-import { resolve as resolve2 } from "node:path";
+import { execFileSync as execFileSync5 } from "node:child_process";
+import { existsSync as existsSync4, readFileSync as readFileSync6, realpathSync as realpathSync2 } from "node:fs";
+import { isAbsolute as isAbsolute3, relative as relative3, resolve as resolve4 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -26,7 +27,7 @@ function safeJson(text) {
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+    return `{${Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -37,6 +38,11 @@ function serialiseToolValue(value) {
   } catch {
     return String(value ?? "");
   }
+}
+function isoTimestamp(value) {
+  if (value === void 0 || value === null || value === "") return void 0;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : void 0;
 }
 function toolOutputFailed(output) {
   const parsed = safeJson(output);
@@ -144,10 +150,162 @@ function parseCodex(rows, transcriptSha256) {
     transcriptSha256
   };
 }
+function parseCursor(rows, transcriptSha256) {
+  const messages = [];
+  const toolCalls = [];
+  const byId = /* @__PURE__ */ new Map();
+  let sequence = 0;
+  for (const row of rows) {
+    if (row?.type === "assistant") messages.push(...textFromBlocks(row?.message?.content));
+    if (row?.type === "result" && typeof row.result === "string" && !messages.length) messages.push(row.result);
+    if (row?.type !== "tool_call" || !row.tool_call || typeof row.tool_call !== "object") continue;
+    const entry = Object.entries(row.tool_call)[0];
+    if (!entry) continue;
+    const [name, payloadValue] = entry;
+    const payload = payloadValue && typeof payloadValue === "object" ? payloadValue : {};
+    const explicitId = row.call_id ?? payload.toolCallId;
+    const id = explicitId === void 0 || explicitId === null ? void 0 : String(explicitId);
+    if (row.subtype === "started") {
+      const call = {
+        id: id ?? `cursor-${sequence}`,
+        name: name.replace(/ToolCall$/, ""),
+        input: serialiseToolValue(payload.args ?? {}),
+        timestamp: row.timestamp,
+        sequence: sequence++
+      };
+      toolCalls.push(call);
+      byId.set(call.id, call);
+    } else if (row.subtype === "completed") {
+      const expectedName = name.replace(/ToolCall$/, "");
+      const call = id !== void 0 ? byId.get(id) : [...toolCalls].reverse().find((candidate) => candidate.name === expectedName && candidate.output === void 0);
+      if (!call) continue;
+      call.output = serialiseToolValue(payload.result ?? "");
+      call.isError = Boolean(row.is_error) || toolOutputFailed(call.output);
+    }
+  }
+  return {
+    narrative: messages.join("").trim(),
+    assistantMessages: messages,
+    toolCalls,
+    format: "cursor",
+    transcriptSha256
+  };
+}
+function parseGemini(rows, transcriptSha256) {
+  const messages = [];
+  const toolCalls = [];
+  const byId = /* @__PURE__ */ new Map();
+  let sequence = 0;
+  for (const row of rows) {
+    if (row?.type === "message" && row.role === "assistant" && typeof row.content === "string") messages.push(row.content);
+    if (row?.type === "tool_use") {
+      const id = String(row.tool_id ?? `gemini-${sequence}`);
+      const call = {
+        id,
+        name: String(row.tool_name ?? "unknown"),
+        input: serialiseToolValue(row.parameters ?? {}),
+        timestamp: row.timestamp,
+        sequence: sequence++
+      };
+      toolCalls.push(call);
+      byId.set(id, call);
+    }
+    if (row?.type === "tool_result") {
+      const call = byId.get(String(row.tool_id ?? ""));
+      if (!call) continue;
+      call.output = serialiseToolValue(row.output ?? row.error ?? "");
+      call.isError = row.status === "error" || Boolean(row.error);
+    }
+  }
+  return {
+    narrative: messages.join("").trim(),
+    assistantMessages: messages,
+    toolCalls,
+    format: "gemini-cli",
+    transcriptSha256
+  };
+}
+function parseCopilot(rows, transcriptSha256) {
+  const messages = [];
+  const toolCalls = [];
+  const byId = /* @__PURE__ */ new Map();
+  let sequence = 0;
+  for (const row of rows) {
+    const data = row?.data ?? {};
+    if (row?.type === "assistant.message" && typeof data.content === "string") messages.push(data.content);
+    if (row?.type === "tool.execution_start") {
+      const id = String(data.toolCallId ?? `copilot-${sequence}`);
+      const call = {
+        id,
+        name: String(data.toolName ?? "unknown"),
+        input: serialiseToolValue(data.arguments ?? {}),
+        timestamp: row.timestamp,
+        sequence: sequence++
+      };
+      toolCalls.push(call);
+      byId.set(id, call);
+    }
+    if (row?.type === "tool.execution_complete") {
+      const call = byId.get(String(data.toolCallId ?? ""));
+      if (!call) continue;
+      call.output = serialiseToolValue(data.result ?? data.error ?? "");
+      call.isError = data.success === false || Boolean(data.error);
+    }
+  }
+  return {
+    narrative: messages.slice(-8).join("\n\n"),
+    assistantMessages: messages,
+    toolCalls,
+    format: "github-copilot-cli",
+    transcriptSha256
+  };
+}
+function parseOpenCode(data, transcriptSha256) {
+  const messages = [];
+  const toolCalls = [];
+  let sequence = 0;
+  for (const message of data.messages ?? []) {
+    const assistant = message?.info?.role === "assistant";
+    for (const part of message?.parts ?? []) {
+      if (assistant && part?.type === "text" && typeof part.text === "string") messages.push(part.text);
+      if (part?.type !== "tool") continue;
+      const state = part.state ?? {};
+      toolCalls.push({
+        id: String(part.callID ?? part.id ?? `opencode-${sequence}`),
+        name: String(part.tool ?? state.title ?? "unknown"),
+        input: serialiseToolValue(state.input ?? {}),
+        output: state.output === void 0 ? void 0 : serialiseToolValue(state.output),
+        isError: state.status === "error",
+        timestamp: isoTimestamp(part.time?.start),
+        sequence: sequence++
+      });
+    }
+  }
+  return {
+    narrative: messages.slice(-8).join("\n\n"),
+    assistantMessages: messages,
+    toolCalls,
+    format: "opencode",
+    transcriptSha256
+  };
+}
 function loadTranscript(path) {
   const raw = readBounded(path);
   const transcriptSha256 = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
-  if (!path.endsWith(".jsonl")) {
+  if (/\.aider\.chat\.history\.md$/i.test(path)) {
+    return { narrative: raw, assistantMessages: [raw], toolCalls: [], format: "aider", transcriptSha256 };
+  }
+  if (/\.json$/i.test(path)) {
+    const data = safeJson(raw);
+    if (!data) throw new Error("invalid JSON transcript");
+    if (Array.isArray(data?.messages) && data?.info) return parseOpenCode(data, transcriptSha256);
+    if (data?.type === "result" && typeof data.result === "string") return parseCursor([data], transcriptSha256);
+    if (typeof data?.response === "string") {
+      return { narrative: data.response, assistantMessages: [data.response], toolCalls: [], format: "gemini-cli", transcriptSha256 };
+    }
+    throw new Error("unrecognized JSON transcript schema");
+  }
+  if (!/\.(?:jsonl|ndjson)$/i.test(path)) {
     return { narrative: raw, assistantMessages: [raw], toolCalls: [], format: "markdown", transcriptSha256 };
   }
   const records = raw.replace(/^\uFEFF/, "").split("\n").map((line, index) => ({ line, lineNumber: index + 1 })).filter(({ line }) => line.trim());
@@ -157,17 +315,27 @@ function loadTranscript(path) {
     return row;
   });
   if (!rows.length) throw new Error("JSONL transcript contains no records");
+  const cursorTypes = /* @__PURE__ */ new Set(["system", "user", "assistant", "tool_call", "result"]);
+  const geminiTypes = /* @__PURE__ */ new Set(["init", "message", "tool_use", "tool_result", "error", "result"]);
   const codexTypes = /* @__PURE__ */ new Set(["session_meta", "turn_context", "event_msg", "response_item"]);
   const claudeTypes = /* @__PURE__ */ new Set(["assistant", "user", "system", "summary", "progress", "file-history-snapshot", "queue-operation"]);
-  const firstKnown = rows.findIndex((row) => codexTypes.has(row?.type) || claudeTypes.has(row?.type));
-  if (firstKnown === -1) throw new Error("unrecognized JSONL transcript schema");
-  const format = codexTypes.has(rows[firstKnown]?.type) ? "codex" : "claude-code";
-  const accepted = format === "codex" ? codexTypes : claudeTypes;
+  const copilotType = (type) => typeof type === "string" && /^(?:assistant|tool|session|user|permission|subagent|skill)\./.test(type);
+  const hasCursorMarker = rows.some((row) => row?.type === "tool_call") || rows.some((row) => row?.type === "system" && row?.subtype === "init") && rows.some((row) => row?.type === "result" && typeof row?.subtype === "string");
+  const hasGeminiMarker = rows.some((row) => row?.type === "init" || row?.type === "tool_use" || row?.type === "tool_result");
+  const hasCopilotMarker = rows.some((row) => row?.type === "assistant.message" || row?.type === "tool.execution_start");
+  const hasCodexMarker = rows.some((row) => row?.type === "session_meta" || row?.type === "response_item");
+  const hasClaudeMarker = rows.some((row) => row?.type === "assistant" && Array.isArray(row?.message?.content));
+  const format = hasGeminiMarker ? "gemini-cli" : hasCopilotMarker ? "github-copilot-cli" : hasCodexMarker ? "codex" : hasCursorMarker ? "cursor" : hasClaudeMarker ? "claude-code" : void 0;
+  if (!format) throw new Error("unrecognized JSONL transcript schema");
+  const accepted = format === "cursor" ? (type) => cursorTypes.has(String(type)) : format === "gemini-cli" ? (type) => geminiTypes.has(String(type)) : format === "github-copilot-cli" ? copilotType : format === "codex" ? (type) => codexTypes.has(String(type)) : (type) => claudeTypes.has(String(type));
   rows.forEach((row, index) => {
-    if (accepted.has(row?.type)) return;
+    if (accepted(row?.type)) return;
     const recordType = typeof row?.type === "string" ? ` record type ${JSON.stringify(row.type)}` : " record without a type";
     throw new Error(`${format} JSONL contains unsupported${recordType} at line ${records[index].lineNumber}`);
   });
+  if (format === "cursor") return parseCursor(rows, transcriptSha256);
+  if (format === "gemini-cli") return parseGemini(rows, transcriptSha256);
+  if (format === "github-copilot-cli") return parseCopilot(rows, transcriptSha256);
   return format === "codex" ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
 }
 var PATH_EXISTS_RES = [
@@ -232,7 +400,7 @@ function snippet(text, at) {
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync as readFileSync2, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-function git(repo, args) {
+function gitOptional(repo, args) {
   try {
     return execFileSync("git", args, {
       cwd: repo,
@@ -241,8 +409,11 @@ function git(repo, args) {
       maxBuffer: 64 * 1024 * 1024
     });
   } catch {
-    return "";
+    return void 0;
   }
+}
+function git(repo, args) {
+  return gitOptional(repo, args) ?? "";
 }
 function gitRefExists(repo, ref) {
   try {
@@ -270,6 +441,98 @@ function changedPaths(repo, base, head) {
     }
   }
   return out;
+}
+function checkWorkspaceBinding(repo, head, ignoredPaths = []) {
+  const claim = {
+    kind: "integrity",
+    quote: "verification ran against the selected repository state",
+    subject: "workspace matches receipt head"
+  };
+  if (head === "WORKTREE") {
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: "WORKTREE has no immutable Git tree identity; commit the change and pass its exact head SHA",
+      ruleId: "workspace-unbound",
+      contributesToPass: false,
+      blocksPass: true
+    }];
+  }
+  const ignored = new Set(ignoredPaths.map((path) => {
+    const value = isAbsolute(path) ? relative(resolve(repo), resolve(path)) : path;
+    if (!value || value === ".." || value.startsWith(`..${sep}`)) return "";
+    return value.replaceAll("\\", "/").replace(/^\.\//, "");
+  }).filter(Boolean));
+  const selected = gitOptional(repo, ["rev-parse", "--verify", `${head}^{commit}`])?.trim();
+  const checkedOut = gitOptional(repo, ["rev-parse", "--verify", "HEAD^{commit}"])?.trim();
+  const raw = gitOptional(repo, ["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z"]);
+  if (!selected || !checkedOut || raw === void 0) {
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: "Git commit identity or workspace status could not be read",
+      ruleId: "workspace-unbound",
+      contributesToPass: false,
+      blocksPass: true
+    }];
+  }
+  if (selected !== checkedOut) {
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: `checked-out commit ${checkedOut} does not match selected head ${selected}`,
+      ruleId: "workspace-unbound",
+      contributesToPass: false,
+      blocksPass: true
+    }];
+  }
+  const dirty = raw.split("\0").filter(Boolean).map((row) => row.slice(3)).filter((path) => path && !ignored.has(path));
+  if (dirty.length) {
+    const sample = dirty.slice(0, 5).join(", ");
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: `${dirty.length} unbound worktree path(s): ${sample}${dirty.length > 5 ? ", \u2026" : ""}`,
+      ruleId: "workspace-dirty",
+      contributesToPass: false,
+      blocksPass: true
+    }];
+  }
+  return [{
+    claim,
+    verdict: "verified",
+    evidence: `Git-visible workspace state matches ${head}; explicitly hashed evidence inputs were excluded`,
+    ruleId: "workspace-bound",
+    contributesToPass: false
+  }];
+}
+function checkWorkspaceMutation(repo, ignoredPaths = []) {
+  const claim = {
+    kind: "integrity",
+    quote: "fresh verification preserved the selected repository state",
+    subject: "test command did not mutate tracked inputs"
+  };
+  const ignored = new Set(ignoredPaths.map((path) => {
+    const value = isAbsolute(path) ? relative(resolve(repo), resolve(path)) : path;
+    if (!value || value === ".." || value.startsWith(`..${sep}`)) return "";
+    return value.replaceAll("\\", "/").replace(/^\.\//, "");
+  }).filter(Boolean));
+  const raw = gitOptional(repo, ["diff", "HEAD", "--name-only", "-z"]);
+  if (raw === void 0) {
+    return [{ claim, verdict: "unverifiable", evidence: "post-verification Git state could not be read", ruleId: "workspace-mutated", contributesToPass: false, blocksPass: true }];
+  }
+  const changed = raw.split("\0").filter((path) => path && !ignored.has(path));
+  if (changed.length) {
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: `fresh verification changed ${changed.length} tracked path(s): ${changed.slice(0, 5).join(", ")}${changed.length > 5 ? ", \u2026" : ""}`,
+      ruleId: "workspace-mutated",
+      contributesToPass: false,
+      blocksPass: true
+    }];
+  }
+  return [{ claim, verdict: "verified", evidence: "fresh verification left tracked repository inputs unchanged", ruleId: "workspace-preserved", contributesToPass: false }];
 }
 function withinRepo(repo, subject) {
   if (isAbsolute(subject)) return null;
@@ -484,6 +747,14 @@ ${run2.stderr ?? ""}`;
         verdict: "contradicted",
         evidence: `claim says ${claim.expectedCount} tests passed; runner reported ${observedClaimCount} passed${observed.skipped ? ` and ${observed.skipped} skipped` : ""}`,
         ruleId: "test-count"
+      };
+    }
+    if (observedClaimCount === void 0) {
+      return {
+        claim,
+        verdict: "unverifiable",
+        evidence: `\`${command}\` exited 0, but its output contained no supported test summary`,
+        ruleId: "tests-pass"
       };
     }
     return {
@@ -712,11 +983,12 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.4.0";
+var VERSION = "0.5.0";
 function canonical(value) {
+  if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
-    const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`);
+    const entries = Object.entries(value).filter(([, item]) => item !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`);
     return `{${entries.join(",")}}`;
   }
   return JSON.stringify(value);
@@ -724,7 +996,9 @@ function canonical(value) {
 function buildReport(input) {
   const policy = {
     minVerified: Math.max(1, input.policy?.minVerified ?? 1),
-    strict: input.policy?.strict ?? false
+    strict: input.policy?.strict ?? false,
+    ...input.policy?.source ? { source: input.policy.source } : {},
+    sha256: input.policy?.sha256 ?? "sha256:unavailable"
   };
   const count = (verdict) => input.results.filter((r) => r.verdict === verdict).length;
   const contradicted = count("contradicted");
@@ -734,21 +1008,31 @@ function buildReport(input) {
   ).length;
   let status;
   if (contradicted > 0) status = "FAIL";
-  else if (meaningfulVerified < policy.minVerified || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
+  else if (meaningfulVerified < policy.minVerified || input.results.some((result) => result.verdict === "unverifiable" && result.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
   else status = "PASS";
+  const summary = {
+    verified: count("verified"),
+    contradicted,
+    unverifiable,
+    meaningfulVerified,
+    status,
+    pass: status === "PASS"
+  };
   const receiptPayload = {
-    schemaVersion: "1",
+    schemaVersion: "2",
     vigilVersion: VERSION,
     transcriptFormat: input.transcriptFormat,
     transcriptSha256: input.transcriptSha256 ?? "sha256:unavailable",
     base: input.base,
     head: input.head,
+    repository: input.repository ?? {},
+    reproduction: input.reproduction ?? "unavailable",
     results: input.results,
-    status,
+    summary,
     policy
   };
   return {
-    schemaVersion: "1",
+    schemaVersion: "2",
     vigilVersion: VERSION,
     transcript: input.transcript,
     transcriptSha256: input.transcriptSha256 ?? "sha256:unavailable",
@@ -758,22 +1042,57 @@ function buildReport(input) {
     head: input.head,
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     receiptHash: `sha256:${createHash2("sha256").update(canonical(receiptPayload)).digest("hex")}`,
+    repository: input.repository ?? {},
+    reproduction: input.reproduction ?? "unavailable",
     results: input.results,
-    summary: {
-      verified: count("verified"),
-      contradicted,
-      unverifiable,
-      meaningfulVerified,
-      status,
-      pass: status === "PASS"
-    },
+    summary,
     policy
   };
+}
+function recomputeReceiptHash(report) {
+  const payload = {
+    schemaVersion: report.schemaVersion,
+    vigilVersion: report.vigilVersion,
+    transcriptFormat: report.transcriptFormat,
+    transcriptSha256: report.transcriptSha256,
+    base: report.base,
+    head: report.head,
+    repository: report.repository,
+    reproduction: report.reproduction,
+    results: report.results,
+    summary: report.summary,
+    policy: report.policy
+  };
+  return `sha256:${createHash2("sha256").update(canonical(payload)).digest("hex")}`;
 }
 
 // src/output.ts
 import { appendFileSync, writeFileSync } from "node:fs";
 var icon = { verified: "\u2713", contradicted: "\u2717", unverifiable: "?" };
+function remediationFor(ruleId) {
+  const fixes = {
+    "test-count": "Run the configured test command without truncating its output, then report the observed passing count exactly; use `vigil doctor` to inspect command selection.",
+    "tests-pass": "Run `vigil doctor`, configure policy `testCommand` when inference is absent, and preserve the fresh runner's complete output.",
+    "file-changed": "Inspect `git diff --name-only <base>..<head>`, pass those exact SHAs, then correct the claimed path.",
+    "path-exists": "Create the claimed artifact or remove the unsupported claim.",
+    "path-outside-repo": "Reference a repository-relative path that resolves inside the checkout.",
+    "file-outside-repo": "Reference only repository-relative changed files.",
+    "command-ran": "Export the complete supported tool trajectory, rerun the claimed command, and preserve its terminal result event.",
+    "tool-loop": "Stop the repeated call, inspect its result, and record the next distinct action.",
+    "test-count-drop": "Restore removed tests or document and review the intentional test-surface change.",
+    "test-skip-added": "Remove the new skip/focus marker or obtain an explicit reviewed exception.",
+    "verification-bypass": "Remove the verification bypass and let the underlying check fail honestly.",
+    "suppression-added": "Remove the new suppression or narrow it with an explicit reviewed justification.",
+    "coverage-weakened": "Restore a meaningful coverage threshold.",
+    "assertion-drop": "Restore equivalent assertions or review the intentional reduction explicitly.",
+    "completion-marker": "Resolve the added unfinished-work marker before claiming completion.",
+    "completion-evidence": "Add at least one independently verifiable path, command, change, or test claim.",
+    "workspace-dirty": "Run `git status --short`, commit or remove unbound paths, then rerun with `--head $(git rev-parse HEAD)`.",
+    "workspace-unbound": "Commit the candidate change, then rerun with `--head $(git rev-parse HEAD)` instead of WORKTREE.",
+    "workspace-mutated": "Make the verification command read-only with respect to tracked inputs, restore the changed paths, and rerun."
+  };
+  return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
+}
 function renderText(report) {
   const lines = [
     `agent-vigil ${report.vigilVersion} \u2014 evidence receipt`,
@@ -781,16 +1100,19 @@ function renderText(report) {
     `  digest:     ${report.transcriptSha256}`,
     `  repo:       ${report.repo}`,
     `  range:      ${report.base}..${report.head}`,
+    `  policy:     ${report.policy.sha256}`,
     ""
   ];
   for (const result of report.results) {
     lines.push(`  ${icon[result.verdict]} [${result.ruleId ?? result.claim.kind}] ${result.claim.subject}`);
     lines.push(`      claim:    "${result.claim.quote.slice(0, 140)}"`);
     lines.push(`      evidence: ${result.evidence}`, "");
+    if (result.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result.ruleId)}`);
   }
   const summary = report.summary;
   lines.push(`  ${summary.verified} verified \xB7 ${summary.contradicted} contradicted \xB7 ${summary.unverifiable} unresolved`);
   lines.push(`  ${summary.status} \xB7 ${report.receiptHash}`);
+  lines.push(`  reproduce: ${report.reproduction}`);
   if (summary.status === "INCONCLUSIVE") lines.push("  Missing or unresolved evidence prevents a trustworthy pass.");
   return lines.join("\n");
 }
@@ -799,17 +1121,28 @@ function renderMarkdown(report) {
     (result) => `| ${icon[result.verdict]} ${result.verdict} | \`${result.ruleId ?? result.claim.kind}\` | ${escapeCell(result.claim.subject)} | ${escapeCell(result.evidence)} |`
   );
   return [
-    `# Agent Vigil: ${report.summary.status}`,
+    `# ${report.summary.status === "PASS" ? "\u2705" : report.summary.status === "FAIL" ? "\u274C" : "\u26A0\uFE0F"} Agent Vigil: ${report.summary.status}`,
     "",
     `**Receipt:** \`${report.receiptHash}\`  `,
     `**Range:** \`${report.base}..${report.head}\`  `,
-    `**Transcript:** \`${report.transcript}\` (${report.transcriptFormat})`,
+    `**Transcript:** \`${report.transcript}\` (${report.transcriptFormat})  `,
+    `**Policy:** \`${report.policy.sha256}\``,
     "",
     "| Verdict | Rule | Claim | Evidence |",
     "|---|---|---|---|",
     ...rows,
     "",
     `${report.summary.verified} verified \xB7 ${report.summary.contradicted} contradicted \xB7 ${report.summary.unverifiable} unresolved`,
+    "",
+    ...report.results.some((result) => result.verdict !== "verified") ? [
+      "## What to do next",
+      "",
+      ...report.results.filter((result) => result.verdict !== "verified").map(
+        (result) => `- **\`${result.ruleId ?? result.claim.kind}\`**: ${remediationFor(result.ruleId)}`
+      ),
+      ""
+    ] : [],
+    `Reproduce: \`${report.reproduction.replace(/`/g, "\\`")}\``,
     ""
   ].join("\n");
 }
@@ -821,7 +1154,7 @@ function sarifResult(result) {
   return {
     ruleId: result.ruleId ?? result.claim.kind,
     level,
-    message: { text: `${result.claim.subject}: ${result.evidence}` }
+    message: { text: `${result.claim.subject}: ${result.evidence}. Remediation: ${remediationFor(result.ruleId)}` }
   };
 }
 function toSarif(report) {
@@ -870,9 +1203,10 @@ function runDemo(run2) {
   writeFileSync2(join(repo, "README.md"), "demo head\n");
   git2(repo, "add", "README.md");
   git2(repo, "commit", "-qm", "head");
-  const count = join(repo, "false-count.md");
-  const ghost = join(repo, "ghost-file.md");
-  const loop = join(repo, "tool-loop.jsonl");
+  const evidence = mkdtempSync(join(tmpdir(), "agent-vigil-demo-evidence-"));
+  const count = join(evidence, "false-count.md");
+  const ghost = join(evidence, "ghost-file.md");
+  const loop = join(evidence, "tool-loop.jsonl");
   writeFileSync2(count, "All 99 tests pass.\n");
   writeFileSync2(ghost, "I created src/ghost.ts. The work is complete.\n");
   const rows = [
@@ -898,6 +1232,323 @@ function runDemo(run2) {
   return caught === scenarios.length ? 0 : 1;
 }
 
+// src/config.ts
+import { createHash as createHash3 } from "node:crypto";
+import { execFileSync as execFileSync3 } from "node:child_process";
+import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
+import { isAbsolute as isAbsolute2, normalize, resolve as resolve2 } from "node:path";
+var DEFAULT_POLICY_FILE = ".agent-vigil.json";
+function canonical2(value) {
+  if (value === void 0) return "null";
+  if (Array.isArray(value)) return `[${value.map(canonical2).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value).filter(([, item]) => item !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${canonical2(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+function validatePolicy(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("policy must be a JSON object");
+  const value = input;
+  const allowed = /* @__PURE__ */ new Set(["schemaVersion", "transcript", "testCommand", "strict", "minVerified"]);
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length) throw new Error(`policy contains unknown field(s): ${unknown.join(", ")}`);
+  if (value.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
+  if (value.transcript !== void 0 && (typeof value.transcript !== "string" || !value.transcript.trim())) {
+    throw new Error("policy transcript must be a non-empty string");
+  }
+  if (value.testCommand !== void 0 && (typeof value.testCommand !== "string" || !value.testCommand.trim())) {
+    throw new Error("policy testCommand must be a non-empty string");
+  }
+  if (value.strict !== void 0 && typeof value.strict !== "boolean") throw new Error("policy strict must be boolean");
+  if (value.minVerified !== void 0 && (!Number.isInteger(value.minVerified) || Number(value.minVerified) < 1)) {
+    throw new Error("policy minVerified must be a positive integer");
+  }
+  return value;
+}
+function parsePolicy(raw, source) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`policy is not valid JSON: ${source}`);
+  }
+  return validatePolicy(parsed);
+}
+function loadPolicy(repo, requested, ref) {
+  const gitPath = requested ?? DEFAULT_POLICY_FILE;
+  if (ref) {
+    const clean = normalize(gitPath).replace(/^\.\//, "");
+    if (isAbsolute2(gitPath) || clean === ".." || clean.startsWith("../")) throw new Error("policy-ref requires a repository-relative policy path");
+    let raw2;
+    try {
+      raw2 = execFileSync3("git", ["show", `${ref}:${clean}`], {
+        cwd: repo,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 1024 * 1024
+      });
+    } catch {
+      throw new Error(`policy not found at ${ref}:${clean}`);
+    }
+    const value2 = parsePolicy(raw2, `${ref}:${clean}`);
+    return {
+      gitPath: clean,
+      ref,
+      sha256: `sha256:${createHash3("sha256").update(canonical2(value2)).digest("hex")}`,
+      value: value2
+    };
+  }
+  const candidate = requested ? resolve2(repo, requested) : resolve2(repo, DEFAULT_POLICY_FILE);
+  if (!existsSync2(candidate)) {
+    if (requested) throw new Error(`policy not found: ${candidate}`);
+    const value2 = { schemaVersion: 1 };
+    return { sha256: `sha256:${createHash3("sha256").update(canonical2(value2)).digest("hex")}`, value: value2 };
+  }
+  const raw = readFileSync3(candidate, "utf8");
+  const value = parsePolicy(raw, candidate);
+  return {
+    path: candidate,
+    sha256: `sha256:${createHash3("sha256").update(canonical2(value)).digest("hex")}`,
+    value
+  };
+}
+function policyTemplate(testCommand) {
+  const value = {
+    schemaVersion: 1,
+    transcript: ".agent-vigil/session.md",
+    ...testCommand ? { testCommand } : {},
+    strict: true,
+    minVerified: 1
+  };
+  return `${JSON.stringify(value, null, 2)}
+`;
+}
+
+// src/setup.ts
+import { execFileSync as execFileSync4 } from "node:child_process";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname, relative as relative2, resolve as resolve3 } from "node:path";
+var WORKFLOW = `name: Agent Vigil
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    name: Agent Vigil evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: \${{ github.event.pull_request.head.sha }}
+      - uses: sulmusic2-star/agent-vigil@v0.5.0
+        with:
+          transcript: .agent-vigil/session.md
+          policy: .agent-vigil.json
+          policy-ref: \${{ github.event.pull_request.base.sha }}
+          repo: .
+          base: \${{ github.event.pull_request.base.sha }}
+          head: \${{ github.event.pull_request.head.sha }}
+`;
+var SESSION_TEMPLATE = `# Agent change receipt
+
+Replace this file with the coding agent's final summary or point
+\`.agent-vigil.json\` at a supported exported transcript.
+
+Agent Vigil will independently compare checkable claims with the selected Git
+range and fresh verification. This placeholder intentionally contains no claims,
+so strict verification remains INCONCLUSIVE until real evidence is supplied.
+`;
+var LOCAL_README = `# Agent Vigil evidence input
+
+The workflow reads \`session.md\` by default. Replace it with the agent's actual
+final summary, or change \`transcript\` in \`../.agent-vigil.json\` to an exported
+Codex, Claude Code, Cursor, Gemini CLI, GitHub Copilot CLI, OpenCode, or Aider
+transcript.
+
+Transcripts can contain source code, prompts, paths, and secrets. Review them
+before committing or uploading. Agent Vigil reads evidence locally and does not
+upload it.
+`;
+function writeScaffold(root, path, content, force, result) {
+  const target = resolve3(root, path);
+  if (existsSync3(target) && !force) {
+    result.kept.push(path);
+    return;
+  }
+  mkdirSync2(dirname(target), { recursive: true });
+  writeFileSync3(target, content);
+  result.created.push(path);
+}
+function initRepository(repo, force = false) {
+  const root = resolve3(repo);
+  try {
+    execFileSync4("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
+  } catch {
+    throw new Error(`not a Git repository: ${root}`);
+  }
+  const result = { created: [], kept: [] };
+  const inferred = inferTestCommand(root) ?? void 0;
+  writeScaffold(root, DEFAULT_POLICY_FILE, policyTemplate(inferred), force, result);
+  writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result);
+  writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result);
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", WORKFLOW, force, result);
+  return result;
+}
+function git3(repo, args) {
+  try {
+    return execFileSync4("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch {
+    return void 0;
+  }
+}
+function doctorRepository(repo, requestedPolicy, requestedTranscript) {
+  const root = resolve3(repo);
+  const checks = [];
+  const nodeMajor = Number(process.versions.node.split(".")[0]);
+  checks.push({
+    status: nodeMajor >= 20 ? "PASS" : "FAIL",
+    label: "Node.js",
+    detail: `${process.versions.node}${nodeMajor >= 20 ? " satisfies Node 20+" : " is unsupported; install Node 20+"}`
+  });
+  const gitRoot = git3(root, ["rev-parse", "--show-toplevel"]);
+  checks.push({
+    status: gitRoot ? "PASS" : "FAIL",
+    label: "Git repository",
+    detail: gitRoot ?? `${root} is not inside a readable Git repository`
+  });
+  let transcript = requestedTranscript;
+  try {
+    const policy = loadPolicy(root, requestedPolicy);
+    checks.push({
+      status: policy.path ? "PASS" : "WARN",
+      label: "Policy",
+      detail: policy.path ? `${relative2(root, policy.path)} \xB7 ${policy.sha256}` : `no ${DEFAULT_POLICY_FILE}; CLI defaults will be used`
+    });
+    transcript ??= policy.value.transcript;
+    const command = policy.value.testCommand ?? inferTestCommand(root);
+    checks.push({
+      status: command ? "PASS" : "WARN",
+      label: "Fresh verification",
+      detail: command ? `test command: ${command}` : "no test command inferred; use policy testCommand or --test-cmd"
+    });
+  } catch (error) {
+    checks.push({ status: "FAIL", label: "Policy", detail: error.message });
+  }
+  if (!transcript) {
+    checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });
+  } else {
+    const path = resolve3(root, transcript);
+    if (!existsSync3(path)) checks.push({ status: "WARN", label: "Transcript", detail: `${transcript} does not exist yet` });
+    else {
+      try {
+        const loaded = loadTranscript(path);
+        checks.push({
+          status: "PASS",
+          label: "Transcript",
+          detail: `${transcript} detected as ${loaded.format}; ${loaded.toolCalls.length} tool call(s)`
+        });
+      } catch (error) {
+        checks.push({ status: "FAIL", label: "Transcript", detail: error.message });
+      }
+    }
+  }
+  const workflow = resolve3(root, ".github/workflows/agent-vigil.yml");
+  checks.push({
+    status: existsSync3(workflow) ? "PASS" : "WARN",
+    label: "GitHub Action",
+    detail: existsSync3(workflow) ? "workflow installed; configure Agent Vigil evidence as a required status check after its first run" : "workflow not installed; run vigil init"
+  });
+  if (existsSync3(workflow)) {
+    const text = readFileSync4(workflow, "utf8");
+    const exactRange = /pull_request\.base\.sha/.test(text) && /pull_request\.head\.sha/.test(text);
+    checks.push({
+      status: exactRange ? "PASS" : "WARN",
+      label: "Git range",
+      detail: exactRange ? "workflow pins the pull request base and head SHAs" : "workflow does not visibly pin both pull request SHAs"
+    });
+    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}/.test(text);
+    checks.push({
+      status: exactCheckout ? "PASS" : "WARN",
+      label: "Checkout identity",
+      detail: exactCheckout ? "workflow checks out the exact pull request head SHA" : "workflow may verify GitHub's synthetic merge commit instead of the selected head"
+    });
+    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}/.test(text);
+    checks.push({
+      status: anchoredPolicy ? "PASS" : "WARN",
+      label: "Policy trust",
+      detail: anchoredPolicy ? "workflow loads policy from the pull request base commit" : "workflow policy may be controlled by the candidate change"
+    });
+  }
+  return checks;
+}
+function renderDoctor(checks) {
+  const icon2 = { PASS: "\u2713", WARN: "!", FAIL: "\u2717" };
+  const lines = ["Agent Vigil doctor", ""];
+  for (const check of checks) lines.push(`${icon2[check.status]} ${check.status.padEnd(4)} ${check.label}: ${check.detail}`);
+  const failed = checks.filter((check) => check.status === "FAIL").length;
+  const warned = checks.filter((check) => check.status === "WARN").length;
+  lines.push("", `${failed} failure(s) \xB7 ${warned} warning(s)`);
+  return lines.join("\n");
+}
+
+// src/signature.ts
+import {
+  createHash as createHash4,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign,
+  verify
+} from "node:crypto";
+import { chmodSync, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "node:fs";
+function publicKeyDer(key) {
+  return key.export({ type: "spki", format: "der" });
+}
+function keyId(der) {
+  return `sha256:${createHash4("sha256").update(der).digest("hex")}`;
+}
+function signReport(report, privateKeyPath) {
+  const privateKey = createPrivateKey(readFileSync5(privateKeyPath));
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signing key must be Ed25519");
+  const publicKey = createPublicKey(privateKey);
+  const der = publicKeyDer(publicKey);
+  report.signature = {
+    algorithm: "Ed25519",
+    keyId: keyId(der),
+    publicKey: der.toString("base64"),
+    value: sign(null, Buffer.from(report.receiptHash), privateKey).toString("base64")
+  };
+  return report;
+}
+function verifyReport(report, publicKeyPath) {
+  const hashValid = recomputeReceiptHash(report) === report.receiptHash;
+  if (!report.signature) return { hashValid, keyPinned: false };
+  if (report.signature.algorithm !== "Ed25519") return { hashValid, signatureValid: false, keyPinned: Boolean(publicKeyPath) };
+  const embedded = createPublicKey({
+    key: Buffer.from(report.signature.publicKey, "base64"),
+    type: "spki",
+    format: "der"
+  });
+  const selected = publicKeyPath ? createPublicKey(readFileSync5(publicKeyPath)) : embedded;
+  const selectedDer = publicKeyDer(selected);
+  const selectedId = keyId(selectedDer);
+  const signatureValid = selectedId === report.signature.keyId && verify(null, Buffer.from(report.receiptHash), selected, Buffer.from(report.signature.value, "base64"));
+  return { hashValid, signatureValid, keyPinned: Boolean(publicKeyPath), keyId: selectedId };
+}
+function generateSigningKey(privatePath, publicPath) {
+  const pair = generateKeyPairSync("ed25519");
+  const privatePem = pair.privateKey.export({ type: "pkcs8", format: "pem" });
+  const publicPem = pair.publicKey.export({ type: "spki", format: "pem" });
+  writeFileSync4(privatePath, privatePem, { mode: 384, flag: "wx" });
+  chmodSync(privatePath, 384);
+  writeFileSync4(publicPath, publicPem, { flag: "wx" });
+}
+
 // src/cli.ts
 function usage() {
   return `agent-vigil ${VERSION}
@@ -905,6 +1556,10 @@ function usage() {
 Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
+  vigil init [--repo <path>] [--force]
+  vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
+  vigil keygen --private <path> --public <path>
+  vigil verify <receipt.json> [--public-key <path>]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -915,6 +1570,9 @@ Options:
   --json                 Alias for --format json
   --output <path>        Write the full JSON receipt
   --sarif <path>         Also write SARIF 2.1.0
+  --policy <path>        Policy JSON (default: .agent-vigil.json when present)
+  --policy-ref <sha>     Load policy from a trusted Git commit instead of the worktree
+  --signing-key <path>   Sign the receipt with an Ed25519 private key
   --github-summary       Append Markdown to GITHUB_STEP_SUMMARY
   --strict               INCONCLUSIVE when any claim remains unresolved
   --min-verified <n>     Minimum objective verified claims (default: 1)
@@ -929,11 +1587,9 @@ function parseArgs(args) {
     base: process.env.GITHUB_BASE_SHA || "HEAD~1",
     head: process.env.GITHUB_HEAD_SHA || "HEAD",
     format: "text",
-    githubSummary: false,
-    strict: false,
-    minVerified: 1
+    githubSummary: false
   };
-  const takesValue = /* @__PURE__ */ new Set(["--repo", "--base", "--head", "--test-cmd", "--format", "--output", "--sarif", "--min-verified"]);
+  const takesValue = /* @__PURE__ */ new Set(["--repo", "--base", "--head", "--test-cmd", "--format", "--output", "--sarif", "--min-verified", "--policy", "--policy-ref", "--signing-key"]);
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (!arg.startsWith("--") && !options.transcript) {
@@ -966,13 +1622,95 @@ function parseArgs(args) {
     }
     if (arg === "--output") options.output = value;
     if (arg === "--sarif") options.sarif = value;
+    if (arg === "--policy") options.policy = value;
+    if (arg === "--policy-ref") options.policyRef = value;
+    if (arg === "--signing-key") options.signingKey = value;
     if (arg === "--min-verified") options.minVerified = Number(value);
   }
-  if (!Number.isInteger(options.minVerified) || options.minVerified < 1) throw new Error("--min-verified must be a positive integer");
+  if (options.minVerified !== void 0 && (!Number.isInteger(options.minVerified) || options.minVerified < 1)) {
+    throw new Error("--min-verified must be a positive integer");
+  }
   return options;
+}
+function optionValue(args, name) {
+  const index = args.indexOf(name);
+  if (index === -1) return void 0;
+  if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${name} requires a value`);
+  return args[index + 1];
+}
+function runInit(args) {
+  try {
+    const repo = resolve4(optionValue(args, "--repo") ?? ".");
+    const result = initRepository(repo, args.includes("--force"));
+    console.log("Agent Vigil initialized.\n");
+    for (const path of result.created) console.log(`  created ${path}`);
+    for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
+    console.log("\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
+    return 0;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runDoctor(args) {
+  try {
+    const repo = resolve4(optionValue(args, "--repo") ?? ".");
+    const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
+    console.log(renderDoctor(checks));
+    return checks.some((check) => check.status === "FAIL") ? 2 : 0;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runKeygen(args) {
+  try {
+    const privatePath = optionValue(args, "--private");
+    const publicPath = optionValue(args, "--public");
+    if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
+    generateSigningKey(resolve4(privatePath), resolve4(publicPath));
+    console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
+    return 0;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runVerify(args) {
+  try {
+    const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
+    if (!receiptPath) throw new Error("verify requires a receipt JSON path");
+    const report = JSON.parse(readFileSync6(resolve4(receiptPath), "utf8"));
+    if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
+    const publicKey = optionValue(args, "--public-key");
+    const result = verifyReport(report, publicKey ? resolve4(publicKey) : void 0);
+    console.log(`Receipt hash: ${result.hashValid ? "VALID" : "INVALID"}`);
+    if (result.signatureValid !== void 0) {
+      console.log(`Ed25519 signature: ${result.signatureValid ? "VALID" : "INVALID"} \xB7 ${result.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
+      if (!result.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
+    } else console.log("Signature: absent (content hash only)");
+    return result.hashValid && result.signatureValid !== false ? 0 : 1;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function git4(repo, args) {
+  try {
+    return execFileSync5("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch {
+    return void 0;
+  }
+}
+function shellQuote(value) {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 function run(argv = process.argv.slice(2)) {
   if (argv[0] === "demo") return runDemo(run);
+  if (argv[0] === "init") return runInit(argv);
+  if (argv[0] === "doctor") return runDoctor(argv);
+  if (argv[0] === "keygen") return runKeygen(argv);
+  if (argv[0] === "verify") return runVerify(argv);
   if (argv.includes("--help")) {
     console.log(usage());
     return 0;
@@ -990,17 +1728,28 @@ function run(argv = process.argv.slice(2)) {
 ${usage()}`);
     return 2;
   }
-  if (!options.transcript) {
+  const repo = resolve4(options.repo);
+  let policy;
+  try {
+    policy = loadPolicy(repo, options.policy, options.policyRef);
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+  const transcript = options.transcript ?? policy.value.transcript;
+  if (!transcript) {
     console.error(usage());
     return 2;
   }
-  const transcriptPath = resolve2(options.transcript);
-  const repo = resolve2(options.repo);
-  if (!existsSync2(transcriptPath)) {
+  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve4(repo, transcript);
+  const testCmd = options.testCmd ?? policy.value.testCommand;
+  const strict = options.strict ?? policy.value.strict ?? false;
+  const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
+  if (!existsSync4(transcriptPath)) {
     console.error(`agent-vigil: transcript not found: ${transcriptPath}`);
     return 2;
   }
-  if (!existsSync2(repo)) {
+  if (!existsSync4(repo)) {
     console.error(`agent-vigil: repository not found: ${repo}`);
     return 2;
   }
@@ -1015,7 +1764,14 @@ ${usage()}`);
     const claims = extractClaims(loaded.narrative);
     const runClaims = extractRunClaims(loaded.narrative);
     const results = [];
-    results.push(...checkTestsPass(claims, repo, options.testCmd));
+    const workspaceInputs = [
+      transcriptPath,
+      ...policy.path ? [policy.path] : [],
+      ...options.signingKey ? [resolve4(options.signingKey)] : []
+    ];
+    results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
+    results.push(...checkTestsPass(claims, repo, testCmd));
+    results.push(...checkWorkspaceMutation(repo, workspaceInputs));
     results.push(...checkFilesChanged(claims, repo, base, head));
     const changedClaims = new Set(claims.filter((claim) => claim.kind === "file_changed").map((claim) => claim.subject));
     results.push(...checkPathsExist(claims.filter((claim) => !changedClaims.has(claim.subject)), repo));
@@ -1023,16 +1779,38 @@ ${usage()}`);
     results.push(...checkStepRepetition(loaded.toolCalls));
     results.push(...checkIntegrity(repo, base, head));
     results.push(...checkCompletion(claims, repo, base, head, results));
-    const report = buildReport({
-      transcript: options.transcript,
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative3(repo, policy.path) : void 0;
+    const remote = git4(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = head === "WORKTREE" ? void 0 : git4(repo, ["rev-parse", `${head}^{tree}`]);
+    const relativeTranscript = relative3(repo, transcriptPath) || transcript;
+    const reproduction = [
+      "vigil",
+      shellQuote(relativeTranscript),
+      "--repo",
+      ".",
+      "--base",
+      base,
+      "--head",
+      head,
+      ...options.testCmd ? ["--test-cmd", shellQuote(options.testCmd)] : [],
+      ...policy.gitPath ? ["--policy", shellQuote(policy.gitPath)] : policySource ? ["--policy", shellQuote(policySource)] : [],
+      ...policy.ref ? ["--policy-ref", policy.ref] : [],
+      ...strict && !policy.value.strict ? ["--strict"] : [],
+      ...options.minVerified !== void 0 ? ["--min-verified", String(options.minVerified)] : []
+    ].join(" ");
+    let report = buildReport({
+      transcript: relativeTranscript,
       transcriptSha256: loaded.transcriptSha256,
       transcriptFormat: loaded.format,
       repo,
       base,
       head,
       results,
-      policy: { minVerified: options.minVerified, strict: options.strict }
+      policy: { minVerified, strict, source: policySource, sha256: policy.sha256 },
+      repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
+      reproduction
     });
+    if (options.signingKey) report = signReport(report, resolve4(options.signingKey));
     writeOutputs(report, options);
     if (options.format === "json") console.log(JSON.stringify(report, null, 2));
     else if (options.format === "markdown") console.log(renderMarkdown(report));
