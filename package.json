@@ -20,7 +20,8 @@
     "proof:historical": "node scripts/historical_proof.mjs",
     "demo:60s": "node scripts/demo_60s.mjs",
     "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
-    "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts"
+    "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts",
+    "benchmark:compare": "tsx scripts/benchmark_compare_static.ts"
   },
   "keywords": [
     "ai-agents",
