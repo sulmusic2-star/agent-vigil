@@ -334,7 +334,7 @@ Enterprise control guidance points to the same evidence boundary:
 
 ### Implemented product response
 
-The v0.7 maintainer profile verifies the event author/declaration match,
+The maintainer profile verifies the event author/declaration match,
 required human declarations, disclosure syntax, linked-issue syntax, file and
 line budgets, changed tests, protected paths, fresh head tests, and isolated
 base-fail/head-pass regression behavior. It says explicitly where it verifies
@@ -350,4 +350,35 @@ This is a narrower moat than a generic governance dashboard:
 5. public adoption measurement that does not convert references into users.
 
 Sandbox/orchestration products and AI-slop classifiers remain integration or
-competitor categories. Agent Vigil does not imitate them in v0.7.
+competitor categories. Agent Vigil does not imitate them in v0.8.
+
+## v0.8 release landscape recheck
+
+Live repository metadata and linked benchmark artifacts were rechecked on
+2026-08-21. Stars are discovery signals, not active-user counts.
+
+- [Swarm Orchestrator](https://github.com/moonrunnerkc/swarm-orchestrator)
+  is the strongest public-proof competitor found in this pass: 105 stars, an
+  npm install, a linked 303/325 planted-defect result, and a reproducible
+  [18-PR report](https://github.com/moonrunnerkc/swarm-orchestrator/blob/main/benchmarks/real-prs/REAL-WORLD-REPORT.md).
+  That report records 0.11 arbiter-labeled false alarms per PR and zero
+  true-cheat findings in the merged-PR corpus; it explicitly says the arbiter
+  is not ground truth. Agent Vigil should copy the evidence discipline, not its
+  architecture or claims.
+- [Agent Done Or Not](https://github.com/mohamedzhioua/agent-done-or-not)
+  had 6 stars and npm version 0.13.1, and its README linked a live Marketplace
+  Action. It remains the distribution and author-time stop-hook benchmark.
+- [Obsigna](https://github.com/agent-receipts/obsigna) had 20 stars,
+  [Treeship](https://github.com/zerkerlabs/treeship) 12, and
+  [Signet](https://github.com/Prismer-AI/signet) 37. Their public surfaces are
+  materially deeper on signed, chained, offline-verifiable agent-action
+  receipts. Agent Vigil should not claim general receipt-protocol leadership.
+- [OpenReview](https://github.com/vercel-labs/openreview) had 1,510 stars and
+  [Kodus](https://github.com/kodustech/kodus-ai) 1,320. Those projects lead on
+  visible AI review and GitHub/self-hosted workflow adoption. Agent Vigil's
+  deterministic change-evidence gate is a different job.
+
+The release response is deliberately bounded: three first-party historical
+failures with exact revisions and replays, a visually inspected installation
+page, npm/Marketplace publication metadata, and a permission-first maintainer
+trial ledger. First-party cases remain outside external-adoption totals.

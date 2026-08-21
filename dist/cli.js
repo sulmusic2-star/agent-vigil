@@ -984,7 +984,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.7.0";
+var VERSION = "0.8.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1630,7 +1630,7 @@ jobs:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha }}
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.7.0
+        uses: sulmusic2-star/agent-vigil@v0.8.0
         with:
           ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json

@@ -12,7 +12,8 @@ mentions, README links, and code-search hits remain discovery signals.
    This proves execution activity, not a PASS or retained use.
 4. **Receipt observed** — GitHub currently lists an artifact named
    `agent-vigil-receipt` in a configured external repository. The census counts
-   artifacts, not unique receipt hashes or lifetime runs.
+   artifacts, not unique receipt hashes or lifetime runs. This discovery count
+   cannot by itself satisfy the 1,000-receipt milestone.
 5. **Required check** — a repository owner provides public ruleset/branch
    protection evidence. Public code search cannot establish this state.
 6. **Maintainer-accepted contradiction** — a maintainer links the failing
@@ -35,8 +36,24 @@ repositories owned by `sulmusic2-star`, verifies workflow contents, checks for
 observable workflow runs, and counts currently listed receipt artifacts. API
 errors become unknown counts. They do not become zeros or successes.
 
-The 10-repository / 1,000-receipt milestone must be satisfied by external
-evidence under this contract. Compatibility labs, fuzz cases, the project's own
-CI, and Tim Sullivan's other repositories remain product evidence, not external
-adoption.
+## Commercial proof milestone
 
+All six conditions must be independently evidenced:
+
+- 10 externally owned configured repositories;
+- 1,000 external receipts, deduplicated by receipt hash and linked to a public
+  workflow run or consented maintainer ledger;
+- 5 maintainers still using the check after 30 calendar days;
+- 10 maintainer-accepted contradictions with the failing receipt and resulting
+  fix, closure, or policy decision;
+- fewer than 1% unexplained false verdicts, with every report classified as
+  resolved false verdict, expected behavior, product defect, or still open;
+- 3 external repositories with public owner-supplied evidence that the check is
+  required for merge.
+
+The public census is a discovery aid for configured workflows and currently
+listed artifacts. It cannot observe retention intent, unique lifetime receipt
+hashes, maintainer acceptance, or private rulesets. Those claims require
+separate public or consented owner evidence. Compatibility labs, fuzz cases,
+the project's own CI, and Tim Sullivan's other repositories remain product
+evidence, not external adoption.

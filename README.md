@@ -5,6 +5,8 @@
 [![Node 20+](https://img.shields.io/badge/node-20%2B-339933.svg)](package.json)
 [![No runtime dependencies](https://img.shields.io/badge/runtime_dependencies-0-0f766e.svg)](package.json)
 
+![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
+
 **The agent said it was done. Agent Vigil checks the receipt.**
 
 Agent Vigil reconciles an AI coding agent's final claims with its transcript,
@@ -12,7 +14,7 @@ repository, selected Git range, and a fresh verification run. The verifier is
 local and deterministic: no model grades another model, and missing evidence
 does not become a green check.
 
-For maintainers who do not want agent transcripts, v0.7 adds a PR evidence
+For maintainers who do not want agent transcripts, v0.8 includes a PR evidence
 gate. It binds a named human to the GitHub event, enforces small-change policy,
 and can run the candidate's changed regression test against both candidate and
 base source. A test that passes on both sides is a **FAIL**, not proof.
@@ -79,7 +81,12 @@ path limits, an isolated base-fail/head-pass differential test, and a workflow
 that retains the JSON receipt as a 30-day GitHub artifact. Review the generated
 commands and limits before merging the setup.
 
-## What v0.7 checks
+See the [two-minute installation page](https://sulmusic2-star.github.io/agent-vigil/)
+and the [three-case public failure corpus](proof/README.md). The corpus records
+first-party dogfood failures with exact revisions, corrections, negative
+controls, and limits; it is kept separate from external-adoption totals.
+
+## What v0.8 checks
 
 - Claimed test success against a fresh test execution.
 - Claimed test counts across 18 output families: Node/TAP, Jest, Vitest, pytest, Cargo, Go JSON, Maven, Gradle, RSpec, PHPUnit, .NET, Mocha, Bun, AVA, Playwright, Cypress, and Minitest.
@@ -196,7 +203,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.7.0
+  - uses: sulmusic2-star/agent-vigil@v0.8.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -225,7 +232,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.7.0
+    uses: sulmusic2-star/agent-vigil@v0.8.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
@@ -307,7 +314,7 @@ search hit is not counted as an adopter or receipt. The public
 
 ## Evidence on this repository
 
-- 200 tests, including 80 generated-repository compatibility scenarios across
+- 205 tests, including 80 generated-repository compatibility scenarios across
   18 runner-output families, plus adversarial false-pass, path, transcript,
   tool-loop, test-count, skip, suppression, adapter-drift, maintainer-attestation,
   scope-budget, symlink, forged-event, and differential-regression cases.
@@ -321,11 +328,13 @@ search hit is not counted as an adopter or receipt. The public
   and Windows.
 - The GitHub Action dogfoods itself in CI.
 - `npm pack --dry-run` is part of the build gate.
+- JSON, SARIF, and job-summary outputs reject symlinks and non-regular targets,
+  then use private `0600` same-directory temporary files and atomic replacement.
 - Zero runtime dependencies.
 
 The adapter, setup, policy-anchor, receipt-signing, workspace-binding,
-maintainer-evidence, and remediation tests raise the suite above the v0.4
-baseline.
+maintainer-evidence, remediation, and safe-output tests raise the suite above
+the v0.4 baseline.
 
 ## AI Change Receipt v2
 
