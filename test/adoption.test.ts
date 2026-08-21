@@ -1,13 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPolicy } from "../src/config.ts";
 import { renderMarkdown, remediationFor } from "../src/output.ts";
-import { buildReport, type CheckResult } from "../src/report.ts";
-import { generateSigningKey, signReport, verifyReport } from "../src/signature.ts";
+import { buildReport, canonical, type CheckResult } from "../src/report.ts";
+import { generateSigningKey, publicKeyId, signReport, verifyReport } from "../src/signature.ts";
+import { createPortableReceipt, verifyPortableReceipt } from "../src/portable.ts";
 import { doctorRepository, initRepository } from "../src/setup.ts";
 import { loadTranscript } from "../src/transcript.ts";
 import { checkTestsPass } from "../src/detectors/reality.ts";
@@ -180,6 +182,14 @@ test("init preserves existing policy unless force is explicit", () => {
   assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /schemaVersion/);
 });
 
+test("Action accepts exactly one of transcript or portable receipt", () => {
+  const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
+  assert.match(action, /VIGIL_RECEIPT/);
+  assert.match(action, /choose transcript or receipt, not both/);
+  assert.match(action, /receipt mode requires a base-anchored policy/);
+  assert.match(action, /args=\(gate "\$VIGIL_RECEIPT"/);
+});
+
 test("doctor validates the generated installation", () => {
   const path = repo();
   initRepository(path);
@@ -198,9 +208,9 @@ function sampleReport() {
     ruleId: "tests-pass",
   };
   return buildReport({
-    transcript: "session.md", transcriptSha256: "sha256:t", transcriptFormat: "markdown",
+    transcript: "session.md", transcriptSha256: `sha256:${"1".repeat(64)}`, transcriptFormat: "markdown",
     repo: ".", base: "a", head: "b", results: [result],
-    policy: { minVerified: 1, strict: true, sha256: "sha256:p" },
+    policy: { minVerified: 1, strict: true, sha256: `sha256:${"2".repeat(64)}` },
     repository: { remote: "https://example.test/repo", tree: "tree" },
     reproduction: "vigil session.md --base a --head b",
   });
@@ -236,6 +246,134 @@ test("pinned verification rejects the wrong public key", () => {
   generateSigningKey(join(right, "private.pem"), join(right, "public.pem"));
   const report = signReport(sampleReport(), join(left, "private.pem"));
   assert.equal(verifyReport(report, join(right, "public.pem")).signatureValid, false);
+});
+
+test("portable receipt omits transcript text and detailed claim evidence", () => {
+  const dir = temp(); const privateKey = join(dir, "private.pem"); const publicKey = join(dir, "public.pem");
+  generateSigningKey(privateKey, publicKey);
+  const report = sampleReport();
+  const receipt = createPortableReceipt(report, privateKey);
+  const serialized = JSON.stringify(receipt);
+  assert.doesNotMatch(serialized, /session\.md|fresh command passed|tests pass/);
+  const verified = verifyPortableReceipt(receipt, [publicKeyId(publicKey)]);
+  assert.equal(verified.hashValid, true);
+  assert.equal(verified.signatureValid, true);
+  assert.equal(verified.signerTrusted, true);
+});
+
+test("portable receipt signature binds status, Git identity, and policy", () => {
+  const dir = temp(); const privateKey = join(dir, "private.pem"); const publicKey = join(dir, "public.pem");
+  generateSigningKey(privateKey, publicKey);
+  const receipt = createPortableReceipt(sampleReport(), privateKey);
+  receipt.summary.status = "FAIL";
+  receipt.summary.pass = false;
+  const verified = verifyPortableReceipt(receipt, [publicKeyId(publicKey)]);
+  assert.equal(verified.hashValid, false);
+  assert.equal(verified.signatureValid, true);
+});
+
+test("portable receipt does not trust an unpinned embedded signer", () => {
+  const dir = temp(); const privateKey = join(dir, "private.pem"); const publicKey = join(dir, "public.pem");
+  generateSigningKey(privateKey, publicKey);
+  const receipt = createPortableReceipt(sampleReport(), privateKey);
+  const verified = verifyPortableReceipt(receipt, []);
+  assert.equal(verified.signatureValid, true);
+  assert.equal(verified.signerTrusted, false);
+  assert.match(verified.errors.join(" "), /not pinned/);
+});
+
+test("portable receipt verification rejects malformed metadata and inconsistent summary", () => {
+  const dir = temp(); const privateKey = join(dir, "private.pem"); const publicKey = join(dir, "public.pem");
+  generateSigningKey(privateKey, publicKey);
+  const receipt = createPortableReceipt(sampleReport(), privateKey);
+  receipt.reportHash = "bad";
+  receipt.repository.tree = "";
+  receipt.summary.pass = false;
+  const verified = verifyPortableReceipt(receipt, [publicKeyId(publicKey)]);
+  assert.equal(verified.hashValid, false);
+  assert.match(verified.errors.join(" "), /reportHash.*SHA-256/);
+  assert.match(verified.errors.join(" "), /base, head, and repository tree/);
+  assert.match(verified.errors.join(" "), /pass flag disagrees/);
+});
+
+test("portable receipt reports field errors separately from a matching payload hash", () => {
+  const dir = temp(); const privateKey = join(dir, "private.pem"); const publicKey = join(dir, "public.pem");
+  generateSigningKey(privateKey, publicKey);
+  const receipt = createPortableReceipt(sampleReport(), privateKey);
+  receipt.reportHash = "bad";
+  const { portableHash: _portableHash, signature: _signature, ...payload } = receipt;
+  receipt.portableHash = `sha256:${createHash("sha256").update(canonical(payload)).digest("hex")}`;
+  const verified = verifyPortableReceipt(receipt, [publicKeyId(publicKey)]);
+  assert.equal(verified.hashValid, false);
+  assert.match(verified.errors.join(" "), /reportHash.*SHA-256/);
+  assert.doesNotMatch(verified.errors.join(" "), /portable receipt hash is invalid/);
+});
+
+test("portable receipt verification fails closed on an unreadable embedded key", () => {
+  const dir = temp(); const privateKey = join(dir, "private.pem"); const publicKey = join(dir, "public.pem");
+  generateSigningKey(privateKey, publicKey);
+  const receipt = createPortableReceipt(sampleReport(), privateKey);
+  receipt.signature.publicKey = "not-base64";
+  const verified = verifyPortableReceipt(receipt, [publicKeyId(publicKey)]);
+  assert.equal(verified.signatureValid, false);
+  assert.equal(verified.signerTrusted, false);
+  assert.match(verified.errors.join(" "), /could not be read/);
+});
+
+test("portable sealing refuses a tampered full receipt", () => {
+  const dir = temp(); const privateKey = join(dir, "private.pem"); const publicKey = join(dir, "public.pem");
+  generateSigningKey(privateKey, publicKey);
+  const report = sampleReport();
+  report.summary.verified = 999;
+  assert.throws(() => createPortableReceipt(report, privateKey), /full receipt hash is invalid/);
+});
+
+test("portable sealing refuses a report without a committed head tree", () => {
+  const dir = temp(); const privateKey = join(dir, "private.pem"); const publicKey = join(dir, "public.pem");
+  generateSigningKey(privateKey, publicKey);
+  const result: CheckResult = {
+    claim: { kind: "tests_pass", quote: "tests pass", subject: "test suite" },
+    verdict: "verified", evidence: "fresh command passed", ruleId: "tests-pass",
+  };
+  const report = buildReport({
+    transcript: "session.md", transcriptSha256: `sha256:${"1".repeat(64)}`, transcriptFormat: "markdown",
+    repo: ".", base: "a", head: "WORKTREE", results: [result],
+    policy: { minVerified: 1, strict: true, sha256: `sha256:${"2".repeat(64)}` },
+    repository: {}, reproduction: "vigil session.md --head WORKTREE",
+  });
+  assert.throws(() => createPortableReceipt(report, privateKey), /requires a committed head tree/);
+});
+
+test("policy validates portable receipt paths and signer IDs", () => {
+  const path = repo();
+  writeFileSync(join(path, ".agent-vigil.json"), JSON.stringify({
+    schemaVersion: 1,
+    portableReceipt: ".agent-vigil/receipt.json",
+    trustedSignerKeyIds: [`sha256:${"a".repeat(64)}`],
+  }));
+  assert.equal(loadPolicy(path).value.portableReceipt, ".agent-vigil/receipt.json");
+  writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"portableReceipt":"../receipt.json"}');
+  assert.throws(() => loadPolicy(path), /inside the repository/);
+  writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"portableReceipt":"..\\\\receipt.json"}');
+  assert.throws(() => loadPolicy(path), /inside the repository/);
+  writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"portableReceipt":"C:\\\\receipt.json"}');
+  assert.throws(() => loadPolicy(path), /inside the repository/);
+  writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"trustedSignerKeyIds":["bad"]}');
+  assert.throws(() => loadPolicy(path), /SHA-256 key IDs/);
+  writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"trustedSignerKeyIds":[]}');
+  assert.throws(() => loadPolicy(path), /non-empty array/);
+  writeFileSync(join(path, ".agent-vigil.json"), JSON.stringify({ schemaVersion: 1, trustedSignerKeyIds: [`sha256:${"a".repeat(64)}`, `sha256:${"a".repeat(64)}`] }));
+  assert.throws(() => loadPolicy(path), /duplicates/);
+  writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"portableReceipt":"/tmp/receipt.json"}');
+  assert.throws(() => loadPolicy(path), /inside the repository/);
+});
+
+test("doctor fails portable mode without a pinned signer", () => {
+  const path = repo();
+  writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"portableReceipt":".agent-vigil/receipt.json"}');
+  const checks = doctorRepository(path);
+  assert.ok(checks.some((check) => check.label === "Portable signer" && check.status === "FAIL"));
+  assert.ok(checks.some((check) => check.label === "Portable receipt" && check.status === "WARN"));
 });
 
 test("failure output includes a concrete remediation", () => {

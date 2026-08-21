@@ -8,7 +8,7 @@ import { loadTranscript } from "./transcript.ts";
 type InitResult = { created: string[]; kept: string[] };
 type DoctorCheck = { status: "PASS" | "WARN" | "FAIL"; label: string; detail: string };
 
-const WORKFLOW = `name: Agent Vigil
+function workflow(portable: boolean): string { return `name: Agent Vigil
 
 on:
   pull_request:
@@ -25,15 +25,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha }}
-      - uses: sulmusic2-star/agent-vigil@v0.5.0
+      - uses: sulmusic2-star/agent-vigil@v0.6.0
         with:
-          transcript: .agent-vigil/session.md
+          ${portable ? "receipt: .agent-vigil/receipt.json" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
           policy-ref: \${{ github.event.pull_request.base.sha }}
           repo: .
           base: \${{ github.event.pull_request.base.sha }}
           head: \${{ github.event.pull_request.head.sha }}
-`;
+`; }
 
 const SESSION_TEMPLATE = `# Agent change receipt
 
@@ -65,16 +65,18 @@ function writeScaffold(root: string, path: string, content: string, force: boole
   result.created.push(path);
 }
 
-export function initRepository(repo: string, force = false): InitResult {
+export function initRepository(repo: string, force = false, portableSignerKeyId?: string): InitResult {
   const root = resolve(repo);
   try { execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" }); }
   catch { throw new Error(`not a Git repository: ${root}`); }
   const result: InitResult = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? undefined;
-  writeScaffold(root, DEFAULT_POLICY_FILE, policyTemplate(inferred), force, result);
-  writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result);
-  writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result);
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", WORKFLOW, force, result);
+  writeScaffold(root, DEFAULT_POLICY_FILE, policyTemplate(inferred, portableSignerKeyId), force, result);
+  if (!portableSignerKeyId) {
+    writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result);
+    writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result);
+  }
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(Boolean(portableSignerKeyId)), force, result);
   return result;
 }
 
@@ -100,6 +102,7 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
   });
 
   let transcript = requestedTranscript;
+  let portableReceipt: string | undefined;
   try {
     const policy = loadPolicy(root, requestedPolicy);
     checks.push({
@@ -108,17 +111,35 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
       detail: policy.path ? `${relative(root, policy.path)} · ${policy.sha256}` : `no ${DEFAULT_POLICY_FILE}; CLI defaults will be used`,
     });
     transcript ??= policy.value.transcript;
+    portableReceipt = policy.value.portableReceipt;
     const command = policy.value.testCommand ?? inferTestCommand(root);
     checks.push({
       status: command ? "PASS" : "WARN",
       label: "Fresh verification",
       detail: command ? `test command: ${command}` : "no test command inferred; use policy testCommand or --test-cmd",
     });
+    if (portableReceipt) {
+      const signerCount = policy.value.trustedSignerKeyIds?.length ?? 0;
+      checks.push({
+        status: signerCount ? "PASS" : "FAIL",
+        label: "Portable signer",
+        detail: signerCount ? `${signerCount} signer key ID(s) pinned by policy` : "portable receipt mode requires trustedSignerKeyIds",
+      });
+    }
   } catch (error) {
     checks.push({ status: "FAIL", label: "Policy", detail: (error as Error).message });
   }
 
-  if (!transcript) {
+  if (portableReceipt) {
+    const path = resolve(root, portableReceipt);
+    checks.push({
+      status: existsSync(path) ? "PASS" : "WARN",
+      label: "Portable receipt",
+      detail: existsSync(path)
+        ? `${portableReceipt} is present; run vigil gate to verify it`
+        : `${portableReceipt} will be created after the next signed code change; raw transcript remains local`,
+    });
+  } else if (!transcript) {
     checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });
   } else {
     const path = resolve(root, transcript);

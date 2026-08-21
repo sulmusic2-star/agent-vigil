@@ -10,11 +10,11 @@ import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import type { TrustReport } from "./report.ts";
 import { recomputeReceiptHash } from "./report.ts";
 
-function publicKeyDer(key: ReturnType<typeof createPublicKey>): Buffer {
+export function publicKeyDer(key: ReturnType<typeof createPublicKey>): Buffer {
   return key.export({ type: "spki", format: "der" });
 }
 
-function keyId(der: Buffer): string {
+export function signingKeyId(der: Buffer): string {
   return `sha256:${createHash("sha256").update(der).digest("hex")}`;
 }
 
@@ -25,7 +25,7 @@ export function signReport(report: TrustReport, privateKeyPath: string): TrustRe
   const der = publicKeyDer(publicKey);
   report.signature = {
     algorithm: "Ed25519",
-    keyId: keyId(der),
+    keyId: signingKeyId(der),
     publicKey: der.toString("base64"),
     value: sign(null, Buffer.from(report.receiptHash), privateKey).toString("base64"),
   };
@@ -50,7 +50,7 @@ export function verifyReport(report: TrustReport, publicKeyPath?: string): Verif
   });
   const selected = publicKeyPath ? createPublicKey(readFileSync(publicKeyPath)) : embedded;
   const selectedDer = publicKeyDer(selected);
-  const selectedId = keyId(selectedDer);
+  const selectedId = signingKeyId(selectedDer);
   const signatureValid = selectedId === report.signature.keyId
     && verify(null, Buffer.from(report.receiptHash), selected, Buffer.from(report.signature.value, "base64"));
   return { hashValid, signatureValid, keyPinned: Boolean(publicKeyPath), keyId: selectedId };
@@ -63,4 +63,10 @@ export function generateSigningKey(privatePath: string, publicPath: string): voi
   writeFileSync(privatePath, privatePem, { mode: 0o600, flag: "wx" });
   chmodSync(privatePath, 0o600);
   writeFileSync(publicPath, publicPem, { flag: "wx" });
+}
+
+export function publicKeyId(publicKeyPath: string): string {
+  const publicKey = createPublicKey(readFileSync(publicKeyPath));
+  if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("public key must be Ed25519");
+  return signingKeyId(publicKeyDer(publicKey));
 }

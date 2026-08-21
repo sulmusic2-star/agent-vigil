@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/portable-receipt-v1.schema.json",
+  "title": "Agent Vigil portable receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "type", "vigilVersion", "reportHash", "resultsHash", "transcriptSha256", "base", "head", "repository", "policy", "summary", "issuedAt", "portableHash", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "type": { "const": "agent-vigil/portable-receipt" },
+    "vigilVersion": { "type": "string" },
+    "reportHash": { "$ref": "#/$defs/sha256" },
+    "resultsHash": { "$ref": "#/$defs/sha256" },
+    "transcriptSha256": { "$ref": "#/$defs/sha256" },
+    "base": { "type": "string", "minLength": 1 },
+    "head": { "type": "string", "minLength": 1 },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tree"],
+      "properties": { "remote": { "type": "string" }, "tree": { "type": "string", "minLength": 1 } }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": { "sha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verified", "contradicted", "unverifiable", "meaningfulVerified", "status", "pass"],
+      "properties": {
+        "verified": { "type": "integer", "minimum": 0 },
+        "contradicted": { "type": "integer", "minimum": 0 },
+        "unverifiable": { "type": "integer", "minimum": 0 },
+        "meaningfulVerified": { "type": "integer", "minimum": 0 },
+        "status": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+        "pass": { "type": "boolean" }
+      }
+    },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "portableHash": { "$ref": "#/$defs/sha256" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "publicKey", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "$ref": "#/$defs/sha256" },
+        "publicKey": { "type": "string", "contentEncoding": "base64" },
+        "value": { "type": "string", "contentEncoding": "base64" }
+      }
+    }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+}

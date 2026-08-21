@@ -56,6 +56,58 @@ def vigil(repo: pathlib.Path, count: int, command: str | None) -> dict[str, obje
         return {"status": "ERROR", "evidence": (completed.stderr or completed.stdout)[-500:], "exit": completed.returncode}
 
 
+def portable_gate(repo: pathlib.Path, name: str, root: pathlib.Path, private_key: pathlib.Path, public_key: pathlib.Path, command: str | None) -> dict[str, object]:
+    for transcript in repo.glob("summary-*.md"):
+        transcript.unlink()
+    initialized = run([
+        "node", str(CLI), "init", "--portable", "--public-key", str(public_key),
+        "--force", "--repo", str(repo),
+    ], repo, check=False)
+    if initialized.returncode != 0:
+        return {"status": "ERROR", "evidence": initialized.stderr[-500:]}
+    if command:
+        policy_path = repo / ".agent-vigil.json"
+        policy = json.loads(policy_path.read_text())
+        policy["testCommand"] = command
+        policy_path.write_text(json.dumps(policy, indent=2) + "\n")
+    commit(repo, "portable policy")
+    base = run(["git", "rev-parse", "HEAD"], repo).stdout.strip()
+    (repo / "PORTABLE_CHANGE.md").write_text("portable gate code head\n")
+    commit(repo, "portable code head")
+    code_head = run(["git", "rev-parse", "HEAD"], repo).stdout.strip()
+    transcript = root / f"private-{name}.md"
+    transcript.write_text("All 3 tests pass.\n")
+    receipt = repo / ".agent-vigil" / "receipt.json"
+    sealed = run([
+        "node", str(CLI), str(transcript), "--repo", str(repo), "--base", base, "--head", code_head,
+        "--policy", ".agent-vigil.json", "--policy-ref", base, "--signing-key", str(private_key),
+        "--portable-output", ".agent-vigil/receipt.json", "--strict",
+    ], repo, check=False)
+    if sealed.returncode != 0:
+        return {"status": "ERROR", "evidence": (sealed.stderr or sealed.stdout)[-500:]}
+    run(["git", "add", ".agent-vigil/receipt.json"], repo)
+    run(["git", "commit", "-qm", "attach portable receipt"], repo)
+    receipt_head = run(["git", "rev-parse", "HEAD"], repo).stdout.strip()
+
+    def gate(head: str) -> dict[str, object]:
+        completed = run([
+            "node", str(CLI), "gate", str(receipt), "--repo", str(repo), "--base", base, "--head", head,
+            "--policy", ".agent-vigil.json", "--policy-ref", base, "--format", "json",
+        ], repo, check=False)
+        try:
+            report = json.loads(completed.stdout)
+            return {"status": report["summary"]["status"], "exit": completed.returncode}
+        except Exception:
+            return {"status": "ERROR", "exit": completed.returncode, "evidence": (completed.stderr or completed.stdout)[-500:]}
+
+    accepted = gate(receipt_head)
+    (repo / "POST_RECEIPT_CHANGE.md").write_text("must invalidate prior receipt\n")
+    commit(repo, "post receipt source change")
+    changed_head = run(["git", "rev-parse", "HEAD"], repo).stdout.strip()
+    invalidated = gate(changed_head)
+    return {"accepted": accepted, "postReceiptChange": invalidated}
+
+
 def node_repo(root: pathlib.Path, name: str, prefix: str = "") -> pathlib.Path:
     repo = init_repo(root, name)
     project = repo / prefix if prefix else repo
@@ -118,20 +170,31 @@ def main() -> int:
     if not CLI.exists():
         raise SystemExit("build dist/cli.js first with npm run build")
     root = pathlib.Path(tempfile.mkdtemp(prefix="agent-vigil-ecosystem-lab-"))
+    private_key = root / "operator.pem"
+    public_key = root / "operator.pub"
+    run(["node", str(CLI), "keygen", "--private", str(private_key), "--public", str(public_key)], root)
     results = []
     for name, repo, command in build_cases(root):
         started = time.time()
         exact = vigil(repo, 3, command)
         inflated = vigil(repo, 99, command)
+        portable = portable_gate(repo, name, root, private_key, public_key, command)
         results.append({
             "repo": name,
             "command": command or "auto",
             "exact": exact,
             "inflated": inflated,
+            "portable": portable,
             "seconds": round(time.time() - started, 2),
         })
-    passed = sum(row["exact"]["status"] == "PASS" and row["inflated"]["status"] == "FAIL" for row in results)
-    report = {"repositories": len(results), "verdicts": len(results) * 2, "passed": passed, "results": results}
+    passed = sum(
+        row["exact"]["status"] == "PASS"
+        and row["inflated"]["status"] == "FAIL"
+        and row["portable"].get("accepted", {}).get("status") == "PASS"
+        and row["portable"].get("postReceiptChange", {}).get("status") == "FAIL"
+        for row in results
+    )
+    report = {"repositories": len(results), "verdicts": len(results) * 4, "passed": passed, "results": results}
     rendered = json.dumps(report, indent=2)
     print(rendered)
     if args.output:

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTranscript, extractClaims, extractRunClaims } from "./transcript.ts";
 import {
@@ -23,7 +23,9 @@ import { renderMarkdown, renderText, toSarif, writeOutputs } from "./output.ts";
 import { runDemo } from "./demo.ts";
 import { loadPolicy } from "./config.ts";
 import { doctorRepository, initRepository, renderDoctor } from "./setup.ts";
-import { generateSigningKey, signReport, verifyReport } from "./signature.ts";
+import { generateSigningKey, publicKeyId, signReport, verifyReport } from "./signature.ts";
+import { createPortableReceipt, type PortableReceipt } from "./portable.ts";
+import { buildPortableGateReport } from "./gate.ts";
 
 type Options = {
   transcript?: string;
@@ -37,6 +39,7 @@ type Options = {
   policy?: string;
   policyRef?: string;
   signingKey?: string;
+  portableOutput?: string;
   githubSummary: boolean;
   strict?: boolean;
   minVerified?: number;
@@ -48,10 +51,11 @@ function usage(): string {
 Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
-  vigil init [--repo <path>] [--force]
+  vigil init [--repo <path>] [--force] [--portable --public-key <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
+  vigil gate <portable-receipt.json> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -65,6 +69,7 @@ Options:
   --policy <path>        Policy JSON (default: .agent-vigil.json when present)
   --policy-ref <sha>     Load policy from a trusted Git commit instead of the worktree
   --signing-key <path>   Sign the receipt with an Ed25519 private key
+  --portable-output <p>  Write a compact signed receipt; requires --signing-key
   --github-summary       Append Markdown to GITHUB_STEP_SUMMARY
   --strict               INCONCLUSIVE when any claim remains unresolved
   --min-verified <n>     Minimum objective verified claims (default: 1)
@@ -82,7 +87,7 @@ function parseArgs(args: string[]): Options {
     format: "text",
     githubSummary: false,
   };
-  const takesValue = new Set(["--repo", "--base", "--head", "--test-cmd", "--format", "--output", "--sarif", "--min-verified", "--policy", "--policy-ref", "--signing-key"]);
+  const takesValue = new Set(["--repo", "--base", "--head", "--test-cmd", "--format", "--output", "--sarif", "--min-verified", "--policy", "--policy-ref", "--signing-key", "--portable-output"]);
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (!arg.startsWith("--") && !options.transcript) { options.transcript = arg; continue; }
@@ -106,6 +111,7 @@ function parseArgs(args: string[]): Options {
     if (arg === "--policy") options.policy = value;
     if (arg === "--policy-ref") options.policyRef = value;
     if (arg === "--signing-key") options.signingKey = value;
+    if (arg === "--portable-output") options.portableOutput = value;
     if (arg === "--min-verified") options.minVerified = Number(value);
   }
   if (options.minVerified !== undefined && (!Number.isInteger(options.minVerified) || options.minVerified < 1)) {
@@ -124,11 +130,17 @@ function optionValue(args: string[], name: string): string | undefined {
 function runInit(args: string[]): number {
   try {
     const repo = resolve(optionValue(args, "--repo") ?? ".");
-    const result = initRepository(repo, args.includes("--force"));
+    const portable = args.includes("--portable");
+    const publicKey = optionValue(args, "--public-key");
+    if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
+    if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
+    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined);
     console.log("Agent Vigil initialized.\n");
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
-    console.log("\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
+    console.log(portable
+      ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output."
+      : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
     return 0;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
@@ -149,7 +161,36 @@ function runKeygen(args: string[]): number {
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
     generateSigningKey(resolve(privatePath), resolve(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
+    console.log(`Signer key ID: ${publicKeyId(resolve(publicPath))}`);
     return 0;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function printReport(report: TrustReport, options: Pick<Options, "format">): void {
+  if (options.format === "json") console.log(JSON.stringify(report, null, 2));
+  else if (options.format === "markdown") console.log(renderMarkdown(report));
+  else if (options.format === "sarif") console.log(JSON.stringify(toSarif(report), null, 2));
+  else console.log(renderText(report));
+}
+
+function runGate(args: string[]): number {
+  try {
+    const options = parseArgs(args.slice(1));
+    const receiptPath = options.transcript;
+    if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
+    const absoluteReceipt = resolve(options.repo, receiptPath);
+    const receipt = JSON.parse(readFileSync(absoluteReceipt, "utf8")) as PortableReceipt;
+    const report = buildPortableGateReport(receipt, {
+      repo: resolve(options.repo),
+      receiptPath: absoluteReceipt,
+      base: options.base,
+      head: options.head,
+      ...(options.policy ? { policy: options.policy } : {}),
+      ...(options.policyRef ? { policyRef: options.policyRef } : {}),
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -185,12 +226,17 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
+  if (argv[0] === "gate") return runGate(argv);
   if (argv.includes("--help")) { console.log(usage()); return 0; }
   if (argv.includes("--version")) { console.log(VERSION); return 0; }
   let options: Options;
   try { options = parseArgs(argv); }
   catch (error) { console.error(`agent-vigil: ${(error as Error).message}\n\n${usage()}`); return 2; }
   const repo = resolve(options.repo);
+  if (options.portableOutput && !options.signingKey) {
+    console.error("agent-vigil: --portable-output requires --signing-key");
+    return 2;
+  }
   let policy;
   try { policy = loadPolicy(repo, options.policy, options.policyRef); }
   catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
@@ -220,6 +266,7 @@ export function run(argv = process.argv.slice(2)): number {
       transcriptPath,
       ...(policy.path ? [policy.path] : []),
       ...(options.signingKey ? [resolve(options.signingKey)] : []),
+      ...(options.portableOutput ? [resolve(repo, options.portableOutput)] : []),
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -243,6 +290,7 @@ export function run(argv = process.argv.slice(2)): number {
       ...(policy.ref ? ["--policy-ref", policy.ref] : []),
       ...(strict && !policy.value.strict ? ["--strict"] : []),
       ...(options.minVerified !== undefined ? ["--min-verified", String(options.minVerified)] : []),
+      ...(options.portableOutput ? ["--portable-output", shellQuote(options.portableOutput)] : []),
     ].join(" ");
     let report = buildReport({
       transcript: relativeTranscript,
@@ -258,10 +306,13 @@ export function run(argv = process.argv.slice(2)): number {
     });
     if (options.signingKey) report = signReport(report, resolve(options.signingKey));
     writeOutputs(report, options);
-    if (options.format === "json") console.log(JSON.stringify(report, null, 2));
-    else if (options.format === "markdown") console.log(renderMarkdown(report));
-    else if (options.format === "sarif") console.log(JSON.stringify(toSarif(report), null, 2));
-    else console.log(renderText(report));
+    if (options.portableOutput) {
+      const portable = createPortableReceipt(report, resolve(options.signingKey!));
+      const portablePath = resolve(repo, options.portableOutput);
+      mkdirSync(dirname(portablePath), { recursive: true });
+      writeFileSync(portablePath, `${JSON.stringify(portable, null, 2)}\n`);
+    }
+    printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
   } catch (error) {
     console.error(`agent-vigil: ${(error as Error).message}`);

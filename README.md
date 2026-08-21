@@ -12,6 +12,12 @@ repository, selected Git range, and a fresh verification run. The verifier is
 local and deterministic: no model grades another model, and missing evidence
 does not become a green check.
 
+Raw agent transcripts do not need to be committed to a pull request. The
+portable-receipt lane reduces a local result to signed hashes, repository and
+policy identity, summary counts, and a signer key ID. CI verifies the signer
+against policy from the base branch and independently re-runs the trusted test
+command in the clean checkout.
+
 ```text
   ✗ [test-count] 99 tests
       evidence: claim says 99 tests; runner reported 42
@@ -38,11 +44,11 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 
 ## Two-minute setup
 
-From the npm package after v0.5.0 is published:
+From the compiled GitHub package (npm remains a separate publication):
 
 ```bash
-npx agent-vigil@0.5.0 init
-npx agent-vigil@0.5.0 doctor
+npx --yes github:sulmusic2-star/agent-vigil init
+npx --yes github:sulmusic2-star/agent-vigil doctor
 ```
 
 `init` creates a small JSON policy, a privacy warning and transcript placeholder,
@@ -57,7 +63,7 @@ candidate change therefore cannot weaken its own gate merely by editing
 On pull-request events, the Action also rejects base, head, or policy-ref values
 that disagree with GitHub's event payload.
 
-## What v0.5 checks
+## What v0.6 checks
 
 - Claimed test success against a fresh test execution.
 - Claimed test counts across 18 output families: Node/TAP, Jest, Vitest, pytest, Cargo, Go JSON, Maven, Gradle, RSpec, PHPUnit, .NET, Mocha, Bun, AVA, Playwright, Cypress, and Minitest.
@@ -77,6 +83,43 @@ that disagree with GitHub's event payload.
 Every run can emit a compact JSON receipt, Markdown, SARIF 2.1.0, and a GitHub
 Step Summary. The receipt has a deterministic SHA-256 content identifier. It is
 **not a cryptographic signature**; see the [threat model](docs/THREAT_MODEL.md).
+
+## Keep the raw transcript out of Git and CI
+
+The optional portable-receipt gate separates private local reconciliation from
+independent CI verification:
+
+```bash
+vigil keygen --private ~/.config/agent-vigil/operator.pem \
+  --public ~/.config/agent-vigil/operator.pub
+
+vigil /private/path/session.jsonl \
+  --repo . --base "$BASE_SHA" --head "$(git rev-parse HEAD)" \
+  --policy .agent-vigil.json --policy-ref "$BASE_SHA" \
+  --signing-key ~/.config/agent-vigil/operator.pem \
+  --portable-output .agent-vigil/receipt.json --strict
+
+git add .agent-vigil/receipt.json
+git commit -m "chore: attach Agent Vigil receipt"
+```
+
+The base-branch policy pins the signer and receipt path:
+
+```json
+{
+  "schemaVersion": 1,
+  "testCommand": "npm test --silent",
+  "strict": true,
+  "minVerified": 1,
+  "portableReceipt": ".agent-vigil/receipt.json",
+  "trustedSignerKeyIds": ["sha256:<key-id-printed-by-vigil-keygen>"]
+}
+```
+
+Use `receipt:` instead of `transcript:` in the Action. Agent Vigil permits the
+signed code commit to equal the PR head, or to be followed only by changes to
+the base-policy-controlled receipt path. Any later source change invalidates
+the receipt. See the [complete operator guide](docs/PRIVATE_RECEIPT_GATE.md).
 
 ## Run locally
 
@@ -129,7 +172,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.5.0
+  - uses: sulmusic2-star/agent-vigil@v0.6.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -138,9 +181,18 @@ steps:
       strict: true
 ```
 
-For v0.5.0, add a base-anchored policy:
+Add a base-anchored policy:
 
 ```yaml
+      policy: .agent-vigil.json
+      policy-ref: ${{ github.event.pull_request.base.sha }}
+```
+
+Portable mode uses the same exact GitHub event identity and base-anchored
+policy:
+
+```yaml
+      receipt: .agent-vigil/receipt.json
       policy: .agent-vigil.json
       policy-ref: ${{ github.event.pull_request.base.sha }}
 ```
@@ -180,6 +232,7 @@ vigil init [--repo <path>] [--force]
 vigil doctor [--repo <path>]
 vigil keygen --private <path> --public <path>
 vigil verify <receipt.json> [--public-key <path>]
+vigil gate <portable-receipt.json> [--repo . --base <sha> --head <sha>]
 ```
 
 ## Why this shape
@@ -205,14 +258,15 @@ The source-linked complaint and competitor review is in
 
 ## Evidence on this repository
 
-- 162 tests, including 80 generated-repository compatibility scenarios across
+- 181 tests, including 80 generated-repository compatibility scenarios across
   18 runner-output families, plus adversarial false-pass, path, transcript,
   tool-loop, test-count, skip, suppression, and adapter-drift cases.
 - Seven real-toolchain repositories exercised Node/npm, pnpm, pytest, Go,
-  Minitest, a Node monorepo, and .NET; all 14 exact/inflated verdicts matched.
-- The packed tarball was installed as a consumer dependency, then `init` and
-  `doctor` passed across 11 Git repository shapes from plain Git through Node,
-  Python, Rust, Go, Maven, Gradle, Ruby, PHP, and .NET.
+  Minitest, a Node monorepo, and .NET; all 28 exact, inflated, portable-gate,
+  and post-receipt-invalidation verdicts matched.
+- The packed tarball was installed as a consumer dependency, then standard and
+  portable `init` / `doctor` flows passed across 11 Git repository shapes from
+  plain Git through Node, Python, Rust, Go, Maven, Gradle, Ruby, PHP, and .NET.
 - Linux CI on Node 20, 22, and 24, plus Node 22 portability jobs on macOS
   and Windows.
 - The GitHub Action dogfoods itself in CI.
@@ -234,6 +288,12 @@ See [the receipt specification](docs/AI_CHANGE_RECEIPT.md),
 The hosted [organization control-plane design](docs/CONTROL_PLANE.md) and
 [commercial proof gates](docs/COMMERCIAL_GATES.md) are deliberately marked as
 future hypotheses, not deployed features.
+
+Portable receipt v1 is intentionally smaller than the full change receipt. It
+does not include transcript text, claim quotes, paths, or detailed rule
+evidence. Its signature proves only that the key signed the compact payload.
+CI adds independent policy-command and integrity evidence; neither layer proves
+semantic correctness. See [the schema](docs/portable-receipt-v1.schema.json).
 
 ## Contributing
 

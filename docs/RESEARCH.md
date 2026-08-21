@@ -247,6 +247,26 @@ or a complete enterprise governance plane.
    untrustworthy success path even when the final status would be inconclusive.
 8. **Compatibility is a public artifact.** Runner support needs executed fixtures
    and real-toolchain proof, not a list of logos.
+9. **Do not require raw transcripts in CI.** The most credible user feedback
+   asks for an attestor outside the authoring agent's reach, a clean-checkout
+   re-test, and evidence that is hard to fake without publishing the full
+   session. The portable receipt gate separates local claim reconciliation from
+   independent CI verification. See this
+   [unattended-agent discussion](https://www.reddit.com/r/claudeskills/comments/1udroju/if_you_run_coding_agents_unattended_or_in/).
+10. **Low noise and control are adoption requirements.** A current
+    [code-review complaint thread](https://www.reddit.com/r/codereview/comments/1vssbl8/coderabbit_noise_is_seriously_getting_out_of_hand/)
+    repeatedly cites false positives, black-box behavior, and limited
+    customization. Agent Vigil should continue emitting bounded deterministic
+    rules instead of comment volume.
+11. **Receipts are not correctness certificates.** GitHub's own
+    [artifact-attestation documentation](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
+    states that provenance is not a guarantee of security. Agent Vigil applies
+    the same non-claim to behavioral evidence.
+12. **Enforcement belongs at the merge boundary.** GitHub
+    [rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)
+    can require a status check and pin its expected source to a particular App.
+    That is the eventual control-plane enforcement point after external demand
+    gates, not a reason to build the App before adoption.
 
 ### Public discussion evidence: useful, anecdotal, and noisy
 

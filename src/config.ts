@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, normalize, resolve } from "node:path";
+import { isAbsolute, normalize, resolve, win32 } from "node:path";
 
 export const DEFAULT_POLICY_FILE = ".agent-vigil.json";
 
@@ -11,6 +11,8 @@ export type VigilPolicy = {
   testCommand?: string;
   strict?: boolean;
   minVerified?: number;
+  trustedSignerKeyIds?: string[];
+  portableReceipt?: string;
 };
 
 export type LoadedPolicy = {
@@ -37,7 +39,7 @@ function canonical(value: unknown): string {
 function validatePolicy(input: unknown): VigilPolicy {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("policy must be a JSON object");
   const value = input as Record<string, unknown>;
-  const allowed = new Set(["schemaVersion", "transcript", "testCommand", "strict", "minVerified"]);
+  const allowed = new Set(["schemaVersion", "transcript", "testCommand", "strict", "minVerified", "trustedSignerKeyIds", "portableReceipt"]);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`policy contains unknown field(s): ${unknown.join(", ")}`);
   if (value.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
@@ -50,6 +52,25 @@ function validatePolicy(input: unknown): VigilPolicy {
   if (value.strict !== undefined && typeof value.strict !== "boolean") throw new Error("policy strict must be boolean");
   if (value.minVerified !== undefined && (!Number.isInteger(value.minVerified) || Number(value.minVerified) < 1)) {
     throw new Error("policy minVerified must be a positive integer");
+  }
+  if (value.trustedSignerKeyIds !== undefined) {
+    if (!Array.isArray(value.trustedSignerKeyIds) || value.trustedSignerKeyIds.length < 1) {
+      throw new Error("policy trustedSignerKeyIds must be a non-empty array");
+    }
+    const ids = value.trustedSignerKeyIds;
+    if (ids.some((id) => typeof id !== "string" || !/^sha256:[0-9a-f]{64}$/.test(id))) {
+      throw new Error("policy trustedSignerKeyIds must contain SHA-256 key IDs");
+    }
+    if (new Set(ids).size !== ids.length) throw new Error("policy trustedSignerKeyIds must not contain duplicates");
+  }
+  if (value.portableReceipt !== undefined) {
+    if (typeof value.portableReceipt !== "string" || !value.portableReceipt.trim()) {
+      throw new Error("policy portableReceipt must be a non-empty repository-relative path");
+    }
+    const clean = normalize(value.portableReceipt).replaceAll("\\", "/").replace(/^\.\//, "");
+    if (isAbsolute(value.portableReceipt) || win32.isAbsolute(value.portableReceipt) || clean === ".." || clean.startsWith("../")) {
+      throw new Error("policy portableReceipt must stay inside the repository");
+    }
   }
   return value as VigilPolicy;
 }
@@ -64,8 +85,8 @@ function parsePolicy(raw: string, source: string): VigilPolicy {
 export function loadPolicy(repo: string, requested?: string, ref?: string): LoadedPolicy {
   const gitPath = requested ?? DEFAULT_POLICY_FILE;
   if (ref) {
-    const clean = normalize(gitPath).replace(/^\.\//, "");
-    if (isAbsolute(gitPath) || clean === ".." || clean.startsWith("../")) throw new Error("policy-ref requires a repository-relative policy path");
+    const clean = normalize(gitPath).replaceAll("\\", "/").replace(/^\.\//, "");
+    if (isAbsolute(gitPath) || win32.isAbsolute(gitPath) || clean === ".." || clean.startsWith("../")) throw new Error("policy-ref requires a repository-relative policy path");
     let raw: string;
     try {
       raw = execFileSync("git", ["show", `${ref}:${clean}`], {
@@ -95,10 +116,13 @@ export function loadPolicy(repo: string, requested?: string, ref?: string): Load
   };
 }
 
-export function policyTemplate(testCommand?: string): string {
+export function policyTemplate(testCommand?: string, portableSignerKeyId?: string): string {
   const value: VigilPolicy = {
     schemaVersion: 1,
-    transcript: ".agent-vigil/session.md",
+    ...(portableSignerKeyId ? {
+      portableReceipt: ".agent-vigil/receipt.json",
+      trustedSignerKeyIds: [portableSignerKeyId],
+    } : { transcript: ".agent-vigil/session.md" }),
     ...(testCommand ? { testCommand } : {}),
     strict: true,
     minVerified: 1,

@@ -24,6 +24,12 @@ export function remediationFor(ruleId?: string): string {
     "workspace-dirty": "Run `git status --short`, commit or remove unbound paths, then rerun with `--head $(git rev-parse HEAD)`.",
     "workspace-unbound": "Commit the candidate change, then rerun with `--head $(git rev-parse HEAD)` instead of WORKTREE.",
     "workspace-mutated": "Make the verification command read-only with respect to tracked inputs, restore the changed paths, and rerun.",
+    "portable-signature": "Regenerate the portable receipt from an intact full report with the trusted Ed25519 key.",
+    "portable-signer": "Pin the signer key ID in base policy `trustedSignerKeyIds`, or regenerate with an already pinned key.",
+    "portable-local-verdict": "Resolve the local FAIL or INCONCLUSIVE result, rerun Agent Vigil, and attach a new signed portable receipt.",
+    "portable-policy": "Regenerate the receipt using policy loaded from the pull request base commit.",
+    "portable-path": "Set base policy `portableReceipt` and pass that exact repository-relative path.",
+    "portable-git-binding": "Regenerate after the latest source commit; after signing, commit only the base-policy-controlled receipt path.",
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }
