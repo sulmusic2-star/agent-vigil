@@ -1,5 +1,5 @@
-import { appendFileSync, writeFileSync } from "node:fs";
 import type { CheckResult, TrustReport } from "./report.ts";
+import { appendPrivateFileAtomic, writePrivateFileAtomic } from "./safe-output.ts";
 
 const icon = { verified: "✓", contradicted: "✗", unverifiable: "?" } as const;
 
@@ -137,8 +137,8 @@ export function writeOutputs(report: TrustReport, options: {
   sarif?: string;
   githubSummary?: boolean;
 }): void {
-  if (options.output) writeFileSync(options.output, `${JSON.stringify(report, null, 2)}\n`);
-  if (options.sarif) writeFileSync(options.sarif, `${JSON.stringify(toSarif(report), null, 2)}\n`);
+  if (options.output) writePrivateFileAtomic(options.output, `${JSON.stringify(report, null, 2)}\n`);
+  if (options.sarif) writePrivateFileAtomic(options.sarif, `${JSON.stringify(toSarif(report), null, 2)}\n`);
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (options.githubSummary && summaryPath) appendFileSync(summaryPath, renderMarkdown(report));
+  if (options.githubSummary && summaryPath) appendPrivateFileAtomic(summaryPath, renderMarkdown(report));
 }
