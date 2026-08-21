@@ -5,6 +5,9 @@ branding:
   icon: "shield"
   color: "green"
 inputs:
+  mode:
+    description: "Evidence mode: transcript (default), portable receipt, or maintainer PR evidence"
+    required: false
   transcript:
     description: "Agent transcript (.jsonl) or summary (.md)"
     required: false
@@ -58,6 +61,7 @@ runs:
       env:
         VIGIL_TRANSCRIPT: ${{ inputs.transcript }}
         VIGIL_RECEIPT: ${{ inputs.receipt }}
+        VIGIL_MODE: ${{ inputs.mode }}
         VIGIL_REPO: ${{ inputs.repo }}
         VIGIL_BASE: ${{ inputs.base }}
         VIGIL_HEAD: ${{ inputs.head }}
@@ -67,16 +71,24 @@ runs:
         VIGIL_STRICT: ${{ inputs.strict }}
         VIGIL_MIN_VERIFIED: ${{ inputs.min-verified }}
       run: |
-        if [[ -n "$VIGIL_TRANSCRIPT" && -n "$VIGIL_RECEIPT" ]]; then
-          echo "agent-vigil: choose transcript or receipt, not both" >&2
+        if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "maintainer" ]]; then
+          echo "agent-vigil: mode must be maintainer when provided" >&2
           exit 2
         fi
-        if [[ -z "$VIGIL_TRANSCRIPT" && -z "$VIGIL_RECEIPT" ]]; then
-          echo "agent-vigil: transcript or receipt is required" >&2
+        selected=0
+        [[ -n "$VIGIL_TRANSCRIPT" ]] && selected=$((selected + 1))
+        [[ -n "$VIGIL_RECEIPT" ]] && selected=$((selected + 1))
+        [[ "$VIGIL_MODE" == "maintainer" ]] && selected=$((selected + 1))
+        if [[ "$selected" -ne 1 ]]; then
+          echo "agent-vigil: choose exactly one of transcript, receipt, or mode: maintainer" >&2
           exit 2
         fi
         if [[ -n "$VIGIL_RECEIPT" && ( -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ) ]]; then
           echo "agent-vigil: receipt mode requires a base-anchored policy and policy-ref" >&2
+          exit 2
+        fi
+        if [[ "$VIGIL_MODE" == "maintainer" && ( -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ) ]]; then
+          echo "agent-vigil: maintainer mode requires a base-anchored policy and policy-ref" >&2
           exit 2
         fi
 
@@ -113,7 +125,13 @@ runs:
         artifact_dir=$(node -e 'const {mkdtempSync}=require("node:fs"); const {join}=require("node:path"); process.stdout.write(mkdtempSync(join(process.env.RUNNER_TEMP || process.cwd(), "agent-vigil-")))')
         report_file="$artifact_dir/report.json"
         sarif_file="$artifact_dir/report.sarif"
-        if [[ -n "$VIGIL_RECEIPT" ]]; then
+        if [[ "$VIGIL_MODE" == "maintainer" ]]; then
+          if [[ -z "${GITHUB_EVENT_PATH:-}" || ! -f "$GITHUB_EVENT_PATH" ]]; then
+            echo "agent-vigil: maintainer mode requires a readable GitHub pull_request event" >&2
+            exit 2
+          fi
+          args=(maintainer --event "$GITHUB_EVENT_PATH" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
+        elif [[ -n "$VIGIL_RECEIPT" ]]; then
           args=(gate "$VIGIL_RECEIPT" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
         else
           args=("$VIGIL_TRANSCRIPT" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary --min-verified "$VIGIL_MIN_VERIFIED")

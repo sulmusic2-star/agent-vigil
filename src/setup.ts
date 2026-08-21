@@ -1,14 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
-import { DEFAULT_POLICY_FILE, loadPolicy, policyTemplate } from "./config.ts";
+import { DEFAULT_POLICY_FILE, loadPolicy, maintainerPolicyTemplate, policyTemplate } from "./config.ts";
 import { inferTestCommand } from "./detectors/reality.ts";
 import { loadTranscript } from "./transcript.ts";
 
 type InitResult = { created: string[]; kept: string[] };
 type DoctorCheck = { status: "PASS" | "WARN" | "FAIL"; label: string; detail: string };
 
-function workflow(portable: boolean): string { return `name: Agent Vigil
+function workflow(mode: "transcript" | "portable" | "maintainer"): string { return `name: Agent Vigil
 
 on:
   pull_request:
@@ -25,15 +25,38 @@ jobs:
         with:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha }}
-      - uses: sulmusic2-star/agent-vigil@v0.6.0
+      - id: vigil
+        uses: sulmusic2-star/agent-vigil@v0.7.0
         with:
-          ${portable ? "receipt: .agent-vigil/receipt.json" : "transcript: .agent-vigil/session.md"}
+          ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
           policy-ref: \${{ github.event.pull_request.base.sha }}
           repo: .
           base: \${{ github.event.pull_request.base.sha }}
           head: \${{ github.event.pull_request.head.sha }}
+      - name: Retain auditable Agent Vigil receipt
+        if: always() && steps.vigil.outputs.report != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-vigil-receipt
+          path: agent-vigil-report.json
+          retention-days: 30
 `; }
+
+const MAINTAINER_PR_TEMPLATE = `## Agent Vigil maintainer evidence
+
+- Responsible human: @REPLACE_WITH_YOUR_GITHUB_LOGIN
+- [ ] I reviewed every changed line.
+- [ ] I can explain and maintain this change.
+- AI assistance: assisted
+- Linked issue: #REPLACE
+- Known limitations: none known
+
+The declarations above establish responsibility and disclosure. They do not
+prove understanding. Agent Vigil independently checks the Git range, scope,
+fresh tests, integrity rules, and—when configured—whether the changed regression
+test fails against base source and passes against the candidate.
+`;
 
 const SESSION_TEMPLATE = `# Agent change receipt
 
@@ -65,18 +88,21 @@ function writeScaffold(root: string, path: string, content: string, force: boole
   result.created.push(path);
 }
 
-export function initRepository(repo: string, force = false, portableSignerKeyId?: string): InitResult {
+export function initRepository(repo: string, force = false, portableSignerKeyId?: string, profile: "default" | "maintainer" = "default"): InitResult {
   const root = resolve(repo);
   try { execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" }); }
   catch { throw new Error(`not a Git repository: ${root}`); }
   const result: InitResult = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? undefined;
-  writeScaffold(root, DEFAULT_POLICY_FILE, policyTemplate(inferred, portableSignerKeyId), force, result);
-  if (!portableSignerKeyId) {
+  const mode = profile === "maintainer" ? "maintainer" : portableSignerKeyId ? "portable" : "transcript";
+  const setupCommand = existsSync(resolve(root, "package-lock.json")) ? "npm ci --ignore-scripts" : undefined;
+  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : policyTemplate(inferred, portableSignerKeyId), force, result);
+  if (mode === "transcript") {
     writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result);
     writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result);
   }
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(Boolean(portableSignerKeyId)), force, result);
+  if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result);
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result);
   return result;
 }
 
@@ -103,6 +129,7 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
 
   let transcript = requestedTranscript;
   let portableReceipt: string | undefined;
+  let maintainer = false;
   try {
     const policy = loadPolicy(root, requestedPolicy);
     checks.push({
@@ -112,11 +139,13 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
     });
     transcript ??= policy.value.transcript;
     portableReceipt = policy.value.portableReceipt;
+    maintainer = Boolean(policy.value.maintainer);
     const command = policy.value.testCommand ?? inferTestCommand(root);
+    const placeholder = command === "REPLACE_WITH_TEST_COMMAND";
     checks.push({
-      status: command ? "PASS" : "WARN",
+      status: placeholder ? "FAIL" : command ? "PASS" : "WARN",
       label: "Fresh verification",
-      detail: command ? `test command: ${command}` : "no test command inferred; use policy testCommand or --test-cmd",
+      detail: placeholder ? "replace REPLACE_WITH_TEST_COMMAND in .agent-vigil.json" : command ? `test command: ${command}` : "no test command inferred; use policy testCommand or --test-cmd",
     });
     if (portableReceipt) {
       const signerCount = policy.value.trustedSignerKeyIds?.length ?? 0;
@@ -138,6 +167,13 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
       detail: existsSync(path)
         ? `${portableReceipt} is present; run vigil gate to verify it`
         : `${portableReceipt} will be created after the next signed code change; raw transcript remains local`,
+    });
+  } else if (maintainer) {
+    const template = resolve(root, ".github/pull_request_template.md");
+    checks.push({
+      status: existsSync(template) ? "PASS" : "FAIL",
+      label: "Maintainer evidence",
+      detail: existsSync(template) ? "PR responsibility and disclosure template is installed" : "maintainer profile requires .github/pull_request_template.md",
     });
   } else if (!transcript) {
     checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });
@@ -186,6 +222,15 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
       label: "Policy trust",
       detail: anchoredPolicy ? "workflow loads policy from the pull request base commit" : "workflow policy may be controlled by the candidate change",
     });
+    if (maintainer) {
+      const modeInstalled = /mode:\s*maintainer/.test(text);
+      const artifactInstalled = /name:\s*agent-vigil-receipt/.test(text);
+      checks.push({
+        status: modeInstalled && artifactInstalled ? "PASS" : "FAIL",
+        label: "Maintainer workflow",
+        detail: modeInstalled && artifactInstalled ? "maintainer mode and receipt artifact retention are installed" : "workflow must enable maintainer mode and retain agent-vigil-receipt",
+      });
+    }
   }
   return checks;
 }

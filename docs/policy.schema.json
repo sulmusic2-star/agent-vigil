@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.6.0/docs/policy.schema.json",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.7.0/docs/policy.schema.json",
   "title": "Agent Vigil policy",
   "type": "object",
   "additionalProperties": false,
@@ -17,9 +17,39 @@
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/sha256" }
     },
-    "portableReceipt": { "type": "string", "minLength": 1 }
+    "portableReceipt": { "type": "string", "minLength": 1 },
+    "maintainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requireHumanAttestation": { "type": "boolean" },
+        "requireLinkedIssue": { "type": "boolean" },
+        "requireAiDisclosure": { "type": "boolean" },
+        "maxChangedFiles": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "maxChangedLines": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+        "requireTestChange": { "type": "boolean" },
+        "protectedPaths": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+        "testPathPatterns": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+        "differentialTest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": { "type": "string", "minLength": 1 },
+            "setupCommand": { "type": "string", "minLength": 1 },
+            "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+            "baseFailurePattern": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "overlayChangedTests": { "type": "boolean" }
+          }
+        }
+      }
+    }
   },
   "$defs": {
-    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "nonEmptyUniqueStrings": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
   }
 }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const VERSION = "0.6.0";
+export const VERSION = "0.7.0";
 
 export type ClaimKind =
   | "tests_pass"
@@ -9,7 +9,10 @@ export type ClaimKind =
   | "command_ran"
   | "work_complete"
   | "session_behavior"
-  | "integrity";
+  | "integrity"
+  | "policy_attestation"
+  | "change_scope"
+  | "differential_test";
 
 export type Claim = {
   kind: ClaimKind;

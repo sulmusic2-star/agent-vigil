@@ -12,6 +12,9 @@ evidence support the agent's checkable narrative for this repository range?**
 - Exact repeated-tool-call loops.
 - Common test/config weakening visible in the selected diff.
 - Empty or insufficient evidence that would previously have passed vacuously.
+- Pull-request declarations attributed to a different author.
+- Oversized or protected-path changes that violate base-anchored policy.
+- Candidate regression tests that also pass against the selected base source.
 
 ## Out of scope
 
@@ -22,6 +25,10 @@ evidence support the agent's checkable narrative for this repository range?**
 - Tool activity performed outside the captured transcript.
 - Trusted timestamp authority or host integrity.
 - Secrets already present in a transcript.
+- Whether a human declaration is sincere or the linked issue is actually
+  approved; maintainer mode verifies attribution and syntax only.
+- Whether a base failure has the intended semantic cause unless policy pins a
+  sufficiently specific `baseFailurePattern`.
 
 The receipt hash is a deterministic content identifier, not a signature. A
 party that can rewrite both evidence and receipt can generate a new matching
@@ -72,6 +79,16 @@ permissions:
 
 Use an isolated runner for hostile repositories. Agent Vigil is a verifier, not
 a sandbox.
+
+Maintainer differential mode creates detached temporary worktrees for the exact
+base and head commits. When `overlayChangedTests` is enabled, non-symlink
+changed test artifacts from head are copied into the base worktree before the
+trusted command runs. Both the optional setup command and test command come from
+base-anchored policy. They execute code from both commits; run without secrets
+and on disposable infrastructure. A base-fail/head-pass result demonstrates
+that the configured command distinguishes these trees under the overlaid tests.
+It does not prove the test represents the product requirement. Dependency or
+setup failures are INCONCLUSIVE, and binary diff line counts are not guessed.
 
 ## Privacy
 

@@ -182,10 +182,26 @@ test("init preserves existing policy unless force is explicit", () => {
   assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /schemaVersion/);
 });
 
-test("Action accepts exactly one of transcript or portable receipt", () => {
+test("maintainer init creates a base-anchored evidence gate and retained receipt artifact", () => {
+  const path = repo();
+  const result = initRepository(path, false, undefined, "maintainer");
+  assert.equal(result.created.length, 3);
+  const policy = JSON.parse(readFileSync(join(path, ".agent-vigil.json"), "utf8"));
+  const workflow = readFileSync(join(path, ".github/workflows/agent-vigil.yml"), "utf8");
+  const template = readFileSync(join(path, ".github/pull_request_template.md"), "utf8");
+  assert.equal(policy.maintainer.requireHumanAttestation, true);
+  assert.equal(policy.maintainer.differentialTest.overlayChangedTests, true);
+  assert.match(workflow, /mode: maintainer/);
+  assert.match(workflow, /name: agent-vigil-receipt/);
+  assert.match(workflow, /retention-days: 30/);
+  assert.match(template, /Responsible human/);
+  assert.match(template, /I can explain and maintain this change/);
+});
+
+test("Action accepts exactly one evidence mode", () => {
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
   assert.match(action, /VIGIL_RECEIPT/);
-  assert.match(action, /choose transcript or receipt, not both/);
+  assert.match(action, /choose exactly one of transcript, receipt, or mode: maintainer/);
   assert.match(action, /receipt mode requires a base-anchored policy/);
   assert.match(action, /args=\(gate "\$VIGIL_RECEIPT"/);
 });

@@ -293,3 +293,61 @@ fixtures rather than demand forecasts.
 
 Searches of X did not produce stable, directly inspectable complaint sources in
 this pass. No X claim is used as product evidence.
+
+## 2026-08-21 maintainer evidence decision
+
+The repeated high-confidence need is review-cost control with human
+responsibility and catching tests. It is not probabilistic AI-authorship
+detection.
+
+- [PyTorch's AI policy](https://github.com/pytorch/pytorch/blob/main/AI_POLICY.md)
+  requires disclosure, human commentary, understanding, and responsibility;
+  fully autonomous contributions are not accepted.
+- [attrs' AI policy](https://github.com/python-attrs/attrs/blob/main/.github/AI_POLICY.md)
+  names plausible low-quality pull requests and raw AI review comments as
+  maintainer burden and places legal/copyright responsibility on the human.
+- [Lima's contributor-policy proposal](https://github.com/lima-vm/lima/issues/4982)
+  asks for an approved linked issue, one pull request per fix, a concrete “How I
+  Tested” section, AI disclosure, and human DCO responsibility.
+- The [Linux kernel coding-assistant policy](https://docs.kernel.org/process/coding-assistants.html)
+  keeps signoff and DCO responsibility with a human because a tool cannot make
+  the certification.
+- A direct [open-source maintainer complaint](https://www.reddit.com/r/opensource/comments/1q3f89b/open_source_is_being_ddosed_by_ai_slop_and_github/)
+  describes a submitted regression test that also passed on the base revision.
+  This is anecdotal evidence, but the failure is deterministic and suitable for
+  an adversarial fixture.
+
+Enterprise control guidance points to the same evidence boundary:
+
+- OpenAI's [Codex safety guidance](https://openai.com/index/running-codex-safely/)
+  recommends managed configurations, sandbox/approval controls, identity and
+  credentials, and OpenTelemetry events for prompts, approvals, tools, MCP use,
+  and network decisions.
+- AWS's [AI coding-agent control framework](https://aws.amazon.com/blogs/security/balancing-speed-and-safety-a-control-framework-for-ai-coding-agents/)
+  separates author-time from build-time controls and combines deterministic
+  checks, non-deterministic review, explicit specifications, and selective human
+  review.
+- JetBrains' [agentic-governance guidance](https://blog.jetbrains.com/ai/2026/06/agentic-ai-governance-designing-for-accountability-and-control/)
+  calls for auditability of initiator, intent, touched systems/data, outputs,
+  policy violations, time, and cost, with intentional checkpoints and
+  evidence-based autonomy thresholds.
+
+### Implemented product response
+
+The v0.7 maintainer profile verifies the event author/declaration match,
+required human declarations, disclosure syntax, linked-issue syntax, file and
+line budgets, changed tests, protected paths, fresh head tests, and isolated
+base-fail/head-pass regression behavior. It says explicitly where it verifies
+syntax or attribution rather than understanding, approval, or semantic
+correctness.
+
+This is a narrower moat than a generic governance dashboard:
+
+1. a growing public corpus of non-catching regression tests;
+2. base-anchored and reproducible evidence rules;
+3. cross-agent transcript receipts when users have them;
+4. transcript-free maintainer receipts when they do not;
+5. public adoption measurement that does not convert references into users.
+
+Sandbox/orchestration products and AI-slop classifiers remain integration or
+competitor categories. Agent Vigil does not imitate them in v0.7.

@@ -1,6 +1,6 @@
 {
   "name": "agent-vigil",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Fail-closed, deterministic evidence receipts for AI coding-agent sessions.",
   "type": "module",
   "bin": {
@@ -39,9 +39,11 @@
     "dist",
     "action.yml",
     "README.md",
+    "ADOPTERS.md",
     "LICENSE",
     "docs",
-    "examples"
+    "examples",
+    "scripts/public_adoption_census.py"
   ],
   "repository": {
     "type": "git",

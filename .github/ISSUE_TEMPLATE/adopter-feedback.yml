@@ -11,7 +11,9 @@ body:
         - Evaluating
         - Installed locally
         - Running in CI
+        - Receipt artifact retained
         - Required merge check
+        - Maintainer accepted contradiction
         - Removed after trial
     validations:
       required: true
@@ -38,6 +40,21 @@ body:
       description: Include the exact command or error when safe.
     validations:
       required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Public evidence links
+      description: Link the repository, exact workflow, run, receipt artifact, and maintainer disposition when public. Private reports are welcome but are not added to public milestone counts.
+      placeholder: "Repository: ...\nWorkflow: ...\nRun or receipt: ...\nMaintainer disposition: ..."
+    validations:
+      required: false
+  - type: checkboxes
+    id: listing_consent
+    attributes:
+      label: Public adopter listing
+      options:
+        - label: I own or maintain the repository and consent to Agent Vigil listing the linked public evidence in ADOPTERS.md.
+          required: false
   - type: textarea
     id: retain
     attributes:

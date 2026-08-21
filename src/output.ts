@@ -30,6 +30,20 @@ export function remediationFor(ruleId?: string): string {
     "portable-policy": "Regenerate the receipt using policy loaded from the pull request base commit.",
     "portable-path": "Set base policy `portableReceipt` and pass that exact repository-relative path.",
     "portable-git-binding": "Regenerate after the latest source commit; after signing, commit only the base-policy-controlled receipt path.",
+    "responsible-human": "Set `Responsible human` to the pull request author's exact GitHub login and accept responsibility for the change.",
+    "human-review-attestation": "Review every changed line, then check the exact declaration in the pull request template.",
+    "human-maintenance-attestation": "Confirm you can explain and maintain the change, then check the exact declaration.",
+    "ai-assistance-disclosure": "Set `AI assistance` to exactly `none`, `assisted`, or `agent`.",
+    "linked-issue": "Link the maintainer-approved issue as `#123` or a full GitHub issue URL.",
+    "changed-file-budget": "Split the change or obtain a reviewed base-policy exception before expanding the file budget.",
+    "changed-line-budget": "Split the change, remove unrelated edits, or obtain a reviewed base-policy exception.",
+    "test-change-required": "Add a focused regression test under a configured testPathPatterns path.",
+    "protected-path": "Remove the protected-path edit and change policy or workflow controls in a separately reviewed pull request.",
+    "differential-setup": "Make the base-policy setup command succeed in isolated base and head worktrees; do not hide setup errors.",
+    "differential-head-pass": "Fix the candidate until the trusted regression command passes in the isolated head worktree.",
+    "differential-base-fail": "Add a regression test that fails against base source and passes against the candidate; a test green on both sides is not catching evidence.",
+    "differential-failure-pattern": "Tighten the test or update the base-anchored expected failure pattern through separate review.",
+    "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs.",
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }

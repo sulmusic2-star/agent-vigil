@@ -12,6 +12,11 @@ repository, selected Git range, and a fresh verification run. The verifier is
 local and deterministic: no model grades another model, and missing evidence
 does not become a green check.
 
+For maintainers who do not want agent transcripts, v0.7 adds a PR evidence
+gate. It binds a named human to the GitHub event, enforces small-change policy,
+and can run the candidate's changed regression test against both candidate and
+base source. A test that passes on both sides is a **FAIL**, not proof.
+
 Raw agent transcripts do not need to be committed to a pull request. The
 portable-receipt lane reduces a local result to signed hashes, repository and
 policy identity, summary counts, and a signer key ID. CI verifies the signer
@@ -63,7 +68,18 @@ candidate change therefore cannot weaken its own gate merely by editing
 On pull-request events, the Action also rejects base, head, or policy-ref values
 that disagree with GitHub's event payload.
 
-## What v0.6 checks
+Maintainer profile:
+
+```bash
+npx --yes github:sulmusic2-star/agent-vigil init --profile maintainer
+```
+
+This creates a PR declaration template, base-anchored file/line/test/protected-
+path limits, an isolated base-fail/head-pass differential test, and a workflow
+that retains the JSON receipt as a 30-day GitHub artifact. Review the generated
+commands and limits before merging the setup.
+
+## What v0.7 checks
 
 - Claimed test success against a fresh test execution.
 - Claimed test counts across 18 output families: Node/TAP, Jest, Vitest, pytest, Cargo, Go JSON, Maven, Gradle, RSpec, PHPUnit, .NET, Mocha, Bun, AVA, Playwright, Cypress, and Minitest.
@@ -79,6 +95,14 @@ that disagree with GitHub's event payload.
   the result INCONCLUSIVE instead of letting tests prove a different tree.
 - Malformed or unknown JSON/JSONL fails loudly instead of silently selecting the wrong adapter.
 - Semantically identical structured tool calls are normalized before loop detection.
+- PR author responsibility, review/maintenance declarations, AI-assistance
+  disclosure, and linked-issue syntax without pretending declarations prove
+  understanding or issue approval.
+- Base-anchored changed-file, changed-line, test-path, and protected-path policy.
+- Isolated differential verification: overlay the candidate's changed test
+  artifacts onto base source, require the command to fail there, and require it
+  to pass on the candidate. Optional setup, timeout, and expected base-failure
+  pattern are controlled by policy from the base commit.
 
 Every run can emit a compact JSON receipt, Markdown, SARIF 2.1.0, and a GitHub
 Step Summary. The receipt has a deterministic SHA-256 content identifier. It is
@@ -172,7 +196,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.6.0
+  - uses: sulmusic2-star/agent-vigil@v0.7.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -196,6 +220,23 @@ policy:
       policy: .agent-vigil.json
       policy-ref: ${{ github.event.pull_request.base.sha }}
 ```
+
+Maintainer mode needs no transcript:
+
+```yaml
+  - id: vigil
+    uses: sulmusic2-star/agent-vigil@v0.7.0
+    with:
+      mode: maintainer
+      policy: .agent-vigil.json
+      policy-ref: ${{ github.event.pull_request.base.sha }}
+      repo: .
+      base: ${{ github.event.pull_request.base.sha }}
+      head: ${{ github.event.pull_request.head.sha }}
+```
+
+Use the generated PR template. Agent Vigil reads the event payload, never
+executes PR body text, and rejects event/base/head mismatches.
 
 The Action runs the compiled verifier checked into this repository; it does not
 depend on an npm package being available. It writes `agent-vigil-report.json`,
@@ -229,10 +270,12 @@ Additional commands:
 
 ```text
 vigil init [--repo <path>] [--force]
+vigil init --profile maintainer [--repo <path>] [--force]
 vigil doctor [--repo <path>]
 vigil keygen --private <path> --public <path>
 vigil verify <receipt.json> [--public-key <path>]
 vigil gate <portable-receipt.json> [--repo . --base <sha> --head <sha>]
+vigil maintainer --event <event.json> [--repo . --base <sha> --head <sha>]
 ```
 
 ## Why this shape
@@ -246,6 +289,7 @@ cover pieces of this problem. Agent Vigil's narrow position is:
 3. **Detect common ways an agent can improve the scoreboard instead of the product.**
 4. **Keep the hot path local, deterministic, small, and auditable.**
 5. **Anchor policy outside the candidate change.**
+6. **Make regression tests prove they catch the old behavior.**
 
 Agent Vigil is not another model reviewing a model. Its narrow advantage is the
 combination of cross-agent transcript reconciliation, fresh test evidence,
@@ -256,11 +300,17 @@ The source-linked complaint and competitor review is in
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Product limits are explicit in
 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
+Public adoption is measured under a separate
+[evidence contract](docs/ADOPTION_EVIDENCE.md). A catalog entry, clone, or code
+search hit is not counted as an adopter or receipt. The public
+[adopter ledger](ADOPTERS.md) starts empty rather than manufacturing traction.
+
 ## Evidence on this repository
 
-- 181 tests, including 80 generated-repository compatibility scenarios across
+- 200 tests, including 80 generated-repository compatibility scenarios across
   18 runner-output families, plus adversarial false-pass, path, transcript,
-  tool-loop, test-count, skip, suppression, and adapter-drift cases.
+  tool-loop, test-count, skip, suppression, adapter-drift, maintainer-attestation,
+  scope-budget, symlink, forged-event, and differential-regression cases.
 - Seven real-toolchain repositories exercised Node/npm, pnpm, pytest, Go,
   Minitest, a Node monorepo, and .NET; all 28 exact, inflated, portable-gate,
   and post-receipt-invalidation verdicts matched.
@@ -273,8 +323,9 @@ The source-linked complaint and competitor review is in
 - `npm pack --dry-run` is part of the build gate.
 - Zero runtime dependencies.
 
-The new adapter, setup, policy-anchor, receipt-signing, workspace-binding, and
-remediation tests raise the suite above the v0.4 baseline.
+The adapter, setup, policy-anchor, receipt-signing, workspace-binding,
+maintainer-evidence, and remediation tests raise the suite above the v0.4
+baseline.
 
 ## AI Change Receipt v2
 

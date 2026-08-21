@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.6.0/docs/receipt-v2.schema.json",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.7.0/docs/receipt-v2.schema.json",
   "title": "Agent Vigil AI Change Receipt v2",
   "type": "object",
   "additionalProperties": false,
@@ -15,7 +15,7 @@
     "transcript": { "type": "string" },
     "transcriptSha256": { "$ref": "#/$defs/sha256" },
     "transcriptFormat": {
-      "enum": ["claude-code", "codex", "cursor", "gemini-cli", "github-copilot-cli", "opencode", "aider", "markdown", "portable-receipt"]
+      "enum": ["claude-code", "codex", "cursor", "gemini-cli", "github-copilot-cli", "opencode", "aider", "markdown", "portable-receipt", "pull-request-evidence"]
     },
     "repo": { "type": "string" },
     "base": { "type": "string" },

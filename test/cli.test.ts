@@ -52,6 +52,15 @@ test("CLI init and doctor provide a working exact-SHA scaffold", () => {
   assert.match(workflow, /pull_request\.base\.sha/);
 });
 
+test("CLI maintainer init exposes the profile without creating a transcript placeholder", () => {
+  const r = repo();
+  assert.equal(run(["init", "--profile", "maintainer", "--repo", r]), 0);
+  assert.equal(run(["doctor", "--repo", r]), 0);
+  const workflow = readFileSync(join(r, ".github/workflows/agent-vigil.yml"), "utf8");
+  assert.match(workflow, /mode: maintainer/);
+  assert.equal(readFileSync(join(r, ".agent-vigil.json"), "utf8").includes('"maintainer"'), true);
+});
+
 test("CLI portable init pins a public key and scaffolds receipt mode", () => {
   const r = repo(); const keys = mkdtempSync(join(tmpdir(), "vigil-init-portable-"));
   const privateKey = join(keys, "private.pem"); const publicKey = join(keys, "public.pem");
