@@ -1,6 +1,6 @@
 {
   "name": "agent-vigil",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Fail-closed, deterministic evidence receipts for AI coding-agent sessions.",
   "type": "module",
   "bin": {
@@ -20,7 +20,8 @@
     "proof:historical": "node scripts/historical_proof.mjs",
     "demo:60s": "node scripts/demo_60s.mjs",
     "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
-    "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts"
+    "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts",
+    "benchmark:compare": "tsx scripts/benchmark_compare_static.ts"
   },
   "keywords": [
     "ai-agents",
@@ -43,6 +44,7 @@
     "dist",
     "action.yml",
     "README.md",
+    "CHANGELOG.md",
     "ADOPTERS.md",
     "LICENSE",
     "benchmarks",

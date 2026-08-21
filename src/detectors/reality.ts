@@ -475,7 +475,7 @@ function gitShow(repo: string, ref: string, path: string): string {
 
 function isTestPath(path: string): boolean {
   if (isGeneratedOrVendorPath(path)) return false;
-  return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|_test)\.[^.]+$/i.test(path);
+  return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|\.cy|_test)\.[^.]+$/i.test(path);
 }
 
 function isGeneratedOrVendorPath(path: string): boolean {
@@ -530,10 +530,14 @@ function untrackedFilePatches(repo: string): FilePatch[] {
 
 function countTests(content: string): number {
   const patterns = [
-    /\b(?:it|test|describe)\s*\(/g,
+    /\b(?:it|test|describe)(?:\.(?:each|only|skip))?\s*\(/g,
     /^\s*def\s+test_[A-Za-z0-9_]+\s*\(/gm,
     /^\s*#\[test\]/gm,
     /^\s*func\s+Test[A-Za-z0-9_]+\s*\(/gm,
+    /^\s*\[(?:TestMethod|TestCase|Fact|Theory|Test)\b[^\]]*\]/gm,
+    /^\s*@Test\b/gm,
+    /^\s*test\s+["'][^"']+["']\s+do\b/gm,
+    /^\s*(?:it|test)\s+["'][^"']+["']\s+do\b/gm,
   ];
   return patterns.reduce((sum, regex) => sum + [...content.matchAll(regex)].length, 0);
 }
@@ -612,6 +616,17 @@ function normalizedCodeLine(line: string): string {
     .replace(/[;,]$/, "");
 }
 
+function isStandaloneCommentLine(line: string): boolean {
+  const value = line.trim();
+  return value === ""
+    || /^\/\//.test(value)
+    || /^\/\*/.test(value)
+    || /^\*/.test(value)
+    || /^<!--/.test(value)
+    || /^--\s/.test(value)
+    || /^#(?:\s|TODO\b|FIXME\b)/i.test(value);
+}
+
 function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
   const results: CheckResult[] = [];
   const checks: Array<[string, RegExp, string, (patch: FilePatch) => boolean]> = [
@@ -624,6 +639,18 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
   for (const [subject, regex, ruleId, inScope] of checks) {
     const line = patches.filter(inScope).flatMap((patch) => patch.added).find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
     if (line) results.push(finding(subject, line.trim().slice(0, 220), ruleId));
+  }
+
+  const implementationPatches = patches.filter((patch) => !isDocumentationPath(patch.path));
+  const changedLines = implementationPatches.flatMap((patch) => [...patch.added, ...patch.removed]);
+  if (changedLines.length > 0
+    && implementationPatches.some((patch) => patch.added.some((line) => isStandaloneCommentLine(line) && line.trim() !== ""))
+    && changedLines.every(isStandaloneCommentLine)) {
+    results.push(finding(
+      "implementation change contains comments but no executable change",
+      `${implementationPatches.map((patch) => patch.path).join(", ")}: only comment or blank lines changed`,
+      "comment-only-change",
+    ));
   }
 
   for (const patch of patches.filter((candidate) => !isDocumentationPath(candidate.path))) {
@@ -671,6 +698,21 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
     }
   }
 
+  const crossFileFunctionPattern = /\b(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g;
+  const remainingChangedText = implementationPatches.flatMap((patch) => [...patch.added, ...patch.context]).join("\n");
+  for (const patch of implementationPatches) {
+    const removedNames = [...patch.removed.join("\n").matchAll(crossFileFunctionPattern)].map((match) => match[1]);
+    const addedNames = new Set([...patch.added.join("\n").matchAll(crossFileFunctionPattern)].map((match) => match[1]));
+    if (!addedNames.size) continue;
+    for (const oldName of removedNames) {
+      if (addedNames.has(oldName)) continue;
+      const oldCall = new RegExp(`\\b${oldName.replace(/[$]/g, "\\$")}\\s*\\(`);
+      if (oldCall.test(remainingChangedText) && !results.some((result) => result.ruleId === "stale-refactor-caller")) {
+        results.push(finding("removed or renamed symbol leaves an old caller", `${patch.path} removes ${oldName} while another changed-file context still calls it`, "stale-refactor-caller"));
+      }
+    }
+  }
+
   const testPatches = patches.filter((patch) => isTestPath(patch.path));
   const removedTests = testPatches.flatMap((patch) => patch.removed).filter((line) => countTests(line) > 0).length;
   const addedTests = testPatches.flatMap((patch) => patch.added).filter((line) => countTests(line) > 0).length;
@@ -684,6 +726,15 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
       "assertion surface shrank",
       `${removedAssertions} assertion-like lines removed and ${addedAssertions} added`,
       "assertion-drop",
+    ));
+  }
+  if (testPatches.length === patches.length
+    && results.some((result) => result.ruleId === "test-assertion-relaxed")
+    && !results.some((result) => result.ruleId === "no-op-code-change")) {
+    results.push(finding(
+      "claimed fix changes only the test oracle",
+      "all changed implementation-scoped paths are tests and an exact assertion was weakened",
+      "no-op-code-change",
     ));
   }
 

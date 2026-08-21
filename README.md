@@ -14,7 +14,7 @@ repository, selected Git range, and a fresh verification run. The verifier is
 local and deterministic: no model grades another model, and missing evidence
 does not become a green check.
 
-For maintainers who do not want agent transcripts, v0.9 includes a PR evidence
+For maintainers who do not want agent transcripts, v0.10 includes a PR evidence
 gate. It binds a named human to the GitHub event, enforces small-change policy,
 and can run the candidate's changed regression test against both candidate and
 base source. A test that passes on both sides is a **FAIL**, not proof.
@@ -24,6 +24,11 @@ portable-receipt lane reduces a local result to signed hashes, repository and
 policy identity, summary counts, and a signer key ID. CI verifies the signer
 against policy from the base branch and independently re-runs the trusted test
 command in the clean checkout.
+
+v0.10 can also compare two full receipts. `vigil compare` fails on weakened
+policy, tampered content, lost signer continuity, new contradictions, and
+disappearing invariant checks. It reports new advisories separately instead of
+silently turning them into blockers.
 
 ```text
   ✗ [test-count] 99 tests
@@ -86,7 +91,7 @@ and the [three-case public failure corpus](proof/README.md). The corpus records
 first-party dogfood failures with exact revisions, corrections, negative
 controls, and limits; it is kept separate from external-adoption totals.
 
-## What v0.9 checks
+## What v0.10 checks
 
 - Claimed test success against a fresh test execution.
 - Claimed test counts across 18 output families: Node/TAP, Jest, Vitest, pytest, Cargo, Go JSON, Maven, Gradle, RSpec, PHPUnit, .NET, Mocha, Bun, AVA, Playwright, Cypress, and Minitest.
@@ -218,6 +223,18 @@ vigil audit change.diff --strict        # findings block with FAIL
 
 Malformed input remains INCONCLUSIVE in either mode.
 
+Compare two receipt revisions without trusting either narrative:
+
+```bash
+vigil compare before-receipt.json after-receipt.json
+vigil compare before-receipt.json after-receipt.json --format json --output receipt-delta.json
+```
+
+The delta is PASS only for related Git ranges under the same policy with no
+evidence regression. Policy changes or unrelated ranges are INCONCLUSIVE;
+tampering, weaker policy, lost signatures, new contradictions, and lost
+invariant controls are FAIL. See [the receipt-delta contract](docs/RECEIPT_DELTAS.md).
+
 ## GitHub Action
 
 ```yaml
@@ -230,7 +247,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.9.0
+  - uses: sulmusic2-star/agent-vigil@v0.10.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -259,7 +276,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.9.0
+    uses: sulmusic2-star/agent-vigil@v0.10.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
@@ -308,6 +325,7 @@ vigil init --profile maintainer [--repo <path>] [--force]
 vigil doctor [--repo <path>]
 vigil keygen --private <path> --public <path>
 vigil verify <receipt.json> [--public-key <path>]
+vigil compare <before-receipt.json> <after-receipt.json> [--format text|json]
 vigil audit <change.diff> [--strict]
 vigil gate <portable-receipt.json> [--repo . --base <sha> --head <sha>]
 vigil maintainer --event <event.json> [--repo . --base <sha> --head <sha>]
@@ -325,6 +343,7 @@ cover pieces of this problem. Agent Vigil's narrow position is:
 4. **Keep the hot path local, deterministic, small, and auditable.**
 5. **Anchor policy outside the candidate change.**
 6. **Make regression tests prove they catch the old behavior.**
+7. **Compare receipt revisions and fail on evidence regression, not prose drift.**
 
 Agent Vigil is not another model reviewing a model. Its narrow advantage is the
 combination of cross-agent transcript reconciliation, fresh test evidence,
@@ -342,24 +361,27 @@ search hit is not counted as an adopter or receipt. The public
 
 ## Reproducible benchmark evidence
 
-Against the frozen Swarm Orchestrator commit
-`b2b681ff529929d39a14c0541d0e2b71b642b5da`, Agent Vigil exactly catches
-220/220 eligible cases in the nine rule categories used for its training and
-cross-corpus hardening. This is **not a blind holdout or independent result**.
-On Swarm's separate 232-PR presumed-clean corpus, 99 PRs produced one or more
-static advisories, which is why the default hard-block count is zero. Among four
-dual-arbiter-agreed true-cheat cases, Agent Vigil emitted some advisory on 4/4
-and the matching category on 1/4. The arbiters are not ground truth.
+The v0.10 cycle froze its protocol before executing either tool. On 520 paired
+synthetic broken/clean diffs, Agent Vigil's post-hardening static audit reached
+76.9% broken recall, 100% clean specificity, and 88.5% balanced accuracy;
+Swarm 12.1.1 reached 100%, 28.8%, and 64.4% under the same any-finding rule. On
+325 constructive injections, exact-category recall was 244/325 for Agent Vigil
+and 258/325 for Swarm; the exact paired McNemar p-value was 0.189, so this run
+does not establish a reliable exact-recall difference.
 
-Read the [methodology and leadership gates](docs/BENCHMARKS.md), the generated
-[oracle result](benchmarks/swarm-oracle-results.md), and the generated
-[real-PR calibration](benchmarks/swarm-real-results.md). Both scripts verify the
-upstream commit; the oracle runner also verifies every diff digest against its
-label.
+On 232 presumed-clean merged PRs, Agent Vigil produced advisories on 103 PRs
+and 146 total findings; Swarm produced advisories on 71 PRs and 622 findings.
+These are review-burden measurements, not confirmed false-positive rates. The
+post-hardening corpus was visible during development and is not a blind
+holdout or independent evaluation.
+
+Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
+[baseline](benchmarks/comparative/baseline-v1.md), and the separately labeled
+[post-hardening result](benchmarks/comparative/post-hardening-results-v1.md).
 
 ## Evidence on this repository
 
-- 214 tests, including 80 generated-repository compatibility scenarios across
+- 230 tests, including 80 generated-repository compatibility scenarios across
   18 runner-output families, plus adversarial false-pass, path, transcript,
   tool-loop, test-count, skip, suppression, adapter-drift, maintainer-attestation,
   scope-budget, symlink, forged-event, and differential-regression cases.

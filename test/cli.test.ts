@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { run } from "../src/cli.ts";
 import { generateSigningKey, publicKeyId } from "../src/signature.ts";
+import { buildReport } from "../src/report.ts";
 
 function repo() {
   const path = mkdtempSync(join(tmpdir(), "vigil-cli-"));
@@ -41,6 +42,22 @@ test("CLI static diff audit is advisory by default, blocking in strict mode, and
   assert.equal(blocking.summary.status, "FAIL");
   assert.equal(blocking.advisories.length, 0);
   assert.equal(run(["audit", malformed]), 2);
+});
+test("CLI compare emits a machine-readable receipt delta and returns its status", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-compare-"));
+  const check = { claim: { kind: "integrity" as const, quote: "bound", subject: "workspace" }, verdict: "verified" as const, evidence: "ok", ruleId: "workspace-bound", contributesToPass: false };
+  const proof = { claim: { kind: "tests_pass" as const, quote: "tests", subject: "suite" }, verdict: "verified" as const, evidence: "ok", ruleId: "tests-pass" };
+  const before = buildReport({ transcript: "a", transcriptFormat: "markdown", repo: "repo", base: "base", head: "one", results: [check, proof], policy: { minVerified: 1, strict: true, sha256: "sha256:policy" } });
+  const after = buildReport({ transcript: "b", transcriptFormat: "markdown", repo: "repo", base: "base", head: "two", results: [check, proof], policy: { minVerified: 1, strict: true, sha256: "sha256:policy" } });
+  const beforePath = join(root, "before.json"); const afterPath = join(root, "after.json"); const output = join(root, "delta.json");
+  writeFileSync(beforePath, JSON.stringify(before)); writeFileSync(afterPath, JSON.stringify(after));
+  assert.equal(run(["compare", beforePath, afterPath, "--format", "json", "--output", output]), 0);
+  const delta = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(delta.status, "PASS");
+  assert.equal(delta.schemaVersion, "agent-vigil-receipt-delta/v1");
+  after.policy.strict = false;
+  writeFileSync(afterPath, JSON.stringify(after));
+  assert.equal(run(["compare", beforePath, afterPath]), 1);
 });
 test("CLI missing transcript exits two", () => assert.equal(run([]), 2));
 test("CLI empty narrative is inconclusive", () => {

@@ -30,6 +30,7 @@ export function remediationFor(ruleId?: string): string {
     "exception-context-lost": "Rethrow the original error or attach it as the new error's cause so diagnostic context is preserved.",
     "stale-refactor-caller": "Update remaining callers to the renamed symbol and run the focused regression test.",
     "no-op-code-change": "Make the behavioral change explicit or remove the comment/whitespace-only edit from the claimed fix.",
+    "comment-only-change": "Implement the claimed behavior change, or move the comment-only edit out of the fix and avoid presenting it as implementation proof.",
     "diff-unparseable": "Export a complete unified Git diff with `git diff --no-color <base>...<head>` and rerun the audit.",
     "completion-marker": "Resolve the added unfinished-work marker before claiming completion.",
     "completion-evidence": "Add at least one independently verifiable path, command, change, or test claim.",

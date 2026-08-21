@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash6 } from "node:crypto";
+import { createHash as createHash7 } from "node:crypto";
 import { execFileSync as execFileSync7 } from "node:child_process";
 import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync9, realpathSync as realpathSync3, writeFileSync as writeFileSync5 } from "node:fs";
 import { dirname as dirname4, isAbsolute as isAbsolute3, relative as relative5, resolve as resolve7 } from "node:path";
@@ -28,7 +28,7 @@ function safeJson(text) {
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+    return `{${Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, item2]) => `${JSON.stringify(key)}:${canonicalJson(item2)}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -831,7 +831,7 @@ function gitShow(repo, ref, path) {
 }
 function isTestPath(path) {
   if (isGeneratedOrVendorPath(path)) return false;
-  return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|_test)\.[^.]+$/i.test(path);
+  return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|\.cy|_test)\.[^.]+$/i.test(path);
 }
 function isGeneratedOrVendorPath(path) {
   return /^(?:node_modules|vendor|dist|build|coverage|\.git)\//.test(path);
@@ -880,10 +880,14 @@ function untrackedFilePatches(repo) {
 }
 function countTests(content) {
   const patterns = [
-    /\b(?:it|test|describe)\s*\(/g,
+    /\b(?:it|test|describe)(?:\.(?:each|only|skip))?\s*\(/g,
     /^\s*def\s+test_[A-Za-z0-9_]+\s*\(/gm,
     /^\s*#\[test\]/gm,
-    /^\s*func\s+Test[A-Za-z0-9_]+\s*\(/gm
+    /^\s*func\s+Test[A-Za-z0-9_]+\s*\(/gm,
+    /^\s*\[(?:TestMethod|TestCase|Fact|Theory|Test)\b[^\]]*\]/gm,
+    /^\s*@Test\b/gm,
+    /^\s*test\s+["'][^"']+["']\s+do\b/gm,
+    /^\s*(?:it|test)\s+["'][^"']+["']\s+do\b/gm
   ];
   return patterns.reduce((sum, regex) => sum + [...content.matchAll(regex)].length, 0);
 }
@@ -950,6 +954,10 @@ function cleanIntegrityResult(pathCount, contributesToPass = false) {
 function normalizedCodeLine(line) {
   return line.replace(/\/\/.*$/, "").replace(/\/\*.*?\*\//g, "").replace(/\s+/g, "").replace(/[;,]$/, "");
 }
+function isStandaloneCommentLine(line) {
+  const value = line.trim();
+  return value === "" || /^\/\//.test(value) || /^\/\*/.test(value) || /^\*/.test(value) || /^<!--/.test(value) || /^--\s/.test(value) || /^#(?:\s|TODO\b|FIXME\b)/i.test(value);
+}
 function checkIntegrityPatches(patches) {
   const results = [];
   const checks = [
@@ -967,6 +975,15 @@ function checkIntegrityPatches(patches) {
   for (const [subject, regex, ruleId, inScope] of checks) {
     const line = patches.filter(inScope).flatMap((patch) => patch.added).find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
     if (line) results.push(finding(subject, line.trim().slice(0, 220), ruleId));
+  }
+  const implementationPatches = patches.filter((patch) => !isDocumentationPath(patch.path));
+  const changedLines = implementationPatches.flatMap((patch) => [...patch.added, ...patch.removed]);
+  if (changedLines.length > 0 && implementationPatches.some((patch) => patch.added.some((line) => isStandaloneCommentLine(line) && line.trim() !== "")) && changedLines.every(isStandaloneCommentLine)) {
+    results.push(finding(
+      "implementation change contains comments but no executable change",
+      `${implementationPatches.map((patch) => patch.path).join(", ")}: only comment or blank lines changed`,
+      "comment-only-change"
+    ));
   }
   for (const patch of patches.filter((candidate) => !isDocumentationPath(candidate.path))) {
     const added = patch.added.join("\n");
@@ -1010,6 +1027,20 @@ function checkIntegrityPatches(patches) {
       results.push(finding("code change is behaviorally empty after comment and whitespace normalization", `${patch.path}: ${patch.added[0].trim().slice(0, 180)}`, "no-op-code-change"));
     }
   }
+  const crossFileFunctionPattern = /\b(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g;
+  const remainingChangedText = implementationPatches.flatMap((patch) => [...patch.added, ...patch.context]).join("\n");
+  for (const patch of implementationPatches) {
+    const removedNames = [...patch.removed.join("\n").matchAll(crossFileFunctionPattern)].map((match) => match[1]);
+    const addedNames = new Set([...patch.added.join("\n").matchAll(crossFileFunctionPattern)].map((match) => match[1]));
+    if (!addedNames.size) continue;
+    for (const oldName of removedNames) {
+      if (addedNames.has(oldName)) continue;
+      const oldCall = new RegExp(`\\b${oldName.replace(/[$]/g, "\\$")}\\s*\\(`);
+      if (oldCall.test(remainingChangedText) && !results.some((result3) => result3.ruleId === "stale-refactor-caller")) {
+        results.push(finding("removed or renamed symbol leaves an old caller", `${patch.path} removes ${oldName} while another changed-file context still calls it`, "stale-refactor-caller"));
+      }
+    }
+  }
   const testPatches = patches.filter((patch) => isTestPath(patch.path));
   const removedTests = testPatches.flatMap((patch) => patch.removed).filter((line) => countTests(line) > 0).length;
   const addedTests = testPatches.flatMap((patch) => patch.added).filter((line) => countTests(line) > 0).length;
@@ -1023,6 +1054,13 @@ function checkIntegrityPatches(patches) {
       "assertion surface shrank",
       `${removedAssertions} assertion-like lines removed and ${addedAssertions} added`,
       "assertion-drop"
+    ));
+  }
+  if (testPatches.length === patches.length && results.some((result3) => result3.ruleId === "test-assertion-relaxed") && !results.some((result3) => result3.ruleId === "no-op-code-change")) {
+    results.push(finding(
+      "claimed fix changes only the test oracle",
+      "all changed implementation-scoped paths are tests and an exact assertion was weakened",
+      "no-op-code-change"
     ));
   }
   return results;
@@ -1084,12 +1122,12 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.9.0";
+var VERSION = "0.10.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
-    const entries = Object.entries(value).filter(([, item]) => item !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`);
+    const entries = Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item2]) => `${JSON.stringify(key)}:${canonical(item2)}`);
     return `{${entries.join(",")}}`;
   }
   return JSON.stringify(value);
@@ -1352,6 +1390,7 @@ function remediationFor(ruleId) {
     "exception-context-lost": "Rethrow the original error or attach it as the new error's cause so diagnostic context is preserved.",
     "stale-refactor-caller": "Update remaining callers to the renamed symbol and run the focused regression test.",
     "no-op-code-change": "Make the behavioral change explicit or remove the comment/whitespace-only edit from the claimed fix.",
+    "comment-only-change": "Implement the claimed behavior change, or move the comment-only edit out of the fix and avoid presenting it as implementation proof.",
     "diff-unparseable": "Export a complete unified Git diff with `git diff --no-color <base>...<head>` and rerun the audit.",
     "completion-marker": "Resolve the added unfinished-work marker before claiming completion.",
     "completion-evidence": "Add at least one independently verifiable path, command, change, or test claim.",
@@ -1548,7 +1587,7 @@ function canonical2(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical2).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.entries(value).filter(([, item]) => item !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${canonical2(item)}`).join(",")}}`;
+    return `{${Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, item2]) => `${JSON.stringify(key)}:${canonical2(item2)}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -1600,7 +1639,7 @@ function positiveInteger(value, label, maximum) {
   }
 }
 function nonEmptyStrings(value, label) {
-  if (!Array.isArray(value) || value.length < 1 || value.some((item) => typeof item !== "string" || !item.trim())) {
+  if (!Array.isArray(value) || value.length < 1 || value.some((item2) => typeof item2 !== "string" || !item2.trim())) {
     throw new Error(`policy ${label} must be a non-empty array of non-empty strings`);
   }
   if (new Set(value).size !== value.length) throw new Error(`policy ${label} must not contain duplicates`);
@@ -2175,17 +2214,17 @@ function buildPortableGateReport(receipt, options) {
   const results = [];
   const advisories = [];
   const trusted = policy.value.trustedSignerKeyIds ?? [];
-  const verification = verifyPortableReceipt(receipt, trusted);
+  const verification2 = verifyPortableReceipt(receipt, trusted);
   results.push(result(
     "portable receipt hash and Ed25519 signature",
-    verification.hashValid && verification.signatureValid ? "verified" : "contradicted",
-    verification.hashValid && verification.signatureValid ? `${receipt.portableHash} is intact and signed by ${verification.keyId}` : verification.errors.filter((error) => !error.includes("not pinned")).join("; ") || "portable receipt signature is invalid",
+    verification2.hashValid && verification2.signatureValid ? "verified" : "contradicted",
+    verification2.hashValid && verification2.signatureValid ? `${receipt.portableHash} is intact and signed by ${verification2.keyId}` : verification2.errors.filter((error) => !error.includes("not pinned")).join("; ") || "portable receipt signature is invalid",
     "portable-signature"
   ));
   results.push(result(
     "receipt signer is pinned by trusted policy",
-    verification.signerTrusted ? "verified" : trusted.length ? "contradicted" : "unverifiable",
-    verification.signerTrusted ? `${verification.keyId} is listed in the base-anchored policy` : trusted.length ? `${verification.keyId ?? "unreadable signer"} is not one of ${trusted.length} trusted key ID(s)` : "trusted policy has no trustedSignerKeyIds; pin a signer before enabling the gate",
+    verification2.signerTrusted ? "verified" : trusted.length ? "contradicted" : "unverifiable",
+    verification2.signerTrusted ? `${verification2.keyId} is listed in the base-anchored policy` : trusted.length ? `${verification2.keyId ?? "unreadable signer"} is not one of ${trusted.length} trusted key ID(s)` : "trusted policy has no trustedSignerKeyIds; pin a signer before enabling the gate",
     "portable-signer",
     !trusted.length
   ));
@@ -2581,6 +2620,190 @@ function buildMaintainerChecks(repo, base, head, evidence, policy) {
   return checks;
 }
 
+// src/receipt-diff.ts
+import { createHash as createHash6 } from "node:crypto";
+function consistencyErrors(report) {
+  const errors = [];
+  const count = (verdict) => report.results.filter((row) => row.verdict === verdict).length;
+  const meaningfulVerified = report.results.filter((row) => row.verdict === "verified" && row.contributesToPass !== false).length;
+  const expectedStatus = count("contradicted") > 0 ? "FAIL" : meaningfulVerified < report.policy.minVerified || report.results.some((row) => row.verdict === "unverifiable" && row.blocksPass) || report.policy.strict && count("unverifiable") > 0 ? "INCONCLUSIVE" : "PASS";
+  if (report.summary.verified !== count("verified")) errors.push("verified count does not match results");
+  if (report.summary.contradicted !== count("contradicted")) errors.push("contradicted count does not match results");
+  if (report.summary.unverifiable !== count("unverifiable")) errors.push("unverifiable count does not match results");
+  if (report.summary.meaningfulVerified !== meaningfulVerified) errors.push("meaningfulVerified count does not match results");
+  if (report.summary.status !== expectedStatus) errors.push(`status ${report.summary.status} should be ${expectedStatus}`);
+  if (report.summary.pass !== (report.summary.status === "PASS")) errors.push("pass boolean does not match status");
+  if (!Number.isInteger(report.policy.minVerified) || report.policy.minVerified < 1) errors.push("minVerified is invalid");
+  return errors;
+}
+function checkKey(check) {
+  return `${check.ruleId ?? check.claim.kind}|${check.claim.kind}|${check.claim.subject}`;
+}
+function advisoryKey(check) {
+  return `${checkKey(check)}|${check.evidence}`;
+}
+function item(check, values) {
+  return {
+    key: checkKey(check),
+    ruleId: check.ruleId ?? check.claim.kind,
+    subject: check.claim.subject,
+    ...values
+  };
+}
+function verification(report) {
+  const internallyConsistent = consistencyErrors(report).length === 0;
+  try {
+    const verified = verifyReport(report);
+    return {
+      receiptHash: report.receiptHash,
+      hashValid: verified.hashValid,
+      signature: report.signature ? verified.signatureValid ? "valid" : "invalid" : "absent",
+      internallyConsistent,
+      ...report.signature ? { keyId: report.signature.keyId } : {},
+      base: report.base,
+      head: report.head,
+      policySha256: report.policy.sha256,
+      status: report.summary.status
+    };
+  } catch {
+    return {
+      receiptHash: report.receiptHash,
+      hashValid: false,
+      signature: report.signature ? "invalid" : "absent",
+      internallyConsistent,
+      base: report.base,
+      head: report.head,
+      policySha256: report.policy.sha256,
+      status: report.summary.status
+    };
+  }
+}
+function signerContinuity(before, after) {
+  if (!before.keyId && !after.keyId) return { continuity: "unsigned" };
+  if (!before.keyId && after.keyId) return { continuity: "added", after: after.keyId };
+  if (before.keyId && !after.keyId) return { continuity: "removed", before: before.keyId };
+  return { continuity: before.keyId === after.keyId ? "same" : "changed", before: before.keyId, after: after.keyId };
+}
+function reportStatusRank(status) {
+  return status === "PASS" ? 2 : status === "INCONCLUSIVE" ? 1 : 0;
+}
+function verdictRank(verdict) {
+  return verdict === "verified" ? 2 : verdict === "unverifiable" ? 1 : 0;
+}
+function isInvariant(check) {
+  return check.contributesToPass === false || check.blocksPass === true || check.claim.kind === "policy_attestation" || check.claim.kind === "integrity";
+}
+function compareReceipts(beforeReport, afterReport) {
+  const before = verification(beforeReport);
+  const after = verification(afterReport);
+  const regressions = [];
+  const improvements = [];
+  const notes = [];
+  if (!before.hashValid || !after.hashValid) {
+    const receipt = !before.hashValid ? beforeReport : afterReport;
+    regressions.push({ key: "receipt-hash", ruleId: "receipt-hash", subject: "receipt content hash", reason: `${!before.hashValid ? "before" : "after"} receipt hash is invalid` });
+    notes.push(`Do not trust ${receipt.receiptHash}; its canonical payload does not match the recorded hash.`);
+  }
+  if (!before.internallyConsistent || !after.internallyConsistent) {
+    const which = !before.internallyConsistent ? "before" : "after";
+    regressions.push({ key: "receipt-consistency", ruleId: "receipt-consistency", subject: "receipt summary and policy invariants", reason: `${which} receipt is internally inconsistent` });
+    notes.push(`${which} receipt: ${consistencyErrors(!before.internallyConsistent ? beforeReport : afterReport).join("; ")}`);
+  }
+  if (before.signature === "invalid" || after.signature === "invalid") {
+    regressions.push({ key: "receipt-signature", ruleId: "receipt-signature", subject: "embedded Ed25519 signature", reason: `${before.signature === "invalid" ? "before" : "after"} receipt signature is invalid` });
+  }
+  const policyWeakened = [];
+  if (afterReport.policy.minVerified < beforeReport.policy.minVerified) policyWeakened.push(`minVerified fell from ${beforeReport.policy.minVerified} to ${afterReport.policy.minVerified}`);
+  if (beforeReport.policy.strict && !afterReport.policy.strict) policyWeakened.push("strict policy changed from true to false");
+  for (const reason of policyWeakened) regressions.push({ key: `policy|${reason}`, ruleId: "policy-weakened", subject: "verification policy strength", reason });
+  const samePolicy = beforeReport.policy.sha256 === afterReport.policy.sha256;
+  if (!samePolicy) notes.push("Policy hashes differ; behavioral check deltas are not directly comparable.");
+  const relationship = beforeReport.base === afterReport.base ? "same-base" : beforeReport.head === afterReport.base ? "chained" : "unrelated";
+  if (relationship === "unrelated") notes.push("Git ranges are neither same-base PR revisions nor a chained before-head to after-base sequence.");
+  if (beforeReport.repository.remote && afterReport.repository.remote && beforeReport.repository.remote !== afterReport.repository.remote) {
+    notes.push("Repository remotes differ.");
+  }
+  const beforeChecks = new Map(beforeReport.results.map((check) => [checkKey(check), check]));
+  const afterChecks = new Map(afterReport.results.map((check) => [checkKey(check), check]));
+  let unchangedChecks = 0;
+  for (const [key, prior] of beforeChecks) {
+    const current = afterChecks.get(key);
+    if (!current) {
+      const cleanScanBecameAdvisories = prior.ruleId === "integrity-scan" && (afterReport.advisories?.length ?? 0) > 0;
+      if (isInvariant(prior) && prior.verdict === "verified" && !cleanScanBecameAdvisories) {
+        regressions.push(item(prior, { before: prior.verdict, after: "absent", reason: "previously verified invariant check disappeared" }));
+      }
+      continue;
+    }
+    if (current.verdict === prior.verdict) {
+      unchangedChecks += 1;
+      continue;
+    }
+    if (verdictRank(current.verdict) < verdictRank(prior.verdict)) {
+      regressions.push(item(current, { before: prior.verdict, after: current.verdict, reason: "check verdict weakened" }));
+    } else {
+      improvements.push(item(current, { before: prior.verdict, after: current.verdict, reason: "check verdict improved" }));
+    }
+  }
+  for (const [key, current] of afterChecks) {
+    if (beforeChecks.has(key)) continue;
+    if (current.verdict === "contradicted") regressions.push(item(current, { before: "absent", after: current.verdict, reason: "new contradiction" }));
+    else if (current.verdict === "unverifiable" && current.blocksPass) regressions.push(item(current, { before: "absent", after: current.verdict, reason: "new blocking evidence gap" }));
+    else if (current.verdict === "verified") improvements.push(item(current, { before: "absent", after: current.verdict, reason: "new verified check" }));
+  }
+  if (reportStatusRank(afterReport.summary.status) < reportStatusRank(beforeReport.summary.status)) {
+    regressions.push({ key: "report-status", ruleId: "report-status", subject: "overall receipt status", before: beforeReport.summary.status === "PASS" ? "verified" : "unverifiable", after: afterReport.summary.status === "FAIL" ? "contradicted" : "unverifiable", reason: `${beforeReport.summary.status} became ${afterReport.summary.status}` });
+  } else if (reportStatusRank(afterReport.summary.status) > reportStatusRank(beforeReport.summary.status)) {
+    improvements.push({ key: "report-status", ruleId: "report-status", subject: "overall receipt status", reason: `${beforeReport.summary.status} became ${afterReport.summary.status}` });
+  }
+  const beforeAdvisories = new Map((beforeReport.advisories ?? []).map((check) => [advisoryKey(check), check]));
+  const afterAdvisories = new Map((afterReport.advisories ?? []).map((check) => [advisoryKey(check), check]));
+  const newAdvisories = [...afterAdvisories].filter(([key]) => !beforeAdvisories.has(key)).map(([, check]) => item(check, { before: "absent", after: "advisory", reason: "new receipt-bound advisory" }));
+  const resolvedAdvisories = [...beforeAdvisories].filter(([key]) => !afterAdvisories.has(key)).map(([, check]) => item(check, { before: "advisory", after: "absent", reason: "prior advisory is absent" }));
+  const signer = signerContinuity(before, after);
+  if (signer.continuity === "removed") regressions.push({ key: "signer-removed", ruleId: "signer-continuity", subject: "receipt signer", reason: "after receipt removed a previously present signature" });
+  if (signer.continuity === "changed") notes.push("Signer key changed; establish the rotation through a trusted policy or separate approval.");
+  if (signer.continuity === "unsigned") notes.push("Both hashes are content-integrity checks only; signer identity is unestablished.");
+  let status;
+  if (regressions.length) status = "FAIL";
+  else if (!samePolicy || relationship === "unrelated" || signer.continuity === "changed") status = "INCONCLUSIVE";
+  else status = "PASS";
+  const unsigned = {
+    schemaVersion: "agent-vigil-receipt-delta/v1",
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    before,
+    after,
+    status,
+    policy: { same: samePolicy, weakened: policyWeakened },
+    range: { related: relationship !== "unrelated", relationship },
+    signer,
+    regressions,
+    improvements,
+    newAdvisories,
+    resolvedAdvisories,
+    unchangedChecks,
+    notes
+  };
+  return { ...unsigned, deltaHash: `sha256:${createHash6("sha256").update(canonical(unsigned)).digest("hex")}` };
+}
+function renderReceiptDelta(delta) {
+  const lines = [
+    `Agent Vigil receipt delta: ${delta.status}`,
+    `  before: ${delta.before.receiptHash} (${delta.before.status})`,
+    `  after:  ${delta.after.receiptHash} (${delta.after.status})`,
+    `  policy: ${delta.policy.same ? "same" : "changed"}`,
+    `  range:  ${delta.range.relationship}`,
+    `  signer: ${delta.signer.continuity}`,
+    `  ${delta.regressions.length} regression(s) \xB7 ${delta.improvements.length} improvement(s) \xB7 ${delta.newAdvisories.length} new advisory finding(s)`
+  ];
+  for (const row of delta.regressions) lines.push(`  \u2717 [${row.ruleId}] ${row.subject}: ${row.reason}`);
+  for (const row of delta.improvements) lines.push(`  \u2713 [${row.ruleId}] ${row.subject}: ${row.reason}`);
+  for (const row of delta.newAdvisories) lines.push(`  ! [${row.ruleId}] ${row.subject}: ${row.reason}`);
+  for (const note of delta.notes) lines.push(`  ? ${note}`);
+  lines.push(`  ${delta.deltaHash}`);
+  return lines.join("\n");
+}
+
 // src/cli.ts
 function usage() {
   return `agent-vigil ${VERSION}
@@ -2593,6 +2816,7 @@ Usage:
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
+  vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
@@ -2735,7 +2959,7 @@ function runMaintainer(args) {
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     const rawEvent = readFileSync9(eventPath);
-    const eventHash = `sha256:${createHash6("sha256").update(rawEvent).digest("hex")}`;
+    const eventHash = `sha256:${createHash7("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
     const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git6(repo, ["rev-parse", `${head}^{tree}`]);
@@ -2846,6 +3070,28 @@ function runVerify(args) {
     return 2;
   }
 }
+function runCompare(args) {
+  try {
+    const values = args.slice(1).filter((arg, index, all) => !arg.startsWith("--") && all[index - 1] !== "--format" && all[index - 1] !== "--output");
+    if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
+    const format = optionValue(args, "--format") ?? "text";
+    if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
+    const before = JSON.parse(readFileSync9(resolve7(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync9(resolve7(values[1]), "utf8"));
+    if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
+    const delta = compareReceipts(before, after);
+    const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
+` : `${renderReceiptDelta(delta)}
+`;
+    const output = optionValue(args, "--output");
+    if (output) writePrivateFileAtomic(resolve7(output), rendered);
+    else process.stdout.write(rendered);
+    return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
 function runAudit(args) {
   try {
     const options = parseArgs(args.slice(1));
@@ -2855,7 +3101,7 @@ function runAudit(args) {
     const raw = readFileSync9(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest2 = `sha256:${createHash6("sha256").update(raw).digest("hex")}`;
+    const digest2 = `sha256:${createHash7("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -2874,7 +3120,7 @@ function runAudit(args) {
       head: digest2,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash6("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash7("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -2901,6 +3147,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
+  if (argv[0] === "compare") return runCompare(argv);
   if (argv[0] === "audit") return runAudit(argv);
   if (argv[0] === "gate") return runGate(argv);
   if (argv[0] === "maintainer") return runMaintainer(argv);

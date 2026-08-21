@@ -332,6 +332,37 @@ test("static diff audit catches a stale caller after a symbol rename", () => {
   ].join("\n");
   assert.ok(checkIntegrityDiff(diff).some((result) => result.ruleId === "stale-refactor-caller"));
 });
+test("static diff audit recognizes Cypress tests and catches removed assertions", () => {
+  const diff = unifiedDiff(
+    "cypress/e2e/resources.cy.js",
+    ["cy.get('[aria-label=ready]').should('exist');"],
+    ["cy.wait(1000);"],
+  );
+  assert.ok(checkIntegrityDiff(diff).some((result) => result.ruleId === "assertion-drop"));
+});
+test("static diff audit catches cross-file stale callers with a clean negative control", () => {
+  const declaration = unifiedDiff(
+    "src/value.ts",
+    ["export function compute(x: number) { return x; }"],
+    ["export function computeV2(x: number) { return x; }"],
+  );
+  const stale = `${declaration}${unifiedDiff("src/caller.ts", [], ["export const value = compute(1);"])}`;
+  const fixed = `${declaration}${unifiedDiff("src/caller.ts", ["export const value = compute(1);"], ["export const value = computeV2(1);"])}`;
+  assert.ok(checkIntegrityDiff(stale).some((result) => result.ruleId === "stale-refactor-caller"));
+  assert.equal(checkIntegrityDiff(fixed).some((result) => result.ruleId === "stale-refactor-caller"), false);
+});
+test("static diff audit catches comment-only fixes without flagging executable changes", () => {
+  const comments = unifiedDiff("src/value.ts", [], ["// FIXME: this still returns the wrong value"]);
+  const behavior = unifiedDiff("src/value.ts", ["return 0;"], ["// Return the corrected value", "return 1;"]);
+  assert.ok(checkIntegrityDiff(comments).some((result) => result.ruleId === "comment-only-change"));
+  assert.equal(checkIntegrityDiff(behavior).some((result) => result.ruleId === "comment-only-change"), false);
+});
+test("test-only assertion relaxation receives a no-op-fix label", () => {
+  const relaxed = unifiedDiff("test/value.test.ts", ["expect(value()).toBe(2);"], ["expect(value()).toBeGreaterThan(0);"]);
+  const implementationAndTest = `${unifiedDiff("src/value.ts", ["return 0;"], ["return 2;"])}${relaxed}`;
+  assert.ok(checkIntegrityDiff(relaxed).some((result) => result.ruleId === "no-op-code-change"));
+  assert.equal(checkIntegrityDiff(implementationAndTest).some((result) => result.ruleId === "no-op-code-change"), false);
+});
 test("completion without objective evidence is unresolved", () => {
   const repo = initRepo(); writeFileSync(join(repo, "README.md"), "changed\n"); commit(repo, "docs");
   const claim = { kind: "work_complete" as const, quote: "done", subject: "completion claim" };

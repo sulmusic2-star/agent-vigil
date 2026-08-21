@@ -30,6 +30,8 @@ import { createPortableReceipt, type PortableReceipt } from "./portable.ts";
 import { buildPortableGateReport } from "./gate.ts";
 import { buildMaintainerChecks, loadPullRequestEvidence } from "./maintainer.ts";
 import { routeIntegrity } from "./integrity-policy.ts";
+import { compareReceipts, renderReceiptDelta } from "./receipt-diff.ts";
+import { writePrivateFileAtomic } from "./safe-output.ts";
 
 type Options = {
   transcript?: string;
@@ -60,6 +62,7 @@ Usage:
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
+  vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
@@ -286,6 +289,24 @@ function runVerify(args: string[]): number {
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
+function runCompare(args: string[]): number {
+  try {
+    const values = args.slice(1).filter((arg, index, all) => !arg.startsWith("--") && all[index - 1] !== "--format" && all[index - 1] !== "--output");
+    if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
+    const format = optionValue(args, "--format") ?? "text";
+    if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
+    const before = JSON.parse(readFileSync(resolve(values[0]), "utf8")) as TrustReport;
+    const after = JSON.parse(readFileSync(resolve(values[1]), "utf8")) as TrustReport;
+    if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
+    const delta = compareReceipts(before, after);
+    const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}\n` : `${renderReceiptDelta(delta)}\n`;
+    const output = optionValue(args, "--output");
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
 function runAudit(args: string[]): number {
   try {
     const options = parseArgs(args.slice(1));
@@ -338,6 +359,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
+  if (argv[0] === "compare") return runCompare(argv);
   if (argv[0] === "audit") return runAudit(argv);
   if (argv[0] === "gate") return runGate(argv);
   if (argv[0] === "maintainer") return runMaintainer(argv);

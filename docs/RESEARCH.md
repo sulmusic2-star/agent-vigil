@@ -409,3 +409,38 @@ The release response is deliberately bounded: three first-party historical
 failures with exact revisions and replays, a visually inspected installation
 page, npm/Marketplace publication metadata, and a permission-first maintainer
 trial ledger. First-party cases remain outside external-adoption totals.
+
+## 2026-08-21 v0.10 evidence-control landscape refresh
+
+This refresh used project-owned repositories, GitHub Marketplace listings, and
+maintainer issue reports. Search snippets and product copy are leads, not proof
+of detection accuracy or adoption.
+
+- [Agent Done Or Not](https://github.com/marketplace/actions/agent-done-or-not)
+  now advertises reviewer-side PR claim re-execution and deliberately labels
+  outputs RE-EXECUTED / ASSERTED / UNPARSED rather than overstating them as
+  verified. Agent Vigil already re-runs trusted commands and adds exact Git,
+  base-policy, differential-test, transcript, and signed-receipt controls.
+- [Assay](https://github.com/marketplace/actions/assay-ai-agent-security)
+  publishes verifiable agent evidence bundles, SARIF, attestation, and baseline
+  finding deltas. That baseline-delta surface exposed a real Agent Vigil gap;
+  v0.10 adds deterministic full-receipt comparison with explicit policy, Git
+  range, invariant-check, signature, and advisory continuity.
+- [Evidence Gate](https://github.com/marketplace/actions/evidence-gate-action)
+  emphasizes fail-closed evidence levels and hidden gates. Agent Vigil should
+  not claim hidden evaluation today; its current policy is reviewable and
+  base-anchored.
+- [Agents Shipgate](https://github.com/marketplace/actions/agents-shipgate)
+  exposes exact authorization and merge-verdict controls for agent capability
+  changes. This supports the future organization-control-plane thesis, but it
+  is not evidence that Agent Vigil has a deployed GitHub App.
+- [Codex issue #24922](https://github.com/openai/codex/issues/24922) records a
+  concrete report of weakened regression tests plus false completion evidence.
+  It supports the combined claim-reconciliation and anti-reward-hacking
+  problem definition; one issue does not establish incidence.
+
+The resulting product decision is narrow: do not chase an uncalibrated model
+reviewer. Keep the verifier deterministic, compare receipts across revisions,
+prove base-fail/head-pass regressions, publish trade-offs against a frozen
+competitor corpus, and preserve INCONCLUSIVE when claim binding or execution is
+missing.

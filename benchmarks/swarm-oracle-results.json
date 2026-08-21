@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "tool": {
     "name": "agent-vigil",
-    "version": "0.9.0"
+    "version": "0.10.0"
   },
   "source": {
     "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",
@@ -82,8 +82,8 @@
       "scoped": false,
       "exact": 0,
       "exactRecall": null,
-      "any": 0,
-      "anyFindingRate": 0
+      "any": 24,
+      "anyFindingRate": 0.96
     },
     {
       "category": "coverage-erosion",
