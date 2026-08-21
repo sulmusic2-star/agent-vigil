@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-08-21T21:10:00Z",
+  "randomSeed": 20260821,
+  "agentVigil": {
+    "version": "0.9.0",
+    "commit": "57c4f846c28b4c954493195a28e6f3ff74077432"
+  },
+  "swarm": {
+    "version": "12.1.1",
+    "commit": "b2b681ff529929d39a14c0541d0e2b71b642b5da",
+    "detectorSet": "experimental"
+  },
+  "datasets": {
+    "oracle": {
+      "root": "benchmarks/oracle-corpus",
+      "indexSha256": "2bddd9ba21b35801a0dac4d3af80f45214b4fb7c64ddf0c404bfb8d6fb0ee564",
+      "role": "known constructive injection; non-blind"
+    },
+    "pairedSynthetic": {
+      "root": "benchmarks/falsification-corpus/v10-synthetic-corpus",
+      "indexSha256": "315dcb696d42fedee50abca873faa5df6a010ac374df9f94ce1eca71b3fe65dc",
+      "role": "known synthetic broken/clean pairs; non-blind"
+    },
+    "presumedClean": {
+      "manifest": "benchmarks/real-prs/sources-v2.json",
+      "manifestSha256": "12f59a7ecf226c4a65662dd42206005a540175b57017728942ed078c579d898a",
+      "role": "presumed-clean alert-burden set; not true negatives"
+    },
+    "wildComplaints": {
+      "manifest": "benchmarks/real-prs/wild-cheat-corpus/v4/dataset.json",
+      "manifestSha256": "7996bdf3771dc452834788314c3981c7426a46e327d5dc4189b4eb0a8c21bbec",
+      "role": "complaint-mined real PRs; strict subset primary, legacy exploratory"
+    }
+  },
+  "scope": {
+    "input": "static unified diff only",
+    "executeCandidateCode": false,
+    "useLLMJudge": false,
+    "networkForDetection": false,
+    "swarmCommand": "audit --diff-file <path> --detectors experimental --output json",
+    "agentVigilCommand": "audit --diff <path> --format json"
+  },
+  "metrics": [
+    "exact-category recall",
+    "any-finding recall",
+    "paired clean specificity",
+    "broken-clean balanced accuracy",
+    "presumed-clean advisory PR rate",
+    "findings per PR",
+    "strict-complaint exact-category recall",
+    "strict-complaint any-finding recall"
+  ],
+  "statistics": {
+    "confidenceLevel": 0.95,
+    "proportionInterval": "Wilson score",
+    "pairedDifference": "exact two-sided McNemar binomial",
+    "alertBurden": "paired bootstrap percentile, 10000 resamples",
+    "multiplicity": "Holm correction for category-family paired tests"
+  },
+  "interpretation": {
+    "precision": "not calculated unless negatives are human-adjudicated",
+    "superiority": "not established by a maintainer-authored or competitor-authored corpus",
+    "commercialValue": "not inferred from benchmark performance"
+  }
+}
