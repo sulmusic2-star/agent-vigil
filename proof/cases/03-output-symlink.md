@@ -26,7 +26,7 @@ and GitHub summaries now:
 - reject untrusted symlinked parent components;
 - write through an exclusive same-directory temporary file;
 - flush and atomically rename the completed file;
-- use owner-only mode `0600`;
+- use owner-only POSIX mode `0600` (Windows inherits the parent ACL);
 - preserve the previous target if writing fails.
 
 ## Corrected result

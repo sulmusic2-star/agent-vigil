@@ -329,7 +329,8 @@ search hit is not counted as an adopter or receipt. The public
 - The GitHub Action dogfoods itself in CI.
 - `npm pack --dry-run` is part of the build gate.
 - JSON, SARIF, and job-summary outputs reject symlinks and non-regular targets,
-  then use private `0600` same-directory temporary files and atomic replacement.
+  then use same-directory temporary files and atomic replacement. POSIX output
+  mode is `0600`; Windows output inherits the destination directory ACL.
 - Zero runtime dependencies.
 
 The adapter, setup, policy-anchor, receipt-signing, workspace-binding,

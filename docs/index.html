@@ -104,7 +104,7 @@
         <div class="cards">
           <article class="card"><span class="number">CASE 01</span><h3>Stale Action artifact returned a false PASS</h3><p>Malformed evidence reused an earlier run’s receipt. Hosted CI blocked v0.4 until every invocation received a fresh artifact directory.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/proof/cases/01-stale-action-artifact.md">Exact SHAs and runs →</a></article>
           <article class="card"><span class="number">CASE 02</span><h3>Local bytecode contaminated the package</h3><p>A broad package allowlist captured publisher-machine state. The release stopped and a planted-contamination replay became a gate.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/proof/cases/02-package-contamination.md">Exact package controls →</a></article>
-          <article class="card"><span class="number">CASE 03</span><h3>Receipt output followed a symlink</h3><p>An adversarial filesystem fixture overwrote the link target. v0.8 rejects unsafe destinations and replaces outputs atomically with mode 0600.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/proof/cases/03-output-symlink.md">Reproduction and limit →</a></article>
+          <article class="card"><span class="number">CASE 03</span><h3>Receipt output followed a symlink</h3><p>An adversarial filesystem fixture overwrote the link target. v0.8 rejects unsafe destinations and replaces outputs atomically, with POSIX mode 0600.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/proof/cases/03-output-symlink.md">Reproduction and limit →</a></article>
         </div>
       </section>
 

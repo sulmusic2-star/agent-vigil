@@ -18,5 +18,7 @@ package, cloud, or signing credentials.
 
 Receipt, SARIF, and GitHub-summary output refuses symbolic links, symlinked
 untrusted parent components, and non-regular destinations. Output is prepared
-in an exclusive owner-only temporary file and atomically replaces the final
-path. This protects the output boundary; it does not sandbox repository code.
+in an exclusive temporary file and atomically replaces the final path. POSIX
+files use mode `0600`; Windows files inherit the destination directory ACL, so
+sensitive output needs a private directory. This protects the output boundary;
+it does not sandbox repository code.

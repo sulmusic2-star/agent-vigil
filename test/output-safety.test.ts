@@ -88,7 +88,7 @@ test("report output rejects a symlinked parent and preserves the outside target"
   assert.deepEqual(readdirSync(outside), ["authorized_keys"]);
 });
 
-test("report output atomically replaces a regular file with mode 0600", () => {
+test("report output atomically replaces a regular file with POSIX mode 0600", () => {
   const directory = mkdtempSync(join(tmpdir(), "vigil-output-mode-"));
   const output = join(directory, "receipt.json");
   writeFileSync(output, "stale and public\n");
@@ -98,7 +98,9 @@ test("report output atomically replaces a regular file with mode 0600", () => {
 
   const written = JSON.parse(readFileSync(output, "utf8"));
   assert.equal(written.summary.status, "PASS");
-  assert.equal(statSync(output).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal(statSync(output).mode & 0o777, 0o600);
+  }
   assert.deepEqual(readdirSync(directory), ["receipt.json"]);
 });
 
@@ -131,6 +133,8 @@ test("GitHub summary keeps existing content and becomes private", () => {
 
   const written = readFileSync(summary, "utf8");
   assert.match(written, /^existing step output\n# ✅ Agent Vigil: PASS/);
-  assert.equal(statSync(summary).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal(statSync(summary).mode & 0o777, 0o600);
+  }
   assert.deepEqual(readdirSync(directory), ["summary.md"]);
 });
