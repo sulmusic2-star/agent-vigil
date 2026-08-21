@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 
 export type ClaimKind =
   | "tests_pass"
@@ -28,15 +28,26 @@ export type CheckResult = {
   ruleId?: string;
   /** Passive checks do not satisfy the minimum-evidence gate by themselves. */
   contributesToPass?: boolean;
+  /** Some missing evidence invalidates the execution context even outside strict mode. */
+  blocksPass?: boolean;
 };
 
 export type ReportPolicy = {
   minVerified: number;
   strict: boolean;
+  source?: string;
+  sha256: string;
+};
+
+export type ReceiptSignature = {
+  algorithm: "Ed25519";
+  keyId: string;
+  publicKey: string;
+  value: string;
 };
 
 export type TrustReport = {
-  schemaVersion: "1";
+  schemaVersion: "2";
   vigilVersion: string;
   transcript: string;
   transcriptSha256: string;
@@ -46,6 +57,12 @@ export type TrustReport = {
   head: string;
   generatedAt: string;
   receiptHash: string;
+  repository: {
+    remote?: string;
+    tree?: string;
+  };
+  reproduction: string;
+  signature?: ReceiptSignature;
   results: CheckResult[];
   summary: {
     verified: number;
@@ -58,11 +75,13 @@ export type TrustReport = {
   policy: ReportPolicy;
 };
 
-function canonical(value: unknown): string {
+export function canonical(value: unknown): string {
+  if (value === undefined) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b))
+      .filter(([, item]) => item !== undefined)
+      .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
       .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`);
     return `{${entries.join(",")}}`;
   }
@@ -78,10 +97,14 @@ export function buildReport(input: {
   head: string;
   results: CheckResult[];
   policy?: Partial<ReportPolicy>;
+  repository?: { remote?: string; tree?: string };
+  reproduction?: string;
 }): TrustReport {
   const policy: ReportPolicy = {
     minVerified: Math.max(1, input.policy?.minVerified ?? 1),
     strict: input.policy?.strict ?? false,
+    ...(input.policy?.source ? { source: input.policy.source } : {}),
+    sha256: input.policy?.sha256 ?? "sha256:unavailable",
   };
   const count = (verdict: Verdict) => input.results.filter((r) => r.verdict === verdict).length;
   const contradicted = count("contradicted");
@@ -92,23 +115,38 @@ export function buildReport(input: {
 
   let status: ReportStatus;
   if (contradicted > 0) status = "FAIL";
-  else if (meaningfulVerified < policy.minVerified || (policy.strict && unverifiable > 0)) status = "INCONCLUSIVE";
+  else if (
+    meaningfulVerified < policy.minVerified
+    || input.results.some((result) => result.verdict === "unverifiable" && result.blocksPass)
+    || (policy.strict && unverifiable > 0)
+  ) status = "INCONCLUSIVE";
   else status = "PASS";
 
+  const summary = {
+    verified: count("verified"),
+    contradicted,
+    unverifiable,
+    meaningfulVerified,
+    status,
+    pass: status === "PASS",
+  };
+
   const receiptPayload = {
-    schemaVersion: "1",
+    schemaVersion: "2",
     vigilVersion: VERSION,
     transcriptFormat: input.transcriptFormat,
     transcriptSha256: input.transcriptSha256 ?? "sha256:unavailable",
     base: input.base,
     head: input.head,
+    repository: input.repository ?? {},
+    reproduction: input.reproduction ?? "unavailable",
     results: input.results,
-    status,
+    summary,
     policy,
   };
 
   return {
-    schemaVersion: "1",
+    schemaVersion: "2",
     vigilVersion: VERSION,
     transcript: input.transcript,
     transcriptSha256: input.transcriptSha256 ?? "sha256:unavailable",
@@ -118,15 +156,27 @@ export function buildReport(input: {
     head: input.head,
     generatedAt: new Date().toISOString(),
     receiptHash: `sha256:${createHash("sha256").update(canonical(receiptPayload)).digest("hex")}`,
+    repository: input.repository ?? {},
+    reproduction: input.reproduction ?? "unavailable",
     results: input.results,
-    summary: {
-      verified: count("verified"),
-      contradicted,
-      unverifiable,
-      meaningfulVerified,
-      status,
-      pass: status === "PASS",
-    },
+    summary,
     policy,
   };
+}
+
+export function recomputeReceiptHash(report: TrustReport): string {
+  const payload = {
+    schemaVersion: report.schemaVersion,
+    vigilVersion: report.vigilVersion,
+    transcriptFormat: report.transcriptFormat,
+    transcriptSha256: report.transcriptSha256,
+    base: report.base,
+    head: report.head,
+    repository: report.repository,
+    reproduction: report.reproduction,
+    results: report.results,
+    summary: report.summary,
+    policy: report.policy,
+  };
+  return `sha256:${createHash("sha256").update(canonical(payload)).digest("hex")}`;
 }

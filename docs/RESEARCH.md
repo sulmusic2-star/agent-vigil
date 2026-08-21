@@ -1,6 +1,6 @@
 # What users are actually complaining about
 
-Checked 2026-08-20. This is a source ledger for product decisions, not a claim
+Checked 2026-08-21. This is a source ledger for product decisions, not a claim
 that every anecdote is representative.
 
 ## Repeated failure patterns
@@ -133,6 +133,101 @@ These are another project's proposed features, not customer commitments. They
 are useful because they expose installation, false-block, privacy, and breadth
 risks that a narrow detector benchmark does not.
 
+## 2026-08-21 competitive update
+
+The narrow category moved quickly. Agent Vigil cannot credibly claim that
+receipts, policy, or a required GitHub check are unique.
+
+### Direct competitors
+
+- [Agent Done Or Not](https://github.com/marketplace/actions/agent-done-or-not)
+  now has Marketplace distribution, Homebrew/Scoop installers, native Bash and
+  PowerShell capture, fresh CI re-execution, a required-check recipe, policy
+  scaffolding, PR comments, a Claude Code stop hook, and claim-to-ledger audit.
+  Its documented strength is simple command capture and freshness. Agent Vigil
+  must not compete by cloning that surface less completely.
+- [Treeship](https://github.com/zerkerlabs/treeship) is materially ahead on
+  cryptographic receipts: Ed25519, DSSE, hash chains, Merkle checkpoints,
+  capability cards, pinned trust roots, offline verification, and unusually
+  explicit non-claims. Agent Vigil v0.5 adds optional Ed25519 receipt signing,
+  but does not claim equivalent identity or log infrastructure.
+- [Agent Receipts](https://github.com/inchwormz/agent-receipts) separates
+  integrity, outcome, applicability, and claim status and requires independently
+  authenticated evidence for stronger promotion. This typed-trust distinction
+  is a useful design constraint for future schema work.
+- [Proof Agent](https://github.com/marketplace/actions/proof-agent-verify) uses a
+  separate Copilot reviewer for static security/correctness review. It explicitly
+  does not execute tests. Agent Vigil's deterministic fresh execution and claim
+  reconciliation are complementary rather than a weaker imitation of model
+  review.
+- [SEA](https://github.com/GodSpeedAI/SEA) and Coder's
+  [AI Governance](https://github.com/coder/coder/blob/main/docs/ai-coder/ai-governance.md)
+  target pre-execution authority, sandboxing, and fleet policy. Agent Vigil is a
+  post-change merge-evidence gate; it should integrate with runtime governance,
+  not pretend to replace it.
+
+Live GitHub metadata checked with `gh repo view` on 2026-08-21: Agent Done Or
+Not 6 stars, Proof Agent 4, Agent Receipts 2, Treeship 12, Backcheck 0, did-it 0,
+and claimcheck 3. These counts show an active but still very early category;
+they do not prove broad demand for Agent Vigil.
+
+### Current user failures that shape v0.5
+
+- OpenAI Codex issue
+  [#33809](https://github.com/openai/codex/issues/33809) documents the agent
+  repeatedly implying a job had started when no evaluator process was running.
+  This reinforces process-state evidence rather than final prose alone.
+- Codex issue [#36814](https://github.com/openai/codex/issues/36814) reports 179
+  identical image-inspection events in an unbounded loop. Exact consecutive-call
+  detection is useful but future work needs bounded progress/liveness policies.
+- GitHub's [Copilot agent-loop documentation](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/agent-loop)
+  separates mechanical `session.idle` from best-effort semantic
+  `session.task_complete`. A stopped loop is not proof that the task is done.
+- OpenCode issues
+  [#10159](https://github.com/anomalyco/opencode/issues/10159) and
+  [#21780](https://github.com/anomalyco/opencode/issues/21780) show that exported
+  sessions can be truncated or unparsable after compaction/large runs. An
+  accepted adapter proves parseability of the supplied export, not transcript
+  completeness.
+- Gemini CLI issue
+  [#27230](https://github.com/google-gemini/gemini-cli/issues/27230) describes
+  retry noise that supervisors can misread as permanent failure. Adapters must
+  use typed terminal/tool status rather than generic `error` text alone.
+
+### Adapter contracts used in v0.5
+
+The new parsers follow published producer formats rather than guessed local
+files:
+
+- [Cursor stream JSON](https://docs.cursor.com/en/cli/reference/output-format)
+  documents system, assistant, tool-call start/completion, and terminal result
+  events.
+- [Gemini CLI headless mode](https://geminicli.com/docs/cli/headless/) documents
+  `init`, `message`, `tool_use`, `tool_result`, `error`, and `result` JSONL.
+- [GitHub Copilot SDK streaming events](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/streaming-events)
+  documents `assistant.message`, `tool.execution_start`, and
+  `tool.execution_complete` envelopes; Copilot CLI stores session events under
+  `~/.copilot/session-state/`.
+- [OpenCode CLI](https://dev.opencode.ai/docs/cli) documents
+  `opencode export [sessionID]` JSON and a `--sanitize` mode.
+- [Aider configuration](https://aider.chat/docs/config/aider_conf.html) documents
+  `.aider.chat.history.md` as the default chat-history file.
+
+### Revised differentiation
+
+Agent Vigil's defensible narrow combination is:
+
+1. cross-agent claim reconciliation against the supplied trajectory;
+2. fresh runner-aware test totals, not exit code alone;
+3. explicit base/head/tree and base-anchored policy;
+4. repository anti-reward-hacking checks;
+5. fail-closed adapter drift and an honest INCONCLUSIVE state;
+6. a portable receipt with an exact reproduction command.
+
+The v0.5 product should be described as a deterministic AI-change evidence
+gate. It is not the first receipt system, a semantic code reviewer, a sandbox,
+or a complete enterprise governance plane.
+
 ## Product decisions from the evidence
 
 1. **INCONCLUSIVE is a first-class product state.** Missing evidence must not be
@@ -152,3 +247,29 @@ risks that a narrow detector benchmark does not.
    untrustworthy success path even when the final status would be inconclusive.
 8. **Compatibility is a public artifact.** Runner support needs executed fixtures
    and real-toolchain proof, not a list of logos.
+
+### Public discussion evidence: useful, anecdotal, and noisy
+
+Public comments repeat three practical problems. They are not representative
+market research and several posts promote the author's own tool, so they inform
+fixtures rather than demand forecasts.
+
+- A [ClaudeAI post](https://www.reddit.com/r/ClaudeAI/comments/1vktwrd/half_of_my_agents_test_runs_left_nothing_readable/)
+  reports an audit of 525 local sessions where result-truncating shell pipes left
+  many test runs without a readable summary. Agent Vigil's fresh runner avoids
+  treating a transcript's missing tail as proof, but it should add an explicit
+  truncated-output detector rather than infer dishonesty.
+- A [Cursor user report](https://www.reddit.com/r/cursor/comments/1rwm1jn/problems_with_getting_cursor_agent_to_actually/)
+  describes an agent repeatedly explaining an edit without making it. This
+  supports file-range reconciliation and bounded repeated-action rules.
+- A [Hacker News thread](https://news.ycombinator.com/item?id=47327559)
+  argues for splitting authority between implementation, tests, and review, and
+  notes that shared vague specifications can still let all checks converge on
+  the wrong behavior. Agent Vigil cannot make weak requirements adequate.
+- Another [Hacker News discussion](https://news.ycombinator.com/item?id=47006615)
+  describes review fatigue when small production changes arrive with hundreds
+  of generated test lines. This supports changed-test-surface and assertion
+  integrity checks, but does not justify a blanket ban on agent-authored tests.
+
+Searches of X did not produce stable, directly inspectable complaint sources in
+this pass. No X claim is used as product evidence.

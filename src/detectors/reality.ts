@@ -5,7 +5,7 @@ import type { Claim, CheckResult } from "../report.ts";
 import type { SessionToolCall } from "../transcript.ts";
 import { toolCallFingerprint } from "../transcript.ts";
 
-function git(repo: string, args: string[]): string {
+function gitOptional(repo: string, args: string[]): string | undefined {
   try {
     return execFileSync("git", args, {
       cwd: repo,
@@ -14,8 +14,12 @@ function git(repo: string, args: string[]): string {
       maxBuffer: 64 * 1024 * 1024,
     });
   } catch {
-    return "";
+    return undefined;
   }
+}
+
+function git(repo: string, args: string[]): string {
+  return gitOptional(repo, args) ?? "";
 }
 
 export function gitRefExists(repo: string, ref: string): boolean {
@@ -46,6 +50,108 @@ export function changedPaths(repo: string, base: string, head: string): Set<stri
     }
   }
   return out;
+}
+
+/**
+ * A fresh command can only substantiate an exact-commit receipt when the files
+ * Git can see match that commit. Explicit evidence inputs are ignored because
+ * their own digests are bound into the receipt.
+ */
+export function checkWorkspaceBinding(repo: string, head: string, ignoredPaths: string[] = []): CheckResult[] {
+  const claim: Claim = {
+    kind: "integrity",
+    quote: "verification ran against the selected repository state",
+    subject: "workspace matches receipt head",
+  };
+  if (head === "WORKTREE") {
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: "WORKTREE has no immutable Git tree identity; commit the change and pass its exact head SHA",
+      ruleId: "workspace-unbound",
+      contributesToPass: false,
+      blocksPass: true,
+    }];
+  }
+  const ignored = new Set(ignoredPaths.map((path) => {
+    const value = isAbsolute(path) ? relative(resolve(repo), resolve(path)) : path;
+    if (!value || value === ".." || value.startsWith(`..${sep}`)) return "";
+    return value.replaceAll("\\", "/").replace(/^\.\//, "");
+  }).filter(Boolean));
+  const selected = gitOptional(repo, ["rev-parse", "--verify", `${head}^{commit}`])?.trim();
+  const checkedOut = gitOptional(repo, ["rev-parse", "--verify", "HEAD^{commit}"])?.trim();
+  const raw = gitOptional(repo, ["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z"]);
+  if (!selected || !checkedOut || raw === undefined) {
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: "Git commit identity or workspace status could not be read",
+      ruleId: "workspace-unbound",
+      contributesToPass: false,
+      blocksPass: true,
+    }];
+  }
+  if (selected !== checkedOut) {
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: `checked-out commit ${checkedOut} does not match selected head ${selected}`,
+      ruleId: "workspace-unbound",
+      contributesToPass: false,
+      blocksPass: true,
+    }];
+  }
+  const dirty = raw.split("\0").filter(Boolean)
+    .map((row) => row.slice(3))
+    .filter((path) => path && !ignored.has(path));
+  if (dirty.length) {
+    const sample = dirty.slice(0, 5).join(", ");
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: `${dirty.length} unbound worktree path(s): ${sample}${dirty.length > 5 ? ", …" : ""}`,
+      ruleId: "workspace-dirty",
+      contributesToPass: false,
+      blocksPass: true,
+    }];
+  }
+  return [{
+    claim,
+    verdict: "verified",
+    evidence: `Git-visible workspace state matches ${head}; explicitly hashed evidence inputs were excluded`,
+    ruleId: "workspace-bound",
+    contributesToPass: false,
+  }];
+}
+
+/** Detect a test command that mutates tracked repository inputs after binding. */
+export function checkWorkspaceMutation(repo: string, ignoredPaths: string[] = []): CheckResult[] {
+  const claim: Claim = {
+    kind: "integrity",
+    quote: "fresh verification preserved the selected repository state",
+    subject: "test command did not mutate tracked inputs",
+  };
+  const ignored = new Set(ignoredPaths.map((path) => {
+    const value = isAbsolute(path) ? relative(resolve(repo), resolve(path)) : path;
+    if (!value || value === ".." || value.startsWith(`..${sep}`)) return "";
+    return value.replaceAll("\\", "/").replace(/^\.\//, "");
+  }).filter(Boolean));
+  const raw = gitOptional(repo, ["diff", "HEAD", "--name-only", "-z"]);
+  if (raw === undefined) {
+    return [{ claim, verdict: "unverifiable", evidence: "post-verification Git state could not be read", ruleId: "workspace-mutated", contributesToPass: false, blocksPass: true }];
+  }
+  const changed = raw.split("\0").filter((path) => path && !ignored.has(path));
+  if (changed.length) {
+    return [{
+      claim,
+      verdict: "unverifiable",
+      evidence: `fresh verification changed ${changed.length} tracked path(s): ${changed.slice(0, 5).join(", ")}${changed.length > 5 ? ", …" : ""}`,
+      ruleId: "workspace-mutated",
+      contributesToPass: false,
+      blocksPass: true,
+    }];
+  }
+  return [{ claim, verdict: "verified", evidence: "fresh verification left tracked repository inputs unchanged", ruleId: "workspace-preserved", contributesToPass: false }];
 }
 
 function withinRepo(repo: string, subject: string): string | null {
@@ -283,6 +389,14 @@ export function checkTestsPass(claims: Claim[], repo: string, testCmd?: string):
         verdict: "contradicted",
         evidence: `claim says ${claim.expectedCount} tests passed; runner reported ${observedClaimCount} passed${observed.skipped ? ` and ${observed.skipped} skipped` : ""}`,
         ruleId: "test-count",
+      };
+    }
+    if (observedClaimCount === undefined) {
+      return {
+        claim,
+        verdict: "unverifiable",
+        evidence: `\`${command}\` exited 0, but its output contained no supported test summary`,
+        ruleId: "tests-pass",
       };
     }
     return {

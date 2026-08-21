@@ -20,6 +20,8 @@ import {
   checkRunClaims,
   checkStepRepetition,
   checkTestsPass,
+  checkWorkspaceBinding,
+  checkWorkspaceMutation,
   parseTestSummary,
 } from "../src/detectors/reality.ts";
 
@@ -101,6 +103,11 @@ test("strict mode makes unresolved evidence inconclusive", () => {
   const report = buildReport({ transcript: "x", transcriptFormat: "markdown", repo: ".", base: "a", head: "b", results: [result("verified"), result("unverifiable")], policy: { strict: true } });
   assert.equal(report.summary.status, "INCONCLUSIVE");
 });
+test("a blocking unresolved execution context is inconclusive without strict mode", () => {
+  const blocking = { ...result("unverifiable"), blocksPass: true };
+  const report = buildReport({ transcript: "x", transcriptFormat: "markdown", repo: ".", base: "a", head: "b", results: [result("verified"), blocking] });
+  assert.equal(report.summary.status, "INCONCLUSIVE");
+});
 test("contradiction always fails", () => {
   const report = buildReport({ transcript: "x", transcriptFormat: "markdown", repo: ".", base: "a", head: "b", results: [result("contradicted")] });
   assert.equal(report.summary.status, "FAIL");
@@ -108,6 +115,33 @@ test("contradiction always fails", () => {
 test("receipt hash is deterministic", () => {
   const input = { transcript: "x", transcriptFormat: "markdown", repo: ".", base: "a", head: "b", results: [result("verified")] };
   assert.equal(buildReport(input).receiptHash, buildReport(input).receiptHash);
+});
+
+test("dirty worktree state blocks an exact-head receipt", () => {
+  const repo = initRepo();
+  writeFileSync(join(repo, "unbound.txt"), "not in the selected commit\n");
+  const check = checkWorkspaceBinding(repo, "HEAD")[0];
+  assert.equal(check.verdict, "unverifiable");
+  assert.equal(check.blocksPass, true);
+  assert.equal(check.ruleId, "workspace-dirty");
+});
+
+test("a separately hashed transcript may remain untracked", () => {
+  const repo = initRepo(); const transcript = join(repo, "session.md");
+  writeFileSync(transcript, "tests pass\n");
+  assert.equal(checkWorkspaceBinding(repo, "HEAD", [transcript])[0].verdict, "verified");
+});
+
+test("selected head must match the checked-out commit", () => {
+  const repo = initRepo(); writeFileSync(join(repo, "README.md"), "head\n"); commit(repo, "head");
+  assert.equal(checkWorkspaceBinding(repo, "HEAD~1")[0].ruleId, "workspace-unbound");
+});
+
+test("fresh verification cannot silently mutate tracked inputs", () => {
+  const repo = initRepo(); writeFileSync(join(repo, "README.md"), "mutated\n");
+  const check = checkWorkspaceMutation(repo)[0];
+  assert.equal(check.ruleId, "workspace-mutated");
+  assert.equal(check.blocksPass, true);
 });
 
 test("three identical tool calls are a contradiction", () => {

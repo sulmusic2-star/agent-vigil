@@ -20,14 +20,36 @@ evidence support the agent's checkable narrative for this repository range?**
 - A malicious repository that controls its test script and output.
 - A forged or truncated transcript presented as complete.
 - Tool activity performed outside the captured transcript.
-- Cryptographic identity, timestamp authority, or non-repudiation.
+- Trusted timestamp authority or host integrity.
 - Secrets already present in a transcript.
 
 The receipt hash is a deterministic content identifier, not a signature. A
 party that can rewrite both evidence and receipt can generate a new matching
-hash.
+hash. Schema v2 optionally signs that hash with Ed25519. An embedded public key
+is self-asserted; identity is established only when a verifier pins the public
+key through a trusted channel. A valid signature still does not prove that the
+captured transcript is complete or that the signing host was uncompromised.
+
+## Policy integrity
+
+A candidate change can edit a policy stored in its own worktree. GitHub Actions
+should therefore pass `policy-ref: ${{ github.event.pull_request.base.sha }}` so
+Agent Vigil loads `.agent-vigil.json` from the trusted base commit. The generated
+`vigil init` workflow does this automatically, checks out the exact pull-request
+head, and the Action rejects pull-request base/head or policy-ref inputs that do
+not match the signed GitHub event payload. The first setup pull request
+cannot use base anchoring because its base does not contain the policy; merge
+the installation under ordinary review, then make the check required.
 
 ## Execution boundary
+
+For a commit-based receipt, Git-visible workspace state must match the selected
+head SHA. The transcript, loaded policy, and signing key are explicit inputs and
+may remain outside that tree; any other dirty path blocks PASS. `WORKTREE` has
+no immutable tree identity and is therefore always INCONCLUSIVE. This protects
+local runs from attributing test results to a commit that was not actually
+executed. A fresh GitHub Actions checkout remains the preferred enforcement
+environment.
 
 Re-running tests executes repository code with the current process privileges.
 In CI, do not run Agent Vigil with write-capable secrets on untrusted fork code.

@@ -50,8 +50,8 @@ def vigil(repo: pathlib.Path, count: int, command: str | None) -> dict[str, obje
     completed = run(args, repo, check=False)
     try:
         report = json.loads(completed.stdout)
-        first = report["results"][0]
-        return {"status": report["summary"]["status"], "evidence": first["evidence"], "exit": completed.returncode}
+        test_result = next(row for row in report["results"] if row.get("ruleId") in {"tests-pass", "test-count"})
+        return {"status": report["summary"]["status"], "evidence": test_result["evidence"], "exit": completed.returncode}
     except Exception:
         return {"status": "ERROR", "evidence": (completed.stderr or completed.stdout)[-500:], "exit": completed.returncode}
 
@@ -75,6 +75,7 @@ def build_cases(root: pathlib.Path) -> list[tuple[str, pathlib.Path, str | None]
     if shutil.which("node") and shutil.which("pnpm"):
         repo = node_repo(root, "node-pnpm")
         (repo / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n")
+        commit(repo, "add pnpm lockfile")
         cases.append(("node-pnpm", repo, "pnpm test --silent"))
     if shutil.which("python3"):
         probe = run(["python3", "-m", "pytest", "--version"], ROOT, check=False)

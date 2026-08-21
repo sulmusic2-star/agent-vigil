@@ -1,6 +1,6 @@
 {
   "name": "agent-vigil",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Fail-closed, deterministic evidence receipts for AI coding-agent sessions.",
   "type": "module",
   "bin": {
@@ -13,9 +13,10 @@
     "test": "tsx --test test/*.test.ts",
     "test:coverage": "node --import tsx --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 --test test/*.test.ts",
     "check": "npm run typecheck && npm run build && npm test && npm run smoke",
-    "smoke": "node dist/cli.js examples/demo-pass.md --repo . --base HEAD~1 --head HEAD --strict",
+    "smoke": "node dist/cli.js demo",
     "prepack": "npm run build",
-    "lab:ecosystems": "python3 scripts/ecosystem_lab.py"
+    "lab:ecosystems": "python3 scripts/ecosystem_lab.py",
+    "test:package": "python3 scripts/package_smoke.py"
   },
   "keywords": [
     "ai-agents",

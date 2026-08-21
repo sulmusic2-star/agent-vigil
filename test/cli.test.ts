@@ -35,6 +35,40 @@ test("CLI passing claim exits zero", () => {
 });
 test("CLI writes JSON receipt", () => {
   const r = repo(); const summary = join(r, "pass.md"); const output = join(r, "receipt.json"); writeFileSync(summary, "The test suite passes.");
-  assert.equal(run([summary, "--repo", r, "--output", output, "--format", "json"]), 0);
-  assert.equal(JSON.parse(readFileSync(output, "utf8")).summary.status, "PASS");
+  assert.equal(run([summary, "--repo", r, "--output", output, "--format", "json", "--test-cmd", "npm test --silent", "--min-verified", "1"]), 0);
+  const receipt = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(receipt.summary.status, "PASS");
+  assert.match(receipt.reproduction, /--test-cmd 'npm test --silent'/);
+  assert.match(receipt.reproduction, /--min-verified 1/);
+});
+
+test("CLI init and doctor provide a working exact-SHA scaffold", () => {
+  const r = repo();
+  assert.equal(run(["init", "--repo", r]), 0);
+  assert.equal(run(["doctor", "--repo", r]), 0);
+  const workflow = readFileSync(join(r, ".github/workflows/agent-vigil.yml"), "utf8");
+  assert.match(workflow, /policy-ref/);
+  assert.match(workflow, /pull_request\.base\.sha/);
+});
+
+test("CLI signs and verifies a receipt with a pinned key", () => {
+  const r = repo(); const summary = join(r, "pass.md"); const output = join(r, "receipt.json");
+  const keys = mkdtempSync(join(tmpdir(), "vigil-keys-"));
+  const privateKey = join(keys, "private.pem"); const publicKey = join(keys, "public.pem");
+  writeFileSync(summary, "The test suite passes.");
+  assert.equal(run(["keygen", "--private", privateKey, "--public", publicKey]), 0);
+  assert.equal(run([summary, "--repo", r, "--signing-key", privateKey, "--output", output]), 0);
+  assert.equal(run(["verify", output, "--public-key", publicKey]), 0);
+  const receipt = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(receipt.signature.algorithm, "Ed25519");
+});
+
+test("CLI verify rejects a tampered receipt", () => {
+  const r = repo(); const summary = join(r, "pass.md"); const output = join(r, "receipt.json");
+  writeFileSync(summary, "The test suite passes.");
+  assert.equal(run([summary, "--repo", r, "--output", output]), 0);
+  const receipt = JSON.parse(readFileSync(output, "utf8"));
+  receipt.results[0].evidence = "fabricated";
+  writeFileSync(output, JSON.stringify(receipt));
+  assert.equal(run(["verify", output]), 1);
 });

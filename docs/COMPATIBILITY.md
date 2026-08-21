@@ -1,6 +1,6 @@
 # Compatibility laboratory
 
-Checked 2026-08-20. This file records executed proof, not a claim that every
+Checked 2026-08-21. This file records executed proof, not a claim that every
 possible project is supported.
 
 ## Generated-repository matrix
@@ -23,12 +23,18 @@ JSONL, UTF-8 BOM input, Codex object-valued tool arguments, seven failure-output
 forms, semantic tool-loop fingerprints, and documentation false positives.
 
 Current durable result: **80/80 compatibility scenarios pass**. Combined with
-the core and CLI suite, `npm test` executes **133 tests**.
+the core, CLI, adapter, setup, policy-anchor, signing, workspace-binding, and remediation suite,
+`npm test` executes **162 tests** in the local v0.5 release candidate.
+
+`npm run test:package` additionally installs the generated tarball into a
+disposable consumer and exercises `init` plus `doctor` across 11 repository
+shapes: plain Git, Node, Python, Rust, Go, Maven, Gradle wrapper, Gradle build,
+Ruby, PHP, and .NET.
 
 A deterministic fuzz layer adds 9,000 mutated runner, dotted-term, traversal, and structured-tool cases.
 
 The Node coverage gate requires at least 90% lines, 80% branches, and 90%
-functions. The current run reported 95.86% lines, 86.59% branches, and 97.56%
+functions. The current run reported 96.34% lines, 81.57% branches, and 98.87%
 functions.
 
 Run it:
@@ -36,6 +42,7 @@ Run it:
 ```bash
 npx tsx --test test/compatibility.test.ts
 npm test
+npm run test:package
 npm run lab:ecosystems -- --output /tmp/agent-vigil-ecosystem-lab.json
 ```
 
@@ -57,6 +64,25 @@ installed toolchains rather than replaying sample output:
 Result: **14/14 expected verdicts**. These were disposable repositories under
 macOS using Node 22.22.3, Python 3.14.3 / pytest 9.0.3, Go 1.26.0, Ruby 2.6.10,
 pnpm 10.29.3, and .NET SDK 7.0.101.
+
+## Agent transcript adapters
+
+The v0.5 candidate detects eight input shapes:
+
+| Producer | Input contract | Local fixture |
+|---|---|---:|
+| Claude Code | JSONL messages, tool use, and tool results | pass |
+| OpenAI Codex | rollout JSONL response items and tool outputs | pass |
+| Cursor Agent CLI | documented stream-JSON events | pass |
+| Gemini CLI | documented stream-JSON events | pass |
+| GitHub Copilot CLI/SDK | documented persisted session events | pass |
+| OpenCode | documented JSON session export | pass |
+| Aider | documented `.aider.chat.history.md` | pass |
+| Generic summary | Markdown or plain text | pass |
+
+Malformed, mixed, and unknown JSON/JSONL continue to fail loudly. An accepted
+adapter means the supplied export is structurally understood; it does not prove
+that the producer exported a complete session.
 
 ## Defects found by the lab
 
@@ -91,6 +117,7 @@ integrity diff. Repairs now:
   therefore uses `go test -json ./...`.
 - Monorepos require an explicit command such as
   `npm --prefix packages/api test --silent`.
-- Windows and macOS portability jobs are configured on Node 22; their hosted
-  result remains unverified until this branch is pushed and CI completes.
+- v0.4 passed hosted Windows and macOS portability jobs on Node 22. The v0.5
+  candidate's hosted result remains unverified until this branch is pushed and
+  CI completes.
 - Test execution runs repository code with the verifier's privileges.
