@@ -106,7 +106,7 @@ try {
 
   const result = {
     schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
+    corpusDate: "2026-08-21",
     scope: "Three first-party Agent Vigil release failures; not external adoption evidence.",
     result: "PASS",
     cases,
