@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.8.0/docs/policy.schema.json",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.9.0/docs/policy.schema.json",
   "title": "Agent Vigil policy",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion"],
   "properties": {
     "schemaVersion": { "const": 1 },
+    "integrityMode": { "enum": ["advisory", "blocking"] },
     "transcript": { "type": "string", "minLength": 1 },
     "testCommand": { "type": "string", "minLength": 1 },
     "strict": { "type": "boolean" },

@@ -7,6 +7,7 @@ export const DEFAULT_POLICY_FILE = ".agent-vigil.json";
 
 export type VigilPolicy = {
   schemaVersion: 1;
+  integrityMode?: "advisory" | "blocking";
   transcript?: string;
   testCommand?: string;
   strict?: boolean;
@@ -60,10 +61,13 @@ function canonical(value: unknown): string {
 function validatePolicy(input: unknown): VigilPolicy {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("policy must be a JSON object");
   const value = input as Record<string, unknown>;
-  const allowed = new Set(["schemaVersion", "transcript", "testCommand", "strict", "minVerified", "trustedSignerKeyIds", "portableReceipt", "maintainer"]);
+  const allowed = new Set(["schemaVersion", "integrityMode", "transcript", "testCommand", "strict", "minVerified", "trustedSignerKeyIds", "portableReceipt", "maintainer"]);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`policy contains unknown field(s): ${unknown.join(", ")}`);
   if (value.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
+  if (value.integrityMode !== undefined && !new Set(["advisory", "blocking"]).has(String(value.integrityMode))) {
+    throw new Error("policy integrityMode must be advisory or blocking");
+  }
   if (value.transcript !== undefined && (typeof value.transcript !== "string" || !value.transcript.trim())) {
     throw new Error("policy transcript must be a non-empty string");
   }
@@ -194,6 +198,7 @@ export function loadPolicy(repo: string, requested?: string, ref?: string): Load
 export function policyTemplate(testCommand?: string, portableSignerKeyId?: string): string {
   const value: VigilPolicy = {
     schemaVersion: 1,
+    integrityMode: "advisory",
     ...(portableSignerKeyId ? {
       portableReceipt: ".agent-vigil/receipt.json",
       trustedSignerKeyIds: [portableSignerKeyId],
@@ -209,6 +214,7 @@ export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: st
   const command = testCommand ?? "REPLACE_WITH_TEST_COMMAND";
   const value: VigilPolicy = {
     schemaVersion: 1,
+    integrityMode: "advisory",
     testCommand: command,
     strict: true,
     minVerified: 1,

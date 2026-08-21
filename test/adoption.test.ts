@@ -139,6 +139,14 @@ test("policy rejects unknown fields instead of silently ignoring them", () => {
   assert.throws(() => loadPolicy(path), /unknown field/);
 });
 
+test("policy validates the static integrity enforcement mode", () => {
+  const path = repo();
+  writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"integrityMode":"advisory"}');
+  assert.equal(loadPolicy(path).value.integrityMode, "advisory");
+  writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"integrityMode":"magic"}');
+  assert.throws(() => loadPolicy(path), /integrityMode must be advisory or blocking/);
+});
+
 test("policy can be anchored to a trusted Git ref", () => {
   const path = repo();
   execFileSync("git", ["config", "user.email", "vigil@example.test"], { cwd: path });
@@ -170,6 +178,7 @@ test("init creates a policy, evidence placeholder, and exact-SHA workflow", () =
   assert.match(workflow, /pull_request\.head\.sha/);
   assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
   assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /npm test --silent/);
+  assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /"integrityMode": "advisory"/);
 });
 
 test("init preserves existing policy unless force is explicit", () => {

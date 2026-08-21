@@ -23,7 +23,8 @@ Schema v2 binds:
 3. exact base and head commit SHAs;
 4. repository remote and head tree when available;
 5. canonical policy SHA-256 and its trusted Git-ref source when used;
-6. every claim verdict, rule ID, and evidence description;
+6. every verdict-bearing result plus receipt-bound non-blocking advisories,
+   with rule IDs and evidence descriptions kept separate;
 7. PASS / FAIL / INCONCLUSIVE summary;
 8. a reproduction command.
 
@@ -63,6 +64,10 @@ the full report hash, results hash, transcript digest, Git identity, policy,
 summary, and signer without copying transcript text or detailed findings into
 Git. `vigil gate` verifies it against a base-anchored signer policy and performs
 a fresh independent test and integrity run.
+
+The portable receipt does not expose a separate advisory hash. Its signed
+`reportHash` binds the full report, including advisories; `resultsHash` remains
+the digest of verdict-bearing results for schema-v1 compatibility.
 
 See [`PRIVATE_RECEIPT_GATE.md`](PRIVATE_RECEIPT_GATE.md) and
 [`portable-receipt-v1.schema.json`](portable-receipt-v1.schema.json).

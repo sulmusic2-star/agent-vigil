@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { buildReport, type CheckResult } from "../src/report.ts";
+import { routeIntegrity } from "../src/integrity-policy.ts";
+import { renderText, toSarif } from "../src/output.ts";
 import {
   extractClaims,
   extractRunClaims,
@@ -16,6 +18,7 @@ import {
   checkCompletion,
   checkFilesChanged,
   checkIntegrity,
+  checkIntegrityDiff,
   checkPathsExist,
   checkRunClaims,
   checkStepRepetition,
@@ -115,6 +118,24 @@ test("contradiction always fails", () => {
 test("receipt hash is deterministic", () => {
   const input = { transcript: "x", transcriptFormat: "markdown", repo: ".", base: "a", head: "b", results: [result("verified")] };
   assert.equal(buildReport(input).receiptHash, buildReport(input).receiptHash);
+});
+test("receipt-bound advisories do not alter PASS and do alter the receipt hash", () => {
+  const input = { transcript: "x", transcriptFormat: "markdown", repo: ".", base: "a", head: "b", results: [result("verified")] };
+  const plain = buildReport(input);
+  const advisory = { ...result("contradicted", false), ruleId: "test-skip-added" };
+  const warned = buildReport({ ...input, advisories: [advisory] });
+  assert.equal(warned.summary.status, "PASS");
+  assert.notEqual(warned.receiptHash, plain.receiptHash);
+  assert.match(renderText(warned), /non-blocking under this policy/);
+  assert.equal(toSarif(warned).runs[0].results[0].level, "warning");
+});
+test("integrity routing preserves hard context errors and makes heuristic contradictions policy-selectable", () => {
+  const contradiction = result("contradicted", false);
+  const unresolved = { ...result("unverifiable", false), blocksPass: true };
+  const advisory = routeIntegrity([contradiction, unresolved], "advisory");
+  assert.deepEqual(advisory.advisories, [contradiction]);
+  assert.deepEqual(advisory.results, [unresolved]);
+  assert.deepEqual(routeIntegrity([contradiction], "blocking").results, [contradiction]);
 });
 
 test("dirty worktree state blocks an exact-head receipt", () => {
@@ -248,6 +269,68 @@ test("clean integrity scan is passive", () => {
   const repo = initRepo(); writeFileSync(join(repo, "README.md"), "changed\n"); commit(repo, "docs");
   const check = checkIntegrity(repo, "HEAD~1", "HEAD")[0];
   assert.equal(check.verdict, "verified"); assert.equal(check.contributesToPass, false);
+});
+
+function unifiedDiff(path: string, removed: string[], added: string[]): string {
+  return [
+    `diff --git a/${path} b/${path}`,
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,${Math.max(1, removed.length)} +1,${Math.max(1, added.length)} @@`,
+    ...removed.map((line) => `-${line}`),
+    ...added.map((line) => `+${line}`),
+    "",
+  ].join("\n");
+}
+
+test("static diff audit passes a clean code change with meaningful bounded evidence", () => {
+  const results = checkIntegrityDiff(unifiedDiff("src/value.ts", ["return 1;"], ["return 2;"]));
+  assert.equal(results[0].verdict, "verified");
+  assert.equal(results[0].contributesToPass, true);
+});
+
+test("static diff audit is inconclusive for non-diff input", () => {
+  const result = checkIntegrityDiff("not a diff")[0];
+  assert.equal(result.verdict, "unverifiable");
+  assert.equal(result.blocksPass, true);
+});
+
+test("static diff audit catches relaxed assertions and self-fulfilling mocks", () => {
+  const results = checkIntegrityDiff(unifiedDiff(
+    "test/value.test.ts",
+    ["expect(compute()).toBe(42);"],
+    ["const compute = jest.fn().mockReturnValue(1);", "expect(compute()).toBeGreaterThan(0);"],
+  ));
+  assert.ok(results.some((result) => result.ruleId === "test-assertion-relaxed"));
+  assert.ok(results.some((result) => result.ruleId === "subject-mocked"));
+});
+
+test("static diff audit catches error swallowing, lost context, dead branches, suppressions, and no-op edits", () => {
+  const diff = [
+    unifiedDiff("src/swallow.ts", ["write(value);"], ["try { write(value); } catch {}"]),
+    unifiedDiff("src/rethrow.ts", ["throw err;"], ["throw new Error('failed');"]),
+    unifiedDiff("src/dead.ts", ["return value;"], ["if (false) return fallback;", "return value;"]),
+    unifiedDiff("src/type.ts", ["parse(value);"], ["// @ts-expect-error", "parse(value);"]),
+    unifiedDiff("src/noop.ts", ["return value;"], ["return value; // adjusted"]),
+  ].join("\n");
+  const rules = new Set(checkIntegrityDiff(diff).map((result) => result.ruleId));
+  for (const rule of ["error-swallowed", "exception-context-lost", "dead-branch-added", "suppression-added", "no-op-code-change"]) {
+    assert.ok(rules.has(rule), `missing ${rule}`);
+  }
+});
+
+test("static diff audit catches a stale caller after a symbol rename", () => {
+  const diff = [
+    "diff --git a/src/refactor.ts b/src/refactor.ts",
+    "--- a/src/refactor.ts",
+    "+++ b/src/refactor.ts",
+    "@@ -1,2 +1,2 @@",
+    "-export function compute(x: number) { return x; }",
+    "+export function computeV2(x: number) { return x; }",
+    " export const wired = compute(1);",
+    "",
+  ].join("\n");
+  assert.ok(checkIntegrityDiff(diff).some((result) => result.ruleId === "stale-refactor-caller"));
 });
 test("completion without objective evidence is unresolved", () => {
   const repo = initRepo(); writeFileSync(join(repo, "README.md"), "changed\n"); commit(repo, "docs");

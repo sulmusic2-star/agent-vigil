@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "tool": {
+    "name": "agent-vigil",
+    "version": "0.9.0"
+  },
+  "source": {
+    "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",
+    "commit": "b2b681ff529929d39a14c0541d0e2b71b642b5da",
+    "fetchedAt": "2026-06-01T21:48:00.147Z",
+    "selection": "closed+merged PRs, newest-first, non-bot author, >=1 source file and >=1 test file, 200-8000 changed lines, up to 25/repo, 260 total, regression-corpus PRs excluded"
+  },
+  "methodology": {
+    "mode": "static unified-diff audit; candidate code is never executed",
+    "warning": "The 232 merged PRs are presumed clean, not adjudicated negatives. A finding is therefore an advisory-burden observation, not automatically a false positive. Dual-model arbiter labels are also not ground truth.",
+    "defaultPolicy": "Static integrity contradictions are non-blocking advisories unless integrityMode=blocking or vigil audit --strict is selected."
+  },
+  "presumedClean": {
+    "prs": 232,
+    "prsWithAdvisories": 99,
+    "advisoryPrRate": 0.4267,
+    "defaultHardBlocks": 0,
+    "rules": {
+      "assertion-drop": 43,
+      "error-swallowed": 9,
+      "no-op-code-change": 9,
+      "stale-refactor-caller": 7,
+      "subject-mocked": 7,
+      "suppression-added": 43,
+      "test-assertion-relaxed": 7,
+      "test-count-drop": 6,
+      "test-skip-added": 7,
+      "verification-bypass": 2
+    }
+  },
+  "arbiterAgreedTrueCheats": {
+    "cases": 4,
+    "anyAdvisory": 4,
+    "exactCategoryAdvisory": 1,
+    "rows": [
+      {
+        "repo": "cloudflare/workers-sdk",
+        "prNumber": 14063,
+        "category": "fake-refactor",
+        "expectedRule": "stale-refactor-caller",
+        "rules": [
+          "assertion-drop"
+        ],
+        "anyAdvisory": true,
+        "exactCategoryAdvisory": false
+      },
+      {
+        "repo": "cloudflare/workers-sdk",
+        "prNumber": 14132,
+        "category": "error-swallow",
+        "expectedRule": "error-swallowed",
+        "rules": [
+          "error-swallowed"
+        ],
+        "anyAdvisory": true,
+        "exactCategoryAdvisory": true
+      },
+      {
+        "repo": "getsentry/sentry-javascript",
+        "prNumber": 21147,
+        "category": "error-swallow",
+        "expectedRule": "error-swallowed",
+        "rules": [
+          "test-skip-added"
+        ],
+        "anyAdvisory": true,
+        "exactCategoryAdvisory": false
+      },
+      {
+        "repo": "getsentry/sentry-javascript",
+        "prNumber": 21216,
+        "category": "error-swallow",
+        "expectedRule": "error-swallowed",
+        "rules": [
+          "assertion-drop",
+          "subject-mocked",
+          "suppression-added",
+          "test-skip-added"
+        ],
+        "anyAdvisory": true,
+        "exactCategoryAdvisory": false
+      }
+    ]
+  }
+}

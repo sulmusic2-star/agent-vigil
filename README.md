@@ -14,7 +14,7 @@ repository, selected Git range, and a fresh verification run. The verifier is
 local and deterministic: no model grades another model, and missing evidence
 does not become a green check.
 
-For maintainers who do not want agent transcripts, v0.8 includes a PR evidence
+For maintainers who do not want agent transcripts, v0.9 includes a PR evidence
 gate. It binds a named human to the GitHub event, enforces small-change policy,
 and can run the candidate's changed regression test against both candidate and
 base source. A test that passes on both sides is a **FAIL**, not proof.
@@ -86,7 +86,7 @@ and the [three-case public failure corpus](proof/README.md). The corpus records
 first-party dogfood failures with exact revisions, corrections, negative
 controls, and limits; it is kept separate from external-adoption totals.
 
-## What v0.8 checks
+## What v0.9 checks
 
 - Claimed test success against a fresh test execution.
 - Claimed test counts across 18 output families: Node/TAP, Jest, Vitest, pytest, Cargo, Go JSON, Maven, Gradle, RSpec, PHPUnit, .NET, Mocha, Bun, AVA, Playwright, Cypress, and Minitest.
@@ -95,8 +95,9 @@ controls, and limits; it is kept separate from external-adoption totals.
 - “I ran X” claims against a single matching Claude Code or Codex tool call.
 - Three or more identical consecutive tool calls.
 - Test-file deletion, shrinking test surfaces, new `.skip` / `.only`, assertion
-  loss, compiler suppressions, verification bypasses, and coverage gates set to
-  zero.
+  loss or relaxation, compiler suppressions, verification bypasses, zeroed
+  coverage gates, swallowed errors, discarded exception context, dead branches,
+  stale refactor callers, self-fulfilling mocks, and behaviorally empty edits.
 - Completion claims against objective evidence and unfinished-work markers.
 - Exact-commit receipts against Git-visible workspace state; unbound files make
   the result INCONCLUSIVE instead of letting tests prove a different tree.
@@ -114,6 +115,22 @@ controls, and limits; it is kept separate from external-adoption totals.
 Every run can emit a compact JSON receipt, Markdown, SARIF 2.1.0, and a GitHub
 Step Summary. The receipt has a deterministic SHA-256 content identifier. It is
 **not a cryptographic signature**; see the [threat model](docs/THREAT_MODEL.md).
+
+Static integrity rules are **advisory by default** because calibration on 232
+presumed-clean merged PRs produced findings on 99 PRs. Those findings remain
+receipt-bound and appear as SARIF warnings, but they do not silently turn a
+useful evidence check into a noisy merge blocker. Teams that have calibrated
+the rules for their repositories can opt into blocking mode:
+
+```json
+{
+  "schemaVersion": 1,
+  "integrityMode": "blocking"
+}
+```
+
+Missing inputs, malformed diffs, mismatched Git identity, failed fresh tests,
+and verified narrative contradictions still fail closed.
 
 ## Keep the raw transcript out of Git and CI
 
@@ -191,6 +208,16 @@ JSONL, Cursor stream JSON, Gemini CLI stream JSON, GitHub Copilot CLI event
 logs, OpenCode JSON exports, Aider chat history, and Markdown/plain-text
 summaries. Transcript contents stay local.
 
+Audit a diff without checking out or executing the candidate repository:
+
+```bash
+git diff origin/main...HEAD > change.diff
+vigil audit change.diff                 # findings are receipt-bound advisories
+vigil audit change.diff --strict        # findings block with FAIL
+```
+
+Malformed input remains INCONCLUSIVE in either mode.
+
 ## GitHub Action
 
 ```yaml
@@ -203,7 +230,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.8.0
+  - uses: sulmusic2-star/agent-vigil@v0.9.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -232,7 +259,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.8.0
+    uses: sulmusic2-star/agent-vigil@v0.9.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
@@ -281,6 +308,7 @@ vigil init --profile maintainer [--repo <path>] [--force]
 vigil doctor [--repo <path>]
 vigil keygen --private <path> --public <path>
 vigil verify <receipt.json> [--public-key <path>]
+vigil audit <change.diff> [--strict]
 vigil gate <portable-receipt.json> [--repo . --base <sha> --head <sha>]
 vigil maintainer --event <event.json> [--repo . --base <sha> --head <sha>]
 ```
@@ -312,9 +340,26 @@ Public adoption is measured under a separate
 search hit is not counted as an adopter or receipt. The public
 [adopter ledger](ADOPTERS.md) starts empty rather than manufacturing traction.
 
+## Reproducible benchmark evidence
+
+Against the frozen Swarm Orchestrator commit
+`b2b681ff529929d39a14c0541d0e2b71b642b5da`, Agent Vigil exactly catches
+220/220 eligible cases in the nine rule categories used for its training and
+cross-corpus hardening. This is **not a blind holdout or independent result**.
+On Swarm's separate 232-PR presumed-clean corpus, 99 PRs produced one or more
+static advisories, which is why the default hard-block count is zero. Among four
+dual-arbiter-agreed true-cheat cases, Agent Vigil emitted some advisory on 4/4
+and the matching category on 1/4. The arbiters are not ground truth.
+
+Read the [methodology and leadership gates](docs/BENCHMARKS.md), the generated
+[oracle result](benchmarks/swarm-oracle-results.md), and the generated
+[real-PR calibration](benchmarks/swarm-real-results.md). Both scripts verify the
+upstream commit; the oracle runner also verifies every diff digest against its
+label.
+
 ## Evidence on this repository
 
-- 205 tests, including 80 generated-repository compatibility scenarios across
+- 214 tests, including 80 generated-repository compatibility scenarios across
   18 runner-output families, plus adversarial false-pass, path, transcript,
   tool-loop, test-count, skip, suppression, adapter-drift, maintainer-attestation,
   scope-budget, symlink, forged-event, and differential-regression cases.

@@ -831,7 +831,7 @@ function gitShow(repo, ref, path) {
 }
 function isTestPath(path) {
   if (isGeneratedOrVendorPath(path)) return false;
-  return /(^|\/)(test|tests|__tests__)(\/|$)|(?:\.test|\.spec|_test)\.[^.]+$/i.test(path);
+  return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|_test)\.[^.]+$/i.test(path);
 }
 function isGeneratedOrVendorPath(path) {
   return /^(?:node_modules|vendor|dist|build|coverage|\.git)\//.test(path);
@@ -842,17 +842,23 @@ function isDocumentationPath(path) {
 function parseFilePatches(diff) {
   const patches = [];
   let current;
+  let currentPath = "";
   for (const line of diff.split("\n")) {
     if (line.startsWith("+++ ")) {
       const marker = line.slice(4).trim();
-      const path = marker === "/dev/null" ? "" : marker.replace(/^b\//, "");
-      current = { path, added: [], removed: [] };
+      currentPath = marker === "/dev/null" ? "" : marker.replace(/^b\//, "");
+      current = void 0;
+      continue;
+    }
+    if (line.startsWith("@@ ") && currentPath) {
+      current = { path: currentPath, added: [], removed: [], context: [] };
       patches.push(current);
       continue;
     }
     if (!current) continue;
     if (line.startsWith("+") && !line.startsWith("+++")) current.added.push(line.slice(1));
     if (line.startsWith("-") && !line.startsWith("---")) current.removed.push(line.slice(1));
+    if (line.startsWith(" ")) current.context.push(line.slice(1));
   }
   return patches.filter((patch) => patch.path && !isGeneratedOrVendorPath(patch.path));
 }
@@ -866,7 +872,7 @@ function untrackedFilePatches(repo) {
     try {
       const content = readFileSync2(candidate);
       if (content.byteLength > 1024 * 1024 || content.includes(0)) continue;
-      patches.push({ path, added: content.toString("utf8").split("\n"), removed: [] });
+      patches.push({ path, added: content.toString("utf8").split("\n"), removed: [], context: [] });
     } catch {
     }
   }
@@ -886,7 +892,7 @@ function checkIntegrity(repo, base, head) {
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
   const diff = git(repo, ["diff", "--unified=0", "--no-color", ...diffRange]);
   const results = [];
-  const finding = (subject, evidence, ruleId) => ({
+  const finding2 = (subject, evidence, ruleId) => ({
     claim: { kind: "integrity", quote: "automatic anti-reward-hacking check", subject },
     verdict: "contradicted",
     evidence,
@@ -906,7 +912,7 @@ function checkIntegrity(repo, base, head) {
     if (before && !after) deletedTestFiles.push(path);
   }
   if (headTests < baselineTests) {
-    results.push(finding("test surface shrank", `recognized test definitions across changed test files fell from ${baselineTests} to ${headTests}`, "test-count-drop"));
+    results.push(finding2("test surface shrank", `recognized test definitions across changed test files fell from ${baselineTests} to ${headTests}`, "test-count-drop"));
   } else if (deletedTestFiles.length) {
     results.push({
       claim: { kind: "integrity", quote: "automatic anti-reward-hacking check", subject: "test files moved or replaced without shrinking the recognized surface" },
@@ -917,40 +923,134 @@ function checkIntegrity(repo, base, head) {
     });
   }
   const patches = [...parseFilePatches(diff), ...head === "WORKTREE" ? untrackedFilePatches(repo) : []];
+  results.push(...checkIntegrityPatches(patches));
+  if (!results.length) {
+    results.push(cleanIntegrityResult(paths.length));
+  }
+  return results;
+}
+function finding(subject, evidence, ruleId) {
+  return {
+    claim: { kind: "integrity", quote: "automatic anti-reward-hacking check", subject },
+    verdict: "contradicted",
+    evidence,
+    ruleId,
+    contributesToPass: false
+  };
+}
+function cleanIntegrityResult(pathCount, contributesToPass = false) {
+  return {
+    claim: { kind: "integrity", quote: "automatic anti-reward-hacking check", subject: "no obvious verification weakening" },
+    verdict: "verified",
+    evidence: `${pathCount} changed paths checked for deleted tests, count drops, relaxed assertions, skips, bypasses, suppressions, swallowed errors, dead branches, no-op edits, mock substitution, and assertion loss`,
+    ruleId: "integrity-scan",
+    contributesToPass
+  };
+}
+function normalizedCodeLine(line) {
+  return line.replace(/\/\/.*$/, "").replace(/\/\*.*?\*\//g, "").replace(/\s+/g, "").replace(/[;,]$/, "");
+}
+function checkIntegrityPatches(patches) {
+  const results = [];
   const checks = [
     ["focused or skipped test introduced", /\b(?:test|it|describe)\.(?:skip|only)\s*\(|\b(?:xit|xdescribe)\s*\(|@pytest\.mark\.skip|#\[ignore\]/i, "test-skip-added", (patch) => isTestPath(patch.path)],
     // vigil:detector-pattern
     ["verification bypass introduced", /--no-verify|\|\|\s*true\b|passWithNoTests|allowEmptyTests/i, "verification-bypass", (patch) => !isDocumentationPath(patch.path)],
     // vigil:detector-pattern
-    ["compiler or linter suppression introduced", /@ts-nocheck|@ts-ignore|eslint-disable|type:\s*ignore|noqa\b/i, "suppression-added", (patch) => !isDocumentationPath(patch.path)],
+    ["compiler or linter suppression introduced", /@ts-nocheck|@ts-ignore|@ts-expect-error|eslint-disable|type:\s*ignore|noqa\b/i, "suppression-added", (patch) => !isDocumentationPath(patch.path)],
     // vigil:detector-pattern
-    ["coverage gate weakened", /coverageThreshold\s*[:=]\s*0|--fail-under[=\s]+0|minimum_coverage\s*[:=]\s*0/i, "coverage-weakened", (patch) => !isDocumentationPath(patch.path)]
+    ["coverage gate weakened", /coverageThreshold\s*[:=]\s*0|--fail-under[=\s]+0|minimum_coverage\s*[:=]\s*0/i, "coverage-weakened", (patch) => !isDocumentationPath(patch.path)],
+    // vigil:detector-pattern
+    ["statically unreachable branch introduced", /\bif\s*\(\s*(?:false|0)\s*\)/i, "dead-branch-added", (patch) => !isDocumentationPath(patch.path)]
     // vigil:detector-pattern
   ];
   for (const [subject, regex, ruleId, inScope] of checks) {
     const line = patches.filter(inScope).flatMap((patch) => patch.added).find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
-    if (line) results.push(finding(subject, line.slice(1).trim().slice(0, 220), ruleId));
+    if (line) results.push(finding(subject, line.trim().slice(0, 220), ruleId));
+  }
+  for (const patch of patches.filter((candidate) => !isDocumentationPath(candidate.path))) {
+    const added = patch.added.join("\n");
+    const removed = patch.removed.join("\n");
+    if (/\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}/s.test(added)) {
+      results.push(finding("error path swallowed by an empty catch", `${patch.path} adds an empty catch block`, "error-swallowed"));
+    }
+    if (/\bthrow\s+[A-Za-z_$][\w$]*\s*;/.test(removed) && /\bthrow\s+new\s+Error\s*\(/.test(added) && !/\bcause\b/.test(added)) {
+      results.push(finding("exception context discarded", `${patch.path} replaces rethrowing the caught value with a new Error without a cause`, "exception-context-lost"));
+    }
+    const declarationPattern = /\b(?:function|const|let|var)\s+([A-Za-z_$][\w$]*)/g;
+    const removedNames = [...removed.matchAll(declarationPattern)].map((match) => match[1]);
+    const addedNames = new Set([...added.matchAll(declarationPattern)].map((match) => match[1]));
+    const candidateText = [...patch.added, ...patch.context].join("\n");
+    for (const oldName of removedNames) {
+      if (addedNames.has(oldName)) continue;
+      const oldReference = new RegExp(`\\b${oldName.replace(/[$]/g, "\\$")}\\s*\\(`);
+      if (oldReference.test(candidateText)) {
+        results.push(finding("removed or renamed symbol leaves an old caller", `${patch.path} removes the declaration of ${oldName} while ${oldName} is still called`, "stale-refactor-caller"));
+        break;
+      }
+    }
+    if (isTestPath(patch.path)) {
+      const removedStrict = /\.(?:toBe|toEqual|toStrictEqual)\s*\(|\b(?:assertEqual|assertStrictEqual)\s*\(/.test(removed);
+      const addedLoose = /\.(?:toBeTruthy|toBeDefined|toBeGreaterThan|toBeGreaterThanOrEqual|toContain)\s*\(|\bassert\s*\(/.test(added);
+      if (removedStrict && addedLoose) {
+        results.push(finding("test assertion relaxed", `${patch.path} replaces an exact assertion with a weaker predicate`, "test-assertion-relaxed"));
+      }
+      if (/\b(?:jest|vi)\.fn\s*\(\s*\)\s*\.mock(?:ReturnValue|Implementation)/.test(added)) {
+        results.push(finding("test replaces the subject with a self-fulfilling mock", `${patch.path} adds a value-producing local mock in the assertion path`, "subject-mocked"));
+      }
+      const removedHunkAssertions = patch.removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+      const addedHunkAssertions = patch.added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+      if (removedHunkAssertions > addedHunkAssertions && !results.some((result3) => result3.ruleId === "assertion-drop")) {
+        results.push(finding("assertion surface shrank", `${patch.path} hunk removes ${removedHunkAssertions} assertion-like line(s) and adds ${addedHunkAssertions}`, "assertion-drop"));
+      }
+    }
+    const removedCode = patch.removed.map(normalizedCodeLine).filter(Boolean);
+    const addedCode = patch.added.map(normalizedCodeLine).filter(Boolean);
+    if (removedCode.length === 1 && addedCode.length === 1 && removedCode[0] === addedCode[0] && patch.removed[0] !== patch.added[0]) {
+      results.push(finding("code change is behaviorally empty after comment and whitespace normalization", `${patch.path}: ${patch.added[0].trim().slice(0, 180)}`, "no-op-code-change"));
+    }
   }
   const testPatches = patches.filter((patch) => isTestPath(patch.path));
+  const removedTests = testPatches.flatMap((patch) => patch.removed).filter((line) => countTests(line) > 0).length;
+  const addedTests = testPatches.flatMap((patch) => patch.added).filter((line) => countTests(line) > 0).length;
+  if (removedTests > addedTests) {
+    results.push(finding("test surface shrank", `${removedTests} test definitions removed and ${addedTests} added in the supplied diff`, "test-count-drop"));
+  }
   const removedAssertions = testPatches.flatMap((patch) => patch.removed).filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
   const addedAssertions = testPatches.flatMap((patch) => patch.added).filter((line) => !line.includes("vigil:detector-pattern") && /\b(?:expect|assert|should)\b/i.test(line)).length;
-  if (removedAssertions > addedAssertions) {
+  if (removedAssertions > addedAssertions && !results.some((result3) => result3.ruleId === "assertion-drop")) {
     results.push(finding(
       "assertion surface shrank",
       `${removedAssertions} assertion-like lines removed and ${addedAssertions} added`,
       "assertion-drop"
     ));
   }
-  if (!results.length) {
-    results.push({
-      claim: { kind: "integrity", quote: "automatic anti-reward-hacking check", subject: "no obvious verification weakening" },
-      verdict: "verified",
-      evidence: `${paths.length} changed paths checked for deleted tests, count drops, skips, bypasses, suppressions, and assertion loss`,
-      ruleId: "integrity-scan",
-      contributesToPass: false
-    });
-  }
   return results;
+}
+function checkIntegrityDiff(diff) {
+  if (!/^diff --git /m.test(diff)) {
+    return [{
+      claim: { kind: "integrity", quote: "static unified-diff audit", subject: "parseable unified Git diff" },
+      verdict: "unverifiable",
+      evidence: "input contains no `diff --git` file header",
+      ruleId: "diff-unparseable",
+      contributesToPass: false,
+      blocksPass: true
+    }];
+  }
+  const patches = parseFilePatches(diff);
+  if (!patches.length) {
+    return [{
+      claim: { kind: "integrity", quote: "static unified-diff audit", subject: "parseable changed files" },
+      verdict: "unverifiable",
+      evidence: "input contains no readable changed-file patches",
+      ruleId: "diff-unparseable",
+      contributesToPass: false,
+      blocksPass: true
+    }];
+  }
+  const results = checkIntegrityPatches(patches);
+  return results.length ? results : [cleanIntegrityResult(patches.length, true)];
 }
 function checkCompletion(claims, repo, base, head, prior) {
   const completion = claims.filter((claim) => claim.kind === "work_complete");
@@ -984,7 +1084,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.8.0";
+var VERSION = "0.9.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1019,6 +1119,7 @@ function buildReport(input) {
     status,
     pass: status === "PASS"
   };
+  const advisories = input.advisories ?? [];
   const receiptPayload = {
     schemaVersion: "2",
     vigilVersion: VERSION,
@@ -1029,6 +1130,7 @@ function buildReport(input) {
     repository: input.repository ?? {},
     reproduction: input.reproduction ?? "unavailable",
     results: input.results,
+    advisories,
     summary,
     policy
   };
@@ -1046,6 +1148,7 @@ function buildReport(input) {
     repository: input.repository ?? {},
     reproduction: input.reproduction ?? "unavailable",
     results: input.results,
+    advisories,
     summary,
     policy
   };
@@ -1061,6 +1164,7 @@ function recomputeReceiptHash(report) {
     repository: report.repository,
     reproduction: report.reproduction,
     results: report.results,
+    ...report.advisories !== void 0 ? { advisories: report.advisories } : {},
     summary: report.summary,
     policy: report.policy
   };
@@ -1222,6 +1326,9 @@ function appendPrivateFileAtomic(destination, content) {
 
 // src/output.ts
 var icon = { verified: "\u2713", contradicted: "\u2717", unverifiable: "?" };
+function advisoryLabel(result3) {
+  return result3.verdict === "unverifiable" ? "unresolved advisory" : "advisory";
+}
 function remediationFor(ruleId) {
   const fixes = {
     "test-count": "Run the configured test command without truncating its output, then report the observed passing count exactly; use `vigil doctor` to inspect command selection.",
@@ -1238,6 +1345,14 @@ function remediationFor(ruleId) {
     "suppression-added": "Remove the new suppression or narrow it with an explicit reviewed justification.",
     "coverage-weakened": "Restore a meaningful coverage threshold.",
     "assertion-drop": "Restore equivalent assertions or review the intentional reduction explicitly.",
+    "test-assertion-relaxed": "Restore the exact assertion, or document why the weaker predicate preserves the same contract and review the exception.",
+    "subject-mocked": "Exercise the real subject or replace the self-fulfilling mock with a boundary fixture whose behavior is independently asserted.",
+    "dead-branch-added": "Remove the unreachable branch or replace the constant condition with the intended reachable control flow.",
+    "error-swallowed": "Handle, report, or deliberately propagate the error; if swallowing is intentional, keep advisory mode or review a blocking-policy exception.",
+    "exception-context-lost": "Rethrow the original error or attach it as the new error's cause so diagnostic context is preserved.",
+    "stale-refactor-caller": "Update remaining callers to the renamed symbol and run the focused regression test.",
+    "no-op-code-change": "Make the behavioral change explicit or remove the comment/whitespace-only edit from the claimed fix.",
+    "diff-unparseable": "Export a complete unified Git diff with `git diff --no-color <base>...<head>` and rerun the audit.",
     "completion-marker": "Resolve the added unfinished-work marker before claiming completion.",
     "completion-evidence": "Add at least one independently verifiable path, command, change, or test claim.",
     "workspace-dirty": "Run `git status --short`, commit or remove unbound paths, then rerun with `--head $(git rev-parse HEAD)`.",
@@ -1282,8 +1397,14 @@ function renderText(report) {
     lines.push(`      evidence: ${result3.evidence}`, "");
     if (result3.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result3.ruleId)}`);
   }
+  for (const result3 of report.advisories ?? []) {
+    lines.push(`  ! [${result3.ruleId ?? result3.claim.kind}] ${result3.claim.subject}`);
+    lines.push(`      ${advisoryLabel(result3)}: ${result3.evidence}`);
+    lines.push(`      review:   ${remediationFor(result3.ruleId)}`, "");
+  }
   const summary = report.summary;
   lines.push(`  ${summary.verified} verified \xB7 ${summary.contradicted} contradicted \xB7 ${summary.unverifiable} unresolved`);
+  if (report.advisories?.length) lines.push(`  ${report.advisories.length} advisory finding(s) \xB7 non-blocking under this policy`);
   lines.push(`  ${summary.status} \xB7 ${report.receiptHash}`);
   lines.push(`  reproduce: ${report.reproduction}`);
   if (summary.status === "INCONCLUSIVE") lines.push("  Missing or unresolved evidence prevents a trustworthy pass.");
@@ -1292,6 +1413,9 @@ function renderText(report) {
 function renderMarkdown(report) {
   const rows = report.results.map(
     (result3) => `| ${icon[result3.verdict]} ${result3.verdict} | \`${result3.ruleId ?? result3.claim.kind}\` | ${escapeCell(result3.claim.subject)} | ${escapeCell(result3.evidence)} |`
+  );
+  const advisoryRows = (report.advisories ?? []).map(
+    (result3) => `| \u26A0\uFE0F ${advisoryLabel(result3)} | \`${result3.ruleId ?? result3.claim.kind}\` | ${escapeCell(result3.claim.subject)} | ${escapeCell(result3.evidence)} |`
   );
   return [
     `# ${report.summary.status === "PASS" ? "\u2705" : report.summary.status === "FAIL" ? "\u274C" : "\u26A0\uFE0F"} Agent Vigil: ${report.summary.status}`,
@@ -1304,14 +1428,19 @@ function renderMarkdown(report) {
     "| Verdict | Rule | Claim | Evidence |",
     "|---|---|---|---|",
     ...rows,
+    ...advisoryRows,
     "",
     `${report.summary.verified} verified \xB7 ${report.summary.contradicted} contradicted \xB7 ${report.summary.unverifiable} unresolved`,
+    ...report.advisories?.length ?? 0 ? [`${report.advisories.length} advisory finding(s) \xB7 non-blocking under this policy`] : [],
     "",
-    ...report.results.some((result3) => result3.verdict !== "verified") ? [
+    ...report.results.some((result3) => result3.verdict !== "verified") || (report.advisories?.length ?? 0) ? [
       "## What to do next",
       "",
       ...report.results.filter((result3) => result3.verdict !== "verified").map(
         (result3) => `- **\`${result3.ruleId ?? result3.claim.kind}\`**: ${remediationFor(result3.ruleId)}`
+      ),
+      ...(report.advisories ?? []).map(
+        (result3) => `- **\`${result3.ruleId ?? result3.claim.kind}\` (advisory)**: ${remediationFor(result3.ruleId)}`
       ),
       ""
     ] : [],
@@ -1322,8 +1451,8 @@ function renderMarkdown(report) {
 function escapeCell(value) {
   return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
 }
-function sarifResult(result3) {
-  const level = result3.verdict === "contradicted" ? "error" : result3.verdict === "unverifiable" ? "warning" : "note";
+function sarifResult(result3, advisory = false) {
+  const level = advisory ? "warning" : result3.verdict === "contradicted" ? "error" : result3.verdict === "unverifiable" ? "warning" : "note";
   return {
     ruleId: result3.ruleId ?? result3.claim.kind,
     level,
@@ -1331,7 +1460,8 @@ function sarifResult(result3) {
   };
 }
 function toSarif(report) {
-  const rules = [...new Set(report.results.map((result3) => result3.ruleId ?? result3.claim.kind))].map((id) => ({
+  const allResults = [...report.results, ...report.advisories ?? []];
+  const rules = [...new Set(allResults.map((result3) => result3.ruleId ?? result3.claim.kind))].map((id) => ({
     id,
     shortDescription: { text: id.replace(/-/g, " ") }
   }));
@@ -1340,8 +1470,11 @@ function toSarif(report) {
     version: "2.1.0",
     runs: [{
       tool: { driver: { name: "agent-vigil", version: report.vigilVersion, informationUri: "https://github.com/sulmusic2-star/agent-vigil", rules } },
-      results: report.results.filter((result3) => result3.verdict !== "verified").map(sarifResult),
-      properties: { receiptHash: report.receiptHash, status: report.summary.status }
+      results: [
+        ...report.results.filter((result3) => result3.verdict !== "verified").map((result3) => sarifResult(result3)),
+        ...(report.advisories ?? []).map((result3) => sarifResult(result3, true))
+      ],
+      properties: { receiptHash: report.receiptHash, status: report.summary.status, advisoryCount: report.advisories?.length ?? 0 }
     }]
   };
 }
@@ -1422,10 +1555,13 @@ function canonical2(value) {
 function validatePolicy(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("policy must be a JSON object");
   const value = input;
-  const allowed = /* @__PURE__ */ new Set(["schemaVersion", "transcript", "testCommand", "strict", "minVerified", "trustedSignerKeyIds", "portableReceipt", "maintainer"]);
+  const allowed = /* @__PURE__ */ new Set(["schemaVersion", "integrityMode", "transcript", "testCommand", "strict", "minVerified", "trustedSignerKeyIds", "portableReceipt", "maintainer"]);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`policy contains unknown field(s): ${unknown.join(", ")}`);
   if (value.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
+  if (value.integrityMode !== void 0 && !(/* @__PURE__ */ new Set(["advisory", "blocking"])).has(String(value.integrityMode))) {
+    throw new Error("policy integrityMode must be advisory or blocking");
+  }
   if (value.transcript !== void 0 && (typeof value.transcript !== "string" || !value.transcript.trim())) {
     throw new Error("policy transcript must be a non-empty string");
   }
@@ -1568,6 +1704,7 @@ function loadPolicy(repo, requested, ref) {
 function policyTemplate(testCommand, portableSignerKeyId) {
   const value = {
     schemaVersion: 1,
+    integrityMode: "advisory",
     ...portableSignerKeyId ? {
       portableReceipt: ".agent-vigil/receipt.json",
       trustedSignerKeyIds: [portableSignerKeyId]
@@ -1583,6 +1720,7 @@ function maintainerPolicyTemplate(testCommand, setupCommand) {
   const command = testCommand ?? "REPLACE_WITH_TEST_COMMAND";
   const value = {
     schemaVersion: 1,
+    integrityMode: "advisory",
     testCommand: command,
     strict: true,
     minVerified: 1,
@@ -1630,7 +1768,7 @@ jobs:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha }}
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.8.0
+        uses: sulmusic2-star/agent-vigil@v0.9.0
         with:
           ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
@@ -1992,6 +2130,17 @@ function verifyPortableReceipt(receipt, trustedKeyIds = []) {
 // src/gate.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
 import { relative as relative3, resolve as resolve5, sep as sep3 } from "node:path";
+
+// src/integrity-policy.ts
+function routeIntegrity(checks, mode = "advisory") {
+  if (mode === "blocking") return { results: checks, advisories: [] };
+  return {
+    results: checks.filter((check) => check.verdict !== "contradicted"),
+    advisories: checks.filter((check) => check.verdict === "contradicted")
+  };
+}
+
+// src/gate.ts
 function git4(repo, args) {
   try {
     return execFileSync5("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -2024,6 +2173,7 @@ function buildPortableGateReport(receipt, options) {
   const base = resolveGitRef(repo, options.base);
   const head = resolveGitRef(repo, options.head);
   const results = [];
+  const advisories = [];
   const trusted = policy.value.trustedSignerKeyIds ?? [];
   const verification = verifyPortableReceipt(receipt, trusted);
   results.push(result(
@@ -2091,7 +2241,9 @@ function buildPortableGateReport(receipt, options) {
   const testClaim = { kind: "tests_pass", quote: "trusted policy verification passes in independent CI", subject: "trusted policy test command" };
   results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand));
   results.push(...checkWorkspaceMutation(repo, exactHead ? [receiptPath] : []));
-  results.push(...checkIntegrity(repo, base, head));
+  const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+  results.push(...integrity.results);
+  advisories.push(...integrity.advisories);
   const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative3(repo, policy.path) : void 0;
   const reproduction = [
     "vigil gate",
@@ -2112,6 +2264,7 @@ function buildPortableGateReport(receipt, options) {
     base,
     head,
     results,
+    advisories,
     policy: { minVerified: 1, strict: true, source: policySource, sha256: policy.sha256 },
     repository: { ...currentRemote ? { remote: currentRemote } : {}, ...git4(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git4(repo, ["rev-parse", `${head}^{tree}`]) } : {} },
     reproduction
@@ -2440,6 +2593,7 @@ Usage:
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
+  vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
 
@@ -2457,7 +2611,7 @@ Options:
   --signing-key <path>   Sign the receipt with an Ed25519 private key
   --portable-output <p>  Write a compact signed receipt; requires --signing-key
   --github-summary       Append Markdown to GITHUB_STEP_SUMMARY
-  --strict               INCONCLUSIVE when any claim remains unresolved
+  --strict               Block on unresolved claims; for audit, block on static findings
   --min-verified <n>     Minimum objective verified claims (default: 1)
   --version              Print the version
   --help                 Show this help
@@ -2571,12 +2725,15 @@ function runMaintainer(args) {
     if (evidence.headSha && resolveGitRef(repo, evidence.headSha) !== head) throw new Error(`event head ${evidence.headSha} does not match selected head ${head}`);
     const inputs = [eventPath, ...policy.path ? [policy.path] : []];
     const results = [...checkWorkspaceBinding(repo, head, inputs)];
+    const advisories = [];
     results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer));
     if (policy.value.testCommand) {
       results.push(...checkTestsPass([{ kind: "tests_pass", quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" }], repo, policy.value.testCommand));
       results.push(...checkWorkspaceMutation(repo, inputs));
     }
-    results.push(...checkIntegrity(repo, base, head));
+    const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+    results.push(...integrity.results);
+    advisories.push(...integrity.advisories);
     const rawEvent = readFileSync9(eventPath);
     const eventHash = `sha256:${createHash6("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
@@ -2603,6 +2760,7 @@ function runMaintainer(args) {
       base,
       head,
       results,
+      advisories,
       policy: { minVerified: policy.value.minVerified ?? 1, strict: policy.value.strict ?? true, source: policySource, sha256: policy.sha256 },
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
@@ -2688,6 +2846,45 @@ function runVerify(args) {
     return 2;
   }
 }
+function runAudit(args) {
+  try {
+    const options = parseArgs(args.slice(1));
+    const diffPath = options.transcript;
+    if (!diffPath) throw new Error("audit requires a unified Git diff path");
+    const absolute = resolve7(diffPath);
+    const raw = readFileSync9(absolute);
+    if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
+    const diff = raw.toString("utf8");
+    const digest2 = `sha256:${createHash6("sha256").update(raw).digest("hex")}`;
+    const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
+    if (!integrity.results.length && integrity.advisories.length) {
+      integrity.results.push({
+        claim: { kind: "integrity", quote: "static unified-diff audit", subject: "parseable unified Git diff audited" },
+        verdict: "verified",
+        evidence: `${integrity.advisories.length} heuristic finding(s) recorded as non-blocking advisories`,
+        ruleId: "diff-audit-complete"
+      });
+    }
+    const report = buildReport({
+      transcript: relative5(process.cwd(), absolute) || absolute,
+      transcriptSha256: digest2,
+      transcriptFormat: "unified-git-diff",
+      repo: "static-diff-audit",
+      base: "unavailable",
+      head: digest2,
+      results: integrity.results,
+      advisories: integrity.advisories,
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash6("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
 function git6(repo, args) {
   try {
     return execFileSync7("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -2704,6 +2901,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
+  if (argv[0] === "audit") return runAudit(argv);
   if (argv[0] === "gate") return runGate(argv);
   if (argv[0] === "maintainer") return runMaintainer(argv);
   if (argv.includes("--help")) {
@@ -2763,6 +2961,7 @@ ${usage()}`);
     const claims = extractClaims(loaded.narrative);
     const runClaims = extractRunClaims(loaded.narrative);
     const results = [];
+    const advisories = [];
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
@@ -2777,7 +2976,9 @@ ${usage()}`);
     results.push(...checkPathsExist(claims.filter((claim) => !changedClaims.has(claim.subject)), repo));
     results.push(...checkRunClaims(runClaims, loaded.toolCalls));
     results.push(...checkStepRepetition(loaded.toolCalls));
-    results.push(...checkIntegrity(repo, base, head));
+    const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+    results.push(...integrity.results);
+    advisories.push(...integrity.advisories);
     results.push(...checkCompletion(claims, repo, base, head, results));
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
     const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
@@ -2807,6 +3008,7 @@ ${usage()}`);
       base,
       head,
       results,
+      advisories,
       policy: { minVerified, strict, source: policySource, sha256: policy.sha256 },
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
