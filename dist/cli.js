@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { execFileSync as execFileSync6 } from "node:child_process";
-import { existsSync as existsSync4, mkdirSync as mkdirSync3, readFileSync as readFileSync7, realpathSync as realpathSync2, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname2, isAbsolute as isAbsolute3, relative as relative4, resolve as resolve5 } from "node:path";
+import { createHash as createHash6 } from "node:crypto";
+import { execFileSync as execFileSync7 } from "node:child_process";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync8, realpathSync as realpathSync2, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname3, isAbsolute as isAbsolute3, relative as relative5, resolve as resolve6 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -957,7 +958,7 @@ function checkCompletion(claims, repo, base, head, prior) {
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
   const diff = git(repo, ["diff", "--unified=0", "--no-color", ...diffRange]);
   const markers = diff.split("\n").filter((line) => /^\+.*\b(TODO|FIXME|XXX|HACK|NotImplementedError|not implemented)\b/i.test(line));
-  const objectiveVerified = prior.filter((result2) => result2.verdict === "verified" && result2.contributesToPass !== false).length;
+  const objectiveVerified = prior.filter((result3) => result3.verdict === "verified" && result3.contributesToPass !== false).length;
   return completion.map((claim) => {
     if (markers.length) {
       return { claim, verdict: "contradicted", evidence: `diff adds unfinished-work marker: ${markers[0].slice(1, 220)}`, ruleId: "completion-marker" };
@@ -983,7 +984,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.6.0";
+var VERSION = "0.7.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1008,7 +1009,7 @@ function buildReport(input) {
   ).length;
   let status;
   if (contradicted > 0) status = "FAIL";
-  else if (meaningfulVerified < policy.minVerified || input.results.some((result2) => result2.verdict === "unverifiable" && result2.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
+  else if (meaningfulVerified < policy.minVerified || input.results.some((result3) => result3.verdict === "unverifiable" && result3.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
   else status = "PASS";
   const summary = {
     verified: count("verified"),
@@ -1095,7 +1096,21 @@ function remediationFor(ruleId) {
     "portable-local-verdict": "Resolve the local FAIL or INCONCLUSIVE result, rerun Agent Vigil, and attach a new signed portable receipt.",
     "portable-policy": "Regenerate the receipt using policy loaded from the pull request base commit.",
     "portable-path": "Set base policy `portableReceipt` and pass that exact repository-relative path.",
-    "portable-git-binding": "Regenerate after the latest source commit; after signing, commit only the base-policy-controlled receipt path."
+    "portable-git-binding": "Regenerate after the latest source commit; after signing, commit only the base-policy-controlled receipt path.",
+    "responsible-human": "Set `Responsible human` to the pull request author's exact GitHub login and accept responsibility for the change.",
+    "human-review-attestation": "Review every changed line, then check the exact declaration in the pull request template.",
+    "human-maintenance-attestation": "Confirm you can explain and maintain the change, then check the exact declaration.",
+    "ai-assistance-disclosure": "Set `AI assistance` to exactly `none`, `assisted`, or `agent`.",
+    "linked-issue": "Link the maintainer-approved issue as `#123` or a full GitHub issue URL.",
+    "changed-file-budget": "Split the change or obtain a reviewed base-policy exception before expanding the file budget.",
+    "changed-line-budget": "Split the change, remove unrelated edits, or obtain a reviewed base-policy exception.",
+    "test-change-required": "Add a focused regression test under a configured testPathPatterns path.",
+    "protected-path": "Remove the protected-path edit and change policy or workflow controls in a separately reviewed pull request.",
+    "differential-setup": "Make the base-policy setup command succeed in isolated base and head worktrees; do not hide setup errors.",
+    "differential-head-pass": "Fix the candidate until the trusted regression command passes in the isolated head worktree.",
+    "differential-base-fail": "Add a regression test that fails against base source and passes against the candidate; a test green on both sides is not catching evidence.",
+    "differential-failure-pattern": "Tighten the test or update the base-anchored expected failure pattern through separate review.",
+    "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs."
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }
@@ -1109,11 +1124,11 @@ function renderText(report) {
     `  policy:     ${report.policy.sha256}`,
     ""
   ];
-  for (const result2 of report.results) {
-    lines.push(`  ${icon[result2.verdict]} [${result2.ruleId ?? result2.claim.kind}] ${result2.claim.subject}`);
-    lines.push(`      claim:    "${result2.claim.quote.slice(0, 140)}"`);
-    lines.push(`      evidence: ${result2.evidence}`, "");
-    if (result2.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result2.ruleId)}`);
+  for (const result3 of report.results) {
+    lines.push(`  ${icon[result3.verdict]} [${result3.ruleId ?? result3.claim.kind}] ${result3.claim.subject}`);
+    lines.push(`      claim:    "${result3.claim.quote.slice(0, 140)}"`);
+    lines.push(`      evidence: ${result3.evidence}`, "");
+    if (result3.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result3.ruleId)}`);
   }
   const summary = report.summary;
   lines.push(`  ${summary.verified} verified \xB7 ${summary.contradicted} contradicted \xB7 ${summary.unverifiable} unresolved`);
@@ -1124,7 +1139,7 @@ function renderText(report) {
 }
 function renderMarkdown(report) {
   const rows = report.results.map(
-    (result2) => `| ${icon[result2.verdict]} ${result2.verdict} | \`${result2.ruleId ?? result2.claim.kind}\` | ${escapeCell(result2.claim.subject)} | ${escapeCell(result2.evidence)} |`
+    (result3) => `| ${icon[result3.verdict]} ${result3.verdict} | \`${result3.ruleId ?? result3.claim.kind}\` | ${escapeCell(result3.claim.subject)} | ${escapeCell(result3.evidence)} |`
   );
   return [
     `# ${report.summary.status === "PASS" ? "\u2705" : report.summary.status === "FAIL" ? "\u274C" : "\u26A0\uFE0F"} Agent Vigil: ${report.summary.status}`,
@@ -1140,11 +1155,11 @@ function renderMarkdown(report) {
     "",
     `${report.summary.verified} verified \xB7 ${report.summary.contradicted} contradicted \xB7 ${report.summary.unverifiable} unresolved`,
     "",
-    ...report.results.some((result2) => result2.verdict !== "verified") ? [
+    ...report.results.some((result3) => result3.verdict !== "verified") ? [
       "## What to do next",
       "",
-      ...report.results.filter((result2) => result2.verdict !== "verified").map(
-        (result2) => `- **\`${result2.ruleId ?? result2.claim.kind}\`**: ${remediationFor(result2.ruleId)}`
+      ...report.results.filter((result3) => result3.verdict !== "verified").map(
+        (result3) => `- **\`${result3.ruleId ?? result3.claim.kind}\`**: ${remediationFor(result3.ruleId)}`
       ),
       ""
     ] : [],
@@ -1155,16 +1170,16 @@ function renderMarkdown(report) {
 function escapeCell(value) {
   return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
 }
-function sarifResult(result2) {
-  const level = result2.verdict === "contradicted" ? "error" : result2.verdict === "unverifiable" ? "warning" : "note";
+function sarifResult(result3) {
+  const level = result3.verdict === "contradicted" ? "error" : result3.verdict === "unverifiable" ? "warning" : "note";
   return {
-    ruleId: result2.ruleId ?? result2.claim.kind,
+    ruleId: result3.ruleId ?? result3.claim.kind,
     level,
-    message: { text: `${result2.claim.subject}: ${result2.evidence}. Remediation: ${remediationFor(result2.ruleId)}` }
+    message: { text: `${result3.claim.subject}: ${result3.evidence}. Remediation: ${remediationFor(result3.ruleId)}` }
   };
 }
 function toSarif(report) {
-  const rules = [...new Set(report.results.map((result2) => result2.ruleId ?? result2.claim.kind))].map((id) => ({
+  const rules = [...new Set(report.results.map((result3) => result3.ruleId ?? result3.claim.kind))].map((id) => ({
     id,
     shortDescription: { text: id.replace(/-/g, " ") }
   }));
@@ -1173,7 +1188,7 @@ function toSarif(report) {
     version: "2.1.0",
     runs: [{
       tool: { driver: { name: "agent-vigil", version: report.vigilVersion, informationUri: "https://github.com/sulmusic2-star/agent-vigil", rules } },
-      results: report.results.filter((result2) => result2.verdict !== "verified").map(sarifResult),
+      results: report.results.filter((result3) => result3.verdict !== "verified").map(sarifResult),
       properties: { receiptHash: report.receiptHash, status: report.summary.status }
     }]
   };
@@ -1255,7 +1270,7 @@ function canonical2(value) {
 function validatePolicy(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("policy must be a JSON object");
   const value = input;
-  const allowed = /* @__PURE__ */ new Set(["schemaVersion", "transcript", "testCommand", "strict", "minVerified", "trustedSignerKeyIds", "portableReceipt"]);
+  const allowed = /* @__PURE__ */ new Set(["schemaVersion", "transcript", "testCommand", "strict", "minVerified", "trustedSignerKeyIds", "portableReceipt", "maintainer"]);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`policy contains unknown field(s): ${unknown.join(", ")}`);
   if (value.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
@@ -1288,7 +1303,68 @@ function validatePolicy(input) {
       throw new Error("policy portableReceipt must stay inside the repository");
     }
   }
+  if (value.maintainer !== void 0) validateMaintainerPolicy(value.maintainer);
   return value;
+}
+function positiveInteger(value, label, maximum) {
+  if (!Number.isInteger(value) || Number(value) < 1 || maximum !== void 0 && Number(value) > maximum) {
+    throw new Error(`policy ${label} must be a positive integer${maximum ? ` no greater than ${maximum}` : ""}`);
+  }
+}
+function nonEmptyStrings(value, label) {
+  if (!Array.isArray(value) || value.length < 1 || value.some((item) => typeof item !== "string" || !item.trim())) {
+    throw new Error(`policy ${label} must be a non-empty array of non-empty strings`);
+  }
+  if (new Set(value).size !== value.length) throw new Error(`policy ${label} must not contain duplicates`);
+}
+function validateMaintainerPolicy(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("policy maintainer must be a JSON object");
+  const value = input;
+  const allowed = /* @__PURE__ */ new Set([
+    "requireHumanAttestation",
+    "requireLinkedIssue",
+    "requireAiDisclosure",
+    "maxChangedFiles",
+    "maxChangedLines",
+    "requireTestChange",
+    "protectedPaths",
+    "testPathPatterns",
+    "differentialTest"
+  ]);
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length) throw new Error(`policy maintainer contains unknown field(s): ${unknown.join(", ")}`);
+  for (const key of ["requireHumanAttestation", "requireLinkedIssue", "requireAiDisclosure", "requireTestChange"]) {
+    if (value[key] !== void 0 && typeof value[key] !== "boolean") throw new Error(`policy maintainer.${key} must be boolean`);
+  }
+  if (value.maxChangedFiles !== void 0) positiveInteger(value.maxChangedFiles, "maintainer.maxChangedFiles", 1e5);
+  if (value.maxChangedLines !== void 0) positiveInteger(value.maxChangedLines, "maintainer.maxChangedLines", 1e7);
+  if (value.protectedPaths !== void 0) nonEmptyStrings(value.protectedPaths, "maintainer.protectedPaths");
+  if (value.testPathPatterns !== void 0) nonEmptyStrings(value.testPathPatterns, "maintainer.testPathPatterns");
+  if (value.differentialTest !== void 0) {
+    if (!value.differentialTest || typeof value.differentialTest !== "object" || Array.isArray(value.differentialTest)) {
+      throw new Error("policy maintainer.differentialTest must be a JSON object");
+    }
+    const differential = value.differentialTest;
+    const differentialAllowed = /* @__PURE__ */ new Set(["command", "setupCommand", "timeoutSeconds", "baseFailurePattern", "overlayChangedTests"]);
+    const differentialUnknown = Object.keys(differential).filter((key) => !differentialAllowed.has(key));
+    if (differentialUnknown.length) throw new Error(`policy maintainer.differentialTest contains unknown field(s): ${differentialUnknown.join(", ")}`);
+    if (typeof differential.command !== "string" || !differential.command.trim()) throw new Error("policy maintainer.differentialTest.command must be a non-empty string");
+    if (differential.setupCommand !== void 0 && (typeof differential.setupCommand !== "string" || !differential.setupCommand.trim())) {
+      throw new Error("policy maintainer.differentialTest.setupCommand must be a non-empty string");
+    }
+    if (differential.timeoutSeconds !== void 0) positiveInteger(differential.timeoutSeconds, "maintainer.differentialTest.timeoutSeconds", 3600);
+    if (differential.baseFailurePattern !== void 0) {
+      if (typeof differential.baseFailurePattern !== "string" || !differential.baseFailurePattern.trim() || differential.baseFailurePattern.length > 500) throw new Error("policy maintainer.differentialTest.baseFailurePattern must be a non-empty string of at most 500 characters");
+      try {
+        new RegExp(differential.baseFailurePattern);
+      } catch {
+        throw new Error("policy maintainer.differentialTest.baseFailurePattern must be a valid regular expression");
+      }
+    }
+    if (differential.overlayChangedTests !== void 0 && typeof differential.overlayChangedTests !== "boolean") {
+      throw new Error("policy maintainer.differentialTest.overlayChangedTests must be boolean");
+    }
+  }
 }
 function parsePolicy(raw, source) {
   let parsed;
@@ -1351,12 +1427,39 @@ function policyTemplate(testCommand, portableSignerKeyId) {
   return `${JSON.stringify(value, null, 2)}
 `;
 }
+function maintainerPolicyTemplate(testCommand, setupCommand) {
+  const command = testCommand ?? "REPLACE_WITH_TEST_COMMAND";
+  const value = {
+    schemaVersion: 1,
+    testCommand: command,
+    strict: true,
+    minVerified: 1,
+    maintainer: {
+      requireHumanAttestation: true,
+      requireLinkedIssue: true,
+      requireAiDisclosure: true,
+      maxChangedFiles: 20,
+      maxChangedLines: 800,
+      requireTestChange: true,
+      protectedPaths: [".github/workflows/**", ".agent-vigil.json"],
+      testPathPatterns: ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"],
+      differentialTest: {
+        command,
+        ...setupCommand ? { setupCommand } : {},
+        timeoutSeconds: 300,
+        overlayChangedTests: true
+      }
+    }
+  };
+  return `${JSON.stringify(value, null, 2)}
+`;
+}
 
 // src/setup.ts
 import { execFileSync as execFileSync4 } from "node:child_process";
 import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname, relative as relative2, resolve as resolve3 } from "node:path";
-function workflow(portable) {
+function workflow(mode) {
   return `name: Agent Vigil
 
 on:
@@ -1374,16 +1477,38 @@ jobs:
         with:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha }}
-      - uses: sulmusic2-star/agent-vigil@v0.6.0
+      - id: vigil
+        uses: sulmusic2-star/agent-vigil@v0.7.0
         with:
-          ${portable ? "receipt: .agent-vigil/receipt.json" : "transcript: .agent-vigil/session.md"}
+          ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
           policy-ref: \${{ github.event.pull_request.base.sha }}
           repo: .
           base: \${{ github.event.pull_request.base.sha }}
           head: \${{ github.event.pull_request.head.sha }}
+      - name: Retain auditable Agent Vigil receipt
+        if: always() && steps.vigil.outputs.report != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-vigil-receipt
+          path: agent-vigil-report.json
+          retention-days: 30
 `;
 }
+var MAINTAINER_PR_TEMPLATE = `## Agent Vigil maintainer evidence
+
+- Responsible human: @REPLACE_WITH_YOUR_GITHUB_LOGIN
+- [ ] I reviewed every changed line.
+- [ ] I can explain and maintain this change.
+- AI assistance: assisted
+- Linked issue: #REPLACE
+- Known limitations: none known
+
+The declarations above establish responsibility and disclosure. They do not
+prove understanding. Agent Vigil independently checks the Git range, scope,
+fresh tests, integrity rules, and\u2014when configured\u2014whether the changed regression
+test fails against base source and passes against the candidate.
+`;
 var SESSION_TEMPLATE = `# Agent change receipt
 
 Replace this file with the coding agent's final summary or point
@@ -1404,32 +1529,35 @@ Transcripts can contain source code, prompts, paths, and secrets. Review them
 before committing or uploading. Agent Vigil reads evidence locally and does not
 upload it.
 `;
-function writeScaffold(root, path, content, force, result2) {
+function writeScaffold(root, path, content, force, result3) {
   const target = resolve3(root, path);
   if (existsSync3(target) && !force) {
-    result2.kept.push(path);
+    result3.kept.push(path);
     return;
   }
   mkdirSync2(dirname(target), { recursive: true });
   writeFileSync3(target, content);
-  result2.created.push(path);
+  result3.created.push(path);
 }
-function initRepository(repo, force = false, portableSignerKeyId) {
+function initRepository(repo, force = false, portableSignerKeyId, profile = "default") {
   const root = resolve3(repo);
   try {
     execFileSync4("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
   } catch {
     throw new Error(`not a Git repository: ${root}`);
   }
-  const result2 = { created: [], kept: [] };
+  const result3 = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? void 0;
-  writeScaffold(root, DEFAULT_POLICY_FILE, policyTemplate(inferred, portableSignerKeyId), force, result2);
-  if (!portableSignerKeyId) {
-    writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result2);
-    writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result2);
+  const mode = profile === "maintainer" ? "maintainer" : portableSignerKeyId ? "portable" : "transcript";
+  const setupCommand = existsSync3(resolve3(root, "package-lock.json")) ? "npm ci --ignore-scripts" : void 0;
+  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : policyTemplate(inferred, portableSignerKeyId), force, result3);
+  if (mode === "transcript") {
+    writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result3);
+    writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result3);
   }
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(Boolean(portableSignerKeyId)), force, result2);
-  return result2;
+  if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result3);
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result3);
+  return result3;
 }
 function git3(repo, args) {
   try {
@@ -1455,6 +1583,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
   });
   let transcript = requestedTranscript;
   let portableReceipt;
+  let maintainer = false;
   try {
     const policy = loadPolicy(root, requestedPolicy);
     checks.push({
@@ -1464,11 +1593,13 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     });
     transcript ??= policy.value.transcript;
     portableReceipt = policy.value.portableReceipt;
+    maintainer = Boolean(policy.value.maintainer);
     const command = policy.value.testCommand ?? inferTestCommand(root);
+    const placeholder = command === "REPLACE_WITH_TEST_COMMAND";
     checks.push({
-      status: command ? "PASS" : "WARN",
+      status: placeholder ? "FAIL" : command ? "PASS" : "WARN",
       label: "Fresh verification",
-      detail: command ? `test command: ${command}` : "no test command inferred; use policy testCommand or --test-cmd"
+      detail: placeholder ? "replace REPLACE_WITH_TEST_COMMAND in .agent-vigil.json" : command ? `test command: ${command}` : "no test command inferred; use policy testCommand or --test-cmd"
     });
     if (portableReceipt) {
       const signerCount = policy.value.trustedSignerKeyIds?.length ?? 0;
@@ -1487,6 +1618,13 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
       status: existsSync3(path) ? "PASS" : "WARN",
       label: "Portable receipt",
       detail: existsSync3(path) ? `${portableReceipt} is present; run vigil gate to verify it` : `${portableReceipt} will be created after the next signed code change; raw transcript remains local`
+    });
+  } else if (maintainer) {
+    const template = resolve3(root, ".github/pull_request_template.md");
+    checks.push({
+      status: existsSync3(template) ? "PASS" : "FAIL",
+      label: "Maintainer evidence",
+      detail: existsSync3(template) ? "PR responsibility and disclosure template is installed" : "maintainer profile requires .github/pull_request_template.md"
     });
   } else if (!transcript) {
     checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });
@@ -1532,6 +1670,15 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
       label: "Policy trust",
       detail: anchoredPolicy ? "workflow loads policy from the pull request base commit" : "workflow policy may be controlled by the candidate change"
     });
+    if (maintainer) {
+      const modeInstalled = /mode:\s*maintainer/.test(text);
+      const artifactInstalled = /name:\s*agent-vigil-receipt/.test(text);
+      checks.push({
+        status: modeInstalled && artifactInstalled ? "PASS" : "FAIL",
+        label: "Maintainer workflow",
+        detail: modeInstalled && artifactInstalled ? "maintainer mode and receipt artifact retention are installed" : "workflow must enable maintainer mode and retain agent-vigil-receipt"
+      });
+    }
   }
   return checks;
 }
@@ -1819,6 +1966,316 @@ function buildPortableGateReport(receipt, options) {
   });
 }
 
+// src/maintainer.ts
+import { execFileSync as execFileSync6, spawnSync as spawnSync2 } from "node:child_process";
+import { cpSync, existsSync as existsSync4, lstatSync, mkdirSync as mkdirSync3, mkdtempSync as mkdtempSync2, readFileSync as readFileSync7, rmSync, statSync as statSync2 } from "node:fs";
+import { tmpdir as tmpdir2 } from "node:os";
+import { dirname as dirname2, join as join2, normalize as normalize2, resolve as resolve5, sep as sep3 } from "node:path";
+var DEFAULT_TEST_PATTERNS = ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
+var MAX_COMMAND_OUTPUT = 12e3;
+function result2(kind, ruleId, subject, quote, verdict, evidence, options = {}) {
+  return { claim: { kind, subject, quote }, ruleId, verdict, evidence, ...options };
+}
+function loadPullRequestEvidence(path) {
+  const size = statSync2(path).size;
+  if (size > 2 * 1024 * 1024) throw new Error(`pull request event is ${size} bytes; maximum is ${2 * 1024 * 1024}`);
+  let event;
+  try {
+    event = JSON.parse(readFileSync7(path, "utf8"));
+  } catch {
+    throw new Error(`pull request event is not valid JSON: ${path}`);
+  }
+  if (!event?.pull_request || typeof event.pull_request !== "object") throw new Error("event does not contain a pull_request object");
+  const author = event.pull_request.user?.login;
+  const body = event.pull_request.body;
+  if (typeof author !== "string" || !author.trim()) throw new Error("pull request event does not identify the author");
+  if (body !== null && body !== void 0 && typeof body !== "string") throw new Error("pull request body must be text");
+  return {
+    author,
+    body: body ?? "",
+    ...typeof event.pull_request.base?.sha === "string" ? { baseSha: event.pull_request.base.sha } : {},
+    ...typeof event.pull_request.head?.sha === "string" ? { headSha: event.pull_request.head.sha } : {}
+  };
+}
+function capture(body, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return body.match(new RegExp(`^\\s*-\\s*${escaped}\\s*:\\s*(.+?)\\s*$`, "im"))?.[1]?.trim();
+}
+function checked(body, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^\\s*-\\s*\\[[xX]\\]\\s*${escaped}\\s*$`, "im").test(body);
+}
+function checkAttestations(evidence, policy) {
+  const out = [];
+  if (policy.requireHumanAttestation !== false) {
+    const responsible = capture(evidence.body, "Responsible human");
+    const normalized = responsible?.replace(/^@/, "").toLowerCase();
+    const matches = normalized === evidence.author.toLowerCase();
+    out.push(result2(
+      "policy_attestation",
+      "responsible-human",
+      "named responsible human",
+      responsible ?? "missing",
+      matches ? "verified" : "contradicted",
+      matches ? `PR author @${evidence.author} made the required responsibility declaration; this verifies attribution, not understanding` : responsible ? `declared ${responsible}, but the GitHub event identifies @${evidence.author} as the PR author` : "required `Responsible human: @login` declaration is missing"
+    ));
+    for (const label of ["I reviewed every changed line.", "I can explain and maintain this change."]) {
+      const present = checked(evidence.body, label);
+      out.push(result2(
+        "policy_attestation",
+        label.startsWith("I reviewed") ? "human-review-attestation" : "human-maintenance-attestation",
+        label,
+        present ? "checked" : "missing",
+        present ? "verified" : "contradicted",
+        present ? "required human declaration is checked; Agent Vigil does not independently prove the declarant's understanding" : `required checked declaration is missing: ${label}`
+      ));
+    }
+  }
+  if (policy.requireAiDisclosure !== false) {
+    const disclosure = capture(evidence.body, "AI assistance")?.toLowerCase();
+    const allowed = /* @__PURE__ */ new Set(["none", "assisted", "agent"]);
+    out.push(result2(
+      "policy_attestation",
+      "ai-assistance-disclosure",
+      "AI assistance disclosure",
+      disclosure ?? "missing",
+      disclosure !== void 0 && allowed.has(disclosure) ? "verified" : "contradicted",
+      disclosure !== void 0 && allowed.has(disclosure) ? `declared ${disclosure}` : "use exactly one of: none, assisted, agent"
+    ));
+  }
+  if (policy.requireLinkedIssue) {
+    const issue = capture(evidence.body, "Linked issue");
+    const valid = Boolean(issue && /(?:^|\s)(?:#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+)(?:\s|$)/i.test(issue));
+    out.push(result2(
+      "policy_attestation",
+      "linked-issue",
+      "linked approved issue",
+      issue ?? "missing",
+      valid ? "verified" : "contradicted",
+      valid ? `declared ${issue}; syntax is verified, but issue approval/state is not fetched` : "provide `#123` or a full GitHub issue URL"
+    ));
+  }
+  return out;
+}
+function git5(repo, args) {
+  return execFileSync6("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 }).trim();
+}
+function globRegex(pattern) {
+  let source = "";
+  for (let index = 0; index < pattern.length; index++) {
+    const char = pattern[index];
+    if (char === "*" && pattern[index + 1] === "*") {
+      if (pattern[index + 2] === "/") {
+        source += "(?:.*/)?";
+        index += 2;
+      } else {
+        source += ".*";
+        index += 1;
+      }
+    } else if (char === "*") source += "[^/]*";
+    else if (char === "?") source += "[^/]";
+    else source += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+  }
+  return new RegExp(`^${source}$`);
+}
+function pathMatches(path, patterns) {
+  const clean = path.replaceAll("\\", "/").replace(/^\.\//, "");
+  return patterns.some((pattern) => globRegex(pattern.replaceAll("\\", "/").replace(/^\.\//, "")).test(clean));
+}
+function collectDiffEvidence(repo, base, head, testPathPatterns = DEFAULT_TEST_PATTERNS) {
+  const paths = git5(repo, ["diff", "--name-only", "--diff-filter=ACMR", `${base}..${head}`]).split("\n").filter(Boolean);
+  const binaryPaths = [];
+  let changedLines = 0;
+  const numstat = git5(repo, ["diff", "--numstat", `${base}..${head}`]);
+  for (const line of numstat.split("\n").filter(Boolean)) {
+    const [added, removed, ...pathParts] = line.split("	");
+    const path = pathParts.join("	");
+    if (added === "-" || removed === "-") binaryPaths.push(path);
+    else changedLines += Number(added) + Number(removed);
+  }
+  return { paths, testPaths: paths.filter((path) => pathMatches(path, testPathPatterns)), ...binaryPaths.length ? {} : { changedLines }, binaryPaths };
+}
+function checkChangeScope(diff, policy) {
+  const out = [];
+  if (policy.maxChangedFiles !== void 0) {
+    out.push(result2(
+      "change_scope",
+      "changed-file-budget",
+      "changed-file budget",
+      `${diff.paths.length} changed files`,
+      diff.paths.length <= policy.maxChangedFiles ? "verified" : "contradicted",
+      `${diff.paths.length} changed file(s); policy maximum is ${policy.maxChangedFiles}`
+    ));
+  }
+  if (policy.maxChangedLines !== void 0) {
+    if (diff.changedLines === void 0) out.push(result2("change_scope", "changed-line-budget", "changed-line budget", "binary diff present", "unverifiable", `Git numstat cannot quantify binary path(s): ${diff.binaryPaths.join(", ")}`, { blocksPass: true }));
+    else out.push(result2(
+      "change_scope",
+      "changed-line-budget",
+      "changed-line budget",
+      `${diff.changedLines} changed lines`,
+      diff.changedLines <= policy.maxChangedLines ? "verified" : "contradicted",
+      `${diff.changedLines} added/deleted line(s); policy maximum is ${policy.maxChangedLines}`
+    ));
+  }
+  if (policy.requireTestChange) {
+    out.push(result2(
+      "change_scope",
+      "test-change-required",
+      "changed test evidence",
+      diff.testPaths.join(", ") || "none",
+      diff.testPaths.length ? "verified" : "contradicted",
+      diff.testPaths.length ? `${diff.testPaths.length} changed test path(s): ${diff.testPaths.join(", ")}` : "no changed path matched the policy testPathPatterns"
+    ));
+  }
+  if (policy.protectedPaths?.length) {
+    const matches = diff.paths.filter((path) => pathMatches(path, policy.protectedPaths));
+    out.push(result2(
+      "change_scope",
+      "protected-path",
+      "protected path policy",
+      matches.join(", ") || "none",
+      matches.length ? "contradicted" : "verified",
+      matches.length ? `candidate changed protected path(s): ${matches.join(", ")}` : "no candidate path matched protectedPaths",
+      { contributesToPass: false }
+    ));
+  }
+  return out;
+}
+function shell(command, cwd, timeoutMs) {
+  const env = { ...process.env, CI: "true" };
+  delete env.NODE_TEST_CONTEXT;
+  const execution = spawnSync2(command, { cwd, shell: true, encoding: "utf8", timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env });
+  const full = `${execution.stdout ?? ""}${execution.stderr ?? ""}`;
+  const output = full.length > MAX_COMMAND_OUTPUT ? `${full.slice(0, MAX_COMMAND_OUTPUT)}
+[output truncated]` : full;
+  return { status: execution.status, signal: execution.signal, output, ...execution.error ? { error: execution.error.message } : {} };
+}
+function unsafeOverlayPath(path) {
+  const clean = normalize2(path);
+  return clean === ".." || clean.startsWith(`..${sep3}`) || resolve5("/safe", clean) === "/safe";
+}
+function overlayTests(headWorktree, baseWorktree, paths) {
+  for (const path of paths) {
+    if (unsafeOverlayPath(path)) return `unsafe overlay path: ${path}`;
+    const source = resolve5(headWorktree, path);
+    const target = resolve5(baseWorktree, path);
+    if (!source.startsWith(`${resolve5(headWorktree)}${sep3}`) || !target.startsWith(`${resolve5(baseWorktree)}${sep3}`)) return `overlay escaped worktree: ${path}`;
+    if (!existsSync4(source)) continue;
+    if (lstatSync(source).isSymbolicLink()) return `refusing to overlay symlink test path: ${path}`;
+    mkdirSync3(dirname2(target), { recursive: true });
+    cpSync(source, target, { recursive: true, force: true });
+  }
+  return void 0;
+}
+function summarize(outcome) {
+  const last = outcome.output.trim().split("\n").slice(-3).join(" | ");
+  return `exit=${outcome.status ?? "none"}${outcome.signal ? ` signal=${outcome.signal}` : ""}${outcome.error ? ` error=${outcome.error}` : ""}${last ? ` output=${last}` : ""}`;
+}
+function checkDifferentialTest(repo, base, head, testPaths, policy) {
+  if (policy.overlayChangedTests !== false && testPaths.length === 0) {
+    return result2("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "contradicted", "no changed test artifact is available to exercise against the base source");
+  }
+  const root = mkdtempSync2(join2(tmpdir2(), "agent-vigil-differential-"));
+  const baseWorktree = join2(root, "base");
+  const headWorktree = join2(root, "head");
+  const timeoutMs = (policy.timeoutSeconds ?? 300) * 1e3;
+  let baseAdded = false;
+  let headAdded = false;
+  try {
+    execFileSync6("git", ["worktree", "add", "--detach", baseWorktree, base], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    baseAdded = true;
+    execFileSync6("git", ["worktree", "add", "--detach", headWorktree, head], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    headAdded = true;
+    if (policy.overlayChangedTests !== false) {
+      const error = overlayTests(headWorktree, baseWorktree, testPaths);
+      if (error) return result2("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "unverifiable", error, { blocksPass: true });
+    }
+    if (policy.setupCommand) {
+      const headSetup = shell(policy.setupCommand, headWorktree, timeoutMs);
+      const baseSetup = shell(policy.setupCommand, baseWorktree, timeoutMs);
+      if (headSetup.status !== 0 || baseSetup.status !== 0) {
+        return result2(
+          "differential_test",
+          "differential-setup",
+          "isolated differential setup",
+          policy.setupCommand,
+          "unverifiable",
+          `setup did not succeed in both isolated worktrees; head ${summarize(headSetup)}; base ${summarize(baseSetup)}`,
+          { blocksPass: true }
+        );
+      }
+    }
+    const headOutcome = shell(policy.command, headWorktree, timeoutMs);
+    const baseOutcome = shell(policy.command, baseWorktree, timeoutMs);
+    if (headOutcome.status === null || baseOutcome.status === null || headOutcome.signal || baseOutcome.signal || headOutcome.error || baseOutcome.error) {
+      return result2(
+        "differential_test",
+        "differential-test",
+        "base-fail/head-pass regression proof",
+        policy.command,
+        "unverifiable",
+        `command did not terminate normally in both worktrees; head ${summarize(headOutcome)}; base ${summarize(baseOutcome)}`,
+        { blocksPass: true }
+      );
+    }
+    if (headOutcome.status !== 0) {
+      return result2("differential_test", "differential-head-pass", "candidate passes changed regression test", policy.command, "contradicted", `candidate command failed; ${summarize(headOutcome)}`);
+    }
+    if (baseOutcome.status === 0) {
+      return result2(
+        "differential_test",
+        "differential-base-fail",
+        "base fails changed regression test",
+        policy.command,
+        "contradicted",
+        "the changed test command also passed against the base source; the test does not demonstrate the claimed regression"
+      );
+    }
+    if (policy.baseFailurePattern && !new RegExp(policy.baseFailurePattern).test(baseOutcome.output)) {
+      return result2(
+        "differential_test",
+        "differential-failure-pattern",
+        "base failure matches expected regression",
+        policy.baseFailurePattern,
+        "contradicted",
+        `base failed, but output did not match the trusted failure pattern; ${summarize(baseOutcome)}`
+      );
+    }
+    return result2(
+      "differential_test",
+      "differential-test",
+      "base-fail/head-pass regression proof",
+      policy.command,
+      "verified",
+      `isolated candidate passed and base source failed with the candidate's changed test artifact(s): ${testPaths.join(", ")}`
+    );
+  } catch (error) {
+    return result2("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "unverifiable", `could not create isolated Git worktrees: ${error.message}`, { blocksPass: true });
+  } finally {
+    if (headAdded) {
+      try {
+        execFileSync6("git", ["worktree", "remove", "--force", headWorktree], { cwd: repo, stdio: "ignore" });
+      } catch {
+      }
+    }
+    if (baseAdded) {
+      try {
+        execFileSync6("git", ["worktree", "remove", "--force", baseWorktree], { cwd: repo, stdio: "ignore" });
+      } catch {
+      }
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+function buildMaintainerChecks(repo, base, head, evidence, policy) {
+  const patterns = policy.testPathPatterns ?? DEFAULT_TEST_PATTERNS;
+  const diff = collectDiffEvidence(repo, base, head, patterns);
+  const checks = [...checkAttestations(evidence, policy), ...checkChangeScope(diff, policy)];
+  if (policy.differentialTest) checks.push(checkDifferentialTest(repo, base, head, diff.testPaths, policy.differentialTest));
+  return checks;
+}
+
 // src/cli.ts
 function usage() {
   return `agent-vigil ${VERSION}
@@ -1827,10 +2284,12 @@ Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
   vigil init [--repo <path>] [--force] [--portable --public-key <path>]
+  vigil init --profile maintainer [--repo <path>] [--force]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
   vigil gate <portable-receipt.json> [options]
+  vigil maintainer --event <event.json> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -1913,17 +2372,92 @@ function optionValue(args, name) {
 }
 function runInit(args) {
   try {
-    const repo = resolve5(optionValue(args, "--repo") ?? ".");
+    const repo = resolve6(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
+    const profile = optionValue(args, "--profile") ?? "default";
+    if (!(/* @__PURE__ */ new Set(["default", "maintainer"])).has(profile)) throw new Error("init --profile must be default or maintainer");
     const publicKey = optionValue(args, "--public-key");
+    if (portable && profile === "maintainer") throw new Error("init --portable cannot be combined with --profile maintainer");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result2 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve5(publicKey)) : void 0);
+    const result3 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve6(publicKey)) : void 0, profile);
     console.log("Agent Vigil initialized.\n");
-    for (const path of result2.created) console.log(`  created ${path}`);
-    for (const path of result2.kept) console.log(`  kept    ${path} (use --force to replace)`);
-    console.log(portable ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output." : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
+    for (const path of result3.created) console.log(`  created ${path}`);
+    for (const path of result3.kept) console.log(`  kept    ${path} (use --force to replace)`);
+    console.log(profile === "maintainer" ? "\nNext: replace the PR-template login, review the base-anchored limits, merge this setup first, then open a code PR with a regression test that fails on base and passes on head." : portable ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output." : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
     return 0;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function withoutOption(args, name) {
+  const output = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === name) {
+      index += 1;
+      continue;
+    }
+    output.push(args[index]);
+  }
+  return output;
+}
+function runMaintainer(args) {
+  try {
+    const eventOption = optionValue(args, "--event");
+    if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
+    const options = parseArgs(withoutOption(args.slice(1), "--event"));
+    const repo = resolve6(options.repo);
+    const eventPath = resolve6(eventOption);
+    const policy = loadPolicy(repo, options.policy, options.policyRef);
+    if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
+    if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
+    const base = resolveGitRef(repo, options.base);
+    const head = resolveGitRef(repo, options.head);
+    const evidence = loadPullRequestEvidence(eventPath);
+    if (evidence.baseSha && resolveGitRef(repo, evidence.baseSha) !== base) throw new Error(`event base ${evidence.baseSha} does not match selected base ${base}`);
+    if (evidence.headSha && resolveGitRef(repo, evidence.headSha) !== head) throw new Error(`event head ${evidence.headSha} does not match selected head ${head}`);
+    const inputs = [eventPath, ...policy.path ? [policy.path] : []];
+    const results = [...checkWorkspaceBinding(repo, head, inputs)];
+    results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer));
+    if (policy.value.testCommand) {
+      results.push(...checkTestsPass([{ kind: "tests_pass", quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" }], repo, policy.value.testCommand));
+      results.push(...checkWorkspaceMutation(repo, inputs));
+    }
+    results.push(...checkIntegrity(repo, base, head));
+    const rawEvent = readFileSync8(eventPath);
+    const eventHash = `sha256:${createHash6("sha256").update(rawEvent).digest("hex")}`;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
+    const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git6(repo, ["rev-parse", `${head}^{tree}`]);
+    const reproduction = [
+      "vigil maintainer",
+      "--event",
+      shellQuote(eventOption),
+      "--repo",
+      ".",
+      "--base",
+      base,
+      "--head",
+      head,
+      ...policy.gitPath ? ["--policy", shellQuote(policy.gitPath)] : policySource ? ["--policy", shellQuote(policySource)] : [],
+      ...policy.ref ? ["--policy-ref", policy.ref] : []
+    ].join(" ");
+    const report = buildReport({
+      transcript: eventOption,
+      transcriptSha256: eventHash,
+      transcriptFormat: "pull-request-evidence",
+      repo,
+      base,
+      head,
+      results,
+      policy: { minVerified: policy.value.minVerified ?? 1, strict: policy.value.strict ?? true, source: policySource, sha256: policy.sha256 },
+      repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
+      reproduction
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -1931,7 +2465,7 @@ function runInit(args) {
 }
 function runDoctor(args) {
   try {
-    const repo = resolve5(optionValue(args, "--repo") ?? ".");
+    const repo = resolve6(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -1945,9 +2479,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve5(privatePath), resolve5(publicPath));
+    generateSigningKey(resolve6(privatePath), resolve6(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve5(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve6(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -1965,10 +2499,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve5(options.repo, receiptPath);
-    const receipt = JSON.parse(readFileSync7(absoluteReceipt, "utf8"));
+    const absoluteReceipt = resolve6(options.repo, receiptPath);
+    const receipt = JSON.parse(readFileSync8(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve5(options.repo),
+      repo: resolve6(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -1987,24 +2521,24 @@ function runVerify(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync7(resolve5(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync8(resolve6(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result2 = verifyReport(report, publicKey ? resolve5(publicKey) : void 0);
-    console.log(`Receipt hash: ${result2.hashValid ? "VALID" : "INVALID"}`);
-    if (result2.signatureValid !== void 0) {
-      console.log(`Ed25519 signature: ${result2.signatureValid ? "VALID" : "INVALID"} \xB7 ${result2.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
-      if (!result2.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
+    const result3 = verifyReport(report, publicKey ? resolve6(publicKey) : void 0);
+    console.log(`Receipt hash: ${result3.hashValid ? "VALID" : "INVALID"}`);
+    if (result3.signatureValid !== void 0) {
+      console.log(`Ed25519 signature: ${result3.signatureValid ? "VALID" : "INVALID"} \xB7 ${result3.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
+      if (!result3.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
     } else console.log("Signature: absent (content hash only)");
-    return result2.hashValid && result2.signatureValid !== false ? 0 : 1;
+    return result3.hashValid && result3.signatureValid !== false ? 0 : 1;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
   }
 }
-function git5(repo, args) {
+function git6(repo, args) {
   try {
-    return execFileSync6("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync7("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -2019,6 +2553,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "gate") return runGate(argv);
+  if (argv[0] === "maintainer") return runMaintainer(argv);
   if (argv.includes("--help")) {
     console.log(usage());
     return 0;
@@ -2036,7 +2571,7 @@ function run(argv = process.argv.slice(2)) {
 ${usage()}`);
     return 2;
   }
-  const repo = resolve5(options.repo);
+  const repo = resolve6(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -2053,15 +2588,15 @@ ${usage()}`);
     console.error(usage());
     return 2;
   }
-  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve5(repo, transcript);
+  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve6(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
-  if (!existsSync4(transcriptPath)) {
+  if (!existsSync5(transcriptPath)) {
     console.error(`agent-vigil: transcript not found: ${transcriptPath}`);
     return 2;
   }
-  if (!existsSync4(repo)) {
+  if (!existsSync5(repo)) {
     console.error(`agent-vigil: repository not found: ${repo}`);
     return 2;
   }
@@ -2079,8 +2614,8 @@ ${usage()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve5(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve5(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve6(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve6(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -2092,10 +2627,10 @@ ${usage()}`);
     results.push(...checkStepRepetition(loaded.toolCalls));
     results.push(...checkIntegrity(repo, base, head));
     results.push(...checkCompletion(claims, repo, base, head, results));
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative4(repo, policy.path) : void 0;
-    const remote = git5(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = head === "WORKTREE" ? void 0 : git5(repo, ["rev-parse", `${head}^{tree}`]);
-    const relativeTranscript = relative4(repo, transcriptPath) || transcript;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
+    const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = head === "WORKTREE" ? void 0 : git6(repo, ["rev-parse", `${head}^{tree}`]);
+    const relativeTranscript = relative5(repo, transcriptPath) || transcript;
     const reproduction = [
       "vigil",
       shellQuote(relativeTranscript),
@@ -2124,12 +2659,12 @@ ${usage()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve5(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve6(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve5(options.signingKey));
-      const portablePath = resolve5(repo, options.portableOutput);
-      mkdirSync3(dirname2(portablePath), { recursive: true });
+      const portable = createPortableReceipt(report, resolve6(options.signingKey));
+      const portablePath = resolve6(repo, options.portableOutput);
+      mkdirSync4(dirname3(portablePath), { recursive: true });
       writeFileSync5(portablePath, `${JSON.stringify(portable, null, 2)}
 `);
     }

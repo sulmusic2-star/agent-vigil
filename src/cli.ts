@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
@@ -26,6 +27,7 @@ import { doctorRepository, initRepository, renderDoctor } from "./setup.ts";
 import { generateSigningKey, publicKeyId, signReport, verifyReport } from "./signature.ts";
 import { createPortableReceipt, type PortableReceipt } from "./portable.ts";
 import { buildPortableGateReport } from "./gate.ts";
+import { buildMaintainerChecks, loadPullRequestEvidence } from "./maintainer.ts";
 
 type Options = {
   transcript?: string;
@@ -52,10 +54,12 @@ Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
   vigil init [--repo <path>] [--force] [--portable --public-key <path>]
+  vigil init --profile maintainer [--repo <path>] [--force]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
   vigil gate <portable-receipt.json> [options]
+  vigil maintainer --event <event.json> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -131,17 +135,81 @@ function runInit(args: string[]): number {
   try {
     const repo = resolve(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
+    const profile = optionValue(args, "--profile") ?? "default";
+    if (!new Set(["default", "maintainer"]).has(profile)) throw new Error("init --profile must be default or maintainer");
     const publicKey = optionValue(args, "--public-key");
+    if (portable && profile === "maintainer") throw new Error("init --portable cannot be combined with --profile maintainer");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined);
+    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer");
     console.log("Agent Vigil initialized.\n");
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
-    console.log(portable
+    console.log(profile === "maintainer"
+      ? "\nNext: replace the PR-template login, review the base-anchored limits, merge this setup first, then open a code PR with a regression test that fails on base and passes on head."
+      : portable
       ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output."
       : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
     return 0;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function withoutOption(args: string[], name: string): string[] {
+  const output: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === name) { index += 1; continue; }
+    output.push(args[index]);
+  }
+  return output;
+}
+
+function runMaintainer(args: string[]): number {
+  try {
+    const eventOption = optionValue(args, "--event");
+    if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
+    const options = parseArgs(withoutOption(args.slice(1), "--event"));
+    const repo = resolve(options.repo);
+    const eventPath = resolve(eventOption);
+    const policy = loadPolicy(repo, options.policy, options.policyRef);
+    if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
+    if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
+    const base = resolveGitRef(repo, options.base);
+    const head = resolveGitRef(repo, options.head);
+    const evidence = loadPullRequestEvidence(eventPath);
+    if (evidence.baseSha && resolveGitRef(repo, evidence.baseSha) !== base) throw new Error(`event base ${evidence.baseSha} does not match selected base ${base}`);
+    if (evidence.headSha && resolveGitRef(repo, evidence.headSha) !== head) throw new Error(`event head ${evidence.headSha} does not match selected head ${head}`);
+    const inputs = [eventPath, ...(policy.path ? [policy.path] : [])];
+    const results: CheckResult[] = [...checkWorkspaceBinding(repo, head, inputs)];
+    results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer));
+    if (policy.value.testCommand) {
+      results.push(...checkTestsPass([{ kind: "tests_pass", quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" }], repo, policy.value.testCommand));
+      results.push(...checkWorkspaceMutation(repo, inputs));
+    }
+    results.push(...checkIntegrity(repo, base, head));
+    const rawEvent = readFileSync(eventPath);
+    const eventHash = `sha256:${createHash("sha256").update(rawEvent).digest("hex")}`;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative(repo, policy.path) : undefined;
+    const remote = git(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git(repo, ["rev-parse", `${head}^{tree}`]);
+    const reproduction = ["vigil maintainer", "--event", shellQuote(eventOption), "--repo", ".", "--base", base, "--head", head,
+      ...(policy.gitPath ? ["--policy", shellQuote(policy.gitPath)] : policySource ? ["--policy", shellQuote(policySource)] : []),
+      ...(policy.ref ? ["--policy-ref", policy.ref] : []),
+    ].join(" ");
+    const report = buildReport({
+      transcript: eventOption,
+      transcriptSha256: eventHash,
+      transcriptFormat: "pull-request-evidence",
+      repo,
+      base,
+      head,
+      results,
+      policy: { minVerified: policy.value.minVerified ?? 1, strict: policy.value.strict ?? true, source: policySource, sha256: policy.sha256 },
+      repository: { ...(remote ? { remote } : {}), ...(tree ? { tree } : {}) },
+      reproduction,
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -227,6 +295,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "gate") return runGate(argv);
+  if (argv[0] === "maintainer") return runMaintainer(argv);
   if (argv.includes("--help")) { console.log(usage()); return 0; }
   if (argv.includes("--version")) { console.log(VERSION); return 0; }
   let options: Options;

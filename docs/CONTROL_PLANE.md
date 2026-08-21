@@ -1,6 +1,6 @@
 # Organization control plane: gated design
 
-**State:** design only. No hosted service or GitHub App is deployed in v0.6.0.
+**State:** design only. No hosted service or GitHub App is deployed in v0.7.0.
 
 The open verifier is the product wedge. A hosted control plane becomes justified
 only after external repositories demonstrate that the receipt is useful enough

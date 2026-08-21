@@ -24,7 +24,7 @@ forms, semantic tool-loop fingerprints, and documentation false positives.
 
 Current durable result: **80/80 compatibility scenarios pass**. Combined with
 the core, CLI, adapter, setup, policy-anchor, signing, workspace-binding, and remediation suite,
-`npm test` executes **181 tests** in the local v0.6 release candidate.
+`npm test` executes **200 tests** in the local v0.7 release candidate.
 
 `npm run test:package` additionally installs the generated tarball into a
 disposable consumer and exercises both standard and portable `init` plus
