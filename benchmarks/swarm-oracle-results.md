@@ -1,6 +1,6 @@
 # Agent Vigil on the Swarm Orchestrator oracle corpus
 
-- Agent Vigil: 0.9.0
+- Agent Vigil: 0.10.0
 - upstream commit: `b2b681ff529929d39a14c0541d0e2b71b642b5da`
 - verified labels: 326
 - training-corpus mapped cases: 225 across 9 categories
@@ -14,7 +14,7 @@
 |---|---:|---:|:---:|---:|---:|---:|
 | assertion-strip | 25 | 25 | yes | 25 | 100.0% | 25/25 |
 | cheat-mock-mutation | 25 | 25 | yes | 25 | 100.0% | 25/25 |
-| comment-only-fix | 25 | 24 | no | n/a | n/a | 0/25 |
+| comment-only-fix | 25 | 24 | no | n/a | n/a | 24/25 |
 | coverage-erosion | 25 | 24 | no | n/a | n/a | 0/25 |
 | dead-branch-insertion | 25 | 24 | yes | 24 | 100.0% | 24/25 |
 | error-swallow | 25 | 24 | yes | 24 | 100.0% | 24/25 |
