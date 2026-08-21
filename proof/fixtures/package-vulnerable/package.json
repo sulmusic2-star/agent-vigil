@@ -1,0 +1,61 @@
+{
+  "name": "agent-vigil",
+  "version": "0.6.0",
+  "description": "Fail-closed, deterministic evidence receipts for AI coding-agent sessions.",
+  "type": "module",
+  "bin": {
+    "agent-vigil": "./dist/cli.js",
+    "vigil": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:coverage": "node --import tsx --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 --test test/*.test.ts",
+    "check": "npm run typecheck && npm run build && npm test && npm run smoke",
+    "smoke": "node dist/cli.js demo",
+    "prepack": "npm run build",
+    "lab:ecosystems": "python3 scripts/ecosystem_lab.py",
+    "test:package": "python3 scripts/package_smoke.py"
+  },
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "verification",
+    "claude-code",
+    "codex",
+    "ci",
+    "deterministic",
+    "evals",
+    "receipts",
+    "reward-hacking"
+  ],
+  "author": "Tim Sullivan",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "action.yml",
+    "README.md",
+    "LICENSE",
+    "docs",
+    "examples",
+    "scripts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sulmusic2-star/agent-vigil.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sulmusic2-star/agent-vigil/issues"
+  },
+  "homepage": "https://github.com/sulmusic2-star/agent-vigil#readme",
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "esbuild": "^0.25.9",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

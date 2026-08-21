@@ -12,8 +12,9 @@ contradictions. Run the bounded replay:
 npm run proof:historical
 ```
 
-The replay writes `proof/results.json`. It does not fetch private transcripts or
-execute code from an external repository.
+The replay writes `proof/results.json`. Minimal snapshots under `proof/fixtures`
+must match the named historical Git blob IDs before they are used. The replay
+does not fetch private transcripts or execute code from an external repository.
 
 ## Cases
 
