@@ -54,3 +54,15 @@ does not establish identity.
 The receipt does not prove semantic correctness, transcript completeness,
 trusted wall-clock time, or host integrity. Fresh verification executes
 repository code. See [`THREAT_MODEL.md`](THREAT_MODEL.md).
+
+## Portable receipt v1
+
+When the raw transcript and detailed claim evidence must remain local, generate
+a compact signed receipt with `--portable-output`. The portable receipt binds
+the full report hash, results hash, transcript digest, Git identity, policy,
+summary, and signer without copying transcript text or detailed findings into
+Git. `vigil gate` verifies it against a base-anchored signer policy and performs
+a fresh independent test and integrity run.
+
+See [`PRIVATE_RECEIPT_GATE.md`](PRIVATE_RECEIPT_GATE.md) and
+[`portable-receipt-v1.schema.json`](portable-receipt-v1.schema.json).

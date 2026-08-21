@@ -24,12 +24,12 @@ forms, semantic tool-loop fingerprints, and documentation false positives.
 
 Current durable result: **80/80 compatibility scenarios pass**. Combined with
 the core, CLI, adapter, setup, policy-anchor, signing, workspace-binding, and remediation suite,
-`npm test` executes **162 tests** in the local v0.5 release candidate.
+`npm test` executes **181 tests** in the local v0.6 release candidate.
 
 `npm run test:package` additionally installs the generated tarball into a
-disposable consumer and exercises `init` plus `doctor` across 11 repository
-shapes: plain Git, Node, Python, Rust, Go, Maven, Gradle wrapper, Gradle build,
-Ruby, PHP, and .NET.
+disposable consumer and exercises both standard and portable `init` plus
+`doctor` flows across 11 repository shapes: plain Git, Node, Python, Rust, Go,
+Maven, Gradle wrapper, Gradle build, Ruby, PHP, and .NET.
 
 A deterministic fuzz layer adds 9,000 mutated runner, dotted-term, traversal, and structured-tool cases.
 
@@ -51,23 +51,23 @@ npm run lab:ecosystems -- --output /tmp/agent-vigil-ecosystem-lab.json
 A second local run created seven independent repositories and invoked the actual
 installed toolchains rather than replaying sample output:
 
-| Repository shape | Command | Exact `3 tests` claim | Inflated `99 tests` claim |
-|---|---|---:|---:|
-| Node / npm | inferred `npm test --silent` | PASS | FAIL |
-| Node / pnpm | `pnpm test --silent` | PASS | FAIL |
-| Python / pytest | inferred `python3 -m pytest -q` | PASS | FAIL |
-| Go | inferred `go test -json ./...` | PASS | FAIL |
-| Ruby / Minitest | `ruby test_example.rb` | PASS | FAIL |
-| Node monorepo | `npm --prefix packages/api test --silent` | PASS | FAIL |
-| .NET / MSTest | inferred `dotnet test` | PASS | FAIL |
+| Repository shape | Command | Exact `3 tests` | Inflated `99 tests` | Portable receipt-only tail | Source change after receipt |
+|---|---|---:|---:|---:|---:|
+| Node / npm | inferred `npm test --silent` | PASS | FAIL | PASS | FAIL |
+| Node / pnpm | `pnpm test --silent` | PASS | FAIL | PASS | FAIL |
+| Python / pytest | inferred `python3 -m pytest -q` | PASS | FAIL | PASS | FAIL |
+| Go | inferred `go test -json ./...` | PASS | FAIL | PASS | FAIL |
+| Ruby / Minitest | `ruby test_example.rb` | PASS | FAIL | PASS | FAIL |
+| Node monorepo | `npm --prefix packages/api test --silent` | PASS | FAIL | PASS | FAIL |
+| .NET / MSTest | inferred `dotnet test` | PASS | FAIL | PASS | FAIL |
 
-Result: **14/14 expected verdicts**. These were disposable repositories under
+Result: **28/28 expected verdicts**. These were disposable repositories under
 macOS using Node 22.22.3, Python 3.14.3 / pytest 9.0.3, Go 1.26.0, Ruby 2.6.10,
 pnpm 10.29.3, and .NET SDK 7.0.101.
 
 ## Agent transcript adapters
 
-The v0.5 candidate detects eight input shapes:
+The v0.6 candidate detects eight input shapes:
 
 | Producer | Input contract | Local fixture |
 |---|---|---:|

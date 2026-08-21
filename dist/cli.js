@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { execFileSync as execFileSync5 } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync6, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute3, relative as relative3, resolve as resolve4 } from "node:path";
+import { execFileSync as execFileSync6 } from "node:child_process";
+import { existsSync as existsSync4, mkdirSync as mkdirSync3, readFileSync as readFileSync7, realpathSync as realpathSync2, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname2, isAbsolute as isAbsolute3, relative as relative4, resolve as resolve5 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -957,7 +957,7 @@ function checkCompletion(claims, repo, base, head, prior) {
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
   const diff = git(repo, ["diff", "--unified=0", "--no-color", ...diffRange]);
   const markers = diff.split("\n").filter((line) => /^\+.*\b(TODO|FIXME|XXX|HACK|NotImplementedError|not implemented)\b/i.test(line));
-  const objectiveVerified = prior.filter((result) => result.verdict === "verified" && result.contributesToPass !== false).length;
+  const objectiveVerified = prior.filter((result2) => result2.verdict === "verified" && result2.contributesToPass !== false).length;
   return completion.map((claim) => {
     if (markers.length) {
       return { claim, verdict: "contradicted", evidence: `diff adds unfinished-work marker: ${markers[0].slice(1, 220)}`, ruleId: "completion-marker" };
@@ -983,7 +983,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.5.0";
+var VERSION = "0.6.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1008,7 +1008,7 @@ function buildReport(input) {
   ).length;
   let status;
   if (contradicted > 0) status = "FAIL";
-  else if (meaningfulVerified < policy.minVerified || input.results.some((result) => result.verdict === "unverifiable" && result.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
+  else if (meaningfulVerified < policy.minVerified || input.results.some((result2) => result2.verdict === "unverifiable" && result2.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
   else status = "PASS";
   const summary = {
     verified: count("verified"),
@@ -1089,7 +1089,13 @@ function remediationFor(ruleId) {
     "completion-evidence": "Add at least one independently verifiable path, command, change, or test claim.",
     "workspace-dirty": "Run `git status --short`, commit or remove unbound paths, then rerun with `--head $(git rev-parse HEAD)`.",
     "workspace-unbound": "Commit the candidate change, then rerun with `--head $(git rev-parse HEAD)` instead of WORKTREE.",
-    "workspace-mutated": "Make the verification command read-only with respect to tracked inputs, restore the changed paths, and rerun."
+    "workspace-mutated": "Make the verification command read-only with respect to tracked inputs, restore the changed paths, and rerun.",
+    "portable-signature": "Regenerate the portable receipt from an intact full report with the trusted Ed25519 key.",
+    "portable-signer": "Pin the signer key ID in base policy `trustedSignerKeyIds`, or regenerate with an already pinned key.",
+    "portable-local-verdict": "Resolve the local FAIL or INCONCLUSIVE result, rerun Agent Vigil, and attach a new signed portable receipt.",
+    "portable-policy": "Regenerate the receipt using policy loaded from the pull request base commit.",
+    "portable-path": "Set base policy `portableReceipt` and pass that exact repository-relative path.",
+    "portable-git-binding": "Regenerate after the latest source commit; after signing, commit only the base-policy-controlled receipt path."
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }
@@ -1103,11 +1109,11 @@ function renderText(report) {
     `  policy:     ${report.policy.sha256}`,
     ""
   ];
-  for (const result of report.results) {
-    lines.push(`  ${icon[result.verdict]} [${result.ruleId ?? result.claim.kind}] ${result.claim.subject}`);
-    lines.push(`      claim:    "${result.claim.quote.slice(0, 140)}"`);
-    lines.push(`      evidence: ${result.evidence}`, "");
-    if (result.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result.ruleId)}`);
+  for (const result2 of report.results) {
+    lines.push(`  ${icon[result2.verdict]} [${result2.ruleId ?? result2.claim.kind}] ${result2.claim.subject}`);
+    lines.push(`      claim:    "${result2.claim.quote.slice(0, 140)}"`);
+    lines.push(`      evidence: ${result2.evidence}`, "");
+    if (result2.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result2.ruleId)}`);
   }
   const summary = report.summary;
   lines.push(`  ${summary.verified} verified \xB7 ${summary.contradicted} contradicted \xB7 ${summary.unverifiable} unresolved`);
@@ -1118,7 +1124,7 @@ function renderText(report) {
 }
 function renderMarkdown(report) {
   const rows = report.results.map(
-    (result) => `| ${icon[result.verdict]} ${result.verdict} | \`${result.ruleId ?? result.claim.kind}\` | ${escapeCell(result.claim.subject)} | ${escapeCell(result.evidence)} |`
+    (result2) => `| ${icon[result2.verdict]} ${result2.verdict} | \`${result2.ruleId ?? result2.claim.kind}\` | ${escapeCell(result2.claim.subject)} | ${escapeCell(result2.evidence)} |`
   );
   return [
     `# ${report.summary.status === "PASS" ? "\u2705" : report.summary.status === "FAIL" ? "\u274C" : "\u26A0\uFE0F"} Agent Vigil: ${report.summary.status}`,
@@ -1134,11 +1140,11 @@ function renderMarkdown(report) {
     "",
     `${report.summary.verified} verified \xB7 ${report.summary.contradicted} contradicted \xB7 ${report.summary.unverifiable} unresolved`,
     "",
-    ...report.results.some((result) => result.verdict !== "verified") ? [
+    ...report.results.some((result2) => result2.verdict !== "verified") ? [
       "## What to do next",
       "",
-      ...report.results.filter((result) => result.verdict !== "verified").map(
-        (result) => `- **\`${result.ruleId ?? result.claim.kind}\`**: ${remediationFor(result.ruleId)}`
+      ...report.results.filter((result2) => result2.verdict !== "verified").map(
+        (result2) => `- **\`${result2.ruleId ?? result2.claim.kind}\`**: ${remediationFor(result2.ruleId)}`
       ),
       ""
     ] : [],
@@ -1149,16 +1155,16 @@ function renderMarkdown(report) {
 function escapeCell(value) {
   return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
 }
-function sarifResult(result) {
-  const level = result.verdict === "contradicted" ? "error" : result.verdict === "unverifiable" ? "warning" : "note";
+function sarifResult(result2) {
+  const level = result2.verdict === "contradicted" ? "error" : result2.verdict === "unverifiable" ? "warning" : "note";
   return {
-    ruleId: result.ruleId ?? result.claim.kind,
+    ruleId: result2.ruleId ?? result2.claim.kind,
     level,
-    message: { text: `${result.claim.subject}: ${result.evidence}. Remediation: ${remediationFor(result.ruleId)}` }
+    message: { text: `${result2.claim.subject}: ${result2.evidence}. Remediation: ${remediationFor(result2.ruleId)}` }
   };
 }
 function toSarif(report) {
-  const rules = [...new Set(report.results.map((result) => result.ruleId ?? result.claim.kind))].map((id) => ({
+  const rules = [...new Set(report.results.map((result2) => result2.ruleId ?? result2.claim.kind))].map((id) => ({
     id,
     shortDescription: { text: id.replace(/-/g, " ") }
   }));
@@ -1167,7 +1173,7 @@ function toSarif(report) {
     version: "2.1.0",
     runs: [{
       tool: { driver: { name: "agent-vigil", version: report.vigilVersion, informationUri: "https://github.com/sulmusic2-star/agent-vigil", rules } },
-      results: report.results.filter((result) => result.verdict !== "verified").map(sarifResult),
+      results: report.results.filter((result2) => result2.verdict !== "verified").map(sarifResult),
       properties: { receiptHash: report.receiptHash, status: report.summary.status }
     }]
   };
@@ -1236,7 +1242,7 @@ function runDemo(run2) {
 import { createHash as createHash3 } from "node:crypto";
 import { execFileSync as execFileSync3 } from "node:child_process";
 import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
-import { isAbsolute as isAbsolute2, normalize, resolve as resolve2 } from "node:path";
+import { isAbsolute as isAbsolute2, normalize, resolve as resolve2, win32 } from "node:path";
 var DEFAULT_POLICY_FILE = ".agent-vigil.json";
 function canonical2(value) {
   if (value === void 0) return "null";
@@ -1249,7 +1255,7 @@ function canonical2(value) {
 function validatePolicy(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("policy must be a JSON object");
   const value = input;
-  const allowed = /* @__PURE__ */ new Set(["schemaVersion", "transcript", "testCommand", "strict", "minVerified"]);
+  const allowed = /* @__PURE__ */ new Set(["schemaVersion", "transcript", "testCommand", "strict", "minVerified", "trustedSignerKeyIds", "portableReceipt"]);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`policy contains unknown field(s): ${unknown.join(", ")}`);
   if (value.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
@@ -1262,6 +1268,25 @@ function validatePolicy(input) {
   if (value.strict !== void 0 && typeof value.strict !== "boolean") throw new Error("policy strict must be boolean");
   if (value.minVerified !== void 0 && (!Number.isInteger(value.minVerified) || Number(value.minVerified) < 1)) {
     throw new Error("policy minVerified must be a positive integer");
+  }
+  if (value.trustedSignerKeyIds !== void 0) {
+    if (!Array.isArray(value.trustedSignerKeyIds) || value.trustedSignerKeyIds.length < 1) {
+      throw new Error("policy trustedSignerKeyIds must be a non-empty array");
+    }
+    const ids = value.trustedSignerKeyIds;
+    if (ids.some((id) => typeof id !== "string" || !/^sha256:[0-9a-f]{64}$/.test(id))) {
+      throw new Error("policy trustedSignerKeyIds must contain SHA-256 key IDs");
+    }
+    if (new Set(ids).size !== ids.length) throw new Error("policy trustedSignerKeyIds must not contain duplicates");
+  }
+  if (value.portableReceipt !== void 0) {
+    if (typeof value.portableReceipt !== "string" || !value.portableReceipt.trim()) {
+      throw new Error("policy portableReceipt must be a non-empty repository-relative path");
+    }
+    const clean = normalize(value.portableReceipt).replaceAll("\\", "/").replace(/^\.\//, "");
+    if (isAbsolute2(value.portableReceipt) || win32.isAbsolute(value.portableReceipt) || clean === ".." || clean.startsWith("../")) {
+      throw new Error("policy portableReceipt must stay inside the repository");
+    }
   }
   return value;
 }
@@ -1277,8 +1302,8 @@ function parsePolicy(raw, source) {
 function loadPolicy(repo, requested, ref) {
   const gitPath = requested ?? DEFAULT_POLICY_FILE;
   if (ref) {
-    const clean = normalize(gitPath).replace(/^\.\//, "");
-    if (isAbsolute2(gitPath) || clean === ".." || clean.startsWith("../")) throw new Error("policy-ref requires a repository-relative policy path");
+    const clean = normalize(gitPath).replaceAll("\\", "/").replace(/^\.\//, "");
+    if (isAbsolute2(gitPath) || win32.isAbsolute(gitPath) || clean === ".." || clean.startsWith("../")) throw new Error("policy-ref requires a repository-relative policy path");
     let raw2;
     try {
       raw2 = execFileSync3("git", ["show", `${ref}:${clean}`], {
@@ -1312,10 +1337,13 @@ function loadPolicy(repo, requested, ref) {
     value
   };
 }
-function policyTemplate(testCommand) {
+function policyTemplate(testCommand, portableSignerKeyId) {
   const value = {
     schemaVersion: 1,
-    transcript: ".agent-vigil/session.md",
+    ...portableSignerKeyId ? {
+      portableReceipt: ".agent-vigil/receipt.json",
+      trustedSignerKeyIds: [portableSignerKeyId]
+    } : { transcript: ".agent-vigil/session.md" },
     ...testCommand ? { testCommand } : {},
     strict: true,
     minVerified: 1
@@ -1328,7 +1356,8 @@ function policyTemplate(testCommand) {
 import { execFileSync as execFileSync4 } from "node:child_process";
 import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname, relative as relative2, resolve as resolve3 } from "node:path";
-var WORKFLOW = `name: Agent Vigil
+function workflow(portable) {
+  return `name: Agent Vigil
 
 on:
   pull_request:
@@ -1345,15 +1374,16 @@ jobs:
         with:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha }}
-      - uses: sulmusic2-star/agent-vigil@v0.5.0
+      - uses: sulmusic2-star/agent-vigil@v0.6.0
         with:
-          transcript: .agent-vigil/session.md
+          ${portable ? "receipt: .agent-vigil/receipt.json" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
           policy-ref: \${{ github.event.pull_request.base.sha }}
           repo: .
           base: \${{ github.event.pull_request.base.sha }}
           head: \${{ github.event.pull_request.head.sha }}
 `;
+}
 var SESSION_TEMPLATE = `# Agent change receipt
 
 Replace this file with the coding agent's final summary or point
@@ -1374,30 +1404,32 @@ Transcripts can contain source code, prompts, paths, and secrets. Review them
 before committing or uploading. Agent Vigil reads evidence locally and does not
 upload it.
 `;
-function writeScaffold(root, path, content, force, result) {
+function writeScaffold(root, path, content, force, result2) {
   const target = resolve3(root, path);
   if (existsSync3(target) && !force) {
-    result.kept.push(path);
+    result2.kept.push(path);
     return;
   }
   mkdirSync2(dirname(target), { recursive: true });
   writeFileSync3(target, content);
-  result.created.push(path);
+  result2.created.push(path);
 }
-function initRepository(repo, force = false) {
+function initRepository(repo, force = false, portableSignerKeyId) {
   const root = resolve3(repo);
   try {
     execFileSync4("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
   } catch {
     throw new Error(`not a Git repository: ${root}`);
   }
-  const result = { created: [], kept: [] };
+  const result2 = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? void 0;
-  writeScaffold(root, DEFAULT_POLICY_FILE, policyTemplate(inferred), force, result);
-  writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result);
-  writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result);
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", WORKFLOW, force, result);
-  return result;
+  writeScaffold(root, DEFAULT_POLICY_FILE, policyTemplate(inferred, portableSignerKeyId), force, result2);
+  if (!portableSignerKeyId) {
+    writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result2);
+    writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result2);
+  }
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(Boolean(portableSignerKeyId)), force, result2);
+  return result2;
 }
 function git3(repo, args) {
   try {
@@ -1422,6 +1454,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     detail: gitRoot ?? `${root} is not inside a readable Git repository`
   });
   let transcript = requestedTranscript;
+  let portableReceipt;
   try {
     const policy = loadPolicy(root, requestedPolicy);
     checks.push({
@@ -1430,16 +1463,32 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
       detail: policy.path ? `${relative2(root, policy.path)} \xB7 ${policy.sha256}` : `no ${DEFAULT_POLICY_FILE}; CLI defaults will be used`
     });
     transcript ??= policy.value.transcript;
+    portableReceipt = policy.value.portableReceipt;
     const command = policy.value.testCommand ?? inferTestCommand(root);
     checks.push({
       status: command ? "PASS" : "WARN",
       label: "Fresh verification",
       detail: command ? `test command: ${command}` : "no test command inferred; use policy testCommand or --test-cmd"
     });
+    if (portableReceipt) {
+      const signerCount = policy.value.trustedSignerKeyIds?.length ?? 0;
+      checks.push({
+        status: signerCount ? "PASS" : "FAIL",
+        label: "Portable signer",
+        detail: signerCount ? `${signerCount} signer key ID(s) pinned by policy` : "portable receipt mode requires trustedSignerKeyIds"
+      });
+    }
   } catch (error) {
     checks.push({ status: "FAIL", label: "Policy", detail: error.message });
   }
-  if (!transcript) {
+  if (portableReceipt) {
+    const path = resolve3(root, portableReceipt);
+    checks.push({
+      status: existsSync3(path) ? "PASS" : "WARN",
+      label: "Portable receipt",
+      detail: existsSync3(path) ? `${portableReceipt} is present; run vigil gate to verify it` : `${portableReceipt} will be created after the next signed code change; raw transcript remains local`
+    });
+  } else if (!transcript) {
     checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });
   } else {
     const path = resolve3(root, transcript);
@@ -1457,14 +1506,14 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
       }
     }
   }
-  const workflow = resolve3(root, ".github/workflows/agent-vigil.yml");
+  const workflow2 = resolve3(root, ".github/workflows/agent-vigil.yml");
   checks.push({
-    status: existsSync3(workflow) ? "PASS" : "WARN",
+    status: existsSync3(workflow2) ? "PASS" : "WARN",
     label: "GitHub Action",
-    detail: existsSync3(workflow) ? "workflow installed; configure Agent Vigil evidence as a required status check after its first run" : "workflow not installed; run vigil init"
+    detail: existsSync3(workflow2) ? "workflow installed; configure Agent Vigil evidence as a required status check after its first run" : "workflow not installed; run vigil init"
   });
-  if (existsSync3(workflow)) {
-    const text = readFileSync4(workflow, "utf8");
+  if (existsSync3(workflow2)) {
+    const text = readFileSync4(workflow2, "utf8");
     const exactRange = /pull_request\.base\.sha/.test(text) && /pull_request\.head\.sha/.test(text);
     checks.push({
       status: exactRange ? "PASS" : "WARN",
@@ -1509,7 +1558,7 @@ import { chmodSync, readFileSync as readFileSync5, writeFileSync as writeFileSyn
 function publicKeyDer(key) {
   return key.export({ type: "spki", format: "der" });
 }
-function keyId(der) {
+function signingKeyId(der) {
   return `sha256:${createHash4("sha256").update(der).digest("hex")}`;
 }
 function signReport(report, privateKeyPath) {
@@ -1519,7 +1568,7 @@ function signReport(report, privateKeyPath) {
   const der = publicKeyDer(publicKey);
   report.signature = {
     algorithm: "Ed25519",
-    keyId: keyId(der),
+    keyId: signingKeyId(der),
     publicKey: der.toString("base64"),
     value: sign(null, Buffer.from(report.receiptHash), privateKey).toString("base64")
   };
@@ -1536,7 +1585,7 @@ function verifyReport(report, publicKeyPath) {
   });
   const selected = publicKeyPath ? createPublicKey(readFileSync5(publicKeyPath)) : embedded;
   const selectedDer = publicKeyDer(selected);
-  const selectedId = keyId(selectedDer);
+  const selectedId = signingKeyId(selectedDer);
   const signatureValid = selectedId === report.signature.keyId && verify(null, Buffer.from(report.receiptHash), selected, Buffer.from(report.signature.value, "base64"));
   return { hashValid, signatureValid, keyPinned: Boolean(publicKeyPath), keyId: selectedId };
 }
@@ -1548,6 +1597,227 @@ function generateSigningKey(privatePath, publicPath) {
   chmodSync(privatePath, 384);
   writeFileSync4(publicPath, publicPem, { flag: "wx" });
 }
+function publicKeyId(publicKeyPath) {
+  const publicKey = createPublicKey(readFileSync5(publicKeyPath));
+  if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("public key must be Ed25519");
+  return signingKeyId(publicKeyDer(publicKey));
+}
+
+// src/portable.ts
+import {
+  createHash as createHash5,
+  createPrivateKey as createPrivateKey2,
+  createPublicKey as createPublicKey2,
+  sign as sign2,
+  verify as verify2
+} from "node:crypto";
+import { readFileSync as readFileSync6 } from "node:fs";
+var SHA256 = /^sha256:[0-9a-f]{64}$/;
+function digest(value) {
+  return `sha256:${createHash5("sha256").update(canonical(value)).digest("hex")}`;
+}
+function payloadOf(receipt) {
+  const { portableHash: _hash, signature: _signature, ...payload } = receipt;
+  return payload;
+}
+function createPortableReceipt(report, privateKeyPath) {
+  if (recomputeReceiptHash(report) !== report.receiptHash) throw new Error("full receipt hash is invalid; refusing to seal it");
+  if (!report.repository.tree) {
+    throw new Error("portable receipt requires a committed head tree; rerun with --head <sha> instead of WORKTREE");
+  }
+  const privateKey = createPrivateKey2(readFileSync6(privateKeyPath));
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signing key must be Ed25519");
+  const publicKey = createPublicKey2(privateKey);
+  const der = publicKeyDer(publicKey);
+  const payload = {
+    schemaVersion: "1",
+    type: "agent-vigil/portable-receipt",
+    vigilVersion: report.vigilVersion,
+    reportHash: report.receiptHash,
+    resultsHash: digest(report.results),
+    transcriptSha256: report.transcriptSha256,
+    base: report.base,
+    head: report.head,
+    repository: report.repository,
+    policy: { sha256: report.policy.sha256 },
+    summary: report.summary,
+    issuedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const portableHash = digest(payload);
+  return {
+    ...payload,
+    portableHash,
+    signature: {
+      algorithm: "Ed25519",
+      keyId: signingKeyId(der),
+      publicKey: der.toString("base64"),
+      value: sign2(null, Buffer.from(portableHash), privateKey).toString("base64")
+    }
+  };
+}
+function verifyPortableReceipt(receipt, trustedKeyIds = []) {
+  const errors = [];
+  if (!receipt || typeof receipt !== "object") return { hashValid: false, signatureValid: false, signerTrusted: false, errors: ["portable receipt must be an object"] };
+  if (receipt.schemaVersion !== "1" || receipt.type !== "agent-vigil/portable-receipt") errors.push("unsupported portable receipt schema or type");
+  for (const [label, value] of [
+    ["reportHash", receipt.reportHash],
+    ["resultsHash", receipt.resultsHash],
+    ["transcriptSha256", receipt.transcriptSha256],
+    ["policy.sha256", receipt.policy?.sha256],
+    ["portableHash", receipt.portableHash],
+    ["signature.keyId", receipt.signature?.keyId]
+  ]) if (!SHA256.test(String(value ?? ""))) errors.push(`${label} is not a SHA-256 identifier`);
+  if (!receipt.base || !receipt.head || !receipt.repository?.tree) errors.push("base, head, and repository tree are required");
+  if (!receipt.summary || !(/* @__PURE__ */ new Set(["PASS", "FAIL", "INCONCLUSIVE"])).has(receipt.summary.status)) errors.push("summary status is invalid");
+  if (receipt.summary && receipt.summary.pass !== (receipt.summary.status === "PASS")) errors.push("summary pass flag disagrees with status");
+  const hashMatches = digest(payloadOf(receipt)) === receipt.portableHash;
+  if (!hashMatches) errors.push("portable receipt hash is invalid");
+  const hashValid = errors.length === 0 && hashMatches;
+  let signatureValid = false;
+  let keyId;
+  try {
+    if (receipt.signature?.algorithm !== "Ed25519") throw new Error("signature algorithm must be Ed25519");
+    const publicKey = createPublicKey2({ key: Buffer.from(receipt.signature.publicKey, "base64"), type: "spki", format: "der" });
+    if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("embedded public key must be Ed25519");
+    keyId = signingKeyId(publicKeyDer(publicKey));
+    signatureValid = keyId === receipt.signature.keyId && verify2(null, Buffer.from(receipt.portableHash), publicKey, Buffer.from(receipt.signature.value, "base64"));
+    if (!signatureValid) errors.push("portable receipt signature is invalid");
+  } catch (error) {
+    errors.push(`portable receipt signature could not be read: ${error.message}`);
+  }
+  const signerTrusted = Boolean(keyId) && trustedKeyIds.includes(keyId);
+  if (!signerTrusted) errors.push("signer key ID is not pinned by the trusted policy");
+  return { hashValid, signatureValid, signerTrusted, ...keyId ? { keyId } : {}, errors };
+}
+
+// src/gate.ts
+import { execFileSync as execFileSync5 } from "node:child_process";
+import { relative as relative3, resolve as resolve4, sep as sep2 } from "node:path";
+function git4(repo, args) {
+  try {
+    return execFileSync5("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch {
+    return void 0;
+  }
+}
+function result(subject, verdict, evidence, ruleId, blocksPass = false) {
+  return {
+    claim: { kind: "integrity", quote: "portable receipt merge-gate check", subject },
+    verdict,
+    evidence,
+    ruleId,
+    ...verdict === "verified" ? {} : { contributesToPass: false },
+    ...blocksPass ? { blocksPass: true } : {}
+  };
+}
+function receiptRelativePath(repo, path) {
+  const value = relative3(resolve4(repo), resolve4(path)).replaceAll("\\", "/");
+  if (!value || value === ".." || value.startsWith("../") || value.startsWith(`..${sep2}`)) return void 0;
+  return value.replace(/^\.\//, "");
+}
+function buildPortableGateReport(receipt, options) {
+  const repo = resolve4(options.repo);
+  const receiptPath = resolve4(options.receiptPath);
+  if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) {
+    throw new Error(`invalid git range ${options.base}..${options.head}`);
+  }
+  const policy = loadPolicy(repo, options.policy, options.policyRef);
+  const base = resolveGitRef(repo, options.base);
+  const head = resolveGitRef(repo, options.head);
+  const results = [];
+  const trusted = policy.value.trustedSignerKeyIds ?? [];
+  const verification = verifyPortableReceipt(receipt, trusted);
+  results.push(result(
+    "portable receipt hash and Ed25519 signature",
+    verification.hashValid && verification.signatureValid ? "verified" : "contradicted",
+    verification.hashValid && verification.signatureValid ? `${receipt.portableHash} is intact and signed by ${verification.keyId}` : verification.errors.filter((error) => !error.includes("not pinned")).join("; ") || "portable receipt signature is invalid",
+    "portable-signature"
+  ));
+  results.push(result(
+    "receipt signer is pinned by trusted policy",
+    verification.signerTrusted ? "verified" : trusted.length ? "contradicted" : "unverifiable",
+    verification.signerTrusted ? `${verification.keyId} is listed in the base-anchored policy` : trusted.length ? `${verification.keyId ?? "unreadable signer"} is not one of ${trusted.length} trusted key ID(s)` : "trusted policy has no trustedSignerKeyIds; pin a signer before enabling the gate",
+    "portable-signer",
+    !trusted.length
+  ));
+  results.push(result(
+    "local Agent Vigil verdict",
+    receipt.summary?.status === "PASS" && receipt.summary.pass ? "verified" : receipt.summary?.status === "FAIL" ? "contradicted" : "unverifiable",
+    `signed local report ${receipt.reportHash} records ${receipt.summary?.status ?? "an invalid status"}`,
+    "portable-local-verdict",
+    receipt.summary?.status !== "FAIL"
+  ));
+  results.push(result(
+    "portable receipt matches trusted policy",
+    receipt.policy?.sha256 === policy.sha256 ? "verified" : "contradicted",
+    receipt.policy?.sha256 === policy.sha256 ? `receipt and base policy share ${policy.sha256}` : `receipt names ${receipt.policy?.sha256 ?? "no policy hash"}; trusted policy is ${policy.sha256}`,
+    "portable-policy"
+  ));
+  const relativeReceipt = receiptRelativePath(repo, receiptPath);
+  const configuredReceipt = policy.value.portableReceipt?.replace(/^\.\//, "");
+  if (configuredReceipt) {
+    results.push(result(
+      "receipt path is base-policy controlled",
+      relativeReceipt === configuredReceipt ? "verified" : "contradicted",
+      relativeReceipt === configuredReceipt ? `${relativeReceipt} matches policy portableReceipt` : `received ${relativeReceipt ?? "a path outside the repository"}; policy requires ${configuredReceipt}`,
+      "portable-path"
+    ));
+  } else {
+    results.push(result(
+      "receipt path is base-policy controlled",
+      "unverifiable",
+      "trusted policy has no portableReceipt path",
+      "portable-path",
+      true
+    ));
+  }
+  const receiptHeadExists = gitRefExists(repo, receipt.head);
+  const receiptHead = receiptHeadExists ? resolveGitRef(repo, receipt.head) : void 0;
+  const receiptBase = gitRefExists(repo, receipt.base) ? resolveGitRef(repo, receipt.base) : void 0;
+  const exactHead = receiptHead === head;
+  const ancestor = Boolean(receiptHead && git4(repo, ["merge-base", "--is-ancestor", receiptHead, head]) !== void 0);
+  const evidenceDelta = receiptHead && configuredReceipt ? (git4(repo, ["diff", "--name-only", "-z", receiptHead, head]) ?? "").split("\0").filter(Boolean) : [];
+  const receiptOnlyTail = ancestor && evidenceDelta.length > 0 && evidenceDelta.every((path) => path === configuredReceipt);
+  const expectedTree = receiptHead ? git4(repo, ["rev-parse", `${receiptHead}^{tree}`]) : void 0;
+  const currentRemote = git4(repo, ["config", "--get", "remote.origin.url"]);
+  const remoteMatches = !receipt.repository?.remote || !currentRemote || receipt.repository.remote === currentRemote;
+  const gitBound = receiptBase === base && Boolean(receiptHead) && (exactHead || receiptOnlyTail) && Boolean(expectedTree) && receipt.repository?.tree === expectedTree && remoteMatches;
+  results.push(result(
+    "signed repository identity",
+    gitBound ? "verified" : "contradicted",
+    gitBound ? exactHead ? `receipt binds exact head ${head} and tree ${expectedTree}` : `receipt binds code head ${receiptHead}; ${receiptHead}..${head} changes only ${configuredReceipt}` : `expected base ${base}, current head ${head}, receipt base ${receiptBase ?? "invalid"}, receipt head ${receiptHead ?? "invalid"}, receipt tree ${receipt.repository?.tree ?? "missing"}, observed tree ${expectedTree ?? "invalid"}${remoteMatches ? "" : "; remote differs"}`,
+    "portable-git-binding"
+  ));
+  results.push(...checkWorkspaceBinding(repo, head, exactHead ? [receiptPath] : []));
+  const testClaim = { kind: "tests_pass", quote: "trusted policy verification passes in independent CI", subject: "trusted policy test command" };
+  results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand));
+  results.push(...checkWorkspaceMutation(repo, exactHead ? [receiptPath] : []));
+  results.push(...checkIntegrity(repo, base, head));
+  const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative3(repo, policy.path) : void 0;
+  const reproduction = [
+    "vigil gate",
+    `'${relativeReceipt ?? receiptPath}'`,
+    "--repo .",
+    "--base",
+    base,
+    "--head",
+    head,
+    ...policy.gitPath ? ["--policy", `'${policy.gitPath}'`] : [],
+    ...policy.ref ? ["--policy-ref", policy.ref] : []
+  ].join(" ");
+  return buildReport({
+    transcript: relativeReceipt ?? "portable-receipt",
+    transcriptSha256: receipt.transcriptSha256,
+    transcriptFormat: "portable-receipt",
+    repo,
+    base,
+    head,
+    results,
+    policy: { minVerified: 1, strict: true, source: policySource, sha256: policy.sha256 },
+    repository: { ...currentRemote ? { remote: currentRemote } : {}, ...git4(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git4(repo, ["rev-parse", `${head}^{tree}`]) } : {} },
+    reproduction
+  });
+}
 
 // src/cli.ts
 function usage() {
@@ -1556,10 +1826,11 @@ function usage() {
 Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
-  vigil init [--repo <path>] [--force]
+  vigil init [--repo <path>] [--force] [--portable --public-key <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
+  vigil gate <portable-receipt.json> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -1573,6 +1844,7 @@ Options:
   --policy <path>        Policy JSON (default: .agent-vigil.json when present)
   --policy-ref <sha>     Load policy from a trusted Git commit instead of the worktree
   --signing-key <path>   Sign the receipt with an Ed25519 private key
+  --portable-output <p>  Write a compact signed receipt; requires --signing-key
   --github-summary       Append Markdown to GITHUB_STEP_SUMMARY
   --strict               INCONCLUSIVE when any claim remains unresolved
   --min-verified <n>     Minimum objective verified claims (default: 1)
@@ -1589,7 +1861,7 @@ function parseArgs(args) {
     format: "text",
     githubSummary: false
   };
-  const takesValue = /* @__PURE__ */ new Set(["--repo", "--base", "--head", "--test-cmd", "--format", "--output", "--sarif", "--min-verified", "--policy", "--policy-ref", "--signing-key"]);
+  const takesValue = /* @__PURE__ */ new Set(["--repo", "--base", "--head", "--test-cmd", "--format", "--output", "--sarif", "--min-verified", "--policy", "--policy-ref", "--signing-key", "--portable-output"]);
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (!arg.startsWith("--") && !options.transcript) {
@@ -1625,6 +1897,7 @@ function parseArgs(args) {
     if (arg === "--policy") options.policy = value;
     if (arg === "--policy-ref") options.policyRef = value;
     if (arg === "--signing-key") options.signingKey = value;
+    if (arg === "--portable-output") options.portableOutput = value;
     if (arg === "--min-verified") options.minVerified = Number(value);
   }
   if (options.minVerified !== void 0 && (!Number.isInteger(options.minVerified) || options.minVerified < 1)) {
@@ -1640,12 +1913,16 @@ function optionValue(args, name) {
 }
 function runInit(args) {
   try {
-    const repo = resolve4(optionValue(args, "--repo") ?? ".");
-    const result = initRepository(repo, args.includes("--force"));
+    const repo = resolve5(optionValue(args, "--repo") ?? ".");
+    const portable = args.includes("--portable");
+    const publicKey = optionValue(args, "--public-key");
+    if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
+    if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
+    const result2 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve5(publicKey)) : void 0);
     console.log("Agent Vigil initialized.\n");
-    for (const path of result.created) console.log(`  created ${path}`);
-    for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
-    console.log("\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
+    for (const path of result2.created) console.log(`  created ${path}`);
+    for (const path of result2.kept) console.log(`  kept    ${path} (use --force to replace)`);
+    console.log(portable ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output." : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -1654,7 +1931,7 @@ function runInit(args) {
 }
 function runDoctor(args) {
   try {
-    const repo = resolve4(optionValue(args, "--repo") ?? ".");
+    const repo = resolve5(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -1668,9 +1945,39 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve4(privatePath), resolve4(publicPath));
+    generateSigningKey(resolve5(privatePath), resolve5(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
+    console.log(`Signer key ID: ${publicKeyId(resolve5(publicPath))}`);
     return 0;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function printReport(report, options) {
+  if (options.format === "json") console.log(JSON.stringify(report, null, 2));
+  else if (options.format === "markdown") console.log(renderMarkdown(report));
+  else if (options.format === "sarif") console.log(JSON.stringify(toSarif(report), null, 2));
+  else console.log(renderText(report));
+}
+function runGate(args) {
+  try {
+    const options = parseArgs(args.slice(1));
+    const receiptPath = options.transcript;
+    if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
+    const absoluteReceipt = resolve5(options.repo, receiptPath);
+    const receipt = JSON.parse(readFileSync7(absoluteReceipt, "utf8"));
+    const report = buildPortableGateReport(receipt, {
+      repo: resolve5(options.repo),
+      receiptPath: absoluteReceipt,
+      base: options.base,
+      head: options.head,
+      ...options.policy ? { policy: options.policy } : {},
+      ...options.policyRef ? { policyRef: options.policyRef } : {}
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -1680,24 +1987,24 @@ function runVerify(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync6(resolve4(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync7(resolve5(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result = verifyReport(report, publicKey ? resolve4(publicKey) : void 0);
-    console.log(`Receipt hash: ${result.hashValid ? "VALID" : "INVALID"}`);
-    if (result.signatureValid !== void 0) {
-      console.log(`Ed25519 signature: ${result.signatureValid ? "VALID" : "INVALID"} \xB7 ${result.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
-      if (!result.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
+    const result2 = verifyReport(report, publicKey ? resolve5(publicKey) : void 0);
+    console.log(`Receipt hash: ${result2.hashValid ? "VALID" : "INVALID"}`);
+    if (result2.signatureValid !== void 0) {
+      console.log(`Ed25519 signature: ${result2.signatureValid ? "VALID" : "INVALID"} \xB7 ${result2.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
+      if (!result2.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
     } else console.log("Signature: absent (content hash only)");
-    return result.hashValid && result.signatureValid !== false ? 0 : 1;
+    return result2.hashValid && result2.signatureValid !== false ? 0 : 1;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
   }
 }
-function git4(repo, args) {
+function git5(repo, args) {
   try {
-    return execFileSync5("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync6("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -1711,6 +2018,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
+  if (argv[0] === "gate") return runGate(argv);
   if (argv.includes("--help")) {
     console.log(usage());
     return 0;
@@ -1728,7 +2036,11 @@ function run(argv = process.argv.slice(2)) {
 ${usage()}`);
     return 2;
   }
-  const repo = resolve4(options.repo);
+  const repo = resolve5(options.repo);
+  if (options.portableOutput && !options.signingKey) {
+    console.error("agent-vigil: --portable-output requires --signing-key");
+    return 2;
+  }
   let policy;
   try {
     policy = loadPolicy(repo, options.policy, options.policyRef);
@@ -1741,7 +2053,7 @@ ${usage()}`);
     console.error(usage());
     return 2;
   }
-  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve4(repo, transcript);
+  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve5(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
@@ -1767,7 +2079,8 @@ ${usage()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve4(options.signingKey)] : []
+      ...options.signingKey ? [resolve5(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve5(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -1779,10 +2092,10 @@ ${usage()}`);
     results.push(...checkStepRepetition(loaded.toolCalls));
     results.push(...checkIntegrity(repo, base, head));
     results.push(...checkCompletion(claims, repo, base, head, results));
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative3(repo, policy.path) : void 0;
-    const remote = git4(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = head === "WORKTREE" ? void 0 : git4(repo, ["rev-parse", `${head}^{tree}`]);
-    const relativeTranscript = relative3(repo, transcriptPath) || transcript;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative4(repo, policy.path) : void 0;
+    const remote = git5(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = head === "WORKTREE" ? void 0 : git5(repo, ["rev-parse", `${head}^{tree}`]);
+    const relativeTranscript = relative4(repo, transcriptPath) || transcript;
     const reproduction = [
       "vigil",
       shellQuote(relativeTranscript),
@@ -1796,7 +2109,8 @@ ${usage()}`);
       ...policy.gitPath ? ["--policy", shellQuote(policy.gitPath)] : policySource ? ["--policy", shellQuote(policySource)] : [],
       ...policy.ref ? ["--policy-ref", policy.ref] : [],
       ...strict && !policy.value.strict ? ["--strict"] : [],
-      ...options.minVerified !== void 0 ? ["--min-verified", String(options.minVerified)] : []
+      ...options.minVerified !== void 0 ? ["--min-verified", String(options.minVerified)] : [],
+      ...options.portableOutput ? ["--portable-output", shellQuote(options.portableOutput)] : []
     ].join(" ");
     let report = buildReport({
       transcript: relativeTranscript,
@@ -1810,12 +2124,16 @@ ${usage()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve4(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve5(options.signingKey));
     writeOutputs(report, options);
-    if (options.format === "json") console.log(JSON.stringify(report, null, 2));
-    else if (options.format === "markdown") console.log(renderMarkdown(report));
-    else if (options.format === "sarif") console.log(JSON.stringify(toSarif(report), null, 2));
-    else console.log(renderText(report));
+    if (options.portableOutput) {
+      const portable = createPortableReceipt(report, resolve5(options.signingKey));
+      const portablePath = resolve5(repo, options.portableOutput);
+      mkdirSync3(dirname2(portablePath), { recursive: true });
+      writeFileSync5(portablePath, `${JSON.stringify(portable, null, 2)}
+`);
+    }
+    printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);

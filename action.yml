@@ -7,7 +7,10 @@ branding:
 inputs:
   transcript:
     description: "Agent transcript (.jsonl) or summary (.md)"
-    required: true
+    required: false
+  receipt:
+    description: "Compact signed portable receipt; use instead of transcript"
+    required: false
   repo:
     description: "Repository path to verify"
     required: false
@@ -54,6 +57,7 @@ runs:
       shell: bash
       env:
         VIGIL_TRANSCRIPT: ${{ inputs.transcript }}
+        VIGIL_RECEIPT: ${{ inputs.receipt }}
         VIGIL_REPO: ${{ inputs.repo }}
         VIGIL_BASE: ${{ inputs.base }}
         VIGIL_HEAD: ${{ inputs.head }}
@@ -63,6 +67,19 @@ runs:
         VIGIL_STRICT: ${{ inputs.strict }}
         VIGIL_MIN_VERIFIED: ${{ inputs.min-verified }}
       run: |
+        if [[ -n "$VIGIL_TRANSCRIPT" && -n "$VIGIL_RECEIPT" ]]; then
+          echo "agent-vigil: choose transcript or receipt, not both" >&2
+          exit 2
+        fi
+        if [[ -z "$VIGIL_TRANSCRIPT" && -z "$VIGIL_RECEIPT" ]]; then
+          echo "agent-vigil: transcript or receipt is required" >&2
+          exit 2
+        fi
+        if [[ -n "$VIGIL_RECEIPT" && ( -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ) ]]; then
+          echo "agent-vigil: receipt mode requires a base-anchored policy and policy-ref" >&2
+          exit 2
+        fi
+
         # On pull requests, the event payload is the trust root. Candidate
         # workflow edits must not redirect verification to different commits or
         # to a policy from the candidate branch.
@@ -82,6 +99,10 @@ runs:
               echo "agent-vigil: pull request policy-ref must equal event base $event_base" >&2
               exit 2
             fi
+            if [[ -n "$VIGIL_POLICY" && "$VIGIL_POLICY" != ".agent-vigil.json" ]]; then
+              echo "agent-vigil: pull request policy path must be .agent-vigil.json" >&2
+              exit 2
+            fi
             if [[ -n "$VIGIL_POLICY" && -z "$VIGIL_POLICY_REF" ]]; then
               echo "agent-vigil: pull request policy requires policy-ref anchored to event base $event_base" >&2
               exit 2
@@ -92,11 +113,15 @@ runs:
         artifact_dir=$(node -e 'const {mkdtempSync}=require("node:fs"); const {join}=require("node:path"); process.stdout.write(mkdtempSync(join(process.env.RUNNER_TEMP || process.cwd(), "agent-vigil-")))')
         report_file="$artifact_dir/report.json"
         sarif_file="$artifact_dir/report.sarif"
-        args=("$VIGIL_TRANSCRIPT" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary --min-verified "$VIGIL_MIN_VERIFIED")
-        if [[ -n "$VIGIL_TEST_CMD" ]]; then args+=(--test-cmd "$VIGIL_TEST_CMD"); fi
+        if [[ -n "$VIGIL_RECEIPT" ]]; then
+          args=(gate "$VIGIL_RECEIPT" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
+        else
+          args=("$VIGIL_TRANSCRIPT" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary --min-verified "$VIGIL_MIN_VERIFIED")
+          if [[ -n "$VIGIL_TEST_CMD" ]]; then args+=(--test-cmd "$VIGIL_TEST_CMD"); fi
+          if [[ "$VIGIL_STRICT" == "true" ]]; then args+=(--strict); fi
+        fi
         if [[ -n "$VIGIL_POLICY" ]]; then args+=(--policy "$VIGIL_POLICY"); fi
         if [[ -n "$VIGIL_POLICY_REF" ]]; then args+=(--policy-ref "$VIGIL_POLICY_REF"); fi
-        if [[ "$VIGIL_STRICT" == "true" ]]; then args+=(--strict); fi
 
         set +e
         node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"

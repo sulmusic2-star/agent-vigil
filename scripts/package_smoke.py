@@ -25,6 +25,9 @@ def main() -> int:
     (consumer / "package.json").write_text('{"private":true}\n')
     run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", str(tarball)], consumer)
     vigil = consumer / "node_modules" / ".bin" / "vigil"
+    private_key = lab / "operator.pem"
+    public_key = lab / "operator.pub"
+    run([str(vigil), "keygen", "--private", str(private_key), "--public", str(public_key)], consumer)
 
     shapes: list[tuple[str, dict[str, str], list[str], str | None]] = [
         ("plain", {"README.md": "plain\n"}, [], None),
@@ -67,9 +70,26 @@ def main() -> int:
             raise RuntimeError(f"{name}: generated workflow lacks exact-SHA policy anchoring")
         if "0 failure(s)" not in doctor.stdout:
             raise RuntimeError(f"{name}: doctor failed: {doctor.stdout}\n{doctor.stderr}")
-        results.append({"shape": name, "testCommand": actual, "initExit": initialized.returncode, "doctorExit": doctor.returncode})
+        portable_initialized = run([str(vigil), "init", "--portable", "--public-key", str(public_key), "--force", "--repo", str(repo)], repo)
+        portable_doctor = run([str(vigil), "doctor", "--repo", str(repo)], repo)
+        portable_policy = json.loads((repo / ".agent-vigil.json").read_text())
+        portable_workflow = (repo / ".github/workflows/agent-vigil.yml").read_text()
+        if portable_policy.get("portableReceipt") != ".agent-vigil/receipt.json" or len(portable_policy.get("trustedSignerKeyIds", [])) != 1:
+            raise RuntimeError(f"{name}: portable policy was not pinned")
+        if "receipt: .agent-vigil/receipt.json" not in portable_workflow or "transcript:" in portable_workflow:
+            raise RuntimeError(f"{name}: portable workflow is incorrect")
+        if "0 failure(s)" not in portable_doctor.stdout:
+            raise RuntimeError(f"{name}: portable doctor failed: {portable_doctor.stdout}\n{portable_doctor.stderr}")
+        results.append({
+            "shape": name,
+            "testCommand": actual,
+            "standardInitExit": initialized.returncode,
+            "standardDoctorExit": doctor.returncode,
+            "portableInitExit": portable_initialized.returncode,
+            "portableDoctorExit": portable_doctor.returncode,
+        })
 
-    print(json.dumps({"packed": tarball.name, "repositories": len(results), "passed": len(results), "results": results}, indent=2))
+    print(json.dumps({"packed": tarball.name, "repositories": len(results), "setupFlows": len(results) * 2, "passed": len(results), "results": results}, indent=2))
     return 0
 
 

@@ -30,6 +30,13 @@ is self-asserted; identity is established only when a verifier pins the public
 key through a trusted channel. A valid signature still does not prove that the
 captured transcript is complete or that the signing host was uncompromised.
 
+Portable receipt v1 signs a smaller payload containing hashes, Git and policy
+identity, summary counts, and signer identity. It deliberately omits transcript
+text and detailed findings. The base policy must pin both `portableReceipt` and
+`trustedSignerKeyIds`. The gate accepts either an exact signed head or a
+descendant whose only changed path is the configured receipt. A later source or
+policy change invalidates that binding.
+
 ## Policy integrity
 
 A candidate change can edit a policy stored in its own worktree. GitHub Actions
@@ -68,9 +75,17 @@ a sandbox.
 
 ## Privacy
 
-The verifier reads transcripts locally and emits only extracted claim snippets,
-rule evidence, selected paths, and hashes. Claim snippets may still contain
-sensitive text. Review receipts before publishing them.
+The full verifier reads transcripts locally and emits extracted claim snippets,
+rule evidence, selected paths, and hashes. Those fields can contain sensitive
+text. Portable receipt v1 omits them, but still exposes transcript and result
+digests, Git identity, summary counts, and the signing public key. Choose the
+artifact whose disclosure is acceptable and review it before publishing.
+
+The portable gate does not make the signer independent. If the authoring agent
+can read or invoke the private key, it may be able to sign its own report. Keep
+operator keys outside the agent's scope when separation matters. The fresh CI
+test and integrity scan are independent of the local transcript verdict, but
+they do not reconstruct private claim evidence.
 
 ## Reporting
 

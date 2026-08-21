@@ -1,0 +1,46 @@
+name: Adoption feedback
+description: Tell us what blocked or enabled a real repository installation.
+title: "[adoption] "
+labels: ["adoption"]
+body:
+  - type: dropdown
+    id: state
+    attributes:
+      label: Installation state
+      options:
+        - Evaluating
+        - Installed locally
+        - Running in CI
+        - Required merge check
+        - Removed after trial
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Evidence mode
+      options:
+        - Full transcript or summary
+        - Portable receipt
+        - Not installed
+    validations:
+      required: true
+  - type: textarea
+    id: job
+    attributes:
+      label: What job did you need Agent Vigil to do?
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: Biggest setup or trust problem
+      description: Include the exact command or error when safe.
+    validations:
+      required: true
+  - type: textarea
+    id: retain
+    attributes:
+      label: What would make you keep or remove the check?
+    validations:
+      required: true
