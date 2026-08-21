@@ -21,6 +21,27 @@ function repo() {
 
 test("CLI help exits zero", () => assert.equal(run(["--help"]), 0));
 test("CLI adversarial demo catches all planted failures", () => assert.equal(run(["demo"]), 0));
+test("CLI static diff audit is advisory by default, blocking in strict mode, and fail-closed on malformed input", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-audit-"));
+  const clean = join(root, "clean.diff");
+  const bad = join(root, "bad.diff");
+  const malformed = join(root, "malformed.diff");
+  const output = join(root, "receipt.json");
+  writeFileSync(clean, "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-return 1;\n+return 2;\n");
+  writeFileSync(bad, "diff --git a/test/a.test.ts b/test/a.test.ts\n--- a/test/a.test.ts\n+++ b/test/a.test.ts\n@@ -1 +1 @@\n-test('a',()=>{});\n+test.skip('a',()=>{});\n");
+  writeFileSync(malformed, "not a unified diff\n");
+  assert.equal(run(["audit", clean, "--output", output]), 0);
+  assert.equal(JSON.parse(readFileSync(output, "utf8")).summary.status, "PASS");
+  assert.equal(run(["audit", bad, "--output", output]), 0);
+  const advisory = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(advisory.summary.status, "PASS");
+  assert.ok(advisory.advisories.some((item: any) => item.ruleId === "test-skip-added"));
+  assert.equal(run(["audit", bad, "--strict", "--output", output]), 1);
+  const blocking = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(blocking.summary.status, "FAIL");
+  assert.equal(blocking.advisories.length, 0);
+  assert.equal(run(["audit", malformed]), 2);
+});
 test("CLI missing transcript exits two", () => assert.equal(run([]), 2));
 test("CLI empty narrative is inconclusive", () => {
   const r = repo(); const summary = join(r, "empty.md"); writeFileSync(summary, "nothing concrete");

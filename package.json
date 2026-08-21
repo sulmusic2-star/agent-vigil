@@ -1,6 +1,6 @@
 {
   "name": "agent-vigil",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Fail-closed, deterministic evidence receipts for AI coding-agent sessions.",
   "type": "module",
   "bin": {
@@ -18,7 +18,9 @@
     "lab:ecosystems": "python3 scripts/ecosystem_lab.py",
     "test:package": "python3 scripts/package_smoke.py",
     "proof:historical": "node scripts/historical_proof.mjs",
-    "demo:60s": "node scripts/demo_60s.mjs"
+    "demo:60s": "node scripts/demo_60s.mjs",
+    "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
+    "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts"
   },
   "keywords": [
     "ai-agents",
@@ -43,6 +45,7 @@
     "README.md",
     "ADOPTERS.md",
     "LICENSE",
+    "benchmarks",
     "docs",
     "examples",
     "scripts/public_adoption_census.py"

@@ -11,6 +11,7 @@ import {
 } from "./detectors/reality.ts";
 import { verifyPortableReceipt, type PortableReceipt } from "./portable.ts";
 import { buildReport, type CheckResult, type Claim, type TrustReport } from "./report.ts";
+import { routeIntegrity } from "./integrity-policy.ts";
 
 export type GateOptions = {
   repo: string;
@@ -59,6 +60,7 @@ export function buildPortableGateReport(receipt: PortableReceipt, options: GateO
   const base = resolveGitRef(repo, options.base);
   const head = resolveGitRef(repo, options.head);
   const results: CheckResult[] = [];
+  const advisories: CheckResult[] = [];
   const trusted = policy.value.trustedSignerKeyIds ?? [];
   const verification = verifyPortableReceipt(receipt, trusted);
 
@@ -151,7 +153,9 @@ export function buildPortableGateReport(receipt: PortableReceipt, options: GateO
   const testClaim: Claim = { kind: "tests_pass", quote: "trusted policy verification passes in independent CI", subject: "trusted policy test command" };
   results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand));
   results.push(...checkWorkspaceMutation(repo, exactHead ? [receiptPath] : []));
-  results.push(...checkIntegrity(repo, base, head));
+  const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+  results.push(...integrity.results);
+  advisories.push(...integrity.advisories);
 
   const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative(repo, policy.path) : undefined;
   const reproduction = [
@@ -167,6 +171,7 @@ export function buildPortableGateReport(receipt: PortableReceipt, options: GateO
     base,
     head,
     results,
+    advisories,
     policy: { minVerified: 1, strict: true, source: policySource, sha256: policy.sha256 },
     repository: { ...(currentRemote ? { remote: currentRemote } : {}), ...(git(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git(repo, ["rev-parse", `${head}^{tree}`]) } : {}) },
     reproduction,

@@ -3,6 +3,10 @@ import { appendPrivateFileAtomic, writePrivateFileAtomic } from "./safe-output.t
 
 const icon = { verified: "✓", contradicted: "✗", unverifiable: "?" } as const;
 
+function advisoryLabel(result: CheckResult): string {
+  return result.verdict === "unverifiable" ? "unresolved advisory" : "advisory";
+}
+
 export function remediationFor(ruleId?: string): string {
   const fixes: Record<string, string> = {
     "test-count": "Run the configured test command without truncating its output, then report the observed passing count exactly; use `vigil doctor` to inspect command selection.",
@@ -19,6 +23,14 @@ export function remediationFor(ruleId?: string): string {
     "suppression-added": "Remove the new suppression or narrow it with an explicit reviewed justification.",
     "coverage-weakened": "Restore a meaningful coverage threshold.",
     "assertion-drop": "Restore equivalent assertions or review the intentional reduction explicitly.",
+    "test-assertion-relaxed": "Restore the exact assertion, or document why the weaker predicate preserves the same contract and review the exception.",
+    "subject-mocked": "Exercise the real subject or replace the self-fulfilling mock with a boundary fixture whose behavior is independently asserted.",
+    "dead-branch-added": "Remove the unreachable branch or replace the constant condition with the intended reachable control flow.",
+    "error-swallowed": "Handle, report, or deliberately propagate the error; if swallowing is intentional, keep advisory mode or review a blocking-policy exception.",
+    "exception-context-lost": "Rethrow the original error or attach it as the new error's cause so diagnostic context is preserved.",
+    "stale-refactor-caller": "Update remaining callers to the renamed symbol and run the focused regression test.",
+    "no-op-code-change": "Make the behavioral change explicit or remove the comment/whitespace-only edit from the claimed fix.",
+    "diff-unparseable": "Export a complete unified Git diff with `git diff --no-color <base>...<head>` and rerun the audit.",
     "completion-marker": "Resolve the added unfinished-work marker before claiming completion.",
     "completion-evidence": "Add at least one independently verifiable path, command, change, or test claim.",
     "workspace-dirty": "Run `git status --short`, commit or remove unbound paths, then rerun with `--head $(git rev-parse HEAD)`.",
@@ -64,8 +76,14 @@ export function renderText(report: TrustReport): string {
     lines.push(`      evidence: ${result.evidence}`, "");
     if (result.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result.ruleId)}`);
   }
+  for (const result of report.advisories ?? []) {
+    lines.push(`  ! [${result.ruleId ?? result.claim.kind}] ${result.claim.subject}`);
+    lines.push(`      ${advisoryLabel(result)}: ${result.evidence}`);
+    lines.push(`      review:   ${remediationFor(result.ruleId)}`, "");
+  }
   const summary = report.summary;
   lines.push(`  ${summary.verified} verified · ${summary.contradicted} contradicted · ${summary.unverifiable} unresolved`);
+  if (report.advisories?.length) lines.push(`  ${report.advisories.length} advisory finding(s) · non-blocking under this policy`);
   lines.push(`  ${summary.status} · ${report.receiptHash}`);
   lines.push(`  reproduce: ${report.reproduction}`);
   if (summary.status === "INCONCLUSIVE") lines.push("  Missing or unresolved evidence prevents a trustworthy pass.");
@@ -75,6 +93,9 @@ export function renderText(report: TrustReport): string {
 export function renderMarkdown(report: TrustReport): string {
   const rows = report.results.map((result) =>
     `| ${icon[result.verdict]} ${result.verdict} | \`${result.ruleId ?? result.claim.kind}\` | ${escapeCell(result.claim.subject)} | ${escapeCell(result.evidence)} |`,
+  );
+  const advisoryRows = (report.advisories ?? []).map((result) =>
+    `| ⚠️ ${advisoryLabel(result)} | \`${result.ruleId ?? result.claim.kind}\` | ${escapeCell(result.claim.subject)} | ${escapeCell(result.evidence)} |`,
   );
   return [
     `# ${report.summary.status === "PASS" ? "✅" : report.summary.status === "FAIL" ? "❌" : "⚠️"} Agent Vigil: ${report.summary.status}`,
@@ -87,14 +108,19 @@ export function renderMarkdown(report: TrustReport): string {
     "| Verdict | Rule | Claim | Evidence |",
     "|---|---|---|---|",
     ...rows,
+    ...advisoryRows,
     "",
     `${report.summary.verified} verified · ${report.summary.contradicted} contradicted · ${report.summary.unverifiable} unresolved`,
+    ...((report.advisories?.length ?? 0) ? [`${report.advisories!.length} advisory finding(s) · non-blocking under this policy`] : []),
     "",
-    ...(report.results.some((result) => result.verdict !== "verified") ? [
+    ...(report.results.some((result) => result.verdict !== "verified") || (report.advisories?.length ?? 0) ? [
       "## What to do next",
       "",
       ...report.results.filter((result) => result.verdict !== "verified").map((result) =>
         `- **\`${result.ruleId ?? result.claim.kind}\`**: ${remediationFor(result.ruleId)}`,
+      ),
+      ...(report.advisories ?? []).map((result) =>
+        `- **\`${result.ruleId ?? result.claim.kind}\` (advisory)**: ${remediationFor(result.ruleId)}`,
       ),
       "",
     ] : []),
@@ -107,8 +133,8 @@ function escapeCell(value: string): string {
   return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
 }
 
-function sarifResult(result: CheckResult) {
-  const level = result.verdict === "contradicted" ? "error" : result.verdict === "unverifiable" ? "warning" : "note";
+function sarifResult(result: CheckResult, advisory = false) {
+  const level = advisory ? "warning" : result.verdict === "contradicted" ? "error" : result.verdict === "unverifiable" ? "warning" : "note";
   return {
     ruleId: result.ruleId ?? result.claim.kind,
     level,
@@ -117,7 +143,8 @@ function sarifResult(result: CheckResult) {
 }
 
 export function toSarif(report: TrustReport) {
-  const rules = [...new Set(report.results.map((result) => result.ruleId ?? result.claim.kind))].map((id) => ({
+  const allResults = [...report.results, ...(report.advisories ?? [])];
+  const rules = [...new Set(allResults.map((result) => result.ruleId ?? result.claim.kind))].map((id) => ({
     id,
     shortDescription: { text: id.replace(/-/g, " ") },
   }));
@@ -126,8 +153,11 @@ export function toSarif(report: TrustReport) {
     version: "2.1.0",
     runs: [{
       tool: { driver: { name: "agent-vigil", version: report.vigilVersion, informationUri: "https://github.com/sulmusic2-star/agent-vigil", rules } },
-      results: report.results.filter((result) => result.verdict !== "verified").map(sarifResult),
-      properties: { receiptHash: report.receiptHash, status: report.summary.status },
+      results: [
+        ...report.results.filter((result) => result.verdict !== "verified").map((result) => sarifResult(result)),
+        ...(report.advisories ?? []).map((result) => sarifResult(result, true)),
+      ],
+      properties: { receiptHash: report.receiptHash, status: report.summary.status, advisoryCount: report.advisories?.length ?? 0 },
     }],
   };
 }

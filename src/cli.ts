@@ -9,6 +9,7 @@ import {
   checkCompletion,
   checkFilesChanged,
   checkIntegrity,
+  checkIntegrityDiff,
   checkPathsExist,
   checkRunClaims,
   checkStepRepetition,
@@ -28,6 +29,7 @@ import { generateSigningKey, publicKeyId, signReport, verifyReport } from "./sig
 import { createPortableReceipt, type PortableReceipt } from "./portable.ts";
 import { buildPortableGateReport } from "./gate.ts";
 import { buildMaintainerChecks, loadPullRequestEvidence } from "./maintainer.ts";
+import { routeIntegrity } from "./integrity-policy.ts";
 
 type Options = {
   transcript?: string;
@@ -58,6 +60,7 @@ Usage:
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
+  vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
 
@@ -75,7 +78,7 @@ Options:
   --signing-key <path>   Sign the receipt with an Ed25519 private key
   --portable-output <p>  Write a compact signed receipt; requires --signing-key
   --github-summary       Append Markdown to GITHUB_STEP_SUMMARY
-  --strict               INCONCLUSIVE when any claim remains unresolved
+  --strict               Block on unresolved claims; for audit, block on static findings
   --min-verified <n>     Minimum objective verified claims (default: 1)
   --version              Print the version
   --help                 Show this help
@@ -180,12 +183,15 @@ function runMaintainer(args: string[]): number {
     if (evidence.headSha && resolveGitRef(repo, evidence.headSha) !== head) throw new Error(`event head ${evidence.headSha} does not match selected head ${head}`);
     const inputs = [eventPath, ...(policy.path ? [policy.path] : [])];
     const results: CheckResult[] = [...checkWorkspaceBinding(repo, head, inputs)];
+    const advisories: CheckResult[] = [];
     results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer));
     if (policy.value.testCommand) {
       results.push(...checkTestsPass([{ kind: "tests_pass", quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" }], repo, policy.value.testCommand));
       results.push(...checkWorkspaceMutation(repo, inputs));
     }
-    results.push(...checkIntegrity(repo, base, head));
+    const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+    results.push(...integrity.results);
+    advisories.push(...integrity.advisories);
     const rawEvent = readFileSync(eventPath);
     const eventHash = `sha256:${createHash("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative(repo, policy.path) : undefined;
@@ -203,6 +209,7 @@ function runMaintainer(args: string[]): number {
       base,
       head,
       results,
+      advisories,
       policy: { minVerified: policy.value.minVerified ?? 1, strict: policy.value.strict ?? true, source: policySource, sha256: policy.sha256 },
       repository: { ...(remote ? { remote } : {}), ...(tree ? { tree } : {}) },
       reproduction,
@@ -279,6 +286,43 @@ function runVerify(args: string[]): number {
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
+function runAudit(args: string[]): number {
+  try {
+    const options = parseArgs(args.slice(1));
+    const diffPath = options.transcript;
+    if (!diffPath) throw new Error("audit requires a unified Git diff path");
+    const absolute = resolve(diffPath);
+    const raw = readFileSync(absolute);
+    if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
+    const diff = raw.toString("utf8");
+    const digest = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
+    const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
+    if (!integrity.results.length && integrity.advisories.length) {
+      integrity.results.push({
+        claim: { kind: "integrity", quote: "static unified-diff audit", subject: "parseable unified Git diff audited" },
+        verdict: "verified",
+        evidence: `${integrity.advisories.length} heuristic finding(s) recorded as non-blocking advisories`,
+        ruleId: "diff-audit-complete",
+      });
+    }
+    const report = buildReport({
+      transcript: relative(process.cwd(), absolute) || absolute,
+      transcriptSha256: digest,
+      transcriptFormat: "unified-git-diff",
+      repo: "static-diff-audit",
+      base: "unavailable",
+      head: digest,
+      results: integrity.results,
+      advisories: integrity.advisories,
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`,
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
 function git(repo: string, args: string[]): string | undefined {
   try { return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
   catch { return undefined; }
@@ -294,6 +338,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
+  if (argv[0] === "audit") return runAudit(argv);
   if (argv[0] === "gate") return runGate(argv);
   if (argv[0] === "maintainer") return runMaintainer(argv);
   if (argv.includes("--help")) { console.log(usage()); return 0; }
@@ -329,6 +374,7 @@ export function run(argv = process.argv.slice(2)): number {
     const claims = extractClaims(loaded.narrative);
     const runClaims = extractRunClaims(loaded.narrative);
     const results: CheckResult[] = [];
+    const advisories: CheckResult[] = [];
     // Bind the execution context before a test command can create caches,
     // coverage files, build outputs, or other Git-visible artifacts.
     const workspaceInputs = [
@@ -345,7 +391,9 @@ export function run(argv = process.argv.slice(2)): number {
     results.push(...checkPathsExist(claims.filter((claim) => !changedClaims.has(claim.subject)), repo));
     results.push(...checkRunClaims(runClaims, loaded.toolCalls));
     results.push(...checkStepRepetition(loaded.toolCalls));
-    results.push(...checkIntegrity(repo, base, head));
+    const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+    results.push(...integrity.results);
+    advisories.push(...integrity.advisories);
     results.push(...checkCompletion(claims, repo, base, head, results));
 
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative(repo, policy.path) : undefined;
@@ -369,6 +417,7 @@ export function run(argv = process.argv.slice(2)): number {
       base,
       head,
       results,
+      advisories,
       policy: { minVerified, strict, source: policySource, sha256: policy.sha256 },
       repository: { ...(remote ? { remote } : {}), ...(tree ? { tree } : {}) },
       reproduction,

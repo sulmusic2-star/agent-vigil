@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const VERSION = "0.8.0";
+export const VERSION = "0.9.0";
 
 export type ClaimKind =
   | "tests_pass"
@@ -67,6 +67,8 @@ export type TrustReport = {
   reproduction: string;
   signature?: ReceiptSignature;
   results: CheckResult[];
+  /** Non-blocking findings that are receipt-bound but do not affect status. */
+  advisories?: CheckResult[];
   summary: {
     verified: number;
     contradicted: number;
@@ -99,6 +101,7 @@ export function buildReport(input: {
   base: string;
   head: string;
   results: CheckResult[];
+  advisories?: CheckResult[];
   policy?: Partial<ReportPolicy>;
   repository?: { remote?: string; tree?: string };
   reproduction?: string;
@@ -134,6 +137,7 @@ export function buildReport(input: {
     pass: status === "PASS",
   };
 
+  const advisories = input.advisories ?? [];
   const receiptPayload = {
     schemaVersion: "2",
     vigilVersion: VERSION,
@@ -144,6 +148,7 @@ export function buildReport(input: {
     repository: input.repository ?? {},
     reproduction: input.reproduction ?? "unavailable",
     results: input.results,
+    advisories,
     summary,
     policy,
   };
@@ -162,6 +167,7 @@ export function buildReport(input: {
     repository: input.repository ?? {},
     reproduction: input.reproduction ?? "unavailable",
     results: input.results,
+    advisories,
     summary,
     policy,
   };
@@ -178,6 +184,7 @@ export function recomputeReceiptHash(report: TrustReport): string {
     repository: report.repository,
     reproduction: report.reproduction,
     results: report.results,
+    ...(report.advisories !== undefined ? { advisories: report.advisories } : {}),
     summary: report.summary,
     policy: report.policy,
   };

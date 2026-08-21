@@ -258,6 +258,33 @@ or a complete enterprise governance plane.
     repeatedly cites false positives, black-box behavior, and limited
     customization. Agent Vigil should continue emitting bounded deterministic
     rules instead of comment volume.
+
+## 2026-08-21 v0.9 category calibration
+
+The nearest active open-source projects now include
+[Swarm Orchestrator](https://github.com/moonrunnerkc/swarm-orchestrator),
+[Agent Done Or Not](https://github.com/mohamedzhioua/agent-done-or-not),
+[Agent Guardrails](https://github.com/logi-cmd/agent-guardrails),
+[HoldTheGoblin](https://github.com/etherman-os/HoldTheGoblin),
+[Agent Audits](https://github.com/aiswarya797/agent-audits),
+[Agent Receipts](https://github.com/inchwormz/agent-receipts), and
+[Obsigna](https://github.com/agent-receipts/obsigna). GitHub metadata checked on
+2026-08-21 ranged from 1 to 105 stars for those repositories. Star counts are a
+dated visibility signal, not product quality, adoption, or revenue.
+
+The most consequential competitor evidence was Swarm's public corpus rather
+than its feature list. At frozen commit
+`b2b681ff529929d39a14c0541d0e2b71b642b5da`, its `sources-v2.json` contains 232
+merged PRs described as presumed clean, and its dual-arbiter labels contain 93
+agreed false-alarm labels and four agreed true-cheat labels. Agent Vigil's
+static rules emitted findings on 99/232 of those presumed-clean PRs. That is too
+much uncalibrated noise for a default merge blocker.
+
+**Built response:** receipt-bound `advisories`, SARIF warning severity, default
+`integrityMode: advisory`, and explicit opt-in blocking via policy or
+`vigil audit --strict`. Parse failures and stronger evidence contradictions
+remain fail-closed. The exact generated measurements and limitations are in
+[BENCHMARKS.md](BENCHMARKS.md).
 11. **Receipts are not correctness certificates.** GitHub's own
     [artifact-attestation documentation](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
     states that provenance is not a guarantee of security. Agent Vigil applies
