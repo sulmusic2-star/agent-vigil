@@ -41,8 +41,7 @@
     "README.md",
     "LICENSE",
     "docs",
-    "examples",
-    "scripts"
+    "examples"
   ],
   "repository": {
     "type": "git",
