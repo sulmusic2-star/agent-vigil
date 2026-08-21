@@ -3,8 +3,8 @@
 // src/cli.ts
 import { createHash as createHash6 } from "node:crypto";
 import { execFileSync as execFileSync7 } from "node:child_process";
-import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync8, realpathSync as realpathSync2, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname3, isAbsolute as isAbsolute3, relative as relative5, resolve as resolve6 } from "node:path";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync9, realpathSync as realpathSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname4, isAbsolute as isAbsolute3, relative as relative5, resolve as resolve7 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -984,7 +984,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.7.0";
+var VERSION = "0.8.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1067,8 +1067,160 @@ function recomputeReceiptHash(report) {
   return `sha256:${createHash2("sha256").update(canonical(payload)).digest("hex")}`;
 }
 
+// src/safe-output.ts
+import { randomBytes } from "node:crypto";
+import {
+  closeSync,
+  constants,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  openSync,
+  readFileSync as readFileSync3,
+  realpathSync as realpathSync2,
+  renameSync,
+  unlinkSync,
+  writeFileSync
+} from "node:fs";
+import { basename, dirname, join, parse, resolve as resolve2, sep as sep2 } from "node:path";
+function isMissing(error) {
+  return error?.code === "ENOENT";
+}
+function assertReplaceableDestination(path) {
+  try {
+    const status = lstatSync(path);
+    if (status.isSymbolicLink()) {
+      throw new Error(`Refusing to replace symbolic-link output: ${path}`);
+    }
+    if (!status.isFile()) {
+      throw new Error(`Refusing to replace non-regular output: ${path}`);
+    }
+  } catch (error) {
+    if (isMissing(error)) return;
+    throw error;
+  }
+}
+function resolveSafeParent(requested) {
+  const parent = dirname(requested);
+  const root = parse(parent).root;
+  const rootStatus = lstatSync(root);
+  if (!rootStatus.isDirectory()) {
+    throw new Error(`Refusing to use non-directory output root: ${root}`);
+  }
+  let current = root;
+  const components = parent.slice(root.length).split(sep2).filter(Boolean);
+  for (const [index, component] of components.entries()) {
+    const next = join(current, component);
+    const status = lstatSync(next);
+    if (status.isSymbolicLink()) {
+      const trustedRootAlias = index === 0 && status.uid === rootStatus.uid && (rootStatus.mode & 18) === 0;
+      if (!trustedRootAlias) {
+        throw new Error(`Refusing to traverse symbolic-link output parent: ${next}`);
+      }
+      const canonical3 = realpathSync2(next);
+      if (!lstatSync(canonical3).isDirectory()) {
+        throw new Error(`Refusing to traverse non-directory output parent: ${next}`);
+      }
+      current = canonical3;
+      continue;
+    }
+    if (!status.isDirectory()) {
+      throw new Error(`Refusing to traverse non-directory output parent: ${next}`);
+    }
+    current = next;
+  }
+  return current;
+}
+function readRegularFileWithoutFollowingReplacement(path) {
+  let expected;
+  try {
+    expected = lstatSync(path);
+  } catch (error) {
+    if (isMissing(error)) return "";
+    throw error;
+  }
+  if (expected.isSymbolicLink()) {
+    throw new Error(`Refusing to replace symbolic-link output: ${path}`);
+  }
+  if (!expected.isFile()) {
+    throw new Error(`Refusing to replace non-regular output: ${path}`);
+  }
+  const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+  const descriptor = openSync(path, constants.O_RDONLY | noFollow);
+  try {
+    const opened = fstatSync(descriptor);
+    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino) {
+      throw new Error(`Output changed while preparing an atomic append: ${path}`);
+    }
+    return readFileSync3(descriptor, "utf8");
+  } finally {
+    closeSync(descriptor);
+  }
+}
+function openPrivateTemporaryFile(parent) {
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const path = join(parent, `.agent-vigil-${randomBytes(16).toString("hex")}.tmp`);
+    try {
+      const descriptor = openSync(
+        path,
+        constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+        384
+      );
+      return { descriptor, path };
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+  }
+  throw new Error(`Unable to allocate a private temporary output in ${parent}`);
+}
+function writePrivateFileAtomic(destination, content) {
+  const requested = resolve2(destination);
+  const parent = resolveSafeParent(requested);
+  const target = join(parent, basename(requested));
+  assertReplaceableDestination(target);
+  let descriptor;
+  let temporaryPath;
+  let failure;
+  try {
+    ({ descriptor, path: temporaryPath } = openPrivateTemporaryFile(parent));
+    fchmodSync(descriptor, 384);
+    writeFileSync(descriptor, Buffer.from(content, "utf8"));
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = void 0;
+    assertReplaceableDestination(target);
+    renameSync(temporaryPath, target);
+    temporaryPath = void 0;
+  } catch (error) {
+    failure = error;
+  } finally {
+    if (descriptor !== void 0) {
+      try {
+        closeSync(descriptor);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (temporaryPath !== void 0) {
+      try {
+        unlinkSync(temporaryPath);
+      } catch (error) {
+        if (!isMissing(error)) failure ??= error;
+      }
+    }
+  }
+  if (failure !== void 0) throw failure;
+}
+function appendPrivateFileAtomic(destination, content) {
+  const requested = resolve2(destination);
+  const parent = resolveSafeParent(requested);
+  const target = join(parent, basename(requested));
+  const existing = readRegularFileWithoutFollowingReplacement(target);
+  writePrivateFileAtomic(target, `${existing}${content}`);
+}
+
 // src/output.ts
-import { appendFileSync, writeFileSync } from "node:fs";
 var icon = { verified: "\u2713", contradicted: "\u2717", unverifiable: "?" };
 function remediationFor(ruleId) {
   const fixes = {
@@ -1194,40 +1346,40 @@ function toSarif(report) {
   };
 }
 function writeOutputs(report, options) {
-  if (options.output) writeFileSync(options.output, `${JSON.stringify(report, null, 2)}
+  if (options.output) writePrivateFileAtomic(options.output, `${JSON.stringify(report, null, 2)}
 `);
-  if (options.sarif) writeFileSync(options.sarif, `${JSON.stringify(toSarif(report), null, 2)}
+  if (options.sarif) writePrivateFileAtomic(options.sarif, `${JSON.stringify(toSarif(report), null, 2)}
 `);
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (options.githubSummary && summaryPath) appendFileSync(summaryPath, renderMarkdown(report));
+  if (options.githubSummary && summaryPath) appendPrivateFileAtomic(summaryPath, renderMarkdown(report));
 }
 
 // src/demo.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join as join2 } from "node:path";
 function git2(repo, ...args) {
   execFileSync2("git", args, { cwd: repo, stdio: "ignore" });
 }
 function runDemo(run2) {
-  const repo = mkdtempSync(join(tmpdir(), "agent-vigil-demo-"));
+  const repo = mkdtempSync(join2(tmpdir(), "agent-vigil-demo-"));
   git2(repo, "init", "-q");
   git2(repo, "config", "user.email", "demo@agent-vigil.local");
   git2(repo, "config", "user.name", "Agent Vigil Demo");
-  mkdirSync(join(repo, "src"));
-  writeFileSync2(join(repo, "package.json"), JSON.stringify({ scripts: { test: "node --test test.js" } }, null, 2));
-  writeFileSync2(join(repo, "test.js"), "const { test } = require('node:test'); test('real', () => {});\n");
-  writeFileSync2(join(repo, "src", "real.ts"), "export const real = true;\n");
+  mkdirSync(join2(repo, "src"));
+  writeFileSync2(join2(repo, "package.json"), JSON.stringify({ scripts: { test: "node --test test.js" } }, null, 2));
+  writeFileSync2(join2(repo, "test.js"), "const { test } = require('node:test'); test('real', () => {});\n");
+  writeFileSync2(join2(repo, "src", "real.ts"), "export const real = true;\n");
   git2(repo, "add", "-A");
   git2(repo, "commit", "-qm", "baseline");
-  writeFileSync2(join(repo, "README.md"), "demo head\n");
+  writeFileSync2(join2(repo, "README.md"), "demo head\n");
   git2(repo, "add", "README.md");
   git2(repo, "commit", "-qm", "head");
-  const evidence = mkdtempSync(join(tmpdir(), "agent-vigil-demo-evidence-"));
-  const count = join(evidence, "false-count.md");
-  const ghost = join(evidence, "ghost-file.md");
-  const loop = join(evidence, "tool-loop.jsonl");
+  const evidence = mkdtempSync(join2(tmpdir(), "agent-vigil-demo-evidence-"));
+  const count = join2(evidence, "false-count.md");
+  const ghost = join2(evidence, "ghost-file.md");
+  const loop = join2(evidence, "tool-loop.jsonl");
   writeFileSync2(count, "All 99 tests pass.\n");
   writeFileSync2(ghost, "I created src/ghost.ts. The work is complete.\n");
   const rows = [
@@ -1256,8 +1408,8 @@ function runDemo(run2) {
 // src/config.ts
 import { createHash as createHash3 } from "node:crypto";
 import { execFileSync as execFileSync3 } from "node:child_process";
-import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
-import { isAbsolute as isAbsolute2, normalize, resolve as resolve2, win32 } from "node:path";
+import { existsSync as existsSync2, readFileSync as readFileSync4 } from "node:fs";
+import { isAbsolute as isAbsolute2, normalize, resolve as resolve3, win32 } from "node:path";
 var DEFAULT_POLICY_FILE = ".agent-vigil.json";
 function canonical2(value) {
   if (value === void 0) return "null";
@@ -1399,13 +1551,13 @@ function loadPolicy(repo, requested, ref) {
       value: value2
     };
   }
-  const candidate = requested ? resolve2(repo, requested) : resolve2(repo, DEFAULT_POLICY_FILE);
+  const candidate = requested ? resolve3(repo, requested) : resolve3(repo, DEFAULT_POLICY_FILE);
   if (!existsSync2(candidate)) {
     if (requested) throw new Error(`policy not found: ${candidate}`);
     const value2 = { schemaVersion: 1 };
     return { sha256: `sha256:${createHash3("sha256").update(canonical2(value2)).digest("hex")}`, value: value2 };
   }
-  const raw = readFileSync3(candidate, "utf8");
+  const raw = readFileSync4(candidate, "utf8");
   const value = parsePolicy(raw, candidate);
   return {
     path: candidate,
@@ -1457,8 +1609,8 @@ function maintainerPolicyTemplate(testCommand, setupCommand) {
 
 // src/setup.ts
 import { execFileSync as execFileSync4 } from "node:child_process";
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname, relative as relative2, resolve as resolve3 } from "node:path";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync5, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname2, relative as relative2, resolve as resolve4 } from "node:path";
 function workflow(mode) {
   return `name: Agent Vigil
 
@@ -1478,7 +1630,7 @@ jobs:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha }}
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.7.0
+        uses: sulmusic2-star/agent-vigil@v0.8.0
         with:
           ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
@@ -1530,17 +1682,17 @@ before committing or uploading. Agent Vigil reads evidence locally and does not
 upload it.
 `;
 function writeScaffold(root, path, content, force, result3) {
-  const target = resolve3(root, path);
+  const target = resolve4(root, path);
   if (existsSync3(target) && !force) {
     result3.kept.push(path);
     return;
   }
-  mkdirSync2(dirname(target), { recursive: true });
+  mkdirSync2(dirname2(target), { recursive: true });
   writeFileSync3(target, content);
   result3.created.push(path);
 }
 function initRepository(repo, force = false, portableSignerKeyId, profile = "default") {
-  const root = resolve3(repo);
+  const root = resolve4(repo);
   try {
     execFileSync4("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
   } catch {
@@ -1549,7 +1701,7 @@ function initRepository(repo, force = false, portableSignerKeyId, profile = "def
   const result3 = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? void 0;
   const mode = profile === "maintainer" ? "maintainer" : portableSignerKeyId ? "portable" : "transcript";
-  const setupCommand = existsSync3(resolve3(root, "package-lock.json")) ? "npm ci --ignore-scripts" : void 0;
+  const setupCommand = existsSync3(resolve4(root, "package-lock.json")) ? "npm ci --ignore-scripts" : void 0;
   writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : policyTemplate(inferred, portableSignerKeyId), force, result3);
   if (mode === "transcript") {
     writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result3);
@@ -1567,7 +1719,7 @@ function git3(repo, args) {
   }
 }
 function doctorRepository(repo, requestedPolicy, requestedTranscript) {
-  const root = resolve3(repo);
+  const root = resolve4(repo);
   const checks = [];
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   checks.push({
@@ -1613,14 +1765,14 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     checks.push({ status: "FAIL", label: "Policy", detail: error.message });
   }
   if (portableReceipt) {
-    const path = resolve3(root, portableReceipt);
+    const path = resolve4(root, portableReceipt);
     checks.push({
       status: existsSync3(path) ? "PASS" : "WARN",
       label: "Portable receipt",
       detail: existsSync3(path) ? `${portableReceipt} is present; run vigil gate to verify it` : `${portableReceipt} will be created after the next signed code change; raw transcript remains local`
     });
   } else if (maintainer) {
-    const template = resolve3(root, ".github/pull_request_template.md");
+    const template = resolve4(root, ".github/pull_request_template.md");
     checks.push({
       status: existsSync3(template) ? "PASS" : "FAIL",
       label: "Maintainer evidence",
@@ -1629,7 +1781,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
   } else if (!transcript) {
     checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });
   } else {
-    const path = resolve3(root, transcript);
+    const path = resolve4(root, transcript);
     if (!existsSync3(path)) checks.push({ status: "WARN", label: "Transcript", detail: `${transcript} does not exist yet` });
     else {
       try {
@@ -1644,14 +1796,14 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
       }
     }
   }
-  const workflow2 = resolve3(root, ".github/workflows/agent-vigil.yml");
+  const workflow2 = resolve4(root, ".github/workflows/agent-vigil.yml");
   checks.push({
     status: existsSync3(workflow2) ? "PASS" : "WARN",
     label: "GitHub Action",
     detail: existsSync3(workflow2) ? "workflow installed; configure Agent Vigil evidence as a required status check after its first run" : "workflow not installed; run vigil init"
   });
   if (existsSync3(workflow2)) {
-    const text = readFileSync4(workflow2, "utf8");
+    const text = readFileSync5(workflow2, "utf8");
     const exactRange = /pull_request\.base\.sha/.test(text) && /pull_request\.head\.sha/.test(text);
     checks.push({
       status: exactRange ? "PASS" : "WARN",
@@ -1701,7 +1853,7 @@ import {
   sign,
   verify
 } from "node:crypto";
-import { chmodSync, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "node:fs";
+import { chmodSync, readFileSync as readFileSync6, writeFileSync as writeFileSync4 } from "node:fs";
 function publicKeyDer(key) {
   return key.export({ type: "spki", format: "der" });
 }
@@ -1709,7 +1861,7 @@ function signingKeyId(der) {
   return `sha256:${createHash4("sha256").update(der).digest("hex")}`;
 }
 function signReport(report, privateKeyPath) {
-  const privateKey = createPrivateKey(readFileSync5(privateKeyPath));
+  const privateKey = createPrivateKey(readFileSync6(privateKeyPath));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signing key must be Ed25519");
   const publicKey = createPublicKey(privateKey);
   const der = publicKeyDer(publicKey);
@@ -1730,7 +1882,7 @@ function verifyReport(report, publicKeyPath) {
     type: "spki",
     format: "der"
   });
-  const selected = publicKeyPath ? createPublicKey(readFileSync5(publicKeyPath)) : embedded;
+  const selected = publicKeyPath ? createPublicKey(readFileSync6(publicKeyPath)) : embedded;
   const selectedDer = publicKeyDer(selected);
   const selectedId = signingKeyId(selectedDer);
   const signatureValid = selectedId === report.signature.keyId && verify(null, Buffer.from(report.receiptHash), selected, Buffer.from(report.signature.value, "base64"));
@@ -1745,7 +1897,7 @@ function generateSigningKey(privatePath, publicPath) {
   writeFileSync4(publicPath, publicPem, { flag: "wx" });
 }
 function publicKeyId(publicKeyPath) {
-  const publicKey = createPublicKey(readFileSync5(publicKeyPath));
+  const publicKey = createPublicKey(readFileSync6(publicKeyPath));
   if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("public key must be Ed25519");
   return signingKeyId(publicKeyDer(publicKey));
 }
@@ -1758,7 +1910,7 @@ import {
   sign as sign2,
   verify as verify2
 } from "node:crypto";
-import { readFileSync as readFileSync6 } from "node:fs";
+import { readFileSync as readFileSync7 } from "node:fs";
 var SHA256 = /^sha256:[0-9a-f]{64}$/;
 function digest(value) {
   return `sha256:${createHash5("sha256").update(canonical(value)).digest("hex")}`;
@@ -1772,7 +1924,7 @@ function createPortableReceipt(report, privateKeyPath) {
   if (!report.repository.tree) {
     throw new Error("portable receipt requires a committed head tree; rerun with --head <sha> instead of WORKTREE");
   }
-  const privateKey = createPrivateKey2(readFileSync6(privateKeyPath));
+  const privateKey = createPrivateKey2(readFileSync7(privateKeyPath));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signing key must be Ed25519");
   const publicKey = createPublicKey2(privateKey);
   const der = publicKeyDer(publicKey);
@@ -1839,7 +1991,7 @@ function verifyPortableReceipt(receipt, trustedKeyIds = []) {
 
 // src/gate.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
-import { relative as relative3, resolve as resolve4, sep as sep2 } from "node:path";
+import { relative as relative3, resolve as resolve5, sep as sep3 } from "node:path";
 function git4(repo, args) {
   try {
     return execFileSync5("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -1858,13 +2010,13 @@ function result(subject, verdict, evidence, ruleId, blocksPass = false) {
   };
 }
 function receiptRelativePath(repo, path) {
-  const value = relative3(resolve4(repo), resolve4(path)).replaceAll("\\", "/");
-  if (!value || value === ".." || value.startsWith("../") || value.startsWith(`..${sep2}`)) return void 0;
+  const value = relative3(resolve5(repo), resolve5(path)).replaceAll("\\", "/");
+  if (!value || value === ".." || value.startsWith("../") || value.startsWith(`..${sep3}`)) return void 0;
   return value.replace(/^\.\//, "");
 }
 function buildPortableGateReport(receipt, options) {
-  const repo = resolve4(options.repo);
-  const receiptPath = resolve4(options.receiptPath);
+  const repo = resolve5(options.repo);
+  const receiptPath = resolve5(options.receiptPath);
   if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) {
     throw new Error(`invalid git range ${options.base}..${options.head}`);
   }
@@ -1968,9 +2120,9 @@ function buildPortableGateReport(receipt, options) {
 
 // src/maintainer.ts
 import { execFileSync as execFileSync6, spawnSync as spawnSync2 } from "node:child_process";
-import { cpSync, existsSync as existsSync4, lstatSync, mkdirSync as mkdirSync3, mkdtempSync as mkdtempSync2, readFileSync as readFileSync7, rmSync, statSync as statSync2 } from "node:fs";
+import { cpSync, existsSync as existsSync4, lstatSync as lstatSync2, mkdirSync as mkdirSync3, mkdtempSync as mkdtempSync2, readFileSync as readFileSync8, rmSync, statSync as statSync2 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname2, join as join2, normalize as normalize2, resolve as resolve5, sep as sep3 } from "node:path";
+import { dirname as dirname3, join as join3, normalize as normalize2, resolve as resolve6, sep as sep4 } from "node:path";
 var DEFAULT_TEST_PATTERNS = ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
 var MAX_COMMAND_OUTPUT = 12e3;
 function result2(kind, ruleId, subject, quote, verdict, evidence, options = {}) {
@@ -1981,7 +2133,7 @@ function loadPullRequestEvidence(path) {
   if (size > 2 * 1024 * 1024) throw new Error(`pull request event is ${size} bytes; maximum is ${2 * 1024 * 1024}`);
   let event;
   try {
-    event = JSON.parse(readFileSync7(path, "utf8"));
+    event = JSON.parse(readFileSync8(path, "utf8"));
   } catch {
     throw new Error(`pull request event is not valid JSON: ${path}`);
   }
@@ -2153,17 +2305,17 @@ function shell(command, cwd, timeoutMs) {
 }
 function unsafeOverlayPath(path) {
   const clean = normalize2(path);
-  return clean === ".." || clean.startsWith(`..${sep3}`) || resolve5("/safe", clean) === "/safe";
+  return clean === ".." || clean.startsWith(`..${sep4}`) || resolve6("/safe", clean) === "/safe";
 }
 function overlayTests(headWorktree, baseWorktree, paths) {
   for (const path of paths) {
     if (unsafeOverlayPath(path)) return `unsafe overlay path: ${path}`;
-    const source = resolve5(headWorktree, path);
-    const target = resolve5(baseWorktree, path);
-    if (!source.startsWith(`${resolve5(headWorktree)}${sep3}`) || !target.startsWith(`${resolve5(baseWorktree)}${sep3}`)) return `overlay escaped worktree: ${path}`;
+    const source = resolve6(headWorktree, path);
+    const target = resolve6(baseWorktree, path);
+    if (!source.startsWith(`${resolve6(headWorktree)}${sep4}`) || !target.startsWith(`${resolve6(baseWorktree)}${sep4}`)) return `overlay escaped worktree: ${path}`;
     if (!existsSync4(source)) continue;
-    if (lstatSync(source).isSymbolicLink()) return `refusing to overlay symlink test path: ${path}`;
-    mkdirSync3(dirname2(target), { recursive: true });
+    if (lstatSync2(source).isSymbolicLink()) return `refusing to overlay symlink test path: ${path}`;
+    mkdirSync3(dirname3(target), { recursive: true });
     cpSync(source, target, { recursive: true, force: true });
   }
   return void 0;
@@ -2176,9 +2328,9 @@ function checkDifferentialTest(repo, base, head, testPaths, policy) {
   if (policy.overlayChangedTests !== false && testPaths.length === 0) {
     return result2("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "contradicted", "no changed test artifact is available to exercise against the base source");
   }
-  const root = mkdtempSync2(join2(tmpdir2(), "agent-vigil-differential-"));
-  const baseWorktree = join2(root, "base");
-  const headWorktree = join2(root, "head");
+  const root = mkdtempSync2(join3(tmpdir2(), "agent-vigil-differential-"));
+  const baseWorktree = join3(root, "base");
+  const headWorktree = join3(root, "head");
   const timeoutMs = (policy.timeoutSeconds ?? 300) * 1e3;
   let baseAdded = false;
   let headAdded = false;
@@ -2372,7 +2524,7 @@ function optionValue(args, name) {
 }
 function runInit(args) {
   try {
-    const repo = resolve6(optionValue(args, "--repo") ?? ".");
+    const repo = resolve7(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const profile = optionValue(args, "--profile") ?? "default";
     if (!(/* @__PURE__ */ new Set(["default", "maintainer"])).has(profile)) throw new Error("init --profile must be default or maintainer");
@@ -2380,7 +2532,7 @@ function runInit(args) {
     if (portable && profile === "maintainer") throw new Error("init --portable cannot be combined with --profile maintainer");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result3 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve6(publicKey)) : void 0, profile);
+    const result3 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve7(publicKey)) : void 0, profile);
     console.log("Agent Vigil initialized.\n");
     for (const path of result3.created) console.log(`  created ${path}`);
     for (const path of result3.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -2407,8 +2559,8 @@ function runMaintainer(args) {
     const eventOption = optionValue(args, "--event");
     if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
     const options = parseArgs(withoutOption(args.slice(1), "--event"));
-    const repo = resolve6(options.repo);
-    const eventPath = resolve6(eventOption);
+    const repo = resolve7(options.repo);
+    const eventPath = resolve7(eventOption);
     const policy = loadPolicy(repo, options.policy, options.policyRef);
     if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -2425,7 +2577,7 @@ function runMaintainer(args) {
       results.push(...checkWorkspaceMutation(repo, inputs));
     }
     results.push(...checkIntegrity(repo, base, head));
-    const rawEvent = readFileSync8(eventPath);
+    const rawEvent = readFileSync9(eventPath);
     const eventHash = `sha256:${createHash6("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
     const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
@@ -2465,7 +2617,7 @@ function runMaintainer(args) {
 }
 function runDoctor(args) {
   try {
-    const repo = resolve6(optionValue(args, "--repo") ?? ".");
+    const repo = resolve7(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -2479,9 +2631,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve6(privatePath), resolve6(publicPath));
+    generateSigningKey(resolve7(privatePath), resolve7(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve6(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve7(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -2499,10 +2651,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve6(options.repo, receiptPath);
-    const receipt = JSON.parse(readFileSync8(absoluteReceipt, "utf8"));
+    const absoluteReceipt = resolve7(options.repo, receiptPath);
+    const receipt = JSON.parse(readFileSync9(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve6(options.repo),
+      repo: resolve7(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -2521,10 +2673,10 @@ function runVerify(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync8(resolve6(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync9(resolve7(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result3 = verifyReport(report, publicKey ? resolve6(publicKey) : void 0);
+    const result3 = verifyReport(report, publicKey ? resolve7(publicKey) : void 0);
     console.log(`Receipt hash: ${result3.hashValid ? "VALID" : "INVALID"}`);
     if (result3.signatureValid !== void 0) {
       console.log(`Ed25519 signature: ${result3.signatureValid ? "VALID" : "INVALID"} \xB7 ${result3.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
@@ -2571,7 +2723,7 @@ function run(argv = process.argv.slice(2)) {
 ${usage()}`);
     return 2;
   }
-  const repo = resolve6(options.repo);
+  const repo = resolve7(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -2588,7 +2740,7 @@ ${usage()}`);
     console.error(usage());
     return 2;
   }
-  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve6(repo, transcript);
+  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve7(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
@@ -2614,8 +2766,8 @@ ${usage()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve6(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve6(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve7(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve7(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -2659,12 +2811,12 @@ ${usage()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve6(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve7(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve6(options.signingKey));
-      const portablePath = resolve6(repo, options.portableOutput);
-      mkdirSync4(dirname3(portablePath), { recursive: true });
+      const portable = createPortableReceipt(report, resolve7(options.signingKey));
+      const portablePath = resolve7(repo, options.portableOutput);
+      mkdirSync4(dirname4(portablePath), { recursive: true });
       writeFileSync5(portablePath, `${JSON.stringify(portable, null, 2)}
 `);
     }
@@ -2678,7 +2830,7 @@ ${usage()}`);
 function isMainModule() {
   if (!process.argv[1]) return false;
   try {
-    return realpathSync2(process.argv[1]) === realpathSync2(fileURLToPath(import.meta.url));
+    return realpathSync3(process.argv[1]) === realpathSync3(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }

@@ -1,0 +1,83 @@
+name: "Agent Vigil"
+description: "Fail-closed evidence receipt for AI coding-agent sessions"
+author: "Tim Sullivan"
+branding:
+  icon: "shield"
+  color: "green"
+inputs:
+  transcript:
+    description: "Agent transcript (.jsonl) or summary (.md)"
+    required: true
+  repo:
+    description: "Repository path to verify"
+    required: false
+    default: "."
+  base:
+    description: "Baseline commit"
+    required: false
+    default: "HEAD~1"
+  head:
+    description: "Head commit"
+    required: false
+    default: "HEAD"
+  test-cmd:
+    description: "Explicit test command; executes repository code"
+    required: false
+  strict:
+    description: "Treat unresolved claims as INCONCLUSIVE"
+    required: false
+    default: "true"
+  min-verified:
+    description: "Minimum objective verified claims"
+    required: false
+    default: "1"
+outputs:
+  status:
+    description: "PASS, FAIL, or INCONCLUSIVE"
+    value: ${{ steps.vigil.outputs.status }}
+  receipt-hash:
+    description: "Deterministic SHA-256 receipt identifier"
+    value: ${{ steps.vigil.outputs.receipt_hash }}
+  report:
+    description: "Path to the JSON receipt"
+    value: ${{ steps.vigil.outputs.report }}
+runs:
+  using: "composite"
+  steps:
+    - id: vigil
+      shell: bash
+      env:
+        VIGIL_TRANSCRIPT: ${{ inputs.transcript }}
+        VIGIL_REPO: ${{ inputs.repo }}
+        VIGIL_BASE: ${{ inputs.base }}
+        VIGIL_HEAD: ${{ inputs.head }}
+        VIGIL_TEST_CMD: ${{ inputs.test-cmd }}
+        VIGIL_STRICT: ${{ inputs.strict }}
+        VIGIL_MIN_VERIFIED: ${{ inputs.min-verified }}
+      run: |
+        args=("$VIGIL_TRANSCRIPT" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output agent-vigil-report.json --sarif agent-vigil.sarif --github-summary --min-verified "$VIGIL_MIN_VERIFIED")
+        if [[ -n "$VIGIL_TEST_CMD" ]]; then args+=(--test-cmd "$VIGIL_TEST_CMD"); fi
+        if [[ "$VIGIL_STRICT" == "true" ]]; then args+=(--strict); fi
+
+        set +e
+        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
+        code=$?
+        set -e
+
+        if [[ -s agent-vigil-report.json ]]; then
+          status=$(node -e 'const r=require("./agent-vigil-report.json"); process.stdout.write(r.summary.status)')
+          receipt_hash=$(node -e 'const r=require("./agent-vigil-report.json"); process.stdout.write(r.receiptHash)')
+          report_path="$PWD/agent-vigil-report.json"
+        else
+          # Preserve the verifier's original diagnostic and exit code when
+          # parsing or configuration fails before a receipt can be written.
+          status="INCONCLUSIVE"
+          receipt_hash="unavailable"
+          report_path=""
+        fi
+        {
+          echo "status=$status"
+          echo "receipt_hash=$receipt_hash"
+          echo "report=$report_path"
+        } >> "$GITHUB_OUTPUT"
+        exit "$code"

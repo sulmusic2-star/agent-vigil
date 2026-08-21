@@ -1,6 +1,6 @@
 {
   "name": "agent-vigil",
-  "version": "0.8.0",
+  "version": "0.6.0",
   "description": "Fail-closed, deterministic evidence receipts for AI coding-agent sessions.",
   "type": "module",
   "bin": {
@@ -16,9 +16,7 @@
     "smoke": "node dist/cli.js demo",
     "prepack": "npm run build",
     "lab:ecosystems": "python3 scripts/ecosystem_lab.py",
-    "test:package": "python3 scripts/package_smoke.py",
-    "proof:historical": "node scripts/historical_proof.mjs",
-    "demo:60s": "node scripts/demo_60s.mjs"
+    "test:package": "python3 scripts/package_smoke.py"
   },
   "keywords": [
     "ai-agents",
@@ -41,11 +39,10 @@
     "dist",
     "action.yml",
     "README.md",
-    "ADOPTERS.md",
     "LICENSE",
     "docs",
     "examples",
-    "scripts/public_adoption_census.py"
+    "scripts"
   ],
   "repository": {
     "type": "git",
@@ -54,7 +51,7 @@
   "bugs": {
     "url": "https://github.com/sulmusic2-star/agent-vigil/issues"
   },
-  "homepage": "https://sulmusic2-star.github.io/agent-vigil/",
+  "homepage": "https://github.com/sulmusic2-star/agent-vigil#readme",
   "devDependencies": {
     "@types/node": "^24.3.0",
     "esbuild": "^0.25.9",

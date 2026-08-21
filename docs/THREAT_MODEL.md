@@ -80,6 +80,17 @@ permissions:
 Use an isolated runner for hostile repositories. Agent Vigil is a verifier, not
 a sandbox.
 
+Receipt, SARIF, and GitHub-summary output paths are treated as security
+boundaries. Agent Vigil refuses direct symlinks, untrusted symlinked parent
+components, and non-regular destinations. It writes complete content to an
+exclusive temporary file in the destination directory, flushes it, and
+atomically replaces the final path. POSIX files use mode `0600`; Windows files
+inherit the parent ACL and therefore require a private output directory for
+sensitive receipts. This prevents output redirection and
+partial-file exposure for this filesystem class. It does not defend against a
+privileged process that can mutate the directory concurrently or against code
+executed by the selected test command.
+
 Maintainer differential mode creates detached temporary worktrees for the exact
 base and head commits. When `overlayChangedTests` is enabled, non-symlink
 changed test artifacts from head are copied into the base worktree before the

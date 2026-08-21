@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "corpusDate": "2026-08-21",
+  "scope": "Three first-party Agent Vigil release failures; not external adoption evidence.",
+  "result": "PASS",
+  "cases": [
+    {
+      "id": "stale-action-artifact",
+      "vulnerable": "cadf7d4243c8c923858ea19f76bc018d9ed77cd4",
+      "corrected": "3a581e8a19e113922e82cda93fefdde41c6d1422",
+      "observed": {
+        "vulnerableSnapshotMatchesGitBlob": true,
+        "correctedSnapshotMatchesGitBlob": true,
+        "vulnerableUsesFreshDirectory": false,
+        "correctedUsesFreshDirectory": true
+      },
+      "primaryEvidence": "https://github.com/sulmusic2-star/agent-vigil/actions/runs/32413169909"
+    },
+    {
+      "id": "package-contamination",
+      "vulnerable": "8307eba6746d332a653adf58edbd9cafad11a932",
+      "corrected": "4c505311340e7fd2bc63c5dccd39d78739dc0f12",
+      "observed": {
+        "vulnerableSnapshotMatchesGitBlob": true,
+        "correctedSnapshotMatchesGitBlob": true,
+        "vulnerablePackContainsPlantedPyc": true,
+        "correctedPackContainsPlantedPyc": false
+      },
+      "primaryEvidence": "https://github.com/sulmusic2-star/agent-vigil/pull/10"
+    },
+    {
+      "id": "output-symlink",
+      "vulnerable": "df04e2a6d9a45909fbac965f1771b1e0b9450224",
+      "corrected": "a7c96e36f58dda02e83f71f04abaf10fc8e45d9e",
+      "observed": {
+        "correctedRejectsDirectSymlinkAndPreservesTarget": true
+      },
+      "primaryEvidence": "proof/cases/03-output-symlink.md"
+    }
+  ]
+}

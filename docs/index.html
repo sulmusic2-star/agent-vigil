@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Agent Vigil is a deterministic merge gate for claims made by AI coding agents.">
+  <title>Agent Vigil — make the proof true</title>
+  <style>
+    :root { --ink:#07100f; --panel:#0d1b18; --grid:#17322c; --mint:#8fffc1; --amber:#ffcb6b; --red:#ff6b66; --paper:#e8f1ed; --muted:#86a39a; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--paper); background:var(--ink); font:16px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.28; background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px); background-size:60px 60px; mask-image:linear-gradient(to bottom,#000,transparent 75%); }
+    a { color:var(--mint); text-underline-offset:4px; }
+    .wrap { width:min(1160px,calc(100% - 40px)); margin:auto; position:relative; }
+    nav { display:flex; justify-content:space-between; align-items:center; padding:24px 0; border-bottom:1px solid var(--grid); }
+    .brand { color:var(--paper); text-decoration:none; font-weight:800; letter-spacing:.08em; }
+    .brand::before { content:"■"; color:var(--mint); margin-right:10px; }
+    nav div { display:flex; gap:22px; }
+    nav div a { color:var(--muted); text-decoration:none; font-size:14px; }
+    main { padding-bottom:100px; }
+    .hero { display:grid; grid-template-columns:1.05fr .95fr; gap:54px; align-items:center; min-height:710px; padding:72px 0; }
+    .hero > *, .install > * { min-width:0; }
+    .eyebrow { color:var(--mint); letter-spacing:.16em; text-transform:uppercase; font-size:13px; font-weight:800; }
+    h1 { margin:18px 0 24px; max-width:800px; font-size:clamp(52px,7vw,94px); line-height:.93; letter-spacing:-.07em; }
+    h1 span { display:block; color:var(--mint); }
+    .lead { max-width:650px; color:#b8cbc4; font:20px/1.6 system-ui,sans-serif; }
+    .actions { display:flex; gap:14px; flex-wrap:wrap; margin:34px 0; }
+    .button { display:inline-block; padding:14px 18px; border:1px solid var(--mint); background:var(--mint); color:var(--ink); text-decoration:none; font-weight:850; }
+    .button.secondary { background:transparent; color:var(--mint); }
+    .terminal { min-width:0; max-width:100%; border:1px solid #2c5b50; background:rgba(13,27,24,.92); box-shadow:14px 14px 0 #020706; }
+    .terminal header { padding:12px 16px; color:var(--muted); border-bottom:1px solid var(--grid); font-size:12px; }
+    .terminal pre { margin:0; padding:26px; overflow:auto; font-size:14px; line-height:1.75; white-space:pre-wrap; }
+    .ok { color:var(--mint); } .warn { color:var(--amber); } .fail { color:var(--red); }
+    .status { display:grid; grid-template-columns:repeat(3,1fr); border-block:1px solid var(--grid); }
+    .status div { padding:23px; border-right:1px solid var(--grid); }
+    .status div:last-child { border:0; }
+    .status b { display:block; font-size:22px; }
+    section { padding:84px 0 0; scroll-margin-top:30px; }
+    h2 { font-size:clamp(34px,5vw,60px); letter-spacing:-.045em; line-height:1.05; max-width:850px; }
+    .section-lead { max-width:780px; color:#b8cbc4; font:18px/1.65 system-ui,sans-serif; }
+    .demo { width:100%; margin-top:30px; display:block; border:1px solid #2c5b50; }
+    .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:30px; }
+    .card { display:flex; flex-direction:column; min-height:270px; padding:24px; border:1px solid var(--grid); background:rgba(13,27,24,.76); }
+    .card .number { color:var(--mint); font-weight:850; }
+    .card h3 { font-size:22px; line-height:1.25; }
+    .card p { color:#b8cbc4; font-family:system-ui,sans-serif; }
+    .card a { margin-top:auto; }
+    .install { display:grid; grid-template-columns:.8fr 1.2fr; gap:50px; align-items:start; }
+    code { color:var(--paper); }
+    .command { display:block; padding:22px; background:#020706; border-left:5px solid var(--mint); white-space:pre-wrap; overflow-wrap:anywhere; }
+    .fine { color:var(--muted); font-size:13px; }
+    footer { margin-top:100px; padding:30px 0; border-top:1px solid var(--grid); color:var(--muted); font-size:13px; }
+    @media (max-width:850px) { body { overflow-x:hidden; } .hero,.install { grid-template-columns:1fr; } .hero { min-height:auto; } .cards { grid-template-columns:1fr; } .status { grid-template-columns:1fr; } .status div { border-right:0; border-bottom:1px solid var(--grid); } nav div { display:none; } }
+    @media (max-width:520px) { h1 { font-size:44px; letter-spacing:-.055em; } .hero { gap:38px; padding-top:54px; } .actions { flex-direction:column; } .button { width:100%; text-align:center; } .terminal pre { padding:20px 16px; font-size:12px; } }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav aria-label="Primary">
+      <a class="brand" href="#top">AGENT VIGIL</a>
+      <div><a href="#proof">Proof</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
+    </nav>
+    <main id="top">
+      <div class="hero">
+        <div>
+          <p class="eyebrow">Deterministic evidence gate</p>
+          <h1>The agent said done. <span>Make the proof true.</span></h1>
+          <p class="lead">Agent Vigil compares an AI coding agent’s claims with the exact Git change, fresh tests, and base-anchored policy. Missing proof never becomes a green check.</p>
+          <div class="actions">
+            <a class="button" href="#install">Install the gate</a>
+            <a class="button secondary" href="#proof">Inspect failures</a>
+          </div>
+          <p class="fine">Open source · local-first · zero runtime dependencies · no model grading another model</p>
+        </div>
+        <div class="terminal" aria-label="Example failed receipt">
+          <header>agent-vigil-report.json / exact base ↔ head</header>
+          <pre><span class="warn">CLAIM</span>  All 99 tests pass.
+
+<span class="fail">✗ test-count</span>
+  claimed 99 / runner observed 42
+
+<span class="fail">✗ differential-base-fail</span>
+  changed test also passes on base
+
+<span class="ok">✓ integrity-scan</span>
+  verification surface unchanged
+
+<span class="fail">FAIL</span> · sha256:c3128a2c6abc…</pre>
+        </div>
+      </div>
+      <div class="status" aria-label="Verdict meanings">
+        <div><b class="ok">PASS</b>Required objective evidence exists; no contradiction found.</div>
+        <div><b class="fail">FAIL</b>Observed repository or runner evidence contradicts a claim.</div>
+        <div><b class="warn">INCONCLUSIVE</b>Evidence is absent, malformed, stale, or below policy.</div>
+      </div>
+
+      <section id="proof">
+        <p class="eyebrow">Dogfood the control</p>
+        <h2>Failures stay public. Corrections stay reproducible.</h2>
+        <p class="section-lead">Three first-party release failures show the standard: publish the claim, exact vulnerable and corrected revisions, maintainer disposition, negative control, and remaining limit. These cases are not counted as external adoption.</p>
+        <img class="demo" src="assets/agent-vigil-demo.gif" width="1200" height="675" alt="Illustrative six-frame Agent Vigil demo: an agent claims 99 passing tests, fresh evidence reports 42 and a regression that also passes on base, producing FAIL and a remediation path.">
+        <div class="cards">
+          <article class="card"><span class="number">CASE 01</span><h3>Stale Action artifact returned a false PASS</h3><p>Malformed evidence reused an earlier run’s receipt. Hosted CI blocked v0.4 until every invocation received a fresh artifact directory.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/proof/cases/01-stale-action-artifact.md">Exact SHAs and runs →</a></article>
+          <article class="card"><span class="number">CASE 02</span><h3>Local bytecode contaminated the package</h3><p>A broad package allowlist captured publisher-machine state. The release stopped and a planted-contamination replay became a gate.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/proof/cases/02-package-contamination.md">Exact package controls →</a></article>
+          <article class="card"><span class="number">CASE 03</span><h3>Receipt output followed a symlink</h3><p>An adversarial filesystem fixture overwrote the link target. v0.8 rejects unsafe destinations and replaces outputs atomically, with POSIX mode 0600.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/proof/cases/03-output-symlink.md">Reproduction and limit →</a></article>
+        </div>
+      </section>
+
+      <section id="install" class="install">
+        <div><p class="eyebrow">Two-minute setup</p><h2>One command. One reviewable policy.</h2><p class="section-lead">The maintainer profile adds exact-SHA workflow identity, human responsibility declarations, change budgets, and a differential base-fail/head-pass regression gate.</p></div>
+        <div>
+          <code class="command">npx --yes github:sulmusic2-star/agent-vigil#v0.8.0 init --profile maintainer</code>
+          <p>Then run <code>npx --yes github:sulmusic2-star/agent-vigil#v0.8.0 doctor</code> and review every generated command before merging.</p>
+          <p class="fine">The GitHub package route is shown until the npm package is confirmed live. Repository test commands execute repository code; Agent Vigil is not a sandbox.</p>
+          <div class="actions">
+            <a class="button" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml">Report a real trial</a>
+            <a class="button secondary" href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/THREAT_MODEL.md">Read the threat model</a>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>Agent Vigil is evidence infrastructure, not an authorship detector, semantic-correctness oracle, or sandbox. Public adoption counts require independently verifiable repository evidence.</footer>
+  </div>
+</body>
+</html>
