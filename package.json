@@ -1,6 +1,6 @@
 {
   "name": "agent-vigil",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Fail-closed, deterministic evidence receipts for AI coding-agent sessions.",
   "type": "module",
   "bin": {
@@ -44,6 +44,7 @@
     "dist",
     "action.yml",
     "README.md",
+    "CHANGELOG.md",
     "ADOPTERS.md",
     "LICENSE",
     "benchmarks",

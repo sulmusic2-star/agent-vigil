@@ -25,3 +25,7 @@ The v2 JSON Schema is [`receipt-v2.schema.json`](receipt-v2.schema.json).
 Breaking changes will increment `schemaVersion`. Schema v1 receipts remain
 historical artifacts; `vigil verify` intentionally accepts v2 only because v1
 did not expose enough material to recompute its content hash independently.
+
+v0.10 adds a separate receipt-delta schema. It compares two intact receipt-v2
+documents, detects policy and invariant-control regression, and preserves
+PASS/FAIL/INCONCLUSIVE semantics. See [`RECEIPT_DELTAS.md`](RECEIPT_DELTAS.md).

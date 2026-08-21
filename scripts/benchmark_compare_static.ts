@@ -25,6 +25,7 @@ type PairRow = {
 const AGENT_RULES: Record<string, string[]> = {
   "assertion-strip": ["assertion-drop"],
   "cheat-mock-mutation": ["subject-mocked"],
+  "comment-only-fix": ["comment-only-change"],
   "dead-branch-insertion": ["dead-branch-added"],
   "error-swallow": ["error-swallowed"],
   "exception-rethrow-lost-context": ["exception-context-lost"],
@@ -61,6 +62,9 @@ function interval(successes: number, trials: number) {
 }
 function gitSha(root: string): string {
   return execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+}
+function gitDirty(root: string): boolean {
+  return execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: root, encoding: "utf8" }).trim().length > 0;
 }
 function verifyFile(path: string, expected: string | undefined): void {
   if (!expected) throw new Error(`protocol lacks a digest for ${path}`);
@@ -103,12 +107,19 @@ function categoryRows<T extends { category: string; agent: DetectorResult; swarm
 }
 
 const swarmRootOption = option("--swarm-root");
-if (!swarmRootOption) throw new Error("usage: npm run benchmark:compare -- --swarm-root <swarm-orchestrator> [--output <json>] [--skip-wild]");
+if (!swarmRootOption) throw new Error("usage: npm run benchmark:compare -- --swarm-root <swarm-orchestrator> [--output <json>] [--skip-wild] [--post-change] [--generated-at <ISO-8601>]");
 const repoRoot = resolve(import.meta.dirname, "..");
 const swarmRoot = resolve(swarmRootOption);
 const protocolPath = resolve(option("--protocol") ?? join(repoRoot, "benchmarks/comparative/protocol-v1.json"));
 const protocol = JSON.parse(readFileSync(protocolPath, "utf8")) as Protocol;
-if (VERSION !== protocol.agentVigil.version) throw new Error(`Agent Vigil version ${VERSION} does not match frozen ${protocol.agentVigil.version}`);
+const generatedAt = option("--generated-at") ?? new Date().toISOString();
+if (Number.isNaN(Date.parse(generatedAt))) throw new Error("--generated-at must be an ISO-8601 timestamp");
+const evaluatedAgentCommit = gitSha(repoRoot);
+const evaluatedAgentDirty = gitDirty(repoRoot);
+const postChange = process.argv.includes("--post-change");
+if (VERSION !== protocol.agentVigil.version && !postChange) {
+  throw new Error(`Agent Vigil version ${VERSION} does not match frozen ${protocol.agentVigil.version}; use --post-change only for a separately labeled hardening result`);
+}
 execFileSync("git", ["merge-base", "--is-ancestor", protocol.agentVigil.commit, "HEAD"], { cwd: repoRoot });
 if (gitSha(swarmRoot) !== protocol.swarm.commit) throw new Error("Swarm checkout does not match frozen commit");
 const swarmPackage = JSON.parse(readFileSync(join(swarmRoot, "package.json"), "utf8")) as { version: string };
@@ -219,9 +230,12 @@ try {
   };
   const result = {
     schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     protocol: { path: "benchmarks/comparative/protocol-v1.json", sha256: fileSha256(protocolPath) },
-    tools: { agentVigil: protocol.agentVigil, swarm: protocol.swarm },
+    tools: {
+      agentVigil: { ...protocol.agentVigil, evaluatedVersion: VERSION, evaluatedCommit: evaluatedAgentCommit, evaluatedWithTrackedChanges: evaluatedAgentDirty },
+      swarm: protocol.swarm,
+    },
     caveats: [
       "Maintainer-authored comparison on competitor-authored, non-blind corpora; not independent validation.",
       "Presumed-clean PRs are not adjudicated negatives; advisory rate is not a false-positive rate.",
@@ -276,10 +290,11 @@ try {
   mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`);
   const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+  const resultLabel = basename(output, ".json").replaceAll("-", " ");
   const markdown = [
-    "# Static audit comparison baseline v1",
+    `# Static audit comparison ${resultLabel}`,
     "",
-    `Protocol: \`${result.protocol.sha256}\` · Agent Vigil ${VERSION} · Swarm ${protocol.swarm.version} at \`${protocol.swarm.commit}\``,
+    `Protocol: \`${result.protocol.sha256}\` · Agent Vigil ${VERSION} evaluated at \`${evaluatedAgentCommit}\`${evaluatedAgentDirty ? " with tracked changes" : ""} · Swarm ${protocol.swarm.version} at \`${protocol.swarm.commit}\``,
     "",
     "> Maintainer-authored, non-blind comparison on competitor-authored corpora. This does not establish objective universal superiority or any financial outcome.",
     "",
