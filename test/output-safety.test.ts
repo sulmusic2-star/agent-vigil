@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import {
   chmodSync,
@@ -32,12 +32,31 @@ function report() {
   });
 }
 
-test("report output rejects a symlink and preserves its target", () => {
+function symlinkOrSkip(
+  context: TestContext,
+  target: string,
+  path: string,
+  type: "file" | "dir" | "junction",
+): boolean {
+  try {
+    symlinkSync(target, path, type);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EACCES" || code === "UNKNOWN") {
+      context.skip(`host does not permit ${type} creation (${code})`);
+      return false;
+    }
+    throw error;
+  }
+}
+
+test("report output rejects a symlink and preserves its target", (context) => {
   const directory = mkdtempSync(join(tmpdir(), "vigil-output-symlink-"));
   const target = join(directory, "private-target.txt");
   const output = join(directory, "receipt.json");
   writeFileSync(target, "must remain unchanged\n");
-  symlinkSync(target, output);
+  if (!symlinkOrSkip(context, target, output, "file")) return;
 
   assert.throws(
     () => writeOutputs(report(), { output }),
@@ -48,7 +67,7 @@ test("report output rejects a symlink and preserves its target", () => {
   assert.deepEqual(readdirSync(directory).sort(), ["private-target.txt", "receipt.json"]);
 });
 
-test("report output rejects a symlinked parent and preserves the outside target", () => {
+test("report output rejects a symlinked parent and preserves the outside target", (context) => {
   const directory = mkdtempSync(join(tmpdir(), "vigil-output-parent-symlink-"));
   const repository = join(directory, "repo");
   const outside = join(directory, "outside");
@@ -57,7 +76,8 @@ test("report output rejects a symlinked parent and preserves the outside target"
   const target = join(outside, "authorized_keys");
   writeFileSync(target, "must remain unchanged\n");
   const artifacts = join(repository, "artifacts");
-  symlinkSync(outside, artifacts);
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  if (!symlinkOrSkip(context, outside, artifacts, linkType)) return;
 
   assert.throws(
     () => writeOutputs(report(), { output: join(artifacts, "authorized_keys") }),
