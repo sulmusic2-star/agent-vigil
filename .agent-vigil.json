@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "integrityMode": "advisory",
+  "testCommand": "npm test --silent",
+  "strict": true,
+  "minVerified": 1,
+  "maintainer": {
+    "requireHumanAttestation": true,
+    "requireLinkedIssue": true,
+    "requireAiDisclosure": true,
+    "maxChangedFiles": 30,
+    "maxChangedLines": 1200,
+    "requireTestChange": false,
+    "protectedPaths": [
+      ".agent-vigil.json"
+    ],
+    "testPathPatterns": [
+      "test/**",
+      "tests/**",
+      "__tests__/**",
+      "**/*.test.*",
+      "**/*.spec.*"
+    ]
+  }
+}
