@@ -19,8 +19,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      - name: Install dependencies for fresh verification
+        run: npm ci --ignore-scripts
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.11.0
+        # Bootstrap the hosted fix from its immutable commit. The follow-up
+        # pull request replaces this with the public v0.11.1 tag.
+        uses: sulmusic2-star/agent-vigil@59b579b1d7e85eb2e2875dd78fa0aa978edb1e4b
         with:
           mode: maintainer
           policy: .agent-vigil.json
