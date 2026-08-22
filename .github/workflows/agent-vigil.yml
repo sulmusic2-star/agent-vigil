@@ -22,9 +22,7 @@ jobs:
       - name: Install dependencies for fresh verification
         run: npm ci --ignore-scripts
       - id: vigil
-        # Bootstrap the hosted fix from its immutable commit. The follow-up
-        # pull request replaces this with the public v0.11.1 tag.
-        uses: sulmusic2-star/agent-vigil@59b579b1d7e85eb2e2875dd78fa0aa978edb1e4b
+        uses: sulmusic2-star/agent-vigil@v0.11.1
         with:
           mode: maintainer
           policy: .agent-vigil.json
