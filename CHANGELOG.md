@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.2 - 2026-08-22
+
+- Resolve downloaded outcome-receipt paths before loading them. This fixes the
+  generated outcome observer when `actions/download-artifact` writes the prior
+  receipt under a relative directory.
+- Exercise outcome mode with a relative receipt path in the composite-Action
+  regression test.
+
 ## 0.11.1 - 2026-08-22
 
 - Make generated maintainer workflows install locked dependencies with scripts

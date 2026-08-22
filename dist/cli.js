@@ -1212,7 +1212,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.11.1";
+var VERSION = "0.11.2";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;

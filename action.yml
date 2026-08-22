@@ -247,8 +247,8 @@ runs:
         fi
 
         if [[ -s "$report_file" ]]; then
-          status=$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.summary.status)' "$report_file")
-          receipt_hash=$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.receiptHash)' "$report_file")
+          status=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.summary.status)' "$report_file")
+          receipt_hash=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
           cp "$report_file" agent-vigil-report.json
           if [[ -s "$sarif_file" ]]; then cp "$sarif_file" agent-vigil.sarif; fi
           report_path="$PWD/agent-vigil-report.json"
@@ -309,7 +309,7 @@ runs:
           if [[ "$value_code" -le 2 && -s "$artifact_dir/value-card.json" ]]; then
             cp "$artifact_dir/value-card.json" agent-vigil-value-card.json
             value_card_path="$PWD/agent-vigil-value-card.json"
-            value_verdict=$(node -e 'const c=require(process.argv[1]); process.stdout.write(c.valueVerdict)' "$artifact_dir/value-card.json")
+            value_verdict=$(node -e 'const c=require(require("node:path").resolve(process.argv[1])); process.stdout.write(c.valueVerdict)' "$artifact_dir/value-card.json")
             node - "$artifact_dir/value-card.json" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'NODE'
         const c = require(process.argv[2]);
         const actions = c.github?.actionsRunDurationSeconds === undefined ? "unavailable" : `${c.github.actionsRunDurationSeconds}s run / ${c.github.actionsJobDurationSeconds ?? "?"}s jobs`;
