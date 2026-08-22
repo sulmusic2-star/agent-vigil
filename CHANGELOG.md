@@ -21,7 +21,12 @@
   App manifest. No hosted notary service is included in this release.
 - Added adversarial coverage for changed files, replayed commits, mismatched Git
   trees, wrong policies, altered receipts, and webhook signatures.
-
+- Reworked the public page and value-record HTML with readable body type,
+  restrained serif headings, plain wording, and no decorative gradients, pills,
+  soft shadows, or all-page monospace.
+- Added `npm run review:public` to check versions, public wording, local links,
+  accessibility labels, reading measure, and repeated template defaults. The
+  separate checklist still requires a named person to approve the exact change.
 
 ## 0.11.3 - 2026-08-22
 
