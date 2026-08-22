@@ -132,7 +132,7 @@ test("GitHub summary keeps existing content and becomes private", () => {
   }
 
   const written = readFileSync(summary, "utf8");
-  assert.match(written, /^existing step output\n# ✅ Agent Vigil: PASS/);
+  assert.match(written, /^existing step output\n### Agent Vigil: PASS/);
   if (process.platform !== "win32") {
     assert.equal(statSync(summary).mode & 0o777, 0o600);
   }

@@ -18,7 +18,7 @@ Markdown, SARIF, a deterministic hash, and optional Ed25519 signing.
 ## Install the authority profile
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.11.3 \
+npx --yes @sulmusic/agent-vigil@0.12.0 \
   init --profile authority
 ```
 

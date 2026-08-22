@@ -10,7 +10,7 @@ import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts
 type InitResult = { created: string[]; kept: string[] };
 type DoctorCheck = { status: "PASS" | "WARN" | "FAIL"; label: string; detail: string };
 
-function workflow(mode: "transcript" | "portable" | "maintainer" | "authority", setupCommand?: string): string { return `name: Agent Vigil
+function workflow(mode: "transcript" | "portable" | "maintainer" | "authority", setupCommand?: string, attest = false): string { return `name: Agent Vigil
 
 on:
   pull_request:
@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
   pull-requests: read
+${attest ? `  id-token: write
+  attestations: write
+  artifact-metadata: write
+` : ""}
 
 jobs:
   evidence:
@@ -36,7 +40,7 @@ ${mode === "maintainer" && setupCommand ? `      - name: Install dependencies fo
 ` : ""}      - id: vigil
         uses: sulmusic2-star/agent-vigil@v${VERSION}
         with:
-          ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : mode === "authority" ? "transcript: .agent-vigil/session.jsonl\n          authority-contract: .agent-vigil-authority.json\n          authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" : "transcript: .agent-vigil/session.md"}
+          ${attest ? "attest: true\n          " : ""}${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : mode === "authority" ? "transcript: .agent-vigil/session.jsonl\n          authority-contract: .agent-vigil-authority.json\n          authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
           policy-ref: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           repo: .
@@ -168,7 +172,7 @@ function writeScaffold(root: string, path: string, content: string, force: boole
   result.created.push(path);
 }
 
-export function initRepository(repo: string, force = false, portableSignerKeyId?: string, profile: "default" | "maintainer" | "authority" = "default"): InitResult {
+export function initRepository(repo: string, force = false, portableSignerKeyId?: string, profile: "default" | "maintainer" | "authority" = "default", attest = false): InitResult {
   const root = resolve(repo);
   try { execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" }); }
   catch { throw new Error(`not a Git repository: ${root}`); }
@@ -185,7 +189,7 @@ export function initRepository(repo: string, force = false, portableSignerKeyId?
   }
   if (mode === "authority") writeScaffold(root, ".agent-vigil-authority.json", authorityContractTemplate(), force, result);
   if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result);
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode, setupCommand), force, result);
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode, setupCommand, attest), force, result);
   writeScaffold(root, ".github/workflows/agent-vigil-outcomes.yml", outcomeWorkflow(), force, result);
   return result;
 }
@@ -300,6 +304,22 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
   });
   if (existsSync(workflow)) {
     const text = installedWorkflow;
+    const attestationEnabled = /^\s*attest:\s*true\s*$/m.test(text);
+    if (attestationEnabled) {
+      const permissionsPresent = /^\s*id-token:\s*write\s*$/m.test(text)
+        && /^\s*attestations:\s*write\s*$/m.test(text)
+        && /^\s*artifact-metadata:\s*write\s*$/m.test(text);
+      const repositoryWrite = /^\s*contents:\s*write\s*$/m.test(text);
+      checks.push({
+        status: !permissionsPresent ? "FAIL" : repositoryWrite ? "WARN" : "PASS",
+        label: "GitHub attestation",
+        detail: !permissionsPresent
+          ? "attest: true requires id-token, attestations, and artifact-metadata write permissions"
+          : repositoryWrite
+          ? "receipt signing is configured, but this workflow can also write repository contents; remove that permission unless another reviewed step requires it"
+          : "receipt attestation is enabled with the required GitHub permissions",
+      });
+    }
     const exactRange = /pull_request\.base\.sha/.test(text) && /pull_request\.head\.sha/.test(text);
     checks.push({
       status: exactRange ? "PASS" : "WARN",

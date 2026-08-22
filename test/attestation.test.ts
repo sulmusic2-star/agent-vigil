@@ -214,3 +214,62 @@ test("GitHub webhook signatures use HMAC-SHA256 and constant-length comparison",
   assert.equal(verifyWebhookSignature(secret, body, "not-sha256"), false);
   assert.equal(verifyWebhookSignature(secret, body, undefined), false);
 });
+
+test("attested init grants only the permissions needed for GitHub signing", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-attested-init-"));
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+  initRepository(root, false, undefined, "default", true);
+  const workflow = readFileSync(join(root, ".github/workflows/agent-vigil.yml"), "utf8");
+  assert.match(workflow, /attest: true/);
+  assert.match(workflow, /id-token: write/);
+  assert.match(workflow, /attestations: write/);
+  assert.match(workflow, /artifact-metadata: write/);
+  assert.doesNotMatch(workflow, /contents: write/);
+  assert.equal(doctorRepository(root).find((check) => check.label === "GitHub attestation")?.status, "PASS");
+
+  writeFileSync(join(root, ".github/workflows/agent-vigil.yml"), workflow.replace("contents: read", "contents: write"));
+  assert.equal(doctorRepository(root).find((check) => check.label === "GitHub attestation")?.status, "WARN");
+});
+
+test("CLI prepares, verifies, and notarizes one exact receipt", () => {
+  const fixture = receipt();
+  const predicatePath = join(fixture.root, "predicate.json");
+  assert.equal(run(["attest", fixture.path, "--predicate-output", predicatePath]), 0);
+  const ghCalls: string[][] = [];
+  const executeGh = (args: string[]) => {
+    ghCalls.push(args);
+    return JSON.stringify(verifiedGhOutput(fixture.path));
+  };
+  const verification = verifyGitHubAttestation(fixture.path, "owner/repository", {}, executeGh);
+  assert.equal(verification.valid, true);
+  const checkPath = join(fixture.root, "check.json");
+  const check = buildNotaryCheck(fixture.path, verification, HEAD, POLICY);
+  writeFileSync(checkPath, `${JSON.stringify(check, null, 2)}\n`);
+  assert.equal(check.name, "Agent Vigil verified");
+  assert.equal(check.head_sha, HEAD);
+  assert.equal(check.conclusion, "success");
+  assert.deepEqual(ghCalls[0].slice(0, 2), ["attestation", "verify"]);
+  assert.ok(ghCalls[0].includes("owner/repository/.github/workflows/agent-vigil.yml"));
+  assert.ok(ghCalls[0].includes("--deny-self-hosted-runners"));
+});
+
+test("GitHub verification reports bad trust settings and bad CLI output", () => {
+  const fixture = receipt();
+  assert.equal(run(["verify-attestation", fixture.path, "--signer-workflwo", "wrong"]), 2);
+  assert.equal(run(["attest", fixture.path, fixture.path, "--predicate-output", join(fixture.root, "bad.json")]), 2);
+  assert.throws(() => verifyGitHubAttestation(fixture.path, "not-a-repository"), /owner\/name/);
+  assert.throws(() => verifyGitHubAttestation(fixture.path, "owner/repository", { signerWorkflow: "wrong" }), /signer workflow/);
+
+  assert.throws(
+    () => verifyGitHubAttestation(fixture.path, "owner/repository", {}, () => {
+      const error = Object.assign(new Error("failed"), { stderr: "denied" });
+      throw error;
+    }),
+    /denied/,
+  );
+  assert.throws(
+    () => verifyGitHubAttestation(fixture.path, "owner/repository", {}, () => "not-json"),
+    /unreadable attestation JSON/,
+  );
+});

@@ -45,6 +45,13 @@ import {
 } from "./value.ts";
 import { buildGitHubEvidence, loadGitHubEvidence, type GitHubEvidenceInputs, type GitHubEvidenceSourceKind } from "./github-evidence.ts";
 import { compareValueCards, loadValueCard, renderValueComparisonHtml, renderValueComparisonText } from "./value-compare.ts";
+import {
+  ATTESTATION_PREDICATE_TYPE,
+  buildNotaryCheck,
+  loadReceipt,
+  verifyGitHubAttestation,
+  writeAttestationPredicate,
+} from "./attestation.ts";
 
 type Options = {
   transcript?: string;
@@ -70,12 +77,15 @@ function usage(): string {
 Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
-  vigil init [--repo <path>] [--force] [--portable --public-key <path>]
-  vigil init --profile maintainer [--repo <path>] [--force]
-  vigil init --profile authority [--repo <path>] [--force]
+  vigil init [--repo <path>] [--force] [--attest] [--portable --public-key <path>]
+  vigil init --profile maintainer [--repo <path>] [--force] [--attest]
+  vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
+  vigil attest <receipt.json> --predicate-output <path>
+  vigil verify-attestation <receipt.json> --repository <owner/name> [--signer-workflow <path>] [--allow-self-hosted]
+  vigil notary <receipt.json> --repository <owner/name> --head <sha> --policy-sha256 <digest> [--signer-workflow <path>] [--allow-self-hosted] [--output <path>]
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
   vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
@@ -177,13 +187,14 @@ function runInit(args: string[]): number {
   try {
     const repo = resolve(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
+    const attest = args.includes("--attest");
     const profile = optionValue(args, "--profile") ?? "default";
     if (!new Set(["default", "maintainer", "authority"]).has(profile)) throw new Error("init --profile must be default, maintainer, or authority");
     const publicKey = optionValue(args, "--public-key");
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer" | "authority");
+    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer" | "authority", attest);
     console.log("Agent Vigil initialized.\n");
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -193,7 +204,12 @@ function runInit(args: string[]): number {
       ? "\nNext: replace the task ID, paths, action classes, and expiry; point the workflow at a structured agent transcript; merge the contract before the code change."
       : portable
       ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output."
+      : attest
+      ? "\nNext: replace .agent-vigil/session.md with real evidence, push one PR, verify its GitHub attestation, then require the Agent Vigil evidence status check."
       : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
+    if (attest && profile !== "default") {
+      console.log("Next for signing: push one pull request, download agent-vigil-report.json, and run vigil verify-attestation before making the check required.");
+    }
     return 0;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
@@ -344,6 +360,97 @@ function runVerify(args: string[]): number {
       if (!result.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
     } else console.log("Signature: absent (content hash only)");
     return result.hashValid && result.signatureValid !== false ? 0 : 1;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function parseCommandArgs(args: string[], valueOptions: Set<string>, booleanOptions = new Set<string>()): {
+  positional: string[];
+  values: Map<string, string>;
+  flags: Set<string>;
+} {
+  const positional: string[] = [];
+  const values = new Map<string, string>();
+  const flags = new Set<string>();
+  for (let index = 1; index < args.length; index++) {
+    const arg = args[index];
+    if (!arg.startsWith("--")) {
+      positional.push(arg);
+      continue;
+    }
+    if (valueOptions.has(arg)) {
+      if (values.has(arg)) throw new Error(`duplicate option: ${arg}`);
+      const value = args[++index];
+      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+      values.set(arg, value);
+      continue;
+    }
+    if (booleanOptions.has(arg)) {
+      if (flags.has(arg)) throw new Error(`duplicate option: ${arg}`);
+      flags.add(arg);
+      continue;
+    }
+    throw new Error(`unknown option: ${arg}`);
+  }
+  return { positional, values, flags };
+}
+
+function runAttest(args: string[]): number {
+  try {
+    const parsed = parseCommandArgs(args, new Set(["--predicate-output"]));
+    const predicateOutput = parsed.values.get("--predicate-output");
+    if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest requires <receipt.json> and --predicate-output <path>");
+    const receiptPath = parsed.positional[0];
+    const predicate = writeAttestationPredicate(resolve(receiptPath), resolve(predicateOutput));
+    console.log("Agent Vigil attestation predicate prepared.");
+    console.log(`  receipt:  ${predicate.receipt.receiptHash}`);
+    console.log(`  decision: ${predicate.receipt.status}`);
+    console.log(`  change:   ${predicate.receipt.base}..${predicate.receipt.head}`);
+    console.log(`  output:   ${predicateOutput}`);
+    console.log(`  type:     ${ATTESTATION_PREDICATE_TYPE}`);
+    console.log("The predicate contains hashes, SHAs, counts, and the decision. It does not contain source code, prompts, or transcript text.");
+    return 0;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runVerifyAttestation(args: string[]): number {
+  try {
+    const parsed = parseCommandArgs(args, new Set(["--repository", "--signer-workflow"]), new Set(["--allow-self-hosted"]));
+    const repository = parsed.values.get("--repository") ?? process.env.GITHUB_REPOSITORY;
+    if (parsed.positional.length !== 1 || !repository) throw new Error("verify-attestation requires <receipt.json> and --repository <owner/name>");
+    const receiptPath = parsed.positional[0];
+    const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository}/.github/workflows/agent-vigil.yml`;
+    const verification = verifyGitHubAttestation(resolve(receiptPath), repository, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const { report } = loadReceipt(resolve(receiptPath));
+    console.log(`GitHub attestation: ${verification.valid ? "VALID" : "INVALID"}`);
+    console.log(`Receipt file: ${verification.subjectDigestValid ? "VALID" : "INVALID"}`);
+    console.log(`Receipt contents: ${verification.receiptHashValid && verification.predicateValid ? "VALID" : "INVALID"}`);
+    console.log(`Decision: ${report.summary.status}`);
+    console.log(`Change: ${report.base}..${report.head}`);
+    console.log(`Receipt: ${report.receiptHash}`);
+    console.log(`Signer workflow: ${signerWorkflow}`);
+    return verification.valid ? 0 : 1;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runNotary(args: string[]): number {
+  try {
+    const values = new Set(["--repository", "--head", "--policy-sha256", "--signer-workflow", "--output"]);
+    const parsed = parseCommandArgs(args, values, new Set(["--allow-self-hosted"]));
+    const repository = parsed.values.get("--repository") ?? process.env.GITHUB_REPOSITORY;
+    const head = parsed.values.get("--head");
+    const policySha256 = parsed.values.get("--policy-sha256");
+    if (parsed.positional.length !== 1 || !repository || !head || !policySha256) {
+      throw new Error("notary requires <receipt.json>, --repository <owner/name>, --head <sha>, and --policy-sha256 <digest>");
+    }
+    const receiptPath = parsed.positional[0];
+    const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository}/.github/workflows/agent-vigil.yml`;
+    const verification = verifyGitHubAttestation(resolve(receiptPath), repository, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const payload = buildNotaryCheck(resolve(receiptPath), verification, head, policySha256);
+    const rendered = `${JSON.stringify(payload, null, 2)}\n`;
+    const output = parsed.values.get("--output");
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return payload.conclusion === "success" ? 0 : payload.conclusion === "failure" ? 1 : 2;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -721,6 +828,9 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
+  if (argv[0] === "attest") return runAttest(argv);
+  if (argv[0] === "verify-attestation") return runVerifyAttestation(argv);
+  if (argv[0] === "notary") return runNotary(argv);
   if (argv[0] === "compare") return runCompare(argv);
   if (argv[0] === "github-evidence") return runGitHubEvidence(argv);
   if (argv[0] === "value") return runValue(argv);
