@@ -89,6 +89,8 @@ artifact is hashed into the card.
 - The value card has its own canonical SHA-256 evidence identifier. Render time
   is excluded so repeated rendering of the same evidence keeps the same ID.
 - HTML fields are escaped and the file contains no remote scripts or assets.
+- POSIX output uses mode `0600`. Windows output inherits the destination
+  directory ACL, so sensitive cards belong in an access-restricted directory.
 
 ## Current boundary
 

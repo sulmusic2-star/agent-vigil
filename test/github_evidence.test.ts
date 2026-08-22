@@ -113,11 +113,11 @@ test("incomplete Actions jobs are not misreported as failed", () => {
   assert.equal(bundle.actions?.failedJobs, 0);
 });
 
-test("GitHub evidence CLI writes a private bundle and value imports its accepted merge evidence", () => {
+test("GitHub evidence CLI writes an access-restricted bundle and value imports its accepted merge evidence", () => {
   const fx = evidenceFixture();
   const bundlePath = join(fx.root, "bundle.json");
   assert.equal(run(["github-evidence", "--event", fx.event, "--reviews", fx.reviews, "--output", bundlePath]), 0);
-  assert.equal(statSync(bundlePath).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(statSync(bundlePath).mode & 0o777, 0o600);
   const bundle = loadGitHubEvidence(bundlePath);
   assert.equal(bundle.inference.outcome, "merged");
 

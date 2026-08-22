@@ -82,7 +82,7 @@ test("small or incomplete groups remain inconclusive and are not ranked", () => 
   assert.ok(comparison.warnings.some((warning) => /hashed-cost completeness/.test(warning)));
 });
 
-test("compare-value CLI verifies card hashes and writes private JSON and escaped HTML", () => {
+test("compare-value CLI verifies card hashes, applies the platform permission contract, and escapes HTML", () => {
   const root = mkdtempSync(join(tmpdir(), "vigil-value-compare-"));
   const paths = Array.from({ length: 10 }, (_, index) => {
     const value = card(index + 1, index < 5 ? "codex" : "claude-code", index < 5 ? "gpt-test" : "claude-test");
@@ -93,7 +93,7 @@ test("compare-value CLI verifies card hashes and writes private JSON and escaped
   const output = join(root, "comparison.json");
   assert.equal(run(["compare-value", ...paths, "--format", "json", "--output", output]), 0);
   assert.equal(JSON.parse(readFileSync(output, "utf8")).status, "COMPARABLE");
-  assert.equal(statSync(output).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(statSync(output).mode & 0o777, 0o600);
 
   const escaped = renderValueComparisonHtml(compareValueCards([card(50, "codex", "gpt-test", "merged", "<script>alert(1)</script>")]));
   assert.doesNotMatch(escaped, /<script>alert/);

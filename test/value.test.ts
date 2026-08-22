@@ -215,13 +215,13 @@ test("value CLI rejects orphan evidence, orphan through-date, and oversized evid
   ]), 2);
 });
 
-test("value CLI auto-discovers its receipt-relative transcript and writes private output", () => {
+test("value CLI auto-discovers its receipt-relative transcript and applies the platform permission contract", () => {
   const { root, receipt } = fixture();
   const output = join(root, "auto.json");
   assert.equal(run(["value", receipt, "--format", "json", "--output", output]), 2);
   const card = JSON.parse(readFileSync(output, "utf8"));
   assert.equal(card.usage.totalTokens, 258);
-  assert.equal(statSync(output).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(statSync(output).mode & 0o777, 0o600);
 });
 
 test("value CLI fails closed on malformed and unsupported receipt documents", () => {
