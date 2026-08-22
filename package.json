@@ -1,6 +1,6 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.11.3",
+  "version": "0.12.0",
   "description": "Fail-closed change control and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
@@ -16,6 +16,7 @@
     "test": "tsx --test test/*.test.ts",
     "test:coverage": "node --import tsx --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 --test test/*.test.ts",
     "check": "npm run typecheck && npm run build && npm test && npm run smoke",
+    "review:public": "python3 scripts/public_surface_gate.py --self-test && python3 scripts/public_surface_gate.py",
     "smoke": "node dist/cli.js demo",
     "prepack": "npm run build",
     "lab:ecosystems": "python3 scripts/ecosystem_lab.py",

@@ -139,6 +139,34 @@ export function renderMarkdown(report: TrustReport): string {
   ].join("\n");
 }
 
+export function renderDecisionCard(report: TrustReport): string {
+  const meaning = report.summary.status === "PASS"
+    ? "The required evidence is present for this exact change."
+    : report.summary.status === "FAIL"
+    ? "A required check contradicted the change, its claims, or the trusted policy."
+    : "The available evidence is not enough to approve this change.";
+  const open = report.results.filter((result) => result.verdict !== "verified");
+  return [
+    `### Agent Vigil: ${report.summary.status}`,
+    "",
+    meaning,
+    "",
+    `- **Change:** \`${report.base}\` → \`${report.head}\``,
+    `- **Evidence:** ${report.summary.verified} verified · ${report.summary.contradicted} contradicted · ${report.summary.unverifiable} unresolved`,
+    `- **Policy:** \`${report.policy.sha256}\``,
+    `- **Receipt:** \`${report.receiptHash}\``,
+    ...(open.length ? [
+      "",
+      "**Before this can pass:**",
+      ...open.slice(0, 5).map((result) => `- ${result.claim.subject}: ${remediationFor(result.ruleId)}`),
+      ...(open.length > 5 ? [`- ${open.length - 5} more item(s) are listed in the retained receipt.`] : []),
+    ] : []),
+    "",
+    `Reproduce: \`${report.reproduction.replace(/`/g, "\\`")}\``,
+    "",
+  ].join("\n");
+}
+
 function escapeCell(value: string): string {
   return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
 }
@@ -180,5 +208,5 @@ export function writeOutputs(report: TrustReport, options: {
   if (options.output) writePrivateFileAtomic(options.output, `${JSON.stringify(report, null, 2)}\n`);
   if (options.sarif) writePrivateFileAtomic(options.sarif, `${JSON.stringify(toSarif(report), null, 2)}\n`);
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (options.githubSummary && summaryPath) appendPrivateFileAtomic(summaryPath, renderMarkdown(report));
+  if (options.githubSummary && summaryPath) appendPrivateFileAtomic(summaryPath, renderDecisionCard(report));
 }
