@@ -69,6 +69,7 @@ test("authority contract rejects unknown fields, traversal, and unsupported acti
   assert.throws(() => validateAuthorityContract({ schemaVersion: 1, taskId: "x", allowedChangePaths: ["src/**"], allowedActions: ["magic"] }), /unsupported action/);
   assert.throws(() => validateAuthorityContract({ schemaVersion: 1, taskId: "x", allowedChangePaths: ["src/**"], allowedActions: [], maxToolCalls: -1 }), /non-negative safe integer/);
   assert.throws(() => validateAuthorityContract({ schemaVersion: 1, taskId: "x", allowedChangePaths: ["src/**"], allowedActions: [], maxObservedTokens: 1.5 }), /non-negative safe integer/);
+  assert.throws(() => validateAuthorityContract({ schemaVersion: 1, taskId: "x", allowedChangePaths: ["src/**"], allowedActions: [], maxIdenticalToolCalls: -1 }), /non-negative safe integer/);
 });
 
 test("shell splitting handles compounds while preserving quoted separators", () => {
@@ -146,6 +147,25 @@ test("predeclared trajectory budgets pass, fail, and fail closed when token usag
   const tokenBudget = unavailable.results.find((item) => item.ruleId === "observed-token-budget");
   assert.equal(tokenBudget?.verdict, "unverifiable");
   assert.equal(tokenBudget?.blocksPass, true);
+});
+
+test("trajectory controls detect exact repeated failures and high token spend without observed progress", () => {
+  const rows: any[] = [{ type: "session_meta", payload: { id: "session-1" } }];
+  for (let index = 0; index < 3; index += 1) {
+    rows.push({ type: "response_item", payload: { type: "function_call", call_id: `read-${index}`, name: "exec_command", arguments: JSON.stringify({ cmd: "git status --short" }) } });
+    rows.push({ type: "response_item", payload: { type: "function_call_output", call_id: `read-${index}`, output: JSON.stringify({ exit_code: 1, output: "failed" }) } });
+  }
+  rows.push({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } } } });
+  const fx = fixture({ transcript: rows, contract: {
+    allowedActions: ["repository_read"], maxIdenticalToolCalls: 2,
+    maxConsecutiveFailedToolCalls: 2, maxTokensWithoutObservedProgress: 100,
+  } });
+  const checked = buildAuthorityChecks(fx.repo, fx.base, fx.head, loadTranscript(fx.transcriptPath), loadAuthorityContract(fx.repo, fx.contractPath, fx.base).value);
+  for (const ruleId of ["identical-tool-call-budget", "consecutive-failure-budget", "no-progress-token-budget"]) {
+    assert.equal(checked.results.find((item) => item.ruleId === ruleId)?.verdict, "contradicted");
+  }
+  assert.equal(checked.actions[0].identitySha256, checked.actions[1].identitySha256);
+  assert.match(checked.actions[0].identitySha256, /^sha256:[a-f0-9]{64}$/);
 });
 
 test("out-of-scope repository path fails", () => {
@@ -262,7 +282,11 @@ test("composite Action routes authority mode with a base-anchored contract", { s
   const completed = spawnSync("bash", [script], { cwd: fx.repo, encoding: "utf8", env });
   assert.equal(completed.status, 0, `${completed.stdout}\n${completed.stderr}`);
   assert.match(readFileSync(output, "utf8"), /^status=PASS$/m);
+  assert.match(readFileSync(output, "utf8"), /^value_card=.+agent-vigil-value-card\.json$/m);
+  assert.match(readFileSync(output, "utf8"), /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
   assert.equal(JSON.parse(readFileSync(join(fx.repo, "agent-vigil-report.json"), "utf8")).transcriptFormat, "authority/codex");
+  assert.equal(JSON.parse(readFileSync(join(fx.repo, "agent-vigil-value-card.json"), "utf8")).schemaVersion, "agent-vigil-value-card/v1");
+  assert.equal(JSON.parse(readFileSync(join(fx.repo, "agent-vigil-github-evidence.json"), "utf8")).schemaVersion, "agent-vigil-github-evidence/v1");
 });
 
 test("authority init emits a conservative valid template", () => {

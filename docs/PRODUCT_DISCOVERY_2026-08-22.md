@@ -28,6 +28,8 @@ Limitations and the discarded counting attempt are documented in
 The post-build collision check against newer spend, loop, review-noise, and
 cost-tracker signals is in the
 [`value wedge update`](research/2026-08-22-product-discovery/VALUE_WEDGE_UPDATE.md).
+The post-build comparison against CodeBurn, agentacct, and AgentMeter is in the
+[`implemented differentiation audit`](IMPLEMENTED_DIFFERENTIATION_2026-08-22.md).
 
 ## Decision
 

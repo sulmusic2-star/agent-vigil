@@ -33,7 +33,7 @@ import { routeIntegrity } from "./integrity-policy.ts";
 import { compareReceipts, renderReceiptDelta } from "./receipt-diff.ts";
 import { buildMergeGroupReport } from "./merge-group.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
-import { authorityContractTemplate, buildAuthorityChecks, loadAuthorityContract } from "./authority.ts";
+import { analyzeTrajectory, authorityContractTemplate, buildAuthorityChecks, classifyTranscriptActions, loadAuthorityContract } from "./authority.ts";
 import {
   buildValueCard,
   renderValueCardHtml,
@@ -43,6 +43,8 @@ import {
   type CostSource,
   type MaintainerDisposition,
 } from "./value.ts";
+import { buildGitHubEvidence, loadGitHubEvidence, type GitHubEvidenceInputs, type GitHubEvidenceSourceKind } from "./github-evidence.ts";
+import { compareValueCards, loadValueCard, renderValueComparisonHtml, renderValueComparisonText } from "./value-compare.ts";
 
 type Options = {
   transcript?: string;
@@ -75,7 +77,9 @@ Usage:
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
+  vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
   vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
+  vigil compare-value <card.json>... [--format text|json|html] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
   vigil authority init [--output <path>]
   vigil authority <transcript.jsonl> --contract <authority.json> [--contract-ref <sha>] [options]
@@ -104,6 +108,7 @@ Options:
 
 Value options:
   --transcript <path>    Bind supported token usage to the receipt digest
+  --github-evidence <p>  Import a hash-verified normalized GitHub evidence bundle
   --cost-usd <amount>    Attributed task cost; requires --cost-source
   --cost-source <kind>   provider-billed, subscription-allocated, or user-estimated
   --cost-evidence <path> Hash a local billing artifact without copying its contents
@@ -364,6 +369,7 @@ type ValueCliOptions = {
   receipt: string;
   transcript?: string;
   publicKey?: string;
+  githubEvidence?: string;
   costUsd?: number;
   costSource?: CostSource;
   costEvidence?: string;
@@ -388,7 +394,7 @@ function valueNumber(value: string, name: string): number {
 
 function parseValueArgs(args: string[]): ValueCliOptions {
   const takesValue = new Set([
-    "--transcript", "--public-key", "--cost-usd", "--cost-source", "--cost-evidence",
+    "--transcript", "--public-key", "--github-evidence", "--cost-usd", "--cost-source", "--cost-evidence",
     "--budget-usd", "--review-minutes", "--disposition", "--review-evidence", "--outcome", "--outcome-as-of", "--outcome-evidence",
     "--task-class", "--format", "--output",
   ]);
@@ -424,6 +430,7 @@ function parseValueArgs(args: string[]): ValueCliOptions {
     receipt: positional[0],
     ...(values.get("--transcript") ? { transcript: values.get("--transcript") } : {}),
     ...(values.get("--public-key") ? { publicKey: values.get("--public-key") } : {}),
+    ...(values.get("--github-evidence") ? { githubEvidence: values.get("--github-evidence") } : {}),
     ...(values.get("--cost-usd") ? { costUsd: valueNumber(values.get("--cost-usd")!, "value --cost-usd") } : {}),
     ...(costSource ? { costSource: costSource as CostSource } : {}),
     ...(values.get("--cost-evidence") ? { costEvidence: values.get("--cost-evidence") } : {}),
@@ -461,7 +468,7 @@ function runValue(args: string[]): number {
 
     let transcriptPath: string | undefined;
     if (options.transcript) transcriptPath = resolve(options.transcript);
-    else {
+    else if (new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"]).has(report.transcriptFormat)) {
       const candidates = [
         resolve(dirname(receiptPath), report.transcript),
         ...(isAbsolute(report.repo) ? [resolve(report.repo, report.transcript)] : []),
@@ -480,8 +487,14 @@ function runValue(args: string[]): number {
       return `sha256:${createHash("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
-    const reviewEvidenceSha256 = evidenceHash(options.reviewEvidence, "review evidence");
-    const outcomeEvidenceSha256 = evidenceHash(options.outcomeEvidence, "outcome evidence");
+    const github = options.githubEvidence ? loadGitHubEvidence(resolve(options.githubEvidence)) : undefined;
+    const inferredDisposition = options.disposition ?? github?.inference.disposition;
+    const inferredOutcome = options.outcome ?? github?.inference.outcome;
+    const inferredOutcomeAsOf = options.outcomeAsOf ?? github?.inference.outcomeAsOf;
+    const reviewEvidenceSha256 = evidenceHash(options.reviewEvidence, "review evidence")
+      ?? (github && inferredDisposition === github.inference.disposition && github.inference.reviewEvidence === "EVIDENCE_HASHED" ? github.evidenceHash : undefined);
+    const outcomeEvidenceSha256 = evidenceHash(options.outcomeEvidence, "outcome evidence")
+      ?? (github && inferredOutcome === github.inference.outcome && github.inference.outcomeEvidence === "EVIDENCE_HASHED" ? github.evidenceHash : undefined);
     const card = buildValueCard({
       report,
       hashValid: true,
@@ -497,11 +510,23 @@ function runValue(args: string[]): number {
         costSource: options.costSource,
         costEvidenceSha256,
         reviewMinutes: options.reviewMinutes,
-        disposition: options.disposition,
+        disposition: inferredDisposition,
         reviewEvidenceSha256,
-        outcome: options.outcome,
-        outcomeAsOf: options.outcomeAsOf,
+        outcome: inferredOutcome,
+        outcomeAsOf: inferredOutcomeAsOf,
         outcomeEvidenceSha256,
+        ...(github ? { github: {
+          evidenceHash: github.evidenceHash,
+          ...(github.pullRequest ? { pullRequestNumber: github.pullRequest.number } : {}),
+          ...(github.reviews ? { approvals: github.reviews.approved, changesRequested: github.reviews.changesRequested } : {}),
+          ...(github.reviewComments ? { reviewComments: github.reviewComments.records } : {}),
+          ...(github.actions?.runDurationSeconds !== undefined ? { actionsRunDurationSeconds: github.actions.runDurationSeconds } : {}),
+          ...(github.actions?.jobDurationSeconds !== undefined ? { actionsJobDurationSeconds: github.actions.jobDurationSeconds } : {}),
+          ...(github.actions?.jobs !== undefined ? { actionsJobs: github.actions.jobs } : {}),
+          ...(github.actions?.failedJobs !== undefined ? { actionsFailedJobs: github.actions.failedJobs } : {}),
+          actionsBilling: "UNAVAILABLE" as const,
+        } } : {}),
+        ...(loaded ? { trajectory: analyzeTrajectory(classifyTranscriptActions(loaded)) } : {}),
       },
     });
     const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}\n`
@@ -511,6 +536,69 @@ function runValue(args: string[]): number {
     if (options.output) writePrivateFileAtomic(resolve(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runGitHubEvidence(args: string[]): number {
+  try {
+    const flagKinds: Record<string, GitHubEvidenceSourceKind> = {
+      "--event": "event",
+      "--pull-request": "pull-request",
+      "--reviews": "reviews",
+      "--review-comments": "review-comments",
+      "--actions-run": "actions-run",
+      "--actions-jobs": "actions-jobs",
+      "--revert-commit": "revert-commit",
+      "--hotfix-pull-request": "hotfix-pull-request",
+      "--incident-issue": "incident-issue",
+    };
+    const inputs: Partial<GitHubEvidenceInputs> = {};
+    let output: string | undefined;
+    for (let index = 1; index < args.length; index += 1) {
+      const flag = args[index];
+      const value = args[++index];
+      if (value === undefined || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+      if (flag === "--output") { if (output) throw new Error("duplicate --output"); output = value; continue; }
+      const kind = flagKinds[flag];
+      if (!kind) throw new Error(`unknown github-evidence argument: ${flag}`);
+      if ((inputs as any)[kind]) throw new Error(`duplicate ${flag}`);
+      (inputs as any)[kind] = value;
+    }
+    if (!inputs.event) throw new Error("github-evidence requires --event <event.json>");
+    const bundle = buildGitHubEvidence(inputs as GitHubEvidenceInputs);
+    const rendered = `${JSON.stringify(bundle, null, 2)}\n`;
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return 0;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runCompareValue(args: string[]): number {
+  try {
+    const paths: string[] = [];
+    type ComparisonFormat = "text" | "json" | "html";
+    let format: ComparisonFormat = "text";
+    let output: string | undefined;
+    for (let index = 1; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--format" || arg === "--output") {
+        const value = args[++index];
+        if (value === undefined || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+        if (arg === "--format") {
+          if (!new Set(["text", "json", "html"]).has(value)) throw new Error("compare-value --format must be text, json, or html");
+          format = value as ComparisonFormat;
+        } else output = value;
+      } else if (arg.startsWith("--")) throw new Error(`unknown compare-value argument: ${arg}`);
+      else paths.push(arg);
+    }
+    if (!paths.length) throw new Error("compare-value requires at least one Agent Value Card JSON path");
+    const cards = paths.map(loadValueCard);
+    const comparison = compareValueCards(cards, paths.length);
+    const rendered = format === "json" ? `${JSON.stringify(comparison, null, 2)}\n`
+      : format === "html" ? renderValueComparisonHtml(comparison) : renderValueComparisonText(comparison);
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return comparison.status === "COMPARABLE" ? 0 : 2;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -634,7 +722,9 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "compare") return runCompare(argv);
+  if (argv[0] === "github-evidence") return runGitHubEvidence(argv);
   if (argv[0] === "value") return runValue(argv);
+  if (argv[0] === "compare-value") return runCompareValue(argv);
   if (argv[0] === "audit") return runAudit(argv);
   if (argv[0] === "authority") return runAuthority(argv);
   if (argv[0] === "gate") return runGate(argv);

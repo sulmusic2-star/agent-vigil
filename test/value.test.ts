@@ -131,6 +131,8 @@ test("value CLI produces a positive evidence-hashed card with budget and outcome
   assert.equal(card.usage.totalTokens, 258);
   assert.equal(card.agent.toolCalls, 1);
   assert.equal(card.agent.failedToolCalls, 0);
+  assert.equal(card.trajectory.toolCalls, 1);
+  assert.equal(card.trajectory.progressBearingActions, 0);
   assert.deepEqual(card.gaps, []);
   assert.match(card.cardHash, /^sha256:[a-f0-9]{64}$/);
   assert.equal(JSON.stringify(card).includes(root), false);

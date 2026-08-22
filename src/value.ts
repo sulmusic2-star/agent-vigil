@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonical, type ReportStatus, type TrustReport } from "./report.ts";
 import type { SessionUsage } from "./transcript.ts";
+import type { TrajectoryMetrics } from "./authority.ts";
 
 export type CostSource = "provider-billed" | "subscription-allocated" | "user-estimated";
 export type MaintainerDisposition = "accepted" | "dismissed" | "changes-requested" | "unreviewed";
@@ -19,6 +20,19 @@ export type ValueInputs = {
   outcome?: ChangeOutcome;
   outcomeAsOf?: string;
   outcomeEvidenceSha256?: string;
+  github?: {
+    evidenceHash: string;
+    pullRequestNumber?: number;
+    approvals?: number;
+    changesRequested?: number;
+    reviewComments?: number;
+    actionsRunDurationSeconds?: number;
+    actionsJobDurationSeconds?: number;
+    actionsJobs?: number;
+    actionsFailedJobs?: number;
+    actionsBilling: "UNAVAILABLE";
+  };
+  trajectory?: TrajectoryMetrics;
 };
 
 export type AgentValueCard = {
@@ -65,6 +79,8 @@ export type AgentValueCard = {
     evidence: "UNAVAILABLE" | "SELF_ASSERTED" | "EVIDENCE_HASHED";
     evidenceSha256?: string;
   };
+  github?: ValueInputs["github"];
+  trajectory?: TrajectoryMetrics;
   metrics: {
     costPerVerifiedChangeUsd?: number;
     costPerAcceptedChangeUsd?: number;
@@ -211,6 +227,8 @@ export function buildValueCard(input: {
         : input.values.outcomeEvidenceSha256 ? "EVIDENCE_HASHED" : "SELF_ASSERTED",
       ...(input.values.outcomeEvidenceSha256 ? { evidenceSha256: input.values.outcomeEvidenceSha256 } : {}),
     },
+    ...(input.values.github ? { github: input.values.github } : {}),
+    ...(input.values.trajectory ? { trajectory: input.values.trajectory } : {}),
     metrics,
     valueVerdict,
     gaps,

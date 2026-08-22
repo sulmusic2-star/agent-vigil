@@ -14,11 +14,13 @@ function workflow(mode: "transcript" | "portable" | "maintainer" | "authority"):
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
   merge_group:
     types: [checks_requested]
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   evidence:
@@ -38,6 +40,7 @@ jobs:
           repo: .
           base: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           head: \${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          github-token: \${{ github.token }}
       - name: Retain auditable Agent Vigil receipt
         if: always() && steps.vigil.outputs.report != ''
         uses: actions/upload-artifact@v4
@@ -46,6 +49,72 @@ jobs:
           path: |
             agent-vigil-report.json
             agent-vigil.sarif
+            agent-vigil-value-card.json
+            agent-vigil-github-evidence.json
+          retention-days: 30
+`; }
+
+function outcomeWorkflow(): string { return `name: Agent Vigil outcomes
+
+on:
+  workflow_run:
+    workflows: [Agent Vigil]
+    types: [completed]
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  outcome:
+    if: github.event_name == 'pull_request' || github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - id: source
+        name: Locate the completed evidence run
+        env:
+          GH_TOKEN: \${{ github.token }}
+          EVENT_NAME: \${{ github.event_name }}
+          EVENT_RUN_ID: \${{ github.event.workflow_run.id }}
+          HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            run_id="$EVENT_RUN_ID"
+          else
+            run_id=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs" \\
+              -f head_sha="$HEAD_SHA" -f event=pull_request -f status=completed \\
+              --jq '.workflow_runs | map(select(.name == "Agent Vigil")) | sort_by(.created_at) | reverse | .[0].id // empty')
+          fi
+          if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+            echo "No completed Agent Vigil receipt run is available for this outcome." >&2
+            exit 2
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+      - name: Download the immutable receipt artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: agent-vigil-receipt
+          path: .agent-vigil-prior
+          github-token: \${{ github.token }}
+          run-id: \${{ steps.source.outputs.run_id }}
+      - id: outcome
+        uses: sulmusic2-star/agent-vigil@v${VERSION}
+        with:
+          mode: outcome
+          outcome-receipt: .agent-vigil-prior/agent-vigil-report.json
+          actions-run-id: \${{ steps.source.outputs.run_id }}
+          github-token: \${{ github.token }}
+      - name: Retain the post-run Value Card
+        if: always() && steps.outcome.outputs.value-card != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-vigil-outcome-\${{ steps.source.outputs.run_id }}
+          path: |
+            \${{ steps.outcome.outputs.value-card }}
+            \${{ steps.outcome.outputs.github-evidence }}
           retention-days: 30
 `; }
 
@@ -115,6 +184,7 @@ export function initRepository(repo: string, force = false, portableSignerKeyId?
   if (mode === "authority") writeScaffold(root, ".agent-vigil-authority.json", authorityContractTemplate(), force, result);
   if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result);
   writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result);
+  writeScaffold(root, ".github/workflows/agent-vigil-outcomes.yml", outcomeWorkflow(), force, result);
   return result;
 }
 
@@ -127,6 +197,7 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
   const root = resolve(repo);
   const checks: DoctorCheck[] = [];
   const workflow = resolve(root, ".github/workflows/agent-vigil.yml");
+  const outcomeObserver = resolve(root, ".github/workflows/agent-vigil-outcomes.yml");
   const installedWorkflow = existsSync(workflow) ? readFileSync(workflow, "utf8") : "";
   const authorityConfigured = /^\s*authority-contract:\s*\S+\s*$/m.test(installedWorkflow);
   const nodeMajor = Number(process.versions.node.split(".")[0]);
@@ -134,6 +205,13 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
     status: nodeMajor >= 20 ? "PASS" : "FAIL",
     label: "Node.js",
     detail: `${process.versions.node}${nodeMajor >= 20 ? " satisfies Node 20+" : " is unsupported; install Node 20+"}`,
+  });
+  checks.push({
+    status: existsSync(outcomeObserver) ? "PASS" : "WARN",
+    label: "Outcome observer",
+    detail: existsSync(outcomeObserver)
+      ? "post-run workflow retains final Actions runtime and later pull-request outcome evidence without re-executing candidate code"
+      : "outcome workflow is missing; rerun vigil init to add post-run evidence closure",
   });
   const gitRoot = git(root, ["rev-parse", "--show-toplevel"]);
   checks.push({

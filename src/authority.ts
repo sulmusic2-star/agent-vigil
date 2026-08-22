@@ -36,7 +36,10 @@ export type AuthorityContract = {
   requireCompleteToolResults?: boolean;
   maxToolCalls?: number;
   maxFailedToolCalls?: number;
+  maxIdenticalToolCalls?: number;
+  maxConsecutiveFailedToolCalls?: number;
   maxObservedTokens?: number;
+  maxTokensWithoutObservedProgress?: number;
   expiresAt?: string;
 };
 
@@ -55,8 +58,18 @@ export type ClassifiedAction = {
   sequence: number;
   classes: ActionClass[];
   summary: string;
+  identitySha256: string;
   completed: boolean;
   failed: boolean;
+};
+
+export type TrajectoryMetrics = {
+  toolCalls: number;
+  failedToolCalls: number;
+  maxIdenticalToolCalls: number;
+  repeatedActionGroups: number;
+  maxConsecutiveFailedToolCalls: number;
+  progressBearingActions: number;
 };
 
 const MAX_CONTRACT_BYTES = 1024 * 1024;
@@ -96,7 +109,8 @@ export function validateAuthorityContract(input: unknown): AuthorityContract {
   const value = input as Record<string, unknown>;
   const allowedFields = new Set([
     "schemaVersion", "taskId", "allowedChangePaths", "deniedChangePaths", "allowedActions",
-    "requireCompleteToolResults", "maxToolCalls", "maxFailedToolCalls", "maxObservedTokens", "expiresAt",
+    "requireCompleteToolResults", "maxToolCalls", "maxFailedToolCalls", "maxIdenticalToolCalls",
+    "maxConsecutiveFailedToolCalls", "maxObservedTokens", "maxTokensWithoutObservedProgress", "expiresAt",
   ]);
   const unknownFields = Object.keys(value).filter((key) => !allowedFields.has(key));
   if (unknownFields.length) throw new Error(`authority contract contains unknown field(s): ${unknownFields.join(", ")}`);
@@ -118,7 +132,10 @@ export function validateAuthorityContract(input: unknown): AuthorityContract {
   }
   const maxToolCalls = optionalLimit(value.maxToolCalls, "authority contract maxToolCalls");
   const maxFailedToolCalls = optionalLimit(value.maxFailedToolCalls, "authority contract maxFailedToolCalls");
+  const maxIdenticalToolCalls = optionalLimit(value.maxIdenticalToolCalls, "authority contract maxIdenticalToolCalls");
+  const maxConsecutiveFailedToolCalls = optionalLimit(value.maxConsecutiveFailedToolCalls, "authority contract maxConsecutiveFailedToolCalls");
   const maxObservedTokens = optionalLimit(value.maxObservedTokens, "authority contract maxObservedTokens");
+  const maxTokensWithoutObservedProgress = optionalLimit(value.maxTokensWithoutObservedProgress, "authority contract maxTokensWithoutObservedProgress");
   if (value.expiresAt !== undefined) {
     if (typeof value.expiresAt !== "string" || !value.expiresAt.trim() || !Number.isFinite(new Date(value.expiresAt).getTime())) {
       throw new Error("authority contract expiresAt must be an ISO-compatible timestamp");
@@ -133,7 +150,10 @@ export function validateAuthorityContract(input: unknown): AuthorityContract {
     ...(value.requireCompleteToolResults !== undefined ? { requireCompleteToolResults: value.requireCompleteToolResults } : {}),
     ...(maxToolCalls !== undefined ? { maxToolCalls } : {}),
     ...(maxFailedToolCalls !== undefined ? { maxFailedToolCalls } : {}),
+    ...(maxIdenticalToolCalls !== undefined ? { maxIdenticalToolCalls } : {}),
+    ...(maxConsecutiveFailedToolCalls !== undefined ? { maxConsecutiveFailedToolCalls } : {}),
     ...(maxObservedTokens !== undefined ? { maxObservedTokens } : {}),
+    ...(maxTokensWithoutObservedProgress !== undefined ? { maxTokensWithoutObservedProgress } : {}),
     ...(value.expiresAt !== undefined ? { expiresAt: new Date(value.expiresAt).toISOString() } : {}),
   };
 }
@@ -253,12 +273,14 @@ function classifyToolCall(call: SessionToolCall): ClassifiedAction {
   else if (/send|email|message|comment|post|submit/.test(name)) add("external_write");
   else add("unknown_effect");
   if (/credential|secret|keychain|token/.test(name)) add("credential_access");
+  const identityInput = command ?? call.input;
   return {
     toolCallId: call.id,
     toolName: call.name,
     sequence: call.sequence,
     classes: [...classes],
     summary: command ? command.slice(0, 240).replace(/\s+/g, " ") : call.input.slice(0, 240).replace(/\s+/g, " "),
+    identitySha256: `sha256:${createHash("sha256").update(`${call.name}\0${identityInput}`).digest("hex")}`,
     completed: call.output !== undefined,
     failed: call.isError === true,
   };
@@ -266,6 +288,27 @@ function classifyToolCall(call: SessionToolCall): ClassifiedAction {
 
 export function classifyTranscriptActions(transcript: LoadedTranscript): ClassifiedAction[] {
   return transcript.toolCalls.map(classifyToolCall);
+}
+
+export function analyzeTrajectory(actions: ClassifiedAction[]): TrajectoryMetrics {
+  const identities = new Map<string, number>();
+  let failureStreak = 0;
+  let maxFailureStreak = 0;
+  for (const action of actions) {
+    identities.set(action.identitySha256, (identities.get(action.identitySha256) ?? 0) + 1);
+    failureStreak = action.failed ? failureStreak + 1 : 0;
+    maxFailureStreak = Math.max(maxFailureStreak, failureStreak);
+  }
+  const counts = [...identities.values()];
+  const progressClasses = new Set<ActionClass>(["repository_write", "test_execute", "build_execute", "git_commit"]);
+  return {
+    toolCalls: actions.length,
+    failedToolCalls: actions.filter((action) => action.failed).length,
+    maxIdenticalToolCalls: counts.length ? Math.max(...counts) : 0,
+    repeatedActionGroups: counts.filter((count) => count > 1).length,
+    maxConsecutiveFailedToolCalls: maxFailureStreak,
+    progressBearingActions: actions.filter((action) => action.classes.some((item) => progressClasses.has(item))).length,
+  };
 }
 
 export function buildAuthorityChecks(repo: string, base: string, head: string, transcript: LoadedTranscript, contract: AuthorityContract, now = new Date()): { results: CheckResult[]; actions: ClassifiedAction[] } {
@@ -292,6 +335,7 @@ export function buildAuthorityChecks(repo: string, base: string, head: string, t
     return { results, actions };
   }
   const allowed = new Set(contract.allowedActions);
+  const trajectory = analyzeTrajectory(actions);
   const violations = actions.flatMap((action) => action.classes.filter((item) => !allowed.has(item)).map((item) => ({ action, item })));
   results.push(result("authority_action", "authorized-action-classes", "observed action boundary", `${actions.length} observed tool call(s)`, violations.length ? "contradicted" : "verified",
     violations.length
@@ -304,10 +348,22 @@ export function buildAuthorityChecks(repo: string, base: string, head: string, t
       exceeded ? `observed ${actions.length} tool calls; contract permits at most ${contract.maxToolCalls}` : `observed tool calls stayed within the ${contract.maxToolCalls} call limit`));
   }
   if (contract.maxFailedToolCalls !== undefined) {
-    const failed = actions.filter((action) => action.failed).length;
+    const failed = trajectory.failedToolCalls;
     const exceeded = failed > contract.maxFailedToolCalls;
     results.push(result("authority_scope", "failed-tool-call-budget", "observed failed-tool-call budget", `${failed}/${contract.maxFailedToolCalls} failed tool call(s)`, exceeded ? "contradicted" : "verified",
       exceeded ? `observed ${failed} failed tool calls; contract permits at most ${contract.maxFailedToolCalls}` : `observed failed tool calls stayed within the ${contract.maxFailedToolCalls} failure limit`));
+  }
+  if (contract.maxIdenticalToolCalls !== undefined) {
+    const observed = trajectory.maxIdenticalToolCalls;
+    const exceeded = observed > contract.maxIdenticalToolCalls;
+    results.push(result("authority_scope", "identical-tool-call-budget", "identical observed tool-call budget", `${observed}/${contract.maxIdenticalToolCalls} identical call(s)`, exceeded ? "contradicted" : "verified",
+      exceeded ? `one exact observed tool action repeated ${observed} times; contract permits at most ${contract.maxIdenticalToolCalls}` : `identical observed tool calls stayed within the ${contract.maxIdenticalToolCalls} call limit`));
+  }
+  if (contract.maxConsecutiveFailedToolCalls !== undefined) {
+    const observed = trajectory.maxConsecutiveFailedToolCalls;
+    const exceeded = observed > contract.maxConsecutiveFailedToolCalls;
+    results.push(result("authority_scope", "consecutive-failure-budget", "consecutive failed tool-call budget", `${observed}/${contract.maxConsecutiveFailedToolCalls} consecutive failure(s)`, exceeded ? "contradicted" : "verified",
+      exceeded ? `observed a streak of ${observed} failed tool calls; contract permits at most ${contract.maxConsecutiveFailedToolCalls}` : `consecutive failed tool calls stayed within the ${contract.maxConsecutiveFailedToolCalls} failure limit`));
   }
   if (contract.maxObservedTokens !== undefined) {
     const observed = transcript.usage?.totalTokens;
@@ -317,6 +373,16 @@ export function buildAuthorityChecks(repo: string, base: string, head: string, t
       const exceeded = observed > contract.maxObservedTokens;
       results.push(result("authority_scope", "observed-token-budget", "observed token budget", `${observed}/${contract.maxObservedTokens} tokens`, exceeded ? "contradicted" : "verified",
         exceeded ? `observed ${observed} tokens; contract permits at most ${contract.maxObservedTokens}` : `observed tokens stayed within the ${contract.maxObservedTokens} token limit`));
+    }
+  }
+  if (contract.maxTokensWithoutObservedProgress !== undefined) {
+    const observed = transcript.usage?.totalTokens;
+    if (observed === undefined) {
+      results.push(result("authority_scope", "no-progress-token-budget", "token spend without an observed write, test, build, or commit", `unknown/${contract.maxTokensWithoutObservedProgress} tokens`, "unverifiable", "the transcript adapter exposed no token accounting, so the no-progress token limit cannot be checked", { blocksPass: true }));
+    } else {
+      const exceeded = trajectory.progressBearingActions === 0 && observed > contract.maxTokensWithoutObservedProgress;
+      results.push(result("authority_scope", "no-progress-token-budget", "token spend without an observed write, test, build, or commit", `${observed} tokens · ${trajectory.progressBearingActions} progress-bearing action(s)`, exceeded ? "contradicted" : "verified",
+        exceeded ? `observed ${observed} tokens without a repository write, test, build, or commit; contract permits at most ${contract.maxTokensWithoutObservedProgress}` : trajectory.progressBearingActions ? `${trajectory.progressBearingActions} progress-bearing action(s) were observed; this whole-session guard does not claim every intermediate token created progress` : `no progress-bearing action was observed, but token usage stayed within ${contract.maxTokensWithoutObservedProgress}`));
     }
   }
 

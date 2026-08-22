@@ -15,10 +15,24 @@
 - Add optional post-run `maxToolCalls`, `maxFailedToolCalls`, and
   `maxObservedTokens` limits to task-scoped authority contracts. Missing token
   telemetry blocks a pass when a token limit was declared.
+- Add exact repeated-action, consecutive-failure, and no-observed-progress
+  trajectory controls without treating every repeated command as a defect.
+- Add `vigil github-evidence` for bounded, privacy-reduced GitHub PR, review,
+  comment, merge, Actions-runtime, explicit revert, hotfix, and incident
+  evidence. The generated Action retains the normalized bundle and a Value Card
+  alongside every receipt.
+- Generate a separate least-privilege post-run/PR-close observer that downloads
+  the prior receipt, imports completed Actions run and job duration, refreshes
+  merge state, and never checks out or executes candidate code.
+- Add `vigil compare-value` with receipt deduplication, exact task-class groups,
+  minimum evidence gates, hashed-cost completeness, review burden, downstream
+  adversity, and 95% Wilson intervals.
 
 Cost amounts and downstream outcomes remain attributed evidence. `POSITIVE`
 requires hashed cost evidence plus hashed acceptance or merge evidence. Artifact
 hashes prove file identity, not that contents or allocations are correct.
+GitHub Actions elapsed time is not billed USD; current-run billing remains
+explicitly unavailable.
 
 ## 0.11.0 - 2026-08-22
 

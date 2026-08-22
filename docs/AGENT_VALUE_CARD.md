@@ -10,6 +10,11 @@ standalone HTML.
 [Open the synthetic standalone HTML demonstration](assets/agent-value-card-demo.html).
 It is a rendering example, not an external customer result.
 
+The post-v0.11 build also imports normalized GitHub review and outcome evidence
+and compares retained cards by task class. See
+[GitHub outcome evidence](GITHUB_OUTCOME_EVIDENCE.md) and
+[task-matched value comparisons](VALUE_COMPARISONS.md).
+
 ## Example
 
 ```bash
@@ -87,6 +92,7 @@ artifact is hashed into the card.
 
 ## Current boundary
 
-This version creates one task card. Cross-task aggregation, plan comparison,
-automatic provider billing import, hard budget interruption, hosted analytics,
-and organizational policy are not implemented yet.
+This version creates one task card, closes GitHub run/PR outcomes through a
+separate observer, and aggregates verified cards locally by task class,
+adapter, and model set. Automatic provider billing import, hard budget
+interruption, hosted analytics, and organizational policy are not implemented.

@@ -172,14 +172,19 @@ test("an empty zero-exit command cannot substantiate a test claim", () => {
 test("init creates a policy, evidence placeholder, and exact-SHA workflow", () => {
   const path = repo();
   const result = initRepository(path);
-  assert.equal(result.created.length, 4);
+  assert.equal(result.created.length, 5);
   const workflow = readFileSync(join(path, ".github/workflows/agent-vigil.yml"), "utf8");
+  const outcomes = readFileSync(join(path, ".github/workflows/agent-vigil-outcomes.yml"), "utf8");
   assert.match(workflow, /pull_request\.base\.sha/);
   assert.match(workflow, /pull_request\.head\.sha/);
   assert.match(workflow, /merge_group:/);
   assert.match(workflow, /merge_group\.base_sha/);
   assert.match(workflow, /merge_group\.head_sha/);
   assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.11\.0/);
+  assert.match(outcomes, /workflow_run:/);
+  assert.match(outcomes, /actions\/download-artifact@v5/);
+  assert.match(outcomes, /mode: outcome/);
+  assert.doesNotMatch(outcomes, /actions\/checkout/);
   assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /npm test --silent/);
   assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /"integrityMode": "advisory"/);
 });
@@ -197,7 +202,7 @@ test("init preserves existing policy unless force is explicit", () => {
 test("maintainer init creates a base-anchored evidence gate and retained receipt artifact", () => {
   const path = repo();
   const result = initRepository(path, false, undefined, "maintainer");
-  assert.equal(result.created.length, 3);
+  assert.equal(result.created.length, 4);
   const policy = JSON.parse(readFileSync(join(path, ".agent-vigil.json"), "utf8"));
   const workflow = readFileSync(join(path, ".github/workflows/agent-vigil.yml"), "utf8");
   const template = readFileSync(join(path, ".github/pull_request_template.md"), "utf8");
@@ -206,6 +211,11 @@ test("maintainer init creates a base-anchored evidence gate and retained receipt
   assert.match(workflow, /mode: maintainer/);
   assert.match(workflow, /name: agent-vigil-receipt/);
   assert.match(workflow, /retention-days: 30/);
+  assert.match(workflow, /types: \[opened, synchronize, reopened\]/);
+  assert.match(workflow, /pull-requests: read/);
+  assert.match(workflow, /github-token: \$\{\{ github\.token \}\}/);
+  assert.match(workflow, /agent-vigil-value-card\.json/);
+  assert.match(workflow, /agent-vigil-github-evidence\.json/);
   assert.match(template, /Responsible human/);
   assert.match(template, /I can explain and maintain this change/);
 });
@@ -214,7 +224,7 @@ test("Action accepts exactly one evidence mode", () => {
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
   assert.match(action, /VIGIL_RECEIPT/);
   assert.match(action, /VIGIL_AUTHORITY_CONTRACT/);
-  assert.match(action, /choose exactly one of transcript, authority contract, receipt, or mode: maintainer/);
+  assert.match(action, /choose exactly one of transcript, authority contract, receipt, maintainer mode, or outcome mode/);
   assert.match(action, /receipt mode requires a base-anchored policy/);
   assert.match(action, /args=\(authority "\$VIGIL_TRANSCRIPT"/);
   assert.match(action, /authority-contract-ref must equal GitHub event base/);
@@ -222,6 +232,13 @@ test("Action accepts exactly one evidence mode", () => {
   assert.match(action, /args=\(merge-group --event "\$GITHUB_EVENT_PATH"/);
   assert.match(action, /e\.merge_group\?\.base_sha/);
   assert.match(action, /echo "sarif=\$sarif_path"/);
+  assert.match(action, /github-evidence --event/);
+  assert.match(action, /value "\$report_file"/);
+  assert.match(action, /echo "value_card=\$value_card_path"/);
+  assert.match(action, /echo "value_verdict=\$value_verdict"/);
+  assert.match(action, /echo "github_evidence=\$github_evidence_path"/);
+  assert.match(action, /outcome mode requires a readable full outcome-receipt/);
+  assert.match(action, /actions\/runs\/\$run_id\/jobs/);
 });
 
 test("doctor validates the generated installation", () => {

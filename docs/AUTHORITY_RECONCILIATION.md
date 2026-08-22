@@ -55,7 +55,10 @@ vigil authority /private/session.jsonl \
   "requireCompleteToolResults": true,
   "maxToolCalls": 120,
   "maxFailedToolCalls": 5,
+  "maxIdenticalToolCalls": 8,
+  "maxConsecutiveFailedToolCalls": 3,
   "maxObservedTokens": 500000,
+  "maxTokensWithoutObservedProgress": 100000,
   "expiresAt": "2026-08-23T12:00:00.000Z"
 }
 ```
@@ -115,3 +118,10 @@ The optional call and token limits are post-run merge controls. They detect an
 over-budget trajectory and can block its receipt; they do not interrupt a live
 agent. A real runtime circuit breaker must be enforced by the agent host or a
 provider gateway that can stop execution.
+
+The repeated-action detector compares exact normalized observed tool actions;
+it does not use a model to guess whether two different commands are
+semantically equivalent. The no-progress token guard is deliberately narrower:
+it checks whether the entire observed session contains a repository write,
+test, build, or commit. It does not claim that every token before or after that
+action was productive.

@@ -119,14 +119,20 @@ test("composite Action routes a merge_group event to JSON and SARIF outputs", { 
   assert.equal(completed.status, 0, completed.stderr);
   assert.match(readFileSync(output, "utf8"), /^status=PASS$/m);
   assert.match(readFileSync(output, "utf8"), /^sarif=.+agent-vigil\.sarif$/m);
+  assert.match(readFileSync(output, "utf8"), /^value_card=.+agent-vigil-value-card\.json$/m);
+  assert.match(readFileSync(output, "utf8"), /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
   assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil-report.json"), "utf8")).transcriptFormat, "github-merge-group-event");
   assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil.sarif"), "utf8")).runs[0].properties.status, "PASS");
+  assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil-value-card.json"), "utf8")).schemaVersion, "agent-vigil-value-card/v1");
+  assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil-github-evidence.json"), "utf8")).schemaVersion, "agent-vigil-github-evidence/v1");
 
   // Authority evidence is enforced in the PR phase. The queue phase must not
   // go missing or try to apply one PR's contract to the composed group; it
   // routes the same required check to exact composed-commit verification.
   rmSync(join(value.repo, "agent-vigil-report.json"));
   rmSync(join(value.repo, "agent-vigil.sarif"));
+  rmSync(join(value.repo, "agent-vigil-value-card.json"));
+  rmSync(join(value.repo, "agent-vigil-github-evidence.json"));
   writeFileSync(output, "");
   writeFileSync(summary, "");
   const authorityEnv = {

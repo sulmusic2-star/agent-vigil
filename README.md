@@ -46,6 +46,15 @@ private standalone HTML file. See the
 [Agent Value Card contract](docs/AGENT_VALUE_CARD.md) and the clearly labeled
 [synthetic HTML demonstration](docs/assets/agent-value-card-demo.html).
 
+The same build adds a normalized
+[GitHub outcome-evidence bundle](docs/GITHUB_OUTCOME_EVIDENCE.md), required-check
+retention of Value Cards, exact repeated-action and spend-without-observed-
+progress controls, and
+[task-matched local comparisons](docs/VALUE_COMPARISONS.md) with sample gates
+and 95% Wilson intervals. These are local unreleased capabilities, not external
+adoption evidence.
+[Open the clearly labeled synthetic comparison rendering](docs/assets/agent-value-comparison-demo.html).
+
 The next product hypothesis is **Agent Vigil Control: cross-vendor assurance
 and verified unit economics for coding agents**. Its outcome ledger connects
 task authority, budget, and agent actions to verification, maintainer
@@ -55,6 +64,9 @@ The dated
 official platform behavior, surveys, public issue reports, community evidence,
 competitor capture risk, scoring assumptions, and falsification gates. It is a
 research decision, not evidence of adoption or revenue.
+The [implemented differentiation audit](docs/IMPLEMENTED_DIFFERENTIATION_2026-08-22.md)
+also records where CodeBurn, agentacct, and AgentMeter are already stronger, so
+Agent Vigil does not pretend that cost tracking or no-edit warnings are unique.
 
 ```text
   ✗ [test-count] 99 tests
@@ -294,6 +306,24 @@ provenance. `POSITIVE` also requires hashed cost evidence plus hashed evidence
 for an accepted disposition or merged outcome. A hash proves artifact identity,
 not that the artifact's contents are correct.
 
+Normalize official GitHub evidence, then compare retained cards without a
+hosted account:
+
+```bash
+vigil github-evidence --event event.json \
+  --pull-request pull.json --reviews reviews.json \
+  --actions-run run.json --actions-jobs jobs.json \
+  --output agent-vigil-github-evidence.json
+
+vigil compare-value cards/*.json \
+  --format html --output agent-value-comparison.html
+```
+
+GitHub evidence records PR lifecycle, latest reviewer states, review-comment
+count, merge state, explicit revert/hotfix/incident markers, and completed
+Actions elapsed time. It does not infer incidents from prose or convert runner
+minutes into fabricated billed USD.
+
 ## GitHub Action
 
 The generated workflow supports both pull requests and GitHub merge queues. A
@@ -309,6 +339,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 steps:
   - uses: actions/checkout@v7
@@ -322,6 +353,7 @@ steps:
       repo: .
       base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      github-token: ${{ github.token }}
       strict: true
 ```
 
@@ -368,8 +400,15 @@ Authority mode adds these base-anchored inputs to transcript mode:
 
 The Action runs the compiled verifier checked into this repository; it does not
 depend on an npm package being available. It writes `agent-vigil-report.json`,
-`agent-vigil.sarif`, and a readable job summary. The composite outputs expose
-`status`, `receipt-hash`, `report`, and `sarif`.
+`agent-vigil.sarif`, `agent-vigil-github-evidence.json`,
+`agent-vigil-value-card.json`, and a readable job summary. The composite outputs
+expose `status`, `receipt-hash`, `report`, `sarif`, `github-evidence`, and
+`value-card`; `value-verdict` exposes `POSITIVE`, `NEGATIVE`, or `INCONCLUSIVE`.
+The job summary shows the review/outcome/runtime closure without copying review
+bodies. The GitHub token is used only for read-only evidence collection.
+`vigil init` also creates a separate outcomes workflow. It downloads the prior
+receipt after the run and when the PR closes, imports final Actions duration and
+merge state, and deliberately does not check out or execute candidate code.
 
 > **Trust boundary:** test commands execute repository code. Do not accept a
 > `test-cmd` value from untrusted issue or pull-request text. Read
@@ -406,6 +445,9 @@ vigil doctor [--repo <path>]
 vigil keygen --private <path> --public <path>
 vigil verify <receipt.json> [--public-key <path>]
 vigil compare <before-receipt.json> <after-receipt.json> [--format text|json]
+vigil github-evidence --event <event.json> [GitHub API exports]
+vigil value <receipt.json> [--github-evidence <bundle.json>] [options]
+vigil compare-value <card.json>... [--format text|json|html]
 vigil audit <change.diff> [--strict]
 vigil gate <portable-receipt.json> [--repo . --base <sha> --head <sha>]
 vigil maintainer --event <event.json> [--repo . --base <sha> --head <sha>]
@@ -426,6 +468,7 @@ cover pieces of this problem. Agent Vigil's narrow position is:
 6. **Make regression tests prove they catch the old behavior.**
 7. **Compare receipt revisions and fail on evidence regression, not prose drift.**
 8. **Re-verify the composed commit before a GitHub merge queue reports green.**
+9. **Observe run and merge outcomes later without rerunning candidate code.**
 
 Agent Vigil is not another model reviewing a model. Its narrow advantage is the
 combination of cross-agent transcript reconciliation, fresh test evidence,

@@ -6,7 +6,13 @@ branding:
   color: "green"
 inputs:
   mode:
-    description: "Set to maintainer for PR-attestation mode; transcript and receipt modes use their named inputs"
+    description: "Set to maintainer for PR-attestation mode or outcome for post-run evidence collection"
+    required: false
+  outcome-receipt:
+    description: "Full receipt from a completed Agent Vigil run; required in outcome mode"
+    required: false
+  actions-run-id:
+    description: "Completed GitHub Actions run ID to import in outcome mode"
     required: false
   transcript:
     description: "Agent transcript (.jsonl) or summary (.md)"
@@ -49,6 +55,36 @@ inputs:
     description: "Minimum objective verified claims"
     required: false
     default: "1"
+  github-token:
+    description: "Optional GitHub token used only for read-only PR review evidence collection"
+    required: false
+  value-task-class:
+    description: "Optional task class for retained Agent Value Cards"
+    required: false
+  value-budget-usd:
+    description: "Optional predeclared task budget"
+    required: false
+  value-cost-usd:
+    description: "Optional attributed task cost; requires value-cost-source"
+    required: false
+  value-cost-source:
+    description: "provider-billed, subscription-allocated, or user-estimated"
+    required: false
+  value-cost-evidence:
+    description: "Optional local billing artifact hashed into the Value Card"
+    required: false
+  value-review-minutes:
+    description: "Optional explicit human review duration"
+    required: false
+  revert-commit-evidence:
+    description: "Optional GitHub commit JSON explicitly linked as revert evidence"
+    required: false
+  hotfix-pr-evidence:
+    description: "Optional GitHub pull-request JSON explicitly linked as hotfix evidence"
+    required: false
+  incident-issue-evidence:
+    description: "Optional GitHub issue JSON explicitly linked as incident evidence"
+    required: false
 outputs:
   status:
     description: "PASS, FAIL, or INCONCLUSIVE"
@@ -62,6 +98,15 @@ outputs:
   sarif:
     description: "Path to the SARIF report when a receipt was produced"
     value: ${{ steps.vigil.outputs.sarif }}
+  value-card:
+    description: "Path to the retained Agent Value Card JSON when produced"
+    value: ${{ steps.vigil.outputs.value_card }}
+  value-verdict:
+    description: "POSITIVE, NEGATIVE, or INCONCLUSIVE when a Value Card was produced"
+    value: ${{ steps.vigil.outputs.value_verdict }}
+  github-evidence:
+    description: "Path to the normalized hash-bound GitHub evidence bundle when produced"
+    value: ${{ steps.vigil.outputs.github_evidence }}
 runs:
   using: "composite"
   steps:
@@ -73,6 +118,8 @@ runs:
         VIGIL_AUTHORITY_CONTRACT: ${{ inputs.authority-contract }}
         VIGIL_AUTHORITY_CONTRACT_REF: ${{ inputs.authority-contract-ref }}
         VIGIL_MODE: ${{ inputs.mode }}
+        VIGIL_OUTCOME_RECEIPT: ${{ inputs.outcome-receipt }}
+        VIGIL_ACTIONS_RUN_ID: ${{ inputs.actions-run-id }}
         VIGIL_REPO: ${{ inputs.repo }}
         VIGIL_BASE: ${{ inputs.base }}
         VIGIL_HEAD: ${{ inputs.head }}
@@ -81,13 +128,29 @@ runs:
         VIGIL_POLICY_REF: ${{ inputs.policy-ref }}
         VIGIL_STRICT: ${{ inputs.strict }}
         VIGIL_MIN_VERIFIED: ${{ inputs.min-verified }}
+        VIGIL_GITHUB_TOKEN: ${{ inputs.github-token }}
+        VIGIL_VALUE_TASK_CLASS: ${{ inputs.value-task-class }}
+        VIGIL_VALUE_BUDGET_USD: ${{ inputs.value-budget-usd }}
+        VIGIL_VALUE_COST_USD: ${{ inputs.value-cost-usd }}
+        VIGIL_VALUE_COST_SOURCE: ${{ inputs.value-cost-source }}
+        VIGIL_VALUE_COST_EVIDENCE: ${{ inputs.value-cost-evidence }}
+        VIGIL_VALUE_REVIEW_MINUTES: ${{ inputs.value-review-minutes }}
+        VIGIL_REVERT_EVIDENCE: ${{ inputs.revert-commit-evidence }}
+        VIGIL_HOTFIX_EVIDENCE: ${{ inputs.hotfix-pr-evidence }}
+        VIGIL_INCIDENT_EVIDENCE: ${{ inputs.incident-issue-evidence }}
       run: |
-        if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "maintainer" ]]; then
-          echo "agent-vigil: mode must be maintainer when provided" >&2
+        if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "maintainer" && "$VIGIL_MODE" != "outcome" ]]; then
+          echo "agent-vigil: mode must be maintainer or outcome when provided" >&2
           exit 2
         fi
         selected=0
-        if [[ -n "$VIGIL_AUTHORITY_CONTRACT" ]]; then
+        if [[ "$VIGIL_MODE" == "outcome" ]]; then
+          if [[ -z "$VIGIL_OUTCOME_RECEIPT" || ! -f "$VIGIL_OUTCOME_RECEIPT" ]]; then
+            echo "agent-vigil: outcome mode requires a readable full outcome-receipt" >&2
+            exit 2
+          fi
+          selected=$((selected + 1))
+        elif [[ -n "$VIGIL_AUTHORITY_CONTRACT" ]]; then
           if [[ -z "$VIGIL_TRANSCRIPT" || -z "$VIGIL_AUTHORITY_CONTRACT_REF" ]]; then
             echo "agent-vigil: authority mode requires transcript, authority-contract, and authority-contract-ref" >&2
             exit 2
@@ -99,7 +162,7 @@ runs:
         [[ -n "$VIGIL_RECEIPT" ]] && selected=$((selected + 1))
         [[ "$VIGIL_MODE" == "maintainer" ]] && selected=$((selected + 1))
         if [[ "$selected" -ne 1 ]]; then
-          echo "agent-vigil: choose exactly one of transcript, authority contract, receipt, or mode: maintainer" >&2
+          echo "agent-vigil: choose exactly one of transcript, authority contract, receipt, maintainer mode, or outcome mode" >&2
           exit 2
         fi
         if [[ -n "$VIGIL_RECEIPT" && ( -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ) ]]; then
@@ -117,12 +180,12 @@ runs:
         if [[ -n "${GITHUB_EVENT_PATH:-}" && -f "$GITHUB_EVENT_PATH" ]]; then
           IFS=$'\t' read -r event_kind event_base event_head < <(node -e '
             const e = require(process.env.GITHUB_EVENT_PATH);
-            const kind = e.pull_request ? "pull_request" : e.merge_group ? "merge_group" : "";
+            const kind = e.pull_request ? "pull_request" : e.merge_group ? "merge_group" : e.workflow_run ? "workflow_run" : "";
             const base = e.pull_request?.base?.sha ?? e.merge_group?.base_sha ?? "";
             const head = e.pull_request?.head?.sha ?? e.merge_group?.head_sha ?? "";
             process.stdout.write(`${kind}\t${base}\t${head}\n`);
           ')
-          if [[ -n "$event_base" ]]; then
+          if [[ -n "$event_base" && "$VIGIL_MODE" != "outcome" ]]; then
             if [[ "$VIGIL_BASE" != "$event_base" || "$VIGIL_HEAD" != "$event_head" ]]; then
               echo "agent-vigil: GitHub event verification must use event base $event_base and head $event_head" >&2
               exit 2
@@ -149,7 +212,10 @@ runs:
         artifact_dir=$(node -e 'const {mkdtempSync}=require("node:fs"); const {join}=require("node:path"); process.stdout.write(mkdtempSync(join(process.env.RUNNER_TEMP || process.cwd(), "agent-vigil-")))')
         report_file="$artifact_dir/report.json"
         sarif_file="$artifact_dir/report.sarif"
-        if [[ "${event_kind:-}" == "merge_group" ]]; then
+        if [[ "$VIGIL_MODE" == "outcome" ]]; then
+          report_file="$VIGIL_OUTCOME_RECEIPT"
+          code=0
+        elif [[ "${event_kind:-}" == "merge_group" ]]; then
           if [[ -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ]]; then
             echo "agent-vigil: merge-group verification requires a base-anchored policy and policy-ref" >&2
             exit 2
@@ -173,10 +239,12 @@ runs:
         if [[ -n "$VIGIL_POLICY" ]]; then args+=(--policy "$VIGIL_POLICY"); fi
         if [[ -n "$VIGIL_POLICY_REF" ]]; then args+=(--policy-ref "$VIGIL_POLICY_REF"); fi
 
-        set +e
-        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
-        code=$?
-        set -e
+        if [[ "$VIGIL_MODE" != "outcome" ]]; then
+          set +e
+          node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
+          code=$?
+          set -e
+        fi
 
         if [[ -s "$report_file" ]]; then
           status=$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.summary.status)' "$report_file")
@@ -185,6 +253,72 @@ runs:
           if [[ -s "$sarif_file" ]]; then cp "$sarif_file" agent-vigil.sarif; fi
           report_path="$PWD/agent-vigil-report.json"
           sarif_path="$PWD/agent-vigil.sarif"
+
+          github_evidence_path=""
+          if [[ -n "${GITHUB_EVENT_PATH:-}" && -f "$GITHUB_EVENT_PATH" ]]; then
+            github_args=(github-evidence --event "$GITHUB_EVENT_PATH" --output "$artifact_dir/github-evidence.json")
+          else
+            github_args=()
+          fi
+          if [[ -n "$VIGIL_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_EVENT_PATH:-}" ]] && command -v gh >/dev/null 2>&1; then
+            pr_number=$(node -e 'const e=require(process.env.GITHUB_EVENT_PATH); process.stdout.write(String(e.pull_request?.number || e.number || e.workflow_run?.pull_requests?.[0]?.number || ""))')
+            run_id="$VIGIL_ACTIONS_RUN_ID"
+            if [[ -z "$run_id" && "${event_kind:-}" == "workflow_run" ]]; then
+              run_id=$(node -e 'const e=require(process.env.GITHUB_EVENT_PATH); process.stdout.write(String(e.workflow_run?.id || ""))')
+            fi
+            export GH_TOKEN="$VIGIL_GITHUB_TOKEN"
+            if [[ -n "$pr_number" ]]; then
+              if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$artifact_dir/pull-request.json"; then echo "agent-vigil: could not collect pull request evidence" >&2; exit 2; fi
+              if ! gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq 'add' > "$artifact_dir/reviews.json"; then echo "agent-vigil: could not collect review evidence" >&2; exit 2; fi
+              if ! gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq 'add' > "$artifact_dir/review-comments.json"; then echo "agent-vigil: could not collect review-comment evidence" >&2; exit 2; fi
+              github_args+=(--pull-request "$artifact_dir/pull-request.json" --reviews "$artifact_dir/reviews.json" --review-comments "$artifact_dir/review-comments.json")
+            fi
+            if [[ -n "$run_id" && "$run_id" =~ ^[0-9]+$ ]]; then
+              if ! gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" > "$artifact_dir/actions-run.json"; then echo "agent-vigil: could not collect Actions run evidence" >&2; exit 2; fi
+              if ! gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" --jq '[.[].jobs[]]' > "$artifact_dir/actions-jobs.json"; then echo "agent-vigil: could not collect Actions job evidence" >&2; exit 2; fi
+              github_args+=(--actions-run "$artifact_dir/actions-run.json" --actions-jobs "$artifact_dir/actions-jobs.json")
+            fi
+            unset GH_TOKEN
+          fi
+          if [[ "${#github_args[@]}" -gt 0 ]]; then
+            [[ -n "$VIGIL_REVERT_EVIDENCE" ]] && github_args+=(--revert-commit "$VIGIL_REVERT_EVIDENCE")
+            [[ -n "$VIGIL_HOTFIX_EVIDENCE" ]] && github_args+=(--hotfix-pull-request "$VIGIL_HOTFIX_EVIDENCE")
+            [[ -n "$VIGIL_INCIDENT_EVIDENCE" ]] && github_args+=(--incident-issue "$VIGIL_INCIDENT_EVIDENCE")
+            set +e
+            node "$GITHUB_ACTION_PATH/dist/cli.js" "${github_args[@]}"
+            github_code=$?
+            set -e
+            if [[ "$github_code" -eq 0 && -s "$artifact_dir/github-evidence.json" ]]; then
+              cp "$artifact_dir/github-evidence.json" agent-vigil-github-evidence.json
+              github_evidence_path="$PWD/agent-vigil-github-evidence.json"
+            fi
+          fi
+
+          value_args=(value "$report_file" --format json --output "$artifact_dir/value-card.json")
+          [[ -n "$github_evidence_path" ]] && value_args+=(--github-evidence "$github_evidence_path")
+          [[ -n "$VIGIL_VALUE_TASK_CLASS" ]] && value_args+=(--task-class "$VIGIL_VALUE_TASK_CLASS")
+          [[ -n "$VIGIL_VALUE_BUDGET_USD" ]] && value_args+=(--budget-usd "$VIGIL_VALUE_BUDGET_USD")
+          [[ -n "$VIGIL_VALUE_COST_USD" ]] && value_args+=(--cost-usd "$VIGIL_VALUE_COST_USD")
+          [[ -n "$VIGIL_VALUE_COST_SOURCE" ]] && value_args+=(--cost-source "$VIGIL_VALUE_COST_SOURCE")
+          [[ -n "$VIGIL_VALUE_COST_EVIDENCE" ]] && value_args+=(--cost-evidence "$VIGIL_VALUE_COST_EVIDENCE")
+          [[ -n "$VIGIL_VALUE_REVIEW_MINUTES" ]] && value_args+=(--review-minutes "$VIGIL_VALUE_REVIEW_MINUTES")
+          set +e
+          node "$GITHUB_ACTION_PATH/dist/cli.js" "${value_args[@]}"
+          value_code=$?
+          set -e
+          if [[ "$value_code" -le 2 && -s "$artifact_dir/value-card.json" ]]; then
+            cp "$artifact_dir/value-card.json" agent-vigil-value-card.json
+            value_card_path="$PWD/agent-vigil-value-card.json"
+            value_verdict=$(node -e 'const c=require(process.argv[1]); process.stdout.write(c.valueVerdict)' "$artifact_dir/value-card.json")
+            node - "$artifact_dir/value-card.json" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'NODE'
+        const c = require(process.argv[2]);
+        const actions = c.github?.actionsRunDurationSeconds === undefined ? "unavailable" : `${c.github.actionsRunDurationSeconds}s run / ${c.github.actionsJobDurationSeconds ?? "?"}s jobs`;
+        process.stdout.write(`\n### Agent Value Card: ${c.valueVerdict}\n\n- Verification: ${c.receipt.verificationStatus}\n- Human disposition: ${c.human.disposition}\n- Downstream outcome: ${c.outcome.state}\n- Actions runtime: ${actions}\n- Evidence gaps: ${c.gaps.length}\n- Card: \`${c.cardHash}\`\n`);
+        NODE
+          else
+            value_card_path=""
+            value_verdict=""
+          fi
         else
           # Preserve the verifier's original diagnostic and exit code when
           # parsing or configuration fails before a receipt can be written.
@@ -192,11 +326,17 @@ runs:
           receipt_hash="unavailable"
           report_path=""
           sarif_path=""
+          value_card_path=""
+          value_verdict=""
+          github_evidence_path=""
         fi
         {
           echo "status=$status"
           echo "receipt_hash=$receipt_hash"
           echo "report=$report_path"
           echo "sarif=$sarif_path"
+          echo "value_card=$value_card_path"
+          echo "value_verdict=$value_verdict"
+          echo "github_evidence=$github_evidence_path"
         } >> "$GITHUB_OUTPUT"
         exit "$code"

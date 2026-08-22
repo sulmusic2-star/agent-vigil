@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "agent-vigil-value-comparison/v1",
+  "generatedAt": "2026-08-22T14:53:11.635Z",
+  "inputFiles": 12,
+  "uniqueEpisodes": 12,
+  "supersededCards": 0,
+  "comparableTaskClasses": [
+    "synthetic-bugfix"
+  ],
+  "status": "COMPARABLE",
+  "groups": [
+    {
+      "taskClass": "synthetic-bugfix",
+      "agent": "demo-agent-a",
+      "models": [
+        "demo-model-a"
+      ],
+      "episodes": 6,
+      "positive": 5,
+      "negative": 1,
+      "inconclusive": 0,
+      "conclusive": 6,
+      "positiveRate": 0.8333333333333334,
+      "positiveRateWilson95": {
+        "lower": 0.43649717781352987,
+        "upper": 0.9699466302516935,
+        "confidence": 0.95
+      },
+      "hashedCostEpisodes": 6,
+      "costEvidenceCompleteness": 1,
+      "observedHashedCostUsd": 6.6,
+      "costPerPositiveUsd": 1.3199999999999998,
+      "accepted": 6,
+      "revertedOrHotfixedOrIncident": 1,
+      "reviewMinutesObserved": 6,
+      "medianReviewMinutes": 8
+    },
+    {
+      "taskClass": "synthetic-bugfix",
+      "agent": "demo-agent-b",
+      "models": [
+        "demo-model-b"
+      ],
+      "episodes": 6,
+      "positive": 4,
+      "negative": 2,
+      "inconclusive": 0,
+      "conclusive": 6,
+      "positiveRate": 0.6666666666666666,
+      "positiveRateWilson95": {
+        "lower": 0.299993315138392,
+        "upper": 0.9032285888942195,
+        "confidence": 0.95
+      },
+      "hashedCostEpisodes": 6,
+      "costEvidenceCompleteness": 1,
+      "observedHashedCostUsd": 5.1,
+      "costPerPositiveUsd": 1.275,
+      "accepted": 6,
+      "revertedOrHotfixedOrIncident": 2,
+      "reviewMinutesObserved": 6,
+      "medianReviewMinutes": 12
+    }
+  ],
+  "warnings": [
+    "SYNTHETIC DEMONSTRATION ONLY: these episodes, costs, models, and outcomes are fabricated fixtures, not vendor performance or external adoption."
+  ]
+}

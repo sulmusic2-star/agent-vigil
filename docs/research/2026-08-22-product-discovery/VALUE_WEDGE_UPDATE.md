@@ -133,7 +133,7 @@ loops to test, not guaranteed growth:
 2. **Visible proof:** standalone HTML and Markdown cards show evidence gaps and
    carry a restrained Agent Vigil attribution link when a user chooses to share
    them.
-3. **High-intent comparison:** a future `vigil compare-value` should answer
+3. **High-intent comparison:** `vigil compare-value` now answers
    "Which paid coding agent creates the lowest cost per accepted verified
    change for my bug fixes?" with sample sizes and task-mix warnings.
 4. **Repository distribution:** a required GitHub check can create one value
@@ -184,22 +184,28 @@ Completed locally in this cycle:
 - private text, JSON, Markdown, and standalone HTML output;
 - optional post-run authority limits for tool calls, failed calls, and observed
   tokens;
+- exact repeated-action, consecutive-failure, and no-observed-progress controls;
+- normalized GitHub PR, review, comment, merge, Actions-runtime, and explicit
+  adverse-outcome evidence with source hashes and no copied bodies;
+- required-check generation and 30-day retention of GitHub evidence bundles and
+  Agent Value Cards;
+- a least-privilege post-run and PR-close observer that imports completed
+  Actions run/job duration and final merge state without executing candidate
+  code;
+- local task-class, agent, and model comparisons with receipt deduplication,
+  minimum sample gates, hashed-cost completeness, and 95% Wilson intervals;
 - adversarial tests for tampering, mismatched transcripts, self-asserted cost,
   malformed receipts, oversized evidence, HTML injection, stable hashes, and
   private file permissions.
 
 Next, in order:
 
-1. Import GitHub PR review, merge, revert, and Actions-cost evidence directly so
-   users do not manually prepare JSON artifacts.
-2. Add loop/stagnation evidence: repeated equivalent actions, repeated failed
-   tools, and high spend without Git progress, without claiming every
-   repetition is a defect.
-3. Aggregate cards locally by task class with sample size, median, dispersion,
-   and missing-attribution rate.
-4. Dogfood on real Agent Vigil changes, then publish only redacted cards with
+1. Dogfood on real Agent Vigil changes, then publish only redacted cards with
    exact base/head and honest limitations.
-5. Test the activation and 30-day retention gates with externally owned
+2. Add durable, explicit links from later revert, hotfix, and incident records
+   back to the originating receipt. Do not infer an incident from prose or
+   guess current-run billed USD from elapsed minutes.
+3. Test the activation and 30-day retention gates with externally owned
    repositories before building a hosted dashboard.
 
 This is a stronger product than a receipt-only verifier because it connects
