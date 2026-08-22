@@ -304,26 +304,32 @@ function html(value: unknown): string {
   return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]!));
 }
 
+function readableLabel(value: string): string {
+  const words = value.toLowerCase().replace(/[-_]+/g, " ");
+  return `${words.slice(0, 1).toUpperCase()}${words.slice(1)}`;
+}
+
 export function renderValueCardHtml(card: AgentValueCard): string {
   const statusClass = card.valueVerdict.toLowerCase();
+  const verdict = readableLabel(card.valueVerdict);
   const tokenText = "status" in card.usage ? "Unavailable" : card.usage.totalTokens.toLocaleString("en-US");
   const gapItems = card.gaps.length ? card.gaps.map((gap) => `<li>${html(gap)}</li>`).join("") : "<li>None recorded</li>";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agent Vigil Value Card</title><style>
-:root{color-scheme:dark;background:#07100d;color:#effff7;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif}body{margin:0;padding:40px 20px;background:radial-gradient(circle at 80% 0,#163d31 0,transparent 38%),#07100d}.wrap{max-width:920px;margin:auto}.eyebrow{color:#79f2bd;letter-spacing:.18em;font-size:12px;font-weight:800}.hero{display:flex;justify-content:space-between;gap:24px;align-items:end;margin:18px 0 28px}.verdict{font-size:clamp(42px,8vw,82px);line-height:.92;margin:0}.pill{border:1px solid #315a4b;border-radius:999px;padding:10px 14px}.positive{color:#72f0ad}.negative{color:#ff8b91}.inconclusive{color:#ffd479}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.card{background:#0d1c17;border:1px solid #203c32;border-radius:18px;padding:20px;box-shadow:0 18px 55px #0005}.label{color:#90ac9f;text-transform:uppercase;font-size:11px;letter-spacing:.12em}.value{font-size:22px;font-weight:750;margin-top:8px;overflow-wrap:anywhere}.gaps{margin-top:12px}.hash{font:12px ui-monospace,SFMono-Regular,monospace;color:#91b6a6;overflow-wrap:anywhere}footer{margin-top:24px;color:#789387;font-size:12px}a{color:#79f2bd}@media(max-width:620px){.hero{display:block}.pill{display:inline-block;margin-top:18px}}
+:root{--paper:#f3f0e8;--ink:#18202a;--muted:#5f6870;--rule:#c9c1b4;--accent:#2d5f73;--pass:#28734e;--fail:#a13d32;--warn:#8a611c;--display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;--body:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;--code:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}*{box-sizing:border-box}html,body{overflow-x:clip}body{margin:0;padding:44px 20px;background:var(--paper);color:var(--ink);font:16px/1.55 var(--body)}.wrap{max-width:920px;margin:auto}.kicker{color:var(--accent);font-weight:700}.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,.55fr);gap:32px;align-items:end;margin:14px 0 32px;padding-bottom:28px;border-bottom:1px solid var(--rule)}.verdict{margin:0;font:600 clamp(46px,8vw,76px)/1 var(--display);letter-spacing:-.025em}.summary{margin:0;color:var(--muted)}.positive{color:var(--pass)}.negative{color:var(--fail)}.inconclusive{color:var(--warn)}.records{margin:0}.record{display:grid;grid-template-columns:minmax(150px,.5fr) minmax(0,1fr);gap:24px;padding:18px 0;border-bottom:1px solid var(--rule)}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}dd strong{display:block;font:600 23px/1.2 var(--display)}dd span{display:block;margin-top:5px;color:var(--muted)}.section{margin-top:34px}.section h2{font:600 25px/1.2 var(--display)}.hash{font:12px/1.6 var(--code);overflow-wrap:anywhere}footer{margin-top:38px;padding-top:20px;border-top:1px solid var(--rule);color:var(--muted);font-size:13px}a{color:var(--accent)}@media(max-width:620px){.hero,.record{grid-template-columns:1fr;gap:8px}.hero{align-items:start}}
 </style></head><body><main class="wrap">
-<div class="eyebrow">AGENT VIGIL · VERIFIED ENGINEERING VALUE</div><section class="hero"><h1 class="verdict ${statusClass}">${html(card.valueVerdict)}</h1><div class="pill">${html(card.receipt.verificationStatus)} verification · ${html(card.task.taskClass ?? "unclassified")}</div></section>
-<section class="grid">
-<article class="card"><div class="label">Agent</div><div class="value">${html(card.agent.adapter)}</div><p>${html(card.agent.modelIds.join(", ") || "Model unknown")}</p></article>
-<article class="card"><div class="label">Attributed cost</div><div class="value">${html(money(card.cost.amountUsd))}</div><p>${html(card.cost.status)}</p></article>
-<article class="card"><div class="label">Budget</div><div class="value">${html(card.task.budgetStatus)}</div><p>${html(money(card.task.budgetUsd))}</p></article>
-<article class="card"><div class="label">Maintainer</div><div class="value">${html(card.human.disposition)}</div><p>${html(`${card.human.evidence}${card.human.reviewMinutes === undefined ? " · review time unavailable" : ` · ${card.human.reviewMinutes} review minute(s)`}`)}</p></article>
-<article class="card"><div class="label">Outcome</div><div class="value">${html(card.outcome.state)}</div><p>${html(`${card.outcome.evidence}${card.outcome.asOf ? ` · ${card.outcome.asOf}` : " · no through-date"}`)}</p></article>
-<article class="card"><div class="label">Observed tokens</div><div class="value">${html(tokenText)}</div><p>${html("status" in card.usage ? "No supported usage record" : card.usage.accounting)}</p></article>
-</section>
-<article class="card gaps"><div class="label">Evidence gaps</div><ul>${gapItems}</ul></article>
-<article class="card gaps"><div class="label">Integrity</div><p class="hash">Receipt ${html(card.receipt.receiptHash)}</p><p class="hash">Card ${html(card.cardHash)}</p></article>
+<div class="kicker">Agent Vigil value record</div><section class="hero"><h1 class="verdict ${statusClass}">${html(verdict)}</h1><p class="summary">${html(card.receipt.verificationStatus)} verification<br>${html(card.task.taskClass ?? "Task class not recorded")}</p></section>
+<dl class="records">
+<div class="record"><dt>Agent</dt><dd><strong>${html(card.agent.adapter)}</strong><span>${html(card.agent.modelIds.join(", ") || "Model not recorded")}</span></dd></div>
+<div class="record"><dt>Attributed cost</dt><dd><strong>${html(money(card.cost.amountUsd))}</strong><span>${html(readableLabel(card.cost.status))}</span></dd></div>
+<div class="record"><dt>Budget</dt><dd><strong>${html(readableLabel(card.task.budgetStatus))}</strong><span>${html(money(card.task.budgetUsd))}</span></dd></div>
+<div class="record"><dt>Maintainer decision</dt><dd><strong>${html(readableLabel(card.human.disposition))}</strong><span>${html(`${readableLabel(card.human.evidence)}${card.human.reviewMinutes === undefined ? " · review time not recorded" : ` · ${card.human.reviewMinutes} review ${card.human.reviewMinutes === 1 ? "minute" : "minutes"}`}`)}</span></dd></div>
+<div class="record"><dt>Later outcome</dt><dd><strong>${html(readableLabel(card.outcome.state))}</strong><span>${html(`${readableLabel(card.outcome.evidence)}${card.outcome.asOf ? ` · through ${card.outcome.asOf}` : " · date not recorded"}`)}</span></dd></div>
+<div class="record"><dt>Observed tokens</dt><dd><strong>${html(tokenText)}</strong><span>${html("status" in card.usage ? "No supported usage record" : readableLabel(card.usage.accounting))}</span></dd></div>
+</dl>
+<section class="section"><h2>Evidence gaps</h2><ul>${gapItems}</ul></section>
+<section class="section"><h2>Integrity</h2><p class="hash">Receipt ${html(card.receipt.receiptHash)}</p><p class="hash">Card ${html(card.cardHash)}</p></section>
 <footer>Local evidence card generated by <a href="https://github.com/sulmusic2-star/agent-vigil">Agent Vigil</a>. A PASS receipt is not proof that code is bug-free, and missing cost or outcome evidence remains INCONCLUSIVE.</footer>
 </main></body></html>\n`;
 }

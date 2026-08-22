@@ -8,6 +8,7 @@ the npm package or Marketplace listing live.
 ```bash
 npm ci
 npm run check
+npm run review:public
 npm run test:coverage
 npm run test:package
 npm run proof:historical
@@ -27,7 +28,7 @@ npm login
 npm whoami
 npm publish --access public
 npm view @sulmusic/agent-vigil version dist-tags.latest
-npx --yes @sulmusic/agent-vigil@0.11.3 doctor
+npx --yes @sulmusic/agent-vigil@0.12.0 doctor
 ```
 
 The canonical npm name is scoped because npm rejected the unscoped

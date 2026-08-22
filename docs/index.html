@@ -3,77 +3,135 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Agent Vigil is a deterministic merge gate for claims made by AI coding agents.">
-  <title>Agent Vigil — make the proof true</title>
+  <meta name="description" content="Agent Vigil checks AI-made code changes against exact commits, fresh tests, and a reviewable policy before they merge.">
+  <title>Agent Vigil: require evidence before merge</title>
   <style>
-    :root { --ink:#07100f; --panel:#0d1b18; --grid:#17322c; --mint:#8fffc1; --amber:#ffcb6b; --red:#ff6b66; --paper:#e8f1ed; --muted:#86a39a; }
-    * { box-sizing:border-box; }
-    html { scroll-behavior:smooth; }
-    body { margin:0; color:var(--paper); background:var(--ink); font:16px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
-    body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.28; background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px); background-size:60px 60px; mask-image:linear-gradient(to bottom,#000,transparent 75%); }
-    a { color:var(--mint); text-underline-offset:4px; }
-    .wrap { width:min(1160px,calc(100% - 40px)); margin:auto; position:relative; }
-    nav { display:flex; justify-content:space-between; align-items:center; padding:24px 0; border-bottom:1px solid var(--grid); }
-    .brand { color:var(--paper); text-decoration:none; font-weight:800; letter-spacing:.08em; }
-    .brand::before { content:"■"; color:var(--mint); margin-right:10px; }
-    nav div { display:flex; gap:22px; }
-    nav div a { color:var(--muted); text-decoration:none; font-size:14px; }
-    main { padding-bottom:100px; }
-    .hero { display:grid; grid-template-columns:1.05fr .95fr; gap:54px; align-items:center; min-height:710px; padding:72px 0; }
-    .hero > *, .install > * { min-width:0; }
-    .eyebrow { color:var(--mint); letter-spacing:.16em; text-transform:uppercase; font-size:13px; font-weight:800; }
-    h1 { margin:18px 0 24px; max-width:800px; font-size:clamp(52px,7vw,94px); line-height:.93; letter-spacing:-.07em; }
-    h1 span { display:block; color:var(--mint); }
-    .lead { max-width:650px; color:#b8cbc4; font:20px/1.6 system-ui,sans-serif; }
-    .actions { display:flex; gap:14px; flex-wrap:wrap; margin:34px 0; }
-    .button { display:inline-block; padding:14px 18px; border:1px solid var(--mint); background:var(--mint); color:var(--ink); text-decoration:none; font-weight:850; }
-    .button.secondary { background:transparent; color:var(--mint); }
-    .terminal { min-width:0; max-width:100%; border:1px solid #2c5b50; background:rgba(13,27,24,.92); box-shadow:14px 14px 0 #020706; }
-    .terminal header { padding:12px 16px; color:var(--muted); border-bottom:1px solid var(--grid); font-size:12px; }
-    .terminal pre { margin:0; padding:26px; overflow:auto; font-size:14px; line-height:1.75; white-space:pre-wrap; }
-    .ok { color:var(--mint); } .warn { color:var(--amber); } .fail { color:var(--red); }
-    .status { display:grid; grid-template-columns:repeat(3,1fr); border-block:1px solid var(--grid); }
-    .status div { padding:23px; border-right:1px solid var(--grid); }
-    .status div:last-child { border:0; }
-    .status b { display:block; font-size:22px; }
-    section { padding:84px 0 0; scroll-margin-top:30px; }
-    h2 { font-size:clamp(34px,5vw,60px); letter-spacing:-.045em; line-height:1.05; max-width:850px; }
-    .section-lead { max-width:780px; color:#b8cbc4; font:18px/1.65 system-ui,sans-serif; }
-    .demo { width:100%; margin-top:30px; display:block; border:1px solid #2c5b50; }
-    .value-frame { width:100%; height:820px; margin-top:30px; display:block; border:1px solid #2c5b50; background:#07100d; }
-    .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:30px; }
-    .card { display:flex; flex-direction:column; min-height:270px; padding:24px; border:1px solid var(--grid); background:rgba(13,27,24,.76); }
-    .card .number { color:var(--mint); font-weight:850; }
-    .card h3 { font-size:22px; line-height:1.25; }
-    .card p { color:#b8cbc4; font-family:system-ui,sans-serif; }
-    .card a { margin-top:auto; }
-    .install { display:grid; grid-template-columns:.8fr 1.2fr; gap:50px; align-items:start; }
-    code { color:var(--paper); }
-    .command { display:block; padding:22px; background:#020706; border-left:5px solid var(--mint); white-space:pre-wrap; overflow-wrap:anywhere; }
-    .fine { color:var(--muted); font-size:13px; }
-    footer { margin-top:100px; padding:30px 0; border-top:1px solid var(--grid); color:var(--muted); font-size:13px; }
-    @media (max-width:850px) { body { overflow-x:hidden; } .hero,.install { grid-template-columns:1fr; } .hero { min-height:auto; } .cards { grid-template-columns:1fr; } .status { grid-template-columns:1fr; } .status div { border-right:0; border-bottom:1px solid var(--grid); } nav div { display:none; } }
-    @media (max-width:520px) { h1 { font-size:44px; letter-spacing:-.055em; } .hero { gap:38px; padding-top:54px; } .actions { flex-direction:column; } .button { width:100%; text-align:center; } .terminal pre { padding:20px 16px; font-size:12px; } }
-    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    /* Public page: editorial layout, warm paper, restrained motion. */
+    :root {
+      --paper: #f3f0e8;
+      --paper-deep: #e7e1d4;
+      --ink: #18202a;
+      --muted: #5f6870;
+      --text-secondary: #3f4951;
+      --text-card: #465159;
+      --rule: #c9c1b4;
+      --accent: #2d5f73;
+      --accent-dark: #1f4656;
+      --pass: #28734e;
+      --fail: #a13d32;
+      --warn: #8a611c;
+      --code-bg: #202831;
+      --code-ink: #edf0eb;
+      --code-muted: #bdc8c8;
+      --code-rule: #43505b;
+      --code-pass: #7ad6a3;
+      --code-warn: #f1c46c;
+      --code-fail: #ff837b;
+      --white: #ffffff;
+      --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-12: 48px;
+      --space-16: 64px;
+      --space-24: 96px;
+    }
+    * { box-sizing: border-box; }
+    html, body { overflow-x: clip; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font: 17px/1.6 var(--font-body); }
+    a { color: var(--accent-dark); text-underline-offset: 3px; }
+    .wrap { width: min(1180px, calc(100% - 40px)); margin: auto; }
+    nav { display: flex; justify-content: space-between; align-items: center; gap: var(--space-6); padding: 22px 0; border-bottom: 1px solid var(--rule); }
+    .brand { color: var(--ink); text-decoration: none; font-weight: 750; letter-spacing: .02em; }
+    .brand::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 10px; background: var(--accent); }
+    nav div { display: flex; gap: 22px; flex-wrap: wrap; justify-content: flex-end; }
+    nav div a { color: var(--muted); text-decoration: none; font-size: 14px; white-space: nowrap; }
+    main { padding-bottom: var(--space-24); }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr); gap: clamp(40px, 6vw, 84px); align-items: center; min-height: 670px; padding: var(--space-16) 0; }
+    .hero > *, .install > * { min-width: 0; }
+    .eyebrow { margin: 0 0 var(--space-3); color: var(--accent-dark); font-size: 15px; font-weight: 700; }
+    h1, h2, h3 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; }
+    h1 { max-width: 720px; margin: 0 0 var(--space-6); font-size: clamp(48px, 6.2vw, 78px); line-height: .98; letter-spacing: -.035em; overflow-wrap: anywhere; }
+    h1 span { display: block; color: inherit; }
+    h2 { max-width: 820px; margin: 0 0 var(--space-6); font-size: clamp(38px, 4.8vw, 58px); line-height: 1.04; letter-spacing: -.025em; }
+    .lead, .section-lead { max-width: 68ch; color: var(--text-secondary); }
+    .lead { font-size: 20px; line-height: 1.55; }
+    .section-lead { font-size: 18px; }
+    .actions { display: flex; gap: var(--space-3); flex-wrap: wrap; margin: 30px 0; }
+    .button { display: inline-block; padding: 12px 17px; border: 1px solid var(--accent-dark); background: var(--accent-dark); color: var(--white); text-decoration: none; font-size: 15px; font-weight: 700; white-space: nowrap; }
+    .button.secondary { background: transparent; color: var(--accent-dark); }
+    .button:focus-visible, nav a:focus-visible { outline: 3px solid var(--warn); outline-offset: 3px; }
+    .terminal { max-width: 100%; border-left: 6px solid var(--accent); background: var(--code-bg); color: var(--code-ink); }
+    .terminal header { padding: 13px 20px; color: var(--code-muted); border-bottom: 1px solid var(--code-rule); font: 12px/1.4 var(--font-code); }
+    .terminal pre { margin: 0; padding: 24px 20px; overflow: auto; font: 13px/1.75 var(--font-code); white-space: pre-wrap; }
+    .ok { color: var(--pass); } .warn { color: var(--warn); } .fail { color: var(--fail); }
+    .terminal .ok { color: var(--code-pass); } .terminal .warn { color: var(--code-warn); } .terminal .fail { color: var(--code-fail); }
+    .fine { max-width: 68ch; color: var(--muted); font-size: 14px; }
+    .status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--rule); }
+    .status div { padding: var(--space-6); border-right: 1px solid var(--rule); }
+    .status div:last-child { border-right: 0; }
+    .status b { display: block; margin-bottom: 4px; font: 600 26px/1.15 var(--font-display); }
+    section { padding-top: var(--space-24); scroll-margin-top: 30px; }
+    .demo { width: 100%; margin-top: var(--space-8); display: block; border: 1px solid var(--rule); }
+    .cards { margin-top: var(--space-8); border-top: 1px solid var(--rule); }
+    .card { display: grid; grid-template-columns: 90px minmax(0, 1fr) minmax(180px, .45fr); gap: var(--space-6); align-items: start; padding: 26px 0; border-bottom: 1px solid var(--rule); }
+    .card .number { color: var(--accent-dark); font-size: 13px; font-weight: 750; }
+    .card h3 { margin: 0; font-size: 25px; line-height: 1.2; }
+    .card p { margin: 0; color: var(--text-card); font-size: 16px; }
+    .card a { font-size: 14px; font-weight: 700; }
+    .value-frame { width: 100%; height: 820px; margin-top: var(--space-8); display: block; border: 1px solid var(--rule); background: var(--code-bg); }
+    .install { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: clamp(36px, 6vw, 76px); align-items: start; }
+    code, pre { font-family: var(--font-code); }
+    code { font-size: .92em; }
+    .command { display: block; padding: 20px; background: var(--code-bg); color: var(--code-ink); border-left: 6px solid var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; }
+    footer { margin-top: var(--space-24); padding: 26px 0; border-top: 1px solid var(--rule); color: var(--muted); font-size: 13px; }
+    @media (max-width: 850px) {
+      .hero, .install { grid-template-columns: 1fr; }
+      .hero { min-height: auto; padding: var(--space-12) 0 var(--space-16); }
+      .status { grid-template-columns: 1fr; }
+      .status div { border-right: 0; border-bottom: 1px solid var(--rule); }
+      .status div:last-child { border-bottom: 0; }
+      .card { grid-template-columns: 70px minmax(0, 1fr); }
+      .card p, .card a { grid-column: 2; }
+      nav div { display: none; }
+    }
+    @media (max-width: 520px) {
+      .wrap { width: min(100% - 32px, 1180px); }
+      h1 { font-size: clamp(42px, 13vw, 54px); }
+      .hero { gap: 34px; }
+      .actions { flex-direction: column; }
+      .button { width: 100%; text-align: center; }
+      .terminal pre { padding: 20px 14px; font-size: 12px; }
+      .card { grid-template-columns: 1fr; gap: var(--space-2); }
+      .card p, .card a { grid-column: 1; }
+      section { padding-top: 76px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   </style>
 </head>
 <body>
   <div class="wrap">
     <nav aria-label="Primary">
       <a class="brand" href="#top">AGENT VIGIL</a>
-        <div><a href="#proof">Proof</a><a href="#benchmark">Benchmark</a><a href="#value">Value cards</a><a href="PRODUCT_DISCOVERY_2026-08-22.md">Research</a><a href="IMPLEMENTED_DIFFERENTIATION_2026-08-22.md">Competition</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
+        <div><a href="#proof">Failures caught</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
     </nav>
     <main id="top">
       <div class="hero">
         <div>
-          <p class="eyebrow">Cross-vendor AI change control</p>
-          <h1>Give the agent a boundary. <span>Verify what it actually did.</span></h1>
-          <p class="lead">Agent Vigil binds human task authority to observed agent actions, the exact Git result, and fresh tests. Unauthorized activity fails; missing evidence never becomes a green check.</p>
+          <p class="eyebrow">For pull requests made with coding agents</p>
+          <h1>Check the work before it merges.</h1>
+          <p class="lead">Agent Vigil checks the exact commits, runs the tests you trust, and compares the result with the work that was requested. If the evidence is missing, the check does not pass.</p>
           <div class="actions">
             <a class="button" href="#install">Install the gate</a>
             <a class="button secondary" href="#proof">Inspect failures</a>
           </div>
-          <p class="fine">Open source · local-first · zero runtime dependencies · Codex, Claude Code, Copilot, Cursor, Gemini CLI, Aider, and OpenCode · merge-queue re-verification · no model grading another model</p>
+          <p class="fine">Runs in your repository with no runtime packages. Supports Codex, Claude Code, Copilot, Cursor, Gemini CLI, Aider, and OpenCode.</p>
         </div>
         <div class="terminal" aria-label="Example failed receipt">
           <header>agent-vigil-report.json / exact base ↔ head</header>
@@ -86,21 +144,21 @@
   observed release_publish via gh release create
 
 <span class="ok">✓ tests-pass</span>
-  trusted command observed 258 passing
+  trusted command observed 303 passing
 
 <span class="fail">FAIL</span> · sha256:c3128a2c6abc…</pre>
         </div>
       </div>
       <div class="status" aria-label="Verdict meanings">
-        <div><b class="ok">PASS</b>Required objective evidence exists; no contradiction found.</div>
-        <div><b class="fail">FAIL</b>Observed repository or runner evidence contradicts a claim.</div>
-        <div><b class="warn">INCONCLUSIVE</b>Evidence is absent, malformed, stale, or below policy.</div>
+        <div><b class="ok">PASS</b>The required checks passed and the evidence agrees with the change.</div>
+        <div><b class="fail">FAIL</b>A required check found a contradiction or policy violation.</div>
+        <div><b class="warn">INCONCLUSIVE</b>There is not enough reliable evidence to approve the change.</div>
       </div>
 
       <section id="proof">
-        <p class="eyebrow">Dogfood the control</p>
-        <h2>Failures stay public. Corrections stay reproducible.</h2>
-        <p class="section-lead">Three first-party release failures show the standard: publish the claim, exact vulnerable and corrected revisions, maintainer disposition, negative control, and remaining limit. These cases are not counted as external adoption.</p>
+        <p class="eyebrow">Failures found in real releases</p>
+        <h2>See what failed, why it failed, and how it was fixed.</h2>
+        <p class="section-lead">Each record names the broken revision, the corrected revision, the maintainer’s decision, and a test that reproduces the original problem. These are Agent Vigil’s own release records, not customer results.</p>
         <img class="demo" src="assets/agent-vigil-demo.gif" width="1200" height="675" alt="Illustrative six-frame Agent Vigil demo: an agent claims 99 passing tests, fresh evidence reports 42 and a regression that also passes on base, producing FAIL and a remediation path.">
         <div class="cards">
           <article class="card"><span class="number">CASE 01</span><h3>Stale Action artifact returned a false PASS</h3><p>Malformed evidence reused an earlier run’s receipt. Hosted CI blocked v0.4 until every invocation received a fresh artifact directory.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/proof/cases/01-stale-action-artifact.md">Exact SHAs and runs →</a></article>
@@ -109,10 +167,25 @@
         </div>
       </section>
 
+      <section id="attestation">
+        <p class="eyebrow">Signed receipts</p>
+        <h2>Verify where a receipt came from.</h2>
+        <p class="section-lead">Agent Vigil can ask GitHub to sign the receipt. The verification command checks the signer workflow, the receipt file, both commit IDs, the policy hash, and the result. Source code, prompts, transcripts, and test output are not copied into the public signature record.</p>
+        <div class="status" aria-label="Attested receipt checks">
+          <div><b>Exact file</b>The signature covers the SHA-256 digest of the whole receipt file.</div>
+          <div><b>Exact change</b>The signed fields include the base commit, head commit, and Git tree.</div>
+          <div><b>Exact policy</b>The signed fields include the policy hash and PASS, FAIL, or INCONCLUSIVE result.</div>
+        </div>
+        <div class="actions">
+          <a class="button" href="ATTESTED_RECEIPTS.md">Set up signed receipts</a>
+          <a class="button secondary" href="ai-change-receipt-predicate-v1.schema.json">Inspect the schema</a>
+        </div>
+      </section>
+
       <section id="benchmark">
-        <p class="eyebrow">Frozen paired comparison</p>
-        <h2>Publish the trade-off. Keep the baseline.</h2>
-        <p class="section-lead">The protocol was committed before execution. The post-hardening run is explicitly non-blind: 520 paired synthetic cases, 325 constructive injections, 232 presumed-clean PRs, Wilson intervals, exact McNemar tests, and a fixed-seed paired bootstrap. Presumed-clean findings measure review burden, not a confirmed false-positive rate.</p>
+        <p class="eyebrow">Published benchmark</p>
+        <h2>Keep the test method and the limits visible.</h2>
+        <p class="section-lead">The test plan was committed before the run. The published results cover 520 paired synthetic cases, 325 planted defects, and 232 merged pull requests believed to be clean. Findings on those pull requests measure review burden; they are not a confirmed false-positive rate.</p>
         <div class="status" aria-label="Post-hardening static audit comparison">
           <div><b class="ok">88.5%</b>Agent Vigil paired synthetic balanced accuracy, with 100% clean specificity.</div>
           <div><b class="warn">79.4% vs 75.1%</b>Swarm vs Agent Vigil exact oracle recall; paired p=0.189, not a reliable difference in this run.</div>
@@ -125,29 +198,23 @@
       </section>
 
       <section id="value">
-        <p class="eyebrow">Unreleased local experiment</p>
-        <h2>Connect a verified change to what it cost and whether it held up.</h2>
-        <p class="section-lead"><code>vigil value</code> keeps observed usage,
-        attributed cost, maintainer acceptance, and downstream outcome in one
-        fail-closed card. The example below is synthetic and is not a customer
-        result, external adoption, or revenue.</p>
+        <p class="eyebrow">Cost and outcome records</p>
+        <h2>Record what the change cost and what happened after review.</h2>
+        <p class="section-lead"><code>vigil value</code> keeps the recorded usage, stated cost, maintainer decision, and later outcome together. The example below uses test data.</p>
         <iframe class="value-frame" src="assets/agent-value-card-demo.html" title="Synthetic Agent Vigil Value Card demonstration"></iframe>
-        <p class="section-lead"><code>vigil compare-value</code> groups retained
-        cards only across the same task class, adapter, and model set. It shows
-        sample size, missing-cost coverage, downstream failures, review burden,
-        and 95% Wilson intervals instead of manufacturing a global leaderboard.</p>
+        <p class="section-lead"><code>vigil compare-value</code> compares records only when the task type, transcript adapter, and model set match. It shows the sample size, missing cost records, later failures, review time, and uncertainty. It does not turn unrelated work into a leaderboard.</p>
         <iframe class="value-frame" src="assets/agent-value-comparison-demo.html" title="Synthetic Agent Vigil task-matched value comparison demonstration"></iframe>
         <div class="actions">
           <a class="button" href="AGENT_VALUE_CARD.md">Read the evidence contract</a>
-          <a class="button secondary" href="research/2026-08-22-product-discovery/VALUE_WEDGE_UPDATE.md">Inspect the market collision check</a>
+          <a class="button secondary" href="AUTHORITY_RECONCILIATION.md">Read the task-boundary guide</a>
         </div>
       </section>
 
       <section id="install" class="install">
-        <div><p class="eyebrow">Two-minute setup</p><h2>One command. One reviewable policy.</h2><p class="section-lead">The authority profile binds a short-lived human task boundary to exact changed paths and observed agent actions. The maintainer profile remains available for transcript-free contribution review.</p></div>
+        <div><p class="eyebrow">Install</p><h2>Add the check, then read the policy.</h2><p class="section-lead">The authority profile records which paths and actions are allowed for one task. The maintainer profile works without an agent transcript.</p></div>
         <div>
-          <code class="command">npx --yes @sulmusic/agent-vigil@0.11.3 init --profile authority</code>
-          <p>Then run <code>npx --yes @sulmusic/agent-vigil@0.11.3 doctor</code> and review every generated command before merging.</p>
+          <code class="command">npx --yes @sulmusic/agent-vigil@0.12.0 init --profile authority --attest</code>
+          <p>Then run <code>npx --yes @sulmusic/agent-vigil@0.12.0 doctor</code> and review every generated command before merging.</p>
           <p class="fine">The scoped package prevents confusion with the separate <code>agentvigil</code> project. Agent Vigil reconciles observed evidence after execution; it is not a sandbox or proof that no unlogged action occurred.</p>
           <div class="actions">
             <a class="button" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml">Report a real trial</a>
@@ -156,7 +223,7 @@
         </div>
       </section>
     </main>
-    <footer>Agent Vigil is evidence infrastructure, not an authorship detector, semantic-correctness oracle, or sandbox. Public adoption counts require independently verifiable repository evidence.</footer>
+    <footer>Agent Vigil checks recorded evidence. It does not identify who wrote code, prove that code is correct, or contain untrusted code in a sandbox.</footer>
   </div>
 </body>
 </html>

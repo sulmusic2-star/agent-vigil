@@ -31,6 +31,9 @@ jobs:
         if: matrix.node == 22
         run: npm run test:coverage
       - run: npm pack --dry-run
+      - name: Check public wording and typography
+        if: matrix.node == 22
+        run: npm run review:public
       - name: Install packed package across repository shapes
         if: matrix.node == 22
         run: npm run test:package
