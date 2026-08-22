@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies for fresh verification
         run: npm ci --ignore-scripts
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.11.1
+        uses: sulmusic2-star/agent-vigil@v0.11.2
         with:
           mode: maintainer
           policy: .agent-vigil.json
