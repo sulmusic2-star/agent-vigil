@@ -1,0 +1,42 @@
+name: Agent Vigil
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  evidence:
+    name: Agent Vigil evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      - id: vigil
+        uses: sulmusic2-star/agent-vigil@v0.11.0
+        with:
+          mode: maintainer
+          policy: .agent-vigil.json
+          policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          repo: .
+          base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          github-token: ${{ github.token }}
+      - name: Retain auditable Agent Vigil receipt
+        if: always() && steps.vigil.outputs.report != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-vigil-receipt
+          path: |
+            agent-vigil-report.json
+            agent-vigil.sarif
+            agent-vigil-value-card.json
+            agent-vigil-github-evidence.json
+          retention-days: 30
