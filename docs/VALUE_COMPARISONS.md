@@ -1,6 +1,6 @@
 # Task-matched local value comparisons
 
-**State:** implemented locally after v0.11.0; not released
+**State:** Agent Vigil v0.11 contract
 
 `vigil compare-value` compares verified Agent Value Cards locally. It does not
 send cards, transcripts, or billing evidence to Agent Vigil.

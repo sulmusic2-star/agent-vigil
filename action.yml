@@ -1,5 +1,5 @@
 name: "Agent Vigil"
-description: "Fail-closed evidence receipt for AI coding-agent sessions"
+description: "Fail-closed change control and evidence receipts for AI coding agents"
 author: "Tim Sullivan"
 branding:
   icon: "shield"

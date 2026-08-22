@@ -25,7 +25,7 @@ all users experience it.
 
 Product implication: budget visibility alone is already behind the pain. Agent
 Vigil should combine a predeclared task limit, trajectory evidence, a fail-closed
-post-run gate, and later a host-enforced stop adapter. The local build now checks
+post-run gate, and later a host-enforced stop adapter. v0.11 checks
 optional tool-call, failed-call, and observed-token limits in a base-anchored
 authority contract. That is a merge control, not a live circuit breaker.
 

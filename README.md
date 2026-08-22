@@ -38,7 +38,7 @@ tool trajectory. An unauthorized push, release, deployment, external write,
 dependency installation, destructive command, or task creation is a FAIL;
 ambiguous or incomplete action evidence is INCONCLUSIVE.
 
-The local post-v0.11 build adds `vigil value`. It binds a valid receipt to
+v0.11 also adds `vigil value`. It binds a valid receipt to
 observed Codex or Claude Code usage, attributed cost and budget, maintainer
 disposition, review duration, and downstream outcome. The resulting Agent Value
 Card is `POSITIVE`, `NEGATIVE`, or `INCONCLUSIVE` and can be rendered as a
@@ -46,13 +46,13 @@ private standalone HTML file. See the
 [Agent Value Card contract](docs/AGENT_VALUE_CARD.md) and the clearly labeled
 [synthetic HTML demonstration](docs/assets/agent-value-card-demo.html).
 
-The same build adds a normalized
+The release includes a normalized
 [GitHub outcome-evidence bundle](docs/GITHUB_OUTCOME_EVIDENCE.md), required-check
 retention of Value Cards, exact repeated-action and spend-without-observed-
 progress controls, and
 [task-matched local comparisons](docs/VALUE_COMPARISONS.md) with sample gates
-and 95% Wilson intervals. These are local unreleased capabilities, not external
-adoption evidence.
+and 95% Wilson intervals. These capabilities do not, by themselves, establish
+external adoption.
 [Open the clearly labeled synthetic comparison rendering](docs/assets/agent-value-comparison-demo.html).
 
 The next product hypothesis is **Agent Vigil Control: cross-vendor assurance

@@ -3,14 +3,14 @@
 **State:** primary-source feature audit plus local implementation evidence; not
 independent superiority, adoption, demand, revenue, or valuation evidence
 
-This audit asks whether the post-v0.11 work merely reproduces current coding-
+This audit checks whether the v0.11 capabilities reproduce current coding-
 agent cost and observability tools. “Not established” means the reviewed public
 source did not establish the capability; it does not mean the vendor cannot
 have it elsewhere.
 
 ## Collision check
 
-| Capability | CodeBurn | agentacct | AgentMeter | Agent Vigil post-v0.11 |
+| Capability | CodeBurn | agentacct | AgentMeter | Agent Vigil v0.11 |
 |---|---|---|---|---|
 | Broad local token/cost adapters | Strong; 36 tools claimed | Codex/Claude live-observed paths plus narrower clients | Three GitHub agent workflows claimed | Two usage formats today; not the adapter leader |
 | Live budget guard | Claude soft/hard caps claimed | Limited to launched/proxied paths | Monthly alerts claimed | Post-run base-anchored limits; no runtime stop |
@@ -72,4 +72,3 @@ produce the same chain under the same fixtures. It may claim better practical
 value only after externally owned repositories show lower false-verdict rates,
 retention, mandatory checks, and accepted contradictions. It cannot claim
 universal product superiority from internal fixtures.
-

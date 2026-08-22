@@ -40,7 +40,7 @@ both succeed.
 Prepared listing metadata:
 
 - name: `Agent Vigil`;
-- description: `Fail-closed evidence receipt for AI coding-agent sessions`;
+- description: `Fail-closed change control and evidence receipts for AI coding agents`;
 - primary category: Code quality;
 - secondary category: Testing;
 - branding: shield / green;

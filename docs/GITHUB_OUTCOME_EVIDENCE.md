@@ -1,6 +1,6 @@
 # GitHub outcome evidence v1
 
-**State:** implemented locally after v0.11.0; not released
+**State:** Agent Vigil v0.11 contract
 
 `vigil github-evidence` converts bounded GitHub event and REST API exports into
 a privacy-reduced, hash-bound bundle. `vigil value --github-evidence` can then

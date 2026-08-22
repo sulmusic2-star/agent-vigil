@@ -1,6 +1,6 @@
 # Agent Value Card v1
 
-**State:** implemented locally after v0.11.0; not released
+**State:** Agent Vigil v0.11 contract
 
 `vigil value` binds a full Agent Vigil receipt to supported transcript usage,
 task cost and budget, human review, maintainer disposition, and a downstream
@@ -10,7 +10,7 @@ standalone HTML.
 [Open the synthetic standalone HTML demonstration](assets/agent-value-card-demo.html).
 It is a rendering example, not an external customer result.
 
-The post-v0.11 build also imports normalized GitHub review and outcome evidence
+v0.11 also imports normalized GitHub review and outcome evidence
 and compares retained cards by task class. See
 [GitHub outcome evidence](GITHUB_OUTCOME_EVIDENCE.md) and
 [task-matched value comparisons](VALUE_COMPARISONS.md).

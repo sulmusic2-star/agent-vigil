@@ -1,39 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- Add `vigil value` and Agent Value Card v1, binding a full receipt to observed
-  Codex or Claude Code token usage, attributed cost and budget, maintainer
-  disposition, review time, and downstream outcome.
-- Emit text, JSON, Markdown, or private standalone HTML while retaining
-  `POSITIVE`, `NEGATIVE`, and `INCONCLUSIVE` value states and explicit evidence
-  gaps.
-- Deduplicate streamed Claude assistant usage by message identity, consume the
-  greatest Codex cumulative usage snapshot, hash optional billing, review, and
-  downstream evidence,
-  and reject transcript/receipt mismatches and tampered receipts.
-- Add optional post-run `maxToolCalls`, `maxFailedToolCalls`, and
-  `maxObservedTokens` limits to task-scoped authority contracts. Missing token
-  telemetry blocks a pass when a token limit was declared.
-- Add exact repeated-action, consecutive-failure, and no-observed-progress
-  trajectory controls without treating every repeated command as a defect.
-- Add `vigil github-evidence` for bounded, privacy-reduced GitHub PR, review,
-  comment, merge, Actions-runtime, explicit revert, hotfix, and incident
-  evidence. The generated Action retains the normalized bundle and a Value Card
-  alongside every receipt.
-- Generate a separate least-privilege post-run/PR-close observer that downloads
-  the prior receipt, imports completed Actions run and job duration, refreshes
-  merge state, and never checks out or executes candidate code.
-- Add `vigil compare-value` with receipt deduplication, exact task-class groups,
-  minimum evidence gates, hashed-cost completeness, review burden, downstream
-  adversity, and 95% Wilson intervals.
-
-Cost amounts and downstream outcomes remain attributed evidence. `POSITIVE`
-requires hashed cost evidence plus hashed acceptance or merge evidence. Artifact
-hashes prove file identity, not that contents or allocations are correct.
-GitHub Actions elapsed time is not billed USD; current-run billing remains
-explicitly unavailable.
-
 ## 0.11.0 - 2026-08-22
 
 - Add task-scoped authority contracts that bind allowed repository paths,
@@ -46,11 +12,37 @@ explicitly unavailable.
 - Add adversarial fixtures for contract self-widening, path escape, unauthorized
   push, expired authority, compound shell commands, missing results, and
   narrative-only evidence.
+- Add `vigil value` and Agent Value Card v1. A card joins a verified receipt to
+  observed Codex or Claude Code usage, attributed cost and budget, maintainer
+  disposition, review time, and downstream outcome.
+- Add text, JSON, Markdown, and private standalone HTML cards with explicit
+  `POSITIVE`, `NEGATIVE`, and `INCONCLUSIVE` states.
+- Deduplicate streamed Claude assistant usage by message identity, consume the
+  greatest Codex cumulative usage snapshot, hash optional billing, review, and
+  outcome evidence, and reject transcript/receipt mismatches or tampering.
+- Add optional post-run `maxToolCalls`, `maxFailedToolCalls`, and
+  `maxObservedTokens` authority limits. A declared token limit requires token
+  telemetry.
+- Detect exact repeated actions, consecutive failures, and spend without
+  observed progress without treating every repeated command as a defect.
+- Add `vigil github-evidence` for bounded GitHub PR, review, comment, merge,
+  Actions-duration, revert, hotfix, and incident evidence. Generated workflows
+  retain the normalized bundle and a Value Card with each receipt.
+- Add a separate least-privilege outcome observer. It downloads the prior
+  receipt, records completed Actions duration and final merge state, and never
+  checks out or executes candidate code.
+- Add `vigil compare-value` with receipt deduplication, exact task-class groups,
+  minimum evidence gates, hashed-cost completeness, review burden, downstream
+  adversity, and 95% Wilson intervals.
 - Publish a dated market radar separating official platform behavior, anecdotal
   complaints, competitor categories, product hypotheses, and commercial gates.
 
 Authority reconciliation is post-execution evidence, not runtime containment or
 proof that no unlogged action occurred.
+Cost amounts and downstream outcomes remain attributed evidence. `POSITIVE`
+requires hashed cost evidence plus hashed acceptance or merge evidence. Artifact
+hashes prove file identity, not that contents or allocations are correct.
+GitHub Actions elapsed time is not billed USD.
 
 ## 0.10.1 - 2026-08-21
 
