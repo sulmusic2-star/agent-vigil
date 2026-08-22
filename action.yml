@@ -5,14 +5,18 @@ branding:
   icon: "shield"
   color: "green"
 inputs:
+  attest:
+    description: "Create a GitHub/Sigstore attestation for the receipt; caller must grant id-token and attestations write permissions"
+    required: false
+    default: "false"
   mode:
-    description: "Set to maintainer for PR-attestation mode or outcome for post-run evidence collection"
+    description: "Set to maintainer for pull request evidence or outcome for post-run evidence collection"
     required: false
   outcome-receipt:
-    description: "Full receipt from a completed Agent Vigil run; required in outcome mode"
+    description: "Full receipt from the prior Agent Vigil run; required in outcome mode"
     required: false
   actions-run-id:
-    description: "Completed GitHub Actions run ID to import in outcome mode"
+    description: "GitHub Actions run ID to import in outcome mode"
     required: false
   transcript:
     description: "Agent transcript (.jsonl) or summary (.md)"
@@ -107,6 +111,15 @@ outputs:
   github-evidence:
     description: "Path to the normalized hash-bound GitHub evidence bundle when produced"
     value: ${{ steps.vigil.outputs.github_evidence }}
+  attestation-url:
+    description: "GitHub URL for the signed receipt attestation when attest is true"
+    value: ${{ steps.github_attestation.outputs.attestation-url }}
+  attestation-id:
+    description: "GitHub attestation ID when attest is true"
+    value: ${{ steps.github_attestation.outputs.attestation-id }}
+  attestation-bundle:
+    description: "Local Sigstore bundle path when attest is true"
+    value: ${{ steps.github_attestation.outputs.bundle-path }}
 runs:
   using: "composite"
   steps:
@@ -340,3 +353,21 @@ runs:
           echo "github_evidence=$github_evidence_path"
         } >> "$GITHUB_OUTPUT"
         exit "$code"
+    - id: prepare_attestation
+      name: Prepare privacy-reduced AI Change Receipt predicate
+      if: ${{ always() && inputs.attest == 'true' && steps.vigil.outputs.report != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+      shell: bash
+      env:
+        VIGIL_REPORT: ${{ steps.vigil.outputs.report }}
+      run: |
+        predicate="$RUNNER_TEMP/agent-vigil-attestation-predicate.json"
+        node "$GITHUB_ACTION_PATH/dist/cli.js" attest "$VIGIL_REPORT" --predicate-output "$predicate"
+        echo "predicate=$predicate" >> "$GITHUB_OUTPUT"
+    - id: github_attestation
+      name: Sign AI Change Receipt with GitHub
+      if: ${{ always() && inputs.attest == 'true' && steps.prepare_attestation.outputs.predicate != '' }}
+      uses: actions/attest@v4
+      with:
+        subject-path: ${{ steps.vigil.outputs.report }}
+        predicate-type: https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json
+        predicate-path: ${{ steps.prepare_attestation.outputs.predicate }}

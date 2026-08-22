@@ -97,8 +97,8 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 From npm:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.11.3 init
-npx --yes @sulmusic/agent-vigil@0.11.3 doctor
+npx --yes @sulmusic/agent-vigil@0.12.0 init
+npx --yes @sulmusic/agent-vigil@0.12.0 doctor
 ```
 
 `init` creates a small JSON policy, a privacy warning and transcript placeholder,
@@ -116,7 +116,7 @@ that disagree with GitHub's event payload.
 Maintainer profile:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.11.3 init --profile maintainer
+npx --yes @sulmusic/agent-vigil@0.12.0 init --profile maintainer
 ```
 
 This creates a PR declaration template, base-anchored file/line/test/protected-
@@ -127,7 +127,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.11.3 init --profile authority
+npx --yes @sulmusic/agent-vigil@0.12.0 init --profile authority
 ```
 
 Review the generated task ID, expiry, paths, and action classes, then merge the
@@ -230,7 +230,7 @@ Node 20 or newer is required. Run the published npm package without installing
 it globally:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.11.3 --help
+npx --yes @sulmusic/agent-vigil@0.12.0 --help
 ```
 
 Or work from source:
@@ -347,7 +347,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.11.3
+  - uses: sulmusic2-star/agent-vigil@v0.12.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -377,7 +377,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.11.3
+    uses: sulmusic2-star/agent-vigil@v0.12.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
