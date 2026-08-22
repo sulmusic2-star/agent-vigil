@@ -269,13 +269,13 @@ runs:
             export GH_TOKEN="$VIGIL_GITHUB_TOKEN"
             if [[ -n "$pr_number" ]]; then
               if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$artifact_dir/pull-request.json"; then echo "agent-vigil: could not collect pull request evidence" >&2; exit 2; fi
-              if ! gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq 'add' > "$artifact_dir/reviews.json"; then echo "agent-vigil: could not collect review evidence" >&2; exit 2; fi
-              if ! gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq 'add' > "$artifact_dir/review-comments.json"; then echo "agent-vigil: could not collect review-comment evidence" >&2; exit 2; fi
+              if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr_number/reviews?per_page=100" | jq -s 'add' > "$artifact_dir/reviews.json"; then echo "agent-vigil: could not collect review evidence" >&2; exit 2; fi
+              if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr_number/comments?per_page=100" | jq -s 'add' > "$artifact_dir/review-comments.json"; then echo "agent-vigil: could not collect review-comment evidence" >&2; exit 2; fi
               github_args+=(--pull-request "$artifact_dir/pull-request.json" --reviews "$artifact_dir/reviews.json" --review-comments "$artifact_dir/review-comments.json")
             fi
             if [[ -n "$run_id" && "$run_id" =~ ^[0-9]+$ ]]; then
               if ! gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" > "$artifact_dir/actions-run.json"; then echo "agent-vigil: could not collect Actions run evidence" >&2; exit 2; fi
-              if ! gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" --jq '[.[].jobs[]]' > "$artifact_dir/actions-jobs.json"; then echo "agent-vigil: could not collect Actions job evidence" >&2; exit 2; fi
+              if ! gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" | jq -s '[.[].jobs[]]' > "$artifact_dir/actions-jobs.json"; then echo "agent-vigil: could not collect Actions job evidence" >&2; exit 2; fi
               github_args+=(--actions-run "$artifact_dir/actions-run.json" --actions-jobs "$artifact_dir/actions-jobs.json")
             fi
             unset GH_TOKEN
