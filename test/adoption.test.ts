@@ -207,7 +207,10 @@ test("maintainer init creates a base-anchored evidence gate and retained receipt
   const policy = JSON.parse(readFileSync(join(path, ".agent-vigil.json"), "utf8"));
   const workflow = readFileSync(join(path, ".github/workflows/agent-vigil.yml"), "utf8");
   const template = readFileSync(join(path, ".github/pull_request_template.md"), "utf8");
-  assert.equal(policy.maintainer.requireHumanAttestation, true);
+  assert.equal(policy.maintainer.reviewMode, "automated");
+  assert.equal(policy.maintainer.requireHumanAttestation, false);
+  assert.deepEqual(policy.maintainer.automatedReview.commands, ["npm test --silent"]);
+  assert.equal(policy.maintainer.automatedReview.setupCommand, "npm ci --ignore-scripts");
   assert.equal(policy.maintainer.differentialTest.overlayChangedTests, true);
   assert.match(workflow, /mode: maintainer/);
   assert.match(workflow, /name: Install dependencies for fresh verification/);
@@ -219,8 +222,10 @@ test("maintainer init creates a base-anchored evidence gate and retained receipt
   assert.match(workflow, /github-token: \$\{\{ github\.token \}\}/);
   assert.match(workflow, /agent-vigil-value-card\.json/);
   assert.match(workflow, /agent-vigil-github-evidence\.json/);
-  assert.match(template, /Responsible human/);
-  assert.match(template, /I can explain and maintain this change/);
+  assert.doesNotMatch(template, /Responsible human|I reviewed every changed line|I can explain and maintain/);
+  assert.match(template, /isolated checkout of the\s+exact candidate commit/);
+  const doctor = doctorRepository(path);
+  assert.ok(doctor.some((check) => check.label === "Review mode" && check.status === "PASS" && /isolated exact-commit/.test(check.detail)));
 });
 
 test("Action accepts exactly one evidence mode", () => {

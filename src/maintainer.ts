@@ -14,6 +14,41 @@ export type PullRequestEvidence = {
 
 const DEFAULT_TEST_PATTERNS = ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
 const MAX_COMMAND_OUTPUT = 12_000;
+const TIMEOUT_MARKER = "[agent-vigil-command-timeout]";
+const ABNORMAL_MARKER = "[agent-vigil-command-abnormal]";
+const COMMAND_WRAPPER = String.raw`
+const { execFile, spawn } = require("node:child_process");
+const command = process.env.VIGIL_WRAPPED_COMMAND;
+const timeout = Number(process.env.VIGIL_WRAPPED_TIMEOUT_MS);
+const child = spawn(command, { shell: true, env: process.env, detached: process.platform !== "win32" });
+child.stdout.pipe(process.stdout);
+child.stderr.pipe(process.stderr);
+let timedOut = false;
+const timer = setTimeout(() => {
+  timedOut = true;
+  process.stderr.write("${TIMEOUT_MARKER}\\n");
+  if (process.platform === "win32") {
+    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => process.exit(124));
+  } else {
+    try { process.kill(-child.pid, "SIGKILL"); } catch {}
+    setTimeout(() => process.exit(124), 50);
+  }
+}, timeout);
+child.on("error", (error) => {
+  clearTimeout(timer);
+  process.stderr.write("${ABNORMAL_MARKER} " + error.message + "\\n");
+  process.exit(125);
+});
+child.on("close", (code, signal) => {
+  if (timedOut) return;
+  clearTimeout(timer);
+  if (signal || code === null) {
+    process.stderr.write("${ABNORMAL_MARKER} signal=" + (signal || "unknown") + "\\n");
+    process.exit(125);
+  }
+  process.exit(code);
+});
+`;
 
 function result(kind: ClaimKind, ruleId: string, subject: string, quote: string, verdict: Verdict, evidence: string, options: Pick<CheckResult, "contributesToPass" | "blocksPass"> = {}): CheckResult {
   return { claim: { kind, subject, quote }, ruleId, verdict, evidence, ...options };
@@ -50,7 +85,8 @@ function checked(body: string, label: string): boolean {
 
 export function checkAttestations(evidence: PullRequestEvidence, policy: MaintainerPolicy): CheckResult[] {
   const out: CheckResult[] = [];
-  if (policy.requireHumanAttestation !== false) {
+  const humanReview = policy.reviewMode === "human" || (policy.reviewMode === undefined && policy.requireHumanAttestation !== false);
+  if (humanReview) {
     const responsible = capture(evidence.body, "Responsible human");
     const normalized = responsible?.replace(/^@/, "").toLowerCase();
     const matches = normalized === evidence.author.toLowerCase();
@@ -149,12 +185,24 @@ export function checkChangeScope(diff: DiffEvidence, policy: MaintainerPolicy): 
 type CommandOutcome = { status: number | null; signal: string | null; output: string; error?: string };
 
 function shell(command: string, cwd: string, timeoutMs: number): CommandOutcome {
-  const env: NodeJS.ProcessEnv = { ...process.env, CI: "true" };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CI: "true",
+    VIGIL_WRAPPED_COMMAND: command,
+    VIGIL_WRAPPED_TIMEOUT_MS: String(timeoutMs),
+  };
   delete env.NODE_TEST_CONTEXT;
-  const execution = spawnSync(command, { cwd, shell: true, encoding: "utf8", timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env });
+  const execution = spawnSync(process.execPath, ["-e", COMMAND_WRAPPER], {
+    cwd, encoding: "utf8", timeout: timeoutMs + 10_000, maxBuffer: 4 * 1024 * 1024, env,
+  });
   const full = `${execution.stdout ?? ""}${execution.stderr ?? ""}`;
   const output = full.length > MAX_COMMAND_OUTPUT ? `${full.slice(0, MAX_COMMAND_OUTPUT)}\n[output truncated]` : full;
-  return { status: execution.status, signal: execution.signal, output, ...(execution.error ? { error: execution.error.message } : {}) };
+  const wrapperError = full.includes(TIMEOUT_MARKER)
+    ? `command timed out after ${timeoutMs} ms`
+    : full.includes(ABNORMAL_MARKER)
+    ? "command ended abnormally"
+    : execution.error?.message;
+  return { status: execution.status, signal: execution.signal, output, ...(wrapperError ? { error: wrapperError } : {}) };
 }
 
 function unsafeOverlayPath(path: string): boolean {
@@ -179,6 +227,105 @@ function overlayTests(headWorktree: string, baseWorktree: string, paths: string[
 function summarize(outcome: CommandOutcome): string {
   const last = outcome.output.trim().split("\n").slice(-3).join(" | ");
   return `exit=${outcome.status ?? "none"}${outcome.signal ? ` signal=${outcome.signal}` : ""}${outcome.error ? ` error=${outcome.error}` : ""}${last ? ` output=${last}` : ""}`;
+}
+
+function trackedStatus(repo: string): string {
+  return git(repo, ["status", "--porcelain=v1", "--untracked-files=no"]);
+}
+
+/**
+ * Runs the commands selected by the trusted base policy in a detached checkout
+ * of the exact candidate commit. This replaces a ceremonial checkbox with
+ * reproducible evidence; it does not claim human understanding or ownership.
+ */
+export function checkAutomatedReview(repo: string, head: string, policy: NonNullable<MaintainerPolicy["automatedReview"]>): CheckResult[] {
+  const out: CheckResult[] = [result(
+    "policy_attestation",
+    "automated-review-mode",
+    "automated review policy",
+    `${policy.commands.length} base-policy command(s)`,
+    "verified",
+    "the trusted base policy selected isolated automated review; this proves repeatable checks, not human understanding",
+    { contributesToPass: false },
+  )];
+  const expectedHead = git(repo, ["rev-parse", head]);
+  const root = mkdtempSync(join(tmpdir(), "agent-vigil-automated-review-"));
+  const candidate = join(root, "candidate");
+  const timeoutMs = (policy.timeoutSeconds ?? 300) * 1000;
+  let worktreeAdded = false;
+  try {
+    execFileSync("git", ["worktree", "add", "--detach", candidate, expectedHead], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    worktreeAdded = true;
+    const initialHead = git(candidate, ["rev-parse", "HEAD"]);
+    if (initialHead !== expectedHead) {
+      out.push(result("integrity", "automated-review-head", "exact candidate checkout", expectedHead, "unverifiable",
+        `isolated checkout resolved to ${initialHead} instead of ${expectedHead}`, { blocksPass: true }));
+      return out;
+    }
+    if (policy.setupCommand) {
+      const setup = shell(policy.setupCommand, candidate, timeoutMs);
+      if (setup.status === null || setup.signal || setup.error) {
+        out.push(result("command_ran", "automated-review-setup", "automated review setup", policy.setupCommand, "unverifiable",
+          `setup did not terminate normally; ${summarize(setup)}`, { blocksPass: true }));
+        return out;
+      }
+      if (setup.status !== 0) {
+        out.push(result("command_ran", "automated-review-setup", "automated review setup", policy.setupCommand, "contradicted",
+          `base-policy setup command failed; ${summarize(setup)}`));
+        return out;
+      }
+      out.push(result("command_ran", "automated-review-setup", "automated review setup", policy.setupCommand, "verified",
+        "base-policy setup command completed in the isolated candidate checkout", { contributesToPass: false }));
+    }
+    const preparedHead = git(candidate, ["rev-parse", "HEAD"]);
+    const preparedStatus = trackedStatus(candidate);
+    if (preparedHead !== expectedHead) {
+      out.push(result("integrity", "automated-review-head", "candidate commit remained fixed during setup", expectedHead, "unverifiable",
+        `setup moved HEAD to ${preparedHead}`, { blocksPass: true }));
+      return out;
+    }
+    if (preparedStatus) {
+      out.push(result("integrity", "automated-review-worktree", "setup preserved tracked candidate files", "clean", "contradicted",
+        `setup modified tracked path(s): ${preparedStatus.split("\n").join(", ")}`));
+      return out;
+    }
+    for (const [index, command] of policy.commands.entries()) {
+      const outcome = shell(command, candidate, timeoutMs);
+      const observedHead = git(candidate, ["rev-parse", "HEAD"]);
+      const observedStatus = trackedStatus(candidate);
+      const label = `automated review command ${index + 1}`;
+      if (observedHead !== expectedHead) {
+        out.push(result("integrity", "automated-review-head", label, command, "unverifiable",
+          `command moved HEAD to ${observedHead}; expected ${expectedHead}`, { blocksPass: true }));
+        return out;
+      }
+      if (observedStatus !== preparedStatus) {
+        out.push(result("integrity", "automated-review-worktree", label, command, "contradicted",
+          `command modified tracked path(s): ${observedStatus.split("\n").filter(Boolean).join(", ") || "previous tracked changes were removed"}`));
+        return out;
+      }
+      if (outcome.status === null || outcome.signal || outcome.error) {
+        out.push(result("command_ran", "automated-review-command", label, command, "unverifiable",
+          `command did not terminate normally; ${summarize(outcome)}`, { blocksPass: true }));
+        return out;
+      }
+      if (outcome.status !== 0) {
+        out.push(result("command_ran", "automated-review-command", label, command, "contradicted",
+          `base-policy command failed; ${summarize(outcome)}`));
+        return out;
+      }
+      out.push(result("command_ran", "automated-review-command", label, command, "verified",
+        `base-policy command exited 0 in an isolated checkout of ${expectedHead.slice(0, 12)}`));
+    }
+    return out;
+  } catch (error) {
+    out.push(result("integrity", "automated-review-worktree", "isolated automated review checkout", expectedHead, "unverifiable",
+      `could not run isolated automated review: ${(error as Error).message}`, { blocksPass: true }));
+    return out;
+  } finally {
+    if (worktreeAdded) { try { execFileSync("git", ["worktree", "remove", "--force", candidate], { cwd: repo, stdio: "ignore" }); } catch {} }
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 export function checkDifferentialTest(repo: string, base: string, head: string, testPaths: string[], policy: NonNullable<MaintainerPolicy["differentialTest"]>): CheckResult {
@@ -239,5 +386,6 @@ export function buildMaintainerChecks(repo: string, base: string, head: string, 
   const diff = collectDiffEvidence(repo, base, head, patterns);
   const checks = [...checkAttestations(evidence, policy), ...checkChangeScope(diff, policy)];
   if (policy.differentialTest) checks.push(checkDifferentialTest(repo, base, head, diff.testPaths, policy.differentialTest));
+  if (policy.reviewMode === "automated" && policy.automatedReview) checks.push(...checkAutomatedReview(repo, head, policy.automatedReview));
   return checks;
 }

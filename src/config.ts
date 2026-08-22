@@ -25,7 +25,15 @@ export type DifferentialTestPolicy = {
   overlayChangedTests?: boolean;
 };
 
+export type AutomatedReviewPolicy = {
+  setupCommand?: string;
+  commands: string[];
+  timeoutSeconds?: number;
+};
+
 export type MaintainerPolicy = {
+  reviewMode?: "human" | "automated";
+  /** @deprecated Use reviewMode. Kept so existing policies remain valid. */
   requireHumanAttestation?: boolean;
   requireLinkedIssue?: boolean;
   requireAiDisclosure?: boolean;
@@ -35,6 +43,7 @@ export type MaintainerPolicy = {
   protectedPaths?: string[];
   testPathPatterns?: string[];
   differentialTest?: DifferentialTestPolicy;
+  automatedReview?: AutomatedReviewPolicy;
 };
 
 export type LoadedPolicy = {
@@ -118,18 +127,49 @@ function validateMaintainerPolicy(input: unknown): void {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("policy maintainer must be a JSON object");
   const value = input as Record<string, unknown>;
   const allowed = new Set([
-    "requireHumanAttestation", "requireLinkedIssue", "requireAiDisclosure", "maxChangedFiles", "maxChangedLines",
-    "requireTestChange", "protectedPaths", "testPathPatterns", "differentialTest",
+    "reviewMode", "requireHumanAttestation", "requireLinkedIssue", "requireAiDisclosure", "maxChangedFiles", "maxChangedLines",
+    "requireTestChange", "protectedPaths", "testPathPatterns", "differentialTest", "automatedReview",
   ]);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`policy maintainer contains unknown field(s): ${unknown.join(", ")}`);
   for (const key of ["requireHumanAttestation", "requireLinkedIssue", "requireAiDisclosure", "requireTestChange"] as const) {
     if (value[key] !== undefined && typeof value[key] !== "boolean") throw new Error(`policy maintainer.${key} must be boolean`);
   }
+  if (value.reviewMode !== undefined && !new Set(["human", "automated"]).has(String(value.reviewMode))) {
+    throw new Error("policy maintainer.reviewMode must be human or automated");
+  }
+  if (value.reviewMode === "human" && value.requireHumanAttestation === false) {
+    throw new Error("policy maintainer.reviewMode human conflicts with requireHumanAttestation false");
+  }
+  if (value.reviewMode === "automated" && value.requireHumanAttestation === true) {
+    throw new Error("policy maintainer.reviewMode automated conflicts with requireHumanAttestation true");
+  }
   if (value.maxChangedFiles !== undefined) positiveInteger(value.maxChangedFiles, "maintainer.maxChangedFiles", 100000);
   if (value.maxChangedLines !== undefined) positiveInteger(value.maxChangedLines, "maintainer.maxChangedLines", 10000000);
   if (value.protectedPaths !== undefined) nonEmptyStrings(value.protectedPaths, "maintainer.protectedPaths");
   if (value.testPathPatterns !== undefined) nonEmptyStrings(value.testPathPatterns, "maintainer.testPathPatterns");
+  if (value.automatedReview !== undefined) {
+    if (!value.automatedReview || typeof value.automatedReview !== "object" || Array.isArray(value.automatedReview)) {
+      throw new Error("policy maintainer.automatedReview must be a JSON object");
+    }
+    const automated = value.automatedReview as Record<string, unknown>;
+    const automatedAllowed = new Set(["setupCommand", "commands", "timeoutSeconds"]);
+    const automatedUnknown = Object.keys(automated).filter((key) => !automatedAllowed.has(key));
+    if (automatedUnknown.length) throw new Error(`policy maintainer.automatedReview contains unknown field(s): ${automatedUnknown.join(", ")}`);
+    nonEmptyStrings(automated.commands, "maintainer.automatedReview.commands");
+    if ((automated.commands as string[]).length > 8) throw new Error("policy maintainer.automatedReview.commands must contain no more than 8 commands");
+    if ((automated.commands as string[]).some((command) => command.length > 1000)) throw new Error("policy maintainer.automatedReview.commands entries must be at most 1000 characters");
+    if (automated.setupCommand !== undefined && (typeof automated.setupCommand !== "string" || !automated.setupCommand.trim() || automated.setupCommand.length > 1000)) {
+      throw new Error("policy maintainer.automatedReview.setupCommand must be a non-empty string of at most 1000 characters");
+    }
+    if (automated.timeoutSeconds !== undefined) positiveInteger(automated.timeoutSeconds, "maintainer.automatedReview.timeoutSeconds", 3600);
+  }
+  if (value.reviewMode === "automated" && value.automatedReview === undefined) {
+    throw new Error("policy maintainer.reviewMode automated requires maintainer.automatedReview");
+  }
+  if (value.reviewMode !== "automated" && value.automatedReview !== undefined) {
+    throw new Error("policy maintainer.automatedReview requires reviewMode automated");
+  }
   if (value.differentialTest !== undefined) {
     if (!value.differentialTest || typeof value.differentialTest !== "object" || Array.isArray(value.differentialTest)) {
       throw new Error("policy maintainer.differentialTest must be a JSON object");
@@ -219,7 +259,8 @@ export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: st
     strict: true,
     minVerified: 1,
     maintainer: {
-      requireHumanAttestation: true,
+      reviewMode: "automated",
+      requireHumanAttestation: false,
       requireLinkedIssue: true,
       requireAiDisclosure: true,
       maxChangedFiles: 20,
@@ -232,6 +273,11 @@ export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: st
         ...(setupCommand ? { setupCommand } : {}),
         timeoutSeconds: 300,
         overlayChangedTests: true,
+      },
+      automatedReview: {
+        ...(setupCommand ? { setupCommand } : {}),
+        commands: [command],
+        timeoutSeconds: 300,
       },
     },
   };

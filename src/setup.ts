@@ -124,19 +124,18 @@ jobs:
           retention-days: 30
 `; }
 
-const MAINTAINER_PR_TEMPLATE = `## Agent Vigil maintainer evidence
+const MAINTAINER_PR_TEMPLATE = `## Agent Vigil pull request evidence
 
-- Responsible human: @REPLACE_WITH_YOUR_GITHUB_LOGIN
-- [ ] I reviewed every changed line.
-- [ ] I can explain and maintain this change.
 - AI assistance: assisted
 - Linked issue: #REPLACE
 - Known limitations: none known
 
-The declarations above establish responsibility and disclosure. They do not
-prove understanding. Agent Vigil independently checks the Git range, scope,
-fresh tests, integrity rules, and—when configured—whether the changed regression
-test fails against base source and passes against the candidate.
+Agent Vigil uses the policy from the base commit. It checks the exact Git range,
+scope, fresh tests, integrity rules, and whether the changed regression test
+fails against base source and passes against the candidate. The generated
+automated-review policy also runs its own commands in an isolated checkout of the
+exact candidate commit. It does not claim that a person reviewed or understands
+the change.
 `;
 
 const SESSION_TEMPLATE = `# Agent change receipt
@@ -229,6 +228,7 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
   let transcript = requestedTranscript;
   let portableReceipt: string | undefined;
   let maintainer = false;
+  let maintainerReviewMode: "human" | "automated" | "legacy" = "legacy";
   try {
     const policy = loadPolicy(root, requestedPolicy);
     checks.push({
@@ -239,6 +239,7 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
     transcript ??= policy.value.transcript;
     portableReceipt = policy.value.portableReceipt;
     maintainer = Boolean(policy.value.maintainer);
+    if (policy.value.maintainer?.reviewMode) maintainerReviewMode = policy.value.maintainer.reviewMode;
     const command = policy.value.testCommand ?? inferTestCommand(root);
     const placeholder = command === "REPLACE_WITH_TEST_COMMAND";
     checks.push({
@@ -271,8 +272,17 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
     const template = resolve(root, ".github/pull_request_template.md");
     checks.push({
       status: existsSync(template) ? "PASS" : "FAIL",
-      label: "Maintainer evidence",
-      detail: existsSync(template) ? "PR responsibility and disclosure template is installed" : "maintainer profile requires .github/pull_request_template.md",
+      label: "Pull request evidence",
+      detail: existsSync(template) ? "AI-assistance, linked-issue, and limitations template is installed" : "maintainer profile requires .github/pull_request_template.md",
+    });
+    checks.push({
+      status: maintainerReviewMode === "automated" ? "PASS" : maintainerReviewMode === "human" ? "PASS" : "WARN",
+      label: "Review mode",
+      detail: maintainerReviewMode === "automated"
+        ? "base policy runs explicit automated-review commands in an isolated exact-commit checkout"
+        : maintainerReviewMode === "human"
+        ? "base policy requires named human review declarations"
+        : "legacy policy does not name a reviewMode; set human or automated explicitly",
     });
   } else if (!transcript) {
     checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });
