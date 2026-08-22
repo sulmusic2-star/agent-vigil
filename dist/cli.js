@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash9 } from "node:crypto";
+import { createHash as createHash10 } from "node:crypto";
 import { execFileSync as execFileSync9 } from "node:child_process";
-import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync11, realpathSync as realpathSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync11, realpathSync as realpathSync3, statSync as statSync4, writeFileSync as writeFileSync5 } from "node:fs";
 import { dirname as dirname4, isAbsolute as isAbsolute4, relative as relative7, resolve as resolve9 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,14 +71,53 @@ function textFromBlocks(content) {
   }
   return out;
 }
+function nonNegativeNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+function usageCounters(value) {
+  const inputTokens = nonNegativeNumber(value.input_tokens);
+  const cachedInputTokens = nonNegativeNumber(value.cached_input_tokens ?? value.cache_read_input_tokens);
+  const cacheWriteInputTokens = nonNegativeNumber(value.cache_write_input_tokens ?? value.cache_creation_input_tokens);
+  const outputTokens = nonNegativeNumber(value.output_tokens);
+  const reasoningOutputTokens = nonNegativeNumber(value.reasoning_output_tokens);
+  const reportedTotal = nonNegativeNumber(value.total_tokens);
+  return {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens: reportedTotal || inputTokens + cachedInputTokens + cacheWriteInputTokens + outputTokens
+  };
+}
+function maxUsage(left, right) {
+  if (!left) return right;
+  return {
+    inputTokens: Math.max(left.inputTokens, right.inputTokens),
+    cachedInputTokens: Math.max(left.cachedInputTokens, right.cachedInputTokens),
+    cacheWriteInputTokens: Math.max(left.cacheWriteInputTokens, right.cacheWriteInputTokens),
+    outputTokens: Math.max(left.outputTokens, right.outputTokens),
+    reasoningOutputTokens: Math.max(left.reasoningOutputTokens, right.reasoningOutputTokens),
+    totalTokens: Math.max(left.totalTokens, right.totalTokens)
+  };
+}
 function parseClaude(rows, transcriptSha256) {
   const messages = [];
   const toolCalls = [];
   const byId = /* @__PURE__ */ new Map();
+  const usageByMessage = /* @__PURE__ */ new Map();
+  const models = /* @__PURE__ */ new Set();
   let sequence = 0;
+  let usageRecords = 0;
   for (const row of rows) {
     const msg = row?.message;
     if (row?.type === "assistant" && Array.isArray(msg?.content)) {
+      if (msg?.usage && typeof msg.usage === "object") {
+        usageRecords += 1;
+        const key = String(msg.id ?? row.requestId ?? row.uuid ?? `claude-usage-${usageRecords}`);
+        usageByMessage.set(key, maxUsage(usageByMessage.get(key), usageCounters(msg.usage)));
+        if (typeof msg.model === "string" && msg.model) models.add(msg.model);
+      }
       for (const block of msg.content) {
         if (block?.type === "text" && typeof block.text === "string") messages.push(block.text);
         if (block?.type === "tool_use") {
@@ -104,20 +143,49 @@ function parseClaude(rows, transcriptSha256) {
       }
     }
   }
+  const usage2 = [...usageByMessage.values()].reduce((total, item2) => ({
+    inputTokens: total.inputTokens + item2.inputTokens,
+    cachedInputTokens: total.cachedInputTokens + item2.cachedInputTokens,
+    cacheWriteInputTokens: total.cacheWriteInputTokens + item2.cacheWriteInputTokens,
+    outputTokens: total.outputTokens + item2.outputTokens,
+    reasoningOutputTokens: total.reasoningOutputTokens + item2.reasoningOutputTokens,
+    totalTokens: total.totalTokens + item2.totalTokens
+  }), { inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
   return {
     narrative: messages.slice(-8).join("\n\n"),
     assistantMessages: messages,
     toolCalls,
     format: "claude-code",
-    transcriptSha256
+    transcriptSha256,
+    ...usageByMessage.size ? { usage: {
+      source: "transcript-observed",
+      accounting: "deduplicated-assistant-messages",
+      ...usage2,
+      modelIds: [...models].sort(),
+      recordsObserved: usageRecords,
+      accountedUnits: usageByMessage.size
+    } } : {}
   };
 }
 function parseCodex(rows, transcriptSha256) {
   const messages = [];
   const toolCalls = [];
   const byId = /* @__PURE__ */ new Map();
+  const models = /* @__PURE__ */ new Set();
+  let cumulativeUsage;
   let sequence = 0;
+  let usageRecords = 0;
   for (const row of rows) {
+    if (row?.type === "turn_context" && typeof row?.payload?.model === "string") models.add(row.payload.model);
+    if (row?.type === "session_meta" && typeof row?.payload?.model === "string") models.add(row.payload.model);
+    if (row?.type === "event_msg" && row?.payload?.type === "token_count") {
+      const total = row?.payload?.info?.total_token_usage;
+      if (total && typeof total === "object") {
+        usageRecords += 1;
+        const candidate = usageCounters(total);
+        if (!cumulativeUsage || candidate.totalTokens >= cumulativeUsage.totalTokens) cumulativeUsage = candidate;
+      }
+    }
     if (row?.type !== "response_item") continue;
     const payload = row.payload ?? {};
     if (payload.type === "message" && payload.role === "assistant") {
@@ -148,7 +216,15 @@ function parseCodex(rows, transcriptSha256) {
     assistantMessages: messages,
     toolCalls,
     format: "codex",
-    transcriptSha256
+    transcriptSha256,
+    ...cumulativeUsage ? { usage: {
+      source: "transcript-observed",
+      accounting: "cumulative-session-snapshot",
+      ...cumulativeUsage,
+      modelIds: [...models].sort(),
+      recordsObserved: usageRecords,
+      accountedUnits: 1
+    } } : {}
   };
 }
 function parseCursor(rows, transcriptSha256) {
@@ -2169,10 +2245,26 @@ function validatePatterns(patterns, label) {
     }
   }
 }
+function optionalLimit(value, label) {
+  if (value === void 0) return void 0;
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} must be a non-negative safe integer`);
+  return value;
+}
 function validateAuthorityContract(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("authority contract must be a JSON object");
   const value = input;
-  const allowedFields = /* @__PURE__ */ new Set(["schemaVersion", "taskId", "allowedChangePaths", "deniedChangePaths", "allowedActions", "requireCompleteToolResults", "expiresAt"]);
+  const allowedFields = /* @__PURE__ */ new Set([
+    "schemaVersion",
+    "taskId",
+    "allowedChangePaths",
+    "deniedChangePaths",
+    "allowedActions",
+    "requireCompleteToolResults",
+    "maxToolCalls",
+    "maxFailedToolCalls",
+    "maxObservedTokens",
+    "expiresAt"
+  ]);
   const unknownFields = Object.keys(value).filter((key) => !allowedFields.has(key));
   if (unknownFields.length) throw new Error(`authority contract contains unknown field(s): ${unknownFields.join(", ")}`);
   if (value.schemaVersion !== 1) throw new Error("authority contract schemaVersion must be 1");
@@ -2191,6 +2283,9 @@ function validateAuthorityContract(input) {
   if (value.requireCompleteToolResults !== void 0 && typeof value.requireCompleteToolResults !== "boolean") {
     throw new Error("authority contract requireCompleteToolResults must be boolean");
   }
+  const maxToolCalls = optionalLimit(value.maxToolCalls, "authority contract maxToolCalls");
+  const maxFailedToolCalls = optionalLimit(value.maxFailedToolCalls, "authority contract maxFailedToolCalls");
+  const maxObservedTokens = optionalLimit(value.maxObservedTokens, "authority contract maxObservedTokens");
   if (value.expiresAt !== void 0) {
     if (typeof value.expiresAt !== "string" || !value.expiresAt.trim() || !Number.isFinite(new Date(value.expiresAt).getTime())) {
       throw new Error("authority contract expiresAt must be an ISO-compatible timestamp");
@@ -2203,6 +2298,9 @@ function validateAuthorityContract(input) {
     ...deniedChangePaths ? { deniedChangePaths } : {},
     allowedActions,
     ...value.requireCompleteToolResults !== void 0 ? { requireCompleteToolResults: value.requireCompleteToolResults } : {},
+    ...maxToolCalls !== void 0 ? { maxToolCalls } : {},
+    ...maxFailedToolCalls !== void 0 ? { maxFailedToolCalls } : {},
+    ...maxObservedTokens !== void 0 ? { maxObservedTokens } : {},
     ...value.expiresAt !== void 0 ? { expiresAt: new Date(value.expiresAt).toISOString() } : {}
   };
 }
@@ -2388,6 +2486,45 @@ function buildAuthorityChecks(repo, base, head, transcript, contract, now = /* @
     violations.length ? "contradicted" : "verified",
     violations.length ? violations.slice(0, 20).map(({ action, item: item2 }) => `#${action.sequence} ${action.toolName}: ${item2}`).join("; ") : `${actions.length} observed tool call(s) classified only into allowedActions`
   ));
+  if (contract.maxToolCalls !== void 0) {
+    const exceeded = actions.length > contract.maxToolCalls;
+    results.push(result2(
+      "authority_scope",
+      "tool-call-budget",
+      "observed tool-call budget",
+      `${actions.length}/${contract.maxToolCalls} tool call(s)`,
+      exceeded ? "contradicted" : "verified",
+      exceeded ? `observed ${actions.length} tool calls; contract permits at most ${contract.maxToolCalls}` : `observed tool calls stayed within the ${contract.maxToolCalls} call limit`
+    ));
+  }
+  if (contract.maxFailedToolCalls !== void 0) {
+    const failed = actions.filter((action) => action.failed).length;
+    const exceeded = failed > contract.maxFailedToolCalls;
+    results.push(result2(
+      "authority_scope",
+      "failed-tool-call-budget",
+      "observed failed-tool-call budget",
+      `${failed}/${contract.maxFailedToolCalls} failed tool call(s)`,
+      exceeded ? "contradicted" : "verified",
+      exceeded ? `observed ${failed} failed tool calls; contract permits at most ${contract.maxFailedToolCalls}` : `observed failed tool calls stayed within the ${contract.maxFailedToolCalls} failure limit`
+    ));
+  }
+  if (contract.maxObservedTokens !== void 0) {
+    const observed = transcript.usage?.totalTokens;
+    if (observed === void 0) {
+      results.push(result2("authority_scope", "observed-token-budget", "observed token budget", `unknown/${contract.maxObservedTokens} tokens`, "unverifiable", "the transcript adapter exposed no token accounting, so the declared token budget cannot be checked", { blocksPass: true }));
+    } else {
+      const exceeded = observed > contract.maxObservedTokens;
+      results.push(result2(
+        "authority_scope",
+        "observed-token-budget",
+        "observed token budget",
+        `${observed}/${contract.maxObservedTokens} tokens`,
+        exceeded ? "contradicted" : "verified",
+        exceeded ? `observed ${observed} tokens; contract permits at most ${contract.maxObservedTokens}` : `observed tokens stayed within the ${contract.maxObservedTokens} token limit`
+      ));
+    }
+  }
   const unknown = actions.filter((action) => action.classes.includes("unknown_effect"));
   if (unknown.length && allowed.has("unknown_effect")) {
     results.push(result2("authority_action", "unknown-action-risk", "unclassified observed effects", `${unknown.length} unknown action(s)`, "unverifiable", `unknown_effect was explicitly allowed, so ${unknown.length} action(s) cannot be meaningfully bounded`, { blocksPass: true }));
@@ -3272,6 +3409,203 @@ function buildMergeGroupReport(options) {
   });
 }
 
+// src/value.ts
+import { createHash as createHash9 } from "node:crypto";
+function nonNegative(value, name) {
+  if (value !== void 0 && (!Number.isFinite(value) || value < 0)) throw new Error(`${name} must be a non-negative number`);
+}
+function validAsOf(value) {
+  if (value === void 0) return;
+  if (!Number.isFinite(new Date(value).getTime())) throw new Error("outcome as-of must be an RFC3339-compatible timestamp");
+}
+function cardPayload(card) {
+  const { generatedAt: _generatedAt, ...evidence } = card;
+  return canonical(evidence);
+}
+function recomputeValueCardHash(card) {
+  const { cardHash: _cardHash, ...withoutHash } = card;
+  return `sha256:${createHash9("sha256").update(cardPayload(withoutHash)).digest("hex")}`;
+}
+function buildValueCard(input) {
+  nonNegative(input.values.budgetUsd, "budget USD");
+  nonNegative(input.values.costUsd, "cost USD");
+  nonNegative(input.values.reviewMinutes, "review minutes");
+  validAsOf(input.values.outcomeAsOf);
+  if (input.values.costUsd !== void 0 && !input.values.costSource) throw new Error("cost source is required when cost USD is provided");
+  if (input.values.costSource && input.values.costUsd === void 0) throw new Error("cost USD is required when cost source is provided");
+  if (input.values.costEvidenceSha256 && input.values.costUsd === void 0) throw new Error("cost USD is required when cost evidence is provided");
+  if (input.values.reviewEvidenceSha256 && input.values.disposition === void 0 && input.values.reviewMinutes === void 0) {
+    throw new Error("review evidence requires a disposition or review duration");
+  }
+  if (input.values.outcomeAsOf && (!input.values.outcome || input.values.outcome === "unknown")) {
+    throw new Error("outcome as-of requires a known outcome");
+  }
+  if (input.values.outcomeEvidenceSha256 && (!input.values.outcome || input.values.outcome === "unknown")) {
+    throw new Error("outcome evidence requires a known outcome");
+  }
+  const disposition = input.values.disposition ?? "unreviewed";
+  const outcome = input.values.outcome ?? "unknown";
+  const negative = input.report.summary.status === "FAIL" || disposition === "dismissed" || outcome === "reverted" || outcome === "hotfixed" || outcome === "incident-linked";
+  const accepted = disposition === "accepted" || outcome === "merged";
+  const acceptedEvidence = disposition === "accepted" && input.values.reviewEvidenceSha256 !== void 0 || outcome === "merged" && input.values.outcomeEvidenceSha256 !== void 0;
+  const positive = input.report.summary.status === "PASS" && accepted && acceptedEvidence && input.values.costEvidenceSha256 !== void 0;
+  const valueVerdict = negative ? "NEGATIVE" : positive ? "POSITIVE" : "INCONCLUSIVE";
+  const gaps = [];
+  if (input.report.summary.status === "INCONCLUSIVE") gaps.push("verification receipt is INCONCLUSIVE");
+  if (!input.usage) gaps.push("transcript contains no supported token-usage evidence");
+  else if (!input.usage.modelIds.length) gaps.push("agent model identity is unavailable");
+  if (input.values.costUsd === void 0) gaps.push("task cost is unavailable");
+  else if (!input.values.costEvidenceSha256) gaps.push("task cost is self-asserted without hashed billing evidence");
+  if (disposition === "unreviewed") gaps.push("maintainer disposition is unreviewed");
+  else if (!input.values.reviewEvidenceSha256) gaps.push("maintainer disposition is self-asserted without hashed review evidence");
+  if (input.values.reviewMinutes === void 0) gaps.push("human review time is unavailable");
+  if (outcome === "unknown") gaps.push("downstream change outcome is unknown");
+  else if (!input.values.outcomeEvidenceSha256) gaps.push("downstream change outcome is self-asserted without hashed outcome evidence");
+  const budgetStatus = input.values.budgetUsd === void 0 || input.values.costUsd === void 0 ? "UNAVAILABLE" : input.values.costUsd <= input.values.budgetUsd ? "WITHIN" : "EXCEEDED";
+  const signature = input.signatureValid === true ? input.keyPinned ? "VALID_PINNED" : "VALID_SELF_ASSERTED" : "UNSIGNED";
+  const costStatus = input.values.costUsd === void 0 ? "UNAVAILABLE" : input.values.costEvidenceSha256 ? "EVIDENCE_HASHED" : "SELF_ASSERTED";
+  const metrics = {};
+  if (input.report.summary.status === "PASS" && input.values.costUsd !== void 0) metrics.costPerVerifiedChangeUsd = input.values.costUsd;
+  if (input.report.summary.status === "PASS" && accepted && input.values.costUsd !== void 0) metrics.costPerAcceptedChangeUsd = input.values.costUsd;
+  if (input.report.summary.status === "PASS" && input.values.reviewMinutes !== void 0) metrics.reviewMinutesPerVerifiedChange = input.values.reviewMinutes;
+  const withoutHash = {
+    schemaVersion: "agent-vigil-value-card/v1",
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    receipt: {
+      receiptHash: input.report.receiptHash,
+      hashValid: true,
+      signature,
+      verificationStatus: input.report.summary.status,
+      base: input.report.base,
+      head: input.report.head,
+      transcriptSha256: input.report.transcriptSha256,
+      transcriptFormat: input.report.transcriptFormat
+    },
+    task: {
+      ...input.values.taskClass ? { taskClass: input.values.taskClass } : {},
+      ...input.values.budgetUsd !== void 0 ? { budgetUsd: input.values.budgetUsd } : {},
+      budgetStatus
+    },
+    agent: {
+      adapter: input.report.transcriptFormat.replace(/^authority\//, ""),
+      modelIds: input.usage?.modelIds ?? [],
+      ...input.toolCalls !== void 0 ? { toolCalls: input.toolCalls } : {},
+      ...input.failedToolCalls !== void 0 ? { failedToolCalls: input.failedToolCalls } : {}
+    },
+    usage: input.usage ?? { status: "UNAVAILABLE" },
+    cost: {
+      status: costStatus,
+      ...input.values.costUsd !== void 0 ? { amountUsd: input.values.costUsd } : {},
+      ...input.values.costSource ? { source: input.values.costSource } : {},
+      ...input.values.costEvidenceSha256 ? { evidenceSha256: input.values.costEvidenceSha256 } : {}
+    },
+    human: {
+      disposition,
+      ...input.values.reviewMinutes !== void 0 ? { reviewMinutes: input.values.reviewMinutes } : {},
+      evidence: disposition === "unreviewed" && input.values.reviewMinutes === void 0 ? "UNAVAILABLE" : input.values.reviewEvidenceSha256 ? "EVIDENCE_HASHED" : "SELF_ASSERTED",
+      ...input.values.reviewEvidenceSha256 ? { evidenceSha256: input.values.reviewEvidenceSha256 } : {}
+    },
+    outcome: {
+      state: outcome,
+      ...input.values.outcomeAsOf ? { asOf: new Date(input.values.outcomeAsOf).toISOString() } : {},
+      evidence: outcome === "unknown" ? "UNAVAILABLE" : input.values.outcomeEvidenceSha256 ? "EVIDENCE_HASHED" : "SELF_ASSERTED",
+      ...input.values.outcomeEvidenceSha256 ? { evidenceSha256: input.values.outcomeEvidenceSha256 } : {}
+    },
+    metrics,
+    valueVerdict,
+    gaps
+  };
+  const card = {
+    ...withoutHash,
+    cardHash: ""
+  };
+  card.cardHash = recomputeValueCardHash(card);
+  return card;
+}
+function money(value) {
+  return value === void 0 ? "unavailable" : `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
+}
+function renderValueCardText(card) {
+  const lines = [
+    `Agent Vigil Value Card \xB7 ${card.valueVerdict}`,
+    `  verification: ${card.receipt.verificationStatus} \xB7 ${card.receipt.signature}`,
+    `  task:         ${card.task.taskClass ?? "unclassified"}`,
+    `  agent:        ${card.agent.adapter}${card.agent.modelIds.length ? ` \xB7 ${card.agent.modelIds.join(", ")}` : " \xB7 model unknown"}`,
+    `  cost:         ${money(card.cost.amountUsd)} \xB7 ${card.cost.status}${card.cost.source ? ` \xB7 ${card.cost.source}` : ""}`,
+    `  budget:       ${money(card.task.budgetUsd)} \xB7 ${card.task.budgetStatus}`,
+    `  disposition:  ${card.human.disposition}${card.human.reviewMinutes !== void 0 ? ` \xB7 ${card.human.reviewMinutes} review minute(s)` : ""}`,
+    `  outcome:      ${card.outcome.state}${card.outcome.asOf ? ` \xB7 as of ${card.outcome.asOf}` : ""}`,
+    `  tokens:       ${"status" in card.usage ? "unavailable" : `${card.usage.totalTokens.toLocaleString("en-US")} \xB7 ${card.usage.accounting}`}`,
+    `  receipt:      ${card.receipt.receiptHash}`,
+    `  card:         ${card.cardHash}`
+  ];
+  if (card.metrics.costPerAcceptedChangeUsd !== void 0) lines.push(`  value metric: ${money(card.metrics.costPerAcceptedChangeUsd)} per accepted verified change`);
+  if (card.gaps.length) {
+    lines.push("  evidence gaps:");
+    for (const gap of card.gaps) lines.push(`    - ${gap}`);
+  }
+  return `${lines.join("\n")}
+`;
+}
+function markdownCell(value) {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+function renderValueCardMarkdown(card) {
+  const rows = [
+    ["Value verdict", card.valueVerdict],
+    ["Verification", card.receipt.verificationStatus],
+    ["Task class", card.task.taskClass ?? "unclassified"],
+    ["Agent", `${card.agent.adapter}${card.agent.modelIds.length ? ` \xB7 ${card.agent.modelIds.join(", ")}` : " \xB7 model unknown"}`],
+    ["Cost", `${money(card.cost.amountUsd)} \xB7 ${card.cost.status}`],
+    ["Budget", `${money(card.task.budgetUsd)} \xB7 ${card.task.budgetStatus}`],
+    ["Maintainer", `${card.human.disposition} \xB7 ${card.human.evidence}${card.human.reviewMinutes !== void 0 ? ` \xB7 ${card.human.reviewMinutes} minutes` : ""}`],
+    ["Outcome", `${card.outcome.state} \xB7 ${card.outcome.evidence}`],
+    ["Tokens", "status" in card.usage ? "unavailable" : card.usage.totalTokens.toLocaleString("en-US")]
+  ];
+  return [
+    "# Agent Vigil Value Card",
+    "",
+    "| Evidence | Result |",
+    "|---|---|",
+    ...rows.map(([label, value]) => `| ${markdownCell(label)} | ${markdownCell(value)} |`),
+    "",
+    ...card.gaps.length ? ["## Evidence gaps", "", ...card.gaps.map((gap) => `- ${gap}`), ""] : [],
+    `Receipt: \`${card.receipt.receiptHash}\``,
+    "",
+    `Card: \`${card.cardHash}\``,
+    "",
+    "Generated locally by [Agent Vigil](https://github.com/sulmusic2-star/agent-vigil).",
+    ""
+  ].join("\n");
+}
+function html(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+function renderValueCardHtml(card) {
+  const statusClass = card.valueVerdict.toLowerCase();
+  const tokenText = "status" in card.usage ? "Unavailable" : card.usage.totalTokens.toLocaleString("en-US");
+  const gapItems = card.gaps.length ? card.gaps.map((gap) => `<li>${html(gap)}</li>`).join("") : "<li>None recorded</li>";
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Vigil Value Card</title><style>
+:root{color-scheme:dark;background:#07100d;color:#effff7;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif}body{margin:0;padding:40px 20px;background:radial-gradient(circle at 80% 0,#163d31 0,transparent 38%),#07100d}.wrap{max-width:920px;margin:auto}.eyebrow{color:#79f2bd;letter-spacing:.18em;font-size:12px;font-weight:800}.hero{display:flex;justify-content:space-between;gap:24px;align-items:end;margin:18px 0 28px}.verdict{font-size:clamp(42px,8vw,82px);line-height:.92;margin:0}.pill{border:1px solid #315a4b;border-radius:999px;padding:10px 14px}.positive{color:#72f0ad}.negative{color:#ff8b91}.inconclusive{color:#ffd479}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.card{background:#0d1c17;border:1px solid #203c32;border-radius:18px;padding:20px;box-shadow:0 18px 55px #0005}.label{color:#90ac9f;text-transform:uppercase;font-size:11px;letter-spacing:.12em}.value{font-size:22px;font-weight:750;margin-top:8px;overflow-wrap:anywhere}.gaps{margin-top:12px}.hash{font:12px ui-monospace,SFMono-Regular,monospace;color:#91b6a6;overflow-wrap:anywhere}footer{margin-top:24px;color:#789387;font-size:12px}a{color:#79f2bd}@media(max-width:620px){.hero{display:block}.pill{display:inline-block;margin-top:18px}}
+</style></head><body><main class="wrap">
+<div class="eyebrow">AGENT VIGIL \xB7 VERIFIED ENGINEERING VALUE</div><section class="hero"><h1 class="verdict ${statusClass}">${html(card.valueVerdict)}</h1><div class="pill">${html(card.receipt.verificationStatus)} verification \xB7 ${html(card.task.taskClass ?? "unclassified")}</div></section>
+<section class="grid">
+<article class="card"><div class="label">Agent</div><div class="value">${html(card.agent.adapter)}</div><p>${html(card.agent.modelIds.join(", ") || "Model unknown")}</p></article>
+<article class="card"><div class="label">Attributed cost</div><div class="value">${html(money(card.cost.amountUsd))}</div><p>${html(card.cost.status)}</p></article>
+<article class="card"><div class="label">Budget</div><div class="value">${html(card.task.budgetStatus)}</div><p>${html(money(card.task.budgetUsd))}</p></article>
+<article class="card"><div class="label">Maintainer</div><div class="value">${html(card.human.disposition)}</div><p>${html(`${card.human.evidence}${card.human.reviewMinutes === void 0 ? " \xB7 review time unavailable" : ` \xB7 ${card.human.reviewMinutes} review minute(s)`}`)}</p></article>
+<article class="card"><div class="label">Outcome</div><div class="value">${html(card.outcome.state)}</div><p>${html(`${card.outcome.evidence}${card.outcome.asOf ? ` \xB7 ${card.outcome.asOf}` : " \xB7 no through-date"}`)}</p></article>
+<article class="card"><div class="label">Observed tokens</div><div class="value">${html(tokenText)}</div><p>${html("status" in card.usage ? "No supported usage record" : card.usage.accounting)}</p></article>
+</section>
+<article class="card gaps"><div class="label">Evidence gaps</div><ul>${gapItems}</ul></article>
+<article class="card gaps"><div class="label">Integrity</div><p class="hash">Receipt ${html(card.receipt.receiptHash)}</p><p class="hash">Card ${html(card.cardHash)}</p></article>
+<footer>Local evidence card generated by <a href="https://github.com/sulmusic2-star/agent-vigil">Agent Vigil</a>. A PASS receipt is not proof that code is bug-free, and missing cost or outcome evidence remains INCONCLUSIVE.</footer>
+</main></body></html>
+`;
+}
+
 // src/cli.ts
 function usage() {
   return `agent-vigil ${VERSION}
@@ -3286,6 +3620,7 @@ Usage:
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
+  vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
   vigil authority init [--output <path>]
   vigil authority <transcript.jsonl> --contract <authority.json> [--contract-ref <sha>] [options]
@@ -3311,6 +3646,21 @@ Options:
   --min-verified <n>     Minimum objective verified claims (default: 1)
   --version              Print the version
   --help                 Show this help
+
+Value options:
+  --transcript <path>    Bind supported token usage to the receipt digest
+  --cost-usd <amount>    Attributed task cost; requires --cost-source
+  --cost-source <kind>   provider-billed, subscription-allocated, or user-estimated
+  --cost-evidence <path> Hash a local billing artifact without copying its contents
+  --budget-usd <amount>  Predeclared task budget for WITHIN / EXCEEDED status
+  --review-minutes <n>   Explicit human review duration
+  --disposition <kind>   accepted, dismissed, changes-requested, or unreviewed
+  --review-evidence <p>  Hash review or disposition evidence without copying it
+  --outcome <kind>       merged, closed, reverted, hotfixed, incident-linked, or unknown
+  --outcome-as-of <time> RFC3339-compatible downstream observation time
+  --outcome-evidence <p> Hash merge or downstream evidence without copying it
+  --task-class <name>    Local comparison category, such as bugfix or refactor
+  --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS \xB7 1 FAIL \xB7 2 INCONCLUSIVE or usage error`;
 }
@@ -3431,7 +3781,7 @@ function runMaintainer(args) {
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     const rawEvent = readFileSync11(eventPath);
-    const eventHash = `sha256:${createHash9("sha256").update(rawEvent).digest("hex")}`;
+    const eventHash = `sha256:${createHash10("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative7(repo, policy.path) : void 0;
     const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git7(repo, ["rev-parse", `${head}^{tree}`]);
@@ -3586,6 +3936,151 @@ function runCompare(args) {
     return 2;
   }
 }
+function valueNumber(value, name) {
+  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value)) throw new Error(`${name} must be a non-negative decimal number`);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a non-negative decimal number`);
+  return parsed;
+}
+function parseValueArgs(args) {
+  const takesValue = /* @__PURE__ */ new Set([
+    "--transcript",
+    "--public-key",
+    "--cost-usd",
+    "--cost-source",
+    "--cost-evidence",
+    "--budget-usd",
+    "--review-minutes",
+    "--disposition",
+    "--review-evidence",
+    "--outcome",
+    "--outcome-as-of",
+    "--outcome-evidence",
+    "--task-class",
+    "--format",
+    "--output"
+  ]);
+  const values = /* @__PURE__ */ new Map();
+  const positional = [];
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith("--")) {
+      positional.push(arg);
+      continue;
+    }
+    if (!takesValue.has(arg)) throw new Error(`unknown value argument: ${arg}`);
+    if (values.has(arg)) throw new Error(`duplicate value argument: ${arg}`);
+    const value = args[++index];
+    if (value === void 0 || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+    values.set(arg, value);
+  }
+  if (positional.length !== 1) throw new Error("value requires exactly one full receipt JSON path");
+  const format = values.get("--format") ?? "text";
+  if (!(/* @__PURE__ */ new Set(["text", "json", "markdown", "html"])).has(format)) throw new Error("value --format must be text, json, markdown, or html");
+  const costSource = values.get("--cost-source");
+  if (costSource && !(/* @__PURE__ */ new Set(["provider-billed", "subscription-allocated", "user-estimated"])).has(costSource)) {
+    throw new Error("value --cost-source must be provider-billed, subscription-allocated, or user-estimated");
+  }
+  const disposition = values.get("--disposition");
+  if (disposition && !(/* @__PURE__ */ new Set(["accepted", "dismissed", "changes-requested", "unreviewed"])).has(disposition)) {
+    throw new Error("value --disposition must be accepted, dismissed, changes-requested, or unreviewed");
+  }
+  const outcome = values.get("--outcome");
+  if (outcome && !(/* @__PURE__ */ new Set(["merged", "closed", "reverted", "hotfixed", "incident-linked", "unknown"])).has(outcome)) {
+    throw new Error("value --outcome must be merged, closed, reverted, hotfixed, incident-linked, or unknown");
+  }
+  const taskClass = values.get("--task-class");
+  if (taskClass && (taskClass.length > 80 || /[\x00-\x1f\x7f]/.test(taskClass))) throw new Error("value --task-class must be at most 80 printable characters");
+  return {
+    receipt: positional[0],
+    ...values.get("--transcript") ? { transcript: values.get("--transcript") } : {},
+    ...values.get("--public-key") ? { publicKey: values.get("--public-key") } : {},
+    ...values.get("--cost-usd") ? { costUsd: valueNumber(values.get("--cost-usd"), "value --cost-usd") } : {},
+    ...costSource ? { costSource } : {},
+    ...values.get("--cost-evidence") ? { costEvidence: values.get("--cost-evidence") } : {},
+    ...values.get("--budget-usd") ? { budgetUsd: valueNumber(values.get("--budget-usd"), "value --budget-usd") } : {},
+    ...values.get("--review-minutes") ? { reviewMinutes: valueNumber(values.get("--review-minutes"), "value --review-minutes") } : {},
+    ...disposition ? { disposition } : {},
+    ...values.get("--review-evidence") ? { reviewEvidence: values.get("--review-evidence") } : {},
+    ...outcome ? { outcome } : {},
+    ...values.get("--outcome-as-of") ? { outcomeAsOf: values.get("--outcome-as-of") } : {},
+    ...values.get("--outcome-evidence") ? { outcomeEvidence: values.get("--outcome-evidence") } : {},
+    ...taskClass ? { taskClass } : {},
+    format,
+    ...values.get("--output") ? { output: values.get("--output") } : {}
+  };
+}
+function readBoundedFile(path, maximumBytes, label) {
+  const size = statSync4(path).size;
+  if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
+  return readFileSync11(path);
+}
+function runValue(args) {
+  try {
+    const options = parseValueArgs(args);
+    const receiptPath = resolve9(options.receipt);
+    const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
+    const report = JSON.parse(rawReceipt.toString("utf8"));
+    if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
+      throw new Error("value requires a full Agent Vigil receipt schema 2");
+    }
+    const verification2 = verifyReport(report, options.publicKey ? resolve9(options.publicKey) : void 0);
+    if (!verification2.hashValid) throw new Error("value receipt hash is invalid");
+    if (verification2.signatureValid === false) throw new Error("value receipt signature is invalid");
+    let transcriptPath;
+    if (options.transcript) transcriptPath = resolve9(options.transcript);
+    else {
+      const candidates = [
+        resolve9(dirname4(receiptPath), report.transcript),
+        ...isAbsolute4(report.repo) ? [resolve9(report.repo, report.transcript)] : []
+      ];
+      transcriptPath = candidates.find((candidate) => existsSync5(candidate));
+    }
+    let loaded;
+    if (transcriptPath) {
+      loaded = loadTranscript(transcriptPath);
+      if (loaded.transcriptSha256 !== report.transcriptSha256) throw new Error("value transcript digest does not match the receipt");
+    }
+    const evidenceHash = (path, label) => {
+      if (!path) return void 0;
+      const evidence = readBoundedFile(resolve9(path), 64 * 1024 * 1024, label);
+      return `sha256:${createHash10("sha256").update(evidence).digest("hex")}`;
+    };
+    const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
+    const reviewEvidenceSha256 = evidenceHash(options.reviewEvidence, "review evidence");
+    const outcomeEvidenceSha256 = evidenceHash(options.outcomeEvidence, "outcome evidence");
+    const card = buildValueCard({
+      report,
+      hashValid: true,
+      signatureValid: verification2.signatureValid,
+      keyPinned: verification2.keyPinned,
+      usage: loaded?.usage,
+      toolCalls: loaded?.toolCalls.length,
+      failedToolCalls: loaded?.toolCalls.filter((call) => call.isError).length,
+      values: {
+        taskClass: options.taskClass,
+        budgetUsd: options.budgetUsd,
+        costUsd: options.costUsd,
+        costSource: options.costSource,
+        costEvidenceSha256,
+        reviewMinutes: options.reviewMinutes,
+        disposition: options.disposition,
+        reviewEvidenceSha256,
+        outcome: options.outcome,
+        outcomeAsOf: options.outcomeAsOf,
+        outcomeEvidenceSha256
+      }
+    });
+    const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}
+` : options.format === "markdown" ? renderValueCardMarkdown(card) : options.format === "html" ? renderValueCardHtml(card) : renderValueCardText(card);
+    if (options.output) writePrivateFileAtomic(resolve9(options.output), rendered);
+    else process.stdout.write(rendered);
+    return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
 function runAudit(args) {
   try {
     const options = parseArgs(args.slice(1));
@@ -3595,7 +4090,7 @@ function runAudit(args) {
     const raw = readFileSync11(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest2 = `sha256:${createHash9("sha256").update(raw).digest("hex")}`;
+    const digest2 = `sha256:${createHash10("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -3614,7 +4109,7 @@ function runAudit(args) {
       head: digest2,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash9("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash10("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -3719,6 +4214,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "compare") return runCompare(argv);
+  if (argv[0] === "value") return runValue(argv);
   if (argv[0] === "audit") return runAudit(argv);
   if (argv[0] === "authority") return runAuthority(argv);
   if (argv[0] === "gate") return runGate(argv);

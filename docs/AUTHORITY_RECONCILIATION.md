@@ -53,6 +53,9 @@ vigil authority /private/session.jsonl \
     "build_execute"
   ],
   "requireCompleteToolResults": true,
+  "maxToolCalls": 120,
+  "maxFailedToolCalls": 5,
+  "maxObservedTokens": 500000,
   "expiresAt": "2026-08-23T12:00:00.000Z"
 }
 ```
@@ -79,12 +82,15 @@ action is not a meaningful boundary.
 - an exact changed path outside `allowedChangePaths`;
 - any path matching `deniedChangePaths`;
 - an observed tool call classified into an action outside `allowedActions`;
+- an observed tool-call, failed-call, or supported transcript token count above
+  its optional predeclared limit;
 - an expired authority window.
 
 **INCONCLUSIVE** includes:
 
 - narrative-only evidence with no structured tool calls;
 - missing terminal tool results when completeness is required;
+- a declared token limit when the transcript adapter exposes no usage evidence;
 - an action that cannot be classified safely;
 - invalid, unknown, oversized, or traversal-bearing contract input;
 - a workspace that does not match the selected head.
@@ -105,3 +111,7 @@ gateways to prevent actions. Use Agent Vigil to bind the resulting code and
 available trajectory to the human-issued task boundary and fail closed when
 the evidence cannot support that conclusion.
 
+The optional call and token limits are post-run merge controls. They detect an
+over-budget trajectory and can block its receipt; they do not interrupt a live
+agent. A real runtime circuit breaker must be enforced by the agent host or a
+provider gateway that can stop execution.

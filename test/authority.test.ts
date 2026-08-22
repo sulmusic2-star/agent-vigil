@@ -67,6 +67,8 @@ test("authority contract rejects unknown fields, traversal, and unsupported acti
   assert.throws(() => validateAuthorityContract({ schemaVersion: 1, taskId: "x", allowedChangePaths: ["src/**"], allowedActions: [], surprise: true }), /unknown field/);
   assert.throws(() => validateAuthorityContract({ schemaVersion: 1, taskId: "x", allowedChangePaths: ["../**"], allowedActions: [] }), /inside the repository/);
   assert.throws(() => validateAuthorityContract({ schemaVersion: 1, taskId: "x", allowedChangePaths: ["src/**"], allowedActions: ["magic"] }), /unsupported action/);
+  assert.throws(() => validateAuthorityContract({ schemaVersion: 1, taskId: "x", allowedChangePaths: ["src/**"], allowedActions: [], maxToolCalls: -1 }), /non-negative safe integer/);
+  assert.throws(() => validateAuthorityContract({ schemaVersion: 1, taskId: "x", allowedChangePaths: ["src/**"], allowedActions: [], maxObservedTokens: 1.5 }), /non-negative safe integer/);
 });
 
 test("shell splitting handles compounds while preserving quoted separators", () => {
@@ -118,6 +120,32 @@ test("allowed paths and observed actions pass", () => {
   const checked = buildAuthorityChecks(fx.repo, fx.base, fx.head, loadTranscript(fx.transcriptPath), contract);
   assert.equal(checked.results.some((item) => item.verdict !== "verified"), false);
   assert.equal(checked.actions.length, 3);
+});
+
+test("predeclared trajectory budgets pass, fail, and fail closed when token usage is unavailable", () => {
+  const rows = [
+    { type: "session_meta", payload: { id: "session-1" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "read", name: "exec_command", arguments: JSON.stringify({ cmd: "git status --short" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "read", output: JSON.stringify({ exit_code: 1, output: "failed" }) } },
+    { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 80, output_tokens: 20, total_tokens: 100 } } } },
+  ];
+  const fx = fixture({ transcript: rows, contract: { maxToolCalls: 1, maxFailedToolCalls: 1, maxObservedTokens: 100 } });
+  const loaded = loadTranscript(fx.transcriptPath);
+  const contract = loadAuthorityContract(fx.repo, fx.contractPath, fx.base).value;
+  const passing = buildAuthorityChecks(fx.repo, fx.base, fx.head, loaded, contract);
+  for (const ruleId of ["tool-call-budget", "failed-tool-call-budget", "observed-token-budget"]) {
+    assert.equal(passing.results.find((item) => item.ruleId === ruleId)?.verdict, "verified");
+  }
+
+  const exceeded = buildAuthorityChecks(fx.repo, fx.base, fx.head, loaded, { ...contract, maxToolCalls: 0, maxFailedToolCalls: 0, maxObservedTokens: 99 });
+  for (const ruleId of ["tool-call-budget", "failed-tool-call-budget", "observed-token-budget"]) {
+    assert.equal(exceeded.results.find((item) => item.ruleId === ruleId)?.verdict, "contradicted");
+  }
+
+  const unavailable = buildAuthorityChecks(fx.repo, fx.base, fx.head, { ...loaded, usage: undefined }, contract);
+  const tokenBudget = unavailable.results.find((item) => item.ruleId === "observed-token-budget");
+  assert.equal(tokenBudget?.verdict, "unverifiable");
+  assert.equal(tokenBudget?.blocksPass, true);
 });
 
 test("out-of-scope repository path fails", () => {

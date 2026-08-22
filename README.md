@@ -38,6 +38,14 @@ tool trajectory. An unauthorized push, release, deployment, external write,
 dependency installation, destructive command, or task creation is a FAIL;
 ambiguous or incomplete action evidence is INCONCLUSIVE.
 
+The local post-v0.11 build adds `vigil value`. It binds a valid receipt to
+observed Codex or Claude Code usage, attributed cost and budget, maintainer
+disposition, review duration, and downstream outcome. The resulting Agent Value
+Card is `POSITIVE`, `NEGATIVE`, or `INCONCLUSIVE` and can be rendered as a
+private standalone HTML file. See the
+[Agent Value Card contract](docs/AGENT_VALUE_CARD.md) and the clearly labeled
+[synthetic HTML demonstration](docs/assets/agent-value-card-demo.html).
+
 The next product hypothesis is **Agent Vigil Control: cross-vendor assurance
 and verified unit economics for coding agents**. Its outcome ledger connects
 task authority, budget, and agent actions to verification, maintainer
@@ -264,6 +272,27 @@ The delta is PASS only for related Git ranges under the same policy with no
 evidence regression. Policy changes or unrelated ranges are INCONCLUSIVE;
 tampering, weaker policy, lost signatures, new contradictions, and lost
 invariant controls are FAIL. See [the receipt-delta contract](docs/RECEIPT_DELTAS.md).
+
+Create a local Agent Value Card without uploading the transcript or billing
+artifact:
+
+```bash
+vigil value agent-vigil-report.json \
+  --transcript /private/path/session.jsonl \
+  --cost-usd 1.25 --cost-source provider-billed \
+  --cost-evidence /private/path/provider-export.csv \
+  --budget-usd 2.00 --review-minutes 7 \
+  --disposition accepted --review-evidence /private/path/review.json \
+  --outcome merged --outcome-evidence /private/path/merge.json \
+  --format html --output agent-value-card.html
+```
+
+The command exits `0` only for positive value evidence, `1` for negative value
+evidence, and `2` when evidence is incomplete or an input is invalid. Token
+counts never become a fabricated dollar estimate; cost requires explicit
+provenance. `POSITIVE` also requires hashed cost evidence plus hashed evidence
+for an accepted disposition or merged outcome. A hash proves artifact identity,
+not that the artifact's contents are correct.
 
 ## GitHub Action
 

@@ -24,6 +24,9 @@
       }
     },
     "requireCompleteToolResults": { "type": "boolean" },
+    "maxToolCalls": { "type": "integer", "minimum": 0 },
+    "maxFailedToolCalls": { "type": "integer", "minimum": 0 },
+    "maxObservedTokens": { "type": "integer", "minimum": 0 },
     "expiresAt": { "type": "string", "format": "date-time" }
   },
   "$defs": {

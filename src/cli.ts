@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTranscript, extractClaims, extractRunClaims } from "./transcript.ts";
@@ -34,6 +34,15 @@ import { compareReceipts, renderReceiptDelta } from "./receipt-diff.ts";
 import { buildMergeGroupReport } from "./merge-group.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
 import { authorityContractTemplate, buildAuthorityChecks, loadAuthorityContract } from "./authority.ts";
+import {
+  buildValueCard,
+  renderValueCardHtml,
+  renderValueCardMarkdown,
+  renderValueCardText,
+  type ChangeOutcome,
+  type CostSource,
+  type MaintainerDisposition,
+} from "./value.ts";
 
 type Options = {
   transcript?: string;
@@ -66,6 +75,7 @@ Usage:
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
+  vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
   vigil authority init [--output <path>]
   vigil authority <transcript.jsonl> --contract <authority.json> [--contract-ref <sha>] [options]
@@ -91,6 +101,21 @@ Options:
   --min-verified <n>     Minimum objective verified claims (default: 1)
   --version              Print the version
   --help                 Show this help
+
+Value options:
+  --transcript <path>    Bind supported token usage to the receipt digest
+  --cost-usd <amount>    Attributed task cost; requires --cost-source
+  --cost-source <kind>   provider-billed, subscription-allocated, or user-estimated
+  --cost-evidence <path> Hash a local billing artifact without copying its contents
+  --budget-usd <amount>  Predeclared task budget for WITHIN / EXCEEDED status
+  --review-minutes <n>   Explicit human review duration
+  --disposition <kind>   accepted, dismissed, changes-requested, or unreviewed
+  --review-evidence <p>  Hash review or disposition evidence without copying it
+  --outcome <kind>       merged, closed, reverted, hotfixed, incident-linked, or unknown
+  --outcome-as-of <time> RFC3339-compatible downstream observation time
+  --outcome-evidence <p> Hash merge or downstream evidence without copying it
+  --task-class <name>    Local comparison category, such as bugfix or refactor
+  --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS · 1 FAIL · 2 INCONCLUSIVE or usage error`;
 }
@@ -335,6 +360,160 @@ function runCompare(args: string[]): number {
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
+type ValueCliOptions = {
+  receipt: string;
+  transcript?: string;
+  publicKey?: string;
+  costUsd?: number;
+  costSource?: CostSource;
+  costEvidence?: string;
+  budgetUsd?: number;
+  reviewMinutes?: number;
+  disposition?: MaintainerDisposition;
+  reviewEvidence?: string;
+  outcome?: ChangeOutcome;
+  outcomeAsOf?: string;
+  outcomeEvidence?: string;
+  taskClass?: string;
+  format: "text" | "json" | "markdown" | "html";
+  output?: string;
+};
+
+function valueNumber(value: string, name: string): number {
+  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value)) throw new Error(`${name} must be a non-negative decimal number`);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a non-negative decimal number`);
+  return parsed;
+}
+
+function parseValueArgs(args: string[]): ValueCliOptions {
+  const takesValue = new Set([
+    "--transcript", "--public-key", "--cost-usd", "--cost-source", "--cost-evidence",
+    "--budget-usd", "--review-minutes", "--disposition", "--review-evidence", "--outcome", "--outcome-as-of", "--outcome-evidence",
+    "--task-class", "--format", "--output",
+  ]);
+  const values = new Map<string, string>();
+  const positional: string[] = [];
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith("--")) { positional.push(arg); continue; }
+    if (!takesValue.has(arg)) throw new Error(`unknown value argument: ${arg}`);
+    if (values.has(arg)) throw new Error(`duplicate value argument: ${arg}`);
+    const value = args[++index];
+    if (value === undefined || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+    values.set(arg, value);
+  }
+  if (positional.length !== 1) throw new Error("value requires exactly one full receipt JSON path");
+  const format = values.get("--format") ?? "text";
+  if (!new Set(["text", "json", "markdown", "html"]).has(format)) throw new Error("value --format must be text, json, markdown, or html");
+  const costSource = values.get("--cost-source");
+  if (costSource && !new Set(["provider-billed", "subscription-allocated", "user-estimated"]).has(costSource)) {
+    throw new Error("value --cost-source must be provider-billed, subscription-allocated, or user-estimated");
+  }
+  const disposition = values.get("--disposition");
+  if (disposition && !new Set(["accepted", "dismissed", "changes-requested", "unreviewed"]).has(disposition)) {
+    throw new Error("value --disposition must be accepted, dismissed, changes-requested, or unreviewed");
+  }
+  const outcome = values.get("--outcome");
+  if (outcome && !new Set(["merged", "closed", "reverted", "hotfixed", "incident-linked", "unknown"]).has(outcome)) {
+    throw new Error("value --outcome must be merged, closed, reverted, hotfixed, incident-linked, or unknown");
+  }
+  const taskClass = values.get("--task-class");
+  if (taskClass && (taskClass.length > 80 || /[\x00-\x1f\x7f]/.test(taskClass))) throw new Error("value --task-class must be at most 80 printable characters");
+  return {
+    receipt: positional[0],
+    ...(values.get("--transcript") ? { transcript: values.get("--transcript") } : {}),
+    ...(values.get("--public-key") ? { publicKey: values.get("--public-key") } : {}),
+    ...(values.get("--cost-usd") ? { costUsd: valueNumber(values.get("--cost-usd")!, "value --cost-usd") } : {}),
+    ...(costSource ? { costSource: costSource as CostSource } : {}),
+    ...(values.get("--cost-evidence") ? { costEvidence: values.get("--cost-evidence") } : {}),
+    ...(values.get("--budget-usd") ? { budgetUsd: valueNumber(values.get("--budget-usd")!, "value --budget-usd") } : {}),
+    ...(values.get("--review-minutes") ? { reviewMinutes: valueNumber(values.get("--review-minutes")!, "value --review-minutes") } : {}),
+    ...(disposition ? { disposition: disposition as MaintainerDisposition } : {}),
+    ...(values.get("--review-evidence") ? { reviewEvidence: values.get("--review-evidence") } : {}),
+    ...(outcome ? { outcome: outcome as ChangeOutcome } : {}),
+    ...(values.get("--outcome-as-of") ? { outcomeAsOf: values.get("--outcome-as-of") } : {}),
+    ...(values.get("--outcome-evidence") ? { outcomeEvidence: values.get("--outcome-evidence") } : {}),
+    ...(taskClass ? { taskClass } : {}),
+    format: format as ValueCliOptions["format"],
+    ...(values.get("--output") ? { output: values.get("--output") } : {}),
+  };
+}
+
+function readBoundedFile(path: string, maximumBytes: number, label: string): Buffer {
+  const size = statSync(path).size;
+  if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
+  return readFileSync(path);
+}
+
+function runValue(args: string[]): number {
+  try {
+    const options = parseValueArgs(args);
+    const receiptPath = resolve(options.receipt);
+    const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
+    const report = JSON.parse(rawReceipt.toString("utf8")) as TrustReport;
+    if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
+      throw new Error("value requires a full Agent Vigil receipt schema 2");
+    }
+    const verification = verifyReport(report, options.publicKey ? resolve(options.publicKey) : undefined);
+    if (!verification.hashValid) throw new Error("value receipt hash is invalid");
+    if (verification.signatureValid === false) throw new Error("value receipt signature is invalid");
+
+    let transcriptPath: string | undefined;
+    if (options.transcript) transcriptPath = resolve(options.transcript);
+    else {
+      const candidates = [
+        resolve(dirname(receiptPath), report.transcript),
+        ...(isAbsolute(report.repo) ? [resolve(report.repo, report.transcript)] : []),
+      ];
+      transcriptPath = candidates.find((candidate) => existsSync(candidate));
+    }
+    let loaded;
+    if (transcriptPath) {
+      loaded = loadTranscript(transcriptPath);
+      if (loaded.transcriptSha256 !== report.transcriptSha256) throw new Error("value transcript digest does not match the receipt");
+    }
+
+    const evidenceHash = (path: string | undefined, label: string): string | undefined => {
+      if (!path) return undefined;
+      const evidence = readBoundedFile(resolve(path), 64 * 1024 * 1024, label);
+      return `sha256:${createHash("sha256").update(evidence).digest("hex")}`;
+    };
+    const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
+    const reviewEvidenceSha256 = evidenceHash(options.reviewEvidence, "review evidence");
+    const outcomeEvidenceSha256 = evidenceHash(options.outcomeEvidence, "outcome evidence");
+    const card = buildValueCard({
+      report,
+      hashValid: true,
+      signatureValid: verification.signatureValid,
+      keyPinned: verification.keyPinned,
+      usage: loaded?.usage,
+      toolCalls: loaded?.toolCalls.length,
+      failedToolCalls: loaded?.toolCalls.filter((call) => call.isError).length,
+      values: {
+        taskClass: options.taskClass,
+        budgetUsd: options.budgetUsd,
+        costUsd: options.costUsd,
+        costSource: options.costSource,
+        costEvidenceSha256,
+        reviewMinutes: options.reviewMinutes,
+        disposition: options.disposition,
+        reviewEvidenceSha256,
+        outcome: options.outcome,
+        outcomeAsOf: options.outcomeAsOf,
+        outcomeEvidenceSha256,
+      },
+    });
+    const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}\n`
+      : options.format === "markdown" ? renderValueCardMarkdown(card)
+        : options.format === "html" ? renderValueCardHtml(card)
+          : renderValueCardText(card);
+    if (options.output) writePrivateFileAtomic(resolve(options.output), rendered);
+    else process.stdout.write(rendered);
+    return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
 function runAudit(args: string[]): number {
   try {
     const options = parseArgs(args.slice(1));
@@ -455,6 +634,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "compare") return runCompare(argv);
+  if (argv[0] === "value") return runValue(argv);
   if (argv[0] === "audit") return runAudit(argv);
   if (argv[0] === "authority") return runAuthority(argv);
   if (argv[0] === "gate") return runGate(argv);

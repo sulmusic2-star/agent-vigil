@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Add `vigil value` and Agent Value Card v1, binding a full receipt to observed
+  Codex or Claude Code token usage, attributed cost and budget, maintainer
+  disposition, review time, and downstream outcome.
+- Emit text, JSON, Markdown, or private standalone HTML while retaining
+  `POSITIVE`, `NEGATIVE`, and `INCONCLUSIVE` value states and explicit evidence
+  gaps.
+- Deduplicate streamed Claude assistant usage by message identity, consume the
+  greatest Codex cumulative usage snapshot, hash optional billing, review, and
+  downstream evidence,
+  and reject transcript/receipt mismatches and tampered receipts.
+- Add optional post-run `maxToolCalls`, `maxFailedToolCalls`, and
+  `maxObservedTokens` limits to task-scoped authority contracts. Missing token
+  telemetry blocks a pass when a token limit was declared.
+
+Cost amounts and downstream outcomes remain attributed evidence. `POSITIVE`
+requires hashed cost evidence plus hashed acceptance or merge evidence. Artifact
+hashes prove file identity, not that contents or allocations are correct.
+
 ## 0.11.0 - 2026-08-22
 
 - Add task-scoped authority contracts that bind allowed repository paths,

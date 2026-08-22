@@ -34,6 +34,9 @@ export type AuthorityContract = {
   deniedChangePaths?: string[];
   allowedActions: ActionClass[];
   requireCompleteToolResults?: boolean;
+  maxToolCalls?: number;
+  maxFailedToolCalls?: number;
+  maxObservedTokens?: number;
   expiresAt?: string;
 };
 
@@ -82,10 +85,19 @@ function validatePatterns(patterns: string[], label: string): void {
   }
 }
 
+function optionalLimit(value: unknown, label: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`${label} must be a non-negative safe integer`);
+  return value as number;
+}
+
 export function validateAuthorityContract(input: unknown): AuthorityContract {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("authority contract must be a JSON object");
   const value = input as Record<string, unknown>;
-  const allowedFields = new Set(["schemaVersion", "taskId", "allowedChangePaths", "deniedChangePaths", "allowedActions", "requireCompleteToolResults", "expiresAt"]);
+  const allowedFields = new Set([
+    "schemaVersion", "taskId", "allowedChangePaths", "deniedChangePaths", "allowedActions",
+    "requireCompleteToolResults", "maxToolCalls", "maxFailedToolCalls", "maxObservedTokens", "expiresAt",
+  ]);
   const unknownFields = Object.keys(value).filter((key) => !allowedFields.has(key));
   if (unknownFields.length) throw new Error(`authority contract contains unknown field(s): ${unknownFields.join(", ")}`);
   if (value.schemaVersion !== 1) throw new Error("authority contract schemaVersion must be 1");
@@ -104,6 +116,9 @@ export function validateAuthorityContract(input: unknown): AuthorityContract {
   if (value.requireCompleteToolResults !== undefined && typeof value.requireCompleteToolResults !== "boolean") {
     throw new Error("authority contract requireCompleteToolResults must be boolean");
   }
+  const maxToolCalls = optionalLimit(value.maxToolCalls, "authority contract maxToolCalls");
+  const maxFailedToolCalls = optionalLimit(value.maxFailedToolCalls, "authority contract maxFailedToolCalls");
+  const maxObservedTokens = optionalLimit(value.maxObservedTokens, "authority contract maxObservedTokens");
   if (value.expiresAt !== undefined) {
     if (typeof value.expiresAt !== "string" || !value.expiresAt.trim() || !Number.isFinite(new Date(value.expiresAt).getTime())) {
       throw new Error("authority contract expiresAt must be an ISO-compatible timestamp");
@@ -116,6 +131,9 @@ export function validateAuthorityContract(input: unknown): AuthorityContract {
     ...(deniedChangePaths ? { deniedChangePaths } : {}),
     allowedActions: allowedActions as ActionClass[],
     ...(value.requireCompleteToolResults !== undefined ? { requireCompleteToolResults: value.requireCompleteToolResults } : {}),
+    ...(maxToolCalls !== undefined ? { maxToolCalls } : {}),
+    ...(maxFailedToolCalls !== undefined ? { maxFailedToolCalls } : {}),
+    ...(maxObservedTokens !== undefined ? { maxObservedTokens } : {}),
     ...(value.expiresAt !== undefined ? { expiresAt: new Date(value.expiresAt).toISOString() } : {}),
   };
 }
@@ -279,6 +297,28 @@ export function buildAuthorityChecks(repo: string, base: string, head: string, t
     violations.length
       ? violations.slice(0, 20).map(({ action, item }) => `#${action.sequence} ${action.toolName}: ${item}`).join("; ")
       : `${actions.length} observed tool call(s) classified only into allowedActions`));
+
+  if (contract.maxToolCalls !== undefined) {
+    const exceeded = actions.length > contract.maxToolCalls;
+    results.push(result("authority_scope", "tool-call-budget", "observed tool-call budget", `${actions.length}/${contract.maxToolCalls} tool call(s)`, exceeded ? "contradicted" : "verified",
+      exceeded ? `observed ${actions.length} tool calls; contract permits at most ${contract.maxToolCalls}` : `observed tool calls stayed within the ${contract.maxToolCalls} call limit`));
+  }
+  if (contract.maxFailedToolCalls !== undefined) {
+    const failed = actions.filter((action) => action.failed).length;
+    const exceeded = failed > contract.maxFailedToolCalls;
+    results.push(result("authority_scope", "failed-tool-call-budget", "observed failed-tool-call budget", `${failed}/${contract.maxFailedToolCalls} failed tool call(s)`, exceeded ? "contradicted" : "verified",
+      exceeded ? `observed ${failed} failed tool calls; contract permits at most ${contract.maxFailedToolCalls}` : `observed failed tool calls stayed within the ${contract.maxFailedToolCalls} failure limit`));
+  }
+  if (contract.maxObservedTokens !== undefined) {
+    const observed = transcript.usage?.totalTokens;
+    if (observed === undefined) {
+      results.push(result("authority_scope", "observed-token-budget", "observed token budget", `unknown/${contract.maxObservedTokens} tokens`, "unverifiable", "the transcript adapter exposed no token accounting, so the declared token budget cannot be checked", { blocksPass: true }));
+    } else {
+      const exceeded = observed > contract.maxObservedTokens;
+      results.push(result("authority_scope", "observed-token-budget", "observed token budget", `${observed}/${contract.maxObservedTokens} tokens`, exceeded ? "contradicted" : "verified",
+        exceeded ? `observed ${observed} tokens; contract permits at most ${contract.maxObservedTokens}` : `observed tokens stayed within the ${contract.maxObservedTokens} token limit`));
+    }
+  }
 
   const unknown = actions.filter((action) => action.classes.includes("unknown_effect"));
   if (unknown.length && allowed.has("unknown_effect")) {

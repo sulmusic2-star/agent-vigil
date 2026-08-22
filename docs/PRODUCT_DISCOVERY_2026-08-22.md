@@ -25,6 +25,9 @@ and its
 [`reproducible scorecard`](research/2026-08-22-product-discovery/expanded-signal-scorecard.json).
 Limitations and the discarded counting attempt are documented in
 [`RESEARCH_LIMITS.md`](research/2026-08-22-product-discovery/RESEARCH_LIMITS.md).
+The post-build collision check against newer spend, loop, review-noise, and
+cost-tracker signals is in the
+[`value wedge update`](research/2026-08-22-product-discovery/VALUE_WEDGE_UPDATE.md).
 
 ## Decision
 
