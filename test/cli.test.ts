@@ -99,6 +99,18 @@ test("CLI maintainer init exposes the profile without creating a transcript plac
   assert.equal(readFileSync(join(r, ".agent-vigil.json"), "utf8").includes('"maintainer"'), true);
 });
 
+test("CLI authority init creates a base-anchored task-boundary workflow", () => {
+  const r = repo();
+  assert.equal(run(["init", "--profile", "authority", "--repo", r]), 0);
+  const workflow = readFileSync(join(r, ".github/workflows/agent-vigil.yml"), "utf8");
+  const contract = JSON.parse(readFileSync(join(r, ".agent-vigil-authority.json"), "utf8"));
+  assert.match(workflow, /authority-contract: \.agent-vigil-authority\.json/);
+  assert.match(workflow, /transcript: \.agent-vigil\/session\.jsonl/);
+  assert.match(workflow, /authority-contract-ref: \$\{\{ github\.event\.pull_request\.base\.sha/);
+  assert.equal(contract.allowedActions.includes("git_push"), false);
+  assert.equal(contract.allowedActions.includes("deploy"), false);
+});
+
 test("CLI portable init pins a public key and scaffolds receipt mode", () => {
   const r = repo(); const keys = mkdtempSync(join(tmpdir(), "vigil-init-portable-"));
   const privateKey = join(keys, "private.pem"); const publicKey = join(keys, "public.pem");

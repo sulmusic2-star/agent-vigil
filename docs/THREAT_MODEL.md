@@ -108,6 +108,24 @@ that the configured command distinguishes these trees under the overlaid tests.
 It does not prove the test represents the product requirement. Dependency or
 setup failures are INCONCLUSIVE, and binary diff line counts are not guessed.
 
+## Authority reconciliation boundary
+
+Authority mode loads the task contract from `contract-ref` when supplied,
+compares exact changed paths with its allow/deny patterns, and classifies raw
+structured tool inputs into explicit effect classes. The generated GitHub
+workflow pins `authority-contract-ref` to the event base SHA so a candidate
+cannot widen its own authority contract.
+
+This is post-execution reconciliation. It does not intercept system calls,
+network requests, credentials, MCP traffic, or side effects. Transcript
+adapters can only classify recorded tool calls. A compromised runtime or
+incomplete vendor export can omit activity, and shell syntax can be more
+expressive than the conservative classifier. Unknown actions, shell wrappers,
+missing results, and narrative-only evidence therefore block PASS rather than
+being treated as safe. A PASS says the exact Git result and **observed**
+trajectory stayed within the contract; it does not prove that no unlogged
+action occurred.
+
 ## Privacy
 
 The full verifier reads transcripts locally and emits extracted claim snippets,

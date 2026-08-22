@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.0 - 2026-08-22
+
+- Add task-scoped authority contracts that bind allowed repository paths,
+  denied paths, action classes, expiry, and tool-result completeness.
+- Add `vigil authority`, base-ref contract loading, JSON/SARIF receipts, and an
+  `init --profile authority` GitHub workflow.
+- Classify observed read/write/test/build/install/network/credential/destructive,
+  Git, PR, release, deploy, external-write, and task-creation effects while
+  failing closed on unknown or incomplete action evidence.
+- Add adversarial fixtures for contract self-widening, path escape, unauthorized
+  push, expired authority, compound shell commands, missing results, and
+  narrative-only evidence.
+- Publish a dated market radar separating official platform behavior, anecdotal
+  complaints, competitor categories, product hypotheses, and commercial gates.
+
+Authority reconciliation is post-execution evidence, not runtime containment or
+proof that no unlogged action occurred.
+
 ## 0.10.1 - 2026-08-21
 
 - Add fail-closed GitHub merge-queue verification for `merge_group` events.

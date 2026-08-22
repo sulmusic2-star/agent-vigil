@@ -7,14 +7,15 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**The agent said it was done. Agent Vigil checks the receipt.**
+**Give the coding agent a task boundary. Verify what it actually did.**
 
-Agent Vigil reconciles an AI coding agent's final claims with its transcript,
-repository, selected Git range, and a fresh verification run. The verifier is
-local and deterministic: no model grades another model, and missing evidence
+Agent Vigil is a cross-vendor AI engineering change-control gate. It reconciles
+human-issued task authority and an AI coding agent's final claims with observed
+tool actions, the exact Git range, and a fresh verification run. The verifier
+is local and deterministic: no model grades another model, and missing evidence
 does not become a green check.
 
-For maintainers who do not want agent transcripts, v0.10 includes a PR evidence
+For maintainers who do not want agent transcripts, Agent Vigil includes a PR evidence
 gate. It binds a named human to the GitHub event, enforces small-change policy,
 and can run the candidate's changed regression test against both candidate and
 base source. A test that passes on both sides is a **FAIL**, not proof.
@@ -29,6 +30,13 @@ v0.10 can also compare two full receipts. `vigil compare` fails on weakened
 policy, tampered content, lost signer continuity, new contradictions, and
 disappearing invariant checks. It reports new advisories separately instead of
 silently turning them into blockers.
+
+v0.11 adds **task-scoped authority reconciliation**. A short-lived contract
+declares allowed change paths and action classes before work starts. Agent Vigil
+then compares that base-anchored contract with the exact Git result and observed
+tool trajectory. An unauthorized push, release, deployment, external write,
+dependency installation, destructive command, or task creation is a FAIL;
+ambiguous or incomplete action evidence is INCONCLUSIVE.
 
 ```text
   ✗ [test-count] 99 tests
@@ -86,12 +94,21 @@ path limits, an isolated base-fail/head-pass differential test, and a workflow
 that retains the JSON receipt as a 30-day GitHub artifact. Review the generated
 commands and limits before merging the setup.
 
+Authority profile:
+
+```bash
+npx --yes github:sulmusic2-star/agent-vigil#v0.11.0 init --profile authority
+```
+
+Review the generated task ID, expiry, paths, and action classes, then merge the
+contract before the code change. See [task-scoped authority reconciliation](docs/AUTHORITY_RECONCILIATION.md).
+
 See the [two-minute installation page](https://sulmusic2-star.github.io/agent-vigil/)
 and the [three-case public failure corpus](proof/README.md). The corpus records
 first-party dogfood failures with exact revisions, corrections, negative
 controls, and limits; it is kept separate from external-adoption totals.
 
-## What v0.10 checks
+## What v0.11 checks
 
 - Claimed test success against a fresh test execution.
 - Claimed test counts across 18 output families: Node/TAP, Jest, Vitest, pytest, Cargo, Go JSON, Maven, Gradle, RSpec, PHPUnit, .NET, Mocha, Bun, AVA, Playwright, Cypress, and Minitest.
@@ -116,6 +133,9 @@ controls, and limits; it is kept separate from external-adoption totals.
   artifacts onto base source, require the command to fail there, and require it
   to pass on the candidate. Optional setup, timeout, and expected base-failure
   pattern are controlled by policy from the base commit.
+- Base-anchored task authority: exact changed-path allow/deny rules, short-lived
+  validity, observed action classification, and complete terminal tool-result
+  evidence across supported transcript adapters.
 
 Every run can emit a compact JSON receipt, Markdown, SARIF 2.1.0, and a GitHub
 Step Summary. The receipt has a deterministic SHA-256 content identifier. It is
@@ -257,7 +277,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.10.1
+  - uses: sulmusic2-star/agent-vigil@v0.11.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -286,7 +306,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.10.1
+    uses: sulmusic2-star/agent-vigil@v0.11.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
@@ -298,6 +318,14 @@ Maintainer mode needs no transcript:
 
 Use the generated PR template. Agent Vigil reads the event payload, never
 executes PR body text, and rejects event/base/head mismatches.
+
+Authority mode adds these base-anchored inputs to transcript mode:
+
+```yaml
+      transcript: agent-session.jsonl
+      authority-contract: .agent-vigil-authority.json
+      authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+```
 
 The Action runs the compiled verifier checked into this repository; it does not
 depend on an npm package being available. It writes `agent-vigil-report.json`,
@@ -312,6 +340,8 @@ depend on an npm package being available. It writes `agent-vigil-report.json`,
 
 ```text
 vigil <transcript.jsonl|summary.md> [options]
+vigil authority init [--output <path>]
+vigil authority <transcript.jsonl> --contract <authority.json> --contract-ref <sha> [options]
 
 --repo <path>          repository to verify
 --base <sha>           baseline commit (default HEAD~1)

@@ -179,7 +179,7 @@ test("init creates a policy, evidence placeholder, and exact-SHA workflow", () =
   assert.match(workflow, /merge_group:/);
   assert.match(workflow, /merge_group\.base_sha/);
   assert.match(workflow, /merge_group\.head_sha/);
-  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.10\.1/);
+  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.11\.0/);
   assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /npm test --silent/);
   assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /"integrityMode": "advisory"/);
 });
@@ -213,8 +213,11 @@ test("maintainer init creates a base-anchored evidence gate and retained receipt
 test("Action accepts exactly one evidence mode", () => {
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
   assert.match(action, /VIGIL_RECEIPT/);
-  assert.match(action, /choose exactly one of transcript, receipt, or mode: maintainer/);
+  assert.match(action, /VIGIL_AUTHORITY_CONTRACT/);
+  assert.match(action, /choose exactly one of transcript, authority contract, receipt, or mode: maintainer/);
   assert.match(action, /receipt mode requires a base-anchored policy/);
+  assert.match(action, /args=\(authority "\$VIGIL_TRANSCRIPT"/);
+  assert.match(action, /authority-contract-ref must equal GitHub event base/);
   assert.match(action, /args=\(gate "\$VIGIL_RECEIPT"/);
   assert.match(action, /args=\(merge-group --event "\$GITHUB_EVENT_PATH"/);
   assert.match(action, /e\.merge_group\?\.base_sha/);
@@ -230,6 +233,21 @@ test("doctor validates the generated installation", () => {
   assert.ok(checks.some((check) => check.label === "Policy trust" && check.status === "PASS"));
   assert.ok(checks.some((check) => check.label === "Merge queue" && check.status === "PASS"));
   assert.ok(checks.some((check) => check.label === "Transcript" && check.status === "PASS"));
+});
+
+test("doctor refuses an unreviewed or expired authority scaffold", () => {
+  const path = repo();
+  initRepository(path, false, undefined, "authority");
+  let checks = doctorRepository(path);
+  assert.ok(checks.some((check) => check.label === "Task authority" && check.status === "FAIL" && /taskId/.test(check.detail)));
+  assert.ok(checks.some((check) => check.label === "Transcript" && check.status === "FAIL" && /structured/.test(check.detail)));
+  const contractPath = join(path, ".agent-vigil-authority.json");
+  const contract = JSON.parse(readFileSync(contractPath, "utf8"));
+  contract.taskId = "SEC-142";
+  contract.expiresAt = "2099-01-01T00:00:00.000Z";
+  writeFileSync(contractPath, JSON.stringify(contract, null, 2));
+  checks = doctorRepository(path);
+  assert.ok(checks.some((check) => check.label === "Task authority" && check.status === "PASS"));
 });
 
 function sampleReport() {

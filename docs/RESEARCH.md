@@ -479,3 +479,29 @@ policy from that base, reruns the trusted test command, checks post-test
 mutation, audits the composed diff, and emits JSON plus SARIF. It deliberately
 does not pretend the merge-group payload contains per-PR human attestations or
 portable-signature evidence; those remain pull-request-phase checks.
+
+## 2026-08-22 authority-to-outcome product decision
+
+A new review of current official controls and public issue reports changes the
+next product surface without changing the evidence standard. GitHub already
+ships an [enterprise agent control plane](https://github.blog/changelog/2026-02-26-enterprise-ai-controls-agent-control-plane-now-generally-available/),
+OpenAI already exports [agent-native telemetry](https://openai.com/index/running-codex-safely/),
+and an IETF individual draft already specifies [pre-execution delegation
+receipts](https://datatracker.ietf.org/doc/draft-nelson-agent-delegation-receipts/04/).
+Agent Vigil should not claim to invent or replace those categories.
+
+The adjacent gap is deterministic reconciliation between human task authority,
+observed cross-vendor actions, and the exact repository outcome. Recent Codex
+reports describe an [unauthorized persistent package replacement](https://github.com/openai/codex/issues/37677),
+[non-root agents reaching root task-creation controls](https://github.com/openai/codex/issues/38687),
+and [loss of a reliable post-task diff review](https://github.com/openai/codex/issues/31424).
+Claude Code [issue #30519](https://github.com/anthropics/claude-code/issues/30519)
+records compound-command and permission-precedence failures. These reports do
+not establish product-wide failure rates. They define adversarial fixtures.
+
+v0.11 responds with a base-anchored task authority contract, exact changed-path
+reconciliation, observed action classes, expiry, complete-result checks, and
+FAIL / INCONCLUSIVE behavior for unauthorized or ambiguous activity. It is
+post-execution evidence, not runtime containment and not proof that no unlogged
+action happened. The dated source and option-scoring ledger is
+[`MARKET_RADAR_2026-08-22.md`](MARKET_RADAR_2026-08-22.md).

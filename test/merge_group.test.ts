@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -24,6 +24,15 @@ function fixture(options: { failingHead?: boolean; tamperHeadPolicy?: boolean; s
     testCommand: options.switchHeadDuringTest ? "node switch-head.cjs && node --test" : "node --test",
     integrityMode: "advisory",
   }));
+  writeFileSync(join(repo, ".agent-vigil-authority.json"), JSON.stringify({
+    schemaVersion: 1,
+    taskId: "QUEUE-1",
+    allowedChangePaths: ["**"],
+    allowedActions: ["repository_read"],
+    requireCompleteToolResults: true,
+    expiresAt: "2099-01-01T00:00:00.000Z",
+  }));
+  writeFileSync(join(repo, ".agent-session.jsonl"), `${JSON.stringify({ type: "session_meta", payload: { id: "queue-session" } })}\n`);
   execFileSync("git", ["add", "-A"], { cwd: repo });
   execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
   const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
@@ -112,6 +121,29 @@ test("composite Action routes a merge_group event to JSON and SARIF outputs", { 
   assert.match(readFileSync(output, "utf8"), /^sarif=.+agent-vigil\.sarif$/m);
   assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil-report.json"), "utf8")).transcriptFormat, "github-merge-group-event");
   assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil.sarif"), "utf8")).runs[0].properties.status, "PASS");
+
+  // Authority evidence is enforced in the PR phase. The queue phase must not
+  // go missing or try to apply one PR's contract to the composed group; it
+  // routes the same required check to exact composed-commit verification.
+  rmSync(join(value.repo, "agent-vigil-report.json"));
+  rmSync(join(value.repo, "agent-vigil.sarif"));
+  writeFileSync(output, "");
+  writeFileSync(summary, "");
+  const authorityEnv = {
+    ...actionEnv,
+    VIGIL_MODE: "",
+    VIGIL_TRANSCRIPT: ".agent-session.jsonl",
+    VIGIL_AUTHORITY_CONTRACT: ".agent-vigil-authority.json",
+    VIGIL_AUTHORITY_CONTRACT_REF: value.base,
+  };
+  const authorityCompleted = spawnSync("bash", [script], {
+    cwd: value.repo,
+    encoding: "utf8",
+    env: authorityEnv,
+  });
+  assert.equal(authorityCompleted.status, 0, `${authorityCompleted.stderr}\n${authorityCompleted.stdout}`);
+  assert.match(readFileSync(output, "utf8"), /^status=PASS$/m);
+  assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil-report.json"), "utf8")).transcriptFormat, "github-merge-group-event");
 });
 
 test("merge-group rejects a forged or mismatched event range", () => {

@@ -14,6 +14,12 @@ inputs:
   receipt:
     description: "Compact signed portable receipt; use instead of transcript"
     required: false
+  authority-contract:
+    description: "Task-scoped authority contract; requires transcript and authority-contract-ref"
+    required: false
+  authority-contract-ref:
+    description: "Trusted Git ref containing the authority contract (use the pull request base SHA)"
+    required: false
   repo:
     description: "Repository path to verify"
     required: false
@@ -64,6 +70,8 @@ runs:
       env:
         VIGIL_TRANSCRIPT: ${{ inputs.transcript }}
         VIGIL_RECEIPT: ${{ inputs.receipt }}
+        VIGIL_AUTHORITY_CONTRACT: ${{ inputs.authority-contract }}
+        VIGIL_AUTHORITY_CONTRACT_REF: ${{ inputs.authority-contract-ref }}
         VIGIL_MODE: ${{ inputs.mode }}
         VIGIL_REPO: ${{ inputs.repo }}
         VIGIL_BASE: ${{ inputs.base }}
@@ -79,11 +87,19 @@ runs:
           exit 2
         fi
         selected=0
-        [[ -n "$VIGIL_TRANSCRIPT" ]] && selected=$((selected + 1))
+        if [[ -n "$VIGIL_AUTHORITY_CONTRACT" ]]; then
+          if [[ -z "$VIGIL_TRANSCRIPT" || -z "$VIGIL_AUTHORITY_CONTRACT_REF" ]]; then
+            echo "agent-vigil: authority mode requires transcript, authority-contract, and authority-contract-ref" >&2
+            exit 2
+          fi
+          selected=$((selected + 1))
+        elif [[ -n "$VIGIL_TRANSCRIPT" ]]; then
+          selected=$((selected + 1))
+        fi
         [[ -n "$VIGIL_RECEIPT" ]] && selected=$((selected + 1))
         [[ "$VIGIL_MODE" == "maintainer" ]] && selected=$((selected + 1))
         if [[ "$selected" -ne 1 ]]; then
-          echo "agent-vigil: choose exactly one of transcript, receipt, or mode: maintainer" >&2
+          echo "agent-vigil: choose exactly one of transcript, authority contract, receipt, or mode: maintainer" >&2
           exit 2
         fi
         if [[ -n "$VIGIL_RECEIPT" && ( -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ) ]]; then
@@ -123,6 +139,10 @@ runs:
               echo "agent-vigil: GitHub event policy requires policy-ref anchored to event base $event_base" >&2
               exit 2
             fi
+            if [[ -n "$VIGIL_AUTHORITY_CONTRACT_REF" && "$VIGIL_AUTHORITY_CONTRACT_REF" != "$event_base" ]]; then
+              echo "agent-vigil: authority-contract-ref must equal GitHub event base $event_base" >&2
+              exit 2
+            fi
           fi
         fi
 
@@ -141,6 +161,8 @@ runs:
             exit 2
           fi
           args=(maintainer --event "$GITHUB_EVENT_PATH" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
+        elif [[ -n "$VIGIL_AUTHORITY_CONTRACT" ]]; then
+          args=(authority "$VIGIL_TRANSCRIPT" --contract "$VIGIL_AUTHORITY_CONTRACT" --contract-ref "$VIGIL_AUTHORITY_CONTRACT_REF" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
         elif [[ -n "$VIGIL_RECEIPT" ]]; then
           args=(gate "$VIGIL_RECEIPT" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
         else

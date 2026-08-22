@@ -33,6 +33,7 @@ import { routeIntegrity } from "./integrity-policy.ts";
 import { compareReceipts, renderReceiptDelta } from "./receipt-diff.ts";
 import { buildMergeGroupReport } from "./merge-group.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
+import { authorityContractTemplate, buildAuthorityChecks, loadAuthorityContract } from "./authority.ts";
 
 type Options = {
   transcript?: string;
@@ -60,11 +61,14 @@ Usage:
   vigil demo
   vigil init [--repo <path>] [--force] [--portable --public-key <path>]
   vigil init --profile maintainer [--repo <path>] [--force]
+  vigil init --profile authority [--repo <path>] [--force]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
+  vigil authority init [--output <path>]
+  vigil authority <transcript.jsonl> --contract <authority.json> [--contract-ref <sha>] [options]
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
@@ -144,17 +148,19 @@ function runInit(args: string[]): number {
     const repo = resolve(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const profile = optionValue(args, "--profile") ?? "default";
-    if (!new Set(["default", "maintainer"]).has(profile)) throw new Error("init --profile must be default or maintainer");
+    if (!new Set(["default", "maintainer", "authority"]).has(profile)) throw new Error("init --profile must be default, maintainer, or authority");
     const publicKey = optionValue(args, "--public-key");
-    if (portable && profile === "maintainer") throw new Error("init --portable cannot be combined with --profile maintainer");
+    if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer");
+    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer" | "authority");
     console.log("Agent Vigil initialized.\n");
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
     console.log(profile === "maintainer"
       ? "\nNext: replace the PR-template login, review the base-anchored limits, merge this setup first, then open a code PR with a regression test that fails on base and passes on head."
+      : profile === "authority"
+      ? "\nNext: replace the task ID, paths, action classes, and expiry; point the workflow at a structured agent transcript; merge the contract before the code change."
       : portable
       ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output."
       : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
@@ -366,6 +372,73 @@ function runAudit(args: string[]): number {
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
+function runAuthority(args: string[]): number {
+  try {
+    if (args[1] === "init") {
+      const output = optionValue(args, "--output");
+      const rendered = authorityContractTemplate();
+      if (output) {
+        writePrivateFileAtomic(resolve(output), rendered);
+        console.log(`Created task-scoped authority contract ${output}. Review every allowed action and replace the task ID before use.`);
+      } else process.stdout.write(rendered);
+      return 0;
+    }
+    const contractOption = optionValue(args, "--contract");
+    if (!contractOption) throw new Error("authority requires --contract <authority.json>");
+    const contractRef = optionValue(args, "--contract-ref");
+    let stripped = withoutOption(args.slice(1), "--contract");
+    if (contractRef) stripped = withoutOption(stripped, "--contract-ref");
+    const options = parseArgs(stripped);
+    const transcriptOption = options.transcript;
+    if (!transcriptOption) throw new Error("authority requires a structured agent transcript");
+    const repo = resolve(options.repo);
+    if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
+    const base = resolveGitRef(repo, options.base);
+    const head = resolveGitRef(repo, options.head);
+    const transcriptPath = isAbsolute(transcriptOption) ? transcriptOption : resolve(repo, transcriptOption);
+    if (!existsSync(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
+    const contract = loadAuthorityContract(repo, contractOption, contractRef);
+    const loaded = loadTranscript(transcriptPath);
+    const inputs = [transcriptPath, ...(contract.path ? [contract.path] : [])];
+    const results: CheckResult[] = [...checkWorkspaceBinding(repo, head, inputs)];
+    const advisories: CheckResult[] = [];
+    const authority = buildAuthorityChecks(repo, base, head, loaded, contract.value);
+    results.push(...authority.results);
+    if (!contract.ref) advisories.push({
+      claim: { kind: "authority_scope", subject: "authority trust root", quote: contract.source },
+      verdict: "unverifiable",
+      evidence: "the contract was loaded from the local filesystem; use --contract-ref <trusted-base-sha> in CI so candidate changes cannot widen their own authority",
+      ruleId: "authority-contract-anchor",
+      contributesToPass: false,
+    });
+    const remote = git(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git(repo, ["rev-parse", `${head}^{tree}`]);
+    const relativeTranscript = relative(repo, transcriptPath) || transcriptOption;
+    const reproduction = [
+      "vigil authority", shellQuote(relativeTranscript), "--contract", shellQuote(contract.gitPath ?? contractOption),
+      ...(contract.ref ? ["--contract-ref", contract.ref] : []),
+      "--repo", ".", "--base", base, "--head", head,
+    ].join(" ");
+    let report = buildReport({
+      transcript: relativeTranscript,
+      transcriptSha256: loaded.transcriptSha256,
+      transcriptFormat: `authority/${loaded.format}`,
+      repo,
+      base,
+      head,
+      results,
+      advisories,
+      policy: { minVerified: 1, strict: true, source: contract.source, sha256: contract.sha256 },
+      repository: { ...(remote ? { remote } : {}), ...(tree ? { tree } : {}) },
+      reproduction,
+    });
+    if (options.signingKey) report = signReport(report, resolve(options.signingKey));
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
 function git(repo: string, args: string[]): string | undefined {
   try { return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
   catch { return undefined; }
@@ -383,6 +456,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "compare") return runCompare(argv);
   if (argv[0] === "audit") return runAudit(argv);
+  if (argv[0] === "authority") return runAuthority(argv);
   if (argv[0] === "gate") return runGate(argv);
   if (argv[0] === "maintainer") return runMaintainer(argv);
   if (argv[0] === "merge-group") return runMergeGroup(argv);
