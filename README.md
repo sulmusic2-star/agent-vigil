@@ -573,9 +573,14 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- The exact unreleased v0.13 test count is recorded after integration; the
-  suite includes 80 generated-repository compatibility scenarios across
-  18 runner-output families, plus adversarial false-pass, path, transcript,
+- 365 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families. In the latest unreleased v0.13 local run, 360
+  passed and five opt-in Docker tests skipped in the ordinary suite. With Docker enabled, the
+  combined 13-test containment, timeout-cleanup, verdict, signing, and index
+  suite passed against the selected local test daemon with no residual Upgrade
+  Guard containers. This demonstrates the tested environment, not that every
+  local transport or untested platform resolves to a physically local daemon.
+  The suite also includes adversarial false-pass, path, transcript,
   tool-loop, test-count, skip, suppression, adapter-drift, maintainer-attestation,
   scope-budget, symlink, forged-event, and differential-regression cases.
 - Seven real-toolchain repositories exercised Node/npm, pnpm, pytest, Go,

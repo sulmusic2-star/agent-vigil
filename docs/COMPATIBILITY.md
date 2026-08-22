@@ -24,8 +24,14 @@ forms, semantic tool-loop fingerprints, and documentation false positives.
 
 Current durable result: **80/80 compatibility scenarios pass**. Combined with
 the core, CLI, adapter, setup, policy-anchor, signing, attestation,
-workspace-binding, and remediation suite, the exact unreleased v0.13 test count
-is recorded after integration.
+workspace-binding, and remediation suite, `npm test` executes **365 tests** in
+the latest unreleased v0.13 local candidate: 360 pass and five opt-in Docker tests skip in
+the ordinary suite. The combined 13-test real-Docker containment,
+timeout-cleanup, verdict, signing, and index suite passes against the selected
+local test daemon and leaves no residual Upgrade Guard containers. This proves
+the tested daemon and platform only; it does not establish that every local
+transport is physically local or that Windows and Linux resolution paths have
+been exercised.
 
 `npm run test:package` additionally installs the generated tarball into a
 disposable consumer and exercises both standard and portable `init` plus
@@ -35,9 +41,10 @@ Maven, Gradle wrapper, Gradle build, Ruby, PHP, and .NET.
 A deterministic fuzz layer adds 9,000 mutated runner, dotted-term, traversal, and structured-tool cases.
 
 The Node coverage gate requires at least 90% lines, 80% branches, and 90%
-functions. The exact unreleased v0.13 coverage run is recorded after
-integration. Coverage percentages can move slightly with Node's experimental
-coverage accounting; the thresholds are the durable claim.
+functions. The latest reviewed v0.13 run stayed above all three gates at 93.47%
+lines, 80.99% branches, and 97.09% functions. Coverage percentages can move
+slightly with Node's experimental coverage accounting; the thresholds are the
+durable claim.
 
 Run it:
 

@@ -5,9 +5,9 @@ import { DEFAULT_POLICY_FILE, loadPolicy, maintainerPolicyTemplate, policyTempla
 import { inferTestCommand } from "./detectors/reality.ts";
 import { loadTranscript } from "./transcript.ts";
 // Generated hosted workflows must resolve to an existing public Action. The
-// local v0.12 development build does not change those workflows until a final
-// v0.12 tag has been published and independently verified.
-const PUBLISHED_ACTION_VERSION = "0.11.3";
+// unreleased local v0.13 build stays pinned to the published v0.12 Action until
+// a v0.13 tag exists and its Action artifact is independently verified.
+const PUBLISHED_ACTION_VERSION = "0.12.0";
 import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts";
 
 type InitResult = { created: string[]; kept: string[] };

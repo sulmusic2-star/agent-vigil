@@ -2922,7 +2922,7 @@ function authorityContractTemplate() {
 }
 
 // src/setup.ts
-var PUBLISHED_ACTION_VERSION = "0.11.3";
+var PUBLISHED_ACTION_VERSION = "0.12.0";
 function workflow(mode, setupCommand, attest = false) {
   return `name: Agent Vigil
 

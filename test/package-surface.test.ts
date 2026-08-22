@@ -26,6 +26,11 @@ test("npm package surface excludes internal product and commercial working docum
   for (const publicPath of [
     "SECURITY.md",
     "CONTRIBUTING.md",
+    "docs/ATTESTED_RECEIPTS.md",
+    "docs/NOTARY_APP.md",
+    "docs/PUBLIC_RELEASE_POLICY.md",
+    "docs/ai-change-receipt-predicate-v1.schema.json",
+    "docs/notary-app-manifest.example.json",
     "docs/UPGRADE_GUARD.md",
     "docs/THREAT_MODEL.md",
     "docs/upgrade-config-v1.schema.json",
