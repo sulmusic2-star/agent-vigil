@@ -1,6 +1,6 @@
 # Compatibility laboratory
 
-Checked 2026-08-21. This file records executed proof, not a claim that every
+Checked 2026-08-22. This file records executed proof, not a claim that every
 possible project is supported.
 
 ## Generated-repository matrix
@@ -24,7 +24,7 @@ forms, semantic tool-loop fingerprints, and documentation false positives.
 
 Current durable result: **80/80 compatibility scenarios pass**. Combined with
 the core, CLI, adapter, setup, policy-anchor, signing, workspace-binding, and remediation suite,
-`npm test` executes **311 tests** in the v0.12.0 release candidate.
+The exact unreleased v0.13 test count is recorded after integration.
 
 `npm run test:package` additionally installs the generated tarball into a
 disposable consumer and exercises both standard and portable `init` plus
@@ -34,8 +34,9 @@ Maven, Gradle wrapper, Gradle build, Ruby, PHP, and .NET.
 A deterministic fuzz layer adds 9,000 mutated runner, dotted-term, traversal, and structured-tool cases.
 
 The Node coverage gate requires at least 90% lines, 80% branches, and 90%
-functions. The current run reported 95.11% lines, 81.86% branches, and 98.10%
-functions.
+functions. The exact unreleased v0.13 coverage run is recorded after
+integration. Coverage percentages can move slightly with Node's experimental
+coverage accounting; the thresholds are the durable claim.
 
 Run it:
 

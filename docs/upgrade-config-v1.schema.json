@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/upgrade-config-v1.schema.json",
+  "title": "Agent Vigil Upgrade Guard configuration v1",
+  "description": "Local-only configuration for comparing exact current and candidate component directories with deterministic canaries in an exact-digest Docker runner.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "component", "runner", "canaryDirectory", "canaries"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-upgrade-config/v1" },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ecosystem", "name", "manifestPath", "identityField", "versionField", "capabilityFields"],
+      "properties": {
+        "ecosystem": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9@][A-Za-z0-9@/._-]*$"
+        },
+        "manifestPath": { "$ref": "#/$defs/repositoryRelativePath" },
+        "identityField": { "$ref": "#/$defs/fieldPath" },
+        "versionField": { "$ref": "#/$defs/fieldPath" },
+        "capabilityFields": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/fieldPath" }
+        }
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine", "image", "trials", "memoryMiB", "cpus", "pids"],
+      "properties": {
+        "engine": { "const": "docker" },
+        "image": {
+          "type": "string",
+          "minLength": 73,
+          "maxLength": 320,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:~-]{0,246}@sha256:[0-9a-f]{64}$"
+        },
+        "trials": { "type": "integer", "minimum": 2, "maximum": 5 },
+        "memoryMiB": { "type": "integer", "minimum": 128, "maximum": 4096 },
+        "cpus": { "type": "number", "minimum": 0.25, "maximum": 4 },
+        "pids": { "type": "integer", "minimum": 16, "maximum": 512 }
+      }
+    },
+    "canaryDirectory": { "$ref": "#/$defs/repositoryRelativePath" },
+    "canaries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "$comment": "The runtime additionally requires unique id values and unique supplied publicId values.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "command", "timeoutSeconds"],
+        "properties": {
+          "id": { "$ref": "#/$defs/canaryId" },
+          "publicId": { "$ref": "#/$defs/canaryId" },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\u0000]+$"
+            }
+          },
+          "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "repositoryRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!\\.{1,2}$)(?!\\.\\./)[^\\u0000]+$",
+      "$comment": "The runtime also normalizes this path and rejects values that resolve outside the selected repository."
+    },
+    "fieldPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*$"
+    },
+    "canaryId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    }
+  }
+}

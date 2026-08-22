@@ -24,3 +24,23 @@ in an exclusive temporary file and atomically replaces the final path. POSIX
 files use mode `0600`; Windows files inherit the destination directory ACL, so
 sensitive output needs a private directory. This protects the output boundary;
 it does not sandbox repository code.
+
+## Upgrade Guard containment
+
+The unreleased `vigil upgrade` lane is separate from repository test execution.
+It accepts only exact-digest OCI runner identities already present locally and
+uses fixed Docker argv with no shell, no network, read-only target, canary, and
+root filesystems, dropped capabilities, `no-new-privileges`, non-root
+execution, and bounded PID, CPU, memory, time, output, and tmpfs resources.
+Current, candidate, and canary roots must be pairwise disjoint. Their regular
+files and mode bits are committed before execution and re-inventoried afterward;
+concurrent mutation is `HOLD`. Before any canary runs, a planted probe must prove that target and root writes
+and a direct network attempt are blocked, a host probe secret is absent, and
+Docker proxy injection is cleared. Any missing control returns `HOLD`.
+
+Docker, its daemon or virtualization layer, the host kernel, the digest-pinned
+runner image, and the canary harness remain trusted. Do not mount the Docker
+socket or credentials. Public compatibility output is opt-in, requires an
+Ed25519 key, and still exposes component, version, artifact-digest, and signer
+identities; review it before disclosure. Upgrade Guard is not enabled in the
+GitHub Action.

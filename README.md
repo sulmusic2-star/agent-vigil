@@ -59,6 +59,20 @@ public predicate contains hashes, commit SHAs, evidence counts, and the
 decision. It does not contain source code, prompts, transcript text, file paths,
 or test output. See [GitHub-attested receipts](docs/ATTESTED_RECEIPTS.md).
 
+The unreleased v0.12 candidate adds **Agent Upgrade Guard**, a local behavioral
+preflight for already-materialized coding-agent plugin, skill, MCP, hook, or
+configuration bundle updates. It compares exact current and candidate artifact
+trees with repeated private canaries inside a digest-pinned, network-disabled,
+read-only Docker runner. The result is `SAFE`, `CHANGED`, or `HOLD`; `SAFE`
+means only that these exact canaries detected no material change under the
+recorded runner. The default template deliberately cannot earn `SAFE`.
+
+Upgrade Guard can write a private nonce-bound receipt and, only when explicitly
+requested with an Ed25519 key, a privacy-minimized public compatibility entry.
+It does not install an update, upload evidence, modify the GitHub Action, or
+claim live model/provider behavior. See the precise
+[Upgrade Guard contract](docs/UPGRADE_GUARD.md).
+
 ```text
   ✗ [test-count] 99 tests
       evidence: claim says 99 tests; runner reported 42
@@ -548,7 +562,8 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 311 tests, including 80 generated-repository compatibility scenarios across
+- The exact unreleased v0.13 test count is recorded after integration; the
+  suite includes 80 generated-repository compatibility scenarios across
   18 runner-output families, plus adversarial false-pass, path, transcript,
   tool-loop, test-count, skip, suppression, adapter-drift, maintainer-attestation,
   scope-budget, symlink, forged-event, and differential-regression cases.

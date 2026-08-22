@@ -4,7 +4,10 @@ import { dirname, relative, resolve } from "node:path";
 import { DEFAULT_POLICY_FILE, loadPolicy, maintainerPolicyTemplate, policyTemplate } from "./config.ts";
 import { inferTestCommand } from "./detectors/reality.ts";
 import { loadTranscript } from "./transcript.ts";
-import { VERSION } from "./report.ts";
+// Generated hosted workflows must resolve to an existing public Action. The
+// local v0.12 development build does not change those workflows until a final
+// v0.12 tag has been published and independently verified.
+const PUBLISHED_ACTION_VERSION = "0.11.3";
 import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts";
 
 type InitResult = { created: string[]; kept: string[] };
@@ -38,7 +41,7 @@ jobs:
 ${mode === "maintainer" && setupCommand ? `      - name: Install dependencies for fresh verification
         run: ${setupCommand}
 ` : ""}      - id: vigil
-        uses: sulmusic2-star/agent-vigil@v${VERSION}
+        uses: sulmusic2-star/agent-vigil@v${PUBLISHED_ACTION_VERSION}
         with:
           ${attest ? "attest: true\n          " : ""}${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : mode === "authority" ? "transcript: .agent-vigil/session.jsonl\n          authority-contract: .agent-vigil-authority.json\n          authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
@@ -107,7 +110,7 @@ jobs:
           github-token: \${{ github.token }}
           run-id: \${{ steps.source.outputs.run_id }}
       - id: outcome
-        uses: sulmusic2-star/agent-vigil@v${VERSION}
+        uses: sulmusic2-star/agent-vigil@v${PUBLISHED_ACTION_VERSION}
         with:
           mode: outcome
           outcome-receipt: .agent-vigil-prior/agent-vigil-report.json

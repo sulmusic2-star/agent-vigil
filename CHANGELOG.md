@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.13.0-dev.0 - Unreleased
+
+- Add a local-only `vigil upgrade` lane for exact old-versus-new coding-agent
+  dependency comparisons without modifying the active installation.
+- Require digest-pinned, locally present OCI runner images and prove planted
+  network, filesystem, proxy, and inherited-secret containment controls before
+  any candidate canary can run.
+- Repeat trusted repository canaries against both artifacts and return bounded
+  `SAFE`, `CHANGED`, or `HOLD` evidence. The generated template intentionally
+  reports `FAIL`, so first-use scaffolding cannot earn `SAFE` by itself.
+- Add private nonce-bound receipts, explicitly requested Ed25519-signed public
+  compatibility entries, pinned-key verification, and a static local evidence
+  index that excludes repositories, commands, prompts, paths, raw output, and
+  environment data.
+- Bind the loaded configuration and complete canary harness, require pairwise
+  disjoint inputs, and re-inventory artifacts and canaries after execution so
+  empty, overlapping, or moving evidence fails closed to `HOLD`.
+- Refuse receipt and index outputs that alias keys, inputs, or evaluated trees.
+- Keep Upgrade Guard out of the GitHub Action and hosted workflows until
+  hostile candidate execution, adapter fidelity, and external retention have
+  been independently established.
+
+This is a local alpha. It has no public v0.13 release, external adoption,
+paying customer, or revenue evidence.
+
 ## 0.12.0 - 2026-08-22
 
 - Added optional GitHub artifact attestations for full Agent Vigil receipts.

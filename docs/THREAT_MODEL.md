@@ -91,6 +91,46 @@ permissions:
 Use an isolated runner for hostile repositories. Agent Vigil is a verifier, not
 a sandbox.
 
+### Upgrade Guard containment
+
+Upgrade Guard is a distinct local execution lane. It does not reuse the normal
+test-command or detached-worktree paths as a sandbox. It inventories two
+regular, non-symlink artifact trees, requires a locally present OCI image named
+by its exact SHA-256 digest, and invokes Docker with fixed argv rather than a
+shell. Target and canary directories plus the container root are read-only;
+networking is disabled; Linux capabilities are dropped; `no-new-privileges`
+and a non-root UID/GID are set; and PID, CPU, memory, time, output, and tmpfs
+bounds apply.
+
+A planted preflight checks the enforcement boundary before canaries run. The
+current, candidate, and canary roots must be pairwise disjoint. Their complete
+regular-file trees, including modes, plus the loaded configuration are bound to
+the receipt; the three trees are re-inventoried after execution and mutation is
+`HOLD`. It
+attempts target and root writes, a direct network connection, inherited-secret
+access, and upper/lower-case proxy injection. A missing image, unavailable
+daemon, failed probe, timeout, malformed output, unstable repeat, unhealthy
+baseline, ambiguous identity, or missing canary evidence is `HOLD`, never
+`SAFE`. `CHANGED` means comparable evidence found a configured material
+difference; it is not a claim that the candidate is worse.
+
+The Docker daemon, host kernel or virtualization layer, exact runner image,
+and trusted canary code remain in the trusted computing base. A malicious
+candidate may attempt to interfere with a poorly designed canary, and a
+container escape can invalidate the boundary. The first version therefore
+supports only offline, already-materialized artifacts and remains outside the
+GitHub Action. It does not establish live provider, model-alias, authentication,
+latency, payment, or production behavior.
+
+The private receipt carries exact local evidence commitments, including the
+configuration and canary-harness tree digests, plus a random nonce. The optional
+signed public entry omits repository identity, paths,
+commands, prompts, raw output, environment data, file names, and canary names
+unless the user opts into a public ID. It still exposes component identity,
+version pairs, artifact hashes, containment facts, signer key, and limitations.
+An embedded key proves self-consistency only; `upgrade index` requires a
+separately pinned public key before accepting entries.
+
 Receipt, SARIF, and GitHub-summary output paths are treated as security
 boundaries. Agent Vigil refuses direct symlinks, untrusted symlinked parent
 components, and non-regular destinations. It writes complete content to an

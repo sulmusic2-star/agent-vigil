@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash12 } from "node:crypto";
-import { execFileSync as execFileSync10 } from "node:child_process";
-import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync14, realpathSync as realpathSync3, statSync as statSync7, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute4, relative as relative7, resolve as resolve12 } from "node:path";
+import { createHash as createHash15 } from "node:crypto";
+import { execFileSync as execFileSync11 } from "node:child_process";
+import { existsSync as existsSync6, mkdirSync as mkdirSync5, readFileSync as readFileSync19, realpathSync as realpathSync9, statSync as statSync8, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname9, isAbsolute as isAbsolute7, relative as relative12, resolve as resolve17 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -18,9 +18,9 @@ function readBounded(path) {
   }
   return readFileSync(path, "utf8");
 }
-function safeJson(text) {
+function safeJson(text2) {
   try {
-    return JSON.parse(text);
+    return JSON.parse(text2);
   } catch {
     return void 0;
   }
@@ -143,7 +143,7 @@ function parseClaude(rows, transcriptSha256) {
       }
     }
   }
-  const usage2 = [...usageByMessage.values()].reduce((total, item2) => ({
+  const usage3 = [...usageByMessage.values()].reduce((total, item2) => ({
     inputTokens: total.inputTokens + item2.inputTokens,
     cachedInputTokens: total.cachedInputTokens + item2.cachedInputTokens,
     cacheWriteInputTokens: total.cacheWriteInputTokens + item2.cacheWriteInputTokens,
@@ -160,7 +160,7 @@ function parseClaude(rows, transcriptSha256) {
     ...usageByMessage.size ? { usage: {
       source: "transcript-observed",
       accounting: "deduplicated-assistant-messages",
-      ...usage2,
+      ...usage3,
       modelIds: [...models].sort(),
       recordsObserved: usageRecords,
       accountedUnits: usageByMessage.size
@@ -469,8 +469,8 @@ function toolCallFingerprint(call) {
   const normalized = parsed === void 0 ? call.input.trim().replace(/\s+/g, " ") : canonicalJson(parsed);
   return `${call.name.toLowerCase()}:${createHash("sha256").update(normalized).digest("hex")}`;
 }
-function snippet(text, at) {
-  return text.slice(Math.max(0, at - 45), at + 100).replace(/\s+/g, " ").trim();
+function snippet(text2, at) {
+  return text2.slice(Math.max(0, at - 45), at + 100).replace(/\s+/g, " ").trim();
 }
 
 // src/detectors/reality.ts
@@ -1212,7 +1212,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.12.0";
+var VERSION = "0.13.0-dev.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1248,7 +1248,7 @@ function buildReport(input) {
     pass: status === "PASS"
   };
   const advisories = input.advisories ?? [];
-  const receiptPayload = {
+  const receiptPayload2 = {
     schemaVersion: "2",
     vigilVersion: VERSION,
     transcriptFormat: input.transcriptFormat,
@@ -1272,7 +1272,7 @@ function buildReport(input) {
     base: input.base,
     head: input.head,
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    receiptHash: `sha256:${createHash2("sha256").update(canonical(receiptPayload)).digest("hex")}`,
+    receiptHash: `sha256:${createHash2("sha256").update(canonical(receiptPayload2)).digest("hex")}`,
     repository: input.repository ?? {},
     reproduction: input.reproduction ?? "unavailable",
     results: input.results,
@@ -2922,6 +2922,7 @@ function authorityContractTemplate() {
 }
 
 // src/setup.ts
+var PUBLISHED_ACTION_VERSION = "0.11.3";
 function workflow(mode, setupCommand, attest = false) {
   return `name: Agent Vigil
 
@@ -2951,7 +2952,7 @@ jobs:
 ${mode === "maintainer" && setupCommand ? `      - name: Install dependencies for fresh verification
         run: ${setupCommand}
 ` : ""}      - id: vigil
-        uses: sulmusic2-star/agent-vigil@v${VERSION}
+        uses: sulmusic2-star/agent-vigil@v${PUBLISHED_ACTION_VERSION}
         with:
           ${attest ? "attest: true\n          " : ""}${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : mode === "authority" ? "transcript: .agent-vigil/session.jsonl\n          authority-contract: .agent-vigil-authority.json\n          authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
@@ -3021,7 +3022,7 @@ jobs:
           github-token: \${{ github.token }}
           run-id: \${{ steps.source.outputs.run_id }}
       - id: outcome
-        uses: sulmusic2-star/agent-vigil@v${VERSION}
+        uses: sulmusic2-star/agent-vigil@v${PUBLISHED_ACTION_VERSION}
         with:
           mode: outcome
           outcome-receipt: .agent-vigil-prior/agent-vigil-report.json
@@ -3214,57 +3215,57 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     detail: existsSync4(workflow2) ? "workflow installed; configure Agent Vigil evidence as a required status check after its first run" : "workflow not installed; run vigil init"
   });
   if (existsSync4(workflow2)) {
-    const text = installedWorkflow;
-    const attestationEnabled = /^\s*attest:\s*true\s*$/m.test(text);
+    const text2 = installedWorkflow;
+    const attestationEnabled = /^\s*attest:\s*true\s*$/m.test(text2);
     if (attestationEnabled) {
-      const permissionsPresent = /^\s*id-token:\s*write\s*$/m.test(text) && /^\s*attestations:\s*write\s*$/m.test(text) && /^\s*artifact-metadata:\s*write\s*$/m.test(text);
-      const repositoryWrite = /^\s*contents:\s*write\s*$/m.test(text);
+      const permissionsPresent = /^\s*id-token:\s*write\s*$/m.test(text2) && /^\s*attestations:\s*write\s*$/m.test(text2) && /^\s*artifact-metadata:\s*write\s*$/m.test(text2);
+      const repositoryWrite = /^\s*contents:\s*write\s*$/m.test(text2);
       checks.push({
         status: !permissionsPresent ? "FAIL" : repositoryWrite ? "WARN" : "PASS",
         label: "GitHub attestation",
         detail: !permissionsPresent ? "attest: true requires id-token, attestations, and artifact-metadata write permissions" : repositoryWrite ? "receipt signing is configured, but this workflow can also write repository contents; remove that permission unless another reviewed step requires it" : "receipt attestation is enabled with the required GitHub permissions"
       });
     }
-    const exactRange = /pull_request\.base\.sha/.test(text) && /pull_request\.head\.sha/.test(text);
+    const exactRange = /pull_request\.base\.sha/.test(text2) && /pull_request\.head\.sha/.test(text2);
     checks.push({
       status: exactRange ? "PASS" : "WARN",
       label: "Git range",
       detail: exactRange ? "workflow pins the pull request base and head SHAs" : "workflow does not visibly pin both pull request SHAs"
     });
-    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.event\.merge_group\.head_sha\s*\}\}/.test(text);
+    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.event\.merge_group\.head_sha\s*\}\}/.test(text2);
     checks.push({
       status: exactCheckout ? "PASS" : "WARN",
       label: "Checkout identity",
       detail: exactCheckout ? "workflow checks out the exact pull request head SHA" : "workflow may verify GitHub's synthetic merge commit instead of the selected head"
     });
-    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}/.test(text);
+    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}/.test(text2);
     checks.push({
       status: anchoredPolicy ? "PASS" : "WARN",
       label: "Policy trust",
       detail: anchoredPolicy ? "workflow loads policy from the pull request base commit" : "workflow policy may be controlled by the candidate change"
     });
-    const mergeQueue = /merge_group:\s*\n\s*types:\s*\[checks_requested\]/.test(text) && /merge_group\.base_sha/.test(text) && /merge_group\.head_sha/.test(text);
+    const mergeQueue = /merge_group:\s*\n\s*types:\s*\[checks_requested\]/.test(text2) && /merge_group\.base_sha/.test(text2) && /merge_group\.head_sha/.test(text2);
     checks.push({
       status: mergeQueue ? "PASS" : "WARN",
       label: "Merge queue",
       detail: mergeQueue ? "workflow re-verifies the composed merge-group commit" : "required check will not report for GitHub merge queues"
     });
     if (maintainer) {
-      const modeInstalled = /mode:\s*maintainer/.test(text);
-      const artifactInstalled = /name:\s*agent-vigil-receipt/.test(text);
+      const modeInstalled = /mode:\s*maintainer/.test(text2);
+      const artifactInstalled = /name:\s*agent-vigil-receipt/.test(text2);
       checks.push({
         status: modeInstalled && artifactInstalled ? "PASS" : "FAIL",
         label: "Maintainer workflow",
         detail: modeInstalled && artifactInstalled ? "maintainer mode and receipt artifact retention are installed" : "workflow must enable maintainer mode and retain agent-vigil-receipt"
       });
     }
-    const authorityMatch = text.match(/^\s*authority-contract:\s*(\S+)\s*$/m);
+    const authorityMatch = text2.match(/^\s*authority-contract:\s*(\S+)\s*$/m);
     if (authorityMatch) {
       try {
         const contract = loadAuthorityContract(root, authorityMatch[1]);
         const placeholder = contract.value.taskId === "REPLACE_WITH_TASK_OR_TICKET_ID";
         const expired = Boolean(contract.value.expiresAt && Date.now() > new Date(contract.value.expiresAt).getTime());
-        const anchored = /^\s*authority-contract-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}\s*$/m.test(text);
+        const anchored = /^\s*authority-contract-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}\s*$/m.test(text2);
         checks.push({
           status: placeholder || expired || !anchored ? "FAIL" : "PASS",
           label: "Task authority",
@@ -4231,7 +4232,7 @@ function buildGitHubEvidence(inputs) {
     sources.push(item2.source);
   }
   const event = loaded.get("event");
-  const repository = typeof event?.repository?.full_name === "string" ? event.repository.full_name : void 0;
+  const repository2 = typeof event?.repository?.full_name === "string" ? event.repository.full_name : void 0;
   const pull = loaded.has("pull-request") ? parsePull(loaded.get("pull-request"), event) : parsePull(event, event);
   const reviews = loaded.has("reviews") ? parseReviews(loaded.get("reviews")) : void 0;
   const reviewComments = loaded.has("review-comments") ? parseComments(loaded.get("review-comments")) : void 0;
@@ -4252,7 +4253,7 @@ function buildGitHubEvidence(inputs) {
   const withoutHash = {
     schemaVersion: "agent-vigil-github-evidence/v1",
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    ...repository ? { repository } : {},
+    ...repository2 ? { repository: repository2 } : {},
     ...pull ? { pullRequest: pull } : {},
     ...reviews ? { reviews } : {},
     ...reviewComments ? { reviewComments } : {},
@@ -4506,9 +4507,9 @@ function statementsFromGh(value) {
   const statements = [];
   for (const root of roots) {
     if (!root || typeof root !== "object") continue;
-    const record = root;
-    const verification2 = record.verificationResult;
-    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record.statement ?? record;
+    const record2 = root;
+    const verification2 = record2.verificationResult;
+    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record2.statement ?? record2;
     if (statement && typeof statement === "object") statements.push(statement);
   }
   return statements;
@@ -4518,9 +4519,9 @@ function subjectMatches(statement, expectedName, expectedDigest) {
   return subjects.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const subject = entry;
-    const digest2 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const digest3 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
     const name = String(subject.name ?? "");
-    return (name === expectedName || name.endsWith(`/${expectedName}`)) && digest2.sha256 === expectedDigest;
+    return (name === expectedName || name.endsWith(`/${expectedName}`)) && digest3.sha256 === expectedDigest;
   });
 }
 function predicateMatches(predicate, report, fileSha256) {
@@ -4555,9 +4556,9 @@ function verifyGhAttestationOutput(reportPath, ghOutput) {
   };
 }
 var runGitHubCli = (args) => execFileSync9("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-function verifyGitHubAttestation(reportPath, repository, trust = {}, executeGh = runGitHubCli) {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("repository must be owner/name");
-  const signerWorkflow = trust.signerWorkflow ?? `${repository}/.github/workflows/agent-vigil.yml`;
+function verifyGitHubAttestation(reportPath, repository2, trust = {}, executeGh = runGitHubCli) {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository2)) throw new Error("repository must be owner/name");
+  const signerWorkflow = trust.signerWorkflow ?? `${repository2}/.github/workflows/agent-vigil.yml`;
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[A-Za-z0-9_./-]+\.ya?ml$/i.test(signerWorkflow)) {
     throw new Error("signer workflow must be owner/name/.github/workflows/file.yml");
   }
@@ -4566,7 +4567,7 @@ function verifyGitHubAttestation(reportPath, repository, trust = {}, executeGh =
     "verify",
     resolve11(reportPath),
     "--repo",
-    repository,
+    repository2,
     "--predicate-type",
     ATTESTATION_PREDICATE_TYPE,
     "--signer-workflow",
@@ -4619,8 +4620,1443 @@ function buildNotaryCheck(reportPath, verification2, expectedHead, expectedPolic
   };
 }
 
-// src/cli.ts
+// src/upgrade/cli.ts
+import { realpathSync as realpathSync8, statSync as statSync7 } from "node:fs";
+import { basename as basename5, dirname as dirname8, isAbsolute as isAbsolute6, relative as relative11, resolve as resolve16, sep as sep9 } from "node:path";
+
+// src/upgrade/contracts.ts
+import { lstatSync as lstatSync3, readFileSync as readFileSync14, realpathSync as realpathSync3 } from "node:fs";
+import { dirname as dirname4, isAbsolute as isAbsolute4, join as join4, normalize as normalize4, relative as relative7, resolve as resolve12, sep as sep5, win32 as win323 } from "node:path";
+var UPGRADE_CONFIG_SCHEMA = "agent-vigil-upgrade-config/v1";
+var CANARY_SCHEMA = "agent-vigil-upgrade-canary/v1";
+var PRIVATE_RECEIPT_SCHEMA = "agent-vigil-upgrade-receipt/v1";
+var PUBLIC_ENTRY_SCHEMA = "agent-vigil-compatibility-entry/v1";
+function object(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value;
+}
+function exactKeys2(value, allowed, label) {
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unknown.length) throw new Error(`${label} contains unknown field(s): ${unknown.join(", ")}`);
+}
+function boundedString(value, label, maximum, pattern) {
+  if (typeof value !== "string" || !value.length || value.length > maximum || value.includes("\0")) {
+    throw new Error(`${label} must be a non-empty string of at most ${maximum} characters`);
+  }
+  if (pattern && !pattern.test(value)) throw new Error(`${label} has an unsupported value`);
+  return value;
+}
+function integer2(value, label, minimum, maximum) {
+  if (!Number.isInteger(value) || Number(value) < minimum || Number(value) > maximum) {
+    throw new Error(`${label} must be an integer from ${minimum} to ${maximum}`);
+  }
+  return Number(value);
+}
+function numberValue(value, label, minimum, maximum) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new Error(`${label} must be a finite number from ${minimum} to ${maximum}`);
+  }
+  return value;
+}
+function safeRelativePath(value, label) {
+  const path = boundedString(value, label, 512);
+  if (isAbsolute4(path) || win323.isAbsolute(path) || path.includes("\\")) {
+    throw new Error(`${label} must be a portable repository-relative path`);
+  }
+  const normalized = normalize4(path);
+  if (normalized === "." || normalized === ".." || normalized.startsWith(`..${sep5}`)) {
+    throw new Error(`${label} must remain inside the selected repository`);
+  }
+  return path.split("/").join(sep5);
+}
+function fieldPath(value, label) {
+  return boundedString(value, label, 128, /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/);
+}
+function imageDigest(value) {
+  return boundedString(
+    value,
+    "runner.image",
+    320,
+    /^[A-Za-z0-9][A-Za-z0-9._/:~-]{0,246}@sha256:[0-9a-f]{64}$/
+  );
+}
+function validateUpgradeConfig(input) {
+  const root = object(input, "upgrade config");
+  exactKeys2(root, ["schemaVersion", "component", "runner", "canaryDirectory", "canaries"], "upgrade config");
+  if (root.schemaVersion !== UPGRADE_CONFIG_SCHEMA) {
+    throw new Error(`upgrade config schemaVersion must be ${UPGRADE_CONFIG_SCHEMA}`);
+  }
+  const component = object(root.component, "component");
+  exactKeys2(component, ["ecosystem", "name", "manifestPath", "identityField", "versionField", "capabilityFields"], "component");
+  const capabilityFields = component.capabilityFields;
+  if (!Array.isArray(capabilityFields) || capabilityFields.length > 32) {
+    throw new Error("component.capabilityFields must be an array of at most 32 field paths");
+  }
+  const parsedCapabilities = capabilityFields.map((item2, index) => fieldPath(item2, `component.capabilityFields[${index}]`));
+  if (new Set(parsedCapabilities).size !== parsedCapabilities.length) {
+    throw new Error("component.capabilityFields must not contain duplicates");
+  }
+  const runner = object(root.runner, "runner");
+  exactKeys2(runner, ["engine", "image", "trials", "memoryMiB", "cpus", "pids"], "runner");
+  if (runner.engine !== "docker") throw new Error("runner.engine must be docker");
+  if (!Array.isArray(root.canaries) || root.canaries.length < 1 || root.canaries.length > 32) {
+    throw new Error("canaries must contain from 1 to 32 entries");
+  }
+  const canaries = root.canaries.map((item2, index) => {
+    const canary = object(item2, `canaries[${index}]`);
+    exactKeys2(canary, ["id", "publicId", "command", "timeoutSeconds"], `canaries[${index}]`);
+    const id = boundedString(canary.id, `canaries[${index}].id`, 80, /^[a-z0-9][a-z0-9._-]*$/);
+    const publicId = canary.publicId === void 0 ? void 0 : boundedString(canary.publicId, `canaries[${index}].publicId`, 80, /^[a-z0-9][a-z0-9._-]*$/);
+    if (!Array.isArray(canary.command) || canary.command.length < 1 || canary.command.length > 32) {
+      throw new Error(`canaries[${index}].command must contain from 1 to 32 argv strings`);
+    }
+    const command = canary.command.map((value, argumentIndex) => boundedString(value, `canaries[${index}].command[${argumentIndex}]`, 512));
+    return {
+      id,
+      ...publicId ? { publicId } : {},
+      command,
+      timeoutSeconds: integer2(canary.timeoutSeconds, `canaries[${index}].timeoutSeconds`, 1, 300)
+    };
+  });
+  if (new Set(canaries.map((canary) => canary.id)).size !== canaries.length) {
+    throw new Error("canary IDs must be unique");
+  }
+  const publicIds = canaries.flatMap((canary) => canary.publicId ? [canary.publicId] : []);
+  if (new Set(publicIds).size !== publicIds.length) throw new Error("canary public IDs must be unique");
+  return {
+    schemaVersion: UPGRADE_CONFIG_SCHEMA,
+    component: {
+      ecosystem: boundedString(component.ecosystem, "component.ecosystem", 80, /^[a-z0-9][a-z0-9._-]*$/),
+      name: boundedString(component.name, "component.name", 160, /^[A-Za-z0-9@][A-Za-z0-9@/._-]*$/),
+      manifestPath: safeRelativePath(component.manifestPath, "component.manifestPath"),
+      identityField: fieldPath(component.identityField, "component.identityField"),
+      versionField: fieldPath(component.versionField, "component.versionField"),
+      capabilityFields: parsedCapabilities
+    },
+    runner: {
+      engine: "docker",
+      image: imageDigest(runner.image),
+      trials: integer2(runner.trials, "runner.trials", 2, 5),
+      memoryMiB: integer2(runner.memoryMiB, "runner.memoryMiB", 128, 4096),
+      cpus: numberValue(runner.cpus, "runner.cpus", 0.25, 4),
+      pids: integer2(runner.pids, "runner.pids", 16, 512)
+    },
+    canaryDirectory: safeRelativePath(root.canaryDirectory, "canaryDirectory"),
+    canaries
+  };
+}
+function readBoundedJson(path, maximumBytes, label) {
+  const status = lstatSync3(path);
+  if (status.isSymbolicLink() || !status.isFile()) throw new Error(`${label} must be a regular non-symbolic-link file`);
+  if (status.size > maximumBytes) throw new Error(`${label} is ${status.size} bytes; maximum is ${maximumBytes}`);
+  return JSON.parse(readFileSync14(path, "utf8"));
+}
+function trustedRegularFileInside(repositoryPath, filePath, label) {
+  const requestedRepository = resolve12(repositoryPath);
+  const repositoryStatus = lstatSync3(requestedRepository);
+  if (repositoryStatus.isSymbolicLink() || !repositoryStatus.isDirectory()) {
+    throw new Error("repository must be a regular directory, not a symbolic link");
+  }
+  const repository2 = realpathSync3(requestedRepository);
+  const requested = resolve12(filePath);
+  const rel = relative7(requestedRepository, requested);
+  if (rel === ".." || rel.startsWith(`..${sep5}`)) throw new Error(`${label} must remain inside the repository`);
+  let current = requestedRepository;
+  const parentRel = relative7(requestedRepository, dirname4(requested));
+  for (const component of parentRel.split(sep5).filter(Boolean)) {
+    current = join4(current, component);
+    const status2 = lstatSync3(current);
+    if (status2.isSymbolicLink() || !status2.isDirectory()) {
+      throw new Error(`${label} and its parents must be regular entries without symbolic links`);
+    }
+  }
+  const status = lstatSync3(requested);
+  if (status.isSymbolicLink() || !status.isFile()) {
+    throw new Error(`${label} must be a regular non-symbolic-link file`);
+  }
+  const canonical3 = realpathSync3(requested);
+  const canonicalRel = relative7(repository2, canonical3);
+  if (canonicalRel === ".." || canonicalRel.startsWith(`..${sep5}`)) {
+    throw new Error(`${label} resolved outside the repository`);
+  }
+  return canonical3;
+}
+function trustedDirectoryInside(repositoryPath, directoryPath, label) {
+  const requestedRepository = resolve12(repositoryPath);
+  const repositoryStatus = lstatSync3(requestedRepository);
+  if (repositoryStatus.isSymbolicLink() || !repositoryStatus.isDirectory()) {
+    throw new Error("repository must be a regular directory, not a symbolic link");
+  }
+  const repository2 = realpathSync3(requestedRepository);
+  const requested = resolve12(directoryPath);
+  const rel = relative7(requestedRepository, requested);
+  if (rel === ".." || rel.startsWith(`..${sep5}`)) throw new Error(`${label} must remain inside the repository`);
+  let current = requestedRepository;
+  for (const component of rel.split(sep5).filter(Boolean)) {
+    current = join4(current, component);
+    const status = lstatSync3(current);
+    if (status.isSymbolicLink() || !status.isDirectory()) {
+      throw new Error(`${label} and its parents must be regular directories without symbolic links`);
+    }
+  }
+  const canonical3 = realpathSync3(requested);
+  const canonicalRel = relative7(repository2, canonical3);
+  if (canonicalRel === ".." || canonicalRel.startsWith(`..${sep5}`)) {
+    throw new Error(`${label} resolved outside the repository`);
+  }
+  return canonical3;
+}
+function loadUpgradeConfig(path) {
+  return validateUpgradeConfig(readBoundedJson(path, 256 * 1024, "upgrade config"));
+}
+function validateCanaryDocument(input) {
+  const root = object(input, "canary output");
+  exactKeys2(root, ["schemaVersion", "outcome", "observations"], "canary output");
+  if (root.schemaVersion !== CANARY_SCHEMA) throw new Error(`canary output schemaVersion must be ${CANARY_SCHEMA}`);
+  if (root.outcome !== "PASS" && root.outcome !== "FAIL") throw new Error("canary output outcome must be PASS or FAIL");
+  const observations = object(root.observations, "canary observations");
+  if (Object.keys(observations).length < 1) throw new Error("canary observations must contain at least one field");
+  if (Object.keys(observations).length > 64) throw new Error("canary observations contain more than 64 fields");
+  const parsed = {};
+  for (const [key, value] of Object.entries(observations)) {
+    boundedString(key, "canary observation key", 80, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+    if (value === null || typeof value === "boolean") parsed[key] = value;
+    else if (typeof value === "number" && Number.isFinite(value)) parsed[key] = value;
+    else if (typeof value === "string" && value.length <= 512 && !value.includes("\0")) parsed[key] = value;
+    else throw new Error(`canary observation ${key} must be a bounded JSON primitive`);
+  }
+  return { schemaVersion: CANARY_SCHEMA, outcome: root.outcome, observations: parsed };
+}
+
+// src/upgrade/receipt.ts
+import {
+  createPrivateKey as createPrivateKey3,
+  createPublicKey as createPublicKey3,
+  createHash as createHash14,
+  randomBytes as randomBytes3,
+  sign as sign3,
+  verify as verify3
+} from "node:crypto";
+import { lstatSync as lstatSync5, readFileSync as readFileSync16, realpathSync as realpathSync6 } from "node:fs";
+import { dirname as dirname6, isAbsolute as isAbsolute5, relative as relative9, resolve as resolve14, sep as sep7 } from "node:path";
+
+// src/upgrade/decision.ts
+import { createHash as createHash12 } from "node:crypto";
+import { lstatSync as lstatSync4, readdirSync, readFileSync as readFileSync15, realpathSync as realpathSync4 } from "node:fs";
+import { basename as basename4, dirname as dirname5, join as join5, relative as relative8, resolve as resolve13, sep as sep6 } from "node:path";
+var MAX_FILES = 4096;
+var MAX_FILE_BYTES = 4 * 1024 * 1024;
+var MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+function hash(value) {
+  return `sha256:${createHash12("sha256").update(value).digest("hex")}`;
+}
+function lookup(root, field) {
+  let value = root;
+  for (const segment of field.split(".")) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+    value = value[segment];
+  }
+  return value;
+}
+function capabilityCount(value) {
+  if (value === void 0 || value === null) return 0;
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === "object") return Object.keys(value).length;
+  return 1;
+}
+function safeFile(root, path) {
+  const target = resolve13(root, path);
+  const rel = relative8(root, target);
+  if (rel === ".." || rel.startsWith(`..${sep6}`)) throw new Error("manifest escaped the target directory");
+  const status = lstatSync4(target);
+  if (status.isSymbolicLink() || !status.isFile()) throw new Error("manifest must be a regular non-symbolic-link file");
+  if (status.size > MAX_FILE_BYTES) throw new Error(`manifest exceeds ${MAX_FILE_BYTES} bytes`);
+  const parent = realpathSync4(dirname5(target));
+  if (parent !== realpathSync4(root) && !parent.startsWith(`${realpathSync4(root)}${sep6}`)) {
+    throw new Error("manifest parent escaped the target directory");
+  }
+  return target;
+}
+function inspectArtifactTree(root) {
+  const canonicalRoot = realpathSync4(root);
+  if (!lstatSync4(canonicalRoot).isDirectory()) throw new Error("target must be a directory");
+  const entries = [];
+  let totalBytes = 0;
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      const path = join5(directory, entry.name);
+      const status = lstatSync4(path);
+      if (status.isSymbolicLink()) throw new Error(`target contains a symbolic link: ${relative8(canonicalRoot, path)}`);
+      if (status.isDirectory()) {
+        visit(path);
+        continue;
+      }
+      if (!status.isFile()) throw new Error(`target contains a non-regular entry: ${relative8(canonicalRoot, path)}`);
+      if (status.size > MAX_FILE_BYTES) throw new Error(`target file exceeds ${MAX_FILE_BYTES} bytes: ${relative8(canonicalRoot, path)}`);
+      totalBytes += status.size;
+      if (totalBytes > MAX_TOTAL_BYTES) throw new Error(`target exceeds ${MAX_TOTAL_BYTES} total bytes`);
+      if (entries.length >= MAX_FILES) throw new Error(`target contains more than ${MAX_FILES} files`);
+      const rel = relative8(canonicalRoot, path).split(sep6).join("/");
+      entries.push({
+        path: rel,
+        bytes: status.size,
+        mode: status.mode & 511,
+        sha256: hash(readFileSync15(path))
+      });
+    }
+  };
+  visit(canonicalRoot);
+  return {
+    treeSha256: hash(canonical(entries)),
+    fileCount: entries.length,
+    totalBytes
+  };
+}
+function inspectTarget(directory, component) {
+  const requestedStatus = lstatSync4(directory);
+  if (requestedStatus.isSymbolicLink() || !requestedStatus.isDirectory()) {
+    throw new Error("target must be a regular directory, not a symbolic link");
+  }
+  const root = realpathSync4(directory);
+  const manifestPath = safeFile(root, component.manifestPath);
+  const manifestBytes = readFileSync15(manifestPath);
+  let manifest;
+  try {
+    manifest = JSON.parse(manifestBytes.toString("utf8"));
+  } catch {
+    throw new Error(`${basename4(component.manifestPath)} is not valid JSON`);
+  }
+  const name = lookup(manifest, component.identityField);
+  const version = lookup(manifest, component.versionField);
+  if (typeof name !== "string" || !name.length || name.length > 160) throw new Error("manifest identity is missing or unbounded");
+  if (name !== component.name) throw new Error(`manifest identity ${name} does not match configured component ${component.name}`);
+  if (typeof version !== "string" || !version.length || version.length > 128) throw new Error("manifest version is missing or unbounded");
+  const capabilities = component.capabilityFields.map((field) => {
+    const value = lookup(manifest, field);
+    return {
+      field,
+      count: capabilityCount(value),
+      sha256: hash(canonical({ present: value !== void 0, value: value ?? null }))
+    };
+  });
+  return {
+    ecosystem: component.ecosystem,
+    name,
+    version,
+    ...inspectArtifactTree(root),
+    manifestSha256: hash(manifestBytes),
+    capabilities
+  };
+}
+function aggregateTrials(trials) {
+  if (!trials.length) return { state: "HOLD", trials: 0, stable: false, reason: "no canary trials ran" };
+  if (trials.some((trial) => trial.state === "HOLD")) {
+    return { state: "HOLD", trials: trials.length, stable: false, reason: "one or more canary trials were incomplete" };
+  }
+  const states = new Set(trials.map((trial) => trial.state));
+  const observations = new Set(trials.map((trial) => trial.observationSha256));
+  const counts = new Set(trials.map((trial) => trial.observationCount));
+  if (states.size !== 1 || observations.size !== 1 || counts.size !== 1) {
+    return { state: "HOLD", trials: trials.length, stable: false, reason: "repeated canary trials produced nondeterministic evidence" };
+  }
+  const first = trials[0];
+  if (!first.observationCount || first.observationCount < 1) {
+    return {
+      state: "HOLD",
+      trials: trials.length,
+      stable: false,
+      reason: "canary produced no bounded observations"
+    };
+  }
+  return {
+    state: first.state,
+    observationSha256: first.observationSha256,
+    observationCount: first.observationCount,
+    trials: trials.length,
+    stable: true,
+    reason: first.state === "PASS" ? "repeated trials produced one stable observation" : "trusted canary consistently reported FAIL"
+  };
+}
+function compareCanary(canary, commandSha256, currentTrials, candidateTrials) {
+  const current = aggregateTrials(currentTrials);
+  const candidate = aggregateTrials(candidateTrials);
+  const comparable = current.stable && candidate.stable && current.state === "PASS" && candidate.state !== "HOLD" && (current.observationCount ?? 0) > 0 && (candidate.observationCount ?? 0) > 0;
+  const changed = comparable && (candidate.state !== "PASS" || current.observationSha256 !== candidate.observationSha256 || current.observationCount !== candidate.observationCount);
+  return {
+    id: canary.id,
+    ...canary.publicId ? { publicId: canary.publicId } : {},
+    idSha256: hash(canary.id),
+    commandSha256,
+    current,
+    candidate,
+    changed,
+    comparable
+  };
+}
+function compareCapabilities(current, candidate) {
+  return current.capabilities.map((item2, index) => ({
+    field: item2.field,
+    currentCount: item2.count,
+    candidateCount: candidate.capabilities[index]?.count ?? 0,
+    changed: item2.sha256 !== candidate.capabilities[index]?.sha256
+  }));
+}
+function decideUpgrade(containment, current, candidate, canaries) {
+  const reasons = [];
+  const capabilities = compareCapabilities(current, candidate);
+  if (containment.status !== "PASS") reasons.push("required containment controls were not established");
+  if (current.name !== candidate.name || current.ecosystem !== candidate.ecosystem) reasons.push("current and candidate identities are not comparable");
+  if (current.version === candidate.version) reasons.push("current and candidate versions are identical");
+  if (current.treeSha256 === candidate.treeSha256) reasons.push("current and candidate artifact digests are identical");
+  if (!canaries.length) reasons.push("at least one trusted canary is required");
+  if (canaries.some((canary) => !canary.comparable)) reasons.push("one or more canaries lack a stable healthy baseline and complete candidate evidence");
+  if (reasons.length) return { verdict: "HOLD", reasons, capabilities, canaries };
+  const changes = capabilities.filter((item2) => item2.changed).length + canaries.filter((item2) => item2.changed).length;
+  if (changes) {
+    return {
+      verdict: "CHANGED",
+      reasons: [`${changes} material capability or canary observation change(s) were detected`],
+      capabilities,
+      canaries
+    };
+  }
+  return {
+    verdict: "SAFE",
+    reasons: ["no material change was detected by these exact canaries under the recorded contained runner"],
+    capabilities,
+    canaries
+  };
+}
+
+// src/upgrade/sandbox.ts
+import { createHash as createHash13, randomBytes as randomBytes2 } from "node:crypto";
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { realpathSync as realpathSync5 } from "node:fs";
+var PROXY_NAMES = [
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "FTP_PROXY",
+  "ALL_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "ftp_proxy",
+  "all_proxy",
+  "no_proxy"
+];
+function digest2(value) {
+  return `sha256:${createHash13("sha256").update(value).digest("hex")}`;
+}
+function mountedPath(path, label) {
+  const canonicalPath = realpathSync5(path);
+  if (canonicalPath.includes(",") || canonicalPath.includes("\n") || canonicalPath.includes("\0")) {
+    throw new Error(`${label} path cannot be represented safely as a Docker bind mount`);
+  }
+  return canonicalPath;
+}
+function dockerBaseArgs(config, targetDirectory, canaryDirectory) {
+  const target = mountedPath(targetDirectory, "target");
+  const canaries = mountedPath(canaryDirectory, "canary directory");
+  const hostUid = typeof process.getuid === "function" ? process.getuid() : 65532;
+  const hostGid = typeof process.getgid === "function" ? process.getgid() : 65532;
+  const containerUid = hostUid > 0 ? hostUid : 65532;
+  const containerGid = hostGid > 0 ? hostGid : 65532;
+  const args = [
+    "run",
+    "--rm",
+    "--pull=never",
+    "--network=none",
+    "--read-only",
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges",
+    `--pids-limit=${config.runner.pids}`,
+    `--memory=${config.runner.memoryMiB}m`,
+    `--cpus=${config.runner.cpus}`,
+    `--user=${containerUid}:${containerGid}`,
+    "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m",
+    "--workdir=/canaries",
+    "--mount",
+    `type=bind,src=${target},dst=/target,readonly`,
+    "--mount",
+    `type=bind,src=${canaries},dst=/canaries,readonly`
+  ];
+  for (const name of PROXY_NAMES) args.push("--env", `${name}=`);
+  return args;
+}
+function imageDigest2(config) {
+  return config.runner.image.slice(config.runner.image.lastIndexOf("@") + 1);
+}
+function dockerImagePresent(config, dockerBin = "docker") {
+  const inspected = spawnSync3(
+    dockerBin,
+    ["image", "inspect", "--format", "{{json .RepoDigests}}", config.runner.image],
+    { encoding: "utf8", timeout: 1e4, maxBuffer: 64 * 1024 }
+  );
+  if (inspected.status !== 0 || inspected.error || !inspected.stdout.trim()) return false;
+  try {
+    const values = JSON.parse(inspected.stdout);
+    return Array.isArray(values) && values.some((value) => typeof value === "string" && value.endsWith(`@${imageDigest2(config)}`));
+  } catch {
+    return false;
+  }
+}
+var PROBE_SCRIPT = String.raw`
+const fs=require("node:fs"),net=require("node:net");
+const out={targetReadOnly:false,rootReadOnly:false,inheritedSecretAbsent:process.env.VIGIL_UPGRADE_PROBE_SECRET===undefined,proxiesCleared:true,networkBlocked:false};
+for(const n of ["HTTP_PROXY","HTTPS_PROXY","FTP_PROXY","ALL_PROXY","NO_PROXY","http_proxy","https_proxy","ftp_proxy","all_proxy","no_proxy"]){if((process.env[n]||"")!=="")out.proxiesCleared=false;}
+try{fs.writeFileSync("/target/.agent-vigil-containment-probe","x");}catch{out.targetReadOnly=true;}
+try{fs.writeFileSync("/.agent-vigil-containment-probe","x");}catch{out.rootReadOnly=true;}
+let done=false; const finish=(blocked)=>{if(done)return;done=true;out.networkBlocked=blocked;process.stdout.write(JSON.stringify(out));};
+const socket=net.connect({host:"1.1.1.1",port:53});
+socket.setTimeout(600); socket.once("connect",()=>{socket.destroy();finish(false)}); socket.once("error",()=>finish(true)); socket.once("timeout",()=>{socket.destroy();finish(true)});
+setTimeout(()=>finish(true),900);
+`;
+function probeContainment(config, targetDirectory, canaryDirectory, dockerBin = "docker") {
+  if (!dockerImagePresent(config, dockerBin)) {
+    return {
+      status: "HOLD",
+      imagePresent: false,
+      networkBlocked: false,
+      targetReadOnly: false,
+      rootReadOnly: false,
+      inheritedSecretAbsent: false,
+      proxiesCleared: false,
+      reason: "the exact-digest runner image is not present locally; Upgrade Guard never pulls during a check"
+    };
+  }
+  let args;
+  try {
+    args = dockerBaseArgs(config, targetDirectory, canaryDirectory);
+  } catch (error) {
+    return {
+      status: "HOLD",
+      imagePresent: true,
+      networkBlocked: false,
+      targetReadOnly: false,
+      rootReadOnly: false,
+      inheritedSecretAbsent: false,
+      proxiesCleared: false,
+      reason: error.message
+    };
+  }
+  args.push("--env", "VIGIL_TARGET=/target", config.runner.image, "node", "-e", PROBE_SCRIPT);
+  const secret = randomBytes2(24).toString("hex");
+  const result5 = spawnSync3(dockerBin, args, {
+    encoding: "utf8",
+    timeout: 5e3,
+    maxBuffer: 64 * 1024,
+    env: { ...process.env, VIGIL_UPGRADE_PROBE_SECRET: secret }
+  });
+  if (result5.status !== 0 || result5.error) {
+    return {
+      status: "HOLD",
+      imagePresent: true,
+      networkBlocked: false,
+      targetReadOnly: false,
+      rootReadOnly: false,
+      inheritedSecretAbsent: false,
+      proxiesCleared: false,
+      reason: result5.error ? "containment probe did not complete" : `containment probe exited ${result5.status ?? "without a status"}`
+    };
+  }
+  try {
+    const value = JSON.parse(result5.stdout);
+    const networkBlocked = value.networkBlocked === true;
+    const targetReadOnly = value.targetReadOnly === true;
+    const rootReadOnly = value.rootReadOnly === true;
+    const inheritedSecretAbsent = value.inheritedSecretAbsent === true;
+    const proxiesCleared = value.proxiesCleared === true;
+    const status = networkBlocked && targetReadOnly && rootReadOnly && inheritedSecretAbsent && proxiesCleared ? "PASS" : "HOLD";
+    return {
+      status,
+      imagePresent: true,
+      networkBlocked,
+      targetReadOnly,
+      rootReadOnly,
+      inheritedSecretAbsent,
+      proxiesCleared,
+      reason: status === "PASS" ? "network, target writes, root writes, inherited probe secret, and Docker client proxy injection were blocked" : "one or more required containment controls did not hold"
+    };
+  } catch {
+    return {
+      status: "HOLD",
+      imagePresent: true,
+      networkBlocked: false,
+      targetReadOnly: false,
+      rootReadOnly: false,
+      inheritedSecretAbsent: false,
+      proxiesCleared: false,
+      reason: "containment probe returned malformed output"
+    };
+  }
+}
+function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase, dockerBin = "docker") {
+  let args;
+  try {
+    args = dockerBaseArgs(config, targetDirectory, canaryDirectory);
+  } catch (error) {
+    return { state: "HOLD", reason: error.message };
+  }
+  args.push(
+    "--env",
+    "VIGIL_TARGET=/target",
+    "--env",
+    `VIGIL_PHASE=${phase}`,
+    config.runner.image,
+    ...canary.command
+  );
+  const result5 = spawnSync3(dockerBin, args, {
+    encoding: "utf8",
+    timeout: canary.timeoutSeconds * 1e3,
+    maxBuffer: 128 * 1024,
+    env: process.env
+  });
+  if (result5.error) {
+    const timeout = result5.error.code === "ETIMEDOUT";
+    return { state: "HOLD", reason: timeout ? "canary timed out" : "container execution failed" };
+  }
+  if (result5.status !== 0) return { state: "HOLD", reason: `container exited ${result5.status ?? "without a status"}` };
+  let document;
+  try {
+    document = validateCanaryDocument(JSON.parse(result5.stdout.trim()));
+  } catch {
+    return { state: "HOLD", reason: "canary returned malformed or unbounded JSON" };
+  }
+  const observationSha256 = digest2(canonical(document.observations));
+  return {
+    state: document.outcome,
+    observationSha256,
+    observationCount: Object.keys(document.observations).length,
+    reason: document.outcome === "PASS" ? "canary completed with bounded observations" : "trusted canary reported FAIL"
+  };
+}
+function commandDigest(canary) {
+  return digest2(canonical(canary.command));
+}
+
+// src/upgrade/receipt.ts
+var LIMITATIONS = [
+  "The verdict applies only to the exact pre/post-stable artifacts, runner image, configuration, canary harness, and observations recorded here.",
+  "SAFE means no material change was detected by these canaries; it is not a universal safety or semantic-correctness claim.",
+  "The Docker daemon, host kernel, runner image, and trusted canary harness remain trust assumptions.",
+  "Network-disabled offline canaries do not establish live provider, model-alias, authentication, or production behavior."
+];
+function hash2(value) {
+  return `sha256:${createHash14("sha256").update(value).digest("hex")}`;
+}
+function configDigest(config) {
+  return hash2(canonical(config));
+}
+function receiptPayload(receipt) {
+  return canonical(receipt);
+}
+function finalizeReceipt(receipt) {
+  return { ...receipt, receiptHash: hash2(receiptPayload(receipt)) };
+}
+function trustedDirectoryRoot(path, label) {
+  const requested = resolve14(path);
+  const status = lstatSync5(requested);
+  if (status.isSymbolicLink() || !status.isDirectory()) {
+    throw new Error(`${label} must be a regular directory, not a symbolic link`);
+  }
+  return realpathSync6(requested);
+}
+function assertDisjointRoots(roots) {
+  for (let left = 0; left < roots.length; left += 1) {
+    for (let right = left + 1; right < roots.length; right += 1) {
+      const [leftLabel, leftPath] = roots[left];
+      const [rightLabel, rightPath] = roots[right];
+      const leftToRight = relative9(leftPath, rightPath);
+      const rightToLeft = relative9(rightPath, leftPath);
+      const inside2 = (rel) => rel === "" || !isAbsolute5(rel) && rel !== ".." && !rel.startsWith(`..${sep7}`);
+      const overlap = inside2(leftToRight) || inside2(rightToLeft);
+      if (overlap) throw new Error(`${leftLabel} and ${rightLabel} must be separate, non-overlapping directories`);
+    }
+  }
+}
+function recomputeUpgradeReceiptHash(receipt) {
+  const { receiptHash: _ignored, ...payload } = receipt;
+  return hash2(receiptPayload(payload));
+}
+function holdReceipt(config, containment, generatedAt, nonce, reason, current, candidate, canaryHarness) {
+  return finalizeReceipt({
+    schemaVersion: PRIVATE_RECEIPT_SCHEMA,
+    vigilVersion: VERSION,
+    generatedAt,
+    nonce,
+    component: { ecosystem: config.component.ecosystem, name: config.component.name },
+    configSha256: configDigest(config),
+    runner: {
+      engine: "docker",
+      image: config.runner.image,
+      trials: config.runner.trials,
+      network: "none",
+      filesystem: "read-only",
+      environment: "explicit"
+    },
+    containment,
+    ...current ? { current } : {},
+    ...candidate ? { candidate } : {},
+    ...canaryHarness ? { canaryHarness } : {},
+    capabilities: [],
+    canaries: [],
+    summary: {
+      verdict: "HOLD",
+      reasons: [reason],
+      comparedCanaries: 0,
+      changedCanaries: 0,
+      changedCapabilities: 0
+    },
+    limitations: LIMITATIONS
+  });
+}
+function runUpgradeEvaluation(input) {
+  const configPath = trustedRegularFileInside(input.repository, input.configPath, "upgrade config");
+  const config = loadUpgradeConfig(configPath);
+  const generatedAt = input.generatedAt ?? (/* @__PURE__ */ new Date()).toISOString();
+  const nonce = input.nonce ?? randomBytes3(32).toString("base64url");
+  let current;
+  let candidate;
+  let canaryHarness;
+  const emptyContainment = {
+    status: "HOLD",
+    imagePresent: false,
+    networkBlocked: false,
+    targetReadOnly: false,
+    rootReadOnly: false,
+    inheritedSecretAbsent: false,
+    proxiesCleared: false,
+    reason: "containment was not evaluated"
+  };
+  let canaryDirectory;
+  try {
+    canaryDirectory = trustedDirectoryInside(
+      input.repository,
+      resolve14(input.repository, config.canaryDirectory),
+      "canary directory"
+    );
+  } catch (error) {
+    return holdReceipt(config, emptyContainment, generatedAt, nonce, `canary directory could not be trusted: ${error.message}`);
+  }
+  let currentRoot;
+  let candidateRoot;
+  try {
+    currentRoot = trustedDirectoryRoot(input.currentDirectory, "current artifact");
+    candidateRoot = trustedDirectoryRoot(input.candidateDirectory, "candidate artifact");
+    assertDisjointRoots([
+      ["current artifact", currentRoot],
+      ["candidate artifact", candidateRoot],
+      ["canary harness", canaryDirectory]
+    ]);
+  } catch (error) {
+    return holdReceipt(config, emptyContainment, generatedAt, nonce, error.message);
+  }
+  try {
+    canaryHarness = inspectArtifactTree(canaryDirectory);
+  } catch (error) {
+    return holdReceipt(config, emptyContainment, generatedAt, nonce, `canary harness could not be inventoried: ${error.message}`);
+  }
+  try {
+    current = inspectTarget(input.currentDirectory, config.component);
+  } catch (error) {
+    return holdReceipt(config, emptyContainment, generatedAt, nonce, `current artifact could not be inspected: ${error.message}`, void 0, void 0, canaryHarness);
+  }
+  try {
+    candidate = inspectTarget(input.candidateDirectory, config.component);
+  } catch (error) {
+    return holdReceipt(config, emptyContainment, generatedAt, nonce, `candidate artifact could not be inspected: ${error.message}`, current, void 0, canaryHarness);
+  }
+  const containment = probeContainment(
+    config,
+    input.currentDirectory,
+    canaryDirectory,
+    input.dockerBin
+  );
+  const canaries = config.canaries.map((canary) => {
+    const currentTrials = containment.status === "PASS" ? Array.from({ length: config.runner.trials }, () => runCanaryTrial(
+      config,
+      canary,
+      input.currentDirectory,
+      canaryDirectory,
+      "current",
+      input.dockerBin
+    )) : [];
+    const candidateTrials = containment.status === "PASS" ? Array.from({ length: config.runner.trials }, () => runCanaryTrial(
+      config,
+      canary,
+      input.candidateDirectory,
+      canaryDirectory,
+      "candidate",
+      input.dockerBin
+    )) : [];
+    return compareCanary(canary, commandDigest(canary), currentTrials, candidateTrials);
+  });
+  let mutationReason;
+  try {
+    const currentAfter = inspectTarget(input.currentDirectory, config.component);
+    const candidateAfter = inspectTarget(input.candidateDirectory, config.component);
+    const harnessAfter = inspectArtifactTree(canaryDirectory);
+    if (canonical(currentAfter) !== canonical(current)) mutationReason = "current artifact changed while the evaluation was running";
+    else if (canonical(candidateAfter) !== canonical(candidate)) mutationReason = "candidate artifact changed while the evaluation was running";
+    else if (canonical(harnessAfter) !== canonical(canaryHarness)) mutationReason = "canary harness changed while the evaluation was running";
+  } catch (error) {
+    mutationReason = `evaluation inputs could not be re-inventoried: ${error.message}`;
+  }
+  const initialDecision = decideUpgrade(containment, current, candidate, canaries);
+  const decision = mutationReason ? { ...initialDecision, verdict: "HOLD", reasons: [mutationReason] } : initialDecision;
+  return finalizeReceipt({
+    schemaVersion: PRIVATE_RECEIPT_SCHEMA,
+    vigilVersion: VERSION,
+    generatedAt,
+    nonce,
+    component: { ecosystem: config.component.ecosystem, name: config.component.name },
+    configSha256: configDigest(config),
+    runner: {
+      engine: "docker",
+      image: config.runner.image,
+      trials: config.runner.trials,
+      network: "none",
+      filesystem: "read-only",
+      environment: "explicit"
+    },
+    containment,
+    current,
+    candidate,
+    canaryHarness,
+    capabilities: decision.capabilities,
+    canaries,
+    summary: {
+      verdict: decision.verdict,
+      reasons: decision.reasons,
+      comparedCanaries: canaries.filter((canary) => canary.comparable).length,
+      changedCanaries: canaries.filter((canary) => canary.changed).length,
+      changedCapabilities: decision.capabilities.filter((capability) => capability.changed).length
+    },
+    limitations: LIMITATIONS
+  });
+}
+var PUBLIC_CAPABILITIES = /* @__PURE__ */ new Set(["tools", "hooks", "mcpServers", "permissions", "skills", "agents", "commands", "dependencies"]);
+function publicCapability(field) {
+  const leaf = field.split(".").at(-1) ?? "other";
+  return PUBLIC_CAPABILITIES.has(leaf) ? leaf : "other";
+}
+function publicEntryPayload(entry) {
+  return canonical(entry);
+}
+function createPublicCompatibilityEntry(receipt, privateKeyPath) {
+  if (recomputeUpgradeReceiptHash(receipt) !== receipt.receiptHash) throw new Error("private upgrade receipt hash is invalid");
+  if (!receipt.current || !receipt.candidate || !receipt.canaryHarness) {
+    throw new Error("public compatibility output requires exact current, candidate, and canary harness identities");
+  }
+  const privateKey = createPrivateKey3(readFileSync16(privateKeyPath));
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("public compatibility signing key must be Ed25519");
+  const publicKey = createPublicKey3(privateKey);
+  const der = publicKeyDer(publicKey);
+  const unsigned = {
+    schemaVersion: PUBLIC_ENTRY_SCHEMA,
+    vigilVersion: receipt.vigilVersion,
+    generatedAt: receipt.generatedAt,
+    component: {
+      ecosystem: receipt.current.ecosystem,
+      name: receipt.current.name,
+      currentVersion: receipt.current.version,
+      candidateVersion: receipt.candidate.version,
+      currentArtifactSha256: receipt.current.treeSha256,
+      candidateArtifactSha256: receipt.candidate.treeSha256
+    },
+    runner: {
+      imageDigest: receipt.runner.image.slice(receipt.runner.image.lastIndexOf("@") + 1),
+      trials: receipt.runner.trials,
+      networkBlocked: receipt.containment.networkBlocked,
+      readOnly: receipt.containment.targetReadOnly && receipt.containment.rootReadOnly,
+      environmentIsolated: receipt.containment.inheritedSecretAbsent && receipt.containment.proxiesCleared,
+      configSha256: receipt.configSha256,
+      canaryHarnessSha256: receipt.canaryHarness.treeSha256
+    },
+    verdict: receipt.summary.verdict,
+    changedCapabilities: [...new Set(receipt.capabilities.filter((item2) => item2.changed).map((item2) => publicCapability(item2.field)))].sort(),
+    canaries: receipt.canaries.map((canary) => ({
+      ...canary.publicId ? { publicId: canary.publicId } : {},
+      idSha256: canary.idSha256,
+      current: canary.current.state,
+      candidate: canary.candidate.state,
+      matched: canary.comparable && !canary.changed
+    })),
+    privateReceiptCommitment: receipt.receiptHash,
+    limitations: receipt.limitations
+  };
+  const entryHash = hash2(publicEntryPayload(unsigned));
+  const entry = {
+    ...unsigned,
+    entryHash,
+    signature: {
+      algorithm: "Ed25519",
+      keyId: signingKeyId(der),
+      publicKey: der.toString("base64"),
+      value: sign3(null, Buffer.from(entryHash), privateKey).toString("base64")
+    }
+  };
+  validatePublicCompatibilityEntry(entry);
+  return entry;
+}
+function verifyPublicCompatibilityEntry(entry, publicKeyPath) {
+  const { entryHash: _hash, signature: _signature, ...unsigned } = entry;
+  const hashValid = hash2(publicEntryPayload(unsigned)) === entry.entryHash;
+  if (entry.signature.algorithm !== "Ed25519") return { hashValid, signatureValid: false, keyPinned: Boolean(publicKeyPath) };
+  try {
+    const embedded = createPublicKey3({ key: Buffer.from(entry.signature.publicKey, "base64"), type: "spki", format: "der" });
+    const embeddedId = signingKeyId(publicKeyDer(embedded));
+    const selected = publicKeyPath ? createPublicKey3(readFileSync16(publicKeyPath)) : embedded;
+    const selectedId = signingKeyId(publicKeyDer(selected));
+    const signatureValid = embeddedId === entry.signature.keyId && selectedId === embeddedId && verify3(null, Buffer.from(entry.entryHash), selected, Buffer.from(entry.signature.value, "base64"));
+    return { hashValid, signatureValid, keyPinned: Boolean(publicKeyPath), keyId: selectedId };
+  } catch {
+    return { hashValid, signatureValid: false, keyPinned: Boolean(publicKeyPath) };
+  }
+}
+function record(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value;
+}
+function exact(value, keys, label) {
+  const unknown = Object.keys(value).filter((key) => !keys.includes(key));
+  if (unknown.length) throw new Error(`${label} contains unknown field(s): ${unknown.join(", ")}`);
+}
+function text(value, label, maximum = 512) {
+  if (typeof value !== "string" || !value.length || value.length > maximum || value.includes("\0")) {
+    throw new Error(`${label} must be a bounded non-empty string`);
+  }
+  return value;
+}
+function patternedText(value, label, pattern, maximum = 512) {
+  const result5 = text(value, label, maximum);
+  if (!pattern.test(result5)) throw new Error(`${label} has an unsupported value`);
+  return result5;
+}
+function sha256Text(value, label) {
+  return patternedText(value, label, /^sha256:[0-9a-f]{64}$/, 71);
+}
+function validatePublicCompatibilityEntry(input) {
+  const root = record(input, "public compatibility entry");
+  exact(root, ["schemaVersion", "vigilVersion", "generatedAt", "component", "runner", "verdict", "changedCapabilities", "canaries", "privateReceiptCommitment", "limitations", "entryHash", "signature"], "public compatibility entry");
+  if (root.schemaVersion !== PUBLIC_ENTRY_SCHEMA) throw new Error(`public entry schemaVersion must be ${PUBLIC_ENTRY_SCHEMA}`);
+  if (!(/* @__PURE__ */ new Set(["SAFE", "CHANGED", "HOLD"])).has(String(root.verdict))) throw new Error("public entry verdict is invalid");
+  const component = record(root.component, "public entry component");
+  exact(component, ["ecosystem", "name", "currentVersion", "candidateVersion", "currentArtifactSha256", "candidateArtifactSha256"], "public entry component");
+  const runner = record(root.runner, "public entry runner");
+  exact(runner, ["imageDigest", "trials", "networkBlocked", "readOnly", "environmentIsolated", "configSha256", "canaryHarnessSha256"], "public entry runner");
+  if (!Number.isInteger(runner.trials) || Number(runner.trials) < 2 || Number(runner.trials) > 5) throw new Error("public entry trials are invalid");
+  for (const field of ["networkBlocked", "readOnly", "environmentIsolated"]) {
+    if (typeof runner[field] !== "boolean") throw new Error(`public entry runner.${field} must be boolean`);
+  }
+  if (!Array.isArray(root.changedCapabilities) || root.changedCapabilities.length > 16 || root.changedCapabilities.some((item2) => typeof item2 !== "string" || !(/* @__PURE__ */ new Set([...PUBLIC_CAPABILITIES, "other"])).has(item2))) {
+    throw new Error("public entry changedCapabilities are invalid");
+  }
+  if (new Set(root.changedCapabilities).size !== root.changedCapabilities.length) throw new Error("public entry changedCapabilities contain duplicates");
+  if (!Array.isArray(root.canaries) || root.canaries.length > 32) throw new Error("public entry canaries are invalid");
+  const canaries = root.canaries.map((item2, index) => {
+    const canary = record(item2, `public entry canaries[${index}]`);
+    exact(canary, ["publicId", "idSha256", "current", "candidate", "matched"], `public entry canaries[${index}]`);
+    if (!(/* @__PURE__ */ new Set(["PASS", "FAIL", "HOLD"])).has(String(canary.current)) || !(/* @__PURE__ */ new Set(["PASS", "FAIL", "HOLD"])).has(String(canary.candidate))) {
+      throw new Error(`public entry canaries[${index}] has an invalid state`);
+    }
+    if (typeof canary.matched !== "boolean") throw new Error(`public entry canaries[${index}].matched must be boolean`);
+    return {
+      ...canary.publicId === void 0 ? {} : { publicId: patternedText(canary.publicId, `public entry canaries[${index}].publicId`, /^[a-z0-9][a-z0-9._-]*$/, 80) },
+      idSha256: sha256Text(canary.idSha256, `public entry canaries[${index}].idSha256`),
+      current: canary.current,
+      candidate: canary.candidate,
+      matched: canary.matched
+    };
+  });
+  const signature = record(root.signature, "public entry signature");
+  exact(signature, ["algorithm", "keyId", "publicKey", "value"], "public entry signature");
+  if (signature.algorithm !== "Ed25519") throw new Error("public entry signature algorithm must be Ed25519");
+  if (!Array.isArray(root.limitations) || root.limitations.length > 16 || root.limitations.some((item2) => typeof item2 !== "string" || item2.length > 1024)) {
+    throw new Error("public entry limitations are invalid");
+  }
+  const generatedAt = text(root.generatedAt, "public entry generatedAt", 64);
+  if (!Number.isFinite(Date.parse(generatedAt)) || new Date(generatedAt).toISOString() !== generatedAt) {
+    throw new Error("public entry generatedAt must be an exact UTC ISO timestamp");
+  }
+  const entry = {
+    schemaVersion: PUBLIC_ENTRY_SCHEMA,
+    vigilVersion: patternedText(root.vigilVersion, "public entry vigilVersion", /^[0-9][0-9A-Za-z.+-]*$/, 40),
+    generatedAt,
+    component: {
+      ecosystem: patternedText(component.ecosystem, "public entry component.ecosystem", /^[a-z0-9][a-z0-9._-]*$/, 80),
+      name: patternedText(component.name, "public entry component.name", /^[A-Za-z0-9@][A-Za-z0-9@/._-]*$/, 160),
+      currentVersion: text(component.currentVersion, "public entry currentVersion", 128),
+      candidateVersion: text(component.candidateVersion, "public entry candidateVersion", 128),
+      currentArtifactSha256: sha256Text(component.currentArtifactSha256, "public entry currentArtifactSha256"),
+      candidateArtifactSha256: sha256Text(component.candidateArtifactSha256, "public entry candidateArtifactSha256")
+    },
+    runner: {
+      imageDigest: sha256Text(runner.imageDigest, "public entry runner.imageDigest"),
+      trials: Number(runner.trials),
+      networkBlocked: runner.networkBlocked,
+      readOnly: runner.readOnly,
+      environmentIsolated: runner.environmentIsolated,
+      configSha256: sha256Text(runner.configSha256, "public entry runner.configSha256"),
+      canaryHarnessSha256: sha256Text(runner.canaryHarnessSha256, "public entry runner.canaryHarnessSha256")
+    },
+    verdict: root.verdict,
+    changedCapabilities: root.changedCapabilities,
+    canaries,
+    privateReceiptCommitment: sha256Text(root.privateReceiptCommitment, "public entry privateReceiptCommitment"),
+    limitations: root.limitations,
+    entryHash: sha256Text(root.entryHash, "public entry entryHash"),
+    signature: {
+      algorithm: "Ed25519",
+      keyId: sha256Text(signature.keyId, "public entry signature.keyId"),
+      publicKey: text(signature.publicKey, "public entry signature.publicKey", 512),
+      value: text(signature.value, "public entry signature.value", 512)
+    }
+  };
+  if (new Set(canaries.map((canary) => canary.idSha256)).size !== canaries.length) throw new Error("public entry canary hashes contain duplicates");
+  const publicIds = canaries.flatMap((canary) => canary.publicId ? [canary.publicId] : []);
+  if (new Set(publicIds).size !== publicIds.length) throw new Error("public entry canary public IDs contain duplicates");
+  if (entry.component.currentVersion === entry.component.candidateVersion || entry.component.currentArtifactSha256 === entry.component.candidateArtifactSha256) {
+    throw new Error("public entry must compare distinct exact versions and artifacts");
+  }
+  if (entry.verdict === "SAFE") {
+    if (!entry.runner.networkBlocked || !entry.runner.readOnly || !entry.runner.environmentIsolated || !entry.canaries.length || entry.changedCapabilities.length || entry.canaries.some((canary) => canary.current !== "PASS" || canary.candidate !== "PASS" || !canary.matched)) {
+      throw new Error("SAFE public entry is inconsistent with its containment or canary evidence");
+    }
+  }
+  return entry;
+}
+function renderUpgradeReceipt(receipt) {
+  const lines = [
+    `Agent Vigil Upgrade Guard ${receipt.vigilVersion}`,
+    `  component: ${receipt.component.name}`,
+    `  versions:  ${receipt.current?.version ?? "unknown"} -> ${receipt.candidate?.version ?? "unknown"}`,
+    `  runner:    ${receipt.runner.image}`,
+    `  canaries:  ${receipt.summary.comparedCanaries} comparable; ${receipt.summary.changedCanaries} changed`,
+    `  surfaces:  ${receipt.summary.changedCapabilities} capability class change(s)`,
+    `  ${receipt.summary.verdict} \xB7 ${receipt.receiptHash}`
+  ];
+  for (const reason of receipt.summary.reasons) lines.push(`  ${receipt.summary.verdict === "SAFE" ? "\u2713" : receipt.summary.verdict === "CHANGED" ? "!" : "?"} ${reason}`);
+  lines.push("  SAFE is bounded to these exact artifacts, canaries, and contained runner; it is not a universal safety claim.");
+  return `${lines.join("\n")}
+`;
+}
+function html3(value) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+function renderBreakageIndex(entries) {
+  const ordered = [...entries].sort((left, right) => right.generatedAt.localeCompare(left.generatedAt));
+  const rows = ordered.map((entry) => `<tr>
+    <td><strong>${html3(entry.component.name)}</strong><small>${html3(entry.component.ecosystem)}</small></td>
+    <td>${html3(entry.component.currentVersion)} <span aria-hidden="true">\u2192</span> ${html3(entry.component.candidateVersion)}</td>
+    <td><span class="status ${entry.verdict.toLowerCase()}">${html3(entry.verdict)}</span></td>
+    <td>${entry.canaries.filter((canary) => canary.matched).length}/${entry.canaries.length}</td>
+    <td>${html3(entry.changedCapabilities.join(", ") || "none observed")}</td>
+    <td><code>${html3(entry.entryHash.slice(0, 22))}\u2026</code></td>
+  </tr>`).join("\n");
+  const safe = ordered.filter((entry) => entry.verdict === "SAFE").length;
+  const changed = ordered.filter((entry) => entry.verdict === "CHANGED").length;
+  const hold = ordered.filter((entry) => entry.verdict === "HOLD").length;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Agent compatibility evidence</title><style>
+:root{color-scheme:light dark;font-family:ui-sans-serif,system-ui,sans-serif}body{max-width:1120px;margin:0 auto;padding:48px 24px;background:#07111f;color:#e7eef8}h1{font-size:clamp(2rem,5vw,4rem);margin:0 0 12px}.lede{max-width:760px;color:#a9b8ca;font-size:1.1rem;line-height:1.6}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:32px 0}.card{padding:20px;border:1px solid #2a3a50;border-radius:16px;background:#0d1a2b}.card strong{display:block;font-size:2rem}.table{overflow:auto;border:1px solid #2a3a50;border-radius:16px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:15px;border-bottom:1px solid #213147}th{color:#93a7bf;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em}td small{display:block;color:#7f94ac;margin-top:4px}.status{font-weight:800}.safe{color:#69e6a6}.changed{color:#ffcb6b}.hold{color:#ff8e9b}code{color:#b8c7db}footer{margin-top:28px;color:#8598ae;font-size:.9rem}@media(max-width:640px){body{padding:28px 16px}.cards{grid-template-columns:1fr}}
+</style></head><body><main><h1>Agent compatibility evidence</h1>
+<p class="lede">Signed, privacy-minimized results for exact coding-agent dependency version pairs. SAFE means no material change was detected by the recorded canaries under the recorded contained runner\u2014not that an update is universally safe.</p>
+<section class="cards" aria-label="Verdict counts"><div class="card"><strong>${safe}</strong>SAFE</div><div class="card"><strong>${changed}</strong>CHANGED</div><div class="card"><strong>${hold}</strong>HOLD</div></section>
+<section class="table"><table><thead><tr><th>Component</th><th>Version pair</th><th>Verdict</th><th>Matched canaries</th><th>Changed surfaces</th><th>Entry commitment</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No signed entries were supplied.</td></tr>'}</tbody></table></section>
+<footer>Generated by Agent Vigil Upgrade Guard. Raw repositories, commands, outputs, prompts, paths, and secrets are excluded from public entries.</footer></main></body></html>`;
+}
+
+// src/upgrade/setup.ts
+import { execFileSync as execFileSync10 } from "node:child_process";
+import {
+  chmodSync as chmodSync2,
+  existsSync as existsSync5,
+  lstatSync as lstatSync6,
+  mkdirSync as mkdirSync4,
+  readFileSync as readFileSync17,
+  realpathSync as realpathSync7
+} from "node:fs";
+import { dirname as dirname7, join as join7, relative as relative10, resolve as resolve15, sep as sep8 } from "node:path";
+var DEFAULT_UPGRADE_DIRECTORY = ".agent-vigil/upgrade";
+var DEFAULT_UPGRADE_CONFIG = `${DEFAULT_UPGRADE_DIRECTORY}/config.json`;
+var DEFAULT_UPGRADE_RECEIPT = `${DEFAULT_UPGRADE_DIRECTORY}/last-receipt.json`;
+var DEFAULT_RUNNER_IMAGE = "node:22.22.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752";
+function ensureRepository(path) {
+  const requested = resolve15(path);
+  const status = lstatSync6(requested);
+  if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("--repo must be a regular directory, not a symbolic link");
+  const repository2 = realpathSync7(requested);
+  try {
+    const root = execFileSync10("git", ["rev-parse", "--show-toplevel"], {
+      cwd: repository2,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    if (realpathSync7(root) !== repository2) throw new Error("nested");
+  } catch {
+    throw new Error("--repo must be the root of a Git repository");
+  }
+  return repository2;
+}
+function inside(repository2, path) {
+  const target = resolve15(repository2, path);
+  const rel = relative10(repository2, target);
+  if (rel === ".." || rel.startsWith(`..${sep8}`)) throw new Error("upgrade setup path escaped the repository");
+  return target;
+}
+function ensurePrivateDirectory(repository2, target) {
+  const rel = relative10(repository2, target);
+  if (rel === ".." || rel.startsWith(`..${sep8}`)) throw new Error("upgrade setup directory escaped the repository");
+  let current = repository2;
+  for (const component of rel.split(sep8).filter(Boolean)) {
+    current = join7(current, component);
+    if (existsSync5(current)) {
+      const status = lstatSync6(current);
+      if (status.isSymbolicLink() || !status.isDirectory()) throw new Error(`refusing unsafe setup directory: ${current}`);
+    } else {
+      mkdirSync4(current, { mode: 448 });
+    }
+    if (process.platform !== "win32") chmodSync2(current, 448);
+  }
+}
+function inferredName(repository2) {
+  const manifest = join7(repository2, "package.json");
+  try {
+    const value = JSON.parse(readFileSync17(manifest, "utf8"));
+    if (typeof value.name === "string" && /^[A-Za-z0-9@][A-Za-z0-9@/._-]{0,159}$/.test(value.name)) return value.name;
+  } catch {
+  }
+  return "replace-with-agent-component";
+}
+function configTemplate(repository2) {
+  return `${JSON.stringify({
+    schemaVersion: UPGRADE_CONFIG_SCHEMA,
+    component: {
+      ecosystem: "agent-plugin",
+      name: inferredName(repository2),
+      manifestPath: "package.json",
+      identityField: "name",
+      versionField: "version",
+      capabilityFields: ["contributes", "mcpServers", "hooks", "skills", "commands", "dependencies"]
+    },
+    runner: {
+      engine: "docker",
+      image: DEFAULT_RUNNER_IMAGE,
+      trials: 2,
+      memoryMiB: 512,
+      cpus: 1,
+      pids: 128
+    },
+    canaryDirectory: `${DEFAULT_UPGRADE_DIRECTORY}/canaries`,
+    canaries: [{
+      id: "replace-with-repository-canary",
+      command: ["node", "/canaries/template-canary.mjs"],
+      timeoutSeconds: 30
+    }]
+  }, null, 2)}
+`;
+}
+var CANARY_TEMPLATE = `// This template intentionally reports FAIL. Replace it with a deterministic,
+// repository-specific behavioral canary before an update can earn SAFE.
+process.stdout.write(JSON.stringify({
+  schemaVersion: "agent-vigil-upgrade-canary/v1",
+  outcome: "FAIL",
+  observations: { templateRequiresReplacement: true }
+}));
+`;
+function writeScaffold2(path, content, force, result5) {
+  if (existsSync5(path) && !force) {
+    const status = lstatSync6(path);
+    if (status.isSymbolicLink() || !status.isFile()) throw new Error(`refusing unsafe existing scaffold: ${path}`);
+    result5.kept.push(path);
+    return;
+  }
+  writePrivateFileAtomic(path, content);
+  result5.created.push(path);
+}
+function initUpgrade(repositoryPath, force = false) {
+  const repository2 = ensureRepository(repositoryPath);
+  const root = inside(repository2, DEFAULT_UPGRADE_DIRECTORY);
+  const canaries = join7(root, "canaries");
+  ensurePrivateDirectory(repository2, canaries);
+  const result5 = { created: [], kept: [] };
+  writeScaffold2(join7(root, ".gitignore"), "*\n!.gitignore\n", force, result5);
+  writeScaffold2(join7(root, "config.json"), configTemplate(repository2), force, result5);
+  writeScaffold2(join7(canaries, "template-canary.mjs"), CANARY_TEMPLATE, force, result5);
+  return result5;
+}
+function doctorUpgrade(repositoryPath, configPath, dockerBin = "docker") {
+  const repository2 = ensureRepository(repositoryPath);
+  const selectedConfig = configPath ? resolve15(configPath) : join7(repository2, DEFAULT_UPGRADE_CONFIG);
+  const rel = relative10(repository2, selectedConfig);
+  if (rel === ".." || rel.startsWith(`..${sep8}`)) throw new Error("upgrade config must remain inside the repository");
+  const trustedConfig = trustedRegularFileInside(repository2, selectedConfig, "upgrade config");
+  const config = loadUpgradeConfig(trustedConfig);
+  const canaryDirectory = trustedDirectoryInside(
+    repository2,
+    inside(repository2, config.canaryDirectory),
+    "canaryDirectory"
+  );
+  const templateCanary = config.canaries.some((canary) => canary.id === "replace-with-repository-canary");
+  const imagePresent = dockerImagePresent(config, dockerBin);
+  const containment = probeContainment(config, repository2, canaryDirectory, dockerBin);
+  const checks = [
+    { status: "PASS", label: "config", detail: "strict upgrade config loaded" },
+    { status: imagePresent ? "PASS" : "HOLD", label: "runner image", detail: imagePresent ? "exact digest is present locally" : "exact digest is absent; Upgrade Guard will not pull it during a check" },
+    { status: containment.status, label: "containment", detail: containment.reason },
+    { status: templateCanary ? "HOLD" : "PASS", label: "canaries", detail: templateCanary ? "replace the fail-closed template with a repository-specific behavioral canary" : `${config.canaries.length} configured canary or canaries` }
+  ];
+  return {
+    status: checks.every((check) => check.status === "PASS") ? "READY" : "HOLD",
+    configPath: trustedConfig,
+    imagePresent,
+    templateCanary,
+    containment,
+    checks
+  };
+}
+function renderUpgradeDoctor(result5) {
+  const lines = [`Agent Vigil Upgrade Guard doctor: ${result5.status}`, `  config: ${result5.configPath}`];
+  for (const check of result5.checks) lines.push(`  ${check.status === "PASS" ? "\u2713" : "?"} ${check.label}: ${check.detail}`);
+  return `${lines.join("\n")}
+`;
+}
+
+// src/upgrade/cli.ts
 function usage() {
+  return `Agent Vigil Upgrade Guard
+
+Usage:
+  vigil upgrade init [--repo <path>] [--force]
+  vigil upgrade doctor [--repo <path>] [--config <path>] [--docker-bin <path>]
+  vigil upgrade check --current <dir> --candidate <dir> [--repo <path>] [--config <path>] [--output <private.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>]
+  vigil upgrade verify <entry.json> [--public-key <path>]
+  vigil upgrade index <entry.json>... --output <index.html> --public-key <path>
+
+Exit codes: 0 SAFE/verified \xB7 1 CHANGED/invalid signature \xB7 2 HOLD or usage error`;
+}
+function option(args, name) {
+  const indexes = args.flatMap((arg, index) => arg === name ? [index] : []);
+  if (indexes.length > 1) throw new Error(`${name} may be supplied only once`);
+  if (!indexes.length) return void 0;
+  const value = args[indexes[0] + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`);
+  return value;
+}
+function assertKnown(args, values, flags = [], allowPositionals = false) {
+  const allowed = /* @__PURE__ */ new Set([...values, ...flags]);
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith("--")) {
+      if (!allowPositionals) throw new Error(`unexpected positional argument: ${arg}`);
+      continue;
+    }
+    if (!allowed.has(arg)) throw new Error(`unknown argument: ${arg}`);
+    if (values.includes(arg)) index += 1;
+  }
+}
+function repository(args) {
+  return resolve16(option(args, "--repo") ?? ".");
+}
+function insideRepository(repositoryPath, value, label) {
+  const repository2 = realpathSync8(repositoryPath);
+  const path = resolve16(repository2, value);
+  const rel = relative11(repository2, path);
+  if (rel === ".." || rel.startsWith(`..${sep9}`)) throw new Error(`${label} must remain inside --repo`);
+  return path;
+}
+function outputIdentity(path) {
+  const parent = realpathSync8(dirname8(resolve16(path)));
+  const status = statSync7(parent, { bigint: true });
+  const name = basename5(path);
+  if (!/^[A-Za-z0-9._-]+$/.test(name) || name.endsWith(".") || name.endsWith(" ") || name.includes("~")) {
+    throw new Error(`output basename is not portable and collision-safe: ${name}`);
+  }
+  return `${status.dev}:${status.ino}:${name.toUpperCase()}`;
+}
+function assertDistinctOutputs(paths) {
+  const identities = paths.map(outputIdentity);
+  if (new Set(identities).size !== identities.length) throw new Error("requested output paths resolve to the same filesystem entry");
+}
+function pathIdentities(path) {
+  const requested = resolve16(path);
+  const identities = [outputIdentity(requested)];
+  const canonical3 = realpathSync8(requested);
+  const canonicalIdentity = outputIdentity(canonical3);
+  if (!identities.includes(canonicalIdentity)) identities.push(canonicalIdentity);
+  return identities;
+}
+function assertOutputsDoNotAliasInputs(outputs, inputs) {
+  const outputIds = new Set(outputs.map(outputIdentity));
+  for (const input of inputs) {
+    if (pathIdentities(input).some((identity) => outputIds.has(identity))) {
+      throw new Error("requested output path aliases a required input file");
+    }
+  }
+}
+function assertOutputsOutsideRoots(outputs, roots) {
+  for (const rootPath of roots) {
+    const root = realpathSync8(rootPath);
+    for (const output of outputs) {
+      const parent = realpathSync8(dirname8(resolve16(output)));
+      const target = resolve16(parent, basename5(output));
+      const rel = relative11(root, target);
+      if (rel === "" || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`)) {
+        throw new Error("requested output path must remain outside current, candidate, and canary input trees");
+      }
+    }
+  }
+}
+function readPublicEntry(path) {
+  return validatePublicCompatibilityEntry(readBoundedJson(path, 512 * 1024, "public compatibility entry"));
+}
+function runInit(args) {
+  assertKnown(args, ["--repo"], ["--force", "--help"]);
+  if (args.includes("--help")) {
+    console.log(usage());
+    return 0;
+  }
+  const result5 = initUpgrade(repository(args), args.includes("--force"));
+  console.log("Agent Vigil Upgrade Guard initialized locally.\n");
+  for (const path of result5.created) console.log(`  created ${path}`);
+  for (const path of result5.kept) console.log(`  kept    ${path}`);
+  console.log("\nThe scaffold is ignored by Git and intentionally returns HOLD until its template canary is replaced.");
+  return 0;
+}
+function runDoctor(args) {
+  assertKnown(args, ["--repo", "--config", "--docker-bin"], ["--help"]);
+  if (args.includes("--help")) {
+    console.log(usage());
+    return 0;
+  }
+  const repo = repository(args);
+  const config = option(args, "--config");
+  const configPath = config ? insideRepository(repo, config, "--config") : void 0;
+  const result5 = doctorUpgrade(repo, configPath, option(args, "--docker-bin") ?? "docker");
+  process.stdout.write(renderUpgradeDoctor(result5));
+  return result5.status === "READY" ? 0 : 2;
+}
+function runCheck(args) {
+  assertKnown(args, ["--repo", "--config", "--current", "--candidate", "--output", "--public-output", "--signing-key", "--docker-bin"], ["--help"]);
+  if (args.includes("--help")) {
+    console.log(usage());
+    return 0;
+  }
+  const repo = repository(args);
+  const current = option(args, "--current");
+  const candidate = option(args, "--candidate");
+  if (!current || !candidate) throw new Error("upgrade check requires --current <dir> and --candidate <dir>");
+  const config = insideRepository(repo, option(args, "--config") ?? DEFAULT_UPGRADE_CONFIG, "--config");
+  const trustedConfig = trustedRegularFileInside(repo, config, "upgrade config");
+  const loadedConfig = loadUpgradeConfig(trustedConfig);
+  const currentDirectory = resolve16(current);
+  const candidateDirectory = resolve16(candidate);
+  const canaryDirectory = trustedDirectoryInside(
+    repo,
+    resolve16(repo, loadedConfig.canaryDirectory),
+    "canary directory"
+  );
+  const output = insideRepository(repo, option(args, "--output") ?? DEFAULT_UPGRADE_RECEIPT, "--output");
+  const publicOption = option(args, "--public-output");
+  const signingKey = option(args, "--signing-key");
+  if (Boolean(publicOption) !== Boolean(signingKey)) throw new Error("--public-output and --signing-key must be supplied together");
+  const publicOutput = publicOption ? resolve16(publicOption) : void 0;
+  const outputs = [output, ...publicOutput ? [publicOutput] : []];
+  assertDistinctOutputs(outputs);
+  assertOutputsDoNotAliasInputs(outputs, [trustedConfig, ...signingKey ? [resolve16(signingKey)] : []]);
+  assertOutputsOutsideRoots(outputs, [currentDirectory, candidateDirectory, canaryDirectory]);
+  const receipt = runUpgradeEvaluation({
+    configPath: trustedConfig,
+    repository: repo,
+    currentDirectory,
+    candidateDirectory,
+    dockerBin: option(args, "--docker-bin") ?? "docker"
+  });
+  writePrivateFileAtomic(output, `${JSON.stringify(receipt, null, 2)}
+`);
+  if (publicOutput && signingKey) {
+    const entry = createPublicCompatibilityEntry(receipt, resolve16(signingKey));
+    writePrivateFileAtomic(publicOutput, `${JSON.stringify(entry, null, 2)}
+`);
+  }
+  process.stdout.write(renderUpgradeReceipt(receipt));
+  return receipt.summary.verdict === "SAFE" ? 0 : receipt.summary.verdict === "CHANGED" ? 1 : 2;
+}
+function positional(args, optionsWithValues) {
+  const output = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (optionsWithValues.includes(args[index])) {
+      index += 1;
+      continue;
+    }
+    if (!args[index].startsWith("--")) output.push(args[index]);
+  }
+  return output;
+}
+function runVerify(args) {
+  assertKnown(args, ["--public-key"], ["--help"], true);
+  if (args.includes("--help")) {
+    console.log(usage());
+    return 0;
+  }
+  const entries = positional(args, ["--public-key"]);
+  if (entries.length !== 1) throw new Error("upgrade verify requires exactly one public entry path");
+  const result5 = verifyPublicCompatibilityEntry(readPublicEntry(resolve16(entries[0])), option(args, "--public-key") ? resolve16(option(args, "--public-key")) : void 0);
+  console.log(JSON.stringify(result5));
+  return result5.hashValid && result5.signatureValid === true ? 0 : 1;
+}
+function runIndex(args) {
+  assertKnown(args, ["--output", "--public-key"], ["--help"], true);
+  if (args.includes("--help")) {
+    console.log(usage());
+    return 0;
+  }
+  const inputs = positional(args, ["--output", "--public-key"]);
+  const outputOption = option(args, "--output");
+  const publicKey = option(args, "--public-key");
+  if (!inputs.length || !outputOption || !publicKey) throw new Error("upgrade index requires entries, --output <index.html>, and --public-key <path>");
+  if (inputs.length > 512) throw new Error("upgrade index accepts at most 512 entries");
+  const output = resolve16(outputOption);
+  const inputPaths = inputs.map((path) => resolve16(path));
+  const publicKeyPath = resolve16(publicKey);
+  assertOutputsDoNotAliasInputs([output], [...inputPaths, publicKeyPath]);
+  const entries = inputs.map((path) => {
+    const entry = readPublicEntry(resolve16(path));
+    const checked2 = verifyPublicCompatibilityEntry(entry, publicKeyPath);
+    if (!checked2.hashValid || checked2.signatureValid !== true) throw new Error(`public entry failed verification: ${path}`);
+    return entry;
+  });
+  writePrivateFileAtomic(output, renderBreakageIndex(entries));
+  console.log(`Wrote ${entries.length} verified compatibility entr${entries.length === 1 ? "y" : "ies"} to ${output}`);
+  return 0;
+}
+function runUpgradeCommand(args) {
+  try {
+    const command = args[0];
+    const rest = args.slice(1);
+    if (!command || command === "--help" || command === "help") {
+      console.log(usage());
+      return 0;
+    }
+    if (command === "init") return runInit(rest);
+    if (command === "doctor") return runDoctor(rest);
+    if (command === "check") return runCheck(rest);
+    if (command === "verify") return runVerify(rest);
+    if (command === "index") return runIndex(rest);
+    throw new Error(`unknown upgrade command: ${command}`);
+  } catch (error) {
+    console.error(`agent-vigil upgrade: ${error.message}`);
+    return 2;
+  }
+}
+
+// src/cli.ts
+function usage2() {
   return `agent-vigil ${VERSION}
 
 Usage:
@@ -4645,6 +6081,7 @@ Usage:
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
+  vigil upgrade <init|doctor|check|verify|index> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -4741,9 +6178,9 @@ function optionValue(args, name) {
   if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${name} requires a value`);
   return args[index + 1];
 }
-function runInit(args) {
+function runInit2(args) {
   try {
-    const repo = resolve12(optionValue(args, "--repo") ?? ".");
+    const repo = resolve17(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
     const profile = optionValue(args, "--profile") ?? "default";
@@ -4752,7 +6189,7 @@ function runInit(args) {
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve12(publicKey)) : void 0, profile, attest);
+    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve17(publicKey)) : void 0, profile, attest);
     console.log("Agent Vigil initialized.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
     for (const path of result5.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -4782,8 +6219,8 @@ function runMaintainer(args) {
     const eventOption = optionValue(args, "--event");
     if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
     const options = parseArgs(withoutOption(args.slice(1), "--event"));
-    const repo = resolve12(options.repo);
-    const eventPath = resolve12(eventOption);
+    const repo = resolve17(options.repo);
+    const eventPath = resolve17(eventOption);
     const policy = loadPolicy(repo, options.policy, options.policyRef);
     if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -4803,9 +6240,9 @@ function runMaintainer(args) {
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
-    const rawEvent = readFileSync14(eventPath);
-    const eventHash = `sha256:${createHash12("sha256").update(rawEvent).digest("hex")}`;
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative7(repo, policy.path) : void 0;
+    const rawEvent = readFileSync19(eventPath);
+    const eventHash = `sha256:${createHash15("sha256").update(rawEvent).digest("hex")}`;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative12(repo, policy.path) : void 0;
     const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git7(repo, ["rev-parse", `${head}^{tree}`]);
     const reproduction = [
@@ -4864,9 +6301,9 @@ function runMergeGroup(args) {
     return 2;
   }
 }
-function runDoctor(args) {
+function runDoctor2(args) {
   try {
-    const repo = resolve12(optionValue(args, "--repo") ?? ".");
+    const repo = resolve17(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -4880,9 +6317,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve12(privatePath), resolve12(publicPath));
+    generateSigningKey(resolve17(privatePath), resolve17(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve12(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve17(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -4900,10 +6337,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve12(options.repo, receiptPath);
-    const receipt = JSON.parse(readFileSync14(absoluteReceipt, "utf8"));
+    const absoluteReceipt = resolve17(options.repo, receiptPath);
+    const receipt = JSON.parse(readFileSync19(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve12(options.repo),
+      repo: resolve17(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -4918,14 +6355,14 @@ function runGate(args) {
     return 2;
   }
 }
-function runVerify(args) {
+function runVerify2(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync14(resolve12(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync19(resolve17(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result5 = verifyReport(report, publicKey ? resolve12(publicKey) : void 0);
+    const result5 = verifyReport(report, publicKey ? resolve17(publicKey) : void 0);
     console.log(`Receipt hash: ${result5.hashValid ? "VALID" : "INVALID"}`);
     if (result5.signatureValid !== void 0) {
       console.log(`Ed25519 signature: ${result5.signatureValid ? "VALID" : "INVALID"} \xB7 ${result5.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
@@ -4938,13 +6375,13 @@ function runVerify(args) {
   }
 }
 function parseCommandArgs(args, valueOptions, booleanOptions = /* @__PURE__ */ new Set()) {
-  const positional = [];
+  const positional2 = [];
   const values = /* @__PURE__ */ new Map();
   const flags = /* @__PURE__ */ new Set();
   for (let index = 1; index < args.length; index++) {
     const arg = args[index];
     if (!arg.startsWith("--")) {
-      positional.push(arg);
+      positional2.push(arg);
       continue;
     }
     if (valueOptions.has(arg)) {
@@ -4961,7 +6398,7 @@ function parseCommandArgs(args, valueOptions, booleanOptions = /* @__PURE__ */ n
     }
     throw new Error(`unknown option: ${arg}`);
   }
-  return { positional, values, flags };
+  return { positional: positional2, values, flags };
 }
 function runAttest(args) {
   try {
@@ -4969,7 +6406,7 @@ function runAttest(args) {
     const predicateOutput = parsed.values.get("--predicate-output");
     if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest requires <receipt.json> and --predicate-output <path>");
     const receiptPath = parsed.positional[0];
-    const predicate = writeAttestationPredicate(resolve12(receiptPath), resolve12(predicateOutput));
+    const predicate = writeAttestationPredicate(resolve17(receiptPath), resolve17(predicateOutput));
     console.log("Agent Vigil attestation predicate prepared.");
     console.log(`  receipt:  ${predicate.receipt.receiptHash}`);
     console.log(`  decision: ${predicate.receipt.status}`);
@@ -4986,12 +6423,12 @@ function runAttest(args) {
 function runVerifyAttestation(args) {
   try {
     const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--repository", "--signer-workflow"]), /* @__PURE__ */ new Set(["--allow-self-hosted"]));
-    const repository = parsed.values.get("--repository") ?? process.env.GITHUB_REPOSITORY;
-    if (parsed.positional.length !== 1 || !repository) throw new Error("verify-attestation requires <receipt.json> and --repository <owner/name>");
+    const repository2 = parsed.values.get("--repository") ?? process.env.GITHUB_REPOSITORY;
+    if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-attestation requires <receipt.json> and --repository <owner/name>");
     const receiptPath = parsed.positional[0];
-    const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve12(receiptPath), repository, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const { report } = loadReceipt(resolve12(receiptPath));
+    const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
+    const verification2 = verifyGitHubAttestation(resolve17(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const { report } = loadReceipt(resolve17(receiptPath));
     console.log(`GitHub attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
     console.log(`Receipt file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
     console.log(`Receipt contents: ${verification2.receiptHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
@@ -5009,20 +6446,20 @@ function runNotary(args) {
   try {
     const values = /* @__PURE__ */ new Set(["--repository", "--head", "--policy-sha256", "--signer-workflow", "--output"]);
     const parsed = parseCommandArgs(args, values, /* @__PURE__ */ new Set(["--allow-self-hosted"]));
-    const repository = parsed.values.get("--repository") ?? process.env.GITHUB_REPOSITORY;
+    const repository2 = parsed.values.get("--repository") ?? process.env.GITHUB_REPOSITORY;
     const head = parsed.values.get("--head");
     const policySha256 = parsed.values.get("--policy-sha256");
-    if (parsed.positional.length !== 1 || !repository || !head || !policySha256) {
+    if (parsed.positional.length !== 1 || !repository2 || !head || !policySha256) {
       throw new Error("notary requires <receipt.json>, --repository <owner/name>, --head <sha>, and --policy-sha256 <digest>");
     }
     const receiptPath = parsed.positional[0];
-    const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve12(receiptPath), repository, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const payload = buildNotaryCheck(resolve12(receiptPath), verification2, head, policySha256);
+    const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
+    const verification2 = verifyGitHubAttestation(resolve17(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const payload = buildNotaryCheck(resolve17(receiptPath), verification2, head, policySha256);
     const rendered = `${JSON.stringify(payload, null, 2)}
 `;
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve12(output), rendered);
+    if (output) writePrivateFileAtomic(resolve17(output), rendered);
     else process.stdout.write(rendered);
     return payload.conclusion === "success" ? 0 : payload.conclusion === "failure" ? 1 : 2;
   } catch (error) {
@@ -5036,15 +6473,15 @@ function runCompare(args) {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync14(resolve12(values[0]), "utf8"));
-    const after = JSON.parse(readFileSync14(resolve12(values[1]), "utf8"));
+    const before = JSON.parse(readFileSync19(resolve17(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync19(resolve17(values[1]), "utf8"));
     if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
 ` : `${renderReceiptDelta(delta)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve12(output), rendered);
+    if (output) writePrivateFileAtomic(resolve17(output), rendered);
     else process.stdout.write(rendered);
     return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
   } catch (error) {
@@ -5078,11 +6515,11 @@ function parseValueArgs(args) {
     "--output"
   ]);
   const values = /* @__PURE__ */ new Map();
-  const positional = [];
+  const positional2 = [];
   for (let index = 1; index < args.length; index += 1) {
     const arg = args[index];
     if (!arg.startsWith("--")) {
-      positional.push(arg);
+      positional2.push(arg);
       continue;
     }
     if (!takesValue.has(arg)) throw new Error(`unknown value argument: ${arg}`);
@@ -5091,7 +6528,7 @@ function parseValueArgs(args) {
     if (value === void 0 || value.startsWith("--")) throw new Error(`${arg} requires a value`);
     values.set(arg, value);
   }
-  if (positional.length !== 1) throw new Error("value requires exactly one full receipt JSON path");
+  if (positional2.length !== 1) throw new Error("value requires exactly one full receipt JSON path");
   const format = values.get("--format") ?? "text";
   if (!(/* @__PURE__ */ new Set(["text", "json", "markdown", "html"])).has(format)) throw new Error("value --format must be text, json, markdown, or html");
   const costSource = values.get("--cost-source");
@@ -5109,7 +6546,7 @@ function parseValueArgs(args) {
   const taskClass = values.get("--task-class");
   if (taskClass && (taskClass.length > 80 || /[\x00-\x1f\x7f]/.test(taskClass))) throw new Error("value --task-class must be at most 80 printable characters");
   return {
-    receipt: positional[0],
+    receipt: positional2[0],
     ...values.get("--transcript") ? { transcript: values.get("--transcript") } : {},
     ...values.get("--public-key") ? { publicKey: values.get("--public-key") } : {},
     ...values.get("--github-evidence") ? { githubEvidence: values.get("--github-evidence") } : {},
@@ -5129,30 +6566,30 @@ function parseValueArgs(args) {
   };
 }
 function readBoundedFile(path, maximumBytes, label) {
-  const size = statSync7(path).size;
+  const size = statSync8(path).size;
   if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
-  return readFileSync14(path);
+  return readFileSync19(path);
 }
 function runValue(args) {
   try {
     const options = parseValueArgs(args);
-    const receiptPath = resolve12(options.receipt);
+    const receiptPath = resolve17(options.receipt);
     const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
     const report = JSON.parse(rawReceipt.toString("utf8"));
     if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
       throw new Error("value requires a full Agent Vigil receipt schema 2");
     }
-    const verification2 = verifyReport(report, options.publicKey ? resolve12(options.publicKey) : void 0);
+    const verification2 = verifyReport(report, options.publicKey ? resolve17(options.publicKey) : void 0);
     if (!verification2.hashValid) throw new Error("value receipt hash is invalid");
     if (verification2.signatureValid === false) throw new Error("value receipt signature is invalid");
     let transcriptPath;
-    if (options.transcript) transcriptPath = resolve12(options.transcript);
+    if (options.transcript) transcriptPath = resolve17(options.transcript);
     else if ((/* @__PURE__ */ new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"])).has(report.transcriptFormat)) {
       const candidates = [
-        resolve12(dirname4(receiptPath), report.transcript),
-        ...isAbsolute4(report.repo) ? [resolve12(report.repo, report.transcript)] : []
+        resolve17(dirname9(receiptPath), report.transcript),
+        ...isAbsolute7(report.repo) ? [resolve17(report.repo, report.transcript)] : []
       ];
-      transcriptPath = candidates.find((candidate) => existsSync5(candidate));
+      transcriptPath = candidates.find((candidate) => existsSync6(candidate));
     }
     let loaded;
     if (transcriptPath) {
@@ -5161,11 +6598,11 @@ function runValue(args) {
     }
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
-      const evidence = readBoundedFile(resolve12(path), 64 * 1024 * 1024, label);
-      return `sha256:${createHash12("sha256").update(evidence).digest("hex")}`;
+      const evidence = readBoundedFile(resolve17(path), 64 * 1024 * 1024, label);
+      return `sha256:${createHash15("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
-    const github = options.githubEvidence ? loadGitHubEvidence(resolve12(options.githubEvidence)) : void 0;
+    const github = options.githubEvidence ? loadGitHubEvidence(resolve17(options.githubEvidence)) : void 0;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;
     const inferredOutcome = options.outcome ?? github?.inference.outcome;
     const inferredOutcomeAsOf = options.outcomeAsOf ?? github?.inference.outcomeAsOf;
@@ -5207,7 +6644,7 @@ function runValue(args) {
     });
     const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}
 ` : options.format === "markdown" ? renderValueCardMarkdown(card) : options.format === "html" ? renderValueCardHtml(card) : renderValueCardText(card);
-    if (options.output) writePrivateFileAtomic(resolve12(options.output), rendered);
+    if (options.output) writePrivateFileAtomic(resolve17(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
   } catch (error) {
@@ -5248,7 +6685,7 @@ function runGitHubEvidence(args) {
     const bundle = buildGitHubEvidence(inputs);
     const rendered = `${JSON.stringify(bundle, null, 2)}
 `;
-    if (output) writePrivateFileAtomic(resolve12(output), rendered);
+    if (output) writePrivateFileAtomic(resolve17(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -5278,7 +6715,7 @@ function runCompareValue(args) {
     const comparison = compareValueCards(cards, paths.length);
     const rendered = format === "json" ? `${JSON.stringify(comparison, null, 2)}
 ` : format === "html" ? renderValueComparisonHtml(comparison) : renderValueComparisonText(comparison);
-    if (output) writePrivateFileAtomic(resolve12(output), rendered);
+    if (output) writePrivateFileAtomic(resolve17(output), rendered);
     else process.stdout.write(rendered);
     return comparison.status === "COMPARABLE" ? 0 : 2;
   } catch (error) {
@@ -5291,11 +6728,11 @@ function runAudit(args) {
     const options = parseArgs(args.slice(1));
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
-    const absolute = resolve12(diffPath);
-    const raw = readFileSync14(absolute);
+    const absolute = resolve17(diffPath);
+    const raw = readFileSync19(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest2 = `sha256:${createHash12("sha256").update(raw).digest("hex")}`;
+    const digest3 = `sha256:${createHash15("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -5306,15 +6743,15 @@ function runAudit(args) {
       });
     }
     const report = buildReport({
-      transcript: relative7(process.cwd(), absolute) || absolute,
-      transcriptSha256: digest2,
+      transcript: relative12(process.cwd(), absolute) || absolute,
+      transcriptSha256: digest3,
       transcriptFormat: "unified-git-diff",
       repo: "static-diff-audit",
       base: "unavailable",
-      head: digest2,
+      head: digest3,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash12("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash15("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -5331,7 +6768,7 @@ function runAuthority(args) {
       const output = optionValue(args, "--output");
       const rendered = authorityContractTemplate();
       if (output) {
-        writePrivateFileAtomic(resolve12(output), rendered);
+        writePrivateFileAtomic(resolve17(output), rendered);
         console.log(`Created task-scoped authority contract ${output}. Review every allowed action and replace the task ID before use.`);
       } else process.stdout.write(rendered);
       return 0;
@@ -5344,12 +6781,12 @@ function runAuthority(args) {
     const options = parseArgs(stripped);
     const transcriptOption = options.transcript;
     if (!transcriptOption) throw new Error("authority requires a structured agent transcript");
-    const repo = resolve12(options.repo);
+    const repo = resolve17(options.repo);
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
     const base = resolveGitRef(repo, options.base);
     const head = resolveGitRef(repo, options.head);
-    const transcriptPath = isAbsolute4(transcriptOption) ? transcriptOption : resolve12(repo, transcriptOption);
-    if (!existsSync5(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
+    const transcriptPath = isAbsolute7(transcriptOption) ? transcriptOption : resolve17(repo, transcriptOption);
+    if (!existsSync6(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
     const contract = loadAuthorityContract(repo, contractOption, contractRef);
     const loaded = loadTranscript(transcriptPath);
     const inputs = [transcriptPath, ...contract.path ? [contract.path] : []];
@@ -5366,7 +6803,7 @@ function runAuthority(args) {
     });
     const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git7(repo, ["rev-parse", `${head}^{tree}`]);
-    const relativeTranscript = relative7(repo, transcriptPath) || transcriptOption;
+    const relativeTranscript = relative12(repo, transcriptPath) || transcriptOption;
     const reproduction = [
       "vigil authority",
       shellQuote(relativeTranscript),
@@ -5393,7 +6830,7 @@ function runAuthority(args) {
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve12(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve17(options.signingKey));
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
@@ -5404,7 +6841,7 @@ function runAuthority(args) {
 }
 function git7(repo, args) {
   try {
-    return execFileSync10("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync11("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -5414,10 +6851,11 @@ function shellQuote(value) {
 }
 function run(argv = process.argv.slice(2)) {
   if (argv[0] === "demo") return runDemo(run);
-  if (argv[0] === "init") return runInit(argv);
-  if (argv[0] === "doctor") return runDoctor(argv);
+  if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
+  if (argv[0] === "init") return runInit2(argv);
+  if (argv[0] === "doctor") return runDoctor2(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
-  if (argv[0] === "verify") return runVerify(argv);
+  if (argv[0] === "verify") return runVerify2(argv);
   if (argv[0] === "attest") return runAttest(argv);
   if (argv[0] === "verify-attestation") return runVerifyAttestation(argv);
   if (argv[0] === "notary") return runNotary(argv);
@@ -5431,7 +6869,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "maintainer") return runMaintainer(argv);
   if (argv[0] === "merge-group") return runMergeGroup(argv);
   if (argv.includes("--help")) {
-    console.log(usage());
+    console.log(usage2());
     return 0;
   }
   if (argv.includes("--version")) {
@@ -5444,10 +6882,10 @@ function run(argv = process.argv.slice(2)) {
   } catch (error) {
     console.error(`agent-vigil: ${error.message}
 
-${usage()}`);
+${usage2()}`);
     return 2;
   }
-  const repo = resolve12(options.repo);
+  const repo = resolve17(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -5461,18 +6899,18 @@ ${usage()}`);
   }
   const transcript = options.transcript ?? policy.value.transcript;
   if (!transcript) {
-    console.error(usage());
+    console.error(usage2());
     return 2;
   }
-  const transcriptPath = isAbsolute4(transcript) ? transcript : resolve12(repo, transcript);
+  const transcriptPath = isAbsolute7(transcript) ? transcript : resolve17(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
-  if (!existsSync5(transcriptPath)) {
+  if (!existsSync6(transcriptPath)) {
     console.error(`agent-vigil: transcript not found: ${transcriptPath}`);
     return 2;
   }
-  if (!existsSync5(repo)) {
+  if (!existsSync6(repo)) {
     console.error(`agent-vigil: repository not found: ${repo}`);
     return 2;
   }
@@ -5491,8 +6929,8 @@ ${usage()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve12(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve12(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve17(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve17(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -5506,10 +6944,10 @@ ${usage()}`);
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     results.push(...checkCompletion(claims, repo, base, head, results));
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative7(repo, policy.path) : void 0;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative12(repo, policy.path) : void 0;
     const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
     const tree = head === "WORKTREE" ? void 0 : git7(repo, ["rev-parse", `${head}^{tree}`]);
-    const relativeTranscript = relative7(repo, transcriptPath) || transcript;
+    const relativeTranscript = relative12(repo, transcriptPath) || transcript;
     const reproduction = [
       "vigil",
       shellQuote(relativeTranscript),
@@ -5539,12 +6977,12 @@ ${usage()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve12(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve17(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve12(options.signingKey));
-      const portablePath = resolve12(repo, options.portableOutput);
-      mkdirSync4(dirname4(portablePath), { recursive: true });
+      const portable = createPortableReceipt(report, resolve17(options.signingKey));
+      const portablePath = resolve17(repo, options.portableOutput);
+      mkdirSync5(dirname9(portablePath), { recursive: true });
       writeFileSync5(portablePath, `${JSON.stringify(portable, null, 2)}
 `);
     }
@@ -5558,7 +6996,7 @@ ${usage()}`);
 function isMainModule() {
   if (!process.argv[1]) return false;
   try {
-    return realpathSync3(process.argv[1]) === realpathSync3(fileURLToPath(import.meta.url));
+    return realpathSync9(process.argv[1]) === realpathSync9(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }

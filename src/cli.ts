@@ -52,6 +52,7 @@ import {
   verifyGitHubAttestation,
   writeAttestationPredicate,
 } from "./attestation.ts";
+import { runUpgradeCommand } from "./upgrade/cli.ts";
 
 type Options = {
   transcript?: string;
@@ -96,6 +97,7 @@ Usage:
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
+  vigil upgrade <init|doctor|check|verify|index> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -824,6 +826,7 @@ function shellQuote(value: string): string {
 
 export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "demo") return runDemo(run);
+  if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "init") return runInit(argv);
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
