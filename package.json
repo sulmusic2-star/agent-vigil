@@ -65,9 +65,9 @@
   },
   "homepage": "https://sulmusic2-star.github.io/agent-vigil/",
   "devDependencies": {
-    "@types/node": "^24.3.0",
-    "esbuild": "^0.25.9",
+    "@types/node": "^26.2.0",
+    "esbuild": "^0.28.2",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^7.0.2"
   }
 }
