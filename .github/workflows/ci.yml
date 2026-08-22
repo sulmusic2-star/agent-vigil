@@ -68,6 +68,8 @@ jobs:
           path: |
             agent-vigil-report.json
             agent-vigil.sarif
+            agent-vigil-github-evidence.json
+            agent-vigil-value-card.json
           if-no-files-found: warn
 
   portability:
