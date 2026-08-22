@@ -25,10 +25,14 @@ The initial publication needs an authenticated npm owner:
 ```bash
 npm login
 npm whoami
-npm publish --access public --provenance
-npm view agent-vigil version dist-tags.latest
-npx --yes agent-vigil@0.11.2 doctor
+npm publish --access public
+npm view @sulmusic/agent-vigil version dist-tags.latest
+npx --yes @sulmusic/agent-vigil@0.11.3 doctor
 ```
+
+The canonical npm name is scoped because npm rejected the unscoped
+`agent-vigil` name as too similar to the existing, separate `agentvigil`
+package. Do not publish or document the other package as Agent Vigil.
 
 After the package exists, configure an npm trusted publisher for the release
 workflow, publish through OIDC, and remove long-lived registry tokens. Never
@@ -42,19 +46,18 @@ Prepared listing metadata:
 - name: `Agent Vigil`;
 - description: `Fail-closed change control and evidence receipts for AI coding agents`;
 - primary category: Code quality;
-- secondary category: Testing;
+- secondary category: AI Assisted;
 - branding: shield / green;
 - source metadata: root `action.yml`;
-- release: `v0.11.2`.
+- release: `v0.11.2` or newer.
 
-GitHub requires the publisher to accept the Marketplace Developer Agreement
-and complete the 2FA-protected publication flow. Those account and legal steps
-must be performed by the owner. Confirm publication with the exact Marketplace
-search and the listing URL; do not infer it from a release checkbox.
+The public listing is `https://github.com/marketplace/actions/agent-vigil`.
+Confirm every release through that listing and the exact Marketplace search;
+do not infer publication from a release checkbox.
 
 ## GitHub Pages
 
 The static site lives in `docs/`. Configure Pages to deploy `main:/docs`, wait
 for a successful build, then verify the public URL and repository homepage.
-The install page must continue to show the GitHub package command until npm is
-confirmed live.
+The install page should show the exact npm version confirmed by both `npm view`
+and a clean `npx` consumer run.
