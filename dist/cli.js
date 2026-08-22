@@ -4279,7 +4279,8 @@ function verifyGhAttestationOutput(reportPath, ghOutput) {
     ...matched ? { predicate: matched } : {}
   };
 }
-function verifyGitHubAttestation(reportPath, repository, trust = {}) {
+var runGitHubCli = (args) => execFileSync9("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+function verifyGitHubAttestation(reportPath, repository, trust = {}, executeGh = runGitHubCli) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("repository must be owner/name");
   const signerWorkflow = trust.signerWorkflow ?? `${repository}/.github/workflows/agent-vigil.yml`;
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[A-Za-z0-9_./-]+\.ya?ml$/i.test(signerWorkflow)) {
@@ -4301,7 +4302,7 @@ function verifyGitHubAttestation(reportPath, repository, trust = {}) {
   ];
   let raw;
   try {
-    raw = execFileSync9("gh", command, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    raw = executeGh(command);
   } catch (error) {
     const detail = error && typeof error === "object" && "stderr" in error ? String(error.stderr ?? "").trim() : "";
     throw new Error(`GitHub attestation verification failed${detail ? `: ${detail}` : "; install and authenticate a current GitHub CLI"}`);

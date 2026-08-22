@@ -203,7 +203,17 @@ export function verifyGhAttestationOutput(reportPath: string, ghOutput: unknown)
   };
 }
 
-export function verifyGitHubAttestation(reportPath: string, repository: string, trust: AttestationTrust = {}): AttestationVerification {
+type GhAttestationExecutor = (args: string[]) => string;
+
+const runGitHubCli: GhAttestationExecutor = (args) =>
+  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+
+export function verifyGitHubAttestation(
+  reportPath: string,
+  repository: string,
+  trust: AttestationTrust = {},
+  executeGh: GhAttestationExecutor = runGitHubCli,
+): AttestationVerification {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("repository must be owner/name");
   const signerWorkflow = trust.signerWorkflow ?? `${repository}/.github/workflows/agent-vigil.yml`;
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[A-Za-z0-9_./-]+\.ya?ml$/i.test(signerWorkflow)) {
@@ -219,7 +229,7 @@ export function verifyGitHubAttestation(reportPath: string, repository: string, 
   ];
   let raw: string;
   try {
-    raw = execFileSync("gh", command, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    raw = executeGh(command);
   } catch (error) {
     const detail = error && typeof error === "object" && "stderr" in error
       ? String((error as { stderr?: string | Buffer }).stderr ?? "").trim()

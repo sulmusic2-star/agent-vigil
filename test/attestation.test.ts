@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -236,46 +236,22 @@ test("CLI prepares, verifies, and notarizes one exact receipt", () => {
   const fixture = receipt();
   const predicatePath = join(fixture.root, "predicate.json");
   assert.equal(run(["attest", fixture.path, "--predicate-output", predicatePath]), 0);
-
-  const bin = join(fixture.root, "bin");
-  mkdirSync(bin);
-  const ghOutputPath = join(fixture.root, "gh-output.json");
-  writeFileSync(ghOutputPath, JSON.stringify(verifiedGhOutput(fixture.path)));
-  const gh = join(bin, "gh");
-  writeFileSync(gh, "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$VIGIL_TEST_GH_ARGS\"\ncat \"$VIGIL_TEST_GH_OUTPUT\"\n");
-  chmodSync(gh, 0o700);
-
-  const previousPath = process.env.PATH;
-  const previousOutput = process.env.VIGIL_TEST_GH_OUTPUT;
-  const previousArgs = process.env.VIGIL_TEST_GH_ARGS;
-  const ghArgsPath = join(fixture.root, "gh-args.txt");
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  process.env.VIGIL_TEST_GH_OUTPUT = ghOutputPath;
-  process.env.VIGIL_TEST_GH_ARGS = ghArgsPath;
-  try {
-    assert.equal(run(["verify-attestation", fixture.path, "--repository", "owner/repository"]), 0);
-    const checkPath = join(fixture.root, "check.json");
-    assert.equal(run([
-      "notary", fixture.path,
-      "--repository", "owner/repository",
-      "--head", HEAD,
-      "--policy-sha256", POLICY,
-      "--output", checkPath,
-    ]), 0);
-    const check = JSON.parse(readFileSync(checkPath, "utf8"));
-    assert.equal(check.name, "Agent Vigil verified");
-    assert.equal(check.head_sha, HEAD);
-    assert.equal(check.conclusion, "success");
-    const ghArgs = readFileSync(ghArgsPath, "utf8");
-    assert.match(ghArgs, /--signer-workflow owner\/repository\/\.github\/workflows\/agent-vigil\.yml/);
-    assert.match(ghArgs, /--deny-self-hosted-runners/);
-  } finally {
-    process.env.PATH = previousPath;
-    if (previousOutput === undefined) delete process.env.VIGIL_TEST_GH_OUTPUT;
-    else process.env.VIGIL_TEST_GH_OUTPUT = previousOutput;
-    if (previousArgs === undefined) delete process.env.VIGIL_TEST_GH_ARGS;
-    else process.env.VIGIL_TEST_GH_ARGS = previousArgs;
-  }
+  const ghCalls: string[][] = [];
+  const executeGh = (args: string[]) => {
+    ghCalls.push(args);
+    return JSON.stringify(verifiedGhOutput(fixture.path));
+  };
+  const verification = verifyGitHubAttestation(fixture.path, "owner/repository", {}, executeGh);
+  assert.equal(verification.valid, true);
+  const checkPath = join(fixture.root, "check.json");
+  const check = buildNotaryCheck(fixture.path, verification, HEAD, POLICY);
+  writeFileSync(checkPath, `${JSON.stringify(check, null, 2)}\n`);
+  assert.equal(check.name, "Agent Vigil verified");
+  assert.equal(check.head_sha, HEAD);
+  assert.equal(check.conclusion, "success");
+  assert.deepEqual(ghCalls[0].slice(0, 2), ["attestation", "verify"]);
+  assert.ok(ghCalls[0].includes("owner/repository/.github/workflows/agent-vigil.yml"));
+  assert.ok(ghCalls[0].includes("--deny-self-hosted-runners"));
 });
 
 test("GitHub verification reports bad trust settings and bad CLI output", () => {
@@ -285,18 +261,15 @@ test("GitHub verification reports bad trust settings and bad CLI output", () => 
   assert.throws(() => verifyGitHubAttestation(fixture.path, "not-a-repository"), /owner\/name/);
   assert.throws(() => verifyGitHubAttestation(fixture.path, "owner/repository", { signerWorkflow: "wrong" }), /signer workflow/);
 
-  const bin = join(fixture.root, "bad-bin");
-  mkdirSync(bin);
-  const gh = join(bin, "gh");
-  writeFileSync(gh, "#!/bin/sh\necho denied >&2\nexit 1\n");
-  chmodSync(gh, 0o700);
-  const previousPath = process.env.PATH;
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  try {
-    assert.throws(() => verifyGitHubAttestation(fixture.path, "owner/repository"), /denied/);
-    writeFileSync(gh, "#!/bin/sh\necho not-json\n");
-    assert.throws(() => verifyGitHubAttestation(fixture.path, "owner/repository"), /unreadable attestation JSON/);
-  } finally {
-    process.env.PATH = previousPath;
-  }
+  assert.throws(
+    () => verifyGitHubAttestation(fixture.path, "owner/repository", {}, () => {
+      const error = Object.assign(new Error("failed"), { stderr: "denied" });
+      throw error;
+    }),
+    /denied/,
+  );
+  assert.throws(
+    () => verifyGitHubAttestation(fixture.path, "owner/repository", {}, () => "not-json"),
+    /unreadable attestation JSON/,
+  );
 });
