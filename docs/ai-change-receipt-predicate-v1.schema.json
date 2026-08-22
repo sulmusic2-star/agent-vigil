@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json",
+  "title": "Agent Vigil AI Change Receipt attestation predicate",
+  "description": "Privacy-reduced facts bound to a full Agent Vigil receipt by a GitHub/Sigstore attestation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["predicateVersion", "receipt", "privacy"],
+  "properties": {
+    "predicateVersion": { "const": "1" },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "receiptHash", "fileSha256", "status", "base", "head", "tree",
+        "policySha256", "vigilVersion", "verified", "contradicted", "unresolved"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "2" },
+        "receiptHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "fileSha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "status": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+        "base": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+        "head": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+        "tree": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+        "policySha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "vigilVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([+-][0-9A-Za-z.-]+)?$" },
+        "verified": { "type": "integer", "minimum": 0 },
+        "contradicted": { "type": "integer", "minimum": 0 },
+        "unresolved": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceIncluded", "transcriptIncluded", "promptIncluded"],
+      "properties": {
+        "sourceIncluded": { "const": false },
+        "transcriptIncluded": { "const": false },
+        "promptIncluded": { "const": false }
+      }
+    }
+  }
+}
