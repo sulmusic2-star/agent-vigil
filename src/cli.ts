@@ -31,6 +31,7 @@ import { buildPortableGateReport } from "./gate.ts";
 import { buildMaintainerChecks, loadPullRequestEvidence } from "./maintainer.ts";
 import { routeIntegrity } from "./integrity-policy.ts";
 import { compareReceipts, renderReceiptDelta } from "./receipt-diff.ts";
+import { buildMergeGroupReport } from "./merge-group.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
 
 type Options = {
@@ -66,6 +67,7 @@ Usage:
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
+  vigil merge-group --event <event.json> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -190,7 +192,7 @@ function runMaintainer(args: string[]): number {
     results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer));
     if (policy.value.testCommand) {
       results.push(...checkTestsPass([{ kind: "tests_pass", quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" }], repo, policy.value.testCommand));
-      results.push(...checkWorkspaceMutation(repo, inputs));
+      results.push(...checkWorkspaceMutation(repo, inputs, head));
     }
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
@@ -216,6 +218,26 @@ function runMaintainer(args: string[]): number {
       policy: { minVerified: policy.value.minVerified ?? 1, strict: policy.value.strict ?? true, source: policySource, sha256: policy.sha256 },
       repository: { ...(remote ? { remote } : {}), ...(tree ? { tree } : {}) },
       reproduction,
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runMergeGroup(args: string[]): number {
+  try {
+    const eventOption = optionValue(args, "--event");
+    if (!eventOption) throw new Error("merge-group requires --event <merge_group event JSON>");
+    const options = parseArgs(withoutOption(args.slice(1), "--event"));
+    if (!options.policy || !options.policyRef) throw new Error("merge-group requires --policy and a base-anchored --policy-ref");
+    const report = buildMergeGroupReport({
+      repo: options.repo,
+      eventPath: eventOption,
+      base: options.base,
+      head: options.head,
+      policy: options.policy,
+      policyRef: options.policyRef,
     });
     writeOutputs(report, options);
     printReport(report, options);
@@ -363,6 +385,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "audit") return runAudit(argv);
   if (argv[0] === "gate") return runGate(argv);
   if (argv[0] === "maintainer") return runMaintainer(argv);
+  if (argv[0] === "merge-group") return runMergeGroup(argv);
   if (argv.includes("--help")) { console.log(usage()); return 0; }
   if (argv.includes("--version")) { console.log(VERSION); return 0; }
   let options: Options;
@@ -407,7 +430,7 @@ export function run(argv = process.argv.slice(2)): number {
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
-    results.push(...checkWorkspaceMutation(repo, workspaceInputs));
+    results.push(...checkWorkspaceMutation(repo, workspaceInputs, head));
     results.push(...checkFilesChanged(claims, repo, base, head));
     const changedClaims = new Set(claims.filter((claim) => claim.kind === "file_changed").map((claim) => claim.subject));
     results.push(...checkPathsExist(claims.filter((claim) => !changedClaims.has(claim.subject)), repo));

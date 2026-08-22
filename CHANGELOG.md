@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.1 - 2026-08-21
+
+- Add fail-closed GitHub merge-queue verification for `merge_group` events.
+- Bind the composed queue commit to the event `base_sha` and `head_sha`, load
+  policy from the event base, rerun its test command, audit the composed diff,
+  and retain JSON plus SARIF receipts.
+- Make `vigil init` generate a merge-queue-compatible required check and pin
+  the generated Action to the actual CLI version instead of stale v0.9.0.
+- Expose the SARIF path as a composite Action output and teach `vigil doctor`
+  to diagnose missing merge-queue coverage.
+- Recheck `HEAD` after the trusted test command so a command cannot move to a
+  different clean commit after the pre-test workspace binding.
+
+The merge-group pass verifies composition and trusted policy. PR-body human
+attestations and portable signatures remain PR-phase checks and are not
+invented from a merge-group payload that does not contain them.
+
 ## 0.10.0 - 2026-08-21
 
 - Add `vigil compare` and receipt-delta v1 for policy, Git-range, signer,

@@ -125,7 +125,7 @@ export function checkWorkspaceBinding(repo: string, head: string, ignoredPaths: 
 }
 
 /** Detect a test command that mutates tracked repository inputs after binding. */
-export function checkWorkspaceMutation(repo: string, ignoredPaths: string[] = []): CheckResult[] {
+export function checkWorkspaceMutation(repo: string, ignoredPaths: string[] = [], expectedHead?: string): CheckResult[] {
   const claim: Claim = {
     kind: "integrity",
     quote: "fresh verification preserved the selected repository state",
@@ -136,6 +136,20 @@ export function checkWorkspaceMutation(repo: string, ignoredPaths: string[] = []
     if (!value || value === ".." || value.startsWith(`..${sep}`)) return "";
     return value.replaceAll("\\", "/").replace(/^\.\//, "");
   }).filter(Boolean));
+  if (expectedHead && expectedHead !== "WORKTREE") {
+    const selected = gitOptional(repo, ["rev-parse", "--verify", `${expectedHead}^{commit}`])?.trim();
+    const checkedOut = gitOptional(repo, ["rev-parse", "--verify", "HEAD^{commit}"])?.trim();
+    if (!selected || !checkedOut || selected !== checkedOut) {
+      return [{
+        claim,
+        verdict: "unverifiable",
+        evidence: `fresh verification changed checkout identity from ${selected ?? expectedHead} to ${checkedOut ?? "an unreadable HEAD"}`,
+        ruleId: "workspace-mutated",
+        contributesToPass: false,
+        blocksPass: true,
+      }];
+    }
+  }
   const raw = gitOptional(repo, ["diff", "HEAD", "--name-only", "-z"]);
   if (raw === undefined) {
     return [{ claim, verdict: "unverifiable", evidence: "post-verification Git state could not be read", ruleId: "workspace-mutated", contributesToPass: false, blocksPass: true }];

@@ -444,3 +444,38 @@ reviewer. Keep the verifier deterministic, compare receipts across revisions,
 prove base-fail/head-pass regressions, publish trade-offs against a frozen
 competitor corpus, and preserve INCONCLUSIVE when claim binding or execution is
 missing.
+
+## 2026-08-21 merge-enforcement gap
+
+The next hardening cycle found an enforcement failure in Agent Vigil's own
+generated workflow: it subscribed only to `pull_request`. GitHub's official
+[`merge_group` event documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#merge_group)
+states that a required Actions check must also subscribe to `merge_group` or it
+will not report when a pull request enters a merge queue and the merge will
+fail. GitHub's [merge-queue configuration guide](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)
+repeats that requirement and explains that required checks run against the
+composition applied to the latest target branch.
+
+Current competitor issue reports reinforce the need to bind the actual
+workspace and describe incomplete evidence precisely:
+
+- Agents Shipgate [issue #397](https://github.com/ThreeMoonsLab/agents-shipgate/issues/397)
+  reports a control-loop dead end when the evaluated head is not the checked-out
+  worktree.
+- Agents Shipgate [issue #396](https://github.com/ThreeMoonsLab/agents-shipgate/issues/396)
+  reports an `insufficient_evidence` headline contradicting complete observed
+  coverage.
+- Agents Shipgate [issue #398](https://github.com/ThreeMoonsLab/agents-shipgate/issues/398)
+  reports one unresolved application root contaminating every candidate's
+  selectability.
+
+These reports do not prove competitor-wide error rates. They support three
+product requirements: exact checked-out identity, scoped evidence gaps, and
+truthful verdict language.
+
+v0.10.1 responds with a distinct merge-group verifier. It binds GitHub's event
+base/head, requires the base to be an ancestor of the composed head, loads
+policy from that base, reruns the trusted test command, checks post-test
+mutation, audits the composed diff, and emits JSON plus SARIF. It deliberately
+does not pretend the merge-group payload contains per-PR human attestations or
+portable-signature evidence; those remain pull-request-phase checks.

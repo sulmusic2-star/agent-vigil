@@ -176,7 +176,10 @@ test("init creates a policy, evidence placeholder, and exact-SHA workflow", () =
   const workflow = readFileSync(join(path, ".github/workflows/agent-vigil.yml"), "utf8");
   assert.match(workflow, /pull_request\.base\.sha/);
   assert.match(workflow, /pull_request\.head\.sha/);
-  assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.match(workflow, /merge_group:/);
+  assert.match(workflow, /merge_group\.base_sha/);
+  assert.match(workflow, /merge_group\.head_sha/);
+  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.10\.1/);
   assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /npm test --silent/);
   assert.match(readFileSync(join(path, ".agent-vigil.json"), "utf8"), /"integrityMode": "advisory"/);
 });
@@ -213,6 +216,9 @@ test("Action accepts exactly one evidence mode", () => {
   assert.match(action, /choose exactly one of transcript, receipt, or mode: maintainer/);
   assert.match(action, /receipt mode requires a base-anchored policy/);
   assert.match(action, /args=\(gate "\$VIGIL_RECEIPT"/);
+  assert.match(action, /args=\(merge-group --event "\$GITHUB_EVENT_PATH"/);
+  assert.match(action, /e\.merge_group\?\.base_sha/);
+  assert.match(action, /echo "sarif=\$sarif_path"/);
 });
 
 test("doctor validates the generated installation", () => {
@@ -222,6 +228,7 @@ test("doctor validates the generated installation", () => {
   assert.equal(checks.some((check) => check.status === "FAIL"), false);
   assert.ok(checks.some((check) => check.label === "Git range" && check.status === "PASS"));
   assert.ok(checks.some((check) => check.label === "Policy trust" && check.status === "PASS"));
+  assert.ok(checks.some((check) => check.label === "Merge queue" && check.status === "PASS"));
   assert.ok(checks.some((check) => check.label === "Transcript" && check.status === "PASS"));
 });
 

@@ -57,6 +57,8 @@ export function remediationFor(ruleId?: string): string {
     "differential-base-fail": "Add a regression test that fails against base source and passes against the candidate; a test green on both sides is not catching evidence.",
     "differential-failure-pattern": "Tighten the test or update the base-anchored expected failure pattern through separate review.",
     "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs.",
+    "merge-group-binding": "Use the exact base_sha and head_sha from the GitHub merge_group event.",
+    "merge-group-range": "Recreate the merge group from the current target branch; the reported head must descend from the event base.",
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }

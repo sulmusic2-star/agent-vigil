@@ -73,6 +73,8 @@ Install the Action in receipt mode:
 name: Agent Vigil
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -85,19 +87,21 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: sulmusic2-star/agent-vigil@v0.10.0
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      - uses: sulmusic2-star/agent-vigil@v0.10.1
         with:
           receipt: .agent-vigil/receipt.json
           policy: .agent-vigil.json
-          policy-ref: ${{ github.event.pull_request.base.sha }}
+          policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           repo: .
-          base: ${{ github.event.pull_request.base.sha }}
-          head: ${{ github.event.pull_request.head.sha }}
+          base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 ```
 
 Merge this setup under ordinary review before requiring the check. The first
 setup pull request cannot load a policy that is not yet present in its base.
+On a merge queue, Agent Vigil reruns the base-policy tests and integrity checks
+against the composed queue head; see [the merge-queue contract](MERGE_QUEUES.md).
 
 ## Per-change flow
 

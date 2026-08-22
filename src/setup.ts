@@ -4,6 +4,7 @@ import { dirname, relative, resolve } from "node:path";
 import { DEFAULT_POLICY_FILE, loadPolicy, maintainerPolicyTemplate, policyTemplate } from "./config.ts";
 import { inferTestCommand } from "./detectors/reality.ts";
 import { loadTranscript } from "./transcript.ts";
+import { VERSION } from "./report.ts";
 
 type InitResult = { created: string[]; kept: string[] };
 type DoctorCheck = { status: "PASS" | "WARN" | "FAIL"; label: string; detail: string };
@@ -12,6 +13,8 @@ function workflow(mode: "transcript" | "portable" | "maintainer"): string { retu
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -24,22 +27,24 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: \${{ github.event.pull_request.head.sha }}
+          ref: \${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.9.0
+        uses: sulmusic2-star/agent-vigil@v${VERSION}
         with:
           ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
-          policy-ref: \${{ github.event.pull_request.base.sha }}
+          policy-ref: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           repo: .
-          base: \${{ github.event.pull_request.base.sha }}
-          head: \${{ github.event.pull_request.head.sha }}
+          base: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          head: \${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
       - name: Retain auditable Agent Vigil receipt
         if: always() && steps.vigil.outputs.report != ''
         uses: actions/upload-artifact@v4
         with:
           name: agent-vigil-receipt
-          path: agent-vigil-report.json
+          path: |
+            agent-vigil-report.json
+            agent-vigil.sarif
           retention-days: 30
 `; }
 
@@ -210,17 +215,25 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
       label: "Git range",
       detail: exactRange ? "workflow pins the pull request base and head SHAs" : "workflow does not visibly pin both pull request SHAs",
     });
-    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}/.test(text);
+    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.event\.merge_group\.head_sha\s*\}\}/.test(text);
     checks.push({
       status: exactCheckout ? "PASS" : "WARN",
       label: "Checkout identity",
       detail: exactCheckout ? "workflow checks out the exact pull request head SHA" : "workflow may verify GitHub's synthetic merge commit instead of the selected head",
     });
-    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}/.test(text);
+    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}/.test(text);
     checks.push({
       status: anchoredPolicy ? "PASS" : "WARN",
       label: "Policy trust",
       detail: anchoredPolicy ? "workflow loads policy from the pull request base commit" : "workflow policy may be controlled by the candidate change",
+    });
+    const mergeQueue = /merge_group:\s*\n\s*types:\s*\[checks_requested\]/.test(text)
+      && /merge_group\.base_sha/.test(text)
+      && /merge_group\.head_sha/.test(text);
+    checks.push({
+      status: mergeQueue ? "PASS" : "WARN",
+      label: "Merge queue",
+      detail: mergeQueue ? "workflow re-verifies the composed merge-group commit" : "required check will not report for GitHub merge queues",
     });
     if (maintainer) {
       const modeInstalled = /mode:\s*maintainer/.test(text);
