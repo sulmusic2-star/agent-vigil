@@ -21,13 +21,28 @@ tarball, its SHA-256 checksum, and `proof/results.json`.
 
 ## npm
 
-The initial publication needs an authenticated npm owner:
+The package publishes from `.github/workflows/publish.yml` through npm trusted
+publishing. The workflow uses GitHub's short-lived OIDC identity; it does not
+store an npm write token. Configure the npm package with these exact values:
+
+- provider: GitHub Actions;
+- organization or user: `sulmusic2-star`;
+- repository: `agent-vigil`;
+- workflow filename: `publish.yml`;
+- allowed action: `npm publish`.
+
+The workflow normally runs when a stable GitHub release is published. Use its
+manual `tag` input only to publish an existing release whose registry step was
+missed. It checks out that exact tag, requires the package version to match,
+runs the release checks, and compares package integrity before accepting an
+already-published version.
+
+Verify each release independently:
 
 ```bash
-npm login
 npm whoami
-npm publish --access public
 npm view @sulmusic/agent-vigil version dist-tags.latest
+npm view @sulmusic/agent-vigil@0.12.0 dist.integrity
 npx --yes @sulmusic/agent-vigil@0.12.0 doctor
 ```
 
@@ -35,10 +50,9 @@ The canonical npm name is scoped because npm rejected the unscoped
 `agent-vigil` name as too similar to the existing, separate `agentvigil`
 package. Do not publish or document the other package as Agent Vigil.
 
-After the package exists, configure an npm trusted publisher for the release
-workflow, publish through OIDC, and remove long-lived registry tokens. Never
-call the registry route live until `npm view` and a clean `npx` consumer run
-both succeed.
+After the OIDC path succeeds, remove unused long-lived registry write tokens.
+Never call a registry release live until `npm view`, integrity comparison, and
+a clean `npx` consumer run all succeed.
 
 ## GitHub Marketplace
 

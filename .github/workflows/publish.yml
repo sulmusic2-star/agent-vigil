@@ -1,0 +1,104 @@
+name: Publish npm package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish
+        required: true
+        default: v0.12.0
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Select the release tag
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected a stable vMAJOR.MINOR.PATCH tag, received: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.release.outputs.tag }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Check release identity and npm OIDC support
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          test "$RELEASE_TAG" = "v$PACKAGE_VERSION"
+          node - "$(npm --version)" <<'NODE'
+          const [major, minor, patch] = process.argv[2].split('.').map(Number);
+          if (major < 11 || (major === 11 && minor < 5)) {
+            throw new Error(`npm 11.5.1 or newer is required; found ${major}.${minor}.${patch}`);
+          }
+          NODE
+
+      - name: Install without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Verify the exact release source
+        run: |
+          npm run typecheck
+          npm run build
+          npm test --silent
+          npm run smoke
+          npm run review:public
+          npm audit --omit=dev
+
+      - name: Build the package rehearsal
+        run: npm pack --json > "$RUNNER_TEMP/npm-pack.json"
+
+      - name: Publish through npm trusted publishing
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="${RELEASE_TAG#v}"
+          LOCAL_INTEGRITY="$(node -p "require(process.env.RUNNER_TEMP + '/npm-pack.json')[0].integrity")"
+          REMOTE_INTEGRITY="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --json 2>/dev/null | tr -d '\"' || true)"
+
+          if [ -n "$REMOTE_INTEGRITY" ]; then
+            if [ "$REMOTE_INTEGRITY" != "$LOCAL_INTEGRITY" ]; then
+              echo "$PACKAGE_NAME@$PACKAGE_VERSION already exists with different package bytes." >&2
+              exit 1
+            fi
+            echo "$PACKAGE_NAME@$PACKAGE_VERSION is already published with matching integrity."
+            exit 0
+          fi
+
+          npm publish --access public
+
+          for attempt in 1 2 3 4 5 6; do
+            echo "Registry verification attempt $attempt of 6"
+            REMOTE_INTEGRITY="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --json 2>/dev/null | tr -d '\"' || true)"
+            [ "$REMOTE_INTEGRITY" = "$LOCAL_INTEGRITY" ] && exit 0
+            sleep 10
+          done
+
+          echo "The registry did not return the published package integrity within 60 seconds." >&2
+          exit 1
