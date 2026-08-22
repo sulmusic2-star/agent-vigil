@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 jobs:
   evidence:
@@ -22,8 +25,9 @@ jobs:
       - name: Install dependencies for fresh verification
         run: npm ci --ignore-scripts
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.11.2
+        uses: sulmusic2-star/agent-vigil@2282e13bac6cff164af3d0e57ef1436eaafa0480
         with:
+          attest: true
           mode: maintainer
           policy: .agent-vigil.json
           policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
