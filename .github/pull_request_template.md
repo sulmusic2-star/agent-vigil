@@ -1,8 +1,5 @@
-## Maintainer responsibility
+## Pull request evidence
 
-- Responsible human: @your-github-login
-- [ ] I reviewed every changed line.
-- [ ] I can explain and maintain this change.
 - AI assistance: assisted
 - Linked issue: #issue-number
 - Known limitations: none known
@@ -13,11 +10,10 @@ What false claim or missing-evidence case does this change address?
 
 ## Deterministic evidence
 
-- [ ] Catching fixture added
-- [ ] Honest-change control added
-- [ ] Expected PASS / FAIL / INCONCLUSIVE stated
-- [ ] `npm run check` passes
-- [ ] No private transcript or secret included
+Name the catching fixture, honest-change control, and expected PASS, FAIL, or
+INCONCLUSIVE result. The base policy runs type checking, build, tests, smoke,
+public-surface review, dependency audit, and package rehearsal on the exact
+candidate commit. No human-review declaration is required.
 
 ## Claim boundary
 
