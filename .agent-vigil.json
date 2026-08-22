@@ -5,7 +5,8 @@
   "strict": true,
   "minVerified": 1,
   "maintainer": {
-    "requireHumanAttestation": true,
+    "reviewMode": "automated",
+    "requireHumanAttestation": false,
     "requireLinkedIssue": true,
     "requireAiDisclosure": true,
     "maxChangedFiles": 30,
@@ -20,6 +21,19 @@
       "__tests__/**",
       "**/*.test.*",
       "**/*.spec.*"
-    ]
+    ],
+    "automatedReview": {
+      "setupCommand": "npm ci --ignore-scripts",
+      "commands": [
+        "npm run typecheck",
+        "npm run build",
+        "npm test --silent",
+        "npm run smoke",
+        "npm run review:public",
+        "npm audit --omit=dev",
+        "npm pack --dry-run"
+      ],
+      "timeoutSeconds": 900
+    }
   }
 }
