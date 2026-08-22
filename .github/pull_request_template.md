@@ -1,3 +1,12 @@
+## Maintainer responsibility
+
+- Responsible human: @your-github-login
+- [ ] I reviewed every changed line.
+- [ ] I can explain and maintain this change.
+- AI assistance: assisted
+- Linked issue: #issue-number
+- Known limitations: none known
+
 ## Failure mode
 
 What false claim or missing-evidence case does this change address?
