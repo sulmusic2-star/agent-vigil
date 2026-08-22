@@ -86,7 +86,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build
       - run: npm test
       - name: Dogfood Agent Vigil
         uses: ./
@@ -96,3 +95,4 @@ jobs:
           base: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
           head: ${{ github.event.pull_request.head.sha || 'HEAD' }}
           strict: true
+      - run: npm run build
