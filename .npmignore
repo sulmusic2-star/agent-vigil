@@ -1,0 +1,12 @@
+node_modules/
+*.tgz
+.DS_Store
+coverage/
+agent-vigil-report.json
+agent-vigil.sarif
+tmp/
+
+# Generated Python cache files are never part of the npm package.
+__pycache__/
+*.pyc
+*.pyo
