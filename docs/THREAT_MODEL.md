@@ -47,13 +47,20 @@ policy change invalidates that binding.
 ## Policy integrity
 
 A candidate change can edit a policy stored in its own worktree. GitHub Actions
-should therefore pass `policy-ref: ${{ github.event.pull_request.base.sha }}` so
-Agent Vigil loads `.agent-vigil.json` from the trusted base commit. The generated
-`vigil init` workflow does this automatically, checks out the exact pull-request
-head, and the Action rejects pull-request base/head or policy-ref inputs that do
-not match the signed GitHub event payload. The first setup pull request
+should therefore pass the event base SHA as `policy-ref` so Agent Vigil loads
+`.agent-vigil.json` from the trusted base commit. The generated `vigil init`
+workflow does this automatically for both `pull_request` and `merge_group`,
+checks out the exact event head, and rejects base/head or policy-ref inputs that
+do not match the GitHub event payload. The first setup pull request
 cannot use base anchoring because its base does not contain the policy; merge
 the installation under ordinary review, then make the check required.
+
+For merge queues, the event's composed head can differ from every individual
+pull-request head. Agent Vigil verifies that exact composition, requires the
+event base to be its ancestor, and reruns the base-policy test and integrity
+lanes. The merge-group payload lacks a single PR body, so the queue phase does
+not claim to re-verify PR-body attestations or portable signatures. Those remain
+PR-phase checks. See [the merge-queue contract](MERGE_QUEUES.md).
 
 ## Execution boundary
 

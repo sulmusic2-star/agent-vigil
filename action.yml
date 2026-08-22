@@ -6,7 +6,7 @@ branding:
   color: "green"
 inputs:
   mode:
-    description: "Evidence mode: transcript (default), portable receipt, or maintainer PR evidence"
+    description: "Set to maintainer for PR-attestation mode; transcript and receipt modes use their named inputs"
     required: false
   transcript:
     description: "Agent transcript (.jsonl) or summary (.md)"
@@ -53,6 +53,9 @@ outputs:
   report:
     description: "Path to the JSON receipt"
     value: ${{ steps.vigil.outputs.report }}
+  sarif:
+    description: "Path to the SARIF report when a receipt was produced"
+    value: ${{ steps.vigil.outputs.sarif }}
 runs:
   using: "composite"
   steps:
@@ -96,27 +99,28 @@ runs:
         # workflow edits must not redirect verification to different commits or
         # to a policy from the candidate branch.
         if [[ -n "${GITHUB_EVENT_PATH:-}" && -f "$GITHUB_EVENT_PATH" ]]; then
-          IFS=$'\t' read -r event_base event_head < <(node -e '
+          IFS=$'\t' read -r event_kind event_base event_head < <(node -e '
             const e = require(process.env.GITHUB_EVENT_PATH);
-            const base = e.pull_request?.base?.sha ?? "";
-            const head = e.pull_request?.head?.sha ?? "";
-            process.stdout.write(`${base}\t${head}\n`);
+            const kind = e.pull_request ? "pull_request" : e.merge_group ? "merge_group" : "";
+            const base = e.pull_request?.base?.sha ?? e.merge_group?.base_sha ?? "";
+            const head = e.pull_request?.head?.sha ?? e.merge_group?.head_sha ?? "";
+            process.stdout.write(`${kind}\t${base}\t${head}\n`);
           ')
           if [[ -n "$event_base" ]]; then
             if [[ "$VIGIL_BASE" != "$event_base" || "$VIGIL_HEAD" != "$event_head" ]]; then
-              echo "agent-vigil: pull request verification must use event base $event_base and head $event_head" >&2
+              echo "agent-vigil: GitHub event verification must use event base $event_base and head $event_head" >&2
               exit 2
             fi
             if [[ -n "$VIGIL_POLICY_REF" && "$VIGIL_POLICY_REF" != "$event_base" ]]; then
-              echo "agent-vigil: pull request policy-ref must equal event base $event_base" >&2
+              echo "agent-vigil: policy-ref must equal GitHub event base $event_base" >&2
               exit 2
             fi
             if [[ -n "$VIGIL_POLICY" && "$VIGIL_POLICY" != ".agent-vigil.json" ]]; then
-              echo "agent-vigil: pull request policy path must be .agent-vigil.json" >&2
+              echo "agent-vigil: GitHub event policy path must be .agent-vigil.json" >&2
               exit 2
             fi
             if [[ -n "$VIGIL_POLICY" && -z "$VIGIL_POLICY_REF" ]]; then
-              echo "agent-vigil: pull request policy requires policy-ref anchored to event base $event_base" >&2
+              echo "agent-vigil: GitHub event policy requires policy-ref anchored to event base $event_base" >&2
               exit 2
             fi
           fi
@@ -125,7 +129,13 @@ runs:
         artifact_dir=$(node -e 'const {mkdtempSync}=require("node:fs"); const {join}=require("node:path"); process.stdout.write(mkdtempSync(join(process.env.RUNNER_TEMP || process.cwd(), "agent-vigil-")))')
         report_file="$artifact_dir/report.json"
         sarif_file="$artifact_dir/report.sarif"
-        if [[ "$VIGIL_MODE" == "maintainer" ]]; then
+        if [[ "${event_kind:-}" == "merge_group" ]]; then
+          if [[ -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ]]; then
+            echo "agent-vigil: merge-group verification requires a base-anchored policy and policy-ref" >&2
+            exit 2
+          fi
+          args=(merge-group --event "$GITHUB_EVENT_PATH" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
+        elif [[ "$VIGIL_MODE" == "maintainer" ]]; then
           if [[ -z "${GITHUB_EVENT_PATH:-}" || ! -f "$GITHUB_EVENT_PATH" ]]; then
             echo "agent-vigil: maintainer mode requires a readable GitHub pull_request event" >&2
             exit 2
@@ -152,16 +162,19 @@ runs:
           cp "$report_file" agent-vigil-report.json
           if [[ -s "$sarif_file" ]]; then cp "$sarif_file" agent-vigil.sarif; fi
           report_path="$PWD/agent-vigil-report.json"
+          sarif_path="$PWD/agent-vigil.sarif"
         else
           # Preserve the verifier's original diagnostic and exit code when
           # parsing or configuration fails before a receipt can be written.
           status="INCONCLUSIVE"
           receipt_hash="unavailable"
           report_path=""
+          sarif_path=""
         fi
         {
           echo "status=$status"
           echo "receipt_hash=$receipt_hash"
           echo "report=$report_path"
+          echo "sarif=$sarif_path"
         } >> "$GITHUB_OUTPUT"
         exit "$code"

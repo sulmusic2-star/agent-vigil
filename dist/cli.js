@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash7 } from "node:crypto";
-import { execFileSync as execFileSync7 } from "node:child_process";
-import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync9, realpathSync as realpathSync3, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute3, relative as relative5, resolve as resolve7 } from "node:path";
+import { createHash as createHash8 } from "node:crypto";
+import { execFileSync as execFileSync8 } from "node:child_process";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync10, realpathSync as realpathSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname4, isAbsolute as isAbsolute3, relative as relative6, resolve as resolve8 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -507,7 +507,7 @@ function checkWorkspaceBinding(repo, head, ignoredPaths = []) {
     contributesToPass: false
   }];
 }
-function checkWorkspaceMutation(repo, ignoredPaths = []) {
+function checkWorkspaceMutation(repo, ignoredPaths = [], expectedHead) {
   const claim = {
     kind: "integrity",
     quote: "fresh verification preserved the selected repository state",
@@ -518,6 +518,20 @@ function checkWorkspaceMutation(repo, ignoredPaths = []) {
     if (!value || value === ".." || value.startsWith(`..${sep}`)) return "";
     return value.replaceAll("\\", "/").replace(/^\.\//, "");
   }).filter(Boolean));
+  if (expectedHead && expectedHead !== "WORKTREE") {
+    const selected = gitOptional(repo, ["rev-parse", "--verify", `${expectedHead}^{commit}`])?.trim();
+    const checkedOut = gitOptional(repo, ["rev-parse", "--verify", "HEAD^{commit}"])?.trim();
+    if (!selected || !checkedOut || selected !== checkedOut) {
+      return [{
+        claim,
+        verdict: "unverifiable",
+        evidence: `fresh verification changed checkout identity from ${selected ?? expectedHead} to ${checkedOut ?? "an unreadable HEAD"}`,
+        ruleId: "workspace-mutated",
+        contributesToPass: false,
+        blocksPass: true
+      }];
+    }
+  }
   const raw = gitOptional(repo, ["diff", "HEAD", "--name-only", "-z"]);
   if (raw === void 0) {
     return [{ claim, verdict: "unverifiable", evidence: "post-verification Git state could not be read", ruleId: "workspace-mutated", contributesToPass: false, blocksPass: true }];
@@ -1017,7 +1031,7 @@ function checkIntegrityPatches(patches) {
       }
       const removedHunkAssertions = patch.removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
       const addedHunkAssertions = patch.added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
-      if (removedHunkAssertions > addedHunkAssertions && !results.some((result3) => result3.ruleId === "assertion-drop")) {
+      if (removedHunkAssertions > addedHunkAssertions && !results.some((result4) => result4.ruleId === "assertion-drop")) {
         results.push(finding("assertion surface shrank", `${patch.path} hunk removes ${removedHunkAssertions} assertion-like line(s) and adds ${addedHunkAssertions}`, "assertion-drop"));
       }
     }
@@ -1036,7 +1050,7 @@ function checkIntegrityPatches(patches) {
     for (const oldName of removedNames) {
       if (addedNames.has(oldName)) continue;
       const oldCall = new RegExp(`\\b${oldName.replace(/[$]/g, "\\$")}\\s*\\(`);
-      if (oldCall.test(remainingChangedText) && !results.some((result3) => result3.ruleId === "stale-refactor-caller")) {
+      if (oldCall.test(remainingChangedText) && !results.some((result4) => result4.ruleId === "stale-refactor-caller")) {
         results.push(finding("removed or renamed symbol leaves an old caller", `${patch.path} removes ${oldName} while another changed-file context still calls it`, "stale-refactor-caller"));
       }
     }
@@ -1049,14 +1063,14 @@ function checkIntegrityPatches(patches) {
   }
   const removedAssertions = testPatches.flatMap((patch) => patch.removed).filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
   const addedAssertions = testPatches.flatMap((patch) => patch.added).filter((line) => !line.includes("vigil:detector-pattern") && /\b(?:expect|assert|should)\b/i.test(line)).length;
-  if (removedAssertions > addedAssertions && !results.some((result3) => result3.ruleId === "assertion-drop")) {
+  if (removedAssertions > addedAssertions && !results.some((result4) => result4.ruleId === "assertion-drop")) {
     results.push(finding(
       "assertion surface shrank",
       `${removedAssertions} assertion-like lines removed and ${addedAssertions} added`,
       "assertion-drop"
     ));
   }
-  if (testPatches.length === patches.length && results.some((result3) => result3.ruleId === "test-assertion-relaxed") && !results.some((result3) => result3.ruleId === "no-op-code-change")) {
+  if (testPatches.length === patches.length && results.some((result4) => result4.ruleId === "test-assertion-relaxed") && !results.some((result4) => result4.ruleId === "no-op-code-change")) {
     results.push(finding(
       "claimed fix changes only the test oracle",
       "all changed implementation-scoped paths are tests and an exact assertion was weakened",
@@ -1096,7 +1110,7 @@ function checkCompletion(claims, repo, base, head, prior) {
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
   const diff = git(repo, ["diff", "--unified=0", "--no-color", ...diffRange]);
   const markers = diff.split("\n").filter((line) => /^\+.*\b(TODO|FIXME|XXX|HACK|NotImplementedError|not implemented)\b/i.test(line));
-  const objectiveVerified = prior.filter((result3) => result3.verdict === "verified" && result3.contributesToPass !== false).length;
+  const objectiveVerified = prior.filter((result4) => result4.verdict === "verified" && result4.contributesToPass !== false).length;
   return completion.map((claim) => {
     if (markers.length) {
       return { claim, verdict: "contradicted", evidence: `diff adds unfinished-work marker: ${markers[0].slice(1, 220)}`, ruleId: "completion-marker" };
@@ -1122,7 +1136,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.10.0";
+var VERSION = "0.10.1";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1147,7 +1161,7 @@ function buildReport(input) {
   ).length;
   let status;
   if (contradicted > 0) status = "FAIL";
-  else if (meaningfulVerified < policy.minVerified || input.results.some((result3) => result3.verdict === "unverifiable" && result3.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
+  else if (meaningfulVerified < policy.minVerified || input.results.some((result4) => result4.verdict === "unverifiable" && result4.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
   else status = "PASS";
   const summary = {
     verified: count("verified"),
@@ -1364,8 +1378,8 @@ function appendPrivateFileAtomic(destination, content) {
 
 // src/output.ts
 var icon = { verified: "\u2713", contradicted: "\u2717", unverifiable: "?" };
-function advisoryLabel(result3) {
-  return result3.verdict === "unverifiable" ? "unresolved advisory" : "advisory";
+function advisoryLabel(result4) {
+  return result4.verdict === "unverifiable" ? "unresolved advisory" : "advisory";
 }
 function remediationFor(ruleId) {
   const fixes = {
@@ -1416,7 +1430,9 @@ function remediationFor(ruleId) {
     "differential-head-pass": "Fix the candidate until the trusted regression command passes in the isolated head worktree.",
     "differential-base-fail": "Add a regression test that fails against base source and passes against the candidate; a test green on both sides is not catching evidence.",
     "differential-failure-pattern": "Tighten the test or update the base-anchored expected failure pattern through separate review.",
-    "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs."
+    "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs.",
+    "merge-group-binding": "Use the exact base_sha and head_sha from the GitHub merge_group event.",
+    "merge-group-range": "Recreate the merge group from the current target branch; the reported head must descend from the event base."
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }
@@ -1430,16 +1446,16 @@ function renderText(report) {
     `  policy:     ${report.policy.sha256}`,
     ""
   ];
-  for (const result3 of report.results) {
-    lines.push(`  ${icon[result3.verdict]} [${result3.ruleId ?? result3.claim.kind}] ${result3.claim.subject}`);
-    lines.push(`      claim:    "${result3.claim.quote.slice(0, 140)}"`);
-    lines.push(`      evidence: ${result3.evidence}`, "");
-    if (result3.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result3.ruleId)}`);
+  for (const result4 of report.results) {
+    lines.push(`  ${icon[result4.verdict]} [${result4.ruleId ?? result4.claim.kind}] ${result4.claim.subject}`);
+    lines.push(`      claim:    "${result4.claim.quote.slice(0, 140)}"`);
+    lines.push(`      evidence: ${result4.evidence}`, "");
+    if (result4.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result4.ruleId)}`);
   }
-  for (const result3 of report.advisories ?? []) {
-    lines.push(`  ! [${result3.ruleId ?? result3.claim.kind}] ${result3.claim.subject}`);
-    lines.push(`      ${advisoryLabel(result3)}: ${result3.evidence}`);
-    lines.push(`      review:   ${remediationFor(result3.ruleId)}`, "");
+  for (const result4 of report.advisories ?? []) {
+    lines.push(`  ! [${result4.ruleId ?? result4.claim.kind}] ${result4.claim.subject}`);
+    lines.push(`      ${advisoryLabel(result4)}: ${result4.evidence}`);
+    lines.push(`      review:   ${remediationFor(result4.ruleId)}`, "");
   }
   const summary = report.summary;
   lines.push(`  ${summary.verified} verified \xB7 ${summary.contradicted} contradicted \xB7 ${summary.unverifiable} unresolved`);
@@ -1451,10 +1467,10 @@ function renderText(report) {
 }
 function renderMarkdown(report) {
   const rows = report.results.map(
-    (result3) => `| ${icon[result3.verdict]} ${result3.verdict} | \`${result3.ruleId ?? result3.claim.kind}\` | ${escapeCell(result3.claim.subject)} | ${escapeCell(result3.evidence)} |`
+    (result4) => `| ${icon[result4.verdict]} ${result4.verdict} | \`${result4.ruleId ?? result4.claim.kind}\` | ${escapeCell(result4.claim.subject)} | ${escapeCell(result4.evidence)} |`
   );
   const advisoryRows = (report.advisories ?? []).map(
-    (result3) => `| \u26A0\uFE0F ${advisoryLabel(result3)} | \`${result3.ruleId ?? result3.claim.kind}\` | ${escapeCell(result3.claim.subject)} | ${escapeCell(result3.evidence)} |`
+    (result4) => `| \u26A0\uFE0F ${advisoryLabel(result4)} | \`${result4.ruleId ?? result4.claim.kind}\` | ${escapeCell(result4.claim.subject)} | ${escapeCell(result4.evidence)} |`
   );
   return [
     `# ${report.summary.status === "PASS" ? "\u2705" : report.summary.status === "FAIL" ? "\u274C" : "\u26A0\uFE0F"} Agent Vigil: ${report.summary.status}`,
@@ -1472,14 +1488,14 @@ function renderMarkdown(report) {
     `${report.summary.verified} verified \xB7 ${report.summary.contradicted} contradicted \xB7 ${report.summary.unverifiable} unresolved`,
     ...report.advisories?.length ?? 0 ? [`${report.advisories.length} advisory finding(s) \xB7 non-blocking under this policy`] : [],
     "",
-    ...report.results.some((result3) => result3.verdict !== "verified") || (report.advisories?.length ?? 0) ? [
+    ...report.results.some((result4) => result4.verdict !== "verified") || (report.advisories?.length ?? 0) ? [
       "## What to do next",
       "",
-      ...report.results.filter((result3) => result3.verdict !== "verified").map(
-        (result3) => `- **\`${result3.ruleId ?? result3.claim.kind}\`**: ${remediationFor(result3.ruleId)}`
+      ...report.results.filter((result4) => result4.verdict !== "verified").map(
+        (result4) => `- **\`${result4.ruleId ?? result4.claim.kind}\`**: ${remediationFor(result4.ruleId)}`
       ),
       ...(report.advisories ?? []).map(
-        (result3) => `- **\`${result3.ruleId ?? result3.claim.kind}\` (advisory)**: ${remediationFor(result3.ruleId)}`
+        (result4) => `- **\`${result4.ruleId ?? result4.claim.kind}\` (advisory)**: ${remediationFor(result4.ruleId)}`
       ),
       ""
     ] : [],
@@ -1490,17 +1506,17 @@ function renderMarkdown(report) {
 function escapeCell(value) {
   return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
 }
-function sarifResult(result3, advisory = false) {
-  const level = advisory ? "warning" : result3.verdict === "contradicted" ? "error" : result3.verdict === "unverifiable" ? "warning" : "note";
+function sarifResult(result4, advisory = false) {
+  const level = advisory ? "warning" : result4.verdict === "contradicted" ? "error" : result4.verdict === "unverifiable" ? "warning" : "note";
   return {
-    ruleId: result3.ruleId ?? result3.claim.kind,
+    ruleId: result4.ruleId ?? result4.claim.kind,
     level,
-    message: { text: `${result3.claim.subject}: ${result3.evidence}. Remediation: ${remediationFor(result3.ruleId)}` }
+    message: { text: `${result4.claim.subject}: ${result4.evidence}. Remediation: ${remediationFor(result4.ruleId)}` }
   };
 }
 function toSarif(report) {
   const allResults = [...report.results, ...report.advisories ?? []];
-  const rules = [...new Set(allResults.map((result3) => result3.ruleId ?? result3.claim.kind))].map((id) => ({
+  const rules = [...new Set(allResults.map((result4) => result4.ruleId ?? result4.claim.kind))].map((id) => ({
     id,
     shortDescription: { text: id.replace(/-/g, " ") }
   }));
@@ -1510,8 +1526,8 @@ function toSarif(report) {
     runs: [{
       tool: { driver: { name: "agent-vigil", version: report.vigilVersion, informationUri: "https://github.com/sulmusic2-star/agent-vigil", rules } },
       results: [
-        ...report.results.filter((result3) => result3.verdict !== "verified").map((result3) => sarifResult(result3)),
-        ...(report.advisories ?? []).map((result3) => sarifResult(result3, true))
+        ...report.results.filter((result4) => result4.verdict !== "verified").map((result4) => sarifResult(result4)),
+        ...(report.advisories ?? []).map((result4) => sarifResult(result4, true))
       ],
       properties: { receiptHash: report.receiptHash, status: report.summary.status, advisoryCount: report.advisories?.length ?? 0 }
     }]
@@ -1793,6 +1809,8 @@ function workflow(mode) {
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -1805,22 +1823,24 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: \${{ github.event.pull_request.head.sha }}
+          ref: \${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.9.0
+        uses: sulmusic2-star/agent-vigil@v${VERSION}
         with:
           ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
-          policy-ref: \${{ github.event.pull_request.base.sha }}
+          policy-ref: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           repo: .
-          base: \${{ github.event.pull_request.base.sha }}
-          head: \${{ github.event.pull_request.head.sha }}
+          base: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          head: \${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
       - name: Retain auditable Agent Vigil receipt
         if: always() && steps.vigil.outputs.report != ''
         uses: actions/upload-artifact@v4
         with:
           name: agent-vigil-receipt
-          path: agent-vigil-report.json
+          path: |
+            agent-vigil-report.json
+            agent-vigil.sarif
           retention-days: 30
 `;
 }
@@ -1858,15 +1878,15 @@ Transcripts can contain source code, prompts, paths, and secrets. Review them
 before committing or uploading. Agent Vigil reads evidence locally and does not
 upload it.
 `;
-function writeScaffold(root, path, content, force, result3) {
+function writeScaffold(root, path, content, force, result4) {
   const target = resolve4(root, path);
   if (existsSync3(target) && !force) {
-    result3.kept.push(path);
+    result4.kept.push(path);
     return;
   }
   mkdirSync2(dirname2(target), { recursive: true });
   writeFileSync3(target, content);
-  result3.created.push(path);
+  result4.created.push(path);
 }
 function initRepository(repo, force = false, portableSignerKeyId, profile = "default") {
   const root = resolve4(repo);
@@ -1875,18 +1895,18 @@ function initRepository(repo, force = false, portableSignerKeyId, profile = "def
   } catch {
     throw new Error(`not a Git repository: ${root}`);
   }
-  const result3 = { created: [], kept: [] };
+  const result4 = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? void 0;
   const mode = profile === "maintainer" ? "maintainer" : portableSignerKeyId ? "portable" : "transcript";
   const setupCommand = existsSync3(resolve4(root, "package-lock.json")) ? "npm ci --ignore-scripts" : void 0;
-  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : policyTemplate(inferred, portableSignerKeyId), force, result3);
+  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : policyTemplate(inferred, portableSignerKeyId), force, result4);
   if (mode === "transcript") {
-    writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result3);
-    writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result3);
+    writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result4);
+    writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result4);
   }
-  if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result3);
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result3);
-  return result3;
+  if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result4);
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result4);
+  return result4;
 }
 function git3(repo, args) {
   try {
@@ -1987,17 +2007,23 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
       label: "Git range",
       detail: exactRange ? "workflow pins the pull request base and head SHAs" : "workflow does not visibly pin both pull request SHAs"
     });
-    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}/.test(text);
+    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.event\.merge_group\.head_sha\s*\}\}/.test(text);
     checks.push({
       status: exactCheckout ? "PASS" : "WARN",
       label: "Checkout identity",
       detail: exactCheckout ? "workflow checks out the exact pull request head SHA" : "workflow may verify GitHub's synthetic merge commit instead of the selected head"
     });
-    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}/.test(text);
+    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}/.test(text);
     checks.push({
       status: anchoredPolicy ? "PASS" : "WARN",
       label: "Policy trust",
       detail: anchoredPolicy ? "workflow loads policy from the pull request base commit" : "workflow policy may be controlled by the candidate change"
+    });
+    const mergeQueue = /merge_group:\s*\n\s*types:\s*\[checks_requested\]/.test(text) && /merge_group\.base_sha/.test(text) && /merge_group\.head_sha/.test(text);
+    checks.push({
+      status: mergeQueue ? "PASS" : "WARN",
+      label: "Merge queue",
+      detail: mergeQueue ? "workflow re-verifies the composed merge-group commit" : "required check will not report for GitHub merge queues"
     });
     if (maintainer) {
       const modeInstalled = /mode:\s*maintainer/.test(text);
@@ -2279,7 +2305,7 @@ function buildPortableGateReport(receipt, options) {
   results.push(...checkWorkspaceBinding(repo, head, exactHead ? [receiptPath] : []));
   const testClaim = { kind: "tests_pass", quote: "trusted policy verification passes in independent CI", subject: "trusted policy test command" };
   results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand));
-  results.push(...checkWorkspaceMutation(repo, exactHead ? [receiptPath] : []));
+  results.push(...checkWorkspaceMutation(repo, exactHead ? [receiptPath] : [], head));
   const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
@@ -2804,6 +2830,118 @@ function renderReceiptDelta(delta) {
   return lines.join("\n");
 }
 
+// src/merge-group.ts
+import { createHash as createHash7 } from "node:crypto";
+import { execFileSync as execFileSync7 } from "node:child_process";
+import { readFileSync as readFileSync9 } from "node:fs";
+import { relative as relative5, resolve as resolve7 } from "node:path";
+function loadMergeGroupEvent(path) {
+  const value = JSON.parse(readFileSync9(path, "utf8"));
+  if (!value.merge_group?.base_sha || !value.merge_group?.head_sha) {
+    throw new Error("event is not a merge_group payload with base_sha and head_sha");
+  }
+  return value;
+}
+function git6(repo, args) {
+  try {
+    return execFileSync7("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch {
+    return void 0;
+  }
+}
+function result3(subject, verdict, evidence, ruleId, blocksPass = false) {
+  return {
+    claim: { kind: "integrity", quote: "GitHub merge queue verification", subject },
+    verdict,
+    evidence,
+    ruleId,
+    ...verdict === "verified" ? {} : { contributesToPass: false },
+    ...blocksPass ? { blocksPass: true } : {}
+  };
+}
+function buildMergeGroupReport(options) {
+  const repo = resolve7(options.repo);
+  const eventPath = resolve7(options.eventPath);
+  const event = loadMergeGroupEvent(eventPath);
+  if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) {
+    throw new Error(`invalid git range ${options.base}..${options.head}`);
+  }
+  const base = resolveGitRef(repo, options.base);
+  const head = resolveGitRef(repo, options.head);
+  if (resolveGitRef(repo, event.merge_group.base_sha) !== base) {
+    throw new Error(`event base ${event.merge_group.base_sha} does not match selected base ${base}`);
+  }
+  if (resolveGitRef(repo, event.merge_group.head_sha) !== head) {
+    throw new Error(`event head ${event.merge_group.head_sha} does not match selected head ${head}`);
+  }
+  const policy = loadPolicy(repo, options.policy, options.policyRef);
+  if (policy.ref && resolveGitRef(repo, policy.ref) !== base) {
+    throw new Error(`merge-group policy-ref ${policy.ref} does not match event base ${base}`);
+  }
+  const eventHash = `sha256:${createHash7("sha256").update(readFileSync9(eventPath)).digest("hex")}`;
+  const inputs = [eventPath, ...policy.path ? [policy.path] : []];
+  const results = [];
+  const advisories = [];
+  results.push(result3(
+    "merge-group event is bound to the selected commits",
+    "verified",
+    `GitHub event binds base ${base} and merge-group head ${head}`,
+    "merge-group-binding"
+  ));
+  const ancestor = git6(repo, ["merge-base", "--is-ancestor", base, head]) !== void 0;
+  results.push(result3(
+    "merge-group head descends from its target base",
+    ancestor ? "verified" : "contradicted",
+    ancestor ? `${base} is an ancestor of ${head}` : `${base} is not an ancestor of ${head}`,
+    "merge-group-range"
+  ));
+  results.push(...checkWorkspaceBinding(repo, head, inputs));
+  const testClaim = {
+    kind: "tests_pass",
+    quote: "trusted base policy verification passes on the composed merge-group commit",
+    subject: "merge-group test command"
+  };
+  results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand));
+  results.push(...checkWorkspaceMutation(repo, inputs, head));
+  const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+  results.push(...integrity.results);
+  advisories.push(...integrity.advisories);
+  const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
+  const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
+  const tree = git6(repo, ["rev-parse", `${head}^{tree}`]);
+  const eventName = relative5(repo, eventPath) || eventPath;
+  const reproduction = [
+    "vigil merge-group",
+    "--event",
+    `'${eventName.replace(/'/g, `'"'"'`)}'`,
+    "--repo .",
+    "--base",
+    base,
+    "--head",
+    head,
+    ...policy.gitPath ? ["--policy", `'${policy.gitPath}'`] : [],
+    ...policy.ref ? ["--policy-ref", policy.ref] : []
+  ].join(" ");
+  return buildReport({
+    transcript: eventName,
+    transcriptSha256: eventHash,
+    transcriptFormat: "github-merge-group-event",
+    repo,
+    base,
+    head,
+    results,
+    advisories,
+    policy: {
+      minVerified: policy.value.minVerified ?? 1,
+      strict: true,
+      source: policySource,
+      sha256: policy.sha256
+    },
+    repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
+    reproduction
+  });
+}
+
 // src/cli.ts
 function usage() {
   return `agent-vigil ${VERSION}
@@ -2820,6 +2958,7 @@ Usage:
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
+  vigil merge-group --event <event.json> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -2902,7 +3041,7 @@ function optionValue(args, name) {
 }
 function runInit(args) {
   try {
-    const repo = resolve7(optionValue(args, "--repo") ?? ".");
+    const repo = resolve8(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const profile = optionValue(args, "--profile") ?? "default";
     if (!(/* @__PURE__ */ new Set(["default", "maintainer"])).has(profile)) throw new Error("init --profile must be default or maintainer");
@@ -2910,10 +3049,10 @@ function runInit(args) {
     if (portable && profile === "maintainer") throw new Error("init --portable cannot be combined with --profile maintainer");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result3 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve7(publicKey)) : void 0, profile);
+    const result4 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve8(publicKey)) : void 0, profile);
     console.log("Agent Vigil initialized.\n");
-    for (const path of result3.created) console.log(`  created ${path}`);
-    for (const path of result3.kept) console.log(`  kept    ${path} (use --force to replace)`);
+    for (const path of result4.created) console.log(`  created ${path}`);
+    for (const path of result4.kept) console.log(`  kept    ${path} (use --force to replace)`);
     console.log(profile === "maintainer" ? "\nNext: replace the PR-template login, review the base-anchored limits, merge this setup first, then open a code PR with a regression test that fails on base and passes on head." : portable ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output." : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
     return 0;
   } catch (error) {
@@ -2937,8 +3076,8 @@ function runMaintainer(args) {
     const eventOption = optionValue(args, "--event");
     if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
     const options = parseArgs(withoutOption(args.slice(1), "--event"));
-    const repo = resolve7(options.repo);
-    const eventPath = resolve7(eventOption);
+    const repo = resolve8(options.repo);
+    const eventPath = resolve8(eventOption);
     const policy = loadPolicy(repo, options.policy, options.policyRef);
     if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -2953,16 +3092,16 @@ function runMaintainer(args) {
     results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer));
     if (policy.value.testCommand) {
       results.push(...checkTestsPass([{ kind: "tests_pass", quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" }], repo, policy.value.testCommand));
-      results.push(...checkWorkspaceMutation(repo, inputs));
+      results.push(...checkWorkspaceMutation(repo, inputs, head));
     }
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
-    const rawEvent = readFileSync9(eventPath);
-    const eventHash = `sha256:${createHash7("sha256").update(rawEvent).digest("hex")}`;
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
-    const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = git6(repo, ["rev-parse", `${head}^{tree}`]);
+    const rawEvent = readFileSync10(eventPath);
+    const eventHash = `sha256:${createHash8("sha256").update(rawEvent).digest("hex")}`;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative6(repo, policy.path) : void 0;
+    const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git7(repo, ["rev-parse", `${head}^{tree}`]);
     const reproduction = [
       "vigil maintainer",
       "--event",
@@ -2997,9 +3136,31 @@ function runMaintainer(args) {
     return 2;
   }
 }
+function runMergeGroup(args) {
+  try {
+    const eventOption = optionValue(args, "--event");
+    if (!eventOption) throw new Error("merge-group requires --event <merge_group event JSON>");
+    const options = parseArgs(withoutOption(args.slice(1), "--event"));
+    if (!options.policy || !options.policyRef) throw new Error("merge-group requires --policy and a base-anchored --policy-ref");
+    const report = buildMergeGroupReport({
+      repo: options.repo,
+      eventPath: eventOption,
+      base: options.base,
+      head: options.head,
+      policy: options.policy,
+      policyRef: options.policyRef
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
 function runDoctor(args) {
   try {
-    const repo = resolve7(optionValue(args, "--repo") ?? ".");
+    const repo = resolve8(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -3013,9 +3174,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve7(privatePath), resolve7(publicPath));
+    generateSigningKey(resolve8(privatePath), resolve8(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve7(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve8(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -3033,10 +3194,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve7(options.repo, receiptPath);
-    const receipt = JSON.parse(readFileSync9(absoluteReceipt, "utf8"));
+    const absoluteReceipt = resolve8(options.repo, receiptPath);
+    const receipt = JSON.parse(readFileSync10(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve7(options.repo),
+      repo: resolve8(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -3055,16 +3216,16 @@ function runVerify(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync9(resolve7(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync10(resolve8(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result3 = verifyReport(report, publicKey ? resolve7(publicKey) : void 0);
-    console.log(`Receipt hash: ${result3.hashValid ? "VALID" : "INVALID"}`);
-    if (result3.signatureValid !== void 0) {
-      console.log(`Ed25519 signature: ${result3.signatureValid ? "VALID" : "INVALID"} \xB7 ${result3.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
-      if (!result3.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
+    const result4 = verifyReport(report, publicKey ? resolve8(publicKey) : void 0);
+    console.log(`Receipt hash: ${result4.hashValid ? "VALID" : "INVALID"}`);
+    if (result4.signatureValid !== void 0) {
+      console.log(`Ed25519 signature: ${result4.signatureValid ? "VALID" : "INVALID"} \xB7 ${result4.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
+      if (!result4.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
     } else console.log("Signature: absent (content hash only)");
-    return result3.hashValid && result3.signatureValid !== false ? 0 : 1;
+    return result4.hashValid && result4.signatureValid !== false ? 0 : 1;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -3076,15 +3237,15 @@ function runCompare(args) {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync9(resolve7(values[0]), "utf8"));
-    const after = JSON.parse(readFileSync9(resolve7(values[1]), "utf8"));
+    const before = JSON.parse(readFileSync10(resolve8(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync10(resolve8(values[1]), "utf8"));
     if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
 ` : `${renderReceiptDelta(delta)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve7(output), rendered);
+    if (output) writePrivateFileAtomic(resolve8(output), rendered);
     else process.stdout.write(rendered);
     return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
   } catch (error) {
@@ -3097,11 +3258,11 @@ function runAudit(args) {
     const options = parseArgs(args.slice(1));
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
-    const absolute = resolve7(diffPath);
-    const raw = readFileSync9(absolute);
+    const absolute = resolve8(diffPath);
+    const raw = readFileSync10(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest2 = `sha256:${createHash7("sha256").update(raw).digest("hex")}`;
+    const digest2 = `sha256:${createHash8("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -3112,7 +3273,7 @@ function runAudit(args) {
       });
     }
     const report = buildReport({
-      transcript: relative5(process.cwd(), absolute) || absolute,
+      transcript: relative6(process.cwd(), absolute) || absolute,
       transcriptSha256: digest2,
       transcriptFormat: "unified-git-diff",
       repo: "static-diff-audit",
@@ -3120,7 +3281,7 @@ function runAudit(args) {
       head: digest2,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash7("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash8("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -3131,9 +3292,9 @@ function runAudit(args) {
     return 2;
   }
 }
-function git6(repo, args) {
+function git7(repo, args) {
   try {
-    return execFileSync7("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync8("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -3151,6 +3312,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "audit") return runAudit(argv);
   if (argv[0] === "gate") return runGate(argv);
   if (argv[0] === "maintainer") return runMaintainer(argv);
+  if (argv[0] === "merge-group") return runMergeGroup(argv);
   if (argv.includes("--help")) {
     console.log(usage());
     return 0;
@@ -3168,7 +3330,7 @@ function run(argv = process.argv.slice(2)) {
 ${usage()}`);
     return 2;
   }
-  const repo = resolve7(options.repo);
+  const repo = resolve8(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -3185,7 +3347,7 @@ ${usage()}`);
     console.error(usage());
     return 2;
   }
-  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve7(repo, transcript);
+  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve8(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
@@ -3212,12 +3374,12 @@ ${usage()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve7(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve7(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve8(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve8(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
-    results.push(...checkWorkspaceMutation(repo, workspaceInputs));
+    results.push(...checkWorkspaceMutation(repo, workspaceInputs, head));
     results.push(...checkFilesChanged(claims, repo, base, head));
     const changedClaims = new Set(claims.filter((claim) => claim.kind === "file_changed").map((claim) => claim.subject));
     results.push(...checkPathsExist(claims.filter((claim) => !changedClaims.has(claim.subject)), repo));
@@ -3227,10 +3389,10 @@ ${usage()}`);
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     results.push(...checkCompletion(claims, repo, base, head, results));
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
-    const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = head === "WORKTREE" ? void 0 : git6(repo, ["rev-parse", `${head}^{tree}`]);
-    const relativeTranscript = relative5(repo, transcriptPath) || transcript;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative6(repo, policy.path) : void 0;
+    const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = head === "WORKTREE" ? void 0 : git7(repo, ["rev-parse", `${head}^{tree}`]);
+    const relativeTranscript = relative6(repo, transcriptPath) || transcript;
     const reproduction = [
       "vigil",
       shellQuote(relativeTranscript),
@@ -3260,11 +3422,11 @@ ${usage()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve7(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve8(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve7(options.signingKey));
-      const portablePath = resolve7(repo, options.portableOutput);
+      const portable = createPortableReceipt(report, resolve8(options.signingKey));
+      const portablePath = resolve8(repo, options.portableOutput);
       mkdirSync4(dirname4(portablePath), { recursive: true });
       writeFileSync5(portablePath, `${JSON.stringify(portable, null, 2)}
 `);

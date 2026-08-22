@@ -72,7 +72,7 @@
             <a class="button" href="#install">Install the gate</a>
             <a class="button secondary" href="#proof">Inspect failures</a>
           </div>
-          <p class="fine">Open source · local-first · zero runtime dependencies · receipt-to-receipt regression control · no model grading another model</p>
+          <p class="fine">Open source · local-first · zero runtime dependencies · receipt-to-receipt regression control · merge-queue re-verification · no model grading another model</p>
         </div>
         <div class="terminal" aria-label="Example failed receipt">
           <header>agent-vigil-report.json / exact base ↔ head</header>
@@ -124,10 +124,10 @@
       </section>
 
       <section id="install" class="install">
-        <div><p class="eyebrow">Two-minute setup</p><h2>One command. One reviewable policy.</h2><p class="section-lead">The maintainer profile adds exact-SHA workflow identity, human responsibility declarations, change budgets, and a differential base-fail/head-pass regression gate.</p></div>
+        <div><p class="eyebrow">Two-minute setup</p><h2>One command. One reviewable policy.</h2><p class="section-lead">The maintainer profile adds exact-SHA workflow identity, human responsibility declarations, change budgets, a differential base-fail/head-pass regression gate, and fresh verification of GitHub merge-queue compositions.</p></div>
         <div>
-          <code class="command">npx --yes github:sulmusic2-star/agent-vigil#v0.10.0 init --profile maintainer</code>
-          <p>Then run <code>npx --yes github:sulmusic2-star/agent-vigil#v0.10.0 doctor</code> and review every generated command before merging.</p>
+          <code class="command">npx --yes github:sulmusic2-star/agent-vigil#v0.10.1 init --profile maintainer</code>
+          <p>Then run <code>npx --yes github:sulmusic2-star/agent-vigil#v0.10.1 doctor</code> and review every generated command before merging.</p>
           <p class="fine">The GitHub package route is shown until the npm package is confirmed live. Repository test commands execute repository code; Agent Vigil is not a sandbox.</p>
           <div class="actions">
             <a class="button" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml">Report a real trial</a>

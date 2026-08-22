@@ -237,7 +237,17 @@ invariant controls are FAIL. See [the receipt-delta contract](docs/RECEIPT_DELTA
 
 ## GitHub Action
 
+The generated workflow supports both pull requests and GitHub merge queues. A
+queued composition is checked against the exact `merge_group.base_sha` and
+`merge_group.head_sha`; trusted tests and integrity checks run again on the
+combined commit. See [the merge-queue contract](docs/MERGE_QUEUES.md).
+
 ```yaml
+on:
+  pull_request:
+  merge_group:
+    types: [checks_requested]
+
 permissions:
   contents: read
 
@@ -245,14 +255,14 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-      ref: ${{ github.event.pull_request.head.sha }}
+      ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.10.0
+  - uses: sulmusic2-star/agent-vigil@v0.10.1
     with:
       transcript: agent-session.jsonl
       repo: .
-      base: ${{ github.event.pull_request.base.sha }}
-      head: ${{ github.event.pull_request.head.sha }}
+      base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
       strict: true
 ```
 
@@ -260,7 +270,7 @@ Add a base-anchored policy:
 
 ```yaml
       policy: .agent-vigil.json
-      policy-ref: ${{ github.event.pull_request.base.sha }}
+      policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
 ```
 
 Portable mode uses the same exact GitHub event identity and base-anchored
@@ -269,21 +279,21 @@ policy:
 ```yaml
       receipt: .agent-vigil/receipt.json
       policy: .agent-vigil.json
-      policy-ref: ${{ github.event.pull_request.base.sha }}
+      policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
 ```
 
 Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.10.0
+    uses: sulmusic2-star/agent-vigil@v0.10.1
     with:
       mode: maintainer
       policy: .agent-vigil.json
-      policy-ref: ${{ github.event.pull_request.base.sha }}
+      policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       repo: .
-      base: ${{ github.event.pull_request.base.sha }}
-      head: ${{ github.event.pull_request.head.sha }}
+      base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 ```
 
 Use the generated PR template. Agent Vigil reads the event payload, never
@@ -291,7 +301,8 @@ executes PR body text, and rejects event/base/head mismatches.
 
 The Action runs the compiled verifier checked into this repository; it does not
 depend on an npm package being available. It writes `agent-vigil-report.json`,
-`agent-vigil.sarif`, and a readable job summary.
+`agent-vigil.sarif`, and a readable job summary. The composite outputs expose
+`status`, `receipt-hash`, `report`, and `sarif`.
 
 > **Trust boundary:** test commands execute repository code. Do not accept a
 > `test-cmd` value from untrusted issue or pull-request text. Read
@@ -329,6 +340,7 @@ vigil compare <before-receipt.json> <after-receipt.json> [--format text|json]
 vigil audit <change.diff> [--strict]
 vigil gate <portable-receipt.json> [--repo . --base <sha> --head <sha>]
 vigil maintainer --event <event.json> [--repo . --base <sha> --head <sha>]
+vigil merge-group --event <event.json> [--repo . --base <sha> --head <sha>]
 ```
 
 ## Why this shape
@@ -344,6 +356,7 @@ cover pieces of this problem. Agent Vigil's narrow position is:
 5. **Anchor policy outside the candidate change.**
 6. **Make regression tests prove they catch the old behavior.**
 7. **Compare receipt revisions and fail on evidence regression, not prose drift.**
+8. **Re-verify the composed commit before a GitHub merge queue reports green.**
 
 Agent Vigil is not another model reviewing a model. Its narrow advantage is the
 combination of cross-agent transcript reconciliation, fresh test evidence,
