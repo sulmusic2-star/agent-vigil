@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.3 - 2026-08-22
+
+- Publish the canonical npm package as `@sulmusic/agent-vigil`. npm rejected
+  the unscoped `agent-vigil` name because it is too similar to the existing,
+  separate `agentvigil` package.
+- Replace temporary GitHub-package setup commands with exact-version npm
+  commands and align the public Marketplace metadata with the live listing.
+- Keep the `agent-vigil` and `vigil` executable names unchanged.
+
 ## 0.11.2 - 2026-08-22
 
 - Resolve downloaded outcome-receipt paths before loading them. This fixes the

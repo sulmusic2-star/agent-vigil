@@ -88,7 +88,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      - uses: sulmusic2-star/agent-vigil@v0.11.2
+      - uses: sulmusic2-star/agent-vigil@v0.11.3
         with:
           receipt: .agent-vigil/receipt.json
           policy: .agent-vigil.json

@@ -1,11 +1,14 @@
 {
-  "name": "agent-vigil",
-  "version": "0.11.2",
+  "name": "@sulmusic/agent-vigil",
+  "version": "0.11.3",
   "description": "Fail-closed change control and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
-    "agent-vigil": "./dist/cli.js",
-    "vigil": "./dist/cli.js"
+    "agent-vigil": "dist/cli.js",
+    "vigil": "dist/cli.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
