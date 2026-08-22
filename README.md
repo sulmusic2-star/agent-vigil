@@ -127,7 +127,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes github:sulmusic2-star/agent-vigil#v0.11.0 init --profile authority
+npx --yes github:sulmusic2-star/agent-vigil#v0.11.1 init --profile authority
 ```
 
 Review the generated task ID, expiry, paths, and action classes, then merge the
@@ -347,7 +347,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.11.0
+  - uses: sulmusic2-star/agent-vigil@v0.11.1
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -377,7 +377,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.11.0
+    uses: sulmusic2-star/agent-vigil@v0.11.1
     with:
       mode: maintainer
       policy: .agent-vigil.json

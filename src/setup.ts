@@ -10,7 +10,7 @@ import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts
 type InitResult = { created: string[]; kept: string[] };
 type DoctorCheck = { status: "PASS" | "WARN" | "FAIL"; label: string; detail: string };
 
-function workflow(mode: "transcript" | "portable" | "maintainer" | "authority"): string { return `name: Agent Vigil
+function workflow(mode: "transcript" | "portable" | "maintainer" | "authority", setupCommand?: string): string { return `name: Agent Vigil
 
 on:
   pull_request:
@@ -31,7 +31,9 @@ jobs:
         with:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      - id: vigil
+${mode === "maintainer" && setupCommand ? `      - name: Install dependencies for fresh verification
+        run: ${setupCommand}
+` : ""}      - id: vigil
         uses: sulmusic2-star/agent-vigil@v${VERSION}
         with:
           ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : mode === "authority" ? "transcript: .agent-vigil/session.jsonl\n          authority-contract: .agent-vigil-authority.json\n          authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" : "transcript: .agent-vigil/session.md"}
@@ -183,7 +185,7 @@ export function initRepository(repo: string, force = false, portableSignerKeyId?
   }
   if (mode === "authority") writeScaffold(root, ".agent-vigil-authority.json", authorityContractTemplate(), force, result);
   if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result);
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result);
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode, setupCommand), force, result);
   writeScaffold(root, ".github/workflows/agent-vigil-outcomes.yml", outcomeWorkflow(), force, result);
   return result;
 }

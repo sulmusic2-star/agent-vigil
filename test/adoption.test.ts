@@ -180,7 +180,7 @@ test("init creates a policy, evidence placeholder, and exact-SHA workflow", () =
   assert.match(workflow, /merge_group:/);
   assert.match(workflow, /merge_group\.base_sha/);
   assert.match(workflow, /merge_group\.head_sha/);
-  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.11\.0/);
+  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.11\.1/);
   assert.match(outcomes, /workflow_run:/);
   assert.match(outcomes, /actions\/download-artifact@v5/);
   assert.match(outcomes, /mode: outcome/);
@@ -201,6 +201,7 @@ test("init preserves existing policy unless force is explicit", () => {
 
 test("maintainer init creates a base-anchored evidence gate and retained receipt artifact", () => {
   const path = repo();
+  writeFileSync(join(path, "package-lock.json"), '{"lockfileVersion":3}\n');
   const result = initRepository(path, false, undefined, "maintainer");
   assert.equal(result.created.length, 4);
   const policy = JSON.parse(readFileSync(join(path, ".agent-vigil.json"), "utf8"));
@@ -209,6 +210,8 @@ test("maintainer init creates a base-anchored evidence gate and retained receipt
   assert.equal(policy.maintainer.requireHumanAttestation, true);
   assert.equal(policy.maintainer.differentialTest.overlayChangedTests, true);
   assert.match(workflow, /mode: maintainer/);
+  assert.match(workflow, /name: Install dependencies for fresh verification/);
+  assert.match(workflow, /run: npm ci --ignore-scripts/);
   assert.match(workflow, /name: agent-vigil-receipt/);
   assert.match(workflow, /retention-days: 30/);
   assert.match(workflow, /types: \[opened, synchronize, reopened\]/);
@@ -239,6 +242,8 @@ test("Action accepts exactly one evidence mode", () => {
   assert.match(action, /echo "github_evidence=\$github_evidence_path"/);
   assert.match(action, /outcome mode requires a readable full outcome-receipt/);
   assert.match(action, /actions\/runs\/\$run_id\/jobs/);
+  assert.doesNotMatch(action, /gh api[^\n]*--slurp[^\n]*--jq/);
+  assert.match(action, /gh api --paginate[^\n]+\| jq -s 'add'/);
 });
 
 test("doctor validates the generated installation", () => {

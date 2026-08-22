@@ -1212,7 +1212,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.11.0";
+var VERSION = "0.11.1";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -2630,7 +2630,7 @@ function authorityContractTemplate() {
 }
 
 // src/setup.ts
-function workflow(mode) {
+function workflow(mode, setupCommand) {
   return `name: Agent Vigil
 
 on:
@@ -2652,7 +2652,9 @@ jobs:
         with:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      - id: vigil
+${mode === "maintainer" && setupCommand ? `      - name: Install dependencies for fresh verification
+        run: ${setupCommand}
+` : ""}      - id: vigil
         uses: sulmusic2-star/agent-vigil@v${VERSION}
         with:
           ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : mode === "authority" ? "transcript: .agent-vigil/session.jsonl\n          authority-contract: .agent-vigil-authority.json\n          authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" : "transcript: .agent-vigil/session.md"}
@@ -2806,7 +2808,7 @@ function initRepository(repo, force = false, portableSignerKeyId, profile = "def
   }
   if (mode === "authority") writeScaffold(root, ".agent-vigil-authority.json", authorityContractTemplate(), force, result5);
   if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result5);
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result5);
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode, setupCommand), force, result5);
   writeScaffold(root, ".github/workflows/agent-vigil-outcomes.yml", outcomeWorkflow(), force, result5);
   return result5;
 }

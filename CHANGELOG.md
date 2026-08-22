@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.1 - 2026-08-22
+
+- Make generated maintainer workflows install locked dependencies with scripts
+  disabled before running the base policy's fresh verification command.
+- Collect paginated GitHub review, comment, and Actions-job evidence with the
+  hosted runner's supported `gh` and `jq` interface.
+
+Both defects were found by the first real pull request that installed the
+published Action on Agent Vigil itself. The failed receipt remains in that pull
+request as first-party dogfood evidence.
+
 ## 0.11.0 - 2026-08-22
 
 - Add task-scoped authority contracts that bind allowed repository paths,
