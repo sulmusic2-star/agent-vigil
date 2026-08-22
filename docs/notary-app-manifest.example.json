@@ -1,0 +1,23 @@
+{
+  "name": "Agent Vigil Notary",
+  "url": "https://REPLACE_WITH_DEPLOYED_SERVICE.example",
+  "hook_attributes": {
+    "url": "https://REPLACE_WITH_DEPLOYED_SERVICE.example/github/webhook",
+    "active": true
+  },
+  "redirect_url": "https://REPLACE_WITH_DEPLOYED_SERVICE.example/github/callback",
+  "callback_urls": [
+    "https://REPLACE_WITH_DEPLOYED_SERVICE.example/github/callback"
+  ],
+  "public": true,
+  "default_permissions": {
+    "actions": "read",
+    "checks": "write",
+    "contents": "read",
+    "pull_requests": "read"
+  },
+  "default_events": [
+    "pull_request",
+    "workflow_run"
+  ]
+}

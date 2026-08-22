@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.12.0 - 2026-08-22
+
+- Added optional GitHub artifact attestations for full Agent Vigil receipts.
+  The signed custom predicate binds the receipt file, verdict, base and head
+  commits, Git tree, policy hash, version, and evidence counts.
+- Kept source code, prompts, transcripts, and test output out of the public
+  attestation predicate.
+- Added `vigil attest` to prepare a predicate and `vigil verify-attestation` to
+  verify the GitHub signature and every signed receipt field.
+- Verification pins the expected signer workflow and rejects self-hosted runners
+  unless the operator makes an explicit exception.
+- Added `vigil notary`, a fail-closed check payload builder for a GitHub App. It
+  refuses invalid attestations, unexpected commits, and untrusted policies.
+- Added `init --attest` and `doctor` checks for the required GitHub workflow
+  permissions.
+- Replaced the long pull-request summary with a short decision card while
+  retaining the full JSON receipt and SARIF artifact.
+- Published the predicate schema, setup guide, GitHub App contract, and example
+  App manifest. No hosted notary service is included in this release.
+- Added adversarial coverage for changed files, replayed commits, mismatched Git
+  trees, wrong policies, altered receipts, and webhook signatures.
+- Reworked the public page and value-record HTML with readable body type,
+  restrained serif headings, plain wording, and no decorative gradients, pills,
+  soft shadows, or all-page monospace.
+- Added `npm run review:public` to check versions, public wording, local links,
+  accessibility labels, reading measure, and repeated template defaults. The
+  separate checklist still requires a named person to approve the exact change.
+
 ## 0.11.3 - 2026-08-22
 
 - Publish the canonical npm package as `@sulmusic/agent-vigil`. npm rejected
@@ -26,7 +54,7 @@
 
 Both defects were found by the first real pull request that installed the
 published Action on Agent Vigil itself. The failed receipt remains in that pull
-request as first-party dogfood evidence.
+request as evidence from Agent Vigil's own use.
 
 ## 0.11.0 - 2026-08-22
 
@@ -57,13 +85,14 @@ request as first-party dogfood evidence.
   Actions-duration, revert, hotfix, and incident evidence. Generated workflows
   retain the normalized bundle and a Value Card with each receipt.
 - Add a separate least-privilege outcome observer. It downloads the prior
-  receipt, records completed Actions duration and final merge state, and never
+  receipt, records final Actions duration and final merge state, and never
   checks out or executes candidate code.
 - Add `vigil compare-value` with receipt deduplication, exact task-class groups,
   minimum evidence gates, hashed-cost completeness, review burden, downstream
   adversity, and 95% Wilson intervals.
-- Publish a dated market radar separating official platform behavior, anecdotal
-  complaints, competitor categories, product hypotheses, and commercial gates.
+- Publish dated research notes separating official platform behavior, reported
+  user problems, products compared, and the evidence required before further
+  investment.
 
 Authority reconciliation is post-execution evidence, not runtime containment or
 proof that no unlogged action occurred.
@@ -102,6 +131,5 @@ invented from a merge-group payload that does not contain them.
 - Add negative controls and fail-closed tests for receipt tampering, weaker
   policy, unrelated ranges, missing invariant checks, and advisory deltas.
 
-The comparison is maintainer-authored and non-blind. It does not establish
-universal superiority, adoption, revenue, valuation, or a guaranteed financial
-outcome.
+The comparison is maintainer-authored and non-blind. Its results apply only to
+the published corpus and protocol.

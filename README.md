@@ -7,18 +7,18 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**Give the coding agent a task boundary. Verify what it actually did.**
+**Require evidence before an AI-made change can merge.**
 
-Agent Vigil is a cross-vendor AI engineering change-control gate. It reconciles
-human-issued task authority and an AI coding agent's final claims with observed
-tool actions, the exact Git range, and a fresh verification run. The verifier
-is local and deterministic: no model grades another model, and missing evidence
-does not become a green check.
+Agent Vigil checks an exact code change against the task, policy, tests, and
+recorded tool actions behind it. It returns **PASS**, **FAIL**, or
+**INCONCLUSIVE**. Missing evidence never becomes a green check.
 
-For maintainers who do not want agent transcripts, Agent Vigil includes a PR evidence
-gate. It binds a named human to the GitHub event, enforces small-change policy,
-and can run the candidate's changed regression test against both candidate and
-base source. A test that passes on both sides is a **FAIL**, not proof.
+The verifier runs locally or in the repository's GitHub runner. It does not use
+another model to judge the work. Maintainers can use the PR evidence mode
+without sharing an agent transcript. That mode binds a named human to the pull
+request, enforces change limits, and can prove that a regression test fails on
+the old code and passes on the proposed code. A test that passes on both sides
+is not proof of a fix.
 
 Raw agent transcripts do not need to be committed to a pull request. The
 portable-receipt lane reduces a local result to signed hashes, repository and
@@ -26,19 +26,19 @@ policy identity, summary counts, and a signer key ID. CI verifies the signer
 against policy from the base branch and independently re-runs the trusted test
 command in the clean checkout.
 
-v0.10 can also compare two full receipts. `vigil compare` fails on weakened
+`vigil compare` checks two full receipts. It fails on weakened
 policy, tampered content, lost signer continuity, new contradictions, and
 disappearing invariant checks. It reports new advisories separately instead of
 silently turning them into blockers.
 
-v0.11 adds **task-scoped authority reconciliation**. A short-lived contract
-declares allowed change paths and action classes before work starts. Agent Vigil
+A short-lived authority contract can
+declare allowed change paths and action classes before work starts. Agent Vigil
 then compares that base-anchored contract with the exact Git result and observed
 tool trajectory. An unauthorized push, release, deployment, external write,
 dependency installation, destructive command, or task creation is a FAIL;
 ambiguous or incomplete action evidence is INCONCLUSIVE.
 
-v0.11 also adds `vigil value`. It binds a valid receipt to
+`vigil value` binds a valid receipt to
 observed Codex or Claude Code usage, attributed cost and budget, maintainer
 disposition, review duration, and downstream outcome. The resulting Agent Value
 Card is `POSITIVE`, `NEGATIVE`, or `INCONCLUSIVE` and can be rendered as a
@@ -46,27 +46,18 @@ private standalone HTML file. See the
 [Agent Value Card contract](docs/AGENT_VALUE_CARD.md) and the clearly labeled
 [synthetic HTML demonstration](docs/assets/agent-value-card-demo.html).
 
-The release includes a normalized
+Agent Vigil also includes a normalized
 [GitHub outcome-evidence bundle](docs/GITHUB_OUTCOME_EVIDENCE.md), required-check
 retention of Value Cards, exact repeated-action and spend-without-observed-
 progress controls, and
 [task-matched local comparisons](docs/VALUE_COMPARISONS.md) with sample gates
-and 95% Wilson intervals. These capabilities do not, by themselves, establish
-external adoption.
+and 95% Wilson intervals.
 [Open the clearly labeled synthetic comparison rendering](docs/assets/agent-value-comparison-demo.html).
 
-The next product hypothesis is **Agent Vigil Control: cross-vendor assurance
-and verified unit economics for coding agents**. Its outcome ledger connects
-task authority, budget, and agent actions to verification, maintainer
-disposition, review cost, merge/revert/incident outcomes, and spend.
-The dated
-[product-discovery report](docs/PRODUCT_DISCOVERY_2026-08-22.md) separates
-official platform behavior, surveys, public issue reports, community evidence,
-competitor capture risk, scoring assumptions, and falsification gates. It is a
-research decision, not evidence of adoption or revenue.
-The [implemented differentiation audit](docs/IMPLEMENTED_DIFFERENTIATION_2026-08-22.md)
-also records where CodeBurn, agentacct, and AgentMeter are already stronger, so
-Agent Vigil does not pretend that cost tracking or no-edit warnings are unique.
+Version 0.12 can attach a GitHub/Sigstore attestation to the full receipt. The
+public predicate contains hashes, commit SHAs, evidence counts, and the
+decision. It does not contain source code, prompts, transcript text, file paths,
+or test output. See [GitHub-attested receipts](docs/ATTESTED_RECEIPTS.md).
 
 ```text
   ✗ [test-count] 99 tests
@@ -97,8 +88,8 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 From npm:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.11.3 init
-npx --yes @sulmusic/agent-vigil@0.11.3 doctor
+npx --yes @sulmusic/agent-vigil@0.12.0 init
+npx --yes @sulmusic/agent-vigil@0.12.0 doctor
 ```
 
 `init` creates a small JSON policy, a privacy warning and transcript placeholder,
@@ -113,10 +104,29 @@ candidate change therefore cannot weaken its own gate merely by editing
 On pull-request events, the Action also rejects base, head, or policy-ref values
 that disagree with GitHub's event payload.
 
+To add a GitHub/Sigstore signature to each receipt:
+
+```bash
+npx --yes @sulmusic/agent-vigil@0.12.0 init --attest
+npx --yes @sulmusic/agent-vigil@0.12.0 doctor
+```
+
+The generated workflow adds GitHub signing permissions but does not gain write
+access to repository contents. After a run, download
+`agent-vigil-report.json` and verify it with:
+
+```bash
+npx --yes @sulmusic/agent-vigil@0.12.0 verify-attestation \
+  agent-vigil-report.json --repository OWNER/REPOSITORY
+```
+
+Attestation verifies the receipt's origin and integrity. It does not prove that
+the code is correct.
+
 Maintainer profile:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.11.3 init --profile maintainer
+npx --yes @sulmusic/agent-vigil@0.12.0 init --profile maintainer
 ```
 
 This creates a PR declaration template, base-anchored file/line/test/protected-
@@ -127,7 +137,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.11.3 init --profile authority
+npx --yes @sulmusic/agent-vigil@0.12.0 init --profile authority
 ```
 
 Review the generated task ID, expiry, paths, and action classes, then merge the
@@ -135,10 +145,11 @@ contract before the code change. See [task-scoped authority reconciliation](docs
 
 See the [two-minute installation page](https://sulmusic2-star.github.io/agent-vigil/)
 and the [three-case public failure corpus](proof/README.md). The corpus records
-first-party dogfood failures with exact revisions, corrections, negative
-controls, and limits; it is kept separate from external-adoption totals.
+failures found while using Agent Vigil on its own releases. Each record includes
+exact revisions, corrections, negative controls, and limits. These records are
+kept separate from external-adoption totals.
 
-## What v0.11 checks
+## What it checks
 
 - Claimed test success against a fresh test execution.
 - Claimed test counts across 18 output families: Node/TAP, Jest, Vitest, pytest, Cargo, Go JSON, Maven, Gradle, RSpec, PHPUnit, .NET, Mocha, Bun, AVA, Playwright, Cypress, and Minitest.
@@ -164,7 +175,7 @@ controls, and limits; it is kept separate from external-adoption totals.
   to pass on the candidate. Optional setup, timeout, and expected base-failure
   pattern are controlled by policy from the base commit.
 - Base-anchored task authority: exact changed-path allow/deny rules, short-lived
-  validity, observed action classification, and complete terminal tool-result
+  validity, observed action classification, and terminal tool-result
   evidence across supported transcript adapters.
 
 Every run can emit a compact JSON receipt, Markdown, SARIF 2.1.0, and a GitHub
@@ -222,7 +233,7 @@ The base-branch policy pins the signer and receipt path:
 Use `receipt:` instead of `transcript:` in the Action. Agent Vigil permits the
 signed code commit to equal the PR head, or to be followed only by changes to
 the base-policy-controlled receipt path. Any later source change invalidates
-the receipt. See the [complete operator guide](docs/PRIVATE_RECEIPT_GATE.md).
+the receipt. See the [operator guide](docs/PRIVATE_RECEIPT_GATE.md).
 
 ## Run locally
 
@@ -230,7 +241,7 @@ Node 20 or newer is required. Run the published npm package without installing
 it globally:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.11.3 --help
+npx --yes @sulmusic/agent-vigil@0.12.0 --help
 ```
 
 Or work from source:
@@ -320,7 +331,7 @@ vigil compare-value cards/*.json \
 ```
 
 GitHub evidence records PR lifecycle, latest reviewer states, review-comment
-count, merge state, explicit revert/hotfix/incident markers, and completed
+count, merge state, explicit revert/hotfix/incident markers, and final
 Actions elapsed time. It does not infer incidents from prose or convert runner
 minutes into fabricated billed USD.
 
@@ -347,7 +358,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.11.3
+  - uses: sulmusic2-star/agent-vigil@v0.12.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -356,6 +367,10 @@ steps:
       github-token: ${{ github.token }}
       strict: true
 ```
+
+Set `attest: true` only after granting the caller workflow `id-token: write`,
+`attestations: write`, and `artifact-metadata: write`. The
+[`init --attest` guide](docs/ATTESTED_RECEIPTS.md) shows the required settings.
 
 Add a base-anchored policy:
 
@@ -377,7 +392,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.11.3
+    uses: sulmusic2-star/agent-vigil@v0.12.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
@@ -404,6 +419,8 @@ depend on an npm package being available. It writes `agent-vigil-report.json`,
 `agent-vigil-value-card.json`, and a readable job summary. The composite outputs
 expose `status`, `receipt-hash`, `report`, `sarif`, `github-evidence`, and
 `value-card`; `value-verdict` exposes `POSITIVE`, `NEGATIVE`, or `INCONCLUSIVE`.
+When attestation is enabled, the Action also exposes `attestation-url`,
+`attestation-id`, and `attestation-bundle`.
 The job summary shows the review/outcome/runtime closure without copying review
 bodies. The GitHub token is used only for read-only evidence collection.
 `vigil init` also creates a separate outcomes workflow. It downloads the prior
@@ -439,11 +456,14 @@ vigil authority <transcript.jsonl> --contract <authority.json> --contract-ref <s
 Additional commands:
 
 ```text
-vigil init [--repo <path>] [--force]
+vigil init [--repo <path>] [--force] [--attest]
 vigil init --profile maintainer [--repo <path>] [--force]
 vigil doctor [--repo <path>]
 vigil keygen --private <path> --public <path>
 vigil verify <receipt.json> [--public-key <path>]
+vigil attest <receipt.json> --predicate-output <path>
+vigil verify-attestation <receipt.json> --repository <owner/name> [--signer-workflow <path>]
+vigil notary <receipt.json> --repository <owner/name> --head <sha> --policy-sha256 <digest> [--signer-workflow <path>]
 vigil compare <before-receipt.json> <after-receipt.json> [--format text|json]
 vigil github-evidence --event <event.json> [GitHub API exports]
 vigil value <receipt.json> [--github-evidence <bundle.json>] [options]
@@ -454,29 +474,26 @@ vigil maintainer --event <event.json> [--repo . --base <sha> --head <sha>]
 vigil merge-group --event <event.json> [--repo . --base <sha> --head <sha>]
 ```
 
-## Why this shape
+## What it prevents
 
-Developers repeatedly report agents declaring completion without a runnable
-receipt, weakening tests to produce green, or looping on tools. Existing tools
-cover pieces of this problem. Agent Vigil's narrow position is:
+Agent Vigil is designed for common failures that ordinary green checks can
+miss:
 
 1. **Fail closed on missing evidence.**
 2. **Compare the story with the trajectory and the selected repository state.**
-3. **Detect common ways an agent can improve the scoreboard instead of the product.**
-4. **Keep the hot path local, deterministic, small, and auditable.**
+3. **Detect common ways a change can weaken the tests that judge it.**
+4. **Keep verification local, deterministic, and inspectable.**
 5. **Anchor policy outside the candidate change.**
 6. **Make regression tests prove they catch the old behavior.**
 7. **Compare receipt revisions and fail on evidence regression, not prose drift.**
 8. **Re-verify the composed commit before a GitHub merge queue reports green.**
 9. **Observe run and merge outcomes later without rerunning candidate code.**
 
-Agent Vigil is not another model reviewing a model. Its narrow advantage is the
-combination of cross-agent transcript reconciliation, fresh test evidence,
-explicit Git identity, and anti-reward-hacking checks in one deterministic gate.
+Agent Vigil does not generate code-review opinions. It checks recorded claims,
+actions, Git identity, policy, and executable evidence.
 
-The source-linked complaint and competitor review is in
-[docs/RESEARCH.md](docs/RESEARCH.md). The executed compatibility matrix is in
-[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Product limits are explicit in
+The executed compatibility matrix is in
+[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Security limits are explicit in
 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 Public adoption is measured under a separate
@@ -506,7 +523,7 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 230 tests, including 80 generated-repository compatibility scenarios across
+- 303 tests, including 80 generated-repository compatibility scenarios across
   18 runner-output families, plus adversarial false-pass, path, transcript,
   tool-loop, test-count, skip, suppression, adapter-drift, maintainer-attestation,
   scope-budget, symlink, forged-event, and differential-regression cases.
@@ -518,7 +535,11 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
   plain Git through Node, Python, Rust, Go, Maven, Gradle, Ruby, PHP, and .NET.
 - Linux CI on Node 20, 22, and 24, plus Node 22 portability jobs on macOS
   and Windows.
-- The GitHub Action dogfoods itself in CI.
+- The GitHub Action runs on Agent Vigil's own pull requests in CI.
+- `npm run review:public` checks the public wording, links, accessible labels,
+  reading measure, and rendered HTML against the
+  [public release review checklist](docs/PUBLIC_RELEASE_REVIEW.md). It does not
+  claim that automation performed the named human review.
 - `npm pack --dry-run` is part of the build gate.
 - JSON, SARIF, and job-summary outputs reject symlinks and non-regular targets,
   then use same-directory temporary files and atomic replacement. POSIX output
@@ -537,10 +558,9 @@ reproduction command. Optional Ed25519 signing is supported. An embedded key is
 self-asserted; use `--public-key` to pin identity through a trusted channel.
 
 See [the receipt specification](docs/AI_CHANGE_RECEIPT.md),
-[JSON Schema](docs/receipt-v2.schema.json), and [threat model](docs/THREAT_MODEL.md).
-The hosted [organization control-plane design](docs/CONTROL_PLANE.md) and
-[commercial proof gates](docs/COMMERCIAL_GATES.md) are deliberately marked as
-future hypotheses, not deployed features.
+[JSON Schema](docs/receipt-v2.schema.json),
+[GitHub attestation schema](docs/ai-change-receipt-predicate-v1.schema.json),
+and [threat model](docs/THREAT_MODEL.md).
 
 Portable receipt v1 is intentionally smaller than the full change receipt. It
 does not include transcript text, claim quotes, paths, or detailed rule
