@@ -21,12 +21,19 @@
   App manifest. No hosted notary service is included in this release.
 - Added adversarial coverage for changed files, replayed commits, mismatched Git
   trees, wrong policies, altered receipts, and webhook signatures.
+- Replaced the maintainer profile's required human-review declarations with an
+  explicit base-anchored automated review policy. Its commands run in a detached
+  checkout of the exact candidate commit and fail closed on nonzero exit,
+  timeout, `HEAD` movement, or tracked-file mutation.
+- Kept `reviewMode: "human"` for repositories whose own governance requires
+  named declarations. Existing policies remain valid.
 - Reworked the public page and value-record HTML with readable body type,
   restrained serif headings, plain wording, and no decorative gradients, pills,
   soft shadows, or all-page monospace.
 - Added `npm run review:public` to check versions, public wording, local links,
-  accessibility labels, reading measure, and repeated template defaults. The
-  separate checklist still requires a named person to approve the exact change.
+  accessibility labels, first-screen clarity, claim-count consistency, reading
+  measure, and repeated template defaults. Agent Vigil no longer requires a
+  named human declaration for this release gate.
 
 ## 0.11.3 - 2026-08-22
 

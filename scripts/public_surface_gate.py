@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Objective checks for Agent Vigil's public entry points.
-
-This catches repeatable release mistakes. It does not claim that a human read or
-approved the page. The separate checklist records what a reviewer still needs to
-judge.
-"""
+"""Fail-closed, repeatable checks for Agent Vigil's public entry points."""
 from __future__ import annotations
 
 import argparse
@@ -31,6 +26,7 @@ TEMPLATE_CSS = {
     "font-family:inter": "default Inter font",
     "font-family: inter": "default Inter font",
 }
+GENERIC_ACTIONS = {"click here", "learn more", "get started", "submit"}
 
 class PageParser(HTMLParser):
     def __init__(self) -> None:
@@ -123,6 +119,9 @@ def html_failures() -> list[str]:
         for frame in parser.iframes:
             if not frame.get("title", "").strip():
                 failures.append(f"{relative(path)} has an iframe without a title")
+        for label in parser.buttons:
+            if label.strip().lower() in GENERIC_ACTIONS:
+                failures.append(f"{relative(path)} uses a generic action label: {label}")
         visible = " ".join(parser.visible)
         if "—" in visible:
             failures.append(f"{relative(path)} uses an em dash in visible copy; use a sentence or colon")
@@ -138,11 +137,45 @@ def html_failures() -> list[str]:
         failures.append("docs/index.html has no 68-character reading measure")
     if "overflow-x: clip" not in landing:
         failures.append("docs/index.html has no explicit horizontal-overflow guard")
+    first_screen = " ".join(page_visible_text(ROOT / "docs/index.html")[:18]).lower()
+    for phrase in ["agent vigil", "check the work before it merges", "exact commits", "evidence is missing"]:
+        if phrase not in first_screen:
+            failures.append(f"docs/index.html first screen does not explain the product with: {phrase}")
+    return failures
+
+
+def page_visible_text(path: Path) -> list[str]:
+    parser = PageParser()
+    parser.feed(path.read_text())
+    return parser.visible
+
+
+def claim_consistency_failures() -> list[str]:
+    sources = {
+        "README.md": (ROOT / "README.md").read_text(),
+        "docs/COMPATIBILITY.md": (ROOT / "docs/COMPATIBILITY.md").read_text(),
+        "docs/index.html": (ROOT / "docs/index.html").read_text(),
+    }
+    patterns = {
+        "README.md": r"(?m)^- (\d+) tests, including",
+        "docs/COMPATIBILITY.md": r"npm test` executes \*\*(\d+) tests\*\*",
+        "docs/index.html": r"trusted command observed (\d+) passing",
+    }
+    observed: dict[str, str] = {}
+    failures: list[str] = []
+    for name, text in sources.items():
+        match = re.search(patterns[name], text)
+        if not match:
+            failures.append(f"{name} does not expose the public test count in the expected form")
+        else:
+            observed[name] = match.group(1)
+    if len(set(observed.values())) > 1:
+        failures.append("public test counts disagree: " + ", ".join(f"{name}={count}" for name, count in observed.items()))
     return failures
 
 
 def run_checks() -> list[str]:
-    return version_failures() + text_failures() + html_failures()
+    return version_failures() + text_failures() + html_failures() + claim_consistency_failures()
 
 
 def self_test() -> None:
@@ -153,6 +186,8 @@ def self_test() -> None:
     assert parser.images[0]["alt"] == "Receipt example"
     assert resolve_local_link(ROOT / "docs/index.html", "ATTESTED_RECEIPTS.md") == (ROOT / "docs/ATTESTED_RECEIPTS.md").resolve()
     assert "product hypothesis" in INTERNAL_TERMS
+    assert "learn more" in GENERIC_ACTIONS
+    assert claim_consistency_failures() == []
     print("public surface gate self-test: PASS")
 
 
@@ -168,11 +203,11 @@ def main() -> int:
         print("Public surface gate: FAIL", file=sys.stderr)
         for failure in failures:
             print(f"- {failure}", file=sys.stderr)
-        print("\nThis automated gate does not replace the named human review in docs/PUBLIC_RELEASE_REVIEW.md.", file=sys.stderr)
+        print("\nThe public release policy blocks this revision until every listed failure is fixed.", file=sys.stderr)
         return 1
     print("Public surface gate: PASS")
     print(f"Checked {len(PUBLIC_TEXT)} public text files and {len(PUBLIC_HTML)} rendered HTML files.")
-    print("Human approval is still required by docs/PUBLIC_RELEASE_REVIEW.md.")
+    print("The automated public release policy passed; no human-review declaration is required by Agent Vigil.")
     return 0
 
 if __name__ == "__main__":

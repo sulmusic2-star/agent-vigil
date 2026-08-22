@@ -24,7 +24,7 @@ forms, semantic tool-loop fingerprints, and documentation false positives.
 
 Current durable result: **80/80 compatibility scenarios pass**. Combined with
 the core, CLI, adapter, setup, policy-anchor, signing, workspace-binding, and remediation suite,
-`npm test` executes **303 tests** in the v0.12.0 release candidate.
+`npm test` executes **311 tests** in the v0.12.0 release candidate.
 
 `npm run test:package` additionally installs the generated tarball into a
 disposable consumer and exercises both standard and portable `init` plus
@@ -34,7 +34,7 @@ Maven, Gradle wrapper, Gradle build, Ruby, PHP, and .NET.
 A deterministic fuzz layer adds 9,000 mutated runner, dotted-term, traversal, and structured-tool cases.
 
 The Node coverage gate requires at least 90% lines, 80% branches, and 90%
-functions. The current run reported 96.67% lines, 80.25% branches, and 99.20%
+functions. The current run reported 95.11% lines, 81.86% branches, and 98.10%
 functions.
 
 Run it:

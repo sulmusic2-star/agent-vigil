@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.11.0/docs/policy.schema.json",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.12.0/docs/policy.schema.json",
   "title": "Agent Vigil policy",
   "type": "object",
   "additionalProperties": false,
@@ -23,6 +23,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "reviewMode": { "enum": ["human", "automated"] },
         "requireHumanAttestation": { "type": "boolean" },
         "requireLinkedIssue": { "type": "boolean" },
         "requireAiDisclosure": { "type": "boolean" },
@@ -42,8 +43,31 @@
             "baseFailurePattern": { "type": "string", "minLength": 1, "maxLength": 500 },
             "overlayChangedTests": { "type": "boolean" }
           }
+        },
+        "automatedReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commands"],
+          "properties": {
+            "setupCommand": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "commands": {
+              "type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+            },
+            "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
+          }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reviewMode": { "const": "automated" } }, "required": ["reviewMode"] },
+          "then": { "required": ["automatedReview"], "properties": { "requireHumanAttestation": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "reviewMode": { "const": "human" } }, "required": ["reviewMode"] },
+          "then": { "not": { "required": ["automatedReview"] }, "properties": { "requireHumanAttestation": { "const": true } } }
+        }
+      ]
     }
   },
   "$defs": {

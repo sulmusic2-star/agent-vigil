@@ -12,9 +12,12 @@ evidence support the agent's checkable narrative for this repository range?**
 - Exact repeated-tool-call loops.
 - Common test/config weakening visible in the selected diff.
 - Empty or insufficient evidence that would previously have passed vacuously.
-- Pull-request declarations attributed to a different author.
+- Pull-request declarations attributed to a different author when human review
+  mode is selected.
 - Oversized or protected-path changes that violate base-anchored policy.
 - Candidate regression tests that also pass against the selected base source.
+- Automated-review commands that fail, time out, move `HEAD`, or change tracked
+  files in the isolated candidate checkout.
 
 ## Out of scope
 
@@ -26,7 +29,8 @@ evidence support the agent's checkable narrative for this repository range?**
 - Trusted timestamp authority or host integrity.
 - Secrets already present in a transcript.
 - Whether a human declaration is sincere or the linked issue is actually
-  approved; maintainer mode verifies attribution and syntax only.
+  approved. Human mode verifies attribution and syntax only. Automated mode
+  records repeatable technical checks and does not claim human understanding.
 - Whether a base failure has the intended semantic cause unless policy pins a
   sufficiently specific `baseFailurePattern`.
 

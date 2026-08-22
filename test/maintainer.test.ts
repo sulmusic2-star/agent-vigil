@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { loadPolicy } from "../src/config.ts";
 import {
   buildMaintainerChecks,
+  checkAutomatedReview,
   checkAttestations,
   checkChangeScope,
   checkDifferentialTest,
@@ -36,7 +37,7 @@ function event(path: string, base: string, head: string, prBody = body()): strin
   return eventPath;
 }
 
-function regressionRepo(catching = true): { repo: string; base: string; head: string; event: string } {
+function regressionRepo(catching = true, reviewMode: "human" | "automated" = "human"): { repo: string; base: string; head: string; event: string } {
   const repo = temp();
   git(repo, "init", "-q");
   git(repo, "config", "user.email", "vigil@example.test");
@@ -51,7 +52,11 @@ function regressionRepo(catching = true): { repo: string; base: string; head: st
     strict: true,
     minVerified: 1,
     maintainer: {
-      requireHumanAttestation: true,
+      ...(reviewMode === "automated" ? {
+        reviewMode: "automated",
+        requireHumanAttestation: false,
+        automatedReview: { commands: ["node --test test/*.test.js"], timeoutSeconds: 30 },
+      } : { requireHumanAttestation: true }),
       requireLinkedIssue: true,
       requireAiDisclosure: true,
       maxChangedFiles: 5,
@@ -67,7 +72,8 @@ function regressionRepo(catching = true): { repo: string; base: string; head: st
   else writeFileSync(join(repo, "README.md"), "unrelated\n");
   writeFileSync(join(repo, "test", "regression.test.js"), `const test=require('node:test');const assert=require('node:assert/strict');test('regression',()=>assert.equal(require('../math').add(2,1),${catching ? 3 : 1}));\n`);
   const head = commit(repo, "candidate");
-  return { repo, base, head, event: event(repo, base, head) };
+  const prBody = reviewMode === "automated" ? "- AI assistance: agent\n- Linked issue: #42\n" : body();
+  return { repo, base, head, event: event(repo, base, head, prBody) };
 }
 
 test("path patterns match nested and root test conventions without substring leaks", () => {
@@ -94,6 +100,13 @@ test("attestation checks fail closed on a different login, unchecked review, and
   assert.ok(checks.some((check) => check.ruleId === "responsible-human" && check.verdict === "contradicted"));
   assert.ok(checks.some((check) => check.ruleId === "human-review-attestation" && check.verdict === "contradicted"));
   assert.ok(checks.some((check) => check.ruleId === "linked-issue" && check.verdict === "contradicted"));
+});
+
+test("automated review mode does not require human declarations", () => {
+  const evidence: PullRequestEvidence = { author: "alice", body: "- AI assistance: agent\n- Linked issue: #42\n" };
+  const checks = checkAttestations(evidence, { reviewMode: "automated", requireLinkedIssue: true, requireAiDisclosure: true });
+  assert.equal(checks.some((check) => check.ruleId?.startsWith("human-") || check.ruleId === "responsible-human"), false);
+  assert.equal(checks.every((check) => check.verdict === "verified"), true);
 });
 
 test("scope gate counts exact files and lines, requires tests, and protects paths", () => {
@@ -151,6 +164,47 @@ test("symlink test overlays fail closed", () => {
   assert.match(check.evidence, /symlink/);
 });
 
+test("automated review runs base-policy setup and commands in the exact isolated candidate", () => {
+  const fixture = regressionRepo(true);
+  const checks = checkAutomatedReview(fixture.repo, fixture.head, {
+    setupCommand: `node -e "require('node:fs').writeFileSync('setup.tmp','ready')"`,
+    commands: [
+      `node -e "if(require('node:fs').readFileSync('setup.tmp','utf8')!=='ready')process.exit(1)"`,
+      `node -e "if(require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()!=='${fixture.head}')process.exit(1)"`,
+    ],
+    timeoutSeconds: 30,
+  });
+  assert.equal(checks.filter((check) => check.ruleId === "automated-review-command" && check.verdict === "verified").length, 2);
+  assert.equal(checks.some((check) => check.verdict !== "verified"), false);
+  assert.match(checks[0].evidence, /not human understanding/);
+});
+
+test("automated review fails a nonzero command instead of approving it", () => {
+  const fixture = regressionRepo(true);
+  const checks = checkAutomatedReview(fixture.repo, fixture.head, { commands: [`node -e "process.exit(7)"`], timeoutSeconds: 30 });
+  assert.ok(checks.some((check) => check.ruleId === "automated-review-command" && check.verdict === "contradicted"));
+});
+
+test("automated review is inconclusive when a command times out", () => {
+  const fixture = regressionRepo(true);
+  const checks = checkAutomatedReview(fixture.repo, fixture.head, { commands: [`node -e "setTimeout(()=>{},10000)"`], timeoutSeconds: 1 });
+  assert.ok(checks.some((check) => check.ruleId === "automated-review-command" && check.verdict === "unverifiable" && check.blocksPass));
+});
+
+test("automated review rejects tracked-file mutation", () => {
+  const fixture = regressionRepo(true);
+  const checks = checkAutomatedReview(fixture.repo, fixture.head, {
+    commands: [`node -e "require('node:fs').writeFileSync('math.js','tampered')"`], timeoutSeconds: 30,
+  });
+  assert.ok(checks.some((check) => check.ruleId === "automated-review-worktree" && check.verdict === "contradicted"));
+});
+
+test("automated review rejects a command that moves HEAD", () => {
+  const fixture = regressionRepo(true);
+  const checks = checkAutomatedReview(fixture.repo, fixture.head, { commands: ["git checkout --detach HEAD~1"], timeoutSeconds: 30 });
+  assert.ok(checks.some((check) => check.ruleId === "automated-review-head" && check.verdict === "unverifiable" && check.blocksPass));
+});
+
 test("maintainer checks catch over-broad and non-catching PRs as separate contradictions", () => {
   const fixture = regressionRepo(false);
   const policy = loadPolicy(fixture.repo, ".agent-vigil.json", fixture.base).value.maintainer!;
@@ -170,6 +224,16 @@ test("CLI maintainer mode emits a PASS receipt for a bounded catching regression
   assert.ok(report.results.some((check: { ruleId: string }) => check.ruleId === "differential-test"));
 });
 
+test("CLI automated review emits PASS without human review declarations", () => {
+  const fixture = regressionRepo(true, "automated");
+  const output = join(temp(), "report.json");
+  assert.equal(run(["maintainer", "--event", fixture.event, "--repo", fixture.repo, "--base", fixture.base, "--head", fixture.head, "--policy", ".agent-vigil.json", "--policy-ref", fixture.base, "--output", output]), 0);
+  const report = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(report.summary.status, "PASS");
+  assert.equal(report.results.some((check: { ruleId: string }) => check.ruleId === "human-review-attestation"), false);
+  assert.ok(report.results.some((check: { ruleId: string; verdict: string }) => check.ruleId === "automated-review-command" && check.verdict === "verified"));
+});
+
 test("CLI maintainer mode rejects a forged event Git range", () => {
   const fixture = regressionRepo(true);
   const forged = event(fixture.repo, fixture.head, fixture.head);
@@ -182,4 +246,31 @@ test("maintainer policy rejects unknown nested controls and invalid regex", () =
   assert.throws(() => loadPolicy(fixture.repo), /maintainer contains unknown/);
   writeFileSync(join(fixture.repo, ".agent-vigil.json"), JSON.stringify({ schemaVersion: 1, maintainer: { differentialTest: { command: "test", baseFailurePattern: "[" } } }));
   assert.throws(() => loadPolicy(fixture.repo), /valid regular expression/);
+});
+
+test("maintainer policy validates explicit automated review without weakening legacy policies", () => {
+  const fixture = regressionRepo(true);
+  writeFileSync(join(fixture.repo, ".agent-vigil.json"), JSON.stringify({ schemaVersion: 1, maintainer: {
+    reviewMode: "automated", requireHumanAttestation: false,
+    automatedReview: { commands: ["node --test"], timeoutSeconds: 30 },
+  } }));
+  assert.equal(loadPolicy(fixture.repo).value.maintainer?.reviewMode, "automated");
+
+  writeFileSync(join(fixture.repo, ".agent-vigil.json"), JSON.stringify({ schemaVersion: 1, maintainer: { reviewMode: "automated" } }));
+  assert.throws(() => loadPolicy(fixture.repo), /requires maintainer\.automatedReview/);
+  writeFileSync(join(fixture.repo, ".agent-vigil.json"), JSON.stringify({ schemaVersion: 1, maintainer: {
+    reviewMode: "automated", requireHumanAttestation: true, automatedReview: { commands: ["node --test"] },
+  } }));
+  assert.throws(() => loadPolicy(fixture.repo), /conflicts/);
+  writeFileSync(join(fixture.repo, ".agent-vigil.json"), JSON.stringify({ schemaVersion: 1, maintainer: {
+    reviewMode: "automated", automatedReview: { commands: [] },
+  } }));
+  assert.throws(() => loadPolicy(fixture.repo), /non-empty array/);
+  writeFileSync(join(fixture.repo, ".agent-vigil.json"), JSON.stringify({ schemaVersion: 1, maintainer: {
+    automatedReview: { commands: ["node --test"] },
+  } }));
+  assert.throws(() => loadPolicy(fixture.repo), /requires reviewMode automated/);
+
+  writeFileSync(join(fixture.repo, ".agent-vigil.json"), JSON.stringify({ schemaVersion: 1, maintainer: { requireHumanAttestation: false } }));
+  assert.equal(loadPolicy(fixture.repo).value.maintainer?.requireHumanAttestation, false);
 });

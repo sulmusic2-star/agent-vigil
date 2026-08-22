@@ -1496,6 +1496,11 @@ function remediationFor(ruleId) {
     "responsible-human": "Set `Responsible human` to the pull request author's exact GitHub login and accept responsibility for the change.",
     "human-review-attestation": "Review every changed line, then check the exact declaration in the pull request template.",
     "human-maintenance-attestation": "Confirm you can explain and maintain the change, then check the exact declaration.",
+    "automated-review-mode": "Review the base policy's automatedReview setup and commands; this record is automated evidence, not a human declaration.",
+    "automated-review-setup": "Fix the base-policy setup command so it completes in a clean isolated checkout of the exact candidate commit.",
+    "automated-review-command": "Run the failing base-policy command at the reported candidate commit, fix the failure or timeout, and rerun Agent Vigil.",
+    "automated-review-head": "Remove any checkout, reset, commit, or other command that moves HEAD during automated review.",
+    "automated-review-worktree": "Make automated review read-only for tracked files; generated outputs must be unchanged or written outside tracked paths.",
     "ai-assistance-disclosure": "Set `AI assistance` to exactly `none`, `assisted`, or `agent`.",
     "linked-issue": "Link the maintainer-approved issue as `#123` or a full GitHub issue URL.",
     "changed-file-budget": "Split the change or obtain a reviewed base-policy exception before expanding the file budget.",
@@ -1770,6 +1775,7 @@ function validateMaintainerPolicy(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("policy maintainer must be a JSON object");
   const value = input;
   const allowed = /* @__PURE__ */ new Set([
+    "reviewMode",
     "requireHumanAttestation",
     "requireLinkedIssue",
     "requireAiDisclosure",
@@ -1778,17 +1784,49 @@ function validateMaintainerPolicy(input) {
     "requireTestChange",
     "protectedPaths",
     "testPathPatterns",
-    "differentialTest"
+    "differentialTest",
+    "automatedReview"
   ]);
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`policy maintainer contains unknown field(s): ${unknown.join(", ")}`);
   for (const key of ["requireHumanAttestation", "requireLinkedIssue", "requireAiDisclosure", "requireTestChange"]) {
     if (value[key] !== void 0 && typeof value[key] !== "boolean") throw new Error(`policy maintainer.${key} must be boolean`);
   }
+  if (value.reviewMode !== void 0 && !(/* @__PURE__ */ new Set(["human", "automated"])).has(String(value.reviewMode))) {
+    throw new Error("policy maintainer.reviewMode must be human or automated");
+  }
+  if (value.reviewMode === "human" && value.requireHumanAttestation === false) {
+    throw new Error("policy maintainer.reviewMode human conflicts with requireHumanAttestation false");
+  }
+  if (value.reviewMode === "automated" && value.requireHumanAttestation === true) {
+    throw new Error("policy maintainer.reviewMode automated conflicts with requireHumanAttestation true");
+  }
   if (value.maxChangedFiles !== void 0) positiveInteger(value.maxChangedFiles, "maintainer.maxChangedFiles", 1e5);
   if (value.maxChangedLines !== void 0) positiveInteger(value.maxChangedLines, "maintainer.maxChangedLines", 1e7);
   if (value.protectedPaths !== void 0) nonEmptyStrings(value.protectedPaths, "maintainer.protectedPaths");
   if (value.testPathPatterns !== void 0) nonEmptyStrings(value.testPathPatterns, "maintainer.testPathPatterns");
+  if (value.automatedReview !== void 0) {
+    if (!value.automatedReview || typeof value.automatedReview !== "object" || Array.isArray(value.automatedReview)) {
+      throw new Error("policy maintainer.automatedReview must be a JSON object");
+    }
+    const automated = value.automatedReview;
+    const automatedAllowed = /* @__PURE__ */ new Set(["setupCommand", "commands", "timeoutSeconds"]);
+    const automatedUnknown = Object.keys(automated).filter((key) => !automatedAllowed.has(key));
+    if (automatedUnknown.length) throw new Error(`policy maintainer.automatedReview contains unknown field(s): ${automatedUnknown.join(", ")}`);
+    nonEmptyStrings(automated.commands, "maintainer.automatedReview.commands");
+    if (automated.commands.length > 8) throw new Error("policy maintainer.automatedReview.commands must contain no more than 8 commands");
+    if (automated.commands.some((command) => command.length > 1e3)) throw new Error("policy maintainer.automatedReview.commands entries must be at most 1000 characters");
+    if (automated.setupCommand !== void 0 && (typeof automated.setupCommand !== "string" || !automated.setupCommand.trim() || automated.setupCommand.length > 1e3)) {
+      throw new Error("policy maintainer.automatedReview.setupCommand must be a non-empty string of at most 1000 characters");
+    }
+    if (automated.timeoutSeconds !== void 0) positiveInteger(automated.timeoutSeconds, "maintainer.automatedReview.timeoutSeconds", 3600);
+  }
+  if (value.reviewMode === "automated" && value.automatedReview === void 0) {
+    throw new Error("policy maintainer.reviewMode automated requires maintainer.automatedReview");
+  }
+  if (value.reviewMode !== "automated" && value.automatedReview !== void 0) {
+    throw new Error("policy maintainer.automatedReview requires reviewMode automated");
+  }
   if (value.differentialTest !== void 0) {
     if (!value.differentialTest || typeof value.differentialTest !== "object" || Array.isArray(value.differentialTest)) {
       throw new Error("policy maintainer.differentialTest must be a JSON object");
@@ -1886,7 +1924,8 @@ function maintainerPolicyTemplate(testCommand, setupCommand) {
     strict: true,
     minVerified: 1,
     maintainer: {
-      requireHumanAttestation: true,
+      reviewMode: "automated",
+      requireHumanAttestation: false,
       requireLinkedIssue: true,
       requireAiDisclosure: true,
       maxChangedFiles: 20,
@@ -1899,6 +1938,11 @@ function maintainerPolicyTemplate(testCommand, setupCommand) {
         ...setupCommand ? { setupCommand } : {},
         timeoutSeconds: 300,
         overlayChangedTests: true
+      },
+      automatedReview: {
+        ...setupCommand ? { setupCommand } : {},
+        commands: [command],
+        timeoutSeconds: 300
       }
     }
   };
@@ -1924,6 +1968,41 @@ import { tmpdir as tmpdir2 } from "node:os";
 import { dirname as dirname2, join as join3, normalize as normalize2, resolve as resolve4, sep as sep3 } from "node:path";
 var DEFAULT_TEST_PATTERNS = ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
 var MAX_COMMAND_OUTPUT = 12e3;
+var TIMEOUT_MARKER = "[agent-vigil-command-timeout]";
+var ABNORMAL_MARKER = "[agent-vigil-command-abnormal]";
+var COMMAND_WRAPPER = String.raw`
+const { execFile, spawn } = require("node:child_process");
+const command = process.env.VIGIL_WRAPPED_COMMAND;
+const timeout = Number(process.env.VIGIL_WRAPPED_TIMEOUT_MS);
+const child = spawn(command, { shell: true, env: process.env, detached: process.platform !== "win32" });
+child.stdout.pipe(process.stdout);
+child.stderr.pipe(process.stderr);
+let timedOut = false;
+const timer = setTimeout(() => {
+  timedOut = true;
+  process.stderr.write("${TIMEOUT_MARKER}\\n");
+  if (process.platform === "win32") {
+    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => process.exit(124));
+  } else {
+    try { process.kill(-child.pid, "SIGKILL"); } catch {}
+    setTimeout(() => process.exit(124), 50);
+  }
+}, timeout);
+child.on("error", (error) => {
+  clearTimeout(timer);
+  process.stderr.write("${ABNORMAL_MARKER} " + error.message + "\\n");
+  process.exit(125);
+});
+child.on("close", (code, signal) => {
+  if (timedOut) return;
+  clearTimeout(timer);
+  if (signal || code === null) {
+    process.stderr.write("${ABNORMAL_MARKER} signal=" + (signal || "unknown") + "\\n");
+    process.exit(125);
+  }
+  process.exit(code);
+});
+`;
 function result(kind, ruleId, subject, quote, verdict, evidence, options = {}) {
   return { claim: { kind, subject, quote }, ruleId, verdict, evidence, ...options };
 }
@@ -1958,7 +2037,8 @@ function checked(body, label) {
 }
 function checkAttestations(evidence, policy) {
   const out = [];
-  if (policy.requireHumanAttestation !== false) {
+  const humanReview = policy.reviewMode === "human" || policy.reviewMode === void 0 && policy.requireHumanAttestation !== false;
+  if (humanReview) {
     const responsible = capture(evidence.body, "Responsible human");
     const normalized = responsible?.replace(/^@/, "").toLowerCase();
     const matches = normalized === evidence.author.toLowerCase();
@@ -2094,13 +2174,25 @@ function checkChangeScope(diff, policy) {
   return out;
 }
 function shell(command, cwd, timeoutMs) {
-  const env = { ...process.env, CI: "true" };
+  const env = {
+    ...process.env,
+    CI: "true",
+    VIGIL_WRAPPED_COMMAND: command,
+    VIGIL_WRAPPED_TIMEOUT_MS: String(timeoutMs)
+  };
   delete env.NODE_TEST_CONTEXT;
-  const execution = spawnSync2(command, { cwd, shell: true, encoding: "utf8", timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env });
+  const execution = spawnSync2(process.execPath, ["-e", COMMAND_WRAPPER], {
+    cwd,
+    encoding: "utf8",
+    timeout: timeoutMs + 1e4,
+    maxBuffer: 4 * 1024 * 1024,
+    env
+  });
   const full = `${execution.stdout ?? ""}${execution.stderr ?? ""}`;
   const output = full.length > MAX_COMMAND_OUTPUT ? `${full.slice(0, MAX_COMMAND_OUTPUT)}
 [output truncated]` : full;
-  return { status: execution.status, signal: execution.signal, output, ...execution.error ? { error: execution.error.message } : {} };
+  const wrapperError = full.includes(TIMEOUT_MARKER) ? `command timed out after ${timeoutMs} ms` : full.includes(ABNORMAL_MARKER) ? "command ended abnormally" : execution.error?.message;
+  return { status: execution.status, signal: execution.signal, output, ...wrapperError ? { error: wrapperError } : {} };
 }
 function unsafeOverlayPath(path) {
   const clean = normalize2(path);
@@ -2122,6 +2214,182 @@ function overlayTests(headWorktree, baseWorktree, paths) {
 function summarize(outcome) {
   const last = outcome.output.trim().split("\n").slice(-3).join(" | ");
   return `exit=${outcome.status ?? "none"}${outcome.signal ? ` signal=${outcome.signal}` : ""}${outcome.error ? ` error=${outcome.error}` : ""}${last ? ` output=${last}` : ""}`;
+}
+function trackedStatus(repo) {
+  return git3(repo, ["status", "--porcelain=v1", "--untracked-files=no"]);
+}
+function checkAutomatedReview(repo, head, policy) {
+  const out = [result(
+    "policy_attestation",
+    "automated-review-mode",
+    "automated review policy",
+    `${policy.commands.length} base-policy command(s)`,
+    "verified",
+    "the trusted base policy selected isolated automated review; this proves repeatable checks, not human understanding",
+    { contributesToPass: false }
+  )];
+  const expectedHead = git3(repo, ["rev-parse", head]);
+  const root = mkdtempSync2(join3(tmpdir2(), "agent-vigil-automated-review-"));
+  const candidate = join3(root, "candidate");
+  const timeoutMs = (policy.timeoutSeconds ?? 300) * 1e3;
+  let worktreeAdded = false;
+  try {
+    execFileSync4("git", ["worktree", "add", "--detach", candidate, expectedHead], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    worktreeAdded = true;
+    const initialHead = git3(candidate, ["rev-parse", "HEAD"]);
+    if (initialHead !== expectedHead) {
+      out.push(result(
+        "integrity",
+        "automated-review-head",
+        "exact candidate checkout",
+        expectedHead,
+        "unverifiable",
+        `isolated checkout resolved to ${initialHead} instead of ${expectedHead}`,
+        { blocksPass: true }
+      ));
+      return out;
+    }
+    if (policy.setupCommand) {
+      const setup = shell(policy.setupCommand, candidate, timeoutMs);
+      if (setup.status === null || setup.signal || setup.error) {
+        out.push(result(
+          "command_ran",
+          "automated-review-setup",
+          "automated review setup",
+          policy.setupCommand,
+          "unverifiable",
+          `setup did not terminate normally; ${summarize(setup)}`,
+          { blocksPass: true }
+        ));
+        return out;
+      }
+      if (setup.status !== 0) {
+        out.push(result(
+          "command_ran",
+          "automated-review-setup",
+          "automated review setup",
+          policy.setupCommand,
+          "contradicted",
+          `base-policy setup command failed; ${summarize(setup)}`
+        ));
+        return out;
+      }
+      out.push(result(
+        "command_ran",
+        "automated-review-setup",
+        "automated review setup",
+        policy.setupCommand,
+        "verified",
+        "base-policy setup command completed in the isolated candidate checkout",
+        { contributesToPass: false }
+      ));
+    }
+    const preparedHead = git3(candidate, ["rev-parse", "HEAD"]);
+    const preparedStatus = trackedStatus(candidate);
+    if (preparedHead !== expectedHead) {
+      out.push(result(
+        "integrity",
+        "automated-review-head",
+        "candidate commit remained fixed during setup",
+        expectedHead,
+        "unverifiable",
+        `setup moved HEAD to ${preparedHead}`,
+        { blocksPass: true }
+      ));
+      return out;
+    }
+    if (preparedStatus) {
+      out.push(result(
+        "integrity",
+        "automated-review-worktree",
+        "setup preserved tracked candidate files",
+        "clean",
+        "contradicted",
+        `setup modified tracked path(s): ${preparedStatus.split("\n").join(", ")}`
+      ));
+      return out;
+    }
+    for (const [index, command] of policy.commands.entries()) {
+      const outcome = shell(command, candidate, timeoutMs);
+      const observedHead = git3(candidate, ["rev-parse", "HEAD"]);
+      const observedStatus = trackedStatus(candidate);
+      const label = `automated review command ${index + 1}`;
+      if (observedHead !== expectedHead) {
+        out.push(result(
+          "integrity",
+          "automated-review-head",
+          label,
+          command,
+          "unverifiable",
+          `command moved HEAD to ${observedHead}; expected ${expectedHead}`,
+          { blocksPass: true }
+        ));
+        return out;
+      }
+      if (observedStatus !== preparedStatus) {
+        out.push(result(
+          "integrity",
+          "automated-review-worktree",
+          label,
+          command,
+          "contradicted",
+          `command modified tracked path(s): ${observedStatus.split("\n").filter(Boolean).join(", ") || "previous tracked changes were removed"}`
+        ));
+        return out;
+      }
+      if (outcome.status === null || outcome.signal || outcome.error) {
+        out.push(result(
+          "command_ran",
+          "automated-review-command",
+          label,
+          command,
+          "unverifiable",
+          `command did not terminate normally; ${summarize(outcome)}`,
+          { blocksPass: true }
+        ));
+        return out;
+      }
+      if (outcome.status !== 0) {
+        out.push(result(
+          "command_ran",
+          "automated-review-command",
+          label,
+          command,
+          "contradicted",
+          `base-policy command failed; ${summarize(outcome)}`
+        ));
+        return out;
+      }
+      out.push(result(
+        "command_ran",
+        "automated-review-command",
+        label,
+        command,
+        "verified",
+        `base-policy command exited 0 in an isolated checkout of ${expectedHead.slice(0, 12)}`
+      ));
+    }
+    return out;
+  } catch (error) {
+    out.push(result(
+      "integrity",
+      "automated-review-worktree",
+      "isolated automated review checkout",
+      expectedHead,
+      "unverifiable",
+      `could not run isolated automated review: ${error.message}`,
+      { blocksPass: true }
+    ));
+    return out;
+  } finally {
+    if (worktreeAdded) {
+      try {
+        execFileSync4("git", ["worktree", "remove", "--force", candidate], { cwd: repo, stdio: "ignore" });
+      } catch {
+      }
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 function checkDifferentialTest(repo, base, head, testPaths, policy) {
   if (policy.overlayChangedTests !== false && testPaths.length === 0) {
@@ -2224,6 +2492,7 @@ function buildMaintainerChecks(repo, base, head, evidence, policy) {
   const diff = collectDiffEvidence(repo, base, head, patterns);
   const checks = [...checkAttestations(evidence, policy), ...checkChangeScope(diff, policy)];
   if (policy.differentialTest) checks.push(checkDifferentialTest(repo, base, head, diff.testPaths, policy.differentialTest));
+  if (policy.reviewMode === "automated" && policy.automatedReview) checks.push(...checkAutomatedReview(repo, head, policy.automatedReview));
   return checks;
 }
 
@@ -2769,19 +3038,18 @@ jobs:
           retention-days: 30
 `;
 }
-var MAINTAINER_PR_TEMPLATE = `## Agent Vigil maintainer evidence
+var MAINTAINER_PR_TEMPLATE = `## Agent Vigil pull request evidence
 
-- Responsible human: @REPLACE_WITH_YOUR_GITHUB_LOGIN
-- [ ] I reviewed every changed line.
-- [ ] I can explain and maintain this change.
 - AI assistance: assisted
 - Linked issue: #REPLACE
 - Known limitations: none known
 
-The declarations above establish responsibility and disclosure. They do not
-prove understanding. Agent Vigil independently checks the Git range, scope,
-fresh tests, integrity rules, and\u2014when configured\u2014whether the changed regression
-test fails against base source and passes against the candidate.
+Agent Vigil uses the policy from the base commit. It checks the exact Git range,
+scope, fresh tests, integrity rules, and whether the changed regression test
+fails against base source and passes against the candidate. The generated
+automated-review policy also runs its own commands in an isolated checkout of the
+exact candidate commit. It does not claim that a person reviewed or understands
+the change.
 `;
 var SESSION_TEMPLATE = `# Agent change receipt
 
@@ -2873,6 +3141,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
   let transcript = requestedTranscript;
   let portableReceipt;
   let maintainer = false;
+  let maintainerReviewMode = "legacy";
   try {
     const policy = loadPolicy(root, requestedPolicy);
     checks.push({
@@ -2883,6 +3152,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     transcript ??= policy.value.transcript;
     portableReceipt = policy.value.portableReceipt;
     maintainer = Boolean(policy.value.maintainer);
+    if (policy.value.maintainer?.reviewMode) maintainerReviewMode = policy.value.maintainer.reviewMode;
     const command = policy.value.testCommand ?? inferTestCommand(root);
     const placeholder = command === "REPLACE_WITH_TEST_COMMAND";
     checks.push({
@@ -2912,8 +3182,13 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     const template = resolve6(root, ".github/pull_request_template.md");
     checks.push({
       status: existsSync4(template) ? "PASS" : "FAIL",
-      label: "Maintainer evidence",
-      detail: existsSync4(template) ? "PR responsibility and disclosure template is installed" : "maintainer profile requires .github/pull_request_template.md"
+      label: "Pull request evidence",
+      detail: existsSync4(template) ? "AI-assistance, linked-issue, and limitations template is installed" : "maintainer profile requires .github/pull_request_template.md"
+    });
+    checks.push({
+      status: maintainerReviewMode === "automated" ? "PASS" : maintainerReviewMode === "human" ? "PASS" : "WARN",
+      label: "Review mode",
+      detail: maintainerReviewMode === "automated" ? "base policy runs explicit automated-review commands in an isolated exact-commit checkout" : maintainerReviewMode === "human" ? "base policy requires named human review declarations" : "legacy policy does not name a reviewMode; set human or automated explicitly"
     });
   } else if (!transcript) {
     checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });

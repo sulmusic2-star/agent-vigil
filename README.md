@@ -15,10 +15,10 @@ recorded tool actions behind it. It returns **PASS**, **FAIL**, or
 
 The verifier runs locally or in the repository's GitHub runner. It does not use
 another model to judge the work. Maintainers can use the PR evidence mode
-without sharing an agent transcript. That mode binds a named human to the pull
-request, enforces change limits, and can prove that a regression test fails on
-the old code and passes on the proposed code. A test that passes on both sides
-is not proof of a fix.
+without sharing an agent transcript or making a human-review declaration. The
+trusted base policy runs repeatable checks, enforces change limits, and can prove
+that a regression test fails on the old code and passes on the proposed code. A
+test that passes on both sides is not proof of a fix.
 
 Raw agent transcripts do not need to be committed to a pull request. The
 portable-receipt lane reduces a local result to signed hashes, repository and
@@ -129,9 +129,11 @@ Maintainer profile:
 npx --yes @sulmusic/agent-vigil@0.12.0 init --profile maintainer
 ```
 
-This creates a PR declaration template, base-anchored file/line/test/protected-
-path limits, an isolated base-fail/head-pass differential test, and a workflow
-that retains the JSON receipt as a 30-day GitHub artifact. Review the generated
+This creates base-anchored file, line, test, and protected-path limits; an
+isolated base-fail/head-pass differential test; and an automated review policy
+that reruns trusted commands against the exact candidate commit. The workflow
+retains the JSON receipt as a 30-day GitHub artifact. It does not ask anyone to
+check a box claiming they reviewed or understand the code. Review the generated
 commands and limits before merging the setup.
 
 Authority profile:
@@ -166,8 +168,9 @@ kept separate from external-adoption totals.
   the result INCONCLUSIVE instead of letting tests prove a different tree.
 - Malformed or unknown JSON/JSONL fails loudly instead of silently selecting the wrong adapter.
 - Semantically identical structured tool calls are normalized before loop detection.
-- PR author responsibility, review/maintenance declarations, AI-assistance
-  disclosure, and linked-issue syntax without pretending declarations prove
+- Either explicit human declarations or isolated automated review commands,
+  selected by the trusted base policy; plus AI-assistance disclosure and
+  linked-issue syntax without pretending automated evidence proves
   understanding or issue approval.
 - Base-anchored changed-file, changed-line, test-path, and protected-path policy.
 - Isolated differential verification: overlay the candidate's changed test
@@ -402,8 +405,30 @@ Maintainer mode needs no transcript:
       head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 ```
 
-Use the generated PR template. Agent Vigil reads the event payload, never
-executes PR body text, and rejects event/base/head mismatches.
+The generated maintainer profile uses `reviewMode: "automated"`. Its setup and
+review commands come from the base commit, run in a detached checkout of the
+exact candidate SHA, and fail if a command fails, times out, moves `HEAD`, or
+changes a tracked file. Agent Vigil reads the event payload, never executes PR
+body text, and rejects event/base/head mismatches. Repositories that need named
+human declarations can set `reviewMode: "human"` instead.
+
+```json
+{
+  "maintainer": {
+    "reviewMode": "automated",
+    "requireHumanAttestation": false,
+    "automatedReview": {
+      "setupCommand": "npm ci --ignore-scripts",
+      "commands": ["npm test --silent"],
+      "timeoutSeconds": 300
+    }
+  }
+}
+```
+
+Automated review is reproducible technical evidence. It is not a statement that
+a person understands the change, and it cannot replace legal, product, or
+security approval when those decisions actually require a person.
 
 Authority mode adds these base-anchored inputs to transcript mode:
 
@@ -523,7 +548,7 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 303 tests, including 80 generated-repository compatibility scenarios across
+- 311 tests, including 80 generated-repository compatibility scenarios across
   18 runner-output families, plus adversarial false-pass, path, transcript,
   tool-loop, test-count, skip, suppression, adapter-drift, maintainer-attestation,
   scope-budget, symlink, forged-event, and differential-regression cases.
@@ -537,9 +562,9 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
   and Windows.
 - The GitHub Action runs on Agent Vigil's own pull requests in CI.
 - `npm run review:public` checks the public wording, links, accessible labels,
-  reading measure, and rendered HTML against the
-  [public release review checklist](docs/PUBLIC_RELEASE_REVIEW.md). It does not
-  claim that automation performed the named human review.
+  reading measure, claim-count consistency, and rendered HTML against the
+  [public release policy](docs/PUBLIC_RELEASE_POLICY.md). Agent Vigil does not
+  require a named human declaration for this gate.
 - `npm pack --dry-run` is part of the build gate.
 - JSON, SARIF, and job-summary outputs reject symlinks and non-regular targets,
   then use same-directory temporary files and atomic replacement. POSIX output
