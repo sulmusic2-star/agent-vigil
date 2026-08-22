@@ -118,7 +118,8 @@ function openPrivateTemporaryFile(parent: string): { descriptor: number; path: s
 
 /**
  * Replace a report without following a destination symlink or exposing a
- * partially written file. The final file is always private to its owner.
+ * partially written file. POSIX files are owner-only; Windows files inherit
+ * the destination directory ACL.
  */
 export function writePrivateFileAtomic(destination: string, content: string): void {
   const requested = resolve(destination);

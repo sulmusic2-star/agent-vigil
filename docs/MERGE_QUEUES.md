@@ -25,7 +25,7 @@ steps:
     with:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-  - uses: sulmusic2-star/agent-vigil@v0.10.1
+  - uses: sulmusic2-star/agent-vigil@v0.11.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
@@ -59,12 +59,12 @@ workspace produces FAIL or INCONCLUSIVE rather than PASS.
 ## Deliberate boundary
 
 GitHub's merge-group payload does not contain a single pull request's body.
-Agent Vigil therefore does not fabricate or reconstruct maintainer
-attestations at this phase. Those declarations and any portable-receipt
-signature are enforced on the pull-request check. The queue phase verifies the
-actual composed commit against the latest trusted base and reruns executable
-evidence, which is the evidence that can change when queued pull requests are
-combined.
+Agent Vigil therefore does not fabricate or reconstruct per-PR maintainer
+attestations or task-authority evidence at this phase. Those declarations,
+task contracts, and any portable-receipt signature are enforced on the
+pull-request check. The queue phase verifies the actual composed commit against
+the latest trusted base and reruns executable evidence, which is the evidence
+that can change when queued pull requests are combined.
 
 Use the same required status-check name, `Agent Vigil evidence`, for pull
 requests and merge groups.

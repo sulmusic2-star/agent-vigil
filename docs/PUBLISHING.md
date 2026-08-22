@@ -27,7 +27,7 @@ npm login
 npm whoami
 npm publish --access public --provenance
 npm view agent-vigil version dist-tags.latest
-npx --yes agent-vigil@0.10.1 doctor
+npx --yes agent-vigil@0.11.0 doctor
 ```
 
 After the package exists, configure an npm trusted publisher for the release
@@ -40,12 +40,12 @@ both succeed.
 Prepared listing metadata:
 
 - name: `Agent Vigil`;
-- description: `Fail-closed evidence receipt for AI coding-agent sessions`;
+- description: `Fail-closed change control and evidence receipts for AI coding agents`;
 - primary category: Code quality;
 - secondary category: Testing;
 - branding: shield / green;
 - source metadata: root `action.yml`;
-- release: `v0.10.1`.
+- release: `v0.11.0`.
 
 GitHub requires the publisher to accept the Marketplace Developer Agreement
 and complete the 2FA-protected publication flow. Those account and legal steps

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTranscript, extractClaims, extractRunClaims } from "./transcript.ts";
@@ -33,6 +33,18 @@ import { routeIntegrity } from "./integrity-policy.ts";
 import { compareReceipts, renderReceiptDelta } from "./receipt-diff.ts";
 import { buildMergeGroupReport } from "./merge-group.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
+import { analyzeTrajectory, authorityContractTemplate, buildAuthorityChecks, classifyTranscriptActions, loadAuthorityContract } from "./authority.ts";
+import {
+  buildValueCard,
+  renderValueCardHtml,
+  renderValueCardMarkdown,
+  renderValueCardText,
+  type ChangeOutcome,
+  type CostSource,
+  type MaintainerDisposition,
+} from "./value.ts";
+import { buildGitHubEvidence, loadGitHubEvidence, type GitHubEvidenceInputs, type GitHubEvidenceSourceKind } from "./github-evidence.ts";
+import { compareValueCards, loadValueCard, renderValueComparisonHtml, renderValueComparisonText } from "./value-compare.ts";
 
 type Options = {
   transcript?: string;
@@ -60,11 +72,17 @@ Usage:
   vigil demo
   vigil init [--repo <path>] [--force] [--portable --public-key <path>]
   vigil init --profile maintainer [--repo <path>] [--force]
+  vigil init --profile authority [--repo <path>] [--force]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
+  vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
+  vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
+  vigil compare-value <card.json>... [--format text|json|html] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
+  vigil authority init [--output <path>]
+  vigil authority <transcript.jsonl> --contract <authority.json> [--contract-ref <sha>] [options]
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
@@ -87,6 +105,22 @@ Options:
   --min-verified <n>     Minimum objective verified claims (default: 1)
   --version              Print the version
   --help                 Show this help
+
+Value options:
+  --transcript <path>    Bind supported token usage to the receipt digest
+  --github-evidence <p>  Import a hash-verified normalized GitHub evidence bundle
+  --cost-usd <amount>    Attributed task cost; requires --cost-source
+  --cost-source <kind>   provider-billed, subscription-allocated, or user-estimated
+  --cost-evidence <path> Hash a local billing artifact without copying its contents
+  --budget-usd <amount>  Predeclared task budget for WITHIN / EXCEEDED status
+  --review-minutes <n>   Explicit human review duration
+  --disposition <kind>   accepted, dismissed, changes-requested, or unreviewed
+  --review-evidence <p>  Hash review or disposition evidence without copying it
+  --outcome <kind>       merged, closed, reverted, hotfixed, incident-linked, or unknown
+  --outcome-as-of <time> RFC3339-compatible downstream observation time
+  --outcome-evidence <p> Hash merge or downstream evidence without copying it
+  --task-class <name>    Local comparison category, such as bugfix or refactor
+  --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS · 1 FAIL · 2 INCONCLUSIVE or usage error`;
 }
@@ -144,17 +178,19 @@ function runInit(args: string[]): number {
     const repo = resolve(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const profile = optionValue(args, "--profile") ?? "default";
-    if (!new Set(["default", "maintainer"]).has(profile)) throw new Error("init --profile must be default or maintainer");
+    if (!new Set(["default", "maintainer", "authority"]).has(profile)) throw new Error("init --profile must be default, maintainer, or authority");
     const publicKey = optionValue(args, "--public-key");
-    if (portable && profile === "maintainer") throw new Error("init --portable cannot be combined with --profile maintainer");
+    if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer");
+    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer" | "authority");
     console.log("Agent Vigil initialized.\n");
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
     console.log(profile === "maintainer"
       ? "\nNext: replace the PR-template login, review the base-anchored limits, merge this setup first, then open a code PR with a regression test that fails on base and passes on head."
+      : profile === "authority"
+      ? "\nNext: replace the task ID, paths, action classes, and expiry; point the workflow at a structured agent transcript; merge the contract before the code change."
       : portable
       ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output."
       : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
@@ -329,6 +365,243 @@ function runCompare(args: string[]): number {
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
+type ValueCliOptions = {
+  receipt: string;
+  transcript?: string;
+  publicKey?: string;
+  githubEvidence?: string;
+  costUsd?: number;
+  costSource?: CostSource;
+  costEvidence?: string;
+  budgetUsd?: number;
+  reviewMinutes?: number;
+  disposition?: MaintainerDisposition;
+  reviewEvidence?: string;
+  outcome?: ChangeOutcome;
+  outcomeAsOf?: string;
+  outcomeEvidence?: string;
+  taskClass?: string;
+  format: "text" | "json" | "markdown" | "html";
+  output?: string;
+};
+
+function valueNumber(value: string, name: string): number {
+  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value)) throw new Error(`${name} must be a non-negative decimal number`);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a non-negative decimal number`);
+  return parsed;
+}
+
+function parseValueArgs(args: string[]): ValueCliOptions {
+  const takesValue = new Set([
+    "--transcript", "--public-key", "--github-evidence", "--cost-usd", "--cost-source", "--cost-evidence",
+    "--budget-usd", "--review-minutes", "--disposition", "--review-evidence", "--outcome", "--outcome-as-of", "--outcome-evidence",
+    "--task-class", "--format", "--output",
+  ]);
+  const values = new Map<string, string>();
+  const positional: string[] = [];
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith("--")) { positional.push(arg); continue; }
+    if (!takesValue.has(arg)) throw new Error(`unknown value argument: ${arg}`);
+    if (values.has(arg)) throw new Error(`duplicate value argument: ${arg}`);
+    const value = args[++index];
+    if (value === undefined || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+    values.set(arg, value);
+  }
+  if (positional.length !== 1) throw new Error("value requires exactly one full receipt JSON path");
+  const format = values.get("--format") ?? "text";
+  if (!new Set(["text", "json", "markdown", "html"]).has(format)) throw new Error("value --format must be text, json, markdown, or html");
+  const costSource = values.get("--cost-source");
+  if (costSource && !new Set(["provider-billed", "subscription-allocated", "user-estimated"]).has(costSource)) {
+    throw new Error("value --cost-source must be provider-billed, subscription-allocated, or user-estimated");
+  }
+  const disposition = values.get("--disposition");
+  if (disposition && !new Set(["accepted", "dismissed", "changes-requested", "unreviewed"]).has(disposition)) {
+    throw new Error("value --disposition must be accepted, dismissed, changes-requested, or unreviewed");
+  }
+  const outcome = values.get("--outcome");
+  if (outcome && !new Set(["merged", "closed", "reverted", "hotfixed", "incident-linked", "unknown"]).has(outcome)) {
+    throw new Error("value --outcome must be merged, closed, reverted, hotfixed, incident-linked, or unknown");
+  }
+  const taskClass = values.get("--task-class");
+  if (taskClass && (taskClass.length > 80 || /[\x00-\x1f\x7f]/.test(taskClass))) throw new Error("value --task-class must be at most 80 printable characters");
+  return {
+    receipt: positional[0],
+    ...(values.get("--transcript") ? { transcript: values.get("--transcript") } : {}),
+    ...(values.get("--public-key") ? { publicKey: values.get("--public-key") } : {}),
+    ...(values.get("--github-evidence") ? { githubEvidence: values.get("--github-evidence") } : {}),
+    ...(values.get("--cost-usd") ? { costUsd: valueNumber(values.get("--cost-usd")!, "value --cost-usd") } : {}),
+    ...(costSource ? { costSource: costSource as CostSource } : {}),
+    ...(values.get("--cost-evidence") ? { costEvidence: values.get("--cost-evidence") } : {}),
+    ...(values.get("--budget-usd") ? { budgetUsd: valueNumber(values.get("--budget-usd")!, "value --budget-usd") } : {}),
+    ...(values.get("--review-minutes") ? { reviewMinutes: valueNumber(values.get("--review-minutes")!, "value --review-minutes") } : {}),
+    ...(disposition ? { disposition: disposition as MaintainerDisposition } : {}),
+    ...(values.get("--review-evidence") ? { reviewEvidence: values.get("--review-evidence") } : {}),
+    ...(outcome ? { outcome: outcome as ChangeOutcome } : {}),
+    ...(values.get("--outcome-as-of") ? { outcomeAsOf: values.get("--outcome-as-of") } : {}),
+    ...(values.get("--outcome-evidence") ? { outcomeEvidence: values.get("--outcome-evidence") } : {}),
+    ...(taskClass ? { taskClass } : {}),
+    format: format as ValueCliOptions["format"],
+    ...(values.get("--output") ? { output: values.get("--output") } : {}),
+  };
+}
+
+function readBoundedFile(path: string, maximumBytes: number, label: string): Buffer {
+  const size = statSync(path).size;
+  if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
+  return readFileSync(path);
+}
+
+function runValue(args: string[]): number {
+  try {
+    const options = parseValueArgs(args);
+    const receiptPath = resolve(options.receipt);
+    const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
+    const report = JSON.parse(rawReceipt.toString("utf8")) as TrustReport;
+    if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
+      throw new Error("value requires a full Agent Vigil receipt schema 2");
+    }
+    const verification = verifyReport(report, options.publicKey ? resolve(options.publicKey) : undefined);
+    if (!verification.hashValid) throw new Error("value receipt hash is invalid");
+    if (verification.signatureValid === false) throw new Error("value receipt signature is invalid");
+
+    let transcriptPath: string | undefined;
+    if (options.transcript) transcriptPath = resolve(options.transcript);
+    else if (new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"]).has(report.transcriptFormat)) {
+      const candidates = [
+        resolve(dirname(receiptPath), report.transcript),
+        ...(isAbsolute(report.repo) ? [resolve(report.repo, report.transcript)] : []),
+      ];
+      transcriptPath = candidates.find((candidate) => existsSync(candidate));
+    }
+    let loaded;
+    if (transcriptPath) {
+      loaded = loadTranscript(transcriptPath);
+      if (loaded.transcriptSha256 !== report.transcriptSha256) throw new Error("value transcript digest does not match the receipt");
+    }
+
+    const evidenceHash = (path: string | undefined, label: string): string | undefined => {
+      if (!path) return undefined;
+      const evidence = readBoundedFile(resolve(path), 64 * 1024 * 1024, label);
+      return `sha256:${createHash("sha256").update(evidence).digest("hex")}`;
+    };
+    const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
+    const github = options.githubEvidence ? loadGitHubEvidence(resolve(options.githubEvidence)) : undefined;
+    const inferredDisposition = options.disposition ?? github?.inference.disposition;
+    const inferredOutcome = options.outcome ?? github?.inference.outcome;
+    const inferredOutcomeAsOf = options.outcomeAsOf ?? github?.inference.outcomeAsOf;
+    const reviewEvidenceSha256 = evidenceHash(options.reviewEvidence, "review evidence")
+      ?? (github && inferredDisposition === github.inference.disposition && github.inference.reviewEvidence === "EVIDENCE_HASHED" ? github.evidenceHash : undefined);
+    const outcomeEvidenceSha256 = evidenceHash(options.outcomeEvidence, "outcome evidence")
+      ?? (github && inferredOutcome === github.inference.outcome && github.inference.outcomeEvidence === "EVIDENCE_HASHED" ? github.evidenceHash : undefined);
+    const card = buildValueCard({
+      report,
+      hashValid: true,
+      signatureValid: verification.signatureValid,
+      keyPinned: verification.keyPinned,
+      usage: loaded?.usage,
+      toolCalls: loaded?.toolCalls.length,
+      failedToolCalls: loaded?.toolCalls.filter((call) => call.isError).length,
+      values: {
+        taskClass: options.taskClass,
+        budgetUsd: options.budgetUsd,
+        costUsd: options.costUsd,
+        costSource: options.costSource,
+        costEvidenceSha256,
+        reviewMinutes: options.reviewMinutes,
+        disposition: inferredDisposition,
+        reviewEvidenceSha256,
+        outcome: inferredOutcome,
+        outcomeAsOf: inferredOutcomeAsOf,
+        outcomeEvidenceSha256,
+        ...(github ? { github: {
+          evidenceHash: github.evidenceHash,
+          ...(github.pullRequest ? { pullRequestNumber: github.pullRequest.number } : {}),
+          ...(github.reviews ? { approvals: github.reviews.approved, changesRequested: github.reviews.changesRequested } : {}),
+          ...(github.reviewComments ? { reviewComments: github.reviewComments.records } : {}),
+          ...(github.actions?.runDurationSeconds !== undefined ? { actionsRunDurationSeconds: github.actions.runDurationSeconds } : {}),
+          ...(github.actions?.jobDurationSeconds !== undefined ? { actionsJobDurationSeconds: github.actions.jobDurationSeconds } : {}),
+          ...(github.actions?.jobs !== undefined ? { actionsJobs: github.actions.jobs } : {}),
+          ...(github.actions?.failedJobs !== undefined ? { actionsFailedJobs: github.actions.failedJobs } : {}),
+          actionsBilling: "UNAVAILABLE" as const,
+        } } : {}),
+        ...(loaded ? { trajectory: analyzeTrajectory(classifyTranscriptActions(loaded)) } : {}),
+      },
+    });
+    const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}\n`
+      : options.format === "markdown" ? renderValueCardMarkdown(card)
+        : options.format === "html" ? renderValueCardHtml(card)
+          : renderValueCardText(card);
+    if (options.output) writePrivateFileAtomic(resolve(options.output), rendered);
+    else process.stdout.write(rendered);
+    return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runGitHubEvidence(args: string[]): number {
+  try {
+    const flagKinds: Record<string, GitHubEvidenceSourceKind> = {
+      "--event": "event",
+      "--pull-request": "pull-request",
+      "--reviews": "reviews",
+      "--review-comments": "review-comments",
+      "--actions-run": "actions-run",
+      "--actions-jobs": "actions-jobs",
+      "--revert-commit": "revert-commit",
+      "--hotfix-pull-request": "hotfix-pull-request",
+      "--incident-issue": "incident-issue",
+    };
+    const inputs: Partial<GitHubEvidenceInputs> = {};
+    let output: string | undefined;
+    for (let index = 1; index < args.length; index += 1) {
+      const flag = args[index];
+      const value = args[++index];
+      if (value === undefined || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+      if (flag === "--output") { if (output) throw new Error("duplicate --output"); output = value; continue; }
+      const kind = flagKinds[flag];
+      if (!kind) throw new Error(`unknown github-evidence argument: ${flag}`);
+      if ((inputs as any)[kind]) throw new Error(`duplicate ${flag}`);
+      (inputs as any)[kind] = value;
+    }
+    if (!inputs.event) throw new Error("github-evidence requires --event <event.json>");
+    const bundle = buildGitHubEvidence(inputs as GitHubEvidenceInputs);
+    const rendered = `${JSON.stringify(bundle, null, 2)}\n`;
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return 0;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runCompareValue(args: string[]): number {
+  try {
+    const paths: string[] = [];
+    type ComparisonFormat = "text" | "json" | "html";
+    let format: ComparisonFormat = "text";
+    let output: string | undefined;
+    for (let index = 1; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--format" || arg === "--output") {
+        const value = args[++index];
+        if (value === undefined || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+        if (arg === "--format") {
+          if (!new Set(["text", "json", "html"]).has(value)) throw new Error("compare-value --format must be text, json, or html");
+          format = value as ComparisonFormat;
+        } else output = value;
+      } else if (arg.startsWith("--")) throw new Error(`unknown compare-value argument: ${arg}`);
+      else paths.push(arg);
+    }
+    if (!paths.length) throw new Error("compare-value requires at least one Agent Value Card JSON path");
+    const cards = paths.map(loadValueCard);
+    const comparison = compareValueCards(cards, paths.length);
+    const rendered = format === "json" ? `${JSON.stringify(comparison, null, 2)}\n`
+      : format === "html" ? renderValueComparisonHtml(comparison) : renderValueComparisonText(comparison);
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return comparison.status === "COMPARABLE" ? 0 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
 function runAudit(args: string[]): number {
   try {
     const options = parseArgs(args.slice(1));
@@ -366,6 +639,73 @@ function runAudit(args: string[]): number {
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
+function runAuthority(args: string[]): number {
+  try {
+    if (args[1] === "init") {
+      const output = optionValue(args, "--output");
+      const rendered = authorityContractTemplate();
+      if (output) {
+        writePrivateFileAtomic(resolve(output), rendered);
+        console.log(`Created task-scoped authority contract ${output}. Review every allowed action and replace the task ID before use.`);
+      } else process.stdout.write(rendered);
+      return 0;
+    }
+    const contractOption = optionValue(args, "--contract");
+    if (!contractOption) throw new Error("authority requires --contract <authority.json>");
+    const contractRef = optionValue(args, "--contract-ref");
+    let stripped = withoutOption(args.slice(1), "--contract");
+    if (contractRef) stripped = withoutOption(stripped, "--contract-ref");
+    const options = parseArgs(stripped);
+    const transcriptOption = options.transcript;
+    if (!transcriptOption) throw new Error("authority requires a structured agent transcript");
+    const repo = resolve(options.repo);
+    if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
+    const base = resolveGitRef(repo, options.base);
+    const head = resolveGitRef(repo, options.head);
+    const transcriptPath = isAbsolute(transcriptOption) ? transcriptOption : resolve(repo, transcriptOption);
+    if (!existsSync(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
+    const contract = loadAuthorityContract(repo, contractOption, contractRef);
+    const loaded = loadTranscript(transcriptPath);
+    const inputs = [transcriptPath, ...(contract.path ? [contract.path] : [])];
+    const results: CheckResult[] = [...checkWorkspaceBinding(repo, head, inputs)];
+    const advisories: CheckResult[] = [];
+    const authority = buildAuthorityChecks(repo, base, head, loaded, contract.value);
+    results.push(...authority.results);
+    if (!contract.ref) advisories.push({
+      claim: { kind: "authority_scope", subject: "authority trust root", quote: contract.source },
+      verdict: "unverifiable",
+      evidence: "the contract was loaded from the local filesystem; use --contract-ref <trusted-base-sha> in CI so candidate changes cannot widen their own authority",
+      ruleId: "authority-contract-anchor",
+      contributesToPass: false,
+    });
+    const remote = git(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git(repo, ["rev-parse", `${head}^{tree}`]);
+    const relativeTranscript = relative(repo, transcriptPath) || transcriptOption;
+    const reproduction = [
+      "vigil authority", shellQuote(relativeTranscript), "--contract", shellQuote(contract.gitPath ?? contractOption),
+      ...(contract.ref ? ["--contract-ref", contract.ref] : []),
+      "--repo", ".", "--base", base, "--head", head,
+    ].join(" ");
+    let report = buildReport({
+      transcript: relativeTranscript,
+      transcriptSha256: loaded.transcriptSha256,
+      transcriptFormat: `authority/${loaded.format}`,
+      repo,
+      base,
+      head,
+      results,
+      advisories,
+      policy: { minVerified: 1, strict: true, source: contract.source, sha256: contract.sha256 },
+      repository: { ...(remote ? { remote } : {}), ...(tree ? { tree } : {}) },
+      reproduction,
+    });
+    if (options.signingKey) report = signReport(report, resolve(options.signingKey));
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
 function git(repo: string, args: string[]): string | undefined {
   try { return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
   catch { return undefined; }
@@ -382,7 +722,11 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "compare") return runCompare(argv);
+  if (argv[0] === "github-evidence") return runGitHubEvidence(argv);
+  if (argv[0] === "value") return runValue(argv);
+  if (argv[0] === "compare-value") return runCompareValue(argv);
   if (argv[0] === "audit") return runAudit(argv);
+  if (argv[0] === "authority") return runAuthority(argv);
   if (argv[0] === "gate") return runGate(argv);
   if (argv[0] === "maintainer") return runMaintainer(argv);
   if (argv[0] === "merge-group") return runMergeGroup(argv);

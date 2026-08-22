@@ -5,19 +5,22 @@ import { DEFAULT_POLICY_FILE, loadPolicy, maintainerPolicyTemplate, policyTempla
 import { inferTestCommand } from "./detectors/reality.ts";
 import { loadTranscript } from "./transcript.ts";
 import { VERSION } from "./report.ts";
+import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts";
 
 type InitResult = { created: string[]; kept: string[] };
 type DoctorCheck = { status: "PASS" | "WARN" | "FAIL"; label: string; detail: string };
 
-function workflow(mode: "transcript" | "portable" | "maintainer"): string { return `name: Agent Vigil
+function workflow(mode: "transcript" | "portable" | "maintainer" | "authority"): string { return `name: Agent Vigil
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
   merge_group:
     types: [checks_requested]
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   evidence:
@@ -31,12 +34,13 @@ jobs:
       - id: vigil
         uses: sulmusic2-star/agent-vigil@v${VERSION}
         with:
-          ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : "transcript: .agent-vigil/session.md"}
+          ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : mode === "authority" ? "transcript: .agent-vigil/session.jsonl\n          authority-contract: .agent-vigil-authority.json\n          authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
           policy-ref: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           repo: .
           base: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           head: \${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          github-token: \${{ github.token }}
       - name: Retain auditable Agent Vigil receipt
         if: always() && steps.vigil.outputs.report != ''
         uses: actions/upload-artifact@v4
@@ -45,6 +49,72 @@ jobs:
           path: |
             agent-vigil-report.json
             agent-vigil.sarif
+            agent-vigil-value-card.json
+            agent-vigil-github-evidence.json
+          retention-days: 30
+`; }
+
+function outcomeWorkflow(): string { return `name: Agent Vigil outcomes
+
+on:
+  workflow_run:
+    workflows: [Agent Vigil]
+    types: [completed]
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  outcome:
+    if: github.event_name == 'pull_request' || github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - id: source
+        name: Locate the completed evidence run
+        env:
+          GH_TOKEN: \${{ github.token }}
+          EVENT_NAME: \${{ github.event_name }}
+          EVENT_RUN_ID: \${{ github.event.workflow_run.id }}
+          HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            run_id="$EVENT_RUN_ID"
+          else
+            run_id=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs" \\
+              -f head_sha="$HEAD_SHA" -f event=pull_request -f status=completed \\
+              --jq '.workflow_runs | map(select(.name == "Agent Vigil")) | sort_by(.created_at) | reverse | .[0].id // empty')
+          fi
+          if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+            echo "No completed Agent Vigil receipt run is available for this outcome." >&2
+            exit 2
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+      - name: Download the immutable receipt artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: agent-vigil-receipt
+          path: .agent-vigil-prior
+          github-token: \${{ github.token }}
+          run-id: \${{ steps.source.outputs.run_id }}
+      - id: outcome
+        uses: sulmusic2-star/agent-vigil@v${VERSION}
+        with:
+          mode: outcome
+          outcome-receipt: .agent-vigil-prior/agent-vigil-report.json
+          actions-run-id: \${{ steps.source.outputs.run_id }}
+          github-token: \${{ github.token }}
+      - name: Retain the post-run Value Card
+        if: always() && steps.outcome.outputs.value-card != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-vigil-outcome-\${{ steps.source.outputs.run_id }}
+          path: |
+            \${{ steps.outcome.outputs.value-card }}
+            \${{ steps.outcome.outputs.github-evidence }}
           retention-days: 30
 `; }
 
@@ -73,6 +143,9 @@ range and fresh verification. This placeholder intentionally contains no claims,
 so strict verification remains INCONCLUSIVE until real evidence is supplied.
 `;
 
+const AUTHORITY_SESSION_TEMPLATE = `{"type":"session_meta","payload":{"id":"replace-with-exported-structured-session"}}
+`;
+
 const LOCAL_README = `# Agent Vigil evidence input
 
 The workflow reads \`session.md\` by default. Replace it with the agent's actual
@@ -93,21 +166,25 @@ function writeScaffold(root: string, path: string, content: string, force: boole
   result.created.push(path);
 }
 
-export function initRepository(repo: string, force = false, portableSignerKeyId?: string, profile: "default" | "maintainer" = "default"): InitResult {
+export function initRepository(repo: string, force = false, portableSignerKeyId?: string, profile: "default" | "maintainer" | "authority" = "default"): InitResult {
   const root = resolve(repo);
   try { execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" }); }
   catch { throw new Error(`not a Git repository: ${root}`); }
   const result: InitResult = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? undefined;
-  const mode = profile === "maintainer" ? "maintainer" : portableSignerKeyId ? "portable" : "transcript";
+  const mode = profile === "maintainer" ? "maintainer" : profile === "authority" ? "authority" : portableSignerKeyId ? "portable" : "transcript";
   const setupCommand = existsSync(resolve(root, "package-lock.json")) ? "npm ci --ignore-scripts" : undefined;
-  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : policyTemplate(inferred, portableSignerKeyId), force, result);
-  if (mode === "transcript") {
-    writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result);
+  const defaultPolicy = policyTemplate(inferred, portableSignerKeyId);
+  const authorityPolicy = defaultPolicy.replace('"transcript": ".agent-vigil/session.md"', '"transcript": ".agent-vigil/session.jsonl"');
+  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : mode === "authority" ? authorityPolicy : defaultPolicy, force, result);
+  if (mode === "transcript" || mode === "authority") {
+    writeScaffold(root, mode === "authority" ? ".agent-vigil/session.jsonl" : ".agent-vigil/session.md", mode === "authority" ? AUTHORITY_SESSION_TEMPLATE : SESSION_TEMPLATE, force, result);
     writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result);
   }
+  if (mode === "authority") writeScaffold(root, ".agent-vigil-authority.json", authorityContractTemplate(), force, result);
   if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result);
   writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result);
+  writeScaffold(root, ".github/workflows/agent-vigil-outcomes.yml", outcomeWorkflow(), force, result);
   return result;
 }
 
@@ -119,11 +196,22 @@ function git(repo: string, args: string[]): string | undefined {
 export function doctorRepository(repo: string, requestedPolicy?: string, requestedTranscript?: string): DoctorCheck[] {
   const root = resolve(repo);
   const checks: DoctorCheck[] = [];
+  const workflow = resolve(root, ".github/workflows/agent-vigil.yml");
+  const outcomeObserver = resolve(root, ".github/workflows/agent-vigil-outcomes.yml");
+  const installedWorkflow = existsSync(workflow) ? readFileSync(workflow, "utf8") : "";
+  const authorityConfigured = /^\s*authority-contract:\s*\S+\s*$/m.test(installedWorkflow);
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   checks.push({
     status: nodeMajor >= 20 ? "PASS" : "FAIL",
     label: "Node.js",
     detail: `${process.versions.node}${nodeMajor >= 20 ? " satisfies Node 20+" : " is unsupported; install Node 20+"}`,
+  });
+  checks.push({
+    status: existsSync(outcomeObserver) ? "PASS" : "WARN",
+    label: "Outcome observer",
+    detail: existsSync(outcomeObserver)
+      ? "post-run workflow retains final Actions runtime and later pull-request outcome evidence without re-executing candidate code"
+      : "outcome workflow is missing; rerun vigil init to add post-run evidence closure",
   });
   const gitRoot = git(root, ["rev-parse", "--show-toplevel"]);
   checks.push({
@@ -189,9 +277,11 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
       try {
         const loaded = loadTranscript(path);
         checks.push({
-          status: "PASS",
+          status: authorityConfigured && loaded.toolCalls.length === 0 ? "FAIL" : "PASS",
           label: "Transcript",
-          detail: `${transcript} detected as ${loaded.format}; ${loaded.toolCalls.length} tool call(s)`,
+          detail: authorityConfigured && loaded.toolCalls.length === 0
+            ? `${transcript} is ${loaded.format} with no structured tool calls; authority mode requires a supported structured export`
+            : `${transcript} detected as ${loaded.format}; ${loaded.toolCalls.length} tool call(s)`,
         });
       } catch (error) {
         checks.push({ status: "FAIL", label: "Transcript", detail: (error as Error).message });
@@ -199,7 +289,6 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
     }
   }
 
-  const workflow = resolve(root, ".github/workflows/agent-vigil.yml");
   checks.push({
     status: existsSync(workflow) ? "PASS" : "WARN",
     label: "GitHub Action",
@@ -208,7 +297,7 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
       : "workflow not installed; run vigil init",
   });
   if (existsSync(workflow)) {
-    const text = readFileSync(workflow, "utf8");
+    const text = installedWorkflow;
     const exactRange = /pull_request\.base\.sha/.test(text) && /pull_request\.head\.sha/.test(text);
     checks.push({
       status: exactRange ? "PASS" : "WARN",
@@ -243,6 +332,22 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
         label: "Maintainer workflow",
         detail: modeInstalled && artifactInstalled ? "maintainer mode and receipt artifact retention are installed" : "workflow must enable maintainer mode and retain agent-vigil-receipt",
       });
+    }
+    const authorityMatch = text.match(/^\s*authority-contract:\s*(\S+)\s*$/m);
+    if (authorityMatch) {
+      try {
+        const contract = loadAuthorityContract(root, authorityMatch[1]);
+        const placeholder = contract.value.taskId === "REPLACE_WITH_TASK_OR_TICKET_ID";
+        const expired = Boolean(contract.value.expiresAt && Date.now() > new Date(contract.value.expiresAt).getTime());
+        const anchored = /^\s*authority-contract-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}\s*$/m.test(text);
+        checks.push({
+          status: placeholder || expired || !anchored ? "FAIL" : "PASS",
+          label: "Task authority",
+          detail: placeholder ? "replace the generated taskId before use" : expired ? `contract expired at ${contract.value.expiresAt}` : !anchored ? "workflow must load authority from the GitHub event base" : `${contract.value.taskId} · ${contract.sha256} · base-anchored`,
+        });
+      } catch (error) {
+        checks.push({ status: "FAIL", label: "Task authority", detail: (error as Error).message });
+      }
     }
   }
   return checks;

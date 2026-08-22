@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.11.0 - 2026-08-22
+
+- Add task-scoped authority contracts that bind allowed repository paths,
+  denied paths, action classes, expiry, and tool-result completeness.
+- Add `vigil authority`, base-ref contract loading, JSON/SARIF receipts, and an
+  `init --profile authority` GitHub workflow.
+- Classify observed read/write/test/build/install/network/credential/destructive,
+  Git, PR, release, deploy, external-write, and task-creation effects while
+  failing closed on unknown or incomplete action evidence.
+- Add adversarial fixtures for contract self-widening, path escape, unauthorized
+  push, expired authority, compound shell commands, missing results, and
+  narrative-only evidence.
+- Add `vigil value` and Agent Value Card v1. A card joins a verified receipt to
+  observed Codex or Claude Code usage, attributed cost and budget, maintainer
+  disposition, review time, and downstream outcome.
+- Add text, JSON, Markdown, and private standalone HTML cards with explicit
+  `POSITIVE`, `NEGATIVE`, and `INCONCLUSIVE` states.
+- Deduplicate streamed Claude assistant usage by message identity, consume the
+  greatest Codex cumulative usage snapshot, hash optional billing, review, and
+  outcome evidence, and reject transcript/receipt mismatches or tampering.
+- Add optional post-run `maxToolCalls`, `maxFailedToolCalls`, and
+  `maxObservedTokens` authority limits. A declared token limit requires token
+  telemetry.
+- Detect exact repeated actions, consecutive failures, and spend without
+  observed progress without treating every repeated command as a defect.
+- Add `vigil github-evidence` for bounded GitHub PR, review, comment, merge,
+  Actions-duration, revert, hotfix, and incident evidence. Generated workflows
+  retain the normalized bundle and a Value Card with each receipt.
+- Add a separate least-privilege outcome observer. It downloads the prior
+  receipt, records completed Actions duration and final merge state, and never
+  checks out or executes candidate code.
+- Add `vigil compare-value` with receipt deduplication, exact task-class groups,
+  minimum evidence gates, hashed-cost completeness, review burden, downstream
+  adversity, and 95% Wilson intervals.
+- Publish a dated market radar separating official platform behavior, anecdotal
+  complaints, competitor categories, product hypotheses, and commercial gates.
+
+Authority reconciliation is post-execution evidence, not runtime containment or
+proof that no unlogged action occurred.
+Cost amounts and downstream outcomes remain attributed evidence. `POSITIVE`
+requires hashed cost evidence plus hashed acceptance or merge evidence. Artifact
+hashes prove file identity, not that contents or allocations are correct.
+GitHub Actions elapsed time is not billed USD.
+
 ## 0.10.1 - 2026-08-21
 
 - Add fail-closed GitHub merge-queue verification for `merge_group` events.

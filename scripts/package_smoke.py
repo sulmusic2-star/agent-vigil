@@ -80,6 +80,27 @@ def main() -> int:
             raise RuntimeError(f"{name}: portable workflow is incorrect")
         if "0 failure(s)" not in portable_doctor.stdout:
             raise RuntimeError(f"{name}: portable doctor failed: {portable_doctor.stdout}\n{portable_doctor.stderr}")
+        authority_initialized = run([str(vigil), "init", "--profile", "authority", "--force", "--repo", str(repo)], repo)
+        unreviewed_authority_doctor = run([str(vigil), "doctor", "--repo", str(repo)], repo, check=False)
+        if unreviewed_authority_doctor.returncode != 2 or "structured tool calls" not in unreviewed_authority_doctor.stdout or "replace the generated taskId" not in unreviewed_authority_doctor.stdout:
+            raise RuntimeError(f"{name}: unreviewed authority scaffold did not fail closed: {unreviewed_authority_doctor.stdout}\n{unreviewed_authority_doctor.stderr}")
+        authority_path = repo / ".agent-vigil-authority.json"
+        authority = json.loads(authority_path.read_text())
+        authority["taskId"] = f"PACKAGE-SMOKE-{name}"
+        authority["expiresAt"] = "2099-01-01T00:00:00.000Z"
+        authority_path.write_text(json.dumps(authority, indent=2) + "\n")
+        session_rows = [
+            {"type": "session_meta", "payload": {"id": f"package-smoke-{name}"}},
+            {"type": "response_item", "payload": {"type": "function_call", "call_id": "status", "name": "exec_command", "arguments": json.dumps({"cmd": "git status --short"})}},
+            {"type": "response_item", "payload": {"type": "function_call_output", "call_id": "status", "output": json.dumps({"exit_code": 0, "output": ""})}},
+        ]
+        (repo / ".agent-vigil" / "session.jsonl").write_text("\n".join(json.dumps(row) for row in session_rows) + "\n")
+        authority_doctor = run([str(vigil), "doctor", "--repo", str(repo)], repo)
+        authority_workflow = (repo / ".github/workflows/agent-vigil.yml").read_text()
+        if "authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" not in authority_workflow:
+            raise RuntimeError(f"{name}: authority workflow is not base-anchored")
+        if "0 failure(s)" not in authority_doctor.stdout:
+            raise RuntimeError(f"{name}: authority doctor failed: {authority_doctor.stdout}\n{authority_doctor.stderr}")
         results.append({
             "shape": name,
             "testCommand": actual,
@@ -87,9 +108,11 @@ def main() -> int:
             "standardDoctorExit": doctor.returncode,
             "portableInitExit": portable_initialized.returncode,
             "portableDoctorExit": portable_doctor.returncode,
+            "authorityInitExit": authority_initialized.returncode,
+            "authorityDoctorExit": authority_doctor.returncode,
         })
 
-    print(json.dumps({"packed": tarball.name, "repositories": len(results), "setupFlows": len(results) * 2, "passed": len(results), "results": results}, indent=2))
+    print(json.dumps({"packed": tarball.name, "repositories": len(results), "setupFlows": len(results) * 3, "passed": len(results), "results": results}, indent=2))
     return 0
 
 

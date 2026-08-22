@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash8 } from "node:crypto";
-import { execFileSync as execFileSync8 } from "node:child_process";
-import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync10, realpathSync as realpathSync3, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute3, relative as relative6, resolve as resolve8 } from "node:path";
+import { createHash as createHash11 } from "node:crypto";
+import { execFileSync as execFileSync9 } from "node:child_process";
+import { existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync13, realpathSync as realpathSync3, statSync as statSync6, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname4, isAbsolute as isAbsolute4, relative as relative7, resolve as resolve11 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -71,14 +71,53 @@ function textFromBlocks(content) {
   }
   return out;
 }
+function nonNegativeNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+function usageCounters(value) {
+  const inputTokens = nonNegativeNumber(value.input_tokens);
+  const cachedInputTokens = nonNegativeNumber(value.cached_input_tokens ?? value.cache_read_input_tokens);
+  const cacheWriteInputTokens = nonNegativeNumber(value.cache_write_input_tokens ?? value.cache_creation_input_tokens);
+  const outputTokens = nonNegativeNumber(value.output_tokens);
+  const reasoningOutputTokens = nonNegativeNumber(value.reasoning_output_tokens);
+  const reportedTotal = nonNegativeNumber(value.total_tokens);
+  return {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens: reportedTotal || inputTokens + cachedInputTokens + cacheWriteInputTokens + outputTokens
+  };
+}
+function maxUsage(left, right) {
+  if (!left) return right;
+  return {
+    inputTokens: Math.max(left.inputTokens, right.inputTokens),
+    cachedInputTokens: Math.max(left.cachedInputTokens, right.cachedInputTokens),
+    cacheWriteInputTokens: Math.max(left.cacheWriteInputTokens, right.cacheWriteInputTokens),
+    outputTokens: Math.max(left.outputTokens, right.outputTokens),
+    reasoningOutputTokens: Math.max(left.reasoningOutputTokens, right.reasoningOutputTokens),
+    totalTokens: Math.max(left.totalTokens, right.totalTokens)
+  };
+}
 function parseClaude(rows, transcriptSha256) {
   const messages = [];
   const toolCalls = [];
   const byId = /* @__PURE__ */ new Map();
+  const usageByMessage = /* @__PURE__ */ new Map();
+  const models = /* @__PURE__ */ new Set();
   let sequence = 0;
+  let usageRecords = 0;
   for (const row of rows) {
     const msg = row?.message;
     if (row?.type === "assistant" && Array.isArray(msg?.content)) {
+      if (msg?.usage && typeof msg.usage === "object") {
+        usageRecords += 1;
+        const key = String(msg.id ?? row.requestId ?? row.uuid ?? `claude-usage-${usageRecords}`);
+        usageByMessage.set(key, maxUsage(usageByMessage.get(key), usageCounters(msg.usage)));
+        if (typeof msg.model === "string" && msg.model) models.add(msg.model);
+      }
       for (const block of msg.content) {
         if (block?.type === "text" && typeof block.text === "string") messages.push(block.text);
         if (block?.type === "tool_use") {
@@ -104,20 +143,49 @@ function parseClaude(rows, transcriptSha256) {
       }
     }
   }
+  const usage2 = [...usageByMessage.values()].reduce((total, item2) => ({
+    inputTokens: total.inputTokens + item2.inputTokens,
+    cachedInputTokens: total.cachedInputTokens + item2.cachedInputTokens,
+    cacheWriteInputTokens: total.cacheWriteInputTokens + item2.cacheWriteInputTokens,
+    outputTokens: total.outputTokens + item2.outputTokens,
+    reasoningOutputTokens: total.reasoningOutputTokens + item2.reasoningOutputTokens,
+    totalTokens: total.totalTokens + item2.totalTokens
+  }), { inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
   return {
     narrative: messages.slice(-8).join("\n\n"),
     assistantMessages: messages,
     toolCalls,
     format: "claude-code",
-    transcriptSha256
+    transcriptSha256,
+    ...usageByMessage.size ? { usage: {
+      source: "transcript-observed",
+      accounting: "deduplicated-assistant-messages",
+      ...usage2,
+      modelIds: [...models].sort(),
+      recordsObserved: usageRecords,
+      accountedUnits: usageByMessage.size
+    } } : {}
   };
 }
 function parseCodex(rows, transcriptSha256) {
   const messages = [];
   const toolCalls = [];
   const byId = /* @__PURE__ */ new Map();
+  const models = /* @__PURE__ */ new Set();
+  let cumulativeUsage;
   let sequence = 0;
+  let usageRecords = 0;
   for (const row of rows) {
+    if (row?.type === "turn_context" && typeof row?.payload?.model === "string") models.add(row.payload.model);
+    if (row?.type === "session_meta" && typeof row?.payload?.model === "string") models.add(row.payload.model);
+    if (row?.type === "event_msg" && row?.payload?.type === "token_count") {
+      const total = row?.payload?.info?.total_token_usage;
+      if (total && typeof total === "object") {
+        usageRecords += 1;
+        const candidate = usageCounters(total);
+        if (!cumulativeUsage || candidate.totalTokens >= cumulativeUsage.totalTokens) cumulativeUsage = candidate;
+      }
+    }
     if (row?.type !== "response_item") continue;
     const payload = row.payload ?? {};
     if (payload.type === "message" && payload.role === "assistant") {
@@ -148,7 +216,15 @@ function parseCodex(rows, transcriptSha256) {
     assistantMessages: messages,
     toolCalls,
     format: "codex",
-    transcriptSha256
+    transcriptSha256,
+    ...cumulativeUsage ? { usage: {
+      source: "transcript-observed",
+      accounting: "cumulative-session-snapshot",
+      ...cumulativeUsage,
+      modelIds: [...models].sort(),
+      recordsObserved: usageRecords,
+      accountedUnits: 1
+    } } : {}
   };
 }
 function parseCursor(rows, transcriptSha256) {
@@ -1031,7 +1107,7 @@ function checkIntegrityPatches(patches) {
       }
       const removedHunkAssertions = patch.removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
       const addedHunkAssertions = patch.added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
-      if (removedHunkAssertions > addedHunkAssertions && !results.some((result4) => result4.ruleId === "assertion-drop")) {
+      if (removedHunkAssertions > addedHunkAssertions && !results.some((result5) => result5.ruleId === "assertion-drop")) {
         results.push(finding("assertion surface shrank", `${patch.path} hunk removes ${removedHunkAssertions} assertion-like line(s) and adds ${addedHunkAssertions}`, "assertion-drop"));
       }
     }
@@ -1050,7 +1126,7 @@ function checkIntegrityPatches(patches) {
     for (const oldName of removedNames) {
       if (addedNames.has(oldName)) continue;
       const oldCall = new RegExp(`\\b${oldName.replace(/[$]/g, "\\$")}\\s*\\(`);
-      if (oldCall.test(remainingChangedText) && !results.some((result4) => result4.ruleId === "stale-refactor-caller")) {
+      if (oldCall.test(remainingChangedText) && !results.some((result5) => result5.ruleId === "stale-refactor-caller")) {
         results.push(finding("removed or renamed symbol leaves an old caller", `${patch.path} removes ${oldName} while another changed-file context still calls it`, "stale-refactor-caller"));
       }
     }
@@ -1063,14 +1139,14 @@ function checkIntegrityPatches(patches) {
   }
   const removedAssertions = testPatches.flatMap((patch) => patch.removed).filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
   const addedAssertions = testPatches.flatMap((patch) => patch.added).filter((line) => !line.includes("vigil:detector-pattern") && /\b(?:expect|assert|should)\b/i.test(line)).length;
-  if (removedAssertions > addedAssertions && !results.some((result4) => result4.ruleId === "assertion-drop")) {
+  if (removedAssertions > addedAssertions && !results.some((result5) => result5.ruleId === "assertion-drop")) {
     results.push(finding(
       "assertion surface shrank",
       `${removedAssertions} assertion-like lines removed and ${addedAssertions} added`,
       "assertion-drop"
     ));
   }
-  if (testPatches.length === patches.length && results.some((result4) => result4.ruleId === "test-assertion-relaxed") && !results.some((result4) => result4.ruleId === "no-op-code-change")) {
+  if (testPatches.length === patches.length && results.some((result5) => result5.ruleId === "test-assertion-relaxed") && !results.some((result5) => result5.ruleId === "no-op-code-change")) {
     results.push(finding(
       "claimed fix changes only the test oracle",
       "all changed implementation-scoped paths are tests and an exact assertion was weakened",
@@ -1110,7 +1186,7 @@ function checkCompletion(claims, repo, base, head, prior) {
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
   const diff = git(repo, ["diff", "--unified=0", "--no-color", ...diffRange]);
   const markers = diff.split("\n").filter((line) => /^\+.*\b(TODO|FIXME|XXX|HACK|NotImplementedError|not implemented)\b/i.test(line));
-  const objectiveVerified = prior.filter((result4) => result4.verdict === "verified" && result4.contributesToPass !== false).length;
+  const objectiveVerified = prior.filter((result5) => result5.verdict === "verified" && result5.contributesToPass !== false).length;
   return completion.map((claim) => {
     if (markers.length) {
       return { claim, verdict: "contradicted", evidence: `diff adds unfinished-work marker: ${markers[0].slice(1, 220)}`, ruleId: "completion-marker" };
@@ -1136,7 +1212,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.10.1";
+var VERSION = "0.11.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1161,7 +1237,7 @@ function buildReport(input) {
   ).length;
   let status;
   if (contradicted > 0) status = "FAIL";
-  else if (meaningfulVerified < policy.minVerified || input.results.some((result4) => result4.verdict === "unverifiable" && result4.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
+  else if (meaningfulVerified < policy.minVerified || input.results.some((result5) => result5.verdict === "unverifiable" && result5.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
   else status = "PASS";
   const summary = {
     verified: count("verified"),
@@ -1378,8 +1454,8 @@ function appendPrivateFileAtomic(destination, content) {
 
 // src/output.ts
 var icon = { verified: "\u2713", contradicted: "\u2717", unverifiable: "?" };
-function advisoryLabel(result4) {
-  return result4.verdict === "unverifiable" ? "unresolved advisory" : "advisory";
+function advisoryLabel(result5) {
+  return result5.verdict === "unverifiable" ? "unresolved advisory" : "advisory";
 }
 function remediationFor(ruleId) {
   const fixes = {
@@ -1432,7 +1508,14 @@ function remediationFor(ruleId) {
     "differential-failure-pattern": "Tighten the test or update the base-anchored expected failure pattern through separate review.",
     "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs.",
     "merge-group-binding": "Use the exact base_sha and head_sha from the GitHub merge_group event.",
-    "merge-group-range": "Recreate the merge group from the current target branch; the reported head must descend from the event base."
+    "merge-group-range": "Recreate the merge group from the current target branch; the reported head must descend from the event base.",
+    "authority-validity": "Issue a new task-scoped contract with a short expiresAt window; do not silently extend expired authority.",
+    "authorized-change-paths": "Revert out-of-scope paths or issue a separately reviewed contract that explicitly includes them.",
+    "authorized-action-classes": "Remove the unauthorized action, or obtain new human authority before rerunning it; never edit the contract after the action to manufacture compliance.",
+    "unknown-action-risk": "Use a supported structured tool adapter or normalize the action explicitly; do not allow unknown_effect in a blocking policy.",
+    "complete-tool-results": "Export the complete session trajectory with terminal results for every tool call.",
+    "observed-action-coverage": "Provide a supported JSONL transcript with structured tool calls; narrative summaries cannot prove action boundaries.",
+    "authority-contract-anchor": "Store the contract in the trusted base revision and pass --contract-ref <base-sha> in CI."
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }
@@ -1446,16 +1529,16 @@ function renderText(report) {
     `  policy:     ${report.policy.sha256}`,
     ""
   ];
-  for (const result4 of report.results) {
-    lines.push(`  ${icon[result4.verdict]} [${result4.ruleId ?? result4.claim.kind}] ${result4.claim.subject}`);
-    lines.push(`      claim:    "${result4.claim.quote.slice(0, 140)}"`);
-    lines.push(`      evidence: ${result4.evidence}`, "");
-    if (result4.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result4.ruleId)}`);
+  for (const result5 of report.results) {
+    lines.push(`  ${icon[result5.verdict]} [${result5.ruleId ?? result5.claim.kind}] ${result5.claim.subject}`);
+    lines.push(`      claim:    "${result5.claim.quote.slice(0, 140)}"`);
+    lines.push(`      evidence: ${result5.evidence}`, "");
+    if (result5.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result5.ruleId)}`);
   }
-  for (const result4 of report.advisories ?? []) {
-    lines.push(`  ! [${result4.ruleId ?? result4.claim.kind}] ${result4.claim.subject}`);
-    lines.push(`      ${advisoryLabel(result4)}: ${result4.evidence}`);
-    lines.push(`      review:   ${remediationFor(result4.ruleId)}`, "");
+  for (const result5 of report.advisories ?? []) {
+    lines.push(`  ! [${result5.ruleId ?? result5.claim.kind}] ${result5.claim.subject}`);
+    lines.push(`      ${advisoryLabel(result5)}: ${result5.evidence}`);
+    lines.push(`      review:   ${remediationFor(result5.ruleId)}`, "");
   }
   const summary = report.summary;
   lines.push(`  ${summary.verified} verified \xB7 ${summary.contradicted} contradicted \xB7 ${summary.unverifiable} unresolved`);
@@ -1467,10 +1550,10 @@ function renderText(report) {
 }
 function renderMarkdown(report) {
   const rows = report.results.map(
-    (result4) => `| ${icon[result4.verdict]} ${result4.verdict} | \`${result4.ruleId ?? result4.claim.kind}\` | ${escapeCell(result4.claim.subject)} | ${escapeCell(result4.evidence)} |`
+    (result5) => `| ${icon[result5.verdict]} ${result5.verdict} | \`${result5.ruleId ?? result5.claim.kind}\` | ${escapeCell(result5.claim.subject)} | ${escapeCell(result5.evidence)} |`
   );
   const advisoryRows = (report.advisories ?? []).map(
-    (result4) => `| \u26A0\uFE0F ${advisoryLabel(result4)} | \`${result4.ruleId ?? result4.claim.kind}\` | ${escapeCell(result4.claim.subject)} | ${escapeCell(result4.evidence)} |`
+    (result5) => `| \u26A0\uFE0F ${advisoryLabel(result5)} | \`${result5.ruleId ?? result5.claim.kind}\` | ${escapeCell(result5.claim.subject)} | ${escapeCell(result5.evidence)} |`
   );
   return [
     `# ${report.summary.status === "PASS" ? "\u2705" : report.summary.status === "FAIL" ? "\u274C" : "\u26A0\uFE0F"} Agent Vigil: ${report.summary.status}`,
@@ -1488,14 +1571,14 @@ function renderMarkdown(report) {
     `${report.summary.verified} verified \xB7 ${report.summary.contradicted} contradicted \xB7 ${report.summary.unverifiable} unresolved`,
     ...report.advisories?.length ?? 0 ? [`${report.advisories.length} advisory finding(s) \xB7 non-blocking under this policy`] : [],
     "",
-    ...report.results.some((result4) => result4.verdict !== "verified") || (report.advisories?.length ?? 0) ? [
+    ...report.results.some((result5) => result5.verdict !== "verified") || (report.advisories?.length ?? 0) ? [
       "## What to do next",
       "",
-      ...report.results.filter((result4) => result4.verdict !== "verified").map(
-        (result4) => `- **\`${result4.ruleId ?? result4.claim.kind}\`**: ${remediationFor(result4.ruleId)}`
+      ...report.results.filter((result5) => result5.verdict !== "verified").map(
+        (result5) => `- **\`${result5.ruleId ?? result5.claim.kind}\`**: ${remediationFor(result5.ruleId)}`
       ),
       ...(report.advisories ?? []).map(
-        (result4) => `- **\`${result4.ruleId ?? result4.claim.kind}\` (advisory)**: ${remediationFor(result4.ruleId)}`
+        (result5) => `- **\`${result5.ruleId ?? result5.claim.kind}\` (advisory)**: ${remediationFor(result5.ruleId)}`
       ),
       ""
     ] : [],
@@ -1506,17 +1589,17 @@ function renderMarkdown(report) {
 function escapeCell(value) {
   return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
 }
-function sarifResult(result4, advisory = false) {
-  const level = advisory ? "warning" : result4.verdict === "contradicted" ? "error" : result4.verdict === "unverifiable" ? "warning" : "note";
+function sarifResult(result5, advisory = false) {
+  const level = advisory ? "warning" : result5.verdict === "contradicted" ? "error" : result5.verdict === "unverifiable" ? "warning" : "note";
   return {
-    ruleId: result4.ruleId ?? result4.claim.kind,
+    ruleId: result5.ruleId ?? result5.claim.kind,
     level,
-    message: { text: `${result4.claim.subject}: ${result4.evidence}. Remediation: ${remediationFor(result4.ruleId)}` }
+    message: { text: `${result5.claim.subject}: ${result5.evidence}. Remediation: ${remediationFor(result5.ruleId)}` }
   };
 }
 function toSarif(report) {
   const allResults = [...report.results, ...report.advisories ?? []];
-  const rules = [...new Set(allResults.map((result4) => result4.ruleId ?? result4.claim.kind))].map((id) => ({
+  const rules = [...new Set(allResults.map((result5) => result5.ruleId ?? result5.claim.kind))].map((id) => ({
     id,
     shortDescription: { text: id.replace(/-/g, " ") }
   }));
@@ -1526,8 +1609,8 @@ function toSarif(report) {
     runs: [{
       tool: { driver: { name: "agent-vigil", version: report.vigilVersion, informationUri: "https://github.com/sulmusic2-star/agent-vigil", rules } },
       results: [
-        ...report.results.filter((result4) => result4.verdict !== "verified").map((result4) => sarifResult(result4)),
-        ...(report.advisories ?? []).map((result4) => sarifResult(result4, true))
+        ...report.results.filter((result5) => result5.verdict !== "verified").map((result5) => sarifResult(result5)),
+        ...(report.advisories ?? []).map((result5) => sarifResult(result5, true))
       ],
       properties: { receiptHash: report.receiptHash, status: report.summary.status, advisoryCount: report.advisories?.length ?? 0 }
     }]
@@ -1801,19 +1884,764 @@ function maintainerPolicyTemplate(testCommand, setupCommand) {
 }
 
 // src/setup.ts
-import { execFileSync as execFileSync4 } from "node:child_process";
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync5, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname2, relative as relative2, resolve as resolve4 } from "node:path";
+import { execFileSync as execFileSync6 } from "node:child_process";
+import { existsSync as existsSync4, mkdirSync as mkdirSync3, readFileSync as readFileSync7, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname3, relative as relative4, resolve as resolve6 } from "node:path";
+
+// src/authority.ts
+import { createHash as createHash4 } from "node:crypto";
+import { execFileSync as execFileSync5 } from "node:child_process";
+import { isAbsolute as isAbsolute3, normalize as normalize3, relative as relative3, resolve as resolve5, win32 as win322 } from "node:path";
+import { readFileSync as readFileSync6, statSync as statSync3 } from "node:fs";
+
+// src/maintainer.ts
+import { execFileSync as execFileSync4, spawnSync as spawnSync2 } from "node:child_process";
+import { cpSync, existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, mkdtempSync as mkdtempSync2, readFileSync as readFileSync5, rmSync, statSync as statSync2 } from "node:fs";
+import { tmpdir as tmpdir2 } from "node:os";
+import { dirname as dirname2, join as join3, normalize as normalize2, resolve as resolve4, sep as sep3 } from "node:path";
+var DEFAULT_TEST_PATTERNS = ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
+var MAX_COMMAND_OUTPUT = 12e3;
+function result(kind, ruleId, subject, quote, verdict, evidence, options = {}) {
+  return { claim: { kind, subject, quote }, ruleId, verdict, evidence, ...options };
+}
+function loadPullRequestEvidence(path) {
+  const size = statSync2(path).size;
+  if (size > 2 * 1024 * 1024) throw new Error(`pull request event is ${size} bytes; maximum is ${2 * 1024 * 1024}`);
+  let event;
+  try {
+    event = JSON.parse(readFileSync5(path, "utf8"));
+  } catch {
+    throw new Error(`pull request event is not valid JSON: ${path}`);
+  }
+  if (!event?.pull_request || typeof event.pull_request !== "object") throw new Error("event does not contain a pull_request object");
+  const author = event.pull_request.user?.login;
+  const body = event.pull_request.body;
+  if (typeof author !== "string" || !author.trim()) throw new Error("pull request event does not identify the author");
+  if (body !== null && body !== void 0 && typeof body !== "string") throw new Error("pull request body must be text");
+  return {
+    author,
+    body: body ?? "",
+    ...typeof event.pull_request.base?.sha === "string" ? { baseSha: event.pull_request.base.sha } : {},
+    ...typeof event.pull_request.head?.sha === "string" ? { headSha: event.pull_request.head.sha } : {}
+  };
+}
+function capture(body, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return body.match(new RegExp(`^\\s*-\\s*${escaped}\\s*:\\s*(.+?)\\s*$`, "im"))?.[1]?.trim();
+}
+function checked(body, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^\\s*-\\s*\\[[xX]\\]\\s*${escaped}\\s*$`, "im").test(body);
+}
+function checkAttestations(evidence, policy) {
+  const out = [];
+  if (policy.requireHumanAttestation !== false) {
+    const responsible = capture(evidence.body, "Responsible human");
+    const normalized = responsible?.replace(/^@/, "").toLowerCase();
+    const matches = normalized === evidence.author.toLowerCase();
+    out.push(result(
+      "policy_attestation",
+      "responsible-human",
+      "named responsible human",
+      responsible ?? "missing",
+      matches ? "verified" : "contradicted",
+      matches ? `PR author @${evidence.author} made the required responsibility declaration; this verifies attribution, not understanding` : responsible ? `declared ${responsible}, but the GitHub event identifies @${evidence.author} as the PR author` : "required `Responsible human: @login` declaration is missing"
+    ));
+    for (const label of ["I reviewed every changed line.", "I can explain and maintain this change."]) {
+      const present = checked(evidence.body, label);
+      out.push(result(
+        "policy_attestation",
+        label.startsWith("I reviewed") ? "human-review-attestation" : "human-maintenance-attestation",
+        label,
+        present ? "checked" : "missing",
+        present ? "verified" : "contradicted",
+        present ? "required human declaration is checked; Agent Vigil does not independently prove the declarant's understanding" : `required checked declaration is missing: ${label}`
+      ));
+    }
+  }
+  if (policy.requireAiDisclosure !== false) {
+    const disclosure = capture(evidence.body, "AI assistance")?.toLowerCase();
+    const allowed = /* @__PURE__ */ new Set(["none", "assisted", "agent"]);
+    out.push(result(
+      "policy_attestation",
+      "ai-assistance-disclosure",
+      "AI assistance disclosure",
+      disclosure ?? "missing",
+      disclosure !== void 0 && allowed.has(disclosure) ? "verified" : "contradicted",
+      disclosure !== void 0 && allowed.has(disclosure) ? `declared ${disclosure}` : "use exactly one of: none, assisted, agent"
+    ));
+  }
+  if (policy.requireLinkedIssue) {
+    const issue = capture(evidence.body, "Linked issue");
+    const valid = Boolean(issue && /(?:^|\s)(?:#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+)(?:\s|$)/i.test(issue));
+    out.push(result(
+      "policy_attestation",
+      "linked-issue",
+      "linked approved issue",
+      issue ?? "missing",
+      valid ? "verified" : "contradicted",
+      valid ? `declared ${issue}; syntax is verified, but issue approval/state is not fetched` : "provide `#123` or a full GitHub issue URL"
+    ));
+  }
+  return out;
+}
+function git3(repo, args) {
+  return execFileSync4("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 }).trim();
+}
+function globRegex(pattern) {
+  let source = "";
+  for (let index = 0; index < pattern.length; index++) {
+    const char = pattern[index];
+    if (char === "*" && pattern[index + 1] === "*") {
+      if (pattern[index + 2] === "/") {
+        source += "(?:.*/)?";
+        index += 2;
+      } else {
+        source += ".*";
+        index += 1;
+      }
+    } else if (char === "*") source += "[^/]*";
+    else if (char === "?") source += "[^/]";
+    else source += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+  }
+  return new RegExp(`^${source}$`);
+}
+function pathMatches(path, patterns) {
+  const clean = path.replaceAll("\\", "/").replace(/^\.\//, "");
+  return patterns.some((pattern) => globRegex(pattern.replaceAll("\\", "/").replace(/^\.\//, "")).test(clean));
+}
+function collectDiffEvidence(repo, base, head, testPathPatterns = DEFAULT_TEST_PATTERNS) {
+  const paths = git3(repo, ["diff", "--name-only", "--diff-filter=ACMR", `${base}..${head}`]).split("\n").filter(Boolean);
+  const binaryPaths = [];
+  let changedLines = 0;
+  const numstat = git3(repo, ["diff", "--numstat", `${base}..${head}`]);
+  for (const line of numstat.split("\n").filter(Boolean)) {
+    const [added, removed, ...pathParts] = line.split("	");
+    const path = pathParts.join("	");
+    if (added === "-" || removed === "-") binaryPaths.push(path);
+    else changedLines += Number(added) + Number(removed);
+  }
+  return { paths, testPaths: paths.filter((path) => pathMatches(path, testPathPatterns)), ...binaryPaths.length ? {} : { changedLines }, binaryPaths };
+}
+function checkChangeScope(diff, policy) {
+  const out = [];
+  if (policy.maxChangedFiles !== void 0) {
+    out.push(result(
+      "change_scope",
+      "changed-file-budget",
+      "changed-file budget",
+      `${diff.paths.length} changed files`,
+      diff.paths.length <= policy.maxChangedFiles ? "verified" : "contradicted",
+      `${diff.paths.length} changed file(s); policy maximum is ${policy.maxChangedFiles}`
+    ));
+  }
+  if (policy.maxChangedLines !== void 0) {
+    if (diff.changedLines === void 0) out.push(result("change_scope", "changed-line-budget", "changed-line budget", "binary diff present", "unverifiable", `Git numstat cannot quantify binary path(s): ${diff.binaryPaths.join(", ")}`, { blocksPass: true }));
+    else out.push(result(
+      "change_scope",
+      "changed-line-budget",
+      "changed-line budget",
+      `${diff.changedLines} changed lines`,
+      diff.changedLines <= policy.maxChangedLines ? "verified" : "contradicted",
+      `${diff.changedLines} added/deleted line(s); policy maximum is ${policy.maxChangedLines}`
+    ));
+  }
+  if (policy.requireTestChange) {
+    out.push(result(
+      "change_scope",
+      "test-change-required",
+      "changed test evidence",
+      diff.testPaths.join(", ") || "none",
+      diff.testPaths.length ? "verified" : "contradicted",
+      diff.testPaths.length ? `${diff.testPaths.length} changed test path(s): ${diff.testPaths.join(", ")}` : "no changed path matched the policy testPathPatterns"
+    ));
+  }
+  if (policy.protectedPaths?.length) {
+    const matches = diff.paths.filter((path) => pathMatches(path, policy.protectedPaths));
+    out.push(result(
+      "change_scope",
+      "protected-path",
+      "protected path policy",
+      matches.join(", ") || "none",
+      matches.length ? "contradicted" : "verified",
+      matches.length ? `candidate changed protected path(s): ${matches.join(", ")}` : "no candidate path matched protectedPaths",
+      { contributesToPass: false }
+    ));
+  }
+  return out;
+}
+function shell(command, cwd, timeoutMs) {
+  const env = { ...process.env, CI: "true" };
+  delete env.NODE_TEST_CONTEXT;
+  const execution = spawnSync2(command, { cwd, shell: true, encoding: "utf8", timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env });
+  const full = `${execution.stdout ?? ""}${execution.stderr ?? ""}`;
+  const output = full.length > MAX_COMMAND_OUTPUT ? `${full.slice(0, MAX_COMMAND_OUTPUT)}
+[output truncated]` : full;
+  return { status: execution.status, signal: execution.signal, output, ...execution.error ? { error: execution.error.message } : {} };
+}
+function unsafeOverlayPath(path) {
+  const clean = normalize2(path);
+  return clean === ".." || clean.startsWith(`..${sep3}`) || resolve4("/safe", clean) === "/safe";
+}
+function overlayTests(headWorktree, baseWorktree, paths) {
+  for (const path of paths) {
+    if (unsafeOverlayPath(path)) return `unsafe overlay path: ${path}`;
+    const source = resolve4(headWorktree, path);
+    const target = resolve4(baseWorktree, path);
+    if (!source.startsWith(`${resolve4(headWorktree)}${sep3}`) || !target.startsWith(`${resolve4(baseWorktree)}${sep3}`)) return `overlay escaped worktree: ${path}`;
+    if (!existsSync3(source)) continue;
+    if (lstatSync2(source).isSymbolicLink()) return `refusing to overlay symlink test path: ${path}`;
+    mkdirSync2(dirname2(target), { recursive: true });
+    cpSync(source, target, { recursive: true, force: true });
+  }
+  return void 0;
+}
+function summarize(outcome) {
+  const last = outcome.output.trim().split("\n").slice(-3).join(" | ");
+  return `exit=${outcome.status ?? "none"}${outcome.signal ? ` signal=${outcome.signal}` : ""}${outcome.error ? ` error=${outcome.error}` : ""}${last ? ` output=${last}` : ""}`;
+}
+function checkDifferentialTest(repo, base, head, testPaths, policy) {
+  if (policy.overlayChangedTests !== false && testPaths.length === 0) {
+    return result("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "contradicted", "no changed test artifact is available to exercise against the base source");
+  }
+  const root = mkdtempSync2(join3(tmpdir2(), "agent-vigil-differential-"));
+  const baseWorktree = join3(root, "base");
+  const headWorktree = join3(root, "head");
+  const timeoutMs = (policy.timeoutSeconds ?? 300) * 1e3;
+  let baseAdded = false;
+  let headAdded = false;
+  try {
+    execFileSync4("git", ["worktree", "add", "--detach", baseWorktree, base], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    baseAdded = true;
+    execFileSync4("git", ["worktree", "add", "--detach", headWorktree, head], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    headAdded = true;
+    if (policy.overlayChangedTests !== false) {
+      const error = overlayTests(headWorktree, baseWorktree, testPaths);
+      if (error) return result("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "unverifiable", error, { blocksPass: true });
+    }
+    if (policy.setupCommand) {
+      const headSetup = shell(policy.setupCommand, headWorktree, timeoutMs);
+      const baseSetup = shell(policy.setupCommand, baseWorktree, timeoutMs);
+      if (headSetup.status !== 0 || baseSetup.status !== 0) {
+        return result(
+          "differential_test",
+          "differential-setup",
+          "isolated differential setup",
+          policy.setupCommand,
+          "unverifiable",
+          `setup did not succeed in both isolated worktrees; head ${summarize(headSetup)}; base ${summarize(baseSetup)}`,
+          { blocksPass: true }
+        );
+      }
+    }
+    const headOutcome = shell(policy.command, headWorktree, timeoutMs);
+    const baseOutcome = shell(policy.command, baseWorktree, timeoutMs);
+    if (headOutcome.status === null || baseOutcome.status === null || headOutcome.signal || baseOutcome.signal || headOutcome.error || baseOutcome.error) {
+      return result(
+        "differential_test",
+        "differential-test",
+        "base-fail/head-pass regression proof",
+        policy.command,
+        "unverifiable",
+        `command did not terminate normally in both worktrees; head ${summarize(headOutcome)}; base ${summarize(baseOutcome)}`,
+        { blocksPass: true }
+      );
+    }
+    if (headOutcome.status !== 0) {
+      return result("differential_test", "differential-head-pass", "candidate passes changed regression test", policy.command, "contradicted", `candidate command failed; ${summarize(headOutcome)}`);
+    }
+    if (baseOutcome.status === 0) {
+      return result(
+        "differential_test",
+        "differential-base-fail",
+        "base fails changed regression test",
+        policy.command,
+        "contradicted",
+        "the changed test command also passed against the base source; the test does not demonstrate the claimed regression"
+      );
+    }
+    if (policy.baseFailurePattern && !new RegExp(policy.baseFailurePattern).test(baseOutcome.output)) {
+      return result(
+        "differential_test",
+        "differential-failure-pattern",
+        "base failure matches expected regression",
+        policy.baseFailurePattern,
+        "contradicted",
+        `base failed, but output did not match the trusted failure pattern; ${summarize(baseOutcome)}`
+      );
+    }
+    return result(
+      "differential_test",
+      "differential-test",
+      "base-fail/head-pass regression proof",
+      policy.command,
+      "verified",
+      `isolated candidate passed and base source failed with the candidate's changed test artifact(s): ${testPaths.join(", ")}`
+    );
+  } catch (error) {
+    return result("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "unverifiable", `could not create isolated Git worktrees: ${error.message}`, { blocksPass: true });
+  } finally {
+    if (headAdded) {
+      try {
+        execFileSync4("git", ["worktree", "remove", "--force", headWorktree], { cwd: repo, stdio: "ignore" });
+      } catch {
+      }
+    }
+    if (baseAdded) {
+      try {
+        execFileSync4("git", ["worktree", "remove", "--force", baseWorktree], { cwd: repo, stdio: "ignore" });
+      } catch {
+      }
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+function buildMaintainerChecks(repo, base, head, evidence, policy) {
+  const patterns = policy.testPathPatterns ?? DEFAULT_TEST_PATTERNS;
+  const diff = collectDiffEvidence(repo, base, head, patterns);
+  const checks = [...checkAttestations(evidence, policy), ...checkChangeScope(diff, policy)];
+  if (policy.differentialTest) checks.push(checkDifferentialTest(repo, base, head, diff.testPaths, policy.differentialTest));
+  return checks;
+}
+
+// src/authority.ts
+var ACTION_CLASSES = [
+  "repository_read",
+  "repository_write",
+  "test_execute",
+  "build_execute",
+  "dependency_install",
+  "network_read",
+  "credential_access",
+  "destructive_filesystem",
+  "git_commit",
+  "git_push",
+  "pull_request_write",
+  "release_publish",
+  "deploy",
+  "external_write",
+  "task_create",
+  "unknown_effect"
+];
+var MAX_CONTRACT_BYTES = 1024 * 1024;
+var ACTION_SET = new Set(ACTION_CLASSES);
+function result2(kind, ruleId, subject, quote, verdict, evidence, options = {}) {
+  return { claim: { kind, subject, quote }, ruleId, verdict, evidence, ...options };
+}
+function stringArray(value, label, allowEmpty = false) {
+  if (!Array.isArray(value) || !allowEmpty && value.length === 0 || value.some((item2) => typeof item2 !== "string" || !item2.trim())) {
+    throw new Error(`${label} must be ${allowEmpty ? "an" : "a non-empty"} array of non-empty strings`);
+  }
+  if (new Set(value).size !== value.length) throw new Error(`${label} must not contain duplicates`);
+  return value;
+}
+function validatePatterns(patterns, label) {
+  if (patterns.length > 1e3) throw new Error(`${label} must contain at most 1000 patterns`);
+  for (const pattern of patterns) {
+    if (pattern.length > 500) throw new Error(`${label} patterns must contain at most 500 characters`);
+    const clean = normalize3(pattern).replaceAll("\\", "/").replace(/^\.\//, "");
+    if (isAbsolute3(pattern) || win322.isAbsolute(pattern) || clean === ".." || clean.startsWith("../")) {
+      throw new Error(`${label} patterns must stay inside the repository`);
+    }
+  }
+}
+function optionalLimit(value, label) {
+  if (value === void 0) return void 0;
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} must be a non-negative safe integer`);
+  return value;
+}
+function validateAuthorityContract(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("authority contract must be a JSON object");
+  const value = input;
+  const allowedFields = /* @__PURE__ */ new Set([
+    "schemaVersion",
+    "taskId",
+    "allowedChangePaths",
+    "deniedChangePaths",
+    "allowedActions",
+    "requireCompleteToolResults",
+    "maxToolCalls",
+    "maxFailedToolCalls",
+    "maxIdenticalToolCalls",
+    "maxConsecutiveFailedToolCalls",
+    "maxObservedTokens",
+    "maxTokensWithoutObservedProgress",
+    "expiresAt"
+  ]);
+  const unknownFields = Object.keys(value).filter((key) => !allowedFields.has(key));
+  if (unknownFields.length) throw new Error(`authority contract contains unknown field(s): ${unknownFields.join(", ")}`);
+  if (value.schemaVersion !== 1) throw new Error("authority contract schemaVersion must be 1");
+  if (typeof value.taskId !== "string" || !value.taskId.trim() || value.taskId.length > 200) throw new Error("authority contract taskId must be a non-empty string of at most 200 characters");
+  const allowedChangePaths = stringArray(value.allowedChangePaths, "authority contract allowedChangePaths");
+  validatePatterns(allowedChangePaths, "allowedChangePaths");
+  let deniedChangePaths;
+  if (value.deniedChangePaths !== void 0) {
+    deniedChangePaths = stringArray(value.deniedChangePaths, "authority contract deniedChangePaths");
+    validatePatterns(deniedChangePaths, "deniedChangePaths");
+  }
+  const allowedActions = stringArray(value.allowedActions, "authority contract allowedActions", true);
+  if (allowedActions.length > ACTION_CLASSES.length) throw new Error("authority contract allowedActions contains too many entries");
+  const invalidActions = allowedActions.filter((action) => !ACTION_SET.has(action));
+  if (invalidActions.length) throw new Error(`authority contract contains unsupported action class(es): ${invalidActions.join(", ")}`);
+  if (value.requireCompleteToolResults !== void 0 && typeof value.requireCompleteToolResults !== "boolean") {
+    throw new Error("authority contract requireCompleteToolResults must be boolean");
+  }
+  const maxToolCalls = optionalLimit(value.maxToolCalls, "authority contract maxToolCalls");
+  const maxFailedToolCalls = optionalLimit(value.maxFailedToolCalls, "authority contract maxFailedToolCalls");
+  const maxIdenticalToolCalls = optionalLimit(value.maxIdenticalToolCalls, "authority contract maxIdenticalToolCalls");
+  const maxConsecutiveFailedToolCalls = optionalLimit(value.maxConsecutiveFailedToolCalls, "authority contract maxConsecutiveFailedToolCalls");
+  const maxObservedTokens = optionalLimit(value.maxObservedTokens, "authority contract maxObservedTokens");
+  const maxTokensWithoutObservedProgress = optionalLimit(value.maxTokensWithoutObservedProgress, "authority contract maxTokensWithoutObservedProgress");
+  if (value.expiresAt !== void 0) {
+    if (typeof value.expiresAt !== "string" || !value.expiresAt.trim() || !Number.isFinite(new Date(value.expiresAt).getTime())) {
+      throw new Error("authority contract expiresAt must be an ISO-compatible timestamp");
+    }
+  }
+  return {
+    schemaVersion: 1,
+    taskId: value.taskId.trim(),
+    allowedChangePaths,
+    ...deniedChangePaths ? { deniedChangePaths } : {},
+    allowedActions,
+    ...value.requireCompleteToolResults !== void 0 ? { requireCompleteToolResults: value.requireCompleteToolResults } : {},
+    ...maxToolCalls !== void 0 ? { maxToolCalls } : {},
+    ...maxFailedToolCalls !== void 0 ? { maxFailedToolCalls } : {},
+    ...maxIdenticalToolCalls !== void 0 ? { maxIdenticalToolCalls } : {},
+    ...maxConsecutiveFailedToolCalls !== void 0 ? { maxConsecutiveFailedToolCalls } : {},
+    ...maxObservedTokens !== void 0 ? { maxObservedTokens } : {},
+    ...maxTokensWithoutObservedProgress !== void 0 ? { maxTokensWithoutObservedProgress } : {},
+    ...value.expiresAt !== void 0 ? { expiresAt: new Date(value.expiresAt).toISOString() } : {}
+  };
+}
+function parseContract(raw, source) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`authority contract is not valid JSON: ${source}`);
+  }
+  return validateAuthorityContract(parsed);
+}
+function loadAuthorityContract(repo, requested, ref) {
+  if (ref) {
+    const clean = normalize3(requested).replaceAll("\\", "/").replace(/^\.\//, "");
+    if (isAbsolute3(requested) || win322.isAbsolute(requested) || clean === ".." || clean.startsWith("../")) {
+      throw new Error("contract-ref requires a repository-relative contract path");
+    }
+    let raw;
+    try {
+      raw = execFileSync5("git", ["show", `${ref}:${clean}`], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: MAX_CONTRACT_BYTES });
+    } catch {
+      throw new Error(`authority contract not found at ${ref}:${clean}`);
+    }
+    if (Buffer.byteLength(raw) > MAX_CONTRACT_BYTES) throw new Error(`authority contract exceeds ${MAX_CONTRACT_BYTES} bytes`);
+    const value2 = parseContract(raw, `${ref}:${clean}`);
+    return { value: value2, sha256: `sha256:${createHash4("sha256").update(canonical(value2)).digest("hex")}`, source: `${clean}@${ref}`, gitPath: clean, ref };
+  }
+  const path = resolve5(repo, requested);
+  const size = statSync3(path).size;
+  if (size > MAX_CONTRACT_BYTES) throw new Error(`authority contract is ${size} bytes; maximum is ${MAX_CONTRACT_BYTES}`);
+  const value = parseContract(readFileSync6(path, "utf8"), path);
+  return { value, sha256: `sha256:${createHash4("sha256").update(canonical(value)).digest("hex")}`, source: relative3(repo, path) || requested, path };
+}
+function inputObject(call) {
+  try {
+    const parsed = JSON.parse(call.input);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function commandText(call) {
+  const input = inputObject(call);
+  for (const key of ["cmd", "command", "script"]) {
+    if (typeof input?.[key] === "string") return input[key];
+  }
+  if (/exec|bash|shell|terminal|command/i.test(call.name)) return call.input;
+  return void 0;
+}
+function splitShellCommands(command) {
+  const out = [];
+  let current = "";
+  let quote;
+  let escaped = false;
+  let substitutionDepth = 0;
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index];
+    const next = command[index + 1];
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      current += char;
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      current += char;
+      if (char === quote) quote = void 0;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "$" && next === "(") {
+      substitutionDepth += 1;
+      current += "$";
+      continue;
+    }
+    if (char === ")" && substitutionDepth > 0) {
+      substitutionDepth -= 1;
+      current += char;
+      continue;
+    }
+    const separator = substitutionDepth === 0 && (char === "\n" || char === ";" || char === "|" || char === "&");
+    if (separator) {
+      if (current.trim()) out.push(current.trim());
+      current = "";
+      if (char === "|" && next === "|" || char === "&" && next === "&") index += 1;
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) out.push(current.trim());
+  return out;
+}
+function classesForCommand(raw) {
+  const command = raw.trim().replace(/^(?:sudo\s+|env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)+)+/, "");
+  const classes = /* @__PURE__ */ new Set();
+  const add = (...items) => items.forEach((item2) => classes.add(item2));
+  if (/^(?:ls|pwd|cat|head|tail|grep|rg|find|stat|wc|diff|jq|sed\s+(?!.*(?:-i|--in-place))|git\s+(?:status|diff|log|show|rev-parse|ls-files|remote\s+-v)\b)/i.test(command)) add("repository_read");
+  if (/^(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|check|lint|typecheck|smoke|verify)|exec\s+.*test)|^(?:pytest|python\s+-m\s+pytest|go\s+test|cargo\s+test|dotnet\s+test|mvn\s+test|gradle\s+test|make\s+(?:test|check|verify))\b/i.test(command)) add("test_execute");
+  if (/^(?:npm|pnpm|yarn|bun)\s+(?:run\s+build|build)|^(?:cargo|go|dotnet|mvn|gradle|make)\s+build\b/i.test(command)) add("build_execute");
+  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:i|install|add|ci)\b|pipx?\s+install\b|python\s+-m\s+pip\s+install\b|uv\s+(?:add|sync|pip\s+install)\b|brew\s+install\b|apt(?:-get)?\s+install\b|dnf\s+install\b|gem\s+install\b)/i.test(command)) add("dependency_install");
+  if (/^(?:rm|rmdir|del|erase|trash)\b|\bgit\s+(?:clean|reset\s+--hard)\b/i.test(command)) add("destructive_filesystem");
+  if (/^git\s+commit\b/i.test(command)) add("git_commit");
+  if (/^git\s+push\b/i.test(command)) add("git_push");
+  if (/^gh\s+pr\s+(?:create|merge|close|comment|edit|review)\b/i.test(command)) add("pull_request_write");
+  if (/^(?:gh\s+release\s+(?:create|upload|edit|delete)|npm\s+publish|cargo\s+publish|twine\s+upload)\b/i.test(command)) add("release_publish");
+  if (/^(?:vercel|netlify|wrangler\s+deploy|flyctl\s+deploy|gcloud\s+(?:run\s+deploy|app\s+deploy)|aws\s+.*deploy|kubectl\s+(?:apply|delete|rollout)|helm\s+(?:install|upgrade|uninstall)|terraform\s+apply)\b/i.test(command)) add("deploy");
+  if (/^(?:curl|wget)\b/i.test(command)) add(/(?:\s-X\s*(?:POST|PUT|PATCH|DELETE)\b|--request\s+(?:POST|PUT|PATCH|DELETE)\b|--data(?:-\w+)?\b|-d\s)/i.test(command) ? "external_write" : "network_read");
+  if (/^(?:gh\s+(?:issue|api)\s+.*(?:comment|create|edit|delete)|mail|sendmail|osascript\s+.*mail)\b/i.test(command)) add("external_write");
+  if (/(?:\.env\b|\.ssh\/|credentials?|api[_-]?key|token|secret|keychain|security\s+find-generic-password)/i.test(command)) add("credential_access");
+  if (/^(?:git\s+(?:add|checkout|switch|restore|mv|rm)|mkdir|touch|cp|mv|sed\s+.*(?:-i|--in-place)|tee\b|printf\b.*>|echo\b.*>)\b/i.test(command)) add("repository_write");
+  if (/^(?:sh|bash|zsh|cmd|powershell|pwsh)\s+(?:-c|\/c)\b|\beval\b/i.test(command)) add("unknown_effect");
+  if (!classes.size) add("unknown_effect");
+  return [...classes];
+}
+function classifyToolCall(call) {
+  const name = call.name.toLowerCase();
+  const classes = /* @__PURE__ */ new Set();
+  const add = (...items) => items.forEach((item2) => classes.add(item2));
+  const command = commandText(call);
+  if (command !== void 0) {
+    for (const segment of splitShellCommands(command)) for (const item2 of classesForCommand(segment)) classes.add(item2);
+  } else if (/create_thread|spawn_agent|delegate/.test(name)) add("task_create");
+  else if (/apply[_-]?patch|write|edit|create_file|delete_file/.test(name)) add("repository_write");
+  else if (/read|glob|grep|search_files|list_files|view_image/.test(name)) add("repository_read");
+  else if (/web|fetch|search_query|open_url|browser/.test(name)) add("network_read");
+  else if (/send|email|message|comment|post|submit/.test(name)) add("external_write");
+  else add("unknown_effect");
+  if (/credential|secret|keychain|token/.test(name)) add("credential_access");
+  const identityInput = command ?? call.input;
+  return {
+    toolCallId: call.id,
+    toolName: call.name,
+    sequence: call.sequence,
+    classes: [...classes],
+    summary: command ? command.slice(0, 240).replace(/\s+/g, " ") : call.input.slice(0, 240).replace(/\s+/g, " "),
+    identitySha256: `sha256:${createHash4("sha256").update(`${call.name}\0${identityInput}`).digest("hex")}`,
+    completed: call.output !== void 0,
+    failed: call.isError === true
+  };
+}
+function classifyTranscriptActions(transcript) {
+  return transcript.toolCalls.map(classifyToolCall);
+}
+function analyzeTrajectory(actions) {
+  const identities = /* @__PURE__ */ new Map();
+  let failureStreak = 0;
+  let maxFailureStreak = 0;
+  for (const action of actions) {
+    identities.set(action.identitySha256, (identities.get(action.identitySha256) ?? 0) + 1);
+    failureStreak = action.failed ? failureStreak + 1 : 0;
+    maxFailureStreak = Math.max(maxFailureStreak, failureStreak);
+  }
+  const counts = [...identities.values()];
+  const progressClasses = /* @__PURE__ */ new Set(["repository_write", "test_execute", "build_execute", "git_commit"]);
+  return {
+    toolCalls: actions.length,
+    failedToolCalls: actions.filter((action) => action.failed).length,
+    maxIdenticalToolCalls: counts.length ? Math.max(...counts) : 0,
+    repeatedActionGroups: counts.filter((count) => count > 1).length,
+    maxConsecutiveFailedToolCalls: maxFailureStreak,
+    progressBearingActions: actions.filter((action) => action.classes.some((item2) => progressClasses.has(item2))).length
+  };
+}
+function buildAuthorityChecks(repo, base, head, transcript, contract, now = /* @__PURE__ */ new Date()) {
+  const results = [];
+  if (contract.expiresAt) {
+    const valid = now.getTime() <= new Date(contract.expiresAt).getTime();
+    results.push(result2("authority_scope", "authority-validity", "authority validity window", contract.expiresAt, valid ? "verified" : "contradicted", valid ? `authority remains valid until ${contract.expiresAt}` : `authority expired at ${contract.expiresAt}`));
+  } else {
+    results.push(result2("authority_scope", "authority-validity", "authority validity window", "no expiry", "unverifiable", "contract has no expiresAt; durable authority can outlive the task", { contributesToPass: false }));
+  }
+  const diff = collectDiffEvidence(repo, base, head);
+  const outside = diff.paths.filter((path) => !pathMatches(path, contract.allowedChangePaths));
+  const denied = contract.deniedChangePaths ? diff.paths.filter((path) => pathMatches(path, contract.deniedChangePaths)) : [];
+  const pathViolations = [.../* @__PURE__ */ new Set([...outside, ...denied])];
+  results.push(result2(
+    "authority_scope",
+    "authorized-change-paths",
+    "repository change boundary",
+    diff.paths.join(", ") || "no changed paths",
+    pathViolations.length ? "contradicted" : "verified",
+    pathViolations.length ? `change exceeded task authority: ${pathViolations.join(", ")}` : `${diff.paths.length} changed path(s) stayed within allowedChangePaths${contract.deniedChangePaths ? " and outside deniedChangePaths" : ""}`
+  ));
+  const actions = classifyTranscriptActions(transcript);
+  if (!actions.length) {
+    results.push(result2("authority_action", "observed-action-coverage", "observed agent actions", "no tool calls", "unverifiable", "the transcript contains no structured tool calls; Agent Vigil cannot reconcile authority from narrative alone", { blocksPass: true }));
+    return { results, actions };
+  }
+  const allowed = new Set(contract.allowedActions);
+  const trajectory = analyzeTrajectory(actions);
+  const violations = actions.flatMap((action) => action.classes.filter((item2) => !allowed.has(item2)).map((item2) => ({ action, item: item2 })));
+  results.push(result2(
+    "authority_action",
+    "authorized-action-classes",
+    "observed action boundary",
+    `${actions.length} observed tool call(s)`,
+    violations.length ? "contradicted" : "verified",
+    violations.length ? violations.slice(0, 20).map(({ action, item: item2 }) => `#${action.sequence} ${action.toolName}: ${item2}`).join("; ") : `${actions.length} observed tool call(s) classified only into allowedActions`
+  ));
+  if (contract.maxToolCalls !== void 0) {
+    const exceeded = actions.length > contract.maxToolCalls;
+    results.push(result2(
+      "authority_scope",
+      "tool-call-budget",
+      "observed tool-call budget",
+      `${actions.length}/${contract.maxToolCalls} tool call(s)`,
+      exceeded ? "contradicted" : "verified",
+      exceeded ? `observed ${actions.length} tool calls; contract permits at most ${contract.maxToolCalls}` : `observed tool calls stayed within the ${contract.maxToolCalls} call limit`
+    ));
+  }
+  if (contract.maxFailedToolCalls !== void 0) {
+    const failed = trajectory.failedToolCalls;
+    const exceeded = failed > contract.maxFailedToolCalls;
+    results.push(result2(
+      "authority_scope",
+      "failed-tool-call-budget",
+      "observed failed-tool-call budget",
+      `${failed}/${contract.maxFailedToolCalls} failed tool call(s)`,
+      exceeded ? "contradicted" : "verified",
+      exceeded ? `observed ${failed} failed tool calls; contract permits at most ${contract.maxFailedToolCalls}` : `observed failed tool calls stayed within the ${contract.maxFailedToolCalls} failure limit`
+    ));
+  }
+  if (contract.maxIdenticalToolCalls !== void 0) {
+    const observed = trajectory.maxIdenticalToolCalls;
+    const exceeded = observed > contract.maxIdenticalToolCalls;
+    results.push(result2(
+      "authority_scope",
+      "identical-tool-call-budget",
+      "identical observed tool-call budget",
+      `${observed}/${contract.maxIdenticalToolCalls} identical call(s)`,
+      exceeded ? "contradicted" : "verified",
+      exceeded ? `one exact observed tool action repeated ${observed} times; contract permits at most ${contract.maxIdenticalToolCalls}` : `identical observed tool calls stayed within the ${contract.maxIdenticalToolCalls} call limit`
+    ));
+  }
+  if (contract.maxConsecutiveFailedToolCalls !== void 0) {
+    const observed = trajectory.maxConsecutiveFailedToolCalls;
+    const exceeded = observed > contract.maxConsecutiveFailedToolCalls;
+    results.push(result2(
+      "authority_scope",
+      "consecutive-failure-budget",
+      "consecutive failed tool-call budget",
+      `${observed}/${contract.maxConsecutiveFailedToolCalls} consecutive failure(s)`,
+      exceeded ? "contradicted" : "verified",
+      exceeded ? `observed a streak of ${observed} failed tool calls; contract permits at most ${contract.maxConsecutiveFailedToolCalls}` : `consecutive failed tool calls stayed within the ${contract.maxConsecutiveFailedToolCalls} failure limit`
+    ));
+  }
+  if (contract.maxObservedTokens !== void 0) {
+    const observed = transcript.usage?.totalTokens;
+    if (observed === void 0) {
+      results.push(result2("authority_scope", "observed-token-budget", "observed token budget", `unknown/${contract.maxObservedTokens} tokens`, "unverifiable", "the transcript adapter exposed no token accounting, so the declared token budget cannot be checked", { blocksPass: true }));
+    } else {
+      const exceeded = observed > contract.maxObservedTokens;
+      results.push(result2(
+        "authority_scope",
+        "observed-token-budget",
+        "observed token budget",
+        `${observed}/${contract.maxObservedTokens} tokens`,
+        exceeded ? "contradicted" : "verified",
+        exceeded ? `observed ${observed} tokens; contract permits at most ${contract.maxObservedTokens}` : `observed tokens stayed within the ${contract.maxObservedTokens} token limit`
+      ));
+    }
+  }
+  if (contract.maxTokensWithoutObservedProgress !== void 0) {
+    const observed = transcript.usage?.totalTokens;
+    if (observed === void 0) {
+      results.push(result2("authority_scope", "no-progress-token-budget", "token spend without an observed write, test, build, or commit", `unknown/${contract.maxTokensWithoutObservedProgress} tokens`, "unverifiable", "the transcript adapter exposed no token accounting, so the no-progress token limit cannot be checked", { blocksPass: true }));
+    } else {
+      const exceeded = trajectory.progressBearingActions === 0 && observed > contract.maxTokensWithoutObservedProgress;
+      results.push(result2(
+        "authority_scope",
+        "no-progress-token-budget",
+        "token spend without an observed write, test, build, or commit",
+        `${observed} tokens \xB7 ${trajectory.progressBearingActions} progress-bearing action(s)`,
+        exceeded ? "contradicted" : "verified",
+        exceeded ? `observed ${observed} tokens without a repository write, test, build, or commit; contract permits at most ${contract.maxTokensWithoutObservedProgress}` : trajectory.progressBearingActions ? `${trajectory.progressBearingActions} progress-bearing action(s) were observed; this whole-session guard does not claim every intermediate token created progress` : `no progress-bearing action was observed, but token usage stayed within ${contract.maxTokensWithoutObservedProgress}`
+      ));
+    }
+  }
+  const unknown = actions.filter((action) => action.classes.includes("unknown_effect"));
+  if (unknown.length && allowed.has("unknown_effect")) {
+    results.push(result2("authority_action", "unknown-action-risk", "unclassified observed effects", `${unknown.length} unknown action(s)`, "unverifiable", `unknown_effect was explicitly allowed, so ${unknown.length} action(s) cannot be meaningfully bounded`, { blocksPass: true }));
+  }
+  if (contract.requireCompleteToolResults !== false) {
+    const incomplete = actions.filter((action) => !action.completed);
+    results.push(result2(
+      "telemetry",
+      "complete-tool-results",
+      "tool-result completeness",
+      `${actions.length - incomplete.length}/${actions.length} completed`,
+      incomplete.length ? "unverifiable" : "verified",
+      incomplete.length ? `missing results for tool call(s): ${incomplete.map((action) => action.toolCallId).join(", ")}` : "every observed tool call has a recorded result",
+      incomplete.length ? { blocksPass: true } : {}
+    ));
+  }
+  return { results, actions };
+}
+function authorityContractTemplate() {
+  const value = {
+    schemaVersion: 1,
+    taskId: "REPLACE_WITH_TASK_OR_TICKET_ID",
+    allowedChangePaths: ["src/**", "test/**", "docs/**"],
+    deniedChangePaths: [".github/workflows/**", ".env*", "**/*.pem", "**/*.key"],
+    allowedActions: ["repository_read", "repository_write", "test_execute", "build_execute"],
+    requireCompleteToolResults: true,
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1e3).toISOString()
+  };
+  return `${JSON.stringify(value, null, 2)}
+`;
+}
+
+// src/setup.ts
 function workflow(mode) {
   return `name: Agent Vigil
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
   merge_group:
     types: [checks_requested]
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   evidence:
@@ -1827,12 +2655,13 @@ jobs:
       - id: vigil
         uses: sulmusic2-star/agent-vigil@v${VERSION}
         with:
-          ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : "transcript: .agent-vigil/session.md"}
+          ${mode === "portable" ? "receipt: .agent-vigil/receipt.json" : mode === "maintainer" ? "mode: maintainer" : mode === "authority" ? "transcript: .agent-vigil/session.jsonl\n          authority-contract: .agent-vigil-authority.json\n          authority-contract-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" : "transcript: .agent-vigil/session.md"}
           policy: .agent-vigil.json
           policy-ref: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           repo: .
           base: \${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           head: \${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          github-token: \${{ github.token }}
       - name: Retain auditable Agent Vigil receipt
         if: always() && steps.vigil.outputs.report != ''
         uses: actions/upload-artifact@v4
@@ -1841,6 +2670,73 @@ jobs:
           path: |
             agent-vigil-report.json
             agent-vigil.sarif
+            agent-vigil-value-card.json
+            agent-vigil-github-evidence.json
+          retention-days: 30
+`;
+}
+function outcomeWorkflow() {
+  return `name: Agent Vigil outcomes
+
+on:
+  workflow_run:
+    workflows: [Agent Vigil]
+    types: [completed]
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  outcome:
+    if: github.event_name == 'pull_request' || github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - id: source
+        name: Locate the completed evidence run
+        env:
+          GH_TOKEN: \${{ github.token }}
+          EVENT_NAME: \${{ github.event_name }}
+          EVENT_RUN_ID: \${{ github.event.workflow_run.id }}
+          HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            run_id="$EVENT_RUN_ID"
+          else
+            run_id=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs" \\
+              -f head_sha="$HEAD_SHA" -f event=pull_request -f status=completed \\
+              --jq '.workflow_runs | map(select(.name == "Agent Vigil")) | sort_by(.created_at) | reverse | .[0].id // empty')
+          fi
+          if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+            echo "No completed Agent Vigil receipt run is available for this outcome." >&2
+            exit 2
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+      - name: Download the immutable receipt artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: agent-vigil-receipt
+          path: .agent-vigil-prior
+          github-token: \${{ github.token }}
+          run-id: \${{ steps.source.outputs.run_id }}
+      - id: outcome
+        uses: sulmusic2-star/agent-vigil@v${VERSION}
+        with:
+          mode: outcome
+          outcome-receipt: .agent-vigil-prior/agent-vigil-report.json
+          actions-run-id: \${{ steps.source.outputs.run_id }}
+          github-token: \${{ github.token }}
+      - name: Retain the post-run Value Card
+        if: always() && steps.outcome.outputs.value-card != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-vigil-outcome-\${{ steps.source.outputs.run_id }}
+          path: |
+            \${{ steps.outcome.outputs.value-card }}
+            \${{ steps.outcome.outputs.github-evidence }}
           retention-days: 30
 `;
 }
@@ -1867,6 +2763,8 @@ Agent Vigil will independently compare checkable claims with the selected Git
 range and fresh verification. This placeholder intentionally contains no claims,
 so strict verification remains INCONCLUSIVE until real evidence is supplied.
 `;
+var AUTHORITY_SESSION_TEMPLATE = `{"type":"session_meta","payload":{"id":"replace-with-exported-structured-session"}}
+`;
 var LOCAL_README = `# Agent Vigil evidence input
 
 The workflow reads \`session.md\` by default. Replace it with the agent's actual
@@ -1878,53 +2776,66 @@ Transcripts can contain source code, prompts, paths, and secrets. Review them
 before committing or uploading. Agent Vigil reads evidence locally and does not
 upload it.
 `;
-function writeScaffold(root, path, content, force, result4) {
-  const target = resolve4(root, path);
-  if (existsSync3(target) && !force) {
-    result4.kept.push(path);
+function writeScaffold(root, path, content, force, result5) {
+  const target = resolve6(root, path);
+  if (existsSync4(target) && !force) {
+    result5.kept.push(path);
     return;
   }
-  mkdirSync2(dirname2(target), { recursive: true });
+  mkdirSync3(dirname3(target), { recursive: true });
   writeFileSync3(target, content);
-  result4.created.push(path);
+  result5.created.push(path);
 }
 function initRepository(repo, force = false, portableSignerKeyId, profile = "default") {
-  const root = resolve4(repo);
+  const root = resolve6(repo);
   try {
-    execFileSync4("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
+    execFileSync6("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
   } catch {
     throw new Error(`not a Git repository: ${root}`);
   }
-  const result4 = { created: [], kept: [] };
+  const result5 = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? void 0;
-  const mode = profile === "maintainer" ? "maintainer" : portableSignerKeyId ? "portable" : "transcript";
-  const setupCommand = existsSync3(resolve4(root, "package-lock.json")) ? "npm ci --ignore-scripts" : void 0;
-  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : policyTemplate(inferred, portableSignerKeyId), force, result4);
-  if (mode === "transcript") {
-    writeScaffold(root, ".agent-vigil/session.md", SESSION_TEMPLATE, force, result4);
-    writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result4);
+  const mode = profile === "maintainer" ? "maintainer" : profile === "authority" ? "authority" : portableSignerKeyId ? "portable" : "transcript";
+  const setupCommand = existsSync4(resolve6(root, "package-lock.json")) ? "npm ci --ignore-scripts" : void 0;
+  const defaultPolicy = policyTemplate(inferred, portableSignerKeyId);
+  const authorityPolicy = defaultPolicy.replace('"transcript": ".agent-vigil/session.md"', '"transcript": ".agent-vigil/session.jsonl"');
+  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : mode === "authority" ? authorityPolicy : defaultPolicy, force, result5);
+  if (mode === "transcript" || mode === "authority") {
+    writeScaffold(root, mode === "authority" ? ".agent-vigil/session.jsonl" : ".agent-vigil/session.md", mode === "authority" ? AUTHORITY_SESSION_TEMPLATE : SESSION_TEMPLATE, force, result5);
+    writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result5);
   }
-  if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result4);
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result4);
-  return result4;
+  if (mode === "authority") writeScaffold(root, ".agent-vigil-authority.json", authorityContractTemplate(), force, result5);
+  if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result5);
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", workflow(mode), force, result5);
+  writeScaffold(root, ".github/workflows/agent-vigil-outcomes.yml", outcomeWorkflow(), force, result5);
+  return result5;
 }
-function git3(repo, args) {
+function git4(repo, args) {
   try {
-    return execFileSync4("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync6("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
 }
 function doctorRepository(repo, requestedPolicy, requestedTranscript) {
-  const root = resolve4(repo);
+  const root = resolve6(repo);
   const checks = [];
+  const workflow2 = resolve6(root, ".github/workflows/agent-vigil.yml");
+  const outcomeObserver = resolve6(root, ".github/workflows/agent-vigil-outcomes.yml");
+  const installedWorkflow = existsSync4(workflow2) ? readFileSync7(workflow2, "utf8") : "";
+  const authorityConfigured = /^\s*authority-contract:\s*\S+\s*$/m.test(installedWorkflow);
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   checks.push({
     status: nodeMajor >= 20 ? "PASS" : "FAIL",
     label: "Node.js",
     detail: `${process.versions.node}${nodeMajor >= 20 ? " satisfies Node 20+" : " is unsupported; install Node 20+"}`
   });
-  const gitRoot = git3(root, ["rev-parse", "--show-toplevel"]);
+  checks.push({
+    status: existsSync4(outcomeObserver) ? "PASS" : "WARN",
+    label: "Outcome observer",
+    detail: existsSync4(outcomeObserver) ? "post-run workflow retains final Actions runtime and later pull-request outcome evidence without re-executing candidate code" : "outcome workflow is missing; rerun vigil init to add post-run evidence closure"
+  });
+  const gitRoot = git4(root, ["rev-parse", "--show-toplevel"]);
   checks.push({
     status: gitRoot ? "PASS" : "FAIL",
     label: "Git repository",
@@ -1938,7 +2849,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     checks.push({
       status: policy.path ? "PASS" : "WARN",
       label: "Policy",
-      detail: policy.path ? `${relative2(root, policy.path)} \xB7 ${policy.sha256}` : `no ${DEFAULT_POLICY_FILE}; CLI defaults will be used`
+      detail: policy.path ? `${relative4(root, policy.path)} \xB7 ${policy.sha256}` : `no ${DEFAULT_POLICY_FILE}; CLI defaults will be used`
     });
     transcript ??= policy.value.transcript;
     portableReceipt = policy.value.portableReceipt;
@@ -1962,45 +2873,44 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     checks.push({ status: "FAIL", label: "Policy", detail: error.message });
   }
   if (portableReceipt) {
-    const path = resolve4(root, portableReceipt);
+    const path = resolve6(root, portableReceipt);
     checks.push({
-      status: existsSync3(path) ? "PASS" : "WARN",
+      status: existsSync4(path) ? "PASS" : "WARN",
       label: "Portable receipt",
-      detail: existsSync3(path) ? `${portableReceipt} is present; run vigil gate to verify it` : `${portableReceipt} will be created after the next signed code change; raw transcript remains local`
+      detail: existsSync4(path) ? `${portableReceipt} is present; run vigil gate to verify it` : `${portableReceipt} will be created after the next signed code change; raw transcript remains local`
     });
   } else if (maintainer) {
-    const template = resolve4(root, ".github/pull_request_template.md");
+    const template = resolve6(root, ".github/pull_request_template.md");
     checks.push({
-      status: existsSync3(template) ? "PASS" : "FAIL",
+      status: existsSync4(template) ? "PASS" : "FAIL",
       label: "Maintainer evidence",
-      detail: existsSync3(template) ? "PR responsibility and disclosure template is installed" : "maintainer profile requires .github/pull_request_template.md"
+      detail: existsSync4(template) ? "PR responsibility and disclosure template is installed" : "maintainer profile requires .github/pull_request_template.md"
     });
   } else if (!transcript) {
     checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });
   } else {
-    const path = resolve4(root, transcript);
-    if (!existsSync3(path)) checks.push({ status: "WARN", label: "Transcript", detail: `${transcript} does not exist yet` });
+    const path = resolve6(root, transcript);
+    if (!existsSync4(path)) checks.push({ status: "WARN", label: "Transcript", detail: `${transcript} does not exist yet` });
     else {
       try {
         const loaded = loadTranscript(path);
         checks.push({
-          status: "PASS",
+          status: authorityConfigured && loaded.toolCalls.length === 0 ? "FAIL" : "PASS",
           label: "Transcript",
-          detail: `${transcript} detected as ${loaded.format}; ${loaded.toolCalls.length} tool call(s)`
+          detail: authorityConfigured && loaded.toolCalls.length === 0 ? `${transcript} is ${loaded.format} with no structured tool calls; authority mode requires a supported structured export` : `${transcript} detected as ${loaded.format}; ${loaded.toolCalls.length} tool call(s)`
         });
       } catch (error) {
         checks.push({ status: "FAIL", label: "Transcript", detail: error.message });
       }
     }
   }
-  const workflow2 = resolve4(root, ".github/workflows/agent-vigil.yml");
   checks.push({
-    status: existsSync3(workflow2) ? "PASS" : "WARN",
+    status: existsSync4(workflow2) ? "PASS" : "WARN",
     label: "GitHub Action",
-    detail: existsSync3(workflow2) ? "workflow installed; configure Agent Vigil evidence as a required status check after its first run" : "workflow not installed; run vigil init"
+    detail: existsSync4(workflow2) ? "workflow installed; configure Agent Vigil evidence as a required status check after its first run" : "workflow not installed; run vigil init"
   });
-  if (existsSync3(workflow2)) {
-    const text = readFileSync5(workflow2, "utf8");
+  if (existsSync4(workflow2)) {
+    const text = installedWorkflow;
     const exactRange = /pull_request\.base\.sha/.test(text) && /pull_request\.head\.sha/.test(text);
     checks.push({
       status: exactRange ? "PASS" : "WARN",
@@ -2034,6 +2944,22 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
         detail: modeInstalled && artifactInstalled ? "maintainer mode and receipt artifact retention are installed" : "workflow must enable maintainer mode and retain agent-vigil-receipt"
       });
     }
+    const authorityMatch = text.match(/^\s*authority-contract:\s*(\S+)\s*$/m);
+    if (authorityMatch) {
+      try {
+        const contract = loadAuthorityContract(root, authorityMatch[1]);
+        const placeholder = contract.value.taskId === "REPLACE_WITH_TASK_OR_TICKET_ID";
+        const expired = Boolean(contract.value.expiresAt && Date.now() > new Date(contract.value.expiresAt).getTime());
+        const anchored = /^\s*authority-contract-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}\s*$/m.test(text);
+        checks.push({
+          status: placeholder || expired || !anchored ? "FAIL" : "PASS",
+          label: "Task authority",
+          detail: placeholder ? "replace the generated taskId before use" : expired ? `contract expired at ${contract.value.expiresAt}` : !anchored ? "workflow must load authority from the GitHub event base" : `${contract.value.taskId} \xB7 ${contract.sha256} \xB7 base-anchored`
+        });
+      } catch (error) {
+        checks.push({ status: "FAIL", label: "Task authority", detail: error.message });
+      }
+    }
   }
   return checks;
 }
@@ -2049,22 +2975,22 @@ function renderDoctor(checks) {
 
 // src/signature.ts
 import {
-  createHash as createHash4,
+  createHash as createHash5,
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
   sign,
   verify
 } from "node:crypto";
-import { chmodSync, readFileSync as readFileSync6, writeFileSync as writeFileSync4 } from "node:fs";
+import { chmodSync, readFileSync as readFileSync8, writeFileSync as writeFileSync4 } from "node:fs";
 function publicKeyDer(key) {
   return key.export({ type: "spki", format: "der" });
 }
 function signingKeyId(der) {
-  return `sha256:${createHash4("sha256").update(der).digest("hex")}`;
+  return `sha256:${createHash5("sha256").update(der).digest("hex")}`;
 }
 function signReport(report, privateKeyPath) {
-  const privateKey = createPrivateKey(readFileSync6(privateKeyPath));
+  const privateKey = createPrivateKey(readFileSync8(privateKeyPath));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signing key must be Ed25519");
   const publicKey = createPublicKey(privateKey);
   const der = publicKeyDer(publicKey);
@@ -2085,7 +3011,7 @@ function verifyReport(report, publicKeyPath) {
     type: "spki",
     format: "der"
   });
-  const selected = publicKeyPath ? createPublicKey(readFileSync6(publicKeyPath)) : embedded;
+  const selected = publicKeyPath ? createPublicKey(readFileSync8(publicKeyPath)) : embedded;
   const selectedDer = publicKeyDer(selected);
   const selectedId = signingKeyId(selectedDer);
   const signatureValid = selectedId === report.signature.keyId && verify(null, Buffer.from(report.receiptHash), selected, Buffer.from(report.signature.value, "base64"));
@@ -2100,23 +3026,23 @@ function generateSigningKey(privatePath, publicPath) {
   writeFileSync4(publicPath, publicPem, { flag: "wx" });
 }
 function publicKeyId(publicKeyPath) {
-  const publicKey = createPublicKey(readFileSync6(publicKeyPath));
+  const publicKey = createPublicKey(readFileSync8(publicKeyPath));
   if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("public key must be Ed25519");
   return signingKeyId(publicKeyDer(publicKey));
 }
 
 // src/portable.ts
 import {
-  createHash as createHash5,
+  createHash as createHash6,
   createPrivateKey as createPrivateKey2,
   createPublicKey as createPublicKey2,
   sign as sign2,
   verify as verify2
 } from "node:crypto";
-import { readFileSync as readFileSync7 } from "node:fs";
+import { readFileSync as readFileSync9 } from "node:fs";
 var SHA256 = /^sha256:[0-9a-f]{64}$/;
 function digest(value) {
-  return `sha256:${createHash5("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash6("sha256").update(canonical(value)).digest("hex")}`;
 }
 function payloadOf(receipt) {
   const { portableHash: _hash, signature: _signature, ...payload } = receipt;
@@ -2127,7 +3053,7 @@ function createPortableReceipt(report, privateKeyPath) {
   if (!report.repository.tree) {
     throw new Error("portable receipt requires a committed head tree; rerun with --head <sha> instead of WORKTREE");
   }
-  const privateKey = createPrivateKey2(readFileSync7(privateKeyPath));
+  const privateKey = createPrivateKey2(readFileSync9(privateKeyPath));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signing key must be Ed25519");
   const publicKey = createPublicKey2(privateKey);
   const der = publicKeyDer(publicKey);
@@ -2193,8 +3119,8 @@ function verifyPortableReceipt(receipt, trustedKeyIds = []) {
 }
 
 // src/gate.ts
-import { execFileSync as execFileSync5 } from "node:child_process";
-import { relative as relative3, resolve as resolve5, sep as sep3 } from "node:path";
+import { execFileSync as execFileSync7 } from "node:child_process";
+import { relative as relative5, resolve as resolve7, sep as sep4 } from "node:path";
 
 // src/integrity-policy.ts
 function routeIntegrity(checks, mode = "advisory") {
@@ -2206,14 +3132,14 @@ function routeIntegrity(checks, mode = "advisory") {
 }
 
 // src/gate.ts
-function git4(repo, args) {
+function git5(repo, args) {
   try {
-    return execFileSync5("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync7("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
 }
-function result(subject, verdict, evidence, ruleId, blocksPass = false) {
+function result3(subject, verdict, evidence, ruleId, blocksPass = false) {
   return {
     claim: { kind: "integrity", quote: "portable receipt merge-gate check", subject },
     verdict,
@@ -2224,13 +3150,13 @@ function result(subject, verdict, evidence, ruleId, blocksPass = false) {
   };
 }
 function receiptRelativePath(repo, path) {
-  const value = relative3(resolve5(repo), resolve5(path)).replaceAll("\\", "/");
-  if (!value || value === ".." || value.startsWith("../") || value.startsWith(`..${sep3}`)) return void 0;
+  const value = relative5(resolve7(repo), resolve7(path)).replaceAll("\\", "/");
+  if (!value || value === ".." || value.startsWith("../") || value.startsWith(`..${sep4}`)) return void 0;
   return value.replace(/^\.\//, "");
 }
 function buildPortableGateReport(receipt, options) {
-  const repo = resolve5(options.repo);
-  const receiptPath = resolve5(options.receiptPath);
+  const repo = resolve7(options.repo);
+  const receiptPath = resolve7(options.receiptPath);
   if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) {
     throw new Error(`invalid git range ${options.base}..${options.head}`);
   }
@@ -2241,27 +3167,27 @@ function buildPortableGateReport(receipt, options) {
   const advisories = [];
   const trusted = policy.value.trustedSignerKeyIds ?? [];
   const verification2 = verifyPortableReceipt(receipt, trusted);
-  results.push(result(
+  results.push(result3(
     "portable receipt hash and Ed25519 signature",
     verification2.hashValid && verification2.signatureValid ? "verified" : "contradicted",
     verification2.hashValid && verification2.signatureValid ? `${receipt.portableHash} is intact and signed by ${verification2.keyId}` : verification2.errors.filter((error) => !error.includes("not pinned")).join("; ") || "portable receipt signature is invalid",
     "portable-signature"
   ));
-  results.push(result(
+  results.push(result3(
     "receipt signer is pinned by trusted policy",
     verification2.signerTrusted ? "verified" : trusted.length ? "contradicted" : "unverifiable",
     verification2.signerTrusted ? `${verification2.keyId} is listed in the base-anchored policy` : trusted.length ? `${verification2.keyId ?? "unreadable signer"} is not one of ${trusted.length} trusted key ID(s)` : "trusted policy has no trustedSignerKeyIds; pin a signer before enabling the gate",
     "portable-signer",
     !trusted.length
   ));
-  results.push(result(
+  results.push(result3(
     "local Agent Vigil verdict",
     receipt.summary?.status === "PASS" && receipt.summary.pass ? "verified" : receipt.summary?.status === "FAIL" ? "contradicted" : "unverifiable",
     `signed local report ${receipt.reportHash} records ${receipt.summary?.status ?? "an invalid status"}`,
     "portable-local-verdict",
     receipt.summary?.status !== "FAIL"
   ));
-  results.push(result(
+  results.push(result3(
     "portable receipt matches trusted policy",
     receipt.policy?.sha256 === policy.sha256 ? "verified" : "contradicted",
     receipt.policy?.sha256 === policy.sha256 ? `receipt and base policy share ${policy.sha256}` : `receipt names ${receipt.policy?.sha256 ?? "no policy hash"}; trusted policy is ${policy.sha256}`,
@@ -2270,14 +3196,14 @@ function buildPortableGateReport(receipt, options) {
   const relativeReceipt = receiptRelativePath(repo, receiptPath);
   const configuredReceipt = policy.value.portableReceipt?.replace(/^\.\//, "");
   if (configuredReceipt) {
-    results.push(result(
+    results.push(result3(
       "receipt path is base-policy controlled",
       relativeReceipt === configuredReceipt ? "verified" : "contradicted",
       relativeReceipt === configuredReceipt ? `${relativeReceipt} matches policy portableReceipt` : `received ${relativeReceipt ?? "a path outside the repository"}; policy requires ${configuredReceipt}`,
       "portable-path"
     ));
   } else {
-    results.push(result(
+    results.push(result3(
       "receipt path is base-policy controlled",
       "unverifiable",
       "trusted policy has no portableReceipt path",
@@ -2289,14 +3215,14 @@ function buildPortableGateReport(receipt, options) {
   const receiptHead = receiptHeadExists ? resolveGitRef(repo, receipt.head) : void 0;
   const receiptBase = gitRefExists(repo, receipt.base) ? resolveGitRef(repo, receipt.base) : void 0;
   const exactHead = receiptHead === head;
-  const ancestor = Boolean(receiptHead && git4(repo, ["merge-base", "--is-ancestor", receiptHead, head]) !== void 0);
-  const evidenceDelta = receiptHead && configuredReceipt ? (git4(repo, ["diff", "--name-only", "-z", receiptHead, head]) ?? "").split("\0").filter(Boolean) : [];
+  const ancestor = Boolean(receiptHead && git5(repo, ["merge-base", "--is-ancestor", receiptHead, head]) !== void 0);
+  const evidenceDelta = receiptHead && configuredReceipt ? (git5(repo, ["diff", "--name-only", "-z", receiptHead, head]) ?? "").split("\0").filter(Boolean) : [];
   const receiptOnlyTail = ancestor && evidenceDelta.length > 0 && evidenceDelta.every((path) => path === configuredReceipt);
-  const expectedTree = receiptHead ? git4(repo, ["rev-parse", `${receiptHead}^{tree}`]) : void 0;
-  const currentRemote = git4(repo, ["config", "--get", "remote.origin.url"]);
+  const expectedTree = receiptHead ? git5(repo, ["rev-parse", `${receiptHead}^{tree}`]) : void 0;
+  const currentRemote = git5(repo, ["config", "--get", "remote.origin.url"]);
   const remoteMatches = !receipt.repository?.remote || !currentRemote || receipt.repository.remote === currentRemote;
   const gitBound = receiptBase === base && Boolean(receiptHead) && (exactHead || receiptOnlyTail) && Boolean(expectedTree) && receipt.repository?.tree === expectedTree && remoteMatches;
-  results.push(result(
+  results.push(result3(
     "signed repository identity",
     gitBound ? "verified" : "contradicted",
     gitBound ? exactHead ? `receipt binds exact head ${head} and tree ${expectedTree}` : `receipt binds code head ${receiptHead}; ${receiptHead}..${head} changes only ${configuredReceipt}` : `expected base ${base}, current head ${head}, receipt base ${receiptBase ?? "invalid"}, receipt head ${receiptHead ?? "invalid"}, receipt tree ${receipt.repository?.tree ?? "missing"}, observed tree ${expectedTree ?? "invalid"}${remoteMatches ? "" : "; remote differs"}`,
@@ -2309,7 +3235,7 @@ function buildPortableGateReport(receipt, options) {
   const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
-  const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative3(repo, policy.path) : void 0;
+  const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
   const reproduction = [
     "vigil gate",
     `'${relativeReceipt ?? receiptPath}'`,
@@ -2331,323 +3257,13 @@ function buildPortableGateReport(receipt, options) {
     results,
     advisories,
     policy: { minVerified: 1, strict: true, source: policySource, sha256: policy.sha256 },
-    repository: { ...currentRemote ? { remote: currentRemote } : {}, ...git4(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git4(repo, ["rev-parse", `${head}^{tree}`]) } : {} },
+    repository: { ...currentRemote ? { remote: currentRemote } : {}, ...git5(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git5(repo, ["rev-parse", `${head}^{tree}`]) } : {} },
     reproduction
   });
 }
 
-// src/maintainer.ts
-import { execFileSync as execFileSync6, spawnSync as spawnSync2 } from "node:child_process";
-import { cpSync, existsSync as existsSync4, lstatSync as lstatSync2, mkdirSync as mkdirSync3, mkdtempSync as mkdtempSync2, readFileSync as readFileSync8, rmSync, statSync as statSync2 } from "node:fs";
-import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname3, join as join3, normalize as normalize2, resolve as resolve6, sep as sep4 } from "node:path";
-var DEFAULT_TEST_PATTERNS = ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
-var MAX_COMMAND_OUTPUT = 12e3;
-function result2(kind, ruleId, subject, quote, verdict, evidence, options = {}) {
-  return { claim: { kind, subject, quote }, ruleId, verdict, evidence, ...options };
-}
-function loadPullRequestEvidence(path) {
-  const size = statSync2(path).size;
-  if (size > 2 * 1024 * 1024) throw new Error(`pull request event is ${size} bytes; maximum is ${2 * 1024 * 1024}`);
-  let event;
-  try {
-    event = JSON.parse(readFileSync8(path, "utf8"));
-  } catch {
-    throw new Error(`pull request event is not valid JSON: ${path}`);
-  }
-  if (!event?.pull_request || typeof event.pull_request !== "object") throw new Error("event does not contain a pull_request object");
-  const author = event.pull_request.user?.login;
-  const body = event.pull_request.body;
-  if (typeof author !== "string" || !author.trim()) throw new Error("pull request event does not identify the author");
-  if (body !== null && body !== void 0 && typeof body !== "string") throw new Error("pull request body must be text");
-  return {
-    author,
-    body: body ?? "",
-    ...typeof event.pull_request.base?.sha === "string" ? { baseSha: event.pull_request.base.sha } : {},
-    ...typeof event.pull_request.head?.sha === "string" ? { headSha: event.pull_request.head.sha } : {}
-  };
-}
-function capture(body, label) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return body.match(new RegExp(`^\\s*-\\s*${escaped}\\s*:\\s*(.+?)\\s*$`, "im"))?.[1]?.trim();
-}
-function checked(body, label) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^\\s*-\\s*\\[[xX]\\]\\s*${escaped}\\s*$`, "im").test(body);
-}
-function checkAttestations(evidence, policy) {
-  const out = [];
-  if (policy.requireHumanAttestation !== false) {
-    const responsible = capture(evidence.body, "Responsible human");
-    const normalized = responsible?.replace(/^@/, "").toLowerCase();
-    const matches = normalized === evidence.author.toLowerCase();
-    out.push(result2(
-      "policy_attestation",
-      "responsible-human",
-      "named responsible human",
-      responsible ?? "missing",
-      matches ? "verified" : "contradicted",
-      matches ? `PR author @${evidence.author} made the required responsibility declaration; this verifies attribution, not understanding` : responsible ? `declared ${responsible}, but the GitHub event identifies @${evidence.author} as the PR author` : "required `Responsible human: @login` declaration is missing"
-    ));
-    for (const label of ["I reviewed every changed line.", "I can explain and maintain this change."]) {
-      const present = checked(evidence.body, label);
-      out.push(result2(
-        "policy_attestation",
-        label.startsWith("I reviewed") ? "human-review-attestation" : "human-maintenance-attestation",
-        label,
-        present ? "checked" : "missing",
-        present ? "verified" : "contradicted",
-        present ? "required human declaration is checked; Agent Vigil does not independently prove the declarant's understanding" : `required checked declaration is missing: ${label}`
-      ));
-    }
-  }
-  if (policy.requireAiDisclosure !== false) {
-    const disclosure = capture(evidence.body, "AI assistance")?.toLowerCase();
-    const allowed = /* @__PURE__ */ new Set(["none", "assisted", "agent"]);
-    out.push(result2(
-      "policy_attestation",
-      "ai-assistance-disclosure",
-      "AI assistance disclosure",
-      disclosure ?? "missing",
-      disclosure !== void 0 && allowed.has(disclosure) ? "verified" : "contradicted",
-      disclosure !== void 0 && allowed.has(disclosure) ? `declared ${disclosure}` : "use exactly one of: none, assisted, agent"
-    ));
-  }
-  if (policy.requireLinkedIssue) {
-    const issue = capture(evidence.body, "Linked issue");
-    const valid = Boolean(issue && /(?:^|\s)(?:#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+)(?:\s|$)/i.test(issue));
-    out.push(result2(
-      "policy_attestation",
-      "linked-issue",
-      "linked approved issue",
-      issue ?? "missing",
-      valid ? "verified" : "contradicted",
-      valid ? `declared ${issue}; syntax is verified, but issue approval/state is not fetched` : "provide `#123` or a full GitHub issue URL"
-    ));
-  }
-  return out;
-}
-function git5(repo, args) {
-  return execFileSync6("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 }).trim();
-}
-function globRegex(pattern) {
-  let source = "";
-  for (let index = 0; index < pattern.length; index++) {
-    const char = pattern[index];
-    if (char === "*" && pattern[index + 1] === "*") {
-      if (pattern[index + 2] === "/") {
-        source += "(?:.*/)?";
-        index += 2;
-      } else {
-        source += ".*";
-        index += 1;
-      }
-    } else if (char === "*") source += "[^/]*";
-    else if (char === "?") source += "[^/]";
-    else source += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
-  }
-  return new RegExp(`^${source}$`);
-}
-function pathMatches(path, patterns) {
-  const clean = path.replaceAll("\\", "/").replace(/^\.\//, "");
-  return patterns.some((pattern) => globRegex(pattern.replaceAll("\\", "/").replace(/^\.\//, "")).test(clean));
-}
-function collectDiffEvidence(repo, base, head, testPathPatterns = DEFAULT_TEST_PATTERNS) {
-  const paths = git5(repo, ["diff", "--name-only", "--diff-filter=ACMR", `${base}..${head}`]).split("\n").filter(Boolean);
-  const binaryPaths = [];
-  let changedLines = 0;
-  const numstat = git5(repo, ["diff", "--numstat", `${base}..${head}`]);
-  for (const line of numstat.split("\n").filter(Boolean)) {
-    const [added, removed, ...pathParts] = line.split("	");
-    const path = pathParts.join("	");
-    if (added === "-" || removed === "-") binaryPaths.push(path);
-    else changedLines += Number(added) + Number(removed);
-  }
-  return { paths, testPaths: paths.filter((path) => pathMatches(path, testPathPatterns)), ...binaryPaths.length ? {} : { changedLines }, binaryPaths };
-}
-function checkChangeScope(diff, policy) {
-  const out = [];
-  if (policy.maxChangedFiles !== void 0) {
-    out.push(result2(
-      "change_scope",
-      "changed-file-budget",
-      "changed-file budget",
-      `${diff.paths.length} changed files`,
-      diff.paths.length <= policy.maxChangedFiles ? "verified" : "contradicted",
-      `${diff.paths.length} changed file(s); policy maximum is ${policy.maxChangedFiles}`
-    ));
-  }
-  if (policy.maxChangedLines !== void 0) {
-    if (diff.changedLines === void 0) out.push(result2("change_scope", "changed-line-budget", "changed-line budget", "binary diff present", "unverifiable", `Git numstat cannot quantify binary path(s): ${diff.binaryPaths.join(", ")}`, { blocksPass: true }));
-    else out.push(result2(
-      "change_scope",
-      "changed-line-budget",
-      "changed-line budget",
-      `${diff.changedLines} changed lines`,
-      diff.changedLines <= policy.maxChangedLines ? "verified" : "contradicted",
-      `${diff.changedLines} added/deleted line(s); policy maximum is ${policy.maxChangedLines}`
-    ));
-  }
-  if (policy.requireTestChange) {
-    out.push(result2(
-      "change_scope",
-      "test-change-required",
-      "changed test evidence",
-      diff.testPaths.join(", ") || "none",
-      diff.testPaths.length ? "verified" : "contradicted",
-      diff.testPaths.length ? `${diff.testPaths.length} changed test path(s): ${diff.testPaths.join(", ")}` : "no changed path matched the policy testPathPatterns"
-    ));
-  }
-  if (policy.protectedPaths?.length) {
-    const matches = diff.paths.filter((path) => pathMatches(path, policy.protectedPaths));
-    out.push(result2(
-      "change_scope",
-      "protected-path",
-      "protected path policy",
-      matches.join(", ") || "none",
-      matches.length ? "contradicted" : "verified",
-      matches.length ? `candidate changed protected path(s): ${matches.join(", ")}` : "no candidate path matched protectedPaths",
-      { contributesToPass: false }
-    ));
-  }
-  return out;
-}
-function shell(command, cwd, timeoutMs) {
-  const env = { ...process.env, CI: "true" };
-  delete env.NODE_TEST_CONTEXT;
-  const execution = spawnSync2(command, { cwd, shell: true, encoding: "utf8", timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env });
-  const full = `${execution.stdout ?? ""}${execution.stderr ?? ""}`;
-  const output = full.length > MAX_COMMAND_OUTPUT ? `${full.slice(0, MAX_COMMAND_OUTPUT)}
-[output truncated]` : full;
-  return { status: execution.status, signal: execution.signal, output, ...execution.error ? { error: execution.error.message } : {} };
-}
-function unsafeOverlayPath(path) {
-  const clean = normalize2(path);
-  return clean === ".." || clean.startsWith(`..${sep4}`) || resolve6("/safe", clean) === "/safe";
-}
-function overlayTests(headWorktree, baseWorktree, paths) {
-  for (const path of paths) {
-    if (unsafeOverlayPath(path)) return `unsafe overlay path: ${path}`;
-    const source = resolve6(headWorktree, path);
-    const target = resolve6(baseWorktree, path);
-    if (!source.startsWith(`${resolve6(headWorktree)}${sep4}`) || !target.startsWith(`${resolve6(baseWorktree)}${sep4}`)) return `overlay escaped worktree: ${path}`;
-    if (!existsSync4(source)) continue;
-    if (lstatSync2(source).isSymbolicLink()) return `refusing to overlay symlink test path: ${path}`;
-    mkdirSync3(dirname3(target), { recursive: true });
-    cpSync(source, target, { recursive: true, force: true });
-  }
-  return void 0;
-}
-function summarize(outcome) {
-  const last = outcome.output.trim().split("\n").slice(-3).join(" | ");
-  return `exit=${outcome.status ?? "none"}${outcome.signal ? ` signal=${outcome.signal}` : ""}${outcome.error ? ` error=${outcome.error}` : ""}${last ? ` output=${last}` : ""}`;
-}
-function checkDifferentialTest(repo, base, head, testPaths, policy) {
-  if (policy.overlayChangedTests !== false && testPaths.length === 0) {
-    return result2("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "contradicted", "no changed test artifact is available to exercise against the base source");
-  }
-  const root = mkdtempSync2(join3(tmpdir2(), "agent-vigil-differential-"));
-  const baseWorktree = join3(root, "base");
-  const headWorktree = join3(root, "head");
-  const timeoutMs = (policy.timeoutSeconds ?? 300) * 1e3;
-  let baseAdded = false;
-  let headAdded = false;
-  try {
-    execFileSync6("git", ["worktree", "add", "--detach", baseWorktree, base], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
-    baseAdded = true;
-    execFileSync6("git", ["worktree", "add", "--detach", headWorktree, head], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
-    headAdded = true;
-    if (policy.overlayChangedTests !== false) {
-      const error = overlayTests(headWorktree, baseWorktree, testPaths);
-      if (error) return result2("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "unverifiable", error, { blocksPass: true });
-    }
-    if (policy.setupCommand) {
-      const headSetup = shell(policy.setupCommand, headWorktree, timeoutMs);
-      const baseSetup = shell(policy.setupCommand, baseWorktree, timeoutMs);
-      if (headSetup.status !== 0 || baseSetup.status !== 0) {
-        return result2(
-          "differential_test",
-          "differential-setup",
-          "isolated differential setup",
-          policy.setupCommand,
-          "unverifiable",
-          `setup did not succeed in both isolated worktrees; head ${summarize(headSetup)}; base ${summarize(baseSetup)}`,
-          { blocksPass: true }
-        );
-      }
-    }
-    const headOutcome = shell(policy.command, headWorktree, timeoutMs);
-    const baseOutcome = shell(policy.command, baseWorktree, timeoutMs);
-    if (headOutcome.status === null || baseOutcome.status === null || headOutcome.signal || baseOutcome.signal || headOutcome.error || baseOutcome.error) {
-      return result2(
-        "differential_test",
-        "differential-test",
-        "base-fail/head-pass regression proof",
-        policy.command,
-        "unverifiable",
-        `command did not terminate normally in both worktrees; head ${summarize(headOutcome)}; base ${summarize(baseOutcome)}`,
-        { blocksPass: true }
-      );
-    }
-    if (headOutcome.status !== 0) {
-      return result2("differential_test", "differential-head-pass", "candidate passes changed regression test", policy.command, "contradicted", `candidate command failed; ${summarize(headOutcome)}`);
-    }
-    if (baseOutcome.status === 0) {
-      return result2(
-        "differential_test",
-        "differential-base-fail",
-        "base fails changed regression test",
-        policy.command,
-        "contradicted",
-        "the changed test command also passed against the base source; the test does not demonstrate the claimed regression"
-      );
-    }
-    if (policy.baseFailurePattern && !new RegExp(policy.baseFailurePattern).test(baseOutcome.output)) {
-      return result2(
-        "differential_test",
-        "differential-failure-pattern",
-        "base failure matches expected regression",
-        policy.baseFailurePattern,
-        "contradicted",
-        `base failed, but output did not match the trusted failure pattern; ${summarize(baseOutcome)}`
-      );
-    }
-    return result2(
-      "differential_test",
-      "differential-test",
-      "base-fail/head-pass regression proof",
-      policy.command,
-      "verified",
-      `isolated candidate passed and base source failed with the candidate's changed test artifact(s): ${testPaths.join(", ")}`
-    );
-  } catch (error) {
-    return result2("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "unverifiable", `could not create isolated Git worktrees: ${error.message}`, { blocksPass: true });
-  } finally {
-    if (headAdded) {
-      try {
-        execFileSync6("git", ["worktree", "remove", "--force", headWorktree], { cwd: repo, stdio: "ignore" });
-      } catch {
-      }
-    }
-    if (baseAdded) {
-      try {
-        execFileSync6("git", ["worktree", "remove", "--force", baseWorktree], { cwd: repo, stdio: "ignore" });
-      } catch {
-      }
-    }
-    rmSync(root, { recursive: true, force: true });
-  }
-}
-function buildMaintainerChecks(repo, base, head, evidence, policy) {
-  const patterns = policy.testPathPatterns ?? DEFAULT_TEST_PATTERNS;
-  const diff = collectDiffEvidence(repo, base, head, patterns);
-  const checks = [...checkAttestations(evidence, policy), ...checkChangeScope(diff, policy)];
-  if (policy.differentialTest) checks.push(checkDifferentialTest(repo, base, head, diff.testPaths, policy.differentialTest));
-  return checks;
-}
-
 // src/receipt-diff.ts
-import { createHash as createHash6 } from "node:crypto";
+import { createHash as createHash7 } from "node:crypto";
 function consistencyErrors(report) {
   const errors = [];
   const count = (verdict) => report.results.filter((row) => row.verdict === verdict).length;
@@ -2810,7 +3426,7 @@ function compareReceipts(beforeReport, afterReport) {
     unchangedChecks,
     notes
   };
-  return { ...unsigned, deltaHash: `sha256:${createHash6("sha256").update(canonical(unsigned)).digest("hex")}` };
+  return { ...unsigned, deltaHash: `sha256:${createHash7("sha256").update(canonical(unsigned)).digest("hex")}` };
 }
 function renderReceiptDelta(delta) {
   const lines = [
@@ -2831,12 +3447,12 @@ function renderReceiptDelta(delta) {
 }
 
 // src/merge-group.ts
-import { createHash as createHash7 } from "node:crypto";
-import { execFileSync as execFileSync7 } from "node:child_process";
-import { readFileSync as readFileSync9 } from "node:fs";
-import { relative as relative5, resolve as resolve7 } from "node:path";
+import { createHash as createHash8 } from "node:crypto";
+import { execFileSync as execFileSync8 } from "node:child_process";
+import { readFileSync as readFileSync10 } from "node:fs";
+import { relative as relative6, resolve as resolve8 } from "node:path";
 function loadMergeGroupEvent(path) {
-  const value = JSON.parse(readFileSync9(path, "utf8"));
+  const value = JSON.parse(readFileSync10(path, "utf8"));
   if (!value.merge_group?.base_sha || !value.merge_group?.head_sha) {
     throw new Error("event is not a merge_group payload with base_sha and head_sha");
   }
@@ -2844,12 +3460,12 @@ function loadMergeGroupEvent(path) {
 }
 function git6(repo, args) {
   try {
-    return execFileSync7("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync8("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
 }
-function result3(subject, verdict, evidence, ruleId, blocksPass = false) {
+function result4(subject, verdict, evidence, ruleId, blocksPass = false) {
   return {
     claim: { kind: "integrity", quote: "GitHub merge queue verification", subject },
     verdict,
@@ -2860,8 +3476,8 @@ function result3(subject, verdict, evidence, ruleId, blocksPass = false) {
   };
 }
 function buildMergeGroupReport(options) {
-  const repo = resolve7(options.repo);
-  const eventPath = resolve7(options.eventPath);
+  const repo = resolve8(options.repo);
+  const eventPath = resolve8(options.eventPath);
   const event = loadMergeGroupEvent(eventPath);
   if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) {
     throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -2878,18 +3494,18 @@ function buildMergeGroupReport(options) {
   if (policy.ref && resolveGitRef(repo, policy.ref) !== base) {
     throw new Error(`merge-group policy-ref ${policy.ref} does not match event base ${base}`);
   }
-  const eventHash = `sha256:${createHash7("sha256").update(readFileSync9(eventPath)).digest("hex")}`;
+  const eventHash = `sha256:${createHash8("sha256").update(readFileSync10(eventPath)).digest("hex")}`;
   const inputs = [eventPath, ...policy.path ? [policy.path] : []];
   const results = [];
   const advisories = [];
-  results.push(result3(
+  results.push(result4(
     "merge-group event is bound to the selected commits",
     "verified",
     `GitHub event binds base ${base} and merge-group head ${head}`,
     "merge-group-binding"
   ));
   const ancestor = git6(repo, ["merge-base", "--is-ancestor", base, head]) !== void 0;
-  results.push(result3(
+  results.push(result4(
     "merge-group head descends from its target base",
     ancestor ? "verified" : "contradicted",
     ancestor ? `${base} is an ancestor of ${head}` : `${base} is not an ancestor of ${head}`,
@@ -2906,10 +3522,10 @@ function buildMergeGroupReport(options) {
   const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
-  const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative5(repo, policy.path) : void 0;
+  const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative6(repo, policy.path) : void 0;
   const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
   const tree = git6(repo, ["rev-parse", `${head}^{tree}`]);
-  const eventName = relative5(repo, eventPath) || eventPath;
+  const eventName = relative6(repo, eventPath) || eventPath;
   const reproduction = [
     "vigil merge-group",
     "--event",
@@ -2942,6 +3558,560 @@ function buildMergeGroupReport(options) {
   });
 }
 
+// src/value.ts
+import { createHash as createHash9 } from "node:crypto";
+function nonNegative(value, name) {
+  if (value !== void 0 && (!Number.isFinite(value) || value < 0)) throw new Error(`${name} must be a non-negative number`);
+}
+function validAsOf(value) {
+  if (value === void 0) return;
+  if (!Number.isFinite(new Date(value).getTime())) throw new Error("outcome as-of must be an RFC3339-compatible timestamp");
+}
+function cardPayload(card) {
+  const { generatedAt: _generatedAt, ...evidence } = card;
+  return canonical(evidence);
+}
+function recomputeValueCardHash(card) {
+  const { cardHash: _cardHash, ...withoutHash } = card;
+  return `sha256:${createHash9("sha256").update(cardPayload(withoutHash)).digest("hex")}`;
+}
+function buildValueCard(input) {
+  nonNegative(input.values.budgetUsd, "budget USD");
+  nonNegative(input.values.costUsd, "cost USD");
+  nonNegative(input.values.reviewMinutes, "review minutes");
+  validAsOf(input.values.outcomeAsOf);
+  if (input.values.costUsd !== void 0 && !input.values.costSource) throw new Error("cost source is required when cost USD is provided");
+  if (input.values.costSource && input.values.costUsd === void 0) throw new Error("cost USD is required when cost source is provided");
+  if (input.values.costEvidenceSha256 && input.values.costUsd === void 0) throw new Error("cost USD is required when cost evidence is provided");
+  if (input.values.reviewEvidenceSha256 && input.values.disposition === void 0 && input.values.reviewMinutes === void 0) {
+    throw new Error("review evidence requires a disposition or review duration");
+  }
+  if (input.values.outcomeAsOf && (!input.values.outcome || input.values.outcome === "unknown")) {
+    throw new Error("outcome as-of requires a known outcome");
+  }
+  if (input.values.outcomeEvidenceSha256 && (!input.values.outcome || input.values.outcome === "unknown")) {
+    throw new Error("outcome evidence requires a known outcome");
+  }
+  const disposition = input.values.disposition ?? "unreviewed";
+  const outcome = input.values.outcome ?? "unknown";
+  const negative = input.report.summary.status === "FAIL" || disposition === "dismissed" || outcome === "reverted" || outcome === "hotfixed" || outcome === "incident-linked";
+  const accepted = disposition === "accepted" || outcome === "merged";
+  const acceptedEvidence = disposition === "accepted" && input.values.reviewEvidenceSha256 !== void 0 || outcome === "merged" && input.values.outcomeEvidenceSha256 !== void 0;
+  const positive = input.report.summary.status === "PASS" && accepted && acceptedEvidence && input.values.costEvidenceSha256 !== void 0;
+  const valueVerdict = negative ? "NEGATIVE" : positive ? "POSITIVE" : "INCONCLUSIVE";
+  const gaps = [];
+  if (input.report.summary.status === "INCONCLUSIVE") gaps.push("verification receipt is INCONCLUSIVE");
+  if (!input.usage) gaps.push("transcript contains no supported token-usage evidence");
+  else if (!input.usage.modelIds.length) gaps.push("agent model identity is unavailable");
+  if (input.values.costUsd === void 0) gaps.push("task cost is unavailable");
+  else if (!input.values.costEvidenceSha256) gaps.push("task cost is self-asserted without hashed billing evidence");
+  if (disposition === "unreviewed") gaps.push("maintainer disposition is unreviewed");
+  else if (!input.values.reviewEvidenceSha256) gaps.push("maintainer disposition is self-asserted without hashed review evidence");
+  if (input.values.reviewMinutes === void 0) gaps.push("human review time is unavailable");
+  if (outcome === "unknown") gaps.push("downstream change outcome is unknown");
+  else if (!input.values.outcomeEvidenceSha256) gaps.push("downstream change outcome is self-asserted without hashed outcome evidence");
+  const budgetStatus = input.values.budgetUsd === void 0 || input.values.costUsd === void 0 ? "UNAVAILABLE" : input.values.costUsd <= input.values.budgetUsd ? "WITHIN" : "EXCEEDED";
+  const signature = input.signatureValid === true ? input.keyPinned ? "VALID_PINNED" : "VALID_SELF_ASSERTED" : "UNSIGNED";
+  const costStatus = input.values.costUsd === void 0 ? "UNAVAILABLE" : input.values.costEvidenceSha256 ? "EVIDENCE_HASHED" : "SELF_ASSERTED";
+  const metrics = {};
+  if (input.report.summary.status === "PASS" && input.values.costUsd !== void 0) metrics.costPerVerifiedChangeUsd = input.values.costUsd;
+  if (input.report.summary.status === "PASS" && accepted && input.values.costUsd !== void 0) metrics.costPerAcceptedChangeUsd = input.values.costUsd;
+  if (input.report.summary.status === "PASS" && input.values.reviewMinutes !== void 0) metrics.reviewMinutesPerVerifiedChange = input.values.reviewMinutes;
+  const withoutHash = {
+    schemaVersion: "agent-vigil-value-card/v1",
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    receipt: {
+      receiptHash: input.report.receiptHash,
+      hashValid: true,
+      signature,
+      verificationStatus: input.report.summary.status,
+      base: input.report.base,
+      head: input.report.head,
+      transcriptSha256: input.report.transcriptSha256,
+      transcriptFormat: input.report.transcriptFormat
+    },
+    task: {
+      ...input.values.taskClass ? { taskClass: input.values.taskClass } : {},
+      ...input.values.budgetUsd !== void 0 ? { budgetUsd: input.values.budgetUsd } : {},
+      budgetStatus
+    },
+    agent: {
+      adapter: input.report.transcriptFormat.replace(/^authority\//, ""),
+      modelIds: input.usage?.modelIds ?? [],
+      ...input.toolCalls !== void 0 ? { toolCalls: input.toolCalls } : {},
+      ...input.failedToolCalls !== void 0 ? { failedToolCalls: input.failedToolCalls } : {}
+    },
+    usage: input.usage ?? { status: "UNAVAILABLE" },
+    cost: {
+      status: costStatus,
+      ...input.values.costUsd !== void 0 ? { amountUsd: input.values.costUsd } : {},
+      ...input.values.costSource ? { source: input.values.costSource } : {},
+      ...input.values.costEvidenceSha256 ? { evidenceSha256: input.values.costEvidenceSha256 } : {}
+    },
+    human: {
+      disposition,
+      ...input.values.reviewMinutes !== void 0 ? { reviewMinutes: input.values.reviewMinutes } : {},
+      evidence: disposition === "unreviewed" && input.values.reviewMinutes === void 0 ? "UNAVAILABLE" : input.values.reviewEvidenceSha256 ? "EVIDENCE_HASHED" : "SELF_ASSERTED",
+      ...input.values.reviewEvidenceSha256 ? { evidenceSha256: input.values.reviewEvidenceSha256 } : {}
+    },
+    outcome: {
+      state: outcome,
+      ...input.values.outcomeAsOf ? { asOf: new Date(input.values.outcomeAsOf).toISOString() } : {},
+      evidence: outcome === "unknown" ? "UNAVAILABLE" : input.values.outcomeEvidenceSha256 ? "EVIDENCE_HASHED" : "SELF_ASSERTED",
+      ...input.values.outcomeEvidenceSha256 ? { evidenceSha256: input.values.outcomeEvidenceSha256 } : {}
+    },
+    ...input.values.github ? { github: input.values.github } : {},
+    ...input.values.trajectory ? { trajectory: input.values.trajectory } : {},
+    metrics,
+    valueVerdict,
+    gaps
+  };
+  const card = {
+    ...withoutHash,
+    cardHash: ""
+  };
+  card.cardHash = recomputeValueCardHash(card);
+  return card;
+}
+function money(value) {
+  return value === void 0 ? "unavailable" : `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
+}
+function renderValueCardText(card) {
+  const lines = [
+    `Agent Vigil Value Card \xB7 ${card.valueVerdict}`,
+    `  verification: ${card.receipt.verificationStatus} \xB7 ${card.receipt.signature}`,
+    `  task:         ${card.task.taskClass ?? "unclassified"}`,
+    `  agent:        ${card.agent.adapter}${card.agent.modelIds.length ? ` \xB7 ${card.agent.modelIds.join(", ")}` : " \xB7 model unknown"}`,
+    `  cost:         ${money(card.cost.amountUsd)} \xB7 ${card.cost.status}${card.cost.source ? ` \xB7 ${card.cost.source}` : ""}`,
+    `  budget:       ${money(card.task.budgetUsd)} \xB7 ${card.task.budgetStatus}`,
+    `  disposition:  ${card.human.disposition}${card.human.reviewMinutes !== void 0 ? ` \xB7 ${card.human.reviewMinutes} review minute(s)` : ""}`,
+    `  outcome:      ${card.outcome.state}${card.outcome.asOf ? ` \xB7 as of ${card.outcome.asOf}` : ""}`,
+    `  tokens:       ${"status" in card.usage ? "unavailable" : `${card.usage.totalTokens.toLocaleString("en-US")} \xB7 ${card.usage.accounting}`}`,
+    `  receipt:      ${card.receipt.receiptHash}`,
+    `  card:         ${card.cardHash}`
+  ];
+  if (card.metrics.costPerAcceptedChangeUsd !== void 0) lines.push(`  value metric: ${money(card.metrics.costPerAcceptedChangeUsd)} per accepted verified change`);
+  if (card.gaps.length) {
+    lines.push("  evidence gaps:");
+    for (const gap of card.gaps) lines.push(`    - ${gap}`);
+  }
+  return `${lines.join("\n")}
+`;
+}
+function markdownCell(value) {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+function renderValueCardMarkdown(card) {
+  const rows = [
+    ["Value verdict", card.valueVerdict],
+    ["Verification", card.receipt.verificationStatus],
+    ["Task class", card.task.taskClass ?? "unclassified"],
+    ["Agent", `${card.agent.adapter}${card.agent.modelIds.length ? ` \xB7 ${card.agent.modelIds.join(", ")}` : " \xB7 model unknown"}`],
+    ["Cost", `${money(card.cost.amountUsd)} \xB7 ${card.cost.status}`],
+    ["Budget", `${money(card.task.budgetUsd)} \xB7 ${card.task.budgetStatus}`],
+    ["Maintainer", `${card.human.disposition} \xB7 ${card.human.evidence}${card.human.reviewMinutes !== void 0 ? ` \xB7 ${card.human.reviewMinutes} minutes` : ""}`],
+    ["Outcome", `${card.outcome.state} \xB7 ${card.outcome.evidence}`],
+    ["Tokens", "status" in card.usage ? "unavailable" : card.usage.totalTokens.toLocaleString("en-US")]
+  ];
+  return [
+    "# Agent Vigil Value Card",
+    "",
+    "| Evidence | Result |",
+    "|---|---|",
+    ...rows.map(([label, value]) => `| ${markdownCell(label)} | ${markdownCell(value)} |`),
+    "",
+    ...card.gaps.length ? ["## Evidence gaps", "", ...card.gaps.map((gap) => `- ${gap}`), ""] : [],
+    `Receipt: \`${card.receipt.receiptHash}\``,
+    "",
+    `Card: \`${card.cardHash}\``,
+    "",
+    "Generated locally by [Agent Vigil](https://github.com/sulmusic2-star/agent-vigil).",
+    ""
+  ].join("\n");
+}
+function html(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+function renderValueCardHtml(card) {
+  const statusClass = card.valueVerdict.toLowerCase();
+  const tokenText = "status" in card.usage ? "Unavailable" : card.usage.totalTokens.toLocaleString("en-US");
+  const gapItems = card.gaps.length ? card.gaps.map((gap) => `<li>${html(gap)}</li>`).join("") : "<li>None recorded</li>";
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Vigil Value Card</title><style>
+:root{color-scheme:dark;background:#07100d;color:#effff7;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif}body{margin:0;padding:40px 20px;background:radial-gradient(circle at 80% 0,#163d31 0,transparent 38%),#07100d}.wrap{max-width:920px;margin:auto}.eyebrow{color:#79f2bd;letter-spacing:.18em;font-size:12px;font-weight:800}.hero{display:flex;justify-content:space-between;gap:24px;align-items:end;margin:18px 0 28px}.verdict{font-size:clamp(42px,8vw,82px);line-height:.92;margin:0}.pill{border:1px solid #315a4b;border-radius:999px;padding:10px 14px}.positive{color:#72f0ad}.negative{color:#ff8b91}.inconclusive{color:#ffd479}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.card{background:#0d1c17;border:1px solid #203c32;border-radius:18px;padding:20px;box-shadow:0 18px 55px #0005}.label{color:#90ac9f;text-transform:uppercase;font-size:11px;letter-spacing:.12em}.value{font-size:22px;font-weight:750;margin-top:8px;overflow-wrap:anywhere}.gaps{margin-top:12px}.hash{font:12px ui-monospace,SFMono-Regular,monospace;color:#91b6a6;overflow-wrap:anywhere}footer{margin-top:24px;color:#789387;font-size:12px}a{color:#79f2bd}@media(max-width:620px){.hero{display:block}.pill{display:inline-block;margin-top:18px}}
+</style></head><body><main class="wrap">
+<div class="eyebrow">AGENT VIGIL \xB7 VERIFIED ENGINEERING VALUE</div><section class="hero"><h1 class="verdict ${statusClass}">${html(card.valueVerdict)}</h1><div class="pill">${html(card.receipt.verificationStatus)} verification \xB7 ${html(card.task.taskClass ?? "unclassified")}</div></section>
+<section class="grid">
+<article class="card"><div class="label">Agent</div><div class="value">${html(card.agent.adapter)}</div><p>${html(card.agent.modelIds.join(", ") || "Model unknown")}</p></article>
+<article class="card"><div class="label">Attributed cost</div><div class="value">${html(money(card.cost.amountUsd))}</div><p>${html(card.cost.status)}</p></article>
+<article class="card"><div class="label">Budget</div><div class="value">${html(card.task.budgetStatus)}</div><p>${html(money(card.task.budgetUsd))}</p></article>
+<article class="card"><div class="label">Maintainer</div><div class="value">${html(card.human.disposition)}</div><p>${html(`${card.human.evidence}${card.human.reviewMinutes === void 0 ? " \xB7 review time unavailable" : ` \xB7 ${card.human.reviewMinutes} review minute(s)`}`)}</p></article>
+<article class="card"><div class="label">Outcome</div><div class="value">${html(card.outcome.state)}</div><p>${html(`${card.outcome.evidence}${card.outcome.asOf ? ` \xB7 ${card.outcome.asOf}` : " \xB7 no through-date"}`)}</p></article>
+<article class="card"><div class="label">Observed tokens</div><div class="value">${html(tokenText)}</div><p>${html("status" in card.usage ? "No supported usage record" : card.usage.accounting)}</p></article>
+</section>
+<article class="card gaps"><div class="label">Evidence gaps</div><ul>${gapItems}</ul></article>
+<article class="card gaps"><div class="label">Integrity</div><p class="hash">Receipt ${html(card.receipt.receiptHash)}</p><p class="hash">Card ${html(card.cardHash)}</p></article>
+<footer>Local evidence card generated by <a href="https://github.com/sulmusic2-star/agent-vigil">Agent Vigil</a>. A PASS receipt is not proof that code is bug-free, and missing cost or outcome evidence remains INCONCLUSIVE.</footer>
+</main></body></html>
+`;
+}
+
+// src/github-evidence.ts
+import { createHash as createHash10 } from "node:crypto";
+import { readFileSync as readFileSync11, statSync as statSync4 } from "node:fs";
+import { basename as basename2, resolve as resolve9 } from "node:path";
+var MAX_SOURCE_BYTES = 32 * 1024 * 1024;
+function timestamp(value) {
+  if (typeof value !== "string" || !value.trim()) return void 0;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : void 0;
+}
+function integer(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : void 0;
+}
+function durationSeconds(start, end) {
+  const from = timestamp(start);
+  const to = timestamp(end);
+  if (!from || !to) return void 0;
+  const duration = (new Date(to).getTime() - new Date(from).getTime()) / 1e3;
+  return duration >= 0 ? duration : void 0;
+}
+function readSource(path, kind) {
+  const absolute = resolve9(path);
+  const bytes = statSync4(absolute).size;
+  if (bytes > MAX_SOURCE_BYTES) throw new Error(`GitHub ${kind} evidence is ${bytes} bytes; maximum is ${MAX_SOURCE_BYTES}`);
+  const raw = readFileSync11(absolute);
+  let value;
+  try {
+    value = JSON.parse(raw.toString("utf8"));
+  } catch {
+    throw new Error(`GitHub ${kind} evidence is not valid JSON: ${path}`);
+  }
+  return {
+    value,
+    source: { kind, file: basename2(path), bytes, sha256: `sha256:${createHash10("sha256").update(raw).digest("hex")}` }
+  };
+}
+function pullObject(value) {
+  return value?.pull_request && typeof value.pull_request === "object" ? value.pull_request : value;
+}
+function parsePull(value, event) {
+  const pull = pullObject(value);
+  const number = integer(pull?.number ?? event?.number ?? event?.pull_request?.number);
+  if (number === void 0) return void 0;
+  const state = pull?.state === "closed" ? "closed" : pull?.state === "open" ? "open" : void 0;
+  if (!state) throw new Error("GitHub pull-request evidence state must be open or closed");
+  return {
+    number,
+    state,
+    merged: pull?.merged === true || Boolean(pull?.merged_at),
+    ...typeof pull?.base?.sha === "string" ? { baseSha: pull.base.sha } : {},
+    ...typeof pull?.head?.sha === "string" ? { headSha: pull.head.sha } : {},
+    ...typeof pull?.merge_commit_sha === "string" ? { mergeCommitSha: pull.merge_commit_sha } : {},
+    ...timestamp(pull?.created_at) ? { createdAt: timestamp(pull.created_at) } : {},
+    ...timestamp(pull?.updated_at) ? { updatedAt: timestamp(pull.updated_at) } : {},
+    ...timestamp(pull?.closed_at) ? { closedAt: timestamp(pull.closed_at) } : {},
+    ...timestamp(pull?.merged_at) ? { mergedAt: timestamp(pull.merged_at) } : {}
+  };
+}
+function parseReviews(value) {
+  if (!Array.isArray(value)) throw new Error("GitHub reviews evidence must be an array");
+  if (value.length > 1e4) throw new Error("GitHub reviews evidence contains more than 10000 records");
+  const latest = /* @__PURE__ */ new Map();
+  let anonymous = 0;
+  for (const review of value) {
+    const state = typeof review?.state === "string" ? review.state.toUpperCase() : "";
+    if (!(/* @__PURE__ */ new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED", "COMMENTED", "PENDING"])).has(state)) continue;
+    const login = typeof review?.user?.login === "string" && review.user.login ? review.user.login.toLowerCase() : `anonymous-${anonymous++}`;
+    const submittedAt = timestamp(review?.submitted_at);
+    const previous = latest.get(login);
+    if (!previous || !previous.submittedAt || submittedAt && submittedAt >= previous.submittedAt) latest.set(login, { state, ...submittedAt ? { submittedAt } : {} });
+  }
+  const states = [...latest.values()];
+  const dates = states.map((item2) => item2.submittedAt).filter((item2) => Boolean(item2)).sort();
+  return {
+    records: value.length,
+    reviewers: states.length,
+    approved: states.filter((item2) => item2.state === "APPROVED").length,
+    changesRequested: states.filter((item2) => item2.state === "CHANGES_REQUESTED").length,
+    dismissed: states.filter((item2) => item2.state === "DISMISSED").length,
+    commented: states.filter((item2) => item2.state === "COMMENTED").length,
+    ...dates.length ? { latestSubmittedAt: dates.at(-1) } : {}
+  };
+}
+function parseComments(value) {
+  if (!Array.isArray(value)) throw new Error("GitHub review-comments evidence must be an array");
+  if (value.length > 1e5) throw new Error("GitHub review-comments evidence contains more than 100000 records");
+  return { records: value.length };
+}
+function parseActions(run2, jobsValue) {
+  const jobs = jobsValue === void 0 ? [] : Array.isArray(jobsValue) ? jobsValue : Array.isArray(jobsValue?.jobs) ? jobsValue.jobs : void 0;
+  if (jobs === void 0) throw new Error("GitHub actions-jobs evidence must be an array or an object with jobs");
+  if (jobs.length > 1e4) throw new Error("GitHub actions-jobs evidence contains more than 10000 jobs");
+  const jobDurations = jobs.map((job) => durationSeconds(job?.started_at, job?.completed_at)).filter((value) => typeof value === "number");
+  const startedAt = timestamp(run2?.run_started_at ?? run2?.created_at);
+  const completedAt = timestamp(run2?.updated_at);
+  return {
+    ...integer(run2?.id) !== void 0 ? { runId: integer(run2.id) } : {},
+    ...integer(run2?.run_attempt) !== void 0 ? { attempt: integer(run2.run_attempt) } : {},
+    ...typeof run2?.status === "string" ? { status: run2.status } : {},
+    ...typeof run2?.conclusion === "string" ? { conclusion: run2.conclusion } : {},
+    ...startedAt ? { startedAt } : {},
+    ...completedAt ? { completedAt } : {},
+    ...durationSeconds(startedAt, completedAt) !== void 0 ? { runDurationSeconds: durationSeconds(startedAt, completedAt) } : {},
+    ...jobsValue !== void 0 ? {
+      jobs: jobs.length,
+      jobDurationSeconds: jobDurations.reduce((sum, value) => sum + value, 0),
+      failedJobs: jobs.filter((job) => (/* @__PURE__ */ new Set(["failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"])).has(String(job?.conclusion))).length
+    } : {},
+    billing: "UNAVAILABLE"
+  };
+}
+function labelNames(value) {
+  return Array.isArray(value?.labels) ? value.labels.map((label) => typeof label === "string" ? label : label?.name).filter((label) => typeof label === "string") : [];
+}
+function validateRevert(value) {
+  if (typeof value?.sha !== "string" || !/^[0-9a-f]{40,64}$/i.test(value.sha) || typeof value?.commit !== "object") {
+    throw new Error("GitHub revert evidence must be a commit object with a full SHA");
+  }
+  const message = typeof value.commit?.message === "string" ? value.commit.message : "";
+  if (!/^Revert\b/im.test(message) && !/This reverts commit [0-9a-f]{7,40}/i.test(message)) {
+    throw new Error("GitHub revert evidence commit message does not identify a revert");
+  }
+}
+function validateHotfix(value) {
+  const pull = parsePull(value);
+  if (!pull?.merged || !labelNames(pullObject(value)).some((label) => /^(?:hotfix|emergency[- ]fix)$/i.test(label))) {
+    throw new Error("GitHub hotfix evidence must be a merged pull request labeled hotfix or emergency-fix");
+  }
+}
+function validateIncident(value) {
+  if (integer(value?.number) === void 0 || !(/* @__PURE__ */ new Set(["open", "closed"])).has(value?.state) || value?.pull_request) {
+    throw new Error("GitHub incident evidence must be an issue object");
+  }
+  if (!labelNames(value).some((label) => /^(?:incident|outage|sev[- ]?[0-9])/i.test(label))) {
+    throw new Error("GitHub incident evidence must carry an incident, outage, or severity label");
+  }
+}
+function payloadWithoutHash(bundle) {
+  const { generatedAt: _generatedAt, ...evidence } = bundle;
+  return canonical(evidence);
+}
+function recomputeGitHubEvidenceHash(bundle) {
+  const { evidenceHash: _hash, ...withoutHash } = bundle;
+  return `sha256:${createHash10("sha256").update(payloadWithoutHash(withoutHash)).digest("hex")}`;
+}
+function buildGitHubEvidence(inputs) {
+  const sources = [];
+  const loaded = /* @__PURE__ */ new Map();
+  for (const [kind, path] of Object.entries(inputs)) {
+    if (!path) continue;
+    const item2 = readSource(path, kind);
+    loaded.set(kind, item2.value);
+    sources.push(item2.source);
+  }
+  const event = loaded.get("event");
+  const repository = typeof event?.repository?.full_name === "string" ? event.repository.full_name : void 0;
+  const pull = loaded.has("pull-request") ? parsePull(loaded.get("pull-request"), event) : parsePull(event, event);
+  const reviews = loaded.has("reviews") ? parseReviews(loaded.get("reviews")) : void 0;
+  const reviewComments = loaded.has("review-comments") ? parseComments(loaded.get("review-comments")) : void 0;
+  const actions = loaded.has("actions-run") || loaded.has("actions-jobs") ? parseActions(loaded.get("actions-run") ?? {}, loaded.get("actions-jobs")) : void 0;
+  if (loaded.has("revert-commit")) validateRevert(loaded.get("revert-commit"));
+  if (loaded.has("hotfix-pull-request")) validateHotfix(loaded.get("hotfix-pull-request"));
+  if (loaded.has("incident-issue")) validateIncident(loaded.get("incident-issue"));
+  const markers = { revert: loaded.has("revert-commit"), hotfix: loaded.has("hotfix-pull-request"), incident: loaded.has("incident-issue") };
+  const disposition = reviews?.changesRequested ? "changes-requested" : reviews?.approved || pull?.merged ? "accepted" : "unreviewed";
+  const outcome = markers.incident ? "incident-linked" : markers.revert ? "reverted" : markers.hotfix ? "hotfixed" : pull?.merged ? "merged" : pull?.state === "closed" ? "closed" : "unknown";
+  const dates = [
+    markers.incident ? timestamp(loaded.get("incident-issue")?.updated_at ?? loaded.get("incident-issue")?.created_at) : void 0,
+    markers.revert ? timestamp(loaded.get("revert-commit")?.commit?.committer?.date ?? loaded.get("revert-commit")?.commit?.author?.date) : void 0,
+    markers.hotfix ? timestamp(pullObject(loaded.get("hotfix-pull-request"))?.merged_at ?? pullObject(loaded.get("hotfix-pull-request"))?.closed_at) : void 0,
+    pull?.mergedAt,
+    pull?.closedAt
+  ].filter((item2) => Boolean(item2)).sort();
+  const withoutHash = {
+    schemaVersion: "agent-vigil-github-evidence/v1",
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    ...repository ? { repository } : {},
+    ...pull ? { pullRequest: pull } : {},
+    ...reviews ? { reviews } : {},
+    ...reviewComments ? { reviewComments } : {},
+    ...actions ? { actions } : {},
+    markers,
+    inference: {
+      disposition,
+      outcome,
+      ...dates.length ? { outcomeAsOf: dates.at(-1) } : {},
+      reviewEvidence: reviews || pull?.merged ? "EVIDENCE_HASHED" : "UNAVAILABLE",
+      outcomeEvidence: outcome !== "unknown" ? "EVIDENCE_HASHED" : "UNAVAILABLE"
+    },
+    sources: sources.sort((left, right) => left.kind.localeCompare(right.kind))
+  };
+  const bundle = { ...withoutHash, evidenceHash: "" };
+  bundle.evidenceHash = recomputeGitHubEvidenceHash(bundle);
+  return bundle;
+}
+function loadGitHubEvidence(path) {
+  const { value } = readSource(path, "event");
+  const bundle = value;
+  if (bundle?.schemaVersion !== "agent-vigil-github-evidence/v1" || typeof bundle.evidenceHash !== "string") throw new Error("GitHub evidence bundle schema is unsupported");
+  if (recomputeGitHubEvidenceHash(bundle) !== bundle.evidenceHash) throw new Error("GitHub evidence bundle hash is invalid");
+  return bundle;
+}
+
+// src/value-compare.ts
+import { readFileSync as readFileSync12, statSync as statSync5 } from "node:fs";
+import { resolve as resolve10 } from "node:path";
+var MAX_CARD_BYTES = 8 * 1024 * 1024;
+function validCard(value, path) {
+  if (value?.schemaVersion !== "agent-vigil-value-card/v1") throw new Error(`${path} is not an Agent Value Card v1`);
+  if (typeof value.cardHash !== "string" || typeof value.receipt?.receiptHash !== "string") throw new Error(`${path} lacks value-card integrity fields`);
+  if (!(/* @__PURE__ */ new Set(["POSITIVE", "NEGATIVE", "INCONCLUSIVE"])).has(value.valueVerdict)) throw new Error(`${path} has an invalid value verdict`);
+  if (recomputeValueCardHash(value) !== value.cardHash) throw new Error(`${path} value-card hash is invalid`);
+  return value;
+}
+function loadValueCard(path) {
+  const absolute = resolve10(path);
+  const bytes = statSync5(absolute).size;
+  if (bytes > MAX_CARD_BYTES) throw new Error(`${path} is ${bytes} bytes; maximum is ${MAX_CARD_BYTES}`);
+  let value;
+  try {
+    value = JSON.parse(readFileSync12(absolute, "utf8"));
+  } catch {
+    throw new Error(`${path} is not valid JSON`);
+  }
+  return validCard(value, path);
+}
+function wilson95(successes, total) {
+  if (!Number.isSafeInteger(successes) || !Number.isSafeInteger(total) || successes < 0 || total <= 0 || successes > total) return void 0;
+  const z = 1.959963984540054;
+  const p = successes / total;
+  const denominator = 1 + z * z / total;
+  const center = (p + z * z / (2 * total)) / denominator;
+  const margin = z * Math.sqrt((p * (1 - p) + z * z / (4 * total)) / total) / denominator;
+  return { lower: Math.max(0, center - margin), upper: Math.min(1, center + margin), confidence: 0.95 };
+}
+function median(values) {
+  if (!values.length) return void 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+function observationTime(card) {
+  const value = card.outcome.asOf ?? card.generatedAt;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function compareValueCards(cards, inputFiles = cards.length) {
+  const byReceipt = /* @__PURE__ */ new Map();
+  let supersededCards = 0;
+  for (const card of cards) {
+    validCard(card, "in-memory card");
+    const key = card.receipt.receiptHash;
+    const prior = byReceipt.get(key);
+    if (!prior) byReceipt.set(key, card);
+    else {
+      supersededCards += 1;
+      if (observationTime(card) > observationTime(prior) || observationTime(card) === observationTime(prior) && card.cardHash > prior.cardHash) byReceipt.set(key, card);
+    }
+  }
+  const episodes = [...byReceipt.values()];
+  const grouped = /* @__PURE__ */ new Map();
+  for (const card of episodes) {
+    const taskClass = card.task.taskClass ?? "unclassified";
+    const models = card.agent.modelIds.length ? card.agent.modelIds.join(",") : "model-unknown";
+    const key = JSON.stringify([taskClass, card.agent.adapter, models]);
+    grouped.set(key, [...grouped.get(key) ?? [], card]);
+  }
+  const groups = [...grouped.entries()].map(([key, values]) => {
+    const [taskClass, agent, modelText] = JSON.parse(key);
+    const positive = values.filter((card) => card.valueVerdict === "POSITIVE").length;
+    const negative = values.filter((card) => card.valueVerdict === "NEGATIVE").length;
+    const conclusive = positive + negative;
+    const hashedCosts = values.filter((card) => card.cost.status === "EVIDENCE_HASHED" && card.cost.amountUsd !== void 0);
+    const observedHashedCostUsd = hashedCosts.reduce((sum, card) => sum + (card.cost.amountUsd ?? 0), 0);
+    const reviewMinutes = values.map((card) => card.human.reviewMinutes).filter((value) => value !== void 0);
+    return {
+      taskClass,
+      agent,
+      models: modelText === "model-unknown" ? [] : modelText.split(","),
+      episodes: values.length,
+      positive,
+      negative,
+      inconclusive: values.length - conclusive,
+      conclusive,
+      ...conclusive ? { positiveRate: positive / conclusive, positiveRateWilson95: wilson95(positive, conclusive) } : {},
+      hashedCostEpisodes: hashedCosts.length,
+      costEvidenceCompleteness: values.length ? hashedCosts.length / values.length : 0,
+      observedHashedCostUsd,
+      ...hashedCosts.length === values.length && positive ? { costPerPositiveUsd: observedHashedCostUsd / positive } : {},
+      accepted: values.filter((card) => card.human.disposition === "accepted" || card.outcome.state === "merged").length,
+      revertedOrHotfixedOrIncident: values.filter((card) => (/* @__PURE__ */ new Set(["reverted", "hotfixed", "incident-linked"])).has(card.outcome.state)).length,
+      reviewMinutesObserved: reviewMinutes.length,
+      ...median(reviewMinutes) !== void 0 ? { medianReviewMinutes: median(reviewMinutes) } : {}
+    };
+  }).sort((left, right) => left.taskClass.localeCompare(right.taskClass) || left.agent.localeCompare(right.agent) || left.models.join().localeCompare(right.models.join()));
+  const byTask = /* @__PURE__ */ new Map();
+  for (const group of groups) byTask.set(group.taskClass, [...byTask.get(group.taskClass) ?? [], group]);
+  const comparableTaskClasses = [...byTask.entries()].filter(([, values]) => values.length >= 2 && values.every((group) => group.episodes >= 5 && group.conclusive >= 5 && group.costEvidenceCompleteness >= 0.8)).map(([task]) => task).sort();
+  const warnings = [];
+  if (!episodes.length) warnings.push("no unique value episodes were supplied");
+  if (!comparableTaskClasses.length) warnings.push("no task class has at least two agent groups with 5 episodes, 5 conclusive outcomes, and 80% hashed-cost completeness each");
+  for (const group of groups) {
+    const label = `${group.taskClass}/${group.agent}${group.models.length ? `/${group.models.join(",")}` : ""}`;
+    if (group.episodes < 5) warnings.push(`${label}: only ${group.episodes} episode(s); do not rank this group`);
+    if (group.costEvidenceCompleteness < 0.8) warnings.push(`${label}: hashed-cost completeness is ${(group.costEvidenceCompleteness * 100).toFixed(1)}%`);
+    if (group.conclusive < group.episodes) warnings.push(`${label}: ${group.episodes - group.conclusive} episode(s) remain INCONCLUSIVE`);
+  }
+  return {
+    schemaVersion: "agent-vigil-value-comparison/v1",
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    inputFiles,
+    uniqueEpisodes: episodes.length,
+    supersededCards,
+    comparableTaskClasses,
+    status: comparableTaskClasses.length ? "COMPARABLE" : "INCONCLUSIVE",
+    groups,
+    warnings
+  };
+}
+function percent(value) {
+  return value === void 0 ? "unavailable" : `${(value * 100).toFixed(1)}%`;
+}
+function renderValueComparisonText(comparison) {
+  const lines = [
+    `Agent Vigil Value Comparison \xB7 ${comparison.status}`,
+    `  ${comparison.uniqueEpisodes} unique episode(s) \xB7 ${comparison.supersededCards} superseded card(s)`
+  ];
+  for (const group of comparison.groups) {
+    const interval = group.positiveRateWilson95;
+    lines.push("", `${group.taskClass} \xB7 ${group.agent}${group.models.length ? ` \xB7 ${group.models.join(", ")}` : ""}`);
+    lines.push(`  n=${group.episodes} \xB7 positive=${group.positive} \xB7 negative=${group.negative} \xB7 inconclusive=${group.inconclusive}`);
+    lines.push(`  positive rate: ${percent(group.positiveRate)}${interval ? ` \xB7 Wilson 95% ${percent(interval.lower)}\u2013${percent(interval.upper)}` : ""}`);
+    lines.push(`  hashed cost: ${percent(group.costEvidenceCompleteness)} complete \xB7 $${group.observedHashedCostUsd.toFixed(2)} observed${group.costPerPositiveUsd !== void 0 ? ` \xB7 $${group.costPerPositiveUsd.toFixed(2)} per positive` : ""}`);
+    lines.push(`  review time: ${group.medianReviewMinutes === void 0 ? "unavailable" : `${group.medianReviewMinutes.toFixed(1)} minute median`} \xB7 ${group.revertedOrHotfixedOrIncident} adverse downstream outcome(s)`);
+  }
+  if (comparison.warnings.length) {
+    lines.push("", "Warnings:");
+    for (const warning of comparison.warnings) lines.push(`  - ${warning}`);
+  }
+  return `${lines.join("\n")}
+`;
+}
+function html2(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+function renderValueComparisonHtml(comparison) {
+  const groups = comparison.groups.map((group) => {
+    const interval = group.positiveRateWilson95;
+    return `<article class="card"><div class="eyebrow">${html2(group.taskClass)}</div><h2>${html2(group.agent)}</h2><p>${html2(group.models.join(", ") || "model unknown")}</p><div class="metric">n=${group.episodes}</div><p>${html2(percent(group.positiveRate))} positive${interval ? ` \xB7 95% CI ${html2(percent(interval.lower))}\u2013${html2(percent(interval.upper))}` : ""}</p><p>${html2(percent(group.costEvidenceCompleteness))} hashed-cost completeness${group.costPerPositiveUsd !== void 0 ? ` \xB7 $${group.costPerPositiveUsd.toFixed(2)} per positive` : ""}</p><p>${group.revertedOrHotfixedOrIncident} adverse downstream outcome(s)</p></article>`;
+  }).join("");
+  const warnings = comparison.warnings.length ? comparison.warnings.map((warning) => `<li>${html2(warning)}</li>`).join("") : "<li>None</li>";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Vigil Value Comparison</title><style>:root{color-scheme:dark;background:#07100d;color:#effff7;font-family:ui-sans-serif,system-ui,sans-serif}body{margin:0;padding:40px 20px;background:radial-gradient(circle at 80% 0,#163d31 0,transparent 35%),#07100d}.wrap{max-width:1100px;margin:auto}.eyebrow{color:#79f2bd;letter-spacing:.14em;text-transform:uppercase;font-size:12px;font-weight:800}h1{font-size:clamp(42px,8vw,78px);margin:12px 0}.status{color:${comparison.status === "COMPARABLE" ? "#79f2bd" : "#ffd479"}}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:28px}.card{background:#0d1c17;border:1px solid #203c32;border-radius:18px;padding:20px}.card h2{font-size:28px;margin:8px 0}.metric{font-size:34px;font-weight:800}.warnings{margin-top:18px}p,li{color:#b7cec4}a{color:#79f2bd}</style></head><body><main class="wrap"><div class="eyebrow">Agent Vigil \xB7 task-matched evidence</div><h1 class="status">${html2(comparison.status)}</h1><p>${comparison.uniqueEpisodes} unique episodes \xB7 ${comparison.supersededCards} superseded cards \xB7 ${comparison.comparableTaskClasses.length} comparable task classes</p><section class="grid">${groups}</section><section class="card warnings"><div class="eyebrow">Limits and warnings</div><ul>${warnings}</ul></section><p>Generated locally by <a href="https://github.com/sulmusic2-star/agent-vigil">Agent Vigil</a>. Wilson intervals express sampling uncertainty; they do not remove task-selection bias or prove causality.</p></main></body></html>
+`;
+}
+
 // src/cli.ts
 function usage() {
   return `agent-vigil ${VERSION}
@@ -2951,11 +4121,17 @@ Usage:
   vigil demo
   vigil init [--repo <path>] [--force] [--portable --public-key <path>]
   vigil init --profile maintainer [--repo <path>] [--force]
+  vigil init --profile authority [--repo <path>] [--force]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
+  vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
+  vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
+  vigil compare-value <card.json>... [--format text|json|html] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
+  vigil authority init [--output <path>]
+  vigil authority <transcript.jsonl> --contract <authority.json> [--contract-ref <sha>] [options]
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
@@ -2978,6 +4154,22 @@ Options:
   --min-verified <n>     Minimum objective verified claims (default: 1)
   --version              Print the version
   --help                 Show this help
+
+Value options:
+  --transcript <path>    Bind supported token usage to the receipt digest
+  --github-evidence <p>  Import a hash-verified normalized GitHub evidence bundle
+  --cost-usd <amount>    Attributed task cost; requires --cost-source
+  --cost-source <kind>   provider-billed, subscription-allocated, or user-estimated
+  --cost-evidence <path> Hash a local billing artifact without copying its contents
+  --budget-usd <amount>  Predeclared task budget for WITHIN / EXCEEDED status
+  --review-minutes <n>   Explicit human review duration
+  --disposition <kind>   accepted, dismissed, changes-requested, or unreviewed
+  --review-evidence <p>  Hash review or disposition evidence without copying it
+  --outcome <kind>       merged, closed, reverted, hotfixed, incident-linked, or unknown
+  --outcome-as-of <time> RFC3339-compatible downstream observation time
+  --outcome-evidence <p> Hash merge or downstream evidence without copying it
+  --task-class <name>    Local comparison category, such as bugfix or refactor
+  --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS \xB7 1 FAIL \xB7 2 INCONCLUSIVE or usage error`;
 }
@@ -3041,19 +4233,19 @@ function optionValue(args, name) {
 }
 function runInit(args) {
   try {
-    const repo = resolve8(optionValue(args, "--repo") ?? ".");
+    const repo = resolve11(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const profile = optionValue(args, "--profile") ?? "default";
-    if (!(/* @__PURE__ */ new Set(["default", "maintainer"])).has(profile)) throw new Error("init --profile must be default or maintainer");
+    if (!(/* @__PURE__ */ new Set(["default", "maintainer", "authority"])).has(profile)) throw new Error("init --profile must be default, maintainer, or authority");
     const publicKey = optionValue(args, "--public-key");
-    if (portable && profile === "maintainer") throw new Error("init --portable cannot be combined with --profile maintainer");
+    if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result4 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve8(publicKey)) : void 0, profile);
+    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve11(publicKey)) : void 0, profile);
     console.log("Agent Vigil initialized.\n");
-    for (const path of result4.created) console.log(`  created ${path}`);
-    for (const path of result4.kept) console.log(`  kept    ${path} (use --force to replace)`);
-    console.log(profile === "maintainer" ? "\nNext: replace the PR-template login, review the base-anchored limits, merge this setup first, then open a code PR with a regression test that fails on base and passes on head." : portable ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output." : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
+    for (const path of result5.created) console.log(`  created ${path}`);
+    for (const path of result5.kept) console.log(`  kept    ${path} (use --force to replace)`);
+    console.log(profile === "maintainer" ? "\nNext: replace the PR-template login, review the base-anchored limits, merge this setup first, then open a code PR with a regression test that fails on base and passes on head." : profile === "authority" ? "\nNext: replace the task ID, paths, action classes, and expiry; point the workflow at a structured agent transcript; merge the contract before the code change." : portable ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output." : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -3076,8 +4268,8 @@ function runMaintainer(args) {
     const eventOption = optionValue(args, "--event");
     if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
     const options = parseArgs(withoutOption(args.slice(1), "--event"));
-    const repo = resolve8(options.repo);
-    const eventPath = resolve8(eventOption);
+    const repo = resolve11(options.repo);
+    const eventPath = resolve11(eventOption);
     const policy = loadPolicy(repo, options.policy, options.policyRef);
     if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -3097,9 +4289,9 @@ function runMaintainer(args) {
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
-    const rawEvent = readFileSync10(eventPath);
-    const eventHash = `sha256:${createHash8("sha256").update(rawEvent).digest("hex")}`;
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative6(repo, policy.path) : void 0;
+    const rawEvent = readFileSync13(eventPath);
+    const eventHash = `sha256:${createHash11("sha256").update(rawEvent).digest("hex")}`;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative7(repo, policy.path) : void 0;
     const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git7(repo, ["rev-parse", `${head}^{tree}`]);
     const reproduction = [
@@ -3160,7 +4352,7 @@ function runMergeGroup(args) {
 }
 function runDoctor(args) {
   try {
-    const repo = resolve8(optionValue(args, "--repo") ?? ".");
+    const repo = resolve11(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -3174,9 +4366,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve8(privatePath), resolve8(publicPath));
+    generateSigningKey(resolve11(privatePath), resolve11(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve8(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve11(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -3194,10 +4386,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve8(options.repo, receiptPath);
-    const receipt = JSON.parse(readFileSync10(absoluteReceipt, "utf8"));
+    const absoluteReceipt = resolve11(options.repo, receiptPath);
+    const receipt = JSON.parse(readFileSync13(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve8(options.repo),
+      repo: resolve11(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -3216,16 +4408,16 @@ function runVerify(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync10(resolve8(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync13(resolve11(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result4 = verifyReport(report, publicKey ? resolve8(publicKey) : void 0);
-    console.log(`Receipt hash: ${result4.hashValid ? "VALID" : "INVALID"}`);
-    if (result4.signatureValid !== void 0) {
-      console.log(`Ed25519 signature: ${result4.signatureValid ? "VALID" : "INVALID"} \xB7 ${result4.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
-      if (!result4.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
+    const result5 = verifyReport(report, publicKey ? resolve11(publicKey) : void 0);
+    console.log(`Receipt hash: ${result5.hashValid ? "VALID" : "INVALID"}`);
+    if (result5.signatureValid !== void 0) {
+      console.log(`Ed25519 signature: ${result5.signatureValid ? "VALID" : "INVALID"} \xB7 ${result5.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
+      if (!result5.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
     } else console.log("Signature: absent (content hash only)");
-    return result4.hashValid && result4.signatureValid !== false ? 0 : 1;
+    return result5.hashValid && result5.signatureValid !== false ? 0 : 1;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -3237,17 +4429,251 @@ function runCompare(args) {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync10(resolve8(values[0]), "utf8"));
-    const after = JSON.parse(readFileSync10(resolve8(values[1]), "utf8"));
+    const before = JSON.parse(readFileSync13(resolve11(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync13(resolve11(values[1]), "utf8"));
     if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
 ` : `${renderReceiptDelta(delta)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve8(output), rendered);
+    if (output) writePrivateFileAtomic(resolve11(output), rendered);
     else process.stdout.write(rendered);
     return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function valueNumber(value, name) {
+  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value)) throw new Error(`${name} must be a non-negative decimal number`);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a non-negative decimal number`);
+  return parsed;
+}
+function parseValueArgs(args) {
+  const takesValue = /* @__PURE__ */ new Set([
+    "--transcript",
+    "--public-key",
+    "--github-evidence",
+    "--cost-usd",
+    "--cost-source",
+    "--cost-evidence",
+    "--budget-usd",
+    "--review-minutes",
+    "--disposition",
+    "--review-evidence",
+    "--outcome",
+    "--outcome-as-of",
+    "--outcome-evidence",
+    "--task-class",
+    "--format",
+    "--output"
+  ]);
+  const values = /* @__PURE__ */ new Map();
+  const positional = [];
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith("--")) {
+      positional.push(arg);
+      continue;
+    }
+    if (!takesValue.has(arg)) throw new Error(`unknown value argument: ${arg}`);
+    if (values.has(arg)) throw new Error(`duplicate value argument: ${arg}`);
+    const value = args[++index];
+    if (value === void 0 || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+    values.set(arg, value);
+  }
+  if (positional.length !== 1) throw new Error("value requires exactly one full receipt JSON path");
+  const format = values.get("--format") ?? "text";
+  if (!(/* @__PURE__ */ new Set(["text", "json", "markdown", "html"])).has(format)) throw new Error("value --format must be text, json, markdown, or html");
+  const costSource = values.get("--cost-source");
+  if (costSource && !(/* @__PURE__ */ new Set(["provider-billed", "subscription-allocated", "user-estimated"])).has(costSource)) {
+    throw new Error("value --cost-source must be provider-billed, subscription-allocated, or user-estimated");
+  }
+  const disposition = values.get("--disposition");
+  if (disposition && !(/* @__PURE__ */ new Set(["accepted", "dismissed", "changes-requested", "unreviewed"])).has(disposition)) {
+    throw new Error("value --disposition must be accepted, dismissed, changes-requested, or unreviewed");
+  }
+  const outcome = values.get("--outcome");
+  if (outcome && !(/* @__PURE__ */ new Set(["merged", "closed", "reverted", "hotfixed", "incident-linked", "unknown"])).has(outcome)) {
+    throw new Error("value --outcome must be merged, closed, reverted, hotfixed, incident-linked, or unknown");
+  }
+  const taskClass = values.get("--task-class");
+  if (taskClass && (taskClass.length > 80 || /[\x00-\x1f\x7f]/.test(taskClass))) throw new Error("value --task-class must be at most 80 printable characters");
+  return {
+    receipt: positional[0],
+    ...values.get("--transcript") ? { transcript: values.get("--transcript") } : {},
+    ...values.get("--public-key") ? { publicKey: values.get("--public-key") } : {},
+    ...values.get("--github-evidence") ? { githubEvidence: values.get("--github-evidence") } : {},
+    ...values.get("--cost-usd") ? { costUsd: valueNumber(values.get("--cost-usd"), "value --cost-usd") } : {},
+    ...costSource ? { costSource } : {},
+    ...values.get("--cost-evidence") ? { costEvidence: values.get("--cost-evidence") } : {},
+    ...values.get("--budget-usd") ? { budgetUsd: valueNumber(values.get("--budget-usd"), "value --budget-usd") } : {},
+    ...values.get("--review-minutes") ? { reviewMinutes: valueNumber(values.get("--review-minutes"), "value --review-minutes") } : {},
+    ...disposition ? { disposition } : {},
+    ...values.get("--review-evidence") ? { reviewEvidence: values.get("--review-evidence") } : {},
+    ...outcome ? { outcome } : {},
+    ...values.get("--outcome-as-of") ? { outcomeAsOf: values.get("--outcome-as-of") } : {},
+    ...values.get("--outcome-evidence") ? { outcomeEvidence: values.get("--outcome-evidence") } : {},
+    ...taskClass ? { taskClass } : {},
+    format,
+    ...values.get("--output") ? { output: values.get("--output") } : {}
+  };
+}
+function readBoundedFile(path, maximumBytes, label) {
+  const size = statSync6(path).size;
+  if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
+  return readFileSync13(path);
+}
+function runValue(args) {
+  try {
+    const options = parseValueArgs(args);
+    const receiptPath = resolve11(options.receipt);
+    const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
+    const report = JSON.parse(rawReceipt.toString("utf8"));
+    if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
+      throw new Error("value requires a full Agent Vigil receipt schema 2");
+    }
+    const verification2 = verifyReport(report, options.publicKey ? resolve11(options.publicKey) : void 0);
+    if (!verification2.hashValid) throw new Error("value receipt hash is invalid");
+    if (verification2.signatureValid === false) throw new Error("value receipt signature is invalid");
+    let transcriptPath;
+    if (options.transcript) transcriptPath = resolve11(options.transcript);
+    else if ((/* @__PURE__ */ new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"])).has(report.transcriptFormat)) {
+      const candidates = [
+        resolve11(dirname4(receiptPath), report.transcript),
+        ...isAbsolute4(report.repo) ? [resolve11(report.repo, report.transcript)] : []
+      ];
+      transcriptPath = candidates.find((candidate) => existsSync5(candidate));
+    }
+    let loaded;
+    if (transcriptPath) {
+      loaded = loadTranscript(transcriptPath);
+      if (loaded.transcriptSha256 !== report.transcriptSha256) throw new Error("value transcript digest does not match the receipt");
+    }
+    const evidenceHash = (path, label) => {
+      if (!path) return void 0;
+      const evidence = readBoundedFile(resolve11(path), 64 * 1024 * 1024, label);
+      return `sha256:${createHash11("sha256").update(evidence).digest("hex")}`;
+    };
+    const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
+    const github = options.githubEvidence ? loadGitHubEvidence(resolve11(options.githubEvidence)) : void 0;
+    const inferredDisposition = options.disposition ?? github?.inference.disposition;
+    const inferredOutcome = options.outcome ?? github?.inference.outcome;
+    const inferredOutcomeAsOf = options.outcomeAsOf ?? github?.inference.outcomeAsOf;
+    const reviewEvidenceSha256 = evidenceHash(options.reviewEvidence, "review evidence") ?? (github && inferredDisposition === github.inference.disposition && github.inference.reviewEvidence === "EVIDENCE_HASHED" ? github.evidenceHash : void 0);
+    const outcomeEvidenceSha256 = evidenceHash(options.outcomeEvidence, "outcome evidence") ?? (github && inferredOutcome === github.inference.outcome && github.inference.outcomeEvidence === "EVIDENCE_HASHED" ? github.evidenceHash : void 0);
+    const card = buildValueCard({
+      report,
+      hashValid: true,
+      signatureValid: verification2.signatureValid,
+      keyPinned: verification2.keyPinned,
+      usage: loaded?.usage,
+      toolCalls: loaded?.toolCalls.length,
+      failedToolCalls: loaded?.toolCalls.filter((call) => call.isError).length,
+      values: {
+        taskClass: options.taskClass,
+        budgetUsd: options.budgetUsd,
+        costUsd: options.costUsd,
+        costSource: options.costSource,
+        costEvidenceSha256,
+        reviewMinutes: options.reviewMinutes,
+        disposition: inferredDisposition,
+        reviewEvidenceSha256,
+        outcome: inferredOutcome,
+        outcomeAsOf: inferredOutcomeAsOf,
+        outcomeEvidenceSha256,
+        ...github ? { github: {
+          evidenceHash: github.evidenceHash,
+          ...github.pullRequest ? { pullRequestNumber: github.pullRequest.number } : {},
+          ...github.reviews ? { approvals: github.reviews.approved, changesRequested: github.reviews.changesRequested } : {},
+          ...github.reviewComments ? { reviewComments: github.reviewComments.records } : {},
+          ...github.actions?.runDurationSeconds !== void 0 ? { actionsRunDurationSeconds: github.actions.runDurationSeconds } : {},
+          ...github.actions?.jobDurationSeconds !== void 0 ? { actionsJobDurationSeconds: github.actions.jobDurationSeconds } : {},
+          ...github.actions?.jobs !== void 0 ? { actionsJobs: github.actions.jobs } : {},
+          ...github.actions?.failedJobs !== void 0 ? { actionsFailedJobs: github.actions.failedJobs } : {},
+          actionsBilling: "UNAVAILABLE"
+        } } : {},
+        ...loaded ? { trajectory: analyzeTrajectory(classifyTranscriptActions(loaded)) } : {}
+      }
+    });
+    const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}
+` : options.format === "markdown" ? renderValueCardMarkdown(card) : options.format === "html" ? renderValueCardHtml(card) : renderValueCardText(card);
+    if (options.output) writePrivateFileAtomic(resolve11(options.output), rendered);
+    else process.stdout.write(rendered);
+    return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runGitHubEvidence(args) {
+  try {
+    const flagKinds = {
+      "--event": "event",
+      "--pull-request": "pull-request",
+      "--reviews": "reviews",
+      "--review-comments": "review-comments",
+      "--actions-run": "actions-run",
+      "--actions-jobs": "actions-jobs",
+      "--revert-commit": "revert-commit",
+      "--hotfix-pull-request": "hotfix-pull-request",
+      "--incident-issue": "incident-issue"
+    };
+    const inputs = {};
+    let output;
+    for (let index = 1; index < args.length; index += 1) {
+      const flag = args[index];
+      const value = args[++index];
+      if (value === void 0 || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+      if (flag === "--output") {
+        if (output) throw new Error("duplicate --output");
+        output = value;
+        continue;
+      }
+      const kind = flagKinds[flag];
+      if (!kind) throw new Error(`unknown github-evidence argument: ${flag}`);
+      if (inputs[kind]) throw new Error(`duplicate ${flag}`);
+      inputs[kind] = value;
+    }
+    if (!inputs.event) throw new Error("github-evidence requires --event <event.json>");
+    const bundle = buildGitHubEvidence(inputs);
+    const rendered = `${JSON.stringify(bundle, null, 2)}
+`;
+    if (output) writePrivateFileAtomic(resolve11(output), rendered);
+    else process.stdout.write(rendered);
+    return 0;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runCompareValue(args) {
+  try {
+    const paths = [];
+    let format = "text";
+    let output;
+    for (let index = 1; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--format" || arg === "--output") {
+        const value = args[++index];
+        if (value === void 0 || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+        if (arg === "--format") {
+          if (!(/* @__PURE__ */ new Set(["text", "json", "html"])).has(value)) throw new Error("compare-value --format must be text, json, or html");
+          format = value;
+        } else output = value;
+      } else if (arg.startsWith("--")) throw new Error(`unknown compare-value argument: ${arg}`);
+      else paths.push(arg);
+    }
+    if (!paths.length) throw new Error("compare-value requires at least one Agent Value Card JSON path");
+    const cards = paths.map(loadValueCard);
+    const comparison = compareValueCards(cards, paths.length);
+    const rendered = format === "json" ? `${JSON.stringify(comparison, null, 2)}
+` : format === "html" ? renderValueComparisonHtml(comparison) : renderValueComparisonText(comparison);
+    if (output) writePrivateFileAtomic(resolve11(output), rendered);
+    else process.stdout.write(rendered);
+    return comparison.status === "COMPARABLE" ? 0 : 2;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -3258,11 +4684,11 @@ function runAudit(args) {
     const options = parseArgs(args.slice(1));
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
-    const absolute = resolve8(diffPath);
-    const raw = readFileSync10(absolute);
+    const absolute = resolve11(diffPath);
+    const raw = readFileSync13(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest2 = `sha256:${createHash8("sha256").update(raw).digest("hex")}`;
+    const digest2 = `sha256:${createHash11("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -3273,7 +4699,7 @@ function runAudit(args) {
       });
     }
     const report = buildReport({
-      transcript: relative6(process.cwd(), absolute) || absolute,
+      transcript: relative7(process.cwd(), absolute) || absolute,
       transcriptSha256: digest2,
       transcriptFormat: "unified-git-diff",
       repo: "static-diff-audit",
@@ -3281,7 +4707,7 @@ function runAudit(args) {
       head: digest2,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash8("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash11("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -3292,9 +4718,86 @@ function runAudit(args) {
     return 2;
   }
 }
+function runAuthority(args) {
+  try {
+    if (args[1] === "init") {
+      const output = optionValue(args, "--output");
+      const rendered = authorityContractTemplate();
+      if (output) {
+        writePrivateFileAtomic(resolve11(output), rendered);
+        console.log(`Created task-scoped authority contract ${output}. Review every allowed action and replace the task ID before use.`);
+      } else process.stdout.write(rendered);
+      return 0;
+    }
+    const contractOption = optionValue(args, "--contract");
+    if (!contractOption) throw new Error("authority requires --contract <authority.json>");
+    const contractRef = optionValue(args, "--contract-ref");
+    let stripped = withoutOption(args.slice(1), "--contract");
+    if (contractRef) stripped = withoutOption(stripped, "--contract-ref");
+    const options = parseArgs(stripped);
+    const transcriptOption = options.transcript;
+    if (!transcriptOption) throw new Error("authority requires a structured agent transcript");
+    const repo = resolve11(options.repo);
+    if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
+    const base = resolveGitRef(repo, options.base);
+    const head = resolveGitRef(repo, options.head);
+    const transcriptPath = isAbsolute4(transcriptOption) ? transcriptOption : resolve11(repo, transcriptOption);
+    if (!existsSync5(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
+    const contract = loadAuthorityContract(repo, contractOption, contractRef);
+    const loaded = loadTranscript(transcriptPath);
+    const inputs = [transcriptPath, ...contract.path ? [contract.path] : []];
+    const results = [...checkWorkspaceBinding(repo, head, inputs)];
+    const advisories = [];
+    const authority = buildAuthorityChecks(repo, base, head, loaded, contract.value);
+    results.push(...authority.results);
+    if (!contract.ref) advisories.push({
+      claim: { kind: "authority_scope", subject: "authority trust root", quote: contract.source },
+      verdict: "unverifiable",
+      evidence: "the contract was loaded from the local filesystem; use --contract-ref <trusted-base-sha> in CI so candidate changes cannot widen their own authority",
+      ruleId: "authority-contract-anchor",
+      contributesToPass: false
+    });
+    const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git7(repo, ["rev-parse", `${head}^{tree}`]);
+    const relativeTranscript = relative7(repo, transcriptPath) || transcriptOption;
+    const reproduction = [
+      "vigil authority",
+      shellQuote(relativeTranscript),
+      "--contract",
+      shellQuote(contract.gitPath ?? contractOption),
+      ...contract.ref ? ["--contract-ref", contract.ref] : [],
+      "--repo",
+      ".",
+      "--base",
+      base,
+      "--head",
+      head
+    ].join(" ");
+    let report = buildReport({
+      transcript: relativeTranscript,
+      transcriptSha256: loaded.transcriptSha256,
+      transcriptFormat: `authority/${loaded.format}`,
+      repo,
+      base,
+      head,
+      results,
+      advisories,
+      policy: { minVerified: 1, strict: true, source: contract.source, sha256: contract.sha256 },
+      repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
+      reproduction
+    });
+    if (options.signingKey) report = signReport(report, resolve11(options.signingKey));
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
 function git7(repo, args) {
   try {
-    return execFileSync8("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync9("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -3309,7 +4812,11 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "keygen") return runKeygen(argv);
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "compare") return runCompare(argv);
+  if (argv[0] === "github-evidence") return runGitHubEvidence(argv);
+  if (argv[0] === "value") return runValue(argv);
+  if (argv[0] === "compare-value") return runCompareValue(argv);
   if (argv[0] === "audit") return runAudit(argv);
+  if (argv[0] === "authority") return runAuthority(argv);
   if (argv[0] === "gate") return runGate(argv);
   if (argv[0] === "maintainer") return runMaintainer(argv);
   if (argv[0] === "merge-group") return runMergeGroup(argv);
@@ -3330,7 +4837,7 @@ function run(argv = process.argv.slice(2)) {
 ${usage()}`);
     return 2;
   }
-  const repo = resolve8(options.repo);
+  const repo = resolve11(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -3347,7 +4854,7 @@ ${usage()}`);
     console.error(usage());
     return 2;
   }
-  const transcriptPath = isAbsolute3(transcript) ? transcript : resolve8(repo, transcript);
+  const transcriptPath = isAbsolute4(transcript) ? transcript : resolve11(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
@@ -3374,8 +4881,8 @@ ${usage()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve8(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve8(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve11(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve11(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -3389,10 +4896,10 @@ ${usage()}`);
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     results.push(...checkCompletion(claims, repo, base, head, results));
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative6(repo, policy.path) : void 0;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative7(repo, policy.path) : void 0;
     const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
     const tree = head === "WORKTREE" ? void 0 : git7(repo, ["rev-parse", `${head}^{tree}`]);
-    const relativeTranscript = relative6(repo, transcriptPath) || transcript;
+    const relativeTranscript = relative7(repo, transcriptPath) || transcript;
     const reproduction = [
       "vigil",
       shellQuote(relativeTranscript),
@@ -3422,11 +4929,11 @@ ${usage()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve8(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve11(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve8(options.signingKey));
-      const portablePath = resolve8(repo, options.portableOutput);
+      const portable = createPortableReceipt(report, resolve11(options.signingKey));
+      const portablePath = resolve11(repo, options.portableOutput);
       mkdirSync4(dirname4(portablePath), { recursive: true });
       writeFileSync5(portablePath, `${JSON.stringify(portable, null, 2)}
 `);

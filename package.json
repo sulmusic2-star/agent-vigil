@@ -1,7 +1,7 @@
 {
   "name": "agent-vigil",
-  "version": "0.10.1",
-  "description": "Fail-closed, deterministic evidence receipts for AI coding-agent sessions.",
+  "version": "0.11.0",
+  "description": "Fail-closed change control and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
     "agent-vigil": "./dist/cli.js",
@@ -19,6 +19,7 @@
     "test:package": "python3 scripts/package_smoke.py",
     "proof:historical": "node scripts/historical_proof.mjs",
     "demo:60s": "node scripts/demo_60s.mjs",
+    "demo:value-comparison": "tsx scripts/value_comparison_demo.ts",
     "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
     "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts",
     "benchmark:compare": "tsx scripts/benchmark_compare_static.ts"

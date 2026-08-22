@@ -59,6 +59,13 @@ export function remediationFor(ruleId?: string): string {
     "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs.",
     "merge-group-binding": "Use the exact base_sha and head_sha from the GitHub merge_group event.",
     "merge-group-range": "Recreate the merge group from the current target branch; the reported head must descend from the event base.",
+    "authority-validity": "Issue a new task-scoped contract with a short expiresAt window; do not silently extend expired authority.",
+    "authorized-change-paths": "Revert out-of-scope paths or issue a separately reviewed contract that explicitly includes them.",
+    "authorized-action-classes": "Remove the unauthorized action, or obtain new human authority before rerunning it; never edit the contract after the action to manufacture compliance.",
+    "unknown-action-risk": "Use a supported structured tool adapter or normalize the action explicitly; do not allow unknown_effect in a blocking policy.",
+    "complete-tool-results": "Export the complete session trajectory with terminal results for every tool call.",
+    "observed-action-coverage": "Provide a supported JSONL transcript with structured tool calls; narrative summaries cannot prove action boundaries.",
+    "authority-contract-anchor": "Store the contract in the trusted base revision and pass --contract-ref <base-sha> in CI.",
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }

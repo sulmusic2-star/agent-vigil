@@ -40,6 +40,7 @@
     h2 { font-size:clamp(34px,5vw,60px); letter-spacing:-.045em; line-height:1.05; max-width:850px; }
     .section-lead { max-width:780px; color:#b8cbc4; font:18px/1.65 system-ui,sans-serif; }
     .demo { width:100%; margin-top:30px; display:block; border:1px solid #2c5b50; }
+    .value-frame { width:100%; height:820px; margin-top:30px; display:block; border:1px solid #2c5b50; background:#07100d; }
     .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:30px; }
     .card { display:flex; flex-direction:column; min-height:270px; padding:24px; border:1px solid var(--grid); background:rgba(13,27,24,.76); }
     .card .number { color:var(--mint); font-weight:850; }
@@ -60,32 +61,32 @@
   <div class="wrap">
     <nav aria-label="Primary">
       <a class="brand" href="#top">AGENT VIGIL</a>
-      <div><a href="#proof">Proof</a><a href="#benchmark">Benchmark</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
+        <div><a href="#proof">Proof</a><a href="#benchmark">Benchmark</a><a href="#value">Value cards</a><a href="PRODUCT_DISCOVERY_2026-08-22.md">Research</a><a href="IMPLEMENTED_DIFFERENTIATION_2026-08-22.md">Competition</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
     </nav>
     <main id="top">
       <div class="hero">
         <div>
-          <p class="eyebrow">Deterministic evidence gate</p>
-          <h1>The agent said done. <span>Make the proof true.</span></h1>
-          <p class="lead">Agent Vigil compares an AI coding agent’s claims with the exact Git change, fresh tests, and base-anchored policy. Missing proof never becomes a green check.</p>
+          <p class="eyebrow">Cross-vendor AI change control</p>
+          <h1>Give the agent a boundary. <span>Verify what it actually did.</span></h1>
+          <p class="lead">Agent Vigil binds human task authority to observed agent actions, the exact Git result, and fresh tests. Unauthorized activity fails; missing evidence never becomes a green check.</p>
           <div class="actions">
             <a class="button" href="#install">Install the gate</a>
             <a class="button secondary" href="#proof">Inspect failures</a>
           </div>
-          <p class="fine">Open source · local-first · zero runtime dependencies · receipt-to-receipt regression control · merge-queue re-verification · no model grading another model</p>
+          <p class="fine">Open source · local-first · zero runtime dependencies · Codex, Claude Code, Copilot, Cursor, Gemini CLI, Aider, and OpenCode · merge-queue re-verification · no model grading another model</p>
         </div>
         <div class="terminal" aria-label="Example failed receipt">
           <header>agent-vigil-report.json / exact base ↔ head</header>
-          <pre><span class="warn">CLAIM</span>  All 99 tests pass.
+          <pre><span class="warn">TASK</span>   Change src/**. Test locally. Do not publish.
 
-<span class="fail">✗ test-count</span>
-  claimed 99 / runner observed 42
+<span class="ok">✓ changed-paths</span>
+  3 files stayed inside src/**
 
-<span class="fail">✗ differential-base-fail</span>
-  changed test also passes on base
+<span class="fail">✗ authorized-actions</span>
+  observed release_publish via gh release create
 
-<span class="ok">✓ integrity-scan</span>
-  verification surface unchanged
+<span class="ok">✓ tests-pass</span>
+  trusted command observed 258 passing
 
 <span class="fail">FAIL</span> · sha256:c3128a2c6abc…</pre>
         </div>
@@ -123,12 +124,31 @@
         </div>
       </section>
 
+      <section id="value">
+        <p class="eyebrow">Unreleased local experiment</p>
+        <h2>Connect a verified change to what it cost and whether it held up.</h2>
+        <p class="section-lead"><code>vigil value</code> keeps observed usage,
+        attributed cost, maintainer acceptance, and downstream outcome in one
+        fail-closed card. The example below is synthetic and is not a customer
+        result, external adoption, or revenue.</p>
+        <iframe class="value-frame" src="assets/agent-value-card-demo.html" title="Synthetic Agent Vigil Value Card demonstration"></iframe>
+        <p class="section-lead"><code>vigil compare-value</code> groups retained
+        cards only across the same task class, adapter, and model set. It shows
+        sample size, missing-cost coverage, downstream failures, review burden,
+        and 95% Wilson intervals instead of manufacturing a global leaderboard.</p>
+        <iframe class="value-frame" src="assets/agent-value-comparison-demo.html" title="Synthetic Agent Vigil task-matched value comparison demonstration"></iframe>
+        <div class="actions">
+          <a class="button" href="AGENT_VALUE_CARD.md">Read the evidence contract</a>
+          <a class="button secondary" href="research/2026-08-22-product-discovery/VALUE_WEDGE_UPDATE.md">Inspect the market collision check</a>
+        </div>
+      </section>
+
       <section id="install" class="install">
-        <div><p class="eyebrow">Two-minute setup</p><h2>One command. One reviewable policy.</h2><p class="section-lead">The maintainer profile adds exact-SHA workflow identity, human responsibility declarations, change budgets, a differential base-fail/head-pass regression gate, and fresh verification of GitHub merge-queue compositions.</p></div>
+        <div><p class="eyebrow">Two-minute setup</p><h2>One command. One reviewable policy.</h2><p class="section-lead">The authority profile binds a short-lived human task boundary to exact changed paths and observed agent actions. The maintainer profile remains available for transcript-free contribution review.</p></div>
         <div>
-          <code class="command">npx --yes github:sulmusic2-star/agent-vigil#v0.10.1 init --profile maintainer</code>
-          <p>Then run <code>npx --yes github:sulmusic2-star/agent-vigil#v0.10.1 doctor</code> and review every generated command before merging.</p>
-          <p class="fine">The GitHub package route is shown until the npm package is confirmed live. Repository test commands execute repository code; Agent Vigil is not a sandbox.</p>
+          <code class="command">npx --yes github:sulmusic2-star/agent-vigil#v0.11.0 init --profile authority</code>
+          <p>Then run <code>npx --yes github:sulmusic2-star/agent-vigil#v0.11.0 doctor</code> and review every generated command before merging.</p>
+          <p class="fine">The GitHub package route is shown until the npm package is confirmed live. Agent Vigil reconciles observed evidence after execution; it is not a sandbox or proof that no unlogged action occurred.</p>
           <div class="actions">
             <a class="button" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml">Report a real trial</a>
             <a class="button secondary" href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/THREAT_MODEL.md">Read the threat model</a>

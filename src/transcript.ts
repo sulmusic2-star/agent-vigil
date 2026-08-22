@@ -22,12 +22,27 @@ export type SessionToolCall = {
   sequence: number;
 };
 
+export type SessionUsage = {
+  source: "transcript-observed";
+  accounting: "deduplicated-assistant-messages" | "cumulative-session-snapshot";
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+  modelIds: string[];
+  recordsObserved: number;
+  accountedUnits: number;
+};
+
 export type LoadedTranscript = {
   narrative: string;
   assistantMessages: string[];
   toolCalls: SessionToolCall[];
   format: TranscriptFormat;
   transcriptSha256: string;
+  usage?: SessionUsage;
 };
 
 const MAX_TRANSCRIPT_BYTES = 50 * 1024 * 1024;
@@ -95,15 +110,59 @@ function textFromBlocks(content: unknown): string[] {
   return out;
 }
 
+function nonNegativeNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+type UsageCounters = Omit<SessionUsage, "source" | "accounting" | "modelIds" | "recordsObserved" | "accountedUnits">;
+
+function usageCounters(value: Record<string, unknown>): UsageCounters {
+  const inputTokens = nonNegativeNumber(value.input_tokens);
+  const cachedInputTokens = nonNegativeNumber(value.cached_input_tokens ?? value.cache_read_input_tokens);
+  const cacheWriteInputTokens = nonNegativeNumber(value.cache_write_input_tokens ?? value.cache_creation_input_tokens);
+  const outputTokens = nonNegativeNumber(value.output_tokens);
+  const reasoningOutputTokens = nonNegativeNumber(value.reasoning_output_tokens);
+  const reportedTotal = nonNegativeNumber(value.total_tokens);
+  return {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens: reportedTotal || inputTokens + cachedInputTokens + cacheWriteInputTokens + outputTokens,
+  };
+}
+
+function maxUsage(left: UsageCounters | undefined, right: UsageCounters): UsageCounters {
+  if (!left) return right;
+  return {
+    inputTokens: Math.max(left.inputTokens, right.inputTokens),
+    cachedInputTokens: Math.max(left.cachedInputTokens, right.cachedInputTokens),
+    cacheWriteInputTokens: Math.max(left.cacheWriteInputTokens, right.cacheWriteInputTokens),
+    outputTokens: Math.max(left.outputTokens, right.outputTokens),
+    reasoningOutputTokens: Math.max(left.reasoningOutputTokens, right.reasoningOutputTokens),
+    totalTokens: Math.max(left.totalTokens, right.totalTokens),
+  };
+}
+
 function parseClaude(rows: any[], transcriptSha256: string): LoadedTranscript {
   const messages: string[] = [];
   const toolCalls: SessionToolCall[] = [];
   const byId = new Map<string, SessionToolCall>();
+  const usageByMessage = new Map<string, UsageCounters>();
+  const models = new Set<string>();
   let sequence = 0;
+  let usageRecords = 0;
 
   for (const row of rows) {
     const msg = row?.message;
     if (row?.type === "assistant" && Array.isArray(msg?.content)) {
+      if (msg?.usage && typeof msg.usage === "object") {
+        usageRecords += 1;
+        const key = String(msg.id ?? row.requestId ?? row.uuid ?? `claude-usage-${usageRecords}`);
+        usageByMessage.set(key, maxUsage(usageByMessage.get(key), usageCounters(msg.usage)));
+        if (typeof msg.model === "string" && msg.model) models.add(msg.model);
+      }
       for (const block of msg.content) {
         if (block?.type === "text" && typeof block.text === "string") messages.push(block.text);
         if (block?.type === "tool_use") {
@@ -129,12 +188,28 @@ function parseClaude(rows: any[], transcriptSha256: string): LoadedTranscript {
       }
     }
   }
+  const usage = [...usageByMessage.values()].reduce<UsageCounters>((total, item) => ({
+    inputTokens: total.inputTokens + item.inputTokens,
+    cachedInputTokens: total.cachedInputTokens + item.cachedInputTokens,
+    cacheWriteInputTokens: total.cacheWriteInputTokens + item.cacheWriteInputTokens,
+    outputTokens: total.outputTokens + item.outputTokens,
+    reasoningOutputTokens: total.reasoningOutputTokens + item.reasoningOutputTokens,
+    totalTokens: total.totalTokens + item.totalTokens,
+  }), { inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
   return {
     narrative: messages.slice(-8).join("\n\n"),
     assistantMessages: messages,
     toolCalls,
     format: "claude-code",
     transcriptSha256,
+    ...(usageByMessage.size ? { usage: {
+      source: "transcript-observed" as const,
+      accounting: "deduplicated-assistant-messages" as const,
+      ...usage,
+      modelIds: [...models].sort(),
+      recordsObserved: usageRecords,
+      accountedUnits: usageByMessage.size,
+    } } : {}),
   };
 }
 
@@ -142,9 +217,22 @@ function parseCodex(rows: any[], transcriptSha256: string): LoadedTranscript {
   const messages: string[] = [];
   const toolCalls: SessionToolCall[] = [];
   const byId = new Map<string, SessionToolCall>();
+  const models = new Set<string>();
+  let cumulativeUsage: UsageCounters | undefined;
   let sequence = 0;
+  let usageRecords = 0;
 
   for (const row of rows) {
+    if (row?.type === "turn_context" && typeof row?.payload?.model === "string") models.add(row.payload.model);
+    if (row?.type === "session_meta" && typeof row?.payload?.model === "string") models.add(row.payload.model);
+    if (row?.type === "event_msg" && row?.payload?.type === "token_count") {
+      const total = row?.payload?.info?.total_token_usage;
+      if (total && typeof total === "object") {
+        usageRecords += 1;
+        const candidate = usageCounters(total);
+        if (!cumulativeUsage || candidate.totalTokens >= cumulativeUsage.totalTokens) cumulativeUsage = candidate;
+      }
+    }
     if (row?.type !== "response_item") continue;
     const payload = row.payload ?? {};
     if (payload.type === "message" && payload.role === "assistant") {
@@ -177,6 +265,14 @@ function parseCodex(rows: any[], transcriptSha256: string): LoadedTranscript {
     toolCalls,
     format: "codex",
     transcriptSha256,
+    ...(cumulativeUsage ? { usage: {
+      source: "transcript-observed" as const,
+      accounting: "cumulative-session-snapshot" as const,
+      ...cumulativeUsage,
+      modelIds: [...models].sort(),
+      recordsObserved: usageRecords,
+      accountedUnits: 1,
+    } } : {}),
   };
 }
 

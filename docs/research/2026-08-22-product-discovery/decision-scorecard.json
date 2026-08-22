@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-22",
+  "status": "founder-hypothesis-not-market-proof",
+  "formula": {
+    "positiveFactors": {
+      "pain": 0.2,
+      "budget": 0.15,
+      "urgency": 0.1,
+      "agentVigilAdjacency": 0.15,
+      "organicDistribution": 0.1,
+      "moat": 0.1,
+      "dataFlywheel": 0.1,
+      "soloFeasibility": 0.1
+    },
+    "riskFactors": {
+      "platformCapture": 0.4,
+      "crowding": 0.35,
+      "evidenceDifficulty": 0.25
+    },
+    "adjustedScore": "100 * (0.75 * weightedPositive / 5 + 0.25 * (5 - weightedRisk) / 5)",
+    "scale": "1 weak to 5 strong; risk scale 1 low to 5 high"
+  },
+  "options": [
+    {"name":"Verified engineering outcome ledger","positive":[5,5,5,5,4,5,5,4],"risk":[3,4,4],"weightedPositive":4.8,"weightedRisk":3.6,"adjustedScore":79.0,"decision":"build with a narrow outcome wedge"},
+    {"name":"Review-noise measurement layer","positive":[5,4,5,4,4,4,5,4],"risk":[4,4,4],"weightedPositive":4.4,"weightedRisk":4.0,"adjustedScore":71.0,"decision":"include as outcome module"},
+    {"name":"Open-source AI PR slop gate","positive":[5,3,5,5,5,3,4,5],"risk":[4,5,4],"weightedPositive":4.4,"weightedRisk":4.35,"adjustedScore":69.2,"decision":"adoption surface only"},
+    {"name":"Permission-config linter","positive":[4,3,4,4,5,3,3,5],"risk":[4,3,3],"weightedPositive":3.85,"weightedRisk":3.4,"adjustedScore":65.8,"decision":"free acquisition feature"},
+    {"name":"Generic AI reviewer","positive":[5,4,5,3,5,2,3,4],"risk":[5,5,4],"weightedPositive":3.95,"weightedRisk":4.75,"adjustedScore":60.5,"decision":"reject"},
+    {"name":"Runtime agent security gateway","positive":[5,5,5,3,3,3,4,2],"risk":[5,5,5],"weightedPositive":3.9,"weightedRisk":5.0,"adjustedScore":58.5,"decision":"reject"},
+    {"name":"Standalone AI ROI dashboard","positive":[4,5,4,3,2,3,4,3],"risk":[4,4,5],"weightedPositive":3.6,"weightedRisk":4.25,"adjustedScore":57.8,"decision":"reject without evidence ledger"}
+  ]
+}
