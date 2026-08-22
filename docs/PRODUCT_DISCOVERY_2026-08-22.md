@@ -1,4 +1,4 @@
-# Agent Vigil product discovery: verified engineering outcomes
+# Agent Vigil product discovery: assurance and verified unit economics
 
 **Research date:** 2026-08-22
 
@@ -16,16 +16,23 @@ The source-by-source ledger is in
 [`research/2026-08-22-product-discovery/source-ledger.csv`](research/2026-08-22-product-discovery/source-ledger.csv).
 The reproducible option scores are in
 [`research/2026-08-22-product-discovery/decision-scorecard.json`](research/2026-08-22-product-discovery/decision-scorecard.json).
-The ledger contains 40 dated sources. Its limitations and discarded counting
-attempt are documented in
+The core ledger contains 40 dated sources. A broader second pass retained 35
+additional X, Reddit, Hacker News, GitHub, Product Hunt, standards, vendor, and
+research signals with explicit confidence weights instead of excluding weak
+evidence. See the
+[`expanded signal model`](research/2026-08-22-product-discovery/EXPANDED_SIGNAL_MODEL.md)
+and its
+[`reproducible scorecard`](research/2026-08-22-product-discovery/expanded-signal-scorecard.json).
+Limitations and the discarded counting attempt are documented in
 [`RESEARCH_LIMITS.md`](research/2026-08-22-product-discovery/RESEARCH_LIMITS.md).
 
 ## Decision
 
-Build Agent Vigil toward a **cross-vendor Verified Engineering Outcome
-Ledger**: an append-only, privacy-preserving record that connects a human task,
-agent identity and actions, exact code outcome, verification, maintainer
-disposition, review cost, merge/revert/incident outcome, and spend.
+Build **Agent Vigil Control: cross-vendor assurance and verified unit economics
+for coding agents**. The append-only Verified Engineering Outcome Ledger is its
+evidence substrate, not its entire user-facing product. Connect a human task
+and budget, agent identity and actions, exact code outcome, verification,
+maintainer disposition, review cost, merge/revert/incident outcome, and spend.
 
 It should answer six questions for any agent-assisted change:
 
@@ -36,10 +43,19 @@ It should answer six questions for any agent-assisted change:
 5. How much human review, rework, rollback, or incident cost followed?
 6. Did this agent workflow create net value for this task class?
 
+The free inbound question is more immediate: **Which coding agent and paid plan
+actually produces the most verified value on my repositories?** The product
+should answer it with local evidence rather than a synthetic leaderboard.
+
 Agent Vigil already has part of this chain: base/head identity, task authority,
 observed tool actions, fresh tests, merge enforcement, and hashed receipts. The
 missing product is the **longitudinal outcome closure**, not another generated
 PR comment or another place to store transcripts.
+
+The expanded signal score ranks outcome assurance first at 100.0 relative
+support and verified unit economics second at 85.3. Generic observability scores
+16.4 and orchestration dashboards 4.1. These are directional prioritization
+indices, not purchase probabilities.
 
 ## Why this is the strongest gap
 
@@ -334,30 +350,39 @@ demand for “agent governance.” Product-specific keyword volumes were not
 available from a reproducible primary source in this cycle. SEO phrases remain
 hypotheses until Search Console or another measured channel supplies evidence.
 
-X discovery surfaced promotional posts about an authoritative runtime ledger
-and agent-vetting tools. The accessible X pages did not expose reproducible
-primary text in this cycle, so neither post affected the score or demand
-conclusion. They remain competitor-watch pointers only:
-[AgenC ledger post](https://x.com/tetsuoai/status/2032031965575332172) and
-[Imbue Vet post](https://x.com/imbue_ai/status/2031762951343100411).
+The expanded search recovered public X text and engagement indicators through
+indexed results. Those posts now contribute at lower community-signal weights.
+They surfaced demand for agent-native CLI/API/MCP distribution, comparisons of
+memory drift and failure recovery, tests as the control system for long-running
+agents, and runtime-ledger competition:
+[agent-native distribution](https://x.com/kcdenman/status/2026390774301209007),
+[cross-agent reliability comparison](https://x.com/danveloper/status/2037538213917594021),
+[multimodal implementation failures](https://x.com/wightmanr/status/2040115036400820308),
+[long-running agent controls](https://x.com/mihail_eric/status/2032145866614849665),
+and [AgenC runtime ledger](https://x.com/tetsuoai/status/2032031965575332172).
+They remain anecdotes or marketing, but convergence with other channels makes
+them useful discovery evidence.
 
 ## Build order
 
-### Cycle 1: episode standard and private recorder
+### Cycle 1: episode standard, cost import, and private recorder
 
-1. Implement the
-   [`ai-change-episode-v1`](AI_CHANGE_EPISODE_V1.md) contract and privacy tiers.
-2. Add collectors for Codex structured sessions/OTel and GitHub Copilot hook
-   events using current official formats.
+1. Extend and implement the
+   [`ai-change-episode-v1`](AI_CHANGE_EPISODE_V1.md) contract with task budget,
+   metered-cost provenance, and privacy tiers.
+2. Add read-only Codex and Claude Code session/cost importers before expanding
+   to more agents.
 3. Store locally in append-only JSONL plus SQLite indexes.
 4. Bind parent/child task delegation and task-authority inheritance.
-5. Produce a deterministic timeline and signed receipt.
+5. Produce a deterministic timeline, signed receipt, and local Agent Value
+   Card.
 
-### Cycle 2: outcome and review-tax closure
+### Cycle 2: value comparison and review-tax closure
 
 1. Record PR open/merge/close, review duration, requested changes, accepted and
    dismissed automated findings, revert, and incident linkage.
-2. Add cost import as optional evidence with explicit provenance.
+2. Add `vigil value`, task-budget warnings, and repository-local comparison of
+   agents and paid plans.
 3. Calculate cost per verified merge and review tax only when baseline evidence
    is sufficient.
 4. Add a local static HTML report; no hosted account required.

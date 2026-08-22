@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-22",
+  "status": "directional-signal-index-not-demand-forecast",
+  "method": {
+    "rowContribution": "source_weight * recency_weight * engagement_weight",
+    "positiveUseContribution": "0.5 * rowContribution",
+    "channelMultiplier": "1 + min(0.48, 0.08 * (independentChannels - 1))",
+    "adjustedSupport": "demandSupport * channelMultiplier / (1 + 0.20 * competitionPressure)",
+    "relativeIndex": "100 * adjustedSupport / maximumAdjustedSupport"
+  },
+  "signalRows": 35,
+  "opportunities": [
+    {
+      "opportunity": "outcome-assurance",
+      "signalRows": 22,
+      "independentChannels": 9,
+      "demandSupport": 5.932,
+      "competitionPressure": 0.243,
+      "channelMultiplier": 1.48,
+      "adjustedSupport": 8.3725,
+      "relativeIndex": 100.0
+    },
+    {
+      "opportunity": "verified-unit-economics",
+      "signalRows": 20,
+      "independentChannels": 10,
+      "demandSupport": 5.2573,
+      "competitionPressure": 0.4455,
+      "channelMultiplier": 1.48,
+      "adjustedSupport": 7.1442,
+      "relativeIndex": 85.3
+    },
+    {
+      "opportunity": "review-noise-control",
+      "signalRows": 8,
+      "independentChannels": 5,
+      "demandSupport": 2.948,
+      "competitionPressure": 0.0,
+      "channelMultiplier": 1.32,
+      "adjustedSupport": 3.8914,
+      "relativeIndex": 46.5
+    },
+    {
+      "opportunity": "authority-budget-guard",
+      "signalRows": 8,
+      "independentChannels": 7,
+      "demandSupport": 2.5613,
+      "competitionPressure": 0.198,
+      "channelMultiplier": 1.48,
+      "adjustedSupport": 3.6463,
+      "relativeIndex": 43.6
+    },
+    {
+      "opportunity": "agent-stack-comparison",
+      "signalRows": 9,
+      "independentChannels": 3,
+      "demandSupport": 1.7918,
+      "competitionPressure": 0.2475,
+      "channelMultiplier": 1.16,
+      "adjustedSupport": 1.9804,
+      "relativeIndex": 23.7
+    },
+    {
+      "opportunity": "generic-observability",
+      "signalRows": 6,
+      "independentChannels": 3,
+      "demandSupport": 1.2383,
+      "competitionPressure": 0.243,
+      "channelMultiplier": 1.16,
+      "adjustedSupport": 1.3698,
+      "relativeIndex": 16.4
+    },
+    {
+      "opportunity": "orchestration-dashboard",
+      "signalRows": 2,
+      "independentChannels": 2,
+      "demandSupport": 0.3173,
+      "competitionPressure": 0.0,
+      "channelMultiplier": 1.08,
+      "adjustedSupport": 0.3426,
+      "relativeIndex": 4.1
+    }
+  ]
+}

@@ -48,6 +48,12 @@ evidence policy passed for this episode.
     "expiresAt": "RFC3339-or-null",
     "parentEpisodeId": null
   },
+  "budget": {
+    "currency": "USD",
+    "hardLimit": null,
+    "warningThresholds": [],
+    "allocationKey": "optional-task-or-cost-center"
+  },
   "actors": [],
   "observations": [],
   "verification": [],
@@ -117,6 +123,11 @@ Cost entries identify currency, amount, unit, time window, allocation method,
 and source. Measured API or platform cost, estimated human review cost, and
 modeled avoided cost are different types. Net value is `INCONCLUSIVE` when the
 baseline or allocation method is absent.
+
+A task budget is established before execution and remains distinct from
+observed cost. Early adapters may emit warnings only. Hard interruption must
+not be enabled until the adapter proves that delayed, cached, retried, and
+parallel usage is attributed reliably without undercounting committed spend.
 
 ## Privacy tiers
 

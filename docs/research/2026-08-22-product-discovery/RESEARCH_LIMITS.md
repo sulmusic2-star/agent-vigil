@@ -10,8 +10,12 @@ proof.
 - Vendor-funded surveys are directional and are labeled in the source ledger.
 - Product pages establish advertised capabilities, not adoption or operating
   quality. Customer-logo claims were not treated as verified usage.
-- X posts were reviewed as discovery signals but were not used as demand proof
-  because the accessible pages did not provide reproducible primary text.
+- Indexed X results exposed public post text and displayed engagement for
+  several signals. They are included at lower community weights; neither views
+  nor reactions establish purchase intent.
+- The expanded signal model deliberately includes anecdotes, promotional
+  launches, workarounds, and buying questions. Explicit weights preserve their
+  uncertainty without discarding early discovery evidence.
 - Google exposed a broad 2025 “best AI for coding” query trend. This cycle did
   not obtain reproducible volume for Agent Vigil-specific or governance terms.
 - A GitHub Search API attempt was rate-limited and its compound-query semantics
