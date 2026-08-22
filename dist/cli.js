@@ -3,8 +3,8 @@
 // src/cli.ts
 import { createHash as createHash15 } from "node:crypto";
 import { execFileSync as execFileSync11 } from "node:child_process";
-import { existsSync as existsSync6, mkdirSync as mkdirSync5, readFileSync as readFileSync19, realpathSync as realpathSync9, statSync as statSync8, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname9, isAbsolute as isAbsolute7, relative as relative12, resolve as resolve17 } from "node:path";
+import { existsSync as existsSync6, mkdirSync as mkdirSync5, readFileSync as readFileSync19, realpathSync as realpathSync9, statSync as statSync9, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname9, isAbsolute as isAbsolute8, relative as relative12, resolve as resolve17 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -4621,8 +4621,8 @@ function buildNotaryCheck(reportPath, verification2, expectedHead, expectedPolic
 }
 
 // src/upgrade/cli.ts
-import { realpathSync as realpathSync8, statSync as statSync7 } from "node:fs";
-import { basename as basename5, dirname as dirname8, isAbsolute as isAbsolute6, relative as relative11, resolve as resolve16, sep as sep9 } from "node:path";
+import { realpathSync as realpathSync8, statSync as statSync8 } from "node:fs";
+import { basename as basename5, dirname as dirname8, isAbsolute as isAbsolute7, relative as relative11, resolve as resolve16, sep as sep9 } from "node:path";
 
 // src/upgrade/contracts.ts
 import { lstatSync as lstatSync3, readFileSync as readFileSync14, realpathSync as realpathSync3 } from "node:fs";
@@ -4840,7 +4840,16 @@ import {
   verify as verify3
 } from "node:crypto";
 import { lstatSync as lstatSync5, readFileSync as readFileSync16, realpathSync as realpathSync6 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute5, relative as relative9, resolve as resolve14, sep as sep7 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute6, relative as relative9, resolve as resolve14, sep as sep7 } from "node:path";
+
+// src/upgrade/presentation.ts
+var TERMINAL_UNSAFE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu;
+function terminalSafe(value) {
+  return value.replace(TERMINAL_UNSAFE, (character) => {
+    const codePoint = character.codePointAt(0);
+    return `\\u{${(codePoint ?? 0).toString(16).toUpperCase().padStart(4, "0")}}`;
+  });
+}
 
 // src/upgrade/decision.ts
 import { createHash as createHash12 } from "node:crypto";
@@ -5006,7 +5015,7 @@ function compareCapabilities(current, candidate) {
 function decideUpgrade(containment, current, candidate, canaries) {
   const reasons = [];
   const capabilities = compareCapabilities(current, candidate);
-  if (containment.status !== "PASS") reasons.push("required containment controls were not established");
+  if (containment.status !== "PASS" || !containment.localEndpoint) reasons.push("required containment controls were not established");
   if (current.name !== candidate.name || current.ecosystem !== candidate.ecosystem) reasons.push("current and candidate identities are not comparable");
   if (current.version === candidate.version) reasons.push("current and candidate versions are identical");
   if (current.treeSha256 === candidate.treeSha256) reasons.push("current and candidate artifact digests are identical");
@@ -5033,7 +5042,8 @@ function decideUpgrade(containment, current, candidate, canaries) {
 // src/upgrade/sandbox.ts
 import { createHash as createHash13, randomBytes as randomBytes2 } from "node:crypto";
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { realpathSync as realpathSync5 } from "node:fs";
+import { accessSync, constants as constants2, realpathSync as realpathSync5, statSync as statSync7 } from "node:fs";
+import { isAbsolute as isAbsolute5 } from "node:path";
 var PROXY_NAMES = [
   "HTTP_PROXY",
   "HTTPS_PROXY",
@@ -5046,6 +5056,147 @@ var PROXY_NAMES = [
   "all_proxy",
   "no_proxy"
 ];
+var RESOLVED_DOCKER_CLIENT = Symbol("resolved-docker-client");
+var DOCKER_CONTROL_TIMEOUT_MS = 1e4;
+var DOCKER_ENDPOINT_ENV = /* @__PURE__ */ new Set([
+  "DOCKER_CERT_PATH",
+  "DOCKER_CONFIG",
+  "DOCKER_CONTEXT",
+  "DOCKER_HOST",
+  "DOCKER_TLS",
+  "DOCKER_TLS_VERIFY"
+]);
+function isDockerEndpointEnvironment(name) {
+  return DOCKER_ENDPOINT_ENV.has(name.toUpperCase());
+}
+function trustedDockerLocations() {
+  if (process.platform === "win32") {
+    return [
+      "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe",
+      "C:\\Program Files\\Docker\\Docker\\resources\\docker.exe"
+    ];
+  }
+  if (process.platform === "darwin") {
+    return [
+      "/Applications/Docker.app/Contents/Resources/bin/docker",
+      "/opt/homebrew/bin/docker",
+      "/usr/local/bin/docker",
+      "/usr/bin/docker"
+    ];
+  }
+  return [
+    "/usr/bin/docker",
+    "/usr/local/bin/docker",
+    "/snap/bin/docker"
+  ];
+}
+function canonicalExecutable(path) {
+  const canonicalPath = realpathSync5(path);
+  if (!statSync7(canonicalPath).isFile()) throw new Error("Docker client must be a regular file");
+  if (process.platform !== "win32") accessSync(canonicalPath, constants2.X_OK);
+  return canonicalPath;
+}
+function sanitizedDockerEnvironment(source) {
+  const environment = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (!isDockerEndpointEnvironment(name) && value !== void 0) environment[name] = value;
+  }
+  return Object.freeze(environment);
+}
+function resolveDockerBinary(requested = "docker") {
+  if (isAbsolute5(requested)) {
+    try {
+      return canonicalExecutable(requested);
+    } catch {
+      throw new Error("the explicitly selected Docker client is not an executable regular file");
+    }
+  }
+  if (requested !== "docker" && requested !== "docker.exe") {
+    throw new Error("Docker client must be an explicit absolute path");
+  }
+  for (const path of trustedDockerLocations()) {
+    try {
+      return canonicalExecutable(path);
+    } catch {
+    }
+  }
+  throw new Error("Docker client was not found at a fixed trusted platform location; pass --docker-bin with an absolute path");
+}
+function isLocalDockerEndpoint(endpoint, platform = process.platform) {
+  if (endpoint.includes("\0") || /[\r\n]/.test(endpoint)) return false;
+  if (endpoint.startsWith("unix:///")) {
+    const path = endpoint.slice("unix://".length);
+    return path.startsWith("/") && path.length > 1 && !/[?#]/.test(path);
+  }
+  if (platform === "win32") {
+    return /^npipe:\/{4}\.\/pipe\/[A-Za-z0-9._-]+$/.test(endpoint);
+  }
+  return false;
+}
+function contextEndpoint(dockerBin, context) {
+  const args = ["context", "inspect"];
+  if (context) args.push(context);
+  args.push("--format", "{{json .Endpoints.docker.Host}}");
+  const inspected = spawnSync3(dockerBin, args, {
+    encoding: "utf8",
+    timeout: DOCKER_CONTROL_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+    maxBuffer: 64 * 1024,
+    env: process.env
+  });
+  if (inspected.status !== 0 || inspected.error) {
+    return { local: false, reason: "the selected Docker daemon endpoint could not be inspected" };
+  }
+  try {
+    const endpoint = JSON.parse(inspected.stdout.trim());
+    if (typeof endpoint !== "string" || !isLocalDockerEndpoint(endpoint)) {
+      return {
+        local: false,
+        ...typeof endpoint === "string" ? { endpoint } : {},
+        reason: "the selected Docker daemon endpoint is not a local unix or Windows named-pipe endpoint"
+      };
+    }
+    return { local: true, endpoint, reason: "the selected Docker endpoint uses an accepted local transport shape" };
+  } catch {
+    return { local: false, reason: "the selected Docker daemon endpoint inspection returned malformed output" };
+  }
+}
+function resolveDockerClient(dockerBin = "docker") {
+  const executable = resolveDockerBinary(dockerBin);
+  const selectedContext = process.env.DOCKER_CONTEXT?.trim();
+  let daemon;
+  if (selectedContext) daemon = contextEndpoint(executable, selectedContext);
+  else {
+    const selectedHost = process.env.DOCKER_HOST?.trim();
+    if (selectedHost) {
+      daemon = isLocalDockerEndpoint(selectedHost) ? { local: true, endpoint: selectedHost, reason: "DOCKER_HOST selects an accepted local Docker transport shape" } : { local: false, endpoint: selectedHost, reason: "DOCKER_HOST does not select a local unix or Windows named-pipe endpoint" };
+    } else daemon = contextEndpoint(executable);
+  }
+  if (!daemon.local || !daemon.endpoint) throw new Error(daemon.reason);
+  return Object.freeze({
+    executable,
+    endpoint: daemon.endpoint,
+    env: sanitizedDockerEnvironment(process.env),
+    [RESOLVED_DOCKER_CLIENT]: true
+  });
+}
+function selectedDockerClient(selection) {
+  if (typeof selection === "string") return resolveDockerClient(selection);
+  if (selection[RESOLVED_DOCKER_CLIENT] !== true || !isLocalDockerEndpoint(selection.endpoint) || resolveDockerBinary(selection.executable) !== selection.executable || Object.keys(selection.env).some(isDockerEndpointEnvironment)) {
+    throw new Error("resolved Docker client is not a validated local endpoint binding");
+  }
+  return selection;
+}
+function dockerArgs(client, args) {
+  return ["--host", client.endpoint, ...args];
+}
+function dockerEnvironment(client, additions = {}) {
+  const environment = { ...client.env, ...additions };
+  for (const name of Object.keys(environment)) {
+    if (isDockerEndpointEnvironment(name)) delete environment[name];
+  }
+  return environment;
+}
 function digest2(value) {
   return `sha256:${createHash13("sha256").update(value).digest("hex")}`;
 }
@@ -5056,7 +5207,7 @@ function mountedPath(path, label) {
   }
   return canonicalPath;
 }
-function dockerBaseArgs(config, targetDirectory, canaryDirectory) {
+function dockerBaseArgs(config, targetDirectory, canaryDirectory, containerName2) {
   const target = mountedPath(targetDirectory, "target");
   const canaries = mountedPath(canaryDirectory, "canary directory");
   const hostUid = typeof process.getuid === "function" ? process.getuid() : 65532;
@@ -5065,7 +5216,8 @@ function dockerBaseArgs(config, targetDirectory, canaryDirectory) {
   const containerGid = hostGid > 0 ? hostGid : 65532;
   const args = [
     "run",
-    "--rm",
+    "--name",
+    containerName2,
     "--pull=never",
     "--network=none",
     "--read-only",
@@ -5088,11 +5240,57 @@ function dockerBaseArgs(config, targetDirectory, canaryDirectory) {
 function imageDigest2(config) {
   return config.runner.image.slice(config.runner.image.lastIndexOf("@") + 1);
 }
-function dockerImagePresent(config, dockerBin = "docker") {
+function containerName() {
+  return `agent-vigil-upgrade-${randomBytes2(12).toString("hex")}`;
+}
+function forceRemoveAndVerify(client, name) {
+  const removed = spawnSync3(client.executable, dockerArgs(
+    client,
+    ["container", "rm", "--force", "--volumes", name]
+  ), {
+    encoding: "utf8",
+    timeout: DOCKER_CONTROL_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+    maxBuffer: 64 * 1024,
+    env: dockerEnvironment(client)
+  });
+  if (removed.status !== 0 || removed.error) {
+    return { absent: false, reason: "the named container could not be force-removed with attached volumes" };
+  }
+  const listed = spawnSync3(
+    client.executable,
+    dockerArgs(client, ["container", "ls", "--all", "--filter", `name=^/${name}$`, "--format", "{{.ID}}"]),
+    {
+      encoding: "utf8",
+      timeout: DOCKER_CONTROL_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+      maxBuffer: 64 * 1024,
+      env: dockerEnvironment(client)
+    }
+  );
+  if (listed.status !== 0 || listed.error) {
+    return { absent: false, reason: "the named container absence check failed" };
+  }
+  if (listed.stdout.trim() === "") return { absent: true, reason: "the named container is absent" };
+  return { absent: false, reason: "the named container could not be force-removed and verified absent" };
+}
+function dockerImagePresent(config, selection = "docker") {
+  let client;
+  try {
+    client = selectedDockerClient(selection);
+  } catch {
+    return false;
+  }
   const inspected = spawnSync3(
-    dockerBin,
-    ["image", "inspect", "--format", "{{json .RepoDigests}}", config.runner.image],
-    { encoding: "utf8", timeout: 1e4, maxBuffer: 64 * 1024 }
+    client.executable,
+    dockerArgs(client, ["image", "inspect", "--format", "{{json .RepoDigests}}", config.runner.image]),
+    {
+      encoding: "utf8",
+      timeout: DOCKER_CONTROL_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+      maxBuffer: 64 * 1024,
+      env: dockerEnvironment(client)
+    }
   );
   if (inspected.status !== 0 || inspected.error || !inspected.stdout.trim()) return false;
   try {
@@ -5113,10 +5311,27 @@ const socket=net.connect({host:"1.1.1.1",port:53});
 socket.setTimeout(600); socket.once("connect",()=>{socket.destroy();finish(false)}); socket.once("error",()=>finish(true)); socket.once("timeout",()=>{socket.destroy();finish(true)});
 setTimeout(()=>finish(true),900);
 `;
-function probeContainment(config, targetDirectory, canaryDirectory, dockerBin = "docker") {
-  if (!dockerImagePresent(config, dockerBin)) {
+function probeContainment(config, targetDirectory, canaryDirectory, selection = "docker") {
+  let client;
+  try {
+    client = selectedDockerClient(selection);
+  } catch (error) {
     return {
       status: "HOLD",
+      localEndpoint: false,
+      imagePresent: false,
+      networkBlocked: false,
+      targetReadOnly: false,
+      rootReadOnly: false,
+      inheritedSecretAbsent: false,
+      proxiesCleared: false,
+      reason: error.message
+    };
+  }
+  if (!dockerImagePresent(config, client)) {
+    return {
+      status: "HOLD",
+      localEndpoint: true,
       imagePresent: false,
       networkBlocked: false,
       targetReadOnly: false,
@@ -5126,12 +5341,14 @@ function probeContainment(config, targetDirectory, canaryDirectory, dockerBin = 
       reason: "the exact-digest runner image is not present locally; Upgrade Guard never pulls during a check"
     };
   }
+  const name = containerName();
   let args;
   try {
-    args = dockerBaseArgs(config, targetDirectory, canaryDirectory);
+    args = dockerBaseArgs(config, targetDirectory, canaryDirectory, name);
   } catch (error) {
     return {
       status: "HOLD",
+      localEndpoint: true,
       imagePresent: true,
       networkBlocked: false,
       targetReadOnly: false,
@@ -5143,15 +5360,36 @@ function probeContainment(config, targetDirectory, canaryDirectory, dockerBin = 
   }
   args.push("--env", "VIGIL_TARGET=/target", config.runner.image, "node", "-e", PROBE_SCRIPT);
   const secret = randomBytes2(24).toString("hex");
-  const result5 = spawnSync3(dockerBin, args, {
-    encoding: "utf8",
-    timeout: 5e3,
-    maxBuffer: 64 * 1024,
-    env: { ...process.env, VIGIL_UPGRADE_PROBE_SECRET: secret }
-  });
+  let result5;
+  let cleanup;
+  try {
+    result5 = spawnSync3(client.executable, dockerArgs(client, args), {
+      encoding: "utf8",
+      timeout: 5e3,
+      killSignal: "SIGKILL",
+      maxBuffer: 64 * 1024,
+      env: dockerEnvironment(client, { VIGIL_UPGRADE_PROBE_SECRET: secret })
+    });
+  } finally {
+    cleanup = forceRemoveAndVerify(client, name);
+  }
+  if (!cleanup.absent) {
+    return {
+      status: "HOLD",
+      localEndpoint: true,
+      imagePresent: true,
+      networkBlocked: false,
+      targetReadOnly: false,
+      rootReadOnly: false,
+      inheritedSecretAbsent: false,
+      proxiesCleared: false,
+      reason: cleanup.reason
+    };
+  }
   if (result5.status !== 0 || result5.error) {
     return {
       status: "HOLD",
+      localEndpoint: true,
       imagePresent: true,
       networkBlocked: false,
       targetReadOnly: false,
@@ -5171,6 +5409,7 @@ function probeContainment(config, targetDirectory, canaryDirectory, dockerBin = 
     const status = networkBlocked && targetReadOnly && rootReadOnly && inheritedSecretAbsent && proxiesCleared ? "PASS" : "HOLD";
     return {
       status,
+      localEndpoint: true,
       imagePresent: true,
       networkBlocked,
       targetReadOnly,
@@ -5182,6 +5421,7 @@ function probeContainment(config, targetDirectory, canaryDirectory, dockerBin = 
   } catch {
     return {
       status: "HOLD",
+      localEndpoint: true,
       imagePresent: true,
       networkBlocked: false,
       targetReadOnly: false,
@@ -5192,10 +5432,17 @@ function probeContainment(config, targetDirectory, canaryDirectory, dockerBin = 
     };
   }
 }
-function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase, dockerBin = "docker") {
+function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase, selection = "docker") {
+  let client;
+  try {
+    client = selectedDockerClient(selection);
+  } catch (error) {
+    return { state: "HOLD", reason: error.message };
+  }
+  const name = containerName();
   let args;
   try {
-    args = dockerBaseArgs(config, targetDirectory, canaryDirectory);
+    args = dockerBaseArgs(config, targetDirectory, canaryDirectory, name);
   } catch (error) {
     return { state: "HOLD", reason: error.message };
   }
@@ -5207,12 +5454,20 @@ function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase,
     config.runner.image,
     ...canary.command
   );
-  const result5 = spawnSync3(dockerBin, args, {
-    encoding: "utf8",
-    timeout: canary.timeoutSeconds * 1e3,
-    maxBuffer: 128 * 1024,
-    env: process.env
-  });
+  let result5;
+  let cleanup;
+  try {
+    result5 = spawnSync3(client.executable, dockerArgs(client, args), {
+      encoding: "utf8",
+      timeout: canary.timeoutSeconds * 1e3,
+      killSignal: "SIGKILL",
+      maxBuffer: 128 * 1024,
+      env: dockerEnvironment(client)
+    });
+  } finally {
+    cleanup = forceRemoveAndVerify(client, name);
+  }
+  if (!cleanup.absent) return { state: "HOLD", reason: cleanup.reason };
   if (result5.error) {
     const timeout = result5.error.code === "ETIMEDOUT";
     return { state: "HOLD", reason: timeout ? "canary timed out" : "container execution failed" };
@@ -5240,11 +5495,18 @@ function commandDigest(canary) {
 var LIMITATIONS = [
   "The verdict applies only to the exact pre/post-stable artifacts, runner image, configuration, canary harness, and observations recorded here.",
   "SAFE means no material change was detected by these canaries; it is not a universal safety or semantic-correctness claim.",
-  "The Docker daemon, host kernel, runner image, and trusted canary harness remain trust assumptions.",
+  "The validated local-transport Docker endpoint, selected client, daemon/socket routing, host kernel, runner image, and trusted canary harness remain trust assumptions.",
   "Network-disabled offline canaries do not establish live provider, model-alias, authentication, or production behavior."
 ];
 function hash2(value) {
   return `sha256:${createHash14("sha256").update(value).digest("hex")}`;
+}
+function publicCanaryPseudonym(receiptNonce, privateCanaryId) {
+  return hash2(canonical({
+    domain: "agent-vigil-public-canary-id/v1",
+    receiptNonce,
+    privateCanaryId
+  }));
 }
 function configDigest(config) {
   return hash2(canonical(config));
@@ -5270,7 +5532,7 @@ function assertDisjointRoots(roots) {
       const [rightLabel, rightPath] = roots[right];
       const leftToRight = relative9(leftPath, rightPath);
       const rightToLeft = relative9(rightPath, leftPath);
-      const inside2 = (rel) => rel === "" || !isAbsolute5(rel) && rel !== ".." && !rel.startsWith(`..${sep7}`);
+      const inside2 = (rel) => rel === "" || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep7}`);
       const overlap = inside2(leftToRight) || inside2(rightToLeft);
       if (overlap) throw new Error(`${leftLabel} and ${rightLabel} must be separate, non-overlapping directories`);
     }
@@ -5279,6 +5541,29 @@ function assertDisjointRoots(roots) {
 function recomputeUpgradeReceiptHash(receipt) {
   const { receiptHash: _ignored, ...payload } = receipt;
   return hash2(receiptPayload(payload));
+}
+function unevaluatedContainment() {
+  return {
+    status: "HOLD",
+    localEndpoint: false,
+    imagePresent: false,
+    networkBlocked: false,
+    targetReadOnly: false,
+    rootReadOnly: false,
+    inheritedSecretAbsent: false,
+    proxiesCleared: false,
+    reason: "containment was not evaluated"
+  };
+}
+function readConfigCheckpoint(repository2, requestedPath) {
+  const path = trustedRegularFileInside(repository2, requestedPath, "upgrade config");
+  const before = lstatSync5(path, { bigint: true });
+  const config = loadUpgradeConfig(path);
+  const after = lstatSync5(path, { bigint: true });
+  const beforeIdentity = `${before.dev}:${before.ino}`;
+  const afterIdentity = `${after.dev}:${after.ino}`;
+  if (beforeIdentity !== afterIdentity) throw new Error("upgrade config moved or was replaced while it was being read");
+  return { path, identity: afterIdentity, config };
 }
 function holdReceipt(config, containment, generatedAt, nonce, reason, current, candidate, canaryHarness) {
   return finalizeReceipt({
@@ -5313,23 +5598,36 @@ function holdReceipt(config, containment, generatedAt, nonce, reason, current, c
   });
 }
 function runUpgradeEvaluation(input) {
-  const configPath = trustedRegularFileInside(input.repository, input.configPath, "upgrade config");
-  const config = loadUpgradeConfig(configPath);
   const generatedAt = input.generatedAt ?? (/* @__PURE__ */ new Date()).toISOString();
   const nonce = input.nonce ?? randomBytes3(32).toString("base64url");
+  const suppliedConfig = input.config ? validateUpgradeConfig(input.config) : void 0;
+  let configCheckpoint;
+  try {
+    configCheckpoint = readConfigCheckpoint(input.repository, input.configPath);
+  } catch (error) {
+    if (!suppliedConfig) throw error;
+    return holdReceipt(
+      suppliedConfig,
+      unevaluatedContainment(),
+      generatedAt,
+      nonce,
+      `upgrade config could not be re-resolved and re-read at evaluation entry: ${error.message}`
+    );
+  }
+  const config = configCheckpoint.config;
+  if (suppliedConfig && canonical(suppliedConfig) !== canonical(config)) {
+    return holdReceipt(
+      suppliedConfig,
+      unevaluatedContainment(),
+      generatedAt,
+      nonce,
+      "upgrade config no longer matches the validated configuration supplied by the caller"
+    );
+  }
   let current;
   let candidate;
   let canaryHarness;
-  const emptyContainment = {
-    status: "HOLD",
-    imagePresent: false,
-    networkBlocked: false,
-    targetReadOnly: false,
-    rootReadOnly: false,
-    inheritedSecretAbsent: false,
-    proxiesCleared: false,
-    reason: "containment was not evaluated"
-  };
+  const emptyContainment = unevaluatedContainment();
   let canaryDirectory;
   try {
     canaryDirectory = trustedDirectoryInside(
@@ -5368,11 +5666,26 @@ function runUpgradeEvaluation(input) {
   } catch (error) {
     return holdReceipt(config, emptyContainment, generatedAt, nonce, `candidate artifact could not be inspected: ${error.message}`, current, void 0, canaryHarness);
   }
+  let dockerClient;
+  try {
+    dockerClient = resolveDockerClient(input.dockerBin ?? "docker");
+  } catch (error) {
+    return holdReceipt(
+      config,
+      emptyContainment,
+      generatedAt,
+      nonce,
+      `Docker client and local endpoint could not be bound for this evaluation: ${error.message}`,
+      current,
+      candidate,
+      canaryHarness
+    );
+  }
   const containment = probeContainment(
     config,
     input.currentDirectory,
     canaryDirectory,
-    input.dockerBin
+    dockerClient
   );
   const canaries = config.canaries.map((canary) => {
     const currentTrials = containment.status === "PASS" ? Array.from({ length: config.runner.trials }, () => runCanaryTrial(
@@ -5381,7 +5694,7 @@ function runUpgradeEvaluation(input) {
       input.currentDirectory,
       canaryDirectory,
       "current",
-      input.dockerBin
+      dockerClient
     )) : [];
     const candidateTrials = containment.status === "PASS" ? Array.from({ length: config.runner.trials }, () => runCanaryTrial(
       config,
@@ -5389,20 +5702,30 @@ function runUpgradeEvaluation(input) {
       input.candidateDirectory,
       canaryDirectory,
       "candidate",
-      input.dockerBin
+      dockerClient
     )) : [];
     return compareCanary(canary, commandDigest(canary), currentTrials, candidateTrials);
   });
   let mutationReason;
   try {
+    const configAfter = readConfigCheckpoint(input.repository, input.configPath);
+    if (configAfter.path !== configCheckpoint.path || configAfter.identity !== configCheckpoint.identity) {
+      mutationReason = "upgrade config moved or was replaced while the evaluation was running";
+    } else if (canonical(configAfter.config) !== canonical(config)) {
+      mutationReason = "upgrade config changed while the evaluation was running";
+    }
+  } catch (error) {
+    mutationReason = `upgrade config could not be re-resolved and re-read after evaluation: ${error.message}`;
+  }
+  try {
     const currentAfter = inspectTarget(input.currentDirectory, config.component);
     const candidateAfter = inspectTarget(input.candidateDirectory, config.component);
     const harnessAfter = inspectArtifactTree(canaryDirectory);
-    if (canonical(currentAfter) !== canonical(current)) mutationReason = "current artifact changed while the evaluation was running";
-    else if (canonical(candidateAfter) !== canonical(candidate)) mutationReason = "candidate artifact changed while the evaluation was running";
-    else if (canonical(harnessAfter) !== canonical(canaryHarness)) mutationReason = "canary harness changed while the evaluation was running";
+    if (!mutationReason && canonical(currentAfter) !== canonical(current)) mutationReason = "current artifact changed while the evaluation was running";
+    else if (!mutationReason && canonical(candidateAfter) !== canonical(candidate)) mutationReason = "candidate artifact changed while the evaluation was running";
+    else if (!mutationReason && canonical(harnessAfter) !== canonical(canaryHarness)) mutationReason = "canary harness changed while the evaluation was running";
   } catch (error) {
-    mutationReason = `evaluation inputs could not be re-inventoried: ${error.message}`;
+    if (!mutationReason) mutationReason = `evaluation inputs could not be re-inventoried: ${error.message}`;
   }
   const initialDecision = decideUpgrade(containment, current, candidate, canaries);
   const decision = mutationReason ? { ...initialDecision, verdict: "HOLD", reasons: [mutationReason] } : initialDecision;
@@ -5469,6 +5792,7 @@ function createPublicCompatibilityEntry(receipt, privateKeyPath) {
     runner: {
       imageDigest: receipt.runner.image.slice(receipt.runner.image.lastIndexOf("@") + 1),
       trials: receipt.runner.trials,
+      localEndpoint: receipt.containment.localEndpoint,
       networkBlocked: receipt.containment.networkBlocked,
       readOnly: receipt.containment.targetReadOnly && receipt.containment.rootReadOnly,
       environmentIsolated: receipt.containment.inheritedSecretAbsent && receipt.containment.proxiesCleared,
@@ -5479,7 +5803,7 @@ function createPublicCompatibilityEntry(receipt, privateKeyPath) {
     changedCapabilities: [...new Set(receipt.capabilities.filter((item2) => item2.changed).map((item2) => publicCapability(item2.field)))].sort(),
     canaries: receipt.canaries.map((canary) => ({
       ...canary.publicId ? { publicId: canary.publicId } : {},
-      idSha256: canary.idSha256,
+      idSha256: publicCanaryPseudonym(receipt.nonce, canary.id),
       current: canary.current.state,
       candidate: canary.candidate.state,
       matched: canary.comparable && !canary.changed
@@ -5546,9 +5870,9 @@ function validatePublicCompatibilityEntry(input) {
   const component = record(root.component, "public entry component");
   exact(component, ["ecosystem", "name", "currentVersion", "candidateVersion", "currentArtifactSha256", "candidateArtifactSha256"], "public entry component");
   const runner = record(root.runner, "public entry runner");
-  exact(runner, ["imageDigest", "trials", "networkBlocked", "readOnly", "environmentIsolated", "configSha256", "canaryHarnessSha256"], "public entry runner");
+  exact(runner, ["imageDigest", "trials", "localEndpoint", "networkBlocked", "readOnly", "environmentIsolated", "configSha256", "canaryHarnessSha256"], "public entry runner");
   if (!Number.isInteger(runner.trials) || Number(runner.trials) < 2 || Number(runner.trials) > 5) throw new Error("public entry trials are invalid");
-  for (const field of ["networkBlocked", "readOnly", "environmentIsolated"]) {
+  for (const field of ["localEndpoint", "networkBlocked", "readOnly", "environmentIsolated"]) {
     if (typeof runner[field] !== "boolean") throw new Error(`public entry runner.${field} must be boolean`);
   }
   if (!Array.isArray(root.changedCapabilities) || root.changedCapabilities.length > 16 || root.changedCapabilities.some((item2) => typeof item2 !== "string" || !(/* @__PURE__ */ new Set([...PUBLIC_CAPABILITIES, "other"])).has(item2))) {
@@ -5596,6 +5920,7 @@ function validatePublicCompatibilityEntry(input) {
     runner: {
       imageDigest: sha256Text(runner.imageDigest, "public entry runner.imageDigest"),
       trials: Number(runner.trials),
+      localEndpoint: runner.localEndpoint,
       networkBlocked: runner.networkBlocked,
       readOnly: runner.readOnly,
       environmentIsolated: runner.environmentIsolated,
@@ -5615,30 +5940,31 @@ function validatePublicCompatibilityEntry(input) {
       value: text(signature.value, "public entry signature.value", 512)
     }
   };
-  if (new Set(canaries.map((canary) => canary.idSha256)).size !== canaries.length) throw new Error("public entry canary hashes contain duplicates");
+  if (new Set(canaries.map((canary) => canary.idSha256)).size !== canaries.length) throw new Error("public entry canary pseudonyms contain duplicates");
   const publicIds = canaries.flatMap((canary) => canary.publicId ? [canary.publicId] : []);
   if (new Set(publicIds).size !== publicIds.length) throw new Error("public entry canary public IDs contain duplicates");
   if (entry.component.currentVersion === entry.component.candidateVersion || entry.component.currentArtifactSha256 === entry.component.candidateArtifactSha256) {
     throw new Error("public entry must compare distinct exact versions and artifacts");
   }
   if (entry.verdict === "SAFE") {
-    if (!entry.runner.networkBlocked || !entry.runner.readOnly || !entry.runner.environmentIsolated || !entry.canaries.length || entry.changedCapabilities.length || entry.canaries.some((canary) => canary.current !== "PASS" || canary.candidate !== "PASS" || !canary.matched)) {
+    if (!entry.runner.localEndpoint || !entry.runner.networkBlocked || !entry.runner.readOnly || !entry.runner.environmentIsolated || !entry.canaries.length || entry.changedCapabilities.length || entry.canaries.some((canary) => canary.current !== "PASS" || canary.candidate !== "PASS" || !canary.matched)) {
       throw new Error("SAFE public entry is inconsistent with its containment or canary evidence");
     }
   }
   return entry;
 }
 function renderUpgradeReceipt(receipt) {
+  const safe = (value) => terminalSafe(value);
   const lines = [
-    `Agent Vigil Upgrade Guard ${receipt.vigilVersion}`,
-    `  component: ${receipt.component.name}`,
-    `  versions:  ${receipt.current?.version ?? "unknown"} -> ${receipt.candidate?.version ?? "unknown"}`,
-    `  runner:    ${receipt.runner.image}`,
+    `Agent Vigil Upgrade Guard ${safe(receipt.vigilVersion)}`,
+    `  component: ${safe(receipt.component.name)}`,
+    `  versions:  ${safe(receipt.current?.version ?? "unknown")} -> ${safe(receipt.candidate?.version ?? "unknown")}`,
+    `  runner:    ${safe(receipt.runner.image)}`,
     `  canaries:  ${receipt.summary.comparedCanaries} comparable; ${receipt.summary.changedCanaries} changed`,
     `  surfaces:  ${receipt.summary.changedCapabilities} capability class change(s)`,
-    `  ${receipt.summary.verdict} \xB7 ${receipt.receiptHash}`
+    `  ${safe(receipt.summary.verdict)} \xB7 ${safe(receipt.receiptHash)}`
   ];
-  for (const reason of receipt.summary.reasons) lines.push(`  ${receipt.summary.verdict === "SAFE" ? "\u2713" : receipt.summary.verdict === "CHANGED" ? "!" : "?"} ${reason}`);
+  for (const reason of receipt.summary.reasons) lines.push(`  ${receipt.summary.verdict === "SAFE" ? "\u2713" : receipt.summary.verdict === "CHANGED" ? "!" : "?"} ${safe(reason)}`);
   lines.push("  SAFE is bounded to these exact artifacts, canaries, and contained runner; it is not a universal safety claim.");
   return `${lines.join("\n")}
 `;
@@ -5803,8 +6129,25 @@ function doctorUpgrade(repositoryPath, configPath, dockerBin = "docker") {
     "canaryDirectory"
   );
   const templateCanary = config.canaries.some((canary) => canary.id === "replace-with-repository-canary");
-  const imagePresent = dockerImagePresent(config, dockerBin);
-  const containment = probeContainment(config, repository2, canaryDirectory, dockerBin);
+  let imagePresent = false;
+  let containment;
+  try {
+    const dockerClient = resolveDockerClient(dockerBin);
+    imagePresent = dockerImagePresent(config, dockerClient);
+    containment = probeContainment(config, repository2, canaryDirectory, dockerClient);
+  } catch (error) {
+    containment = {
+      status: "HOLD",
+      localEndpoint: false,
+      imagePresent: false,
+      networkBlocked: false,
+      targetReadOnly: false,
+      rootReadOnly: false,
+      inheritedSecretAbsent: false,
+      proxiesCleared: false,
+      reason: error.message
+    };
+  }
   const checks = [
     { status: "PASS", label: "config", detail: "strict upgrade config loaded" },
     { status: imagePresent ? "PASS" : "HOLD", label: "runner image", detail: imagePresent ? "exact digest is present locally" : "exact digest is absent; Upgrade Guard will not pull it during a check" },
@@ -5821,8 +6164,13 @@ function doctorUpgrade(repositoryPath, configPath, dockerBin = "docker") {
   };
 }
 function renderUpgradeDoctor(result5) {
-  const lines = [`Agent Vigil Upgrade Guard doctor: ${result5.status}`, `  config: ${result5.configPath}`];
-  for (const check of result5.checks) lines.push(`  ${check.status === "PASS" ? "\u2713" : "?"} ${check.label}: ${check.detail}`);
+  const lines = [
+    `Agent Vigil Upgrade Guard doctor: ${terminalSafe(result5.status)}`,
+    `  config: ${terminalSafe(result5.configPath)}`
+  ];
+  for (const check of result5.checks) {
+    lines.push(`  ${check.status === "PASS" ? "\u2713" : "?"} ${terminalSafe(check.label)}: ${terminalSafe(check.detail)}`);
+  }
   return `${lines.join("\n")}
 `;
 }
@@ -5872,7 +6220,7 @@ function insideRepository(repositoryPath, value, label) {
 }
 function outputIdentity(path) {
   const parent = realpathSync8(dirname8(resolve16(path)));
-  const status = statSync7(parent, { bigint: true });
+  const status = statSync8(parent, { bigint: true });
   const name = basename5(path);
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.endsWith(".") || name.endsWith(" ") || name.includes("~")) {
     throw new Error(`output basename is not portable and collision-safe: ${name}`);
@@ -5906,7 +6254,7 @@ function assertOutputsOutsideRoots(outputs, roots) {
       const parent = realpathSync8(dirname8(resolve16(output)));
       const target = resolve16(parent, basename5(output));
       const rel = relative11(root, target);
-      if (rel === "" || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`)) {
+      if (rel === "" || !isAbsolute7(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`)) {
         throw new Error("requested output path must remain outside current, candidate, and canary input trees");
       }
     }
@@ -5923,8 +6271,8 @@ function runInit(args) {
   }
   const result5 = initUpgrade(repository(args), args.includes("--force"));
   console.log("Agent Vigil Upgrade Guard initialized locally.\n");
-  for (const path of result5.created) console.log(`  created ${path}`);
-  for (const path of result5.kept) console.log(`  kept    ${path}`);
+  for (const path of result5.created) console.log(`  created ${terminalSafe(path)}`);
+  for (const path of result5.kept) console.log(`  kept    ${terminalSafe(path)}`);
   console.log("\nThe scaffold is ignored by Git and intentionally returns HOLD until its template canary is replaced.");
   return 0;
 }
@@ -5972,6 +6320,7 @@ function runCheck(args) {
   assertOutputsOutsideRoots(outputs, [currentDirectory, candidateDirectory, canaryDirectory]);
   const receipt = runUpgradeEvaluation({
     configPath: trustedConfig,
+    config: loadedConfig,
     repository: repo,
     currentDirectory,
     candidateDirectory,
@@ -6032,7 +6381,7 @@ function runIndex(args) {
     return entry;
   });
   writePrivateFileAtomic(output, renderBreakageIndex(entries));
-  console.log(`Wrote ${entries.length} verified compatibility entr${entries.length === 1 ? "y" : "ies"} to ${output}`);
+  console.log(`Wrote ${entries.length} verified compatibility entr${entries.length === 1 ? "y" : "ies"} to ${terminalSafe(output)}`);
   return 0;
 }
 function runUpgradeCommand(args) {
@@ -6050,7 +6399,8 @@ function runUpgradeCommand(args) {
     if (command === "index") return runIndex(rest);
     throw new Error(`unknown upgrade command: ${command}`);
   } catch (error) {
-    console.error(`agent-vigil upgrade: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`agent-vigil upgrade: ${terminalSafe(message)}`);
     return 2;
   }
 }
@@ -6566,7 +6916,7 @@ function parseValueArgs(args) {
   };
 }
 function readBoundedFile(path, maximumBytes, label) {
-  const size = statSync8(path).size;
+  const size = statSync9(path).size;
   if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
   return readFileSync19(path);
 }
@@ -6587,7 +6937,7 @@ function runValue(args) {
     else if ((/* @__PURE__ */ new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"])).has(report.transcriptFormat)) {
       const candidates = [
         resolve17(dirname9(receiptPath), report.transcript),
-        ...isAbsolute7(report.repo) ? [resolve17(report.repo, report.transcript)] : []
+        ...isAbsolute8(report.repo) ? [resolve17(report.repo, report.transcript)] : []
       ];
       transcriptPath = candidates.find((candidate) => existsSync6(candidate));
     }
@@ -6785,7 +7135,7 @@ function runAuthority(args) {
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
     const base = resolveGitRef(repo, options.base);
     const head = resolveGitRef(repo, options.head);
-    const transcriptPath = isAbsolute7(transcriptOption) ? transcriptOption : resolve17(repo, transcriptOption);
+    const transcriptPath = isAbsolute8(transcriptOption) ? transcriptOption : resolve17(repo, transcriptOption);
     if (!existsSync6(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
     const contract = loadAuthorityContract(repo, contractOption, contractRef);
     const loaded = loadTranscript(transcriptPath);
@@ -6902,7 +7252,7 @@ ${usage2()}`);
     console.error(usage2());
     return 2;
   }
-  const transcriptPath = isAbsolute7(transcript) ? transcript : resolve17(repo, transcript);
+  const transcriptPath = isAbsolute8(transcript) ? transcript : resolve17(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;

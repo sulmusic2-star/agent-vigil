@@ -331,9 +331,16 @@ test("evaluation becomes HOLD when an artifact or canary harness changes during 
   const image = String(input.runner.image);
   writeFileSync(fakeDocker, `#!/usr/bin/env node
 import { existsSync, writeFileSync } from "node:fs";
-const args = process.argv.slice(2);
-if (args[0] === "image") {
+const rawArgs = process.argv.slice(2);
+const args = rawArgs[0] === "--host" ? rawArgs.slice(2) : rawArgs;
+if (args[0] === "context" && args[1] === "inspect") {
+  process.stdout.write(JSON.stringify("unix:///var/run/docker.sock"));
+} else if (args[0] === "image") {
   process.stdout.write(JSON.stringify([${JSON.stringify(image)}]));
+} else if (args[0] === "container" && args[1] === "ls") {
+  process.stdout.write("");
+} else if (args[0] === "container" && args[1] === "rm") {
+  process.exitCode = 0;
 } else if (args.includes("-e")) {
   process.stdout.write(JSON.stringify({networkBlocked:true,targetReadOnly:true,rootReadOnly:true,inheritedSecretAbsent:true,proxiesCleared:true}));
 } else {
@@ -376,6 +383,7 @@ function snapshot(overrides: Partial<TargetSnapshot> = {}): TargetSnapshot {
 
 const PASS_CONTAINMENT: ContainmentProbe = {
   status: "PASS",
+  localEndpoint: true,
   imagePresent: true,
   networkBlocked: true,
   targetReadOnly: true,
@@ -387,6 +395,7 @@ const PASS_CONTAINMENT: ContainmentProbe = {
 
 const HOLD_CONTAINMENT: ContainmentProbe = {
   status: "HOLD",
+  localEndpoint: false,
   imagePresent: false,
   networkBlocked: false,
   targetReadOnly: false,
@@ -463,6 +472,7 @@ test("pure decision fails closed to HOLD for containment, identity, artifact, or
   const candidate = snapshot({ version: "1.1.0", treeSha256: sha256("tree-candidate") });
 
   assert.equal(decideUpgrade(HOLD_CONTAINMENT, current, candidate, [compared()]).verdict, "HOLD");
+  assert.equal(decideUpgrade({ ...PASS_CONTAINMENT, localEndpoint: false }, current, candidate, [compared()]).verdict, "HOLD");
   assert.equal(decideUpgrade(PASS_CONTAINMENT, current, { ...candidate, name: "other-agent" }, [compared()]).verdict, "HOLD");
   assert.equal(decideUpgrade(PASS_CONTAINMENT, current, { ...candidate, version: current.version }, [compared()]).verdict, "HOLD");
   assert.equal(decideUpgrade(PASS_CONTAINMENT, current, { ...candidate, treeSha256: current.treeSha256 }, [compared()]).verdict, "HOLD");

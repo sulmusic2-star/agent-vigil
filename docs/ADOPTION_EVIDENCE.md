@@ -36,7 +36,7 @@ repositories owned by `sulmusic2-star`, verifies workflow contents, checks for
 observable workflow runs, and counts currently listed receipt artifacts. API
 errors become unknown counts. They do not become zeros or successes.
 
-## Commercial proof milestone
+## External proof threshold
 
 All six conditions must be independently evidenced:
 

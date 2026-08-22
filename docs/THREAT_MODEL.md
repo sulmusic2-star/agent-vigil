@@ -97,16 +97,28 @@ Upgrade Guard is a distinct local execution lane. It does not reuse the normal
 test-command or detached-worktree paths as a sandbox. It inventories two
 regular, non-symlink artifact trees, requires a locally present OCI image named
 by its exact SHA-256 digest, and invokes Docker with fixed argv rather than a
-shell. Target and canary directories plus the container root are read-only;
+shell. It accepts only an endpoint whose transport is a Unix socket or Windows
+named pipe and resolves the client from a fixed platform location or an
+explicit absolute path rather than the caller's `PATH`. This is not endpoint or
+binary provenance: a local socket can proxy another daemon, and an explicitly
+selected binary remains operator-trusted. Target and canary directories plus
+the container root are read-only;
 networking is disabled; Linux capabilities are dropped; `no-new-privileges`
 and a non-root UID/GID are set; and PID, CPU, memory, time, output, and tmpfs
-bounds apply.
+bounds apply. Every probe and trial receives a random addressable container
+name; the deadline uses a hard client kill, followed by force-removal and an
+absence check for that exact container.
 
 A planted preflight checks the enforcement boundary before canaries run. The
 current, candidate, and canary roots must be pairwise disjoint. Their complete
 regular-file trees, including modes, plus the loaded configuration are bound to
 the receipt; the three trees are re-inventoried after execution and mutation is
-`HOLD`. It
+`HOLD`. At evaluation entry, a fresh trusted config read must have stable
+device/inode identity and canonically equal the caller's validated snapshot.
+After execution, its canonical path, device/inode identity, and canonical
+validated content must match the entry checkpoint or the verdict is `HOLD`.
+This bounded double-read does not detect a same-host ABA restored between
+checkpoints or defeat privileged filesystem races. The planted probe
 attempts target and root writes, a direct network connection, inherited-secret
 access, and upper/lower-case proxy injection. A missing image, unavailable
 daemon, failed probe, timeout, malformed output, unstable repeat, unhealthy
@@ -114,8 +126,14 @@ baseline, ambiguous identity, or missing canary evidence is `HOLD`, never
 `SAFE`. `CHANGED` means comparable evidence found a configured material
 difference; it is not a claim that the candidate is worse.
 
-The Docker daemon, host kernel or virtualization layer, exact runner image,
-and trusted canary code remain in the trusted computing base. A malicious
+One canonical executable, accepted local-transport endpoint, and sanitized
+environment tuple is resolved for the full evaluation. Image inspection,
+preflight, trials, forced cleanup, and absence checks all use its explicit
+`--host`; ambient endpoint/context/TLS selectors are removed from the child
+environment. The Docker client, daemon, local socket/pipe routing, host kernel
+or virtualization layer, exact runner image, and trusted canary code remain in
+the trusted computing base. A local socket can proxy another daemon, and a
+privileged same-host actor can change what the pinned path reaches. A malicious
 candidate may attempt to interfere with a poorly designed canary, and a
 container escape can invalidate the boundary. The first version therefore
 supports only offline, already-materialized artifacts and remains outside the
@@ -126,10 +144,18 @@ The private receipt carries exact local evidence commitments, including the
 configuration and canary-harness tree digests, plus a random nonce. The optional
 signed public entry omits repository identity, paths,
 commands, prompts, raw output, environment data, file names, and canary names
-unless the user opts into a public ID. It still exposes component identity,
+unless the user opts into a public ID. A non-public canary label is represented
+by a receipt-specific nonce-bound pseudonym rather than a stable unsalted hash.
+It still exposes component identity,
 version pairs, artifact hashes, containment facts, signer key, and limitations.
 An embedded key proves self-consistency only; `upgrade index` requires a
 separately pinned public key before accepting entries.
+
+Receipt containment and public runner evidence carry `localEndpoint`; runtime
+validation and both v1 schemas require it to be `true` for `SAFE`. The exact
+endpoint is omitted. The boolean establishes that the accepted local transport
+was bound for the evaluation, not that the client or daemon is authentic or
+that the daemon is physically local.
 
 Receipt, SARIF, and GitHub-summary output paths are treated as security
 boundaries. Agent Vigil refuses direct symlinks, untrusted symlinked parent

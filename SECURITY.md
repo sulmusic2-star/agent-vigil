@@ -32,15 +32,36 @@ It accepts only exact-digest OCI runner identities already present locally and
 uses fixed Docker argv with no shell, no network, read-only target, canary, and
 root filesystems, dropped capabilities, `no-new-privileges`, non-root
 execution, and bounded PID, CPU, memory, time, output, and tmpfs resources.
+The Docker endpoint must use a syntactically local Unix-socket or Windows
+named-pipe transport. The client is resolved from fixed platform locations or
+an explicit absolute path instead of `PATH`. This is not provenance proof: an
+operator-selected client remains trusted, and a local socket or pipe can proxy
+a daemon running elsewhere.
+
 Current, candidate, and canary roots must be pairwise disjoint. Their regular
 files and mode bits are committed before execution and re-inventoried afterward;
-concurrent mutation is `HOLD`. Before any canary runs, a planted probe must prove that target and root writes
-and a direct network attempt are blocked, a host probe secret is absent, and
-Docker proxy injection is cleared. Any missing control returns `HOLD`.
+concurrent mutation is `HOLD`. At evaluation entry, the config path is
+re-resolved and read with stable device/inode identity, and its canonical value
+must equal the CLI-supplied validated snapshot. After trials, its canonical
+path, device/inode identity, and canonical validated content must still match;
+otherwise the verdict is `HOLD`. These are bounded checkpoints, not continuous
+immutability: same-host ABA or privileged filesystem races that restore the
+observed state between checkpoints remain outside the proof. Before any canary
+runs, a planted probe must prove that target and root writes and a direct
+network attempt are blocked, a host probe secret is absent, and Docker proxy
+injection is cleared. Any missing control returns `HOLD`.
 
-Docker, its daemon or virtualization layer, the host kernel, the digest-pinned
-runner image, and the canary harness remain trusted. Do not mount the Docker
-socket or credentials. Public compatibility output is opt-in, requires an
-Ed25519 key, and still exposes component, version, artifact-digest, and signer
-identities; review it before disclosure. Upgrade Guard is not enabled in the
-GitHub Action.
+One Docker executable, accepted local-transport endpoint, and sanitized
+environment tuple is resolved for the complete evaluation. Every image,
+preflight, trial, cleanup, and absence-check call uses an explicit `--host`
+argument from that tuple; ambient Docker endpoint/context/TLS selectors are
+removed from its child environment. Private receipt containment and public
+runner evidence record `localEndpoint`; `SAFE` requires it to be `true` in both
+runtime validation and the v1 schemas. The endpoint string is omitted. This
+boolean proves only that the accepted local transport was bound, not physical
+daemon locality. Docker, its client, daemon or virtualization layer, local
+socket/pipe routing, host kernel, digest-pinned runner image, and canary harness
+remain trusted. Do not mount the Docker socket or credentials. Public
+compatibility output is opt-in, requires an Ed25519 key, and still exposes
+component, version, artifact-digest, and signer identities; review it before
+disclosure. Upgrade Guard is not enabled in the GitHub Action.

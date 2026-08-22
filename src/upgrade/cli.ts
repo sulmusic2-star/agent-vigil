@@ -16,6 +16,7 @@ import {
   verifyPublicCompatibilityEntry,
   type PublicCompatibilityEntry,
 } from "./receipt.ts";
+import { terminalSafe } from "./presentation.ts";
 import {
   DEFAULT_UPGRADE_CONFIG,
   DEFAULT_UPGRADE_RECEIPT,
@@ -127,8 +128,8 @@ function runInit(args: string[]): number {
   if (args.includes("--help")) { console.log(usage()); return 0; }
   const result = initUpgrade(repository(args), args.includes("--force"));
   console.log("Agent Vigil Upgrade Guard initialized locally.\n");
-  for (const path of result.created) console.log(`  created ${path}`);
-  for (const path of result.kept) console.log(`  kept    ${path}`);
+  for (const path of result.created) console.log(`  created ${terminalSafe(path)}`);
+  for (const path of result.kept) console.log(`  kept    ${terminalSafe(path)}`);
   console.log("\nThe scaffold is ignored by Git and intentionally returns HOLD until its template canary is replaced.");
   return 0;
 }
@@ -172,6 +173,7 @@ function runCheck(args: string[]): number {
   assertOutputsOutsideRoots(outputs, [currentDirectory, candidateDirectory, canaryDirectory]);
   const receipt = runUpgradeEvaluation({
     configPath: trustedConfig,
+    config: loadedConfig,
     repository: repo,
     currentDirectory,
     candidateDirectory,
@@ -224,7 +226,7 @@ function runIndex(args: string[]): number {
     return entry;
   });
   writePrivateFileAtomic(output, renderBreakageIndex(entries));
-  console.log(`Wrote ${entries.length} verified compatibility entr${entries.length === 1 ? "y" : "ies"} to ${output}`);
+  console.log(`Wrote ${entries.length} verified compatibility entr${entries.length === 1 ? "y" : "ies"} to ${terminalSafe(output)}`);
   return 0;
 }
 
@@ -240,7 +242,8 @@ export function runUpgradeCommand(args: string[]): number {
     if (command === "index") return runIndex(rest);
     throw new Error(`unknown upgrade command: ${command}`);
   } catch (error) {
-    console.error(`agent-vigil upgrade: ${(error as Error).message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`agent-vigil upgrade: ${terminalSafe(message)}`);
     return 2;
   }
 }

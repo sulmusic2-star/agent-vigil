@@ -23,8 +23,9 @@ JSONL, UTF-8 BOM input, Codex object-valued tool arguments, seven failure-output
 forms, semantic tool-loop fingerprints, and documentation false positives.
 
 Current durable result: **80/80 compatibility scenarios pass**. Combined with
-the core, CLI, adapter, setup, policy-anchor, signing, workspace-binding, and remediation suite,
-The exact unreleased v0.13 test count is recorded after integration.
+the core, CLI, adapter, setup, policy-anchor, signing, attestation,
+workspace-binding, and remediation suite, the exact unreleased v0.13 test count
+is recorded after integration.
 
 `npm run test:package` additionally installs the generated tarball into a
 disposable consumer and exercises both standard and portable `init` plus

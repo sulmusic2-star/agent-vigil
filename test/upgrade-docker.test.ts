@@ -153,6 +153,7 @@ test("Docker containment establishes every required control", { skip: !DOCKER_EN
   try {
     const result = probeContainment(fixture.config, fixture.current, fixture.canaries, DOCKER_BIN);
     assert.equal(result.status, "PASS", result.reason);
+    assert.equal(result.localEndpoint, true);
     assert.equal(result.imagePresent, true);
     assert.equal(result.networkBlocked, true);
     assert.equal(result.targetReadOnly, true);

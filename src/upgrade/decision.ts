@@ -248,7 +248,7 @@ export function decideUpgrade(
 ): UpgradeDecision {
   const reasons: string[] = [];
   const capabilities = compareCapabilities(current, candidate);
-  if (containment.status !== "PASS") reasons.push("required containment controls were not established");
+  if (containment.status !== "PASS" || !containment.localEndpoint) reasons.push("required containment controls were not established");
   if (current.name !== candidate.name || current.ecosystem !== candidate.ecosystem) reasons.push("current and candidate identities are not comparable");
   if (current.version === candidate.version) reasons.push("current and candidate versions are identical");
   if (current.treeSha256 === candidate.treeSha256) reasons.push("current and candidate artifact digests are identical");

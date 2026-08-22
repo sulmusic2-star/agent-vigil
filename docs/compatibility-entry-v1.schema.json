@@ -46,14 +46,19 @@
     "runner": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["imageDigest", "trials", "networkBlocked", "readOnly", "environmentIsolated", "configSha256", "canaryHarnessSha256"],
+      "$comment": "localEndpoint records successful validation and binding of a Unix-socket or Windows named-pipe transport; it does not prove that the daemon behind that transport is physically local.",
+      "required": ["imageDigest", "trials", "localEndpoint", "networkBlocked", "readOnly", "environmentIsolated", "configSha256", "canaryHarnessSha256"],
       "properties": {
         "imageDigest": { "$ref": "#/$defs/sha256" },
         "trials": { "type": "integer", "minimum": 2, "maximum": 5 },
+        "localEndpoint": { "type": "boolean" },
         "networkBlocked": { "type": "boolean" },
         "readOnly": { "type": "boolean" },
         "environmentIsolated": { "type": "boolean" },
-        "configSha256": { "$ref": "#/$defs/sha256" },
+        "configSha256": {
+          "$ref": "#/$defs/sha256",
+          "description": "Digest of the validated configuration used for the private evaluation. Runtime entry/final checkpoints detect observed mismatch but do not prove continuous immutability between checkpoints."
+        },
         "canaryHarnessSha256": { "$ref": "#/$defs/sha256" }
       }
     },
@@ -73,7 +78,10 @@
         "required": ["idSha256", "current", "candidate", "matched"],
         "properties": {
           "publicId": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z0-9][a-z0-9._-]*$" },
-          "idSha256": { "$ref": "#/$defs/sha256" },
+          "idSha256": {
+            "$ref": "#/$defs/sha256",
+            "description": "Receipt-specific nonce-bound pseudonym for the private canary ID; not a bare hash of that ID."
+          },
           "current": { "enum": ["PASS", "FAIL", "HOLD"] },
           "candidate": { "enum": ["PASS", "FAIL", "HOLD"] },
           "matched": { "type": "boolean" }
@@ -117,6 +125,7 @@
         "properties": {
           "runner": {
             "properties": {
+              "localEndpoint": { "const": true },
               "networkBlocked": { "const": true },
               "readOnly": { "const": true },
               "environmentIsolated": { "const": true }
@@ -137,7 +146,7 @@
       }
     }
   ],
-  "$comment": "Runtime validation also requires distinct exact current/candidate versions and artifact hashes plus unique canary identity hashes and public IDs.",
+  "$comment": "Runtime validation also requires distinct exact current/candidate versions and artifact hashes plus unique canary pseudonyms and public IDs.",
   "$defs": {
     "sha256": {
       "type": "string",

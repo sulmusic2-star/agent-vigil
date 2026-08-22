@@ -15,7 +15,13 @@ import {
   trustedRegularFileInside,
   UPGRADE_CONFIG_SCHEMA,
 } from "./contracts.ts";
-import { dockerImagePresent, probeContainment, type ContainmentProbe } from "./sandbox.ts";
+import { terminalSafe } from "./presentation.ts";
+import {
+  dockerImagePresent,
+  probeContainment,
+  resolveDockerClient,
+  type ContainmentProbe,
+} from "./sandbox.ts";
 
 export const DEFAULT_UPGRADE_DIRECTORY = ".agent-vigil/upgrade";
 export const DEFAULT_UPGRADE_CONFIG = `${DEFAULT_UPGRADE_DIRECTORY}/config.json`;
@@ -159,8 +165,25 @@ export function doctorUpgrade(repositoryPath: string, configPath?: string, docke
     "canaryDirectory",
   );
   const templateCanary = config.canaries.some((canary) => canary.id === "replace-with-repository-canary");
-  const imagePresent = dockerImagePresent(config, dockerBin);
-  const containment = probeContainment(config, repository, canaryDirectory, dockerBin);
+  let imagePresent = false;
+  let containment: ContainmentProbe;
+  try {
+    const dockerClient = resolveDockerClient(dockerBin);
+    imagePresent = dockerImagePresent(config, dockerClient);
+    containment = probeContainment(config, repository, canaryDirectory, dockerClient);
+  } catch (error) {
+    containment = {
+      status: "HOLD",
+      localEndpoint: false,
+      imagePresent: false,
+      networkBlocked: false,
+      targetReadOnly: false,
+      rootReadOnly: false,
+      inheritedSecretAbsent: false,
+      proxiesCleared: false,
+      reason: (error as Error).message,
+    };
+  }
   const checks: UpgradeDoctorResult["checks"] = [
     { status: "PASS", label: "config", detail: "strict upgrade config loaded" },
     { status: imagePresent ? "PASS" : "HOLD", label: "runner image", detail: imagePresent ? "exact digest is present locally" : "exact digest is absent; Upgrade Guard will not pull it during a check" },
@@ -178,8 +201,13 @@ export function doctorUpgrade(repositoryPath: string, configPath?: string, docke
 }
 
 export function renderUpgradeDoctor(result: UpgradeDoctorResult): string {
-  const lines = [`Agent Vigil Upgrade Guard doctor: ${result.status}`, `  config: ${result.configPath}`];
-  for (const check of result.checks) lines.push(`  ${check.status === "PASS" ? "✓" : "?"} ${check.label}: ${check.detail}`);
+  const lines = [
+    `Agent Vigil Upgrade Guard doctor: ${terminalSafe(result.status)}`,
+    `  config: ${terminalSafe(result.configPath)}`,
+  ];
+  for (const check of result.checks) {
+    lines.push(`  ${check.status === "PASS" ? "✓" : "?"} ${terminalSafe(check.label)}: ${terminalSafe(check.detail)}`);
+  }
   return `${lines.join("\n")}\n`;
 }
 

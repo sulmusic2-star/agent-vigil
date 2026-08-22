@@ -10,11 +10,13 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { canonical, VERSION } from "../report.ts";
 import { publicKeyDer, signingKeyId, type VerificationResult } from "../signature.ts";
+import { terminalSafe } from "./presentation.ts";
 import {
   PRIVATE_RECEIPT_SCHEMA,
   PUBLIC_ENTRY_SCHEMA,
   trustedDirectoryInside,
   trustedRegularFileInside,
+  validateUpgradeConfig,
   type UpgradeConfig,
   type UpgradeVerdict,
 } from "./contracts.ts";
@@ -29,7 +31,14 @@ import {
   type CanaryComparison,
   type TargetSnapshot,
 } from "./decision.ts";
-import { commandDigest, probeContainment, runCanaryTrial, type ContainmentProbe } from "./sandbox.ts";
+import {
+  commandDigest,
+  probeContainment,
+  resolveDockerClient,
+  runCanaryTrial,
+  type ContainmentProbe,
+  type ResolvedDockerClient,
+} from "./sandbox.ts";
 
 export type UpgradePrivateReceipt = {
   schemaVersion: typeof PRIVATE_RECEIPT_SCHEMA;
@@ -85,6 +94,7 @@ export type PublicCompatibilityEntry = {
   runner: {
     imageDigest: string;
     trials: number;
+    localEndpoint: boolean;
     networkBlocked: boolean;
     readOnly: boolean;
     environmentIsolated: boolean;
@@ -109,12 +119,20 @@ export type PublicCompatibilityEntry = {
 const LIMITATIONS = [
   "The verdict applies only to the exact pre/post-stable artifacts, runner image, configuration, canary harness, and observations recorded here.",
   "SAFE means no material change was detected by these canaries; it is not a universal safety or semantic-correctness claim.",
-  "The Docker daemon, host kernel, runner image, and trusted canary harness remain trust assumptions.",
+  "The validated local-transport Docker endpoint, selected client, daemon/socket routing, host kernel, runner image, and trusted canary harness remain trust assumptions.",
   "Network-disabled offline canaries do not establish live provider, model-alias, authentication, or production behavior.",
 ];
 
 function hash(value: string): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function publicCanaryPseudonym(receiptNonce: string, privateCanaryId: string): string {
+  return hash(canonical({
+    domain: "agent-vigil-public-canary-id/v1",
+    receiptNonce,
+    privateCanaryId,
+  }));
 }
 
 function configDigest(config: UpgradeConfig): string {
@@ -158,6 +176,31 @@ export function recomputeUpgradeReceiptHash(receipt: UpgradePrivateReceipt): str
   return hash(receiptPayload(payload));
 }
 
+function unevaluatedContainment(): ContainmentProbe {
+  return {
+    status: "HOLD", localEndpoint: false, imagePresent: false, networkBlocked: false, targetReadOnly: false,
+    rootReadOnly: false, inheritedSecretAbsent: false, proxiesCleared: false,
+    reason: "containment was not evaluated",
+  };
+}
+
+type ConfigCheckpoint = {
+  path: string;
+  identity: string;
+  config: UpgradeConfig;
+};
+
+function readConfigCheckpoint(repository: string, requestedPath: string): ConfigCheckpoint {
+  const path = trustedRegularFileInside(repository, requestedPath, "upgrade config");
+  const before = lstatSync(path, { bigint: true });
+  const config = loadUpgradeConfig(path);
+  const after = lstatSync(path, { bigint: true });
+  const beforeIdentity = `${before.dev}:${before.ino}`;
+  const afterIdentity = `${after.dev}:${after.ino}`;
+  if (beforeIdentity !== afterIdentity) throw new Error("upgrade config moved or was replaced while it was being read");
+  return { path, identity: afterIdentity, config };
+}
+
 function holdReceipt(
   config: UpgradeConfig,
   containment: ContainmentProbe,
@@ -198,6 +241,7 @@ function holdReceipt(
 
 export function runUpgradeEvaluation(input: {
   configPath: string;
+  config?: UpgradeConfig;
   repository: string;
   currentDirectory: string;
   candidateDirectory: string;
@@ -205,18 +249,36 @@ export function runUpgradeEvaluation(input: {
   generatedAt?: string;
   nonce?: string;
 }): UpgradePrivateReceipt {
-  const configPath = trustedRegularFileInside(input.repository, input.configPath, "upgrade config");
-  const config = loadUpgradeConfig(configPath);
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   const nonce = input.nonce ?? randomBytes(32).toString("base64url");
+  const suppliedConfig = input.config ? validateUpgradeConfig(input.config) : undefined;
+  let configCheckpoint: ConfigCheckpoint;
+  try {
+    configCheckpoint = readConfigCheckpoint(input.repository, input.configPath);
+  } catch (error) {
+    if (!suppliedConfig) throw error;
+    return holdReceipt(
+      suppliedConfig,
+      unevaluatedContainment(),
+      generatedAt,
+      nonce,
+      `upgrade config could not be re-resolved and re-read at evaluation entry: ${(error as Error).message}`,
+    );
+  }
+  const config = configCheckpoint.config;
+  if (suppliedConfig && canonical(suppliedConfig) !== canonical(config)) {
+    return holdReceipt(
+      suppliedConfig,
+      unevaluatedContainment(),
+      generatedAt,
+      nonce,
+      "upgrade config no longer matches the validated configuration supplied by the caller",
+    );
+  }
   let current: TargetSnapshot | undefined;
   let candidate: TargetSnapshot | undefined;
   let canaryHarness: ArtifactInventory | undefined;
-  const emptyContainment: ContainmentProbe = {
-    status: "HOLD", imagePresent: false, networkBlocked: false, targetReadOnly: false,
-    rootReadOnly: false, inheritedSecretAbsent: false, proxiesCleared: false,
-    reason: "containment was not evaluated",
-  };
+  const emptyContainment = unevaluatedContainment();
   let canaryDirectory: string;
   try {
     canaryDirectory = trustedDirectoryInside(
@@ -246,35 +308,61 @@ export function runUpgradeEvaluation(input: {
   try { candidate = inspectTarget(input.candidateDirectory, config.component); }
   catch (error) { return holdReceipt(config, emptyContainment, generatedAt, nonce, `candidate artifact could not be inspected: ${(error as Error).message}`, current, undefined, canaryHarness); }
 
+  let dockerClient: ResolvedDockerClient;
+  try {
+    dockerClient = resolveDockerClient(input.dockerBin ?? "docker");
+  } catch (error) {
+    return holdReceipt(
+      config,
+      emptyContainment,
+      generatedAt,
+      nonce,
+      `Docker client and local endpoint could not be bound for this evaluation: ${(error as Error).message}`,
+      current,
+      candidate,
+      canaryHarness,
+    );
+  }
+
   const containment = probeContainment(
     config,
     input.currentDirectory,
     canaryDirectory,
-    input.dockerBin,
+    dockerClient,
   );
   const canaries: CanaryComparison[] = config.canaries.map((canary) => {
     const currentTrials = containment.status === "PASS"
       ? Array.from({ length: config.runner.trials }, () => runCanaryTrial(
-          config, canary, input.currentDirectory, canaryDirectory, "current", input.dockerBin,
+          config, canary, input.currentDirectory, canaryDirectory, "current", dockerClient,
         ))
       : [];
     const candidateTrials = containment.status === "PASS"
       ? Array.from({ length: config.runner.trials }, () => runCanaryTrial(
-          config, canary, input.candidateDirectory, canaryDirectory, "candidate", input.dockerBin,
+          config, canary, input.candidateDirectory, canaryDirectory, "candidate", dockerClient,
         ))
       : [];
     return compareCanary(canary, commandDigest(canary), currentTrials, candidateTrials);
   });
   let mutationReason: string | undefined;
   try {
+    const configAfter = readConfigCheckpoint(input.repository, input.configPath);
+    if (configAfter.path !== configCheckpoint.path || configAfter.identity !== configCheckpoint.identity) {
+      mutationReason = "upgrade config moved or was replaced while the evaluation was running";
+    } else if (canonical(configAfter.config) !== canonical(config)) {
+      mutationReason = "upgrade config changed while the evaluation was running";
+    }
+  } catch (error) {
+    mutationReason = `upgrade config could not be re-resolved and re-read after evaluation: ${(error as Error).message}`;
+  }
+  try {
     const currentAfter = inspectTarget(input.currentDirectory, config.component);
     const candidateAfter = inspectTarget(input.candidateDirectory, config.component);
     const harnessAfter = inspectArtifactTree(canaryDirectory);
-    if (canonical(currentAfter) !== canonical(current)) mutationReason = "current artifact changed while the evaluation was running";
-    else if (canonical(candidateAfter) !== canonical(candidate)) mutationReason = "candidate artifact changed while the evaluation was running";
-    else if (canonical(harnessAfter) !== canonical(canaryHarness)) mutationReason = "canary harness changed while the evaluation was running";
+    if (!mutationReason && canonical(currentAfter) !== canonical(current)) mutationReason = "current artifact changed while the evaluation was running";
+    else if (!mutationReason && canonical(candidateAfter) !== canonical(candidate)) mutationReason = "candidate artifact changed while the evaluation was running";
+    else if (!mutationReason && canonical(harnessAfter) !== canonical(canaryHarness)) mutationReason = "canary harness changed while the evaluation was running";
   } catch (error) {
-    mutationReason = `evaluation inputs could not be re-inventoried: ${(error as Error).message}`;
+    if (!mutationReason) mutationReason = `evaluation inputs could not be re-inventoried: ${(error as Error).message}`;
   }
   const initialDecision = decideUpgrade(containment, current, candidate, canaries);
   const decision = mutationReason
@@ -343,6 +431,7 @@ export function createPublicCompatibilityEntry(receipt: UpgradePrivateReceipt, p
     runner: {
       imageDigest: receipt.runner.image.slice(receipt.runner.image.lastIndexOf("@") + 1),
       trials: receipt.runner.trials,
+      localEndpoint: receipt.containment.localEndpoint,
       networkBlocked: receipt.containment.networkBlocked,
       readOnly: receipt.containment.targetReadOnly && receipt.containment.rootReadOnly,
       environmentIsolated: receipt.containment.inheritedSecretAbsent && receipt.containment.proxiesCleared,
@@ -353,7 +442,7 @@ export function createPublicCompatibilityEntry(receipt: UpgradePrivateReceipt, p
     changedCapabilities: [...new Set(receipt.capabilities.filter((item) => item.changed).map((item) => publicCapability(item.field)))].sort(),
     canaries: receipt.canaries.map((canary) => ({
       ...(canary.publicId ? { publicId: canary.publicId } : {}),
-      idSha256: canary.idSha256,
+      idSha256: publicCanaryPseudonym(receipt.nonce, canary.id),
       current: canary.current.state,
       candidate: canary.candidate.state,
       matched: canary.comparable && !canary.changed,
@@ -429,9 +518,9 @@ export function validatePublicCompatibilityEntry(input: unknown): PublicCompatib
   const component = record(root.component, "public entry component");
   exact(component, ["ecosystem", "name", "currentVersion", "candidateVersion", "currentArtifactSha256", "candidateArtifactSha256"], "public entry component");
   const runner = record(root.runner, "public entry runner");
-  exact(runner, ["imageDigest", "trials", "networkBlocked", "readOnly", "environmentIsolated", "configSha256", "canaryHarnessSha256"], "public entry runner");
+  exact(runner, ["imageDigest", "trials", "localEndpoint", "networkBlocked", "readOnly", "environmentIsolated", "configSha256", "canaryHarnessSha256"], "public entry runner");
   if (!Number.isInteger(runner.trials) || Number(runner.trials) < 2 || Number(runner.trials) > 5) throw new Error("public entry trials are invalid");
-  for (const field of ["networkBlocked", "readOnly", "environmentIsolated"] as const) {
+  for (const field of ["localEndpoint", "networkBlocked", "readOnly", "environmentIsolated"] as const) {
     if (typeof runner[field] !== "boolean") throw new Error(`public entry runner.${field} must be boolean`);
   }
   if (!Array.isArray(root.changedCapabilities) || root.changedCapabilities.length > 16 || root.changedCapabilities.some((item) => typeof item !== "string" || !new Set([...PUBLIC_CAPABILITIES, "other"]).has(item))) {
@@ -479,6 +568,7 @@ export function validatePublicCompatibilityEntry(input: unknown): PublicCompatib
     runner: {
       imageDigest: sha256Text(runner.imageDigest, "public entry runner.imageDigest"),
       trials: Number(runner.trials),
+      localEndpoint: runner.localEndpoint as boolean,
       networkBlocked: runner.networkBlocked as boolean,
       readOnly: runner.readOnly as boolean,
       environmentIsolated: runner.environmentIsolated as boolean,
@@ -498,14 +588,14 @@ export function validatePublicCompatibilityEntry(input: unknown): PublicCompatib
       value: text(signature.value, "public entry signature.value", 512),
     },
   };
-  if (new Set(canaries.map((canary) => canary.idSha256)).size !== canaries.length) throw new Error("public entry canary hashes contain duplicates");
+  if (new Set(canaries.map((canary) => canary.idSha256)).size !== canaries.length) throw new Error("public entry canary pseudonyms contain duplicates");
   const publicIds = canaries.flatMap((canary) => canary.publicId ? [canary.publicId] : []);
   if (new Set(publicIds).size !== publicIds.length) throw new Error("public entry canary public IDs contain duplicates");
   if (entry.component.currentVersion === entry.component.candidateVersion || entry.component.currentArtifactSha256 === entry.component.candidateArtifactSha256) {
     throw new Error("public entry must compare distinct exact versions and artifacts");
   }
   if (entry.verdict === "SAFE") {
-    if (!entry.runner.networkBlocked || !entry.runner.readOnly || !entry.runner.environmentIsolated || !entry.canaries.length
+    if (!entry.runner.localEndpoint || !entry.runner.networkBlocked || !entry.runner.readOnly || !entry.runner.environmentIsolated || !entry.canaries.length
       || entry.changedCapabilities.length || entry.canaries.some((canary) => canary.current !== "PASS" || canary.candidate !== "PASS" || !canary.matched)) {
       throw new Error("SAFE public entry is inconsistent with its containment or canary evidence");
     }
@@ -513,17 +603,20 @@ export function validatePublicCompatibilityEntry(input: unknown): PublicCompatib
   return entry;
 }
 
+export { terminalSafe } from "./presentation.ts";
+
 export function renderUpgradeReceipt(receipt: UpgradePrivateReceipt): string {
+  const safe = (value: string): string => terminalSafe(value);
   const lines = [
-    `Agent Vigil Upgrade Guard ${receipt.vigilVersion}`,
-    `  component: ${receipt.component.name}`,
-    `  versions:  ${receipt.current?.version ?? "unknown"} -> ${receipt.candidate?.version ?? "unknown"}`,
-    `  runner:    ${receipt.runner.image}`,
+    `Agent Vigil Upgrade Guard ${safe(receipt.vigilVersion)}`,
+    `  component: ${safe(receipt.component.name)}`,
+    `  versions:  ${safe(receipt.current?.version ?? "unknown")} -> ${safe(receipt.candidate?.version ?? "unknown")}`,
+    `  runner:    ${safe(receipt.runner.image)}`,
     `  canaries:  ${receipt.summary.comparedCanaries} comparable; ${receipt.summary.changedCanaries} changed`,
     `  surfaces:  ${receipt.summary.changedCapabilities} capability class change(s)`,
-    `  ${receipt.summary.verdict} · ${receipt.receiptHash}`,
+    `  ${safe(receipt.summary.verdict)} · ${safe(receipt.receiptHash)}`,
   ];
-  for (const reason of receipt.summary.reasons) lines.push(`  ${receipt.summary.verdict === "SAFE" ? "✓" : receipt.summary.verdict === "CHANGED" ? "!" : "?"} ${reason}`);
+  for (const reason of receipt.summary.reasons) lines.push(`  ${receipt.summary.verdict === "SAFE" ? "✓" : receipt.summary.verdict === "CHANGED" ? "!" : "?"} ${safe(reason)}`);
   lines.push("  SAFE is bounded to these exact artifacts, canaries, and contained runner; it is not a universal safety claim.");
   return `${lines.join("\n")}\n`;
 }

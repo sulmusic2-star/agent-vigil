@@ -59,16 +59,27 @@ public predicate contains hashes, commit SHAs, evidence counts, and the
 decision. It does not contain source code, prompts, transcript text, file paths,
 or test output. See [GitHub-attested receipts](docs/ATTESTED_RECEIPTS.md).
 
-The unreleased v0.12 candidate adds **Agent Upgrade Guard**, a local behavioral
+The unreleased v0.13 candidate adds **Agent Upgrade Guard**, a local behavioral
 preflight for already-materialized coding-agent plugin, skill, MCP, hook, or
 configuration bundle updates. It compares exact current and candidate artifact
 trees with repeated private canaries inside a digest-pinned, network-disabled,
-read-only Docker runner. The result is `SAFE`, `CHANGED`, or `HOLD`; `SAFE`
-means only that these exact canaries detected no material change under the
-recorded runner. The default template deliberately cannot earn `SAFE`.
+read-only Docker runner after rejecting endpoints that are not Unix sockets or
+Windows named pipes. Each trial has an unpredictable container name; after
+completion or timeout, the exact name must be verified absent. The result is
+`SAFE`, `CHANGED`, or `HOLD`; `SAFE` means only that these exact canaries
+detected no material change under the recorded runner. The default template
+deliberately cannot earn `SAFE`.
 
 Upgrade Guard can write a private nonce-bound receipt and, only when explicitly
 requested with an Ed25519 key, a privacy-minimized public compatibility entry.
+Private canary labels become receipt-specific nonce-blinded pseudonyms unless
+the operator supplies an explicit public label. The selected Docker client,
+daemon, and local transport remain trusted: a local socket can proxy a remote
+daemon. One check pins its selected endpoint across Docker calls and compares
+the configuration at entry and after trials, but these bounded checks do not
+prove physical daemon locality or continuous immutability against same-host ABA
+or privileged races. Private and public v1 evidence records the successful
+local-transport binding as a boolean without disclosing the endpoint path.
 It does not install an update, upload evidence, modify the GitHub Action, or
 claim live model/provider behavior. See the precise
 [Upgrade Guard contract](docs/UPGRADE_GUARD.md).
@@ -532,7 +543,7 @@ Agent Vigil does not generate code-review opinions. It checks recorded claims,
 actions, Git identity, policy, and executable evidence.
 
 The executed compatibility matrix is in
-[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Security limits are explicit in
+[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Security and product limits are explicit in
 [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 Public adoption is measured under a separate

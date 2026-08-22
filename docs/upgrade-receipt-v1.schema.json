@@ -24,7 +24,10 @@
         "name": { "type": "string", "minLength": 1, "maxLength": 160 }
       }
     },
-    "configSha256": { "$ref": "#/$defs/sha256" },
+    "configSha256": {
+      "$ref": "#/$defs/sha256",
+      "description": "Digest of the validated configuration used for this evaluation. Runtime entry/final checkpoints detect observed path, identity, or canonical-content mismatch, but v1 does not prove continuous immutability between checkpoints."
+    },
     "runner": {
       "type": "object",
       "additionalProperties": false,
@@ -78,6 +81,7 @@
           "containment": {
             "properties": {
               "status": { "const": "PASS" },
+              "localEndpoint": { "const": true },
               "imagePresent": { "const": true },
               "networkBlocked": { "const": true },
               "targetReadOnly": { "const": true },
@@ -134,9 +138,11 @@
     "containment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "imagePresent", "networkBlocked", "targetReadOnly", "rootReadOnly", "inheritedSecretAbsent", "proxiesCleared", "reason"],
+      "$comment": "localEndpoint records successful validation and binding of a Unix-socket or Windows named-pipe transport; it does not prove that the daemon behind that transport is physically local.",
+      "required": ["status", "localEndpoint", "imagePresent", "networkBlocked", "targetReadOnly", "rootReadOnly", "inheritedSecretAbsent", "proxiesCleared", "reason"],
       "properties": {
         "status": { "enum": ["PASS", "HOLD"] },
+        "localEndpoint": { "type": "boolean" },
         "imagePresent": { "type": "boolean" },
         "networkBlocked": { "type": "boolean" },
         "targetReadOnly": { "type": "boolean" },

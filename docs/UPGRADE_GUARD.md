@@ -39,7 +39,11 @@ latency therefore cannot be established by an Upgrade Guard verdict.
 ## Requirements
 
 - Node.js 20 or newer for Agent Vigil.
-- A running Docker-compatible daemon.
+- A running Docker-compatible daemon selected through a `unix://` socket or,
+  on Windows, an `npipe://` endpoint. Remote SSH, TCP, HTTP, and HTTPS Docker
+  endpoints are refused because their bind paths refer to another host. This
+  is a transport-shape check, not proof that the daemon is physically local: a
+  local socket or named pipe can proxy another daemon.
 - For `init` and `doctor`, `--repo` must name the exact root of a Git
   repository, not a parent or nested directory.
 - A trusted runner image already present locally and named by an immutable
@@ -165,8 +169,14 @@ vigil upgrade index \
 The index command verifies every entry before writing a local HTML artifact. It
 does not host or publish it. `--public-key <path>` is required: every entry must
 match that separately pinned signer key. `doctor` and `check` also accept
-`--docker-bin <path>` for a compatible Docker client executable; this does not
-change the required Docker engine or containment contract.
+`--docker-bin <path>` for a compatible Docker client executable. An explicit
+value must be absolute and is canonicalized before execution. Without the
+option, Upgrade Guard checks only fixed platform Docker locations; it never
+selects a repository-controlled executable through `PATH`. Canonicalization
+does not authenticate the executable or prove vendor provenance. An explicitly
+selected Docker client remains part of the operator-controlled trusted
+computing base. This does not change the required Docker engine or containment
+contract.
 
 ## Configuration
 
@@ -209,6 +219,18 @@ fields are rejected.
 already be stored locally, and you must independently decide whether to trust
 it before using its result. A mutable tag alone is never accepted.
 
+For one CLI operation, Upgrade Guard first validates the configuration used to
+derive output exclusions and the canary root. At evaluation entry it re-resolves
+and rereads the trusted regular file, requires stable device/inode identity
+across that read, and requires canonical equality with the CLI-supplied value.
+After all trials it repeats the trusted read and requires the canonical path,
+device/inode identity, and canonical validated content to match the entry
+checkpoint. Any observed mismatch or failed read returns `HOLD`. The receipt
+commits to that validated configuration. These two checkpoints do not prove
+continuous immutability: a same-host ABA change restored before the final check,
+or a privileged filesystem race, remains outside the boundary. Run checks on a
+quiescent trusted host.
+
 ### Component fields
 
 - `ecosystem` and `name` identify the component. The manifest value selected by
@@ -235,7 +257,8 @@ it before using its result. A mutable tag alone is never accepted.
 
 - One through 32 canaries are allowed. Private `id` values must be unique.
 - `publicId` is optional and opt-in. When omitted, the public entry carries only
-  the SHA-256 digest of the private ID.
+  a receipt-specific nonce-blinded SHA-256 pseudonym, not the bare digest of the
+  private ID.
 - `command` is an argv array, not a shell command. It contains 1–32 bounded
   strings and runs with `/canaries` as the working directory.
 - `timeoutSeconds` is from 1 through 300.
@@ -289,10 +312,12 @@ plugin or agent integration by itself.
 Upgrade Guard first inventories both artifact trees and the trusted canary
 harness. Each tree commitment covers ordered paths, byte counts, executable
 mode bits, and file digests; no `.git` exception is made. It separately hashes
-the loaded configuration, each manifest, and each configured capability value,
-including whether that field was absent or explicitly `null`. It then runs a
-planted containment preflight and the repeated canaries. All three trees are
-re-inventoried afterward; any mutation or unreadable input returns `HOLD`.
+the validated configuration snapshot, each manifest, and each configured
+capability value, including whether that field was absent or explicitly
+`null`. It then runs a planted containment preflight and the repeated canaries.
+The configuration is re-resolved and reread, and all three artifact/canary
+trees are re-inventoried afterward; any observed mismatch or unreadable input
+returns `HOLD`. The bounded-checkpoint caveat above remains.
 
 The decision fails closed in this order:
 
@@ -315,6 +340,12 @@ do not turn an incomplete run green.
 
 Every probe and canary uses these controls:
 
+- a Docker endpoint whose inspected transport is a Unix socket or Windows
+  named pipe, and a canonical Docker client from a fixed platform location or
+  explicit absolute path, resolved once for the complete evaluation;
+- an explicit `--host` carrying that same endpoint on image, probe, trial,
+  cleanup, and absence-check calls, with ambient Docker endpoint/context/TLS
+  selectors removed from the child environment;
 - `--pull=never` and an exact image digest;
 - `--network=none`;
 - a read-only container root;
@@ -323,7 +354,9 @@ Every probe and canary uses these controls:
 - `no-new-privileges`;
 - the invoking host's numeric non-root UID/GID when available, with a fixed
   unprivileged fallback;
-- PID, memory, CPU, and wall-clock limits; and
+- PID, memory, CPU, and wall-clock limits;
+- an unpredictable container name, a hard client deadline, and force-removal
+  plus absence verification for that exact container in every exit path; and
 - a bounded `noexec,nosuid,nodev` tmpfs at `/tmp`.
 
 Before canaries run, a planted probe must confirm that the target mount and
@@ -332,11 +365,15 @@ probe secret was not inherited, and Docker client proxy variables are empty.
 Failure to establish any control is `HOLD`.
 
 This is a containment boundary, not proof of harmless code. The Docker daemon,
-host kernel or virtualization layer, exact runner image, and trusted canary
-harness remain in the trusted computing base. A container escape or compromised
-runner can invalidate the result. Do not mount the Docker socket, credentials,
-package-manager configuration, cloud configuration, SSH material, or writable
-host directories into the runner.
+client, host kernel or virtualization layer, exact runner image, local
+socket/pipe routing, and trusted canary harness remain in the trusted computing
+base. A local socket can proxy a remote daemon, and a privileged same-host actor
+can replace what a pinned socket path reaches. The explicit binding prevents
+ambient Docker context changes from redirecting only part of an evaluation; it
+does not authenticate the daemon behind the transport. A container escape or
+compromised runner can invalidate the result. Do not mount the Docker socket,
+credentials, package-manager configuration, cloud configuration, SSH material,
+or writable host directories into the runner.
 
 ## Private and public evidence
 
@@ -356,12 +393,20 @@ It contains:
 - component ecosystem, name, exact current and candidate versions, and artifact
   tree hashes;
 - runner image, configuration, and canary-harness digests, trial count, and
-  containment booleans;
+  local-endpoint, network, filesystem, and environment containment booleans;
 - `SAFE`, `CHANGED`, or `HOLD`;
 - allowlisted changed capability categories;
-- optional opted-in canary public IDs, otherwise hashed private IDs;
+- optional opted-in canary public IDs, otherwise receipt-specific nonce-bound
+  pseudonyms that cannot be recomputed from a guessed private label alone;
 - the private receipt commitment and explicit limitations; and
 - a canonical entry hash and Ed25519 signature.
+
+The endpoint string is deliberately kept out of receipts. Private containment
+and public runner evidence instead carry `localEndpoint`, which is `true` only
+after a Unix-socket or Windows named-pipe endpoint has been accepted and bound
+for the evaluation. Runtime validation and both v1 schemas require `true` for
+`SAFE`. This boolean does not authenticate the Docker client or daemon and does
+not prove that the daemon behind a local transport is physically local.
 
 It excludes repository identity, local paths, commands, prompts, transcript
 text, raw stdout or stderr, environment variables, file names, credentials, and
@@ -376,6 +421,11 @@ the signer key remain visible. Review every public entry before disclosure.
 - That unchanged observations mean unchanged internal implementation.
 - That a candidate is free of malicious behavior outside the exercised path.
 - That the runner image, Docker daemon, kernel, or host is uncompromised.
+- That a syntactically local Docker endpoint reaches a physically local daemon,
+  or that a privileged same-host actor did not replace the endpoint behind the
+  pinned socket/pipe path.
+- That the configuration file was continuously immutable between its entry and
+  final checkpoints; a restored same-host ABA change can be unobserved.
 - That live provider, model, identity, payment, deployment, or network behavior
   works.
 - That an embedded signing key belongs to a particular person or organization.

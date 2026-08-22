@@ -7,17 +7,37 @@
 - Require digest-pinned, locally present OCI runner images and prove planted
   network, filesystem, proxy, and inherited-secret containment controls before
   any candidate canary can run.
+- Reject Docker endpoints that are not Unix sockets or Windows named pipes,
+  avoid ambient `PATH` when selecting the Docker client, and require explicit
+  client overrides to be absolute. Resolve one executable, endpoint, and
+  sanitized environment binding for each check; use its explicit `--host` for
+  image, probe, trial, cleanup, and absence-check calls. The selected client and
+  transport remain operator-trusted; a local socket can still proxy another
+  daemon. Record the successful transport binding as `localEndpoint` in private
+  and public v1 evidence, and require `true` for `SAFE` without publishing the
+  endpoint path.
+- Give every probe and trial an unpredictable container name, hard-kill the
+  client at its deadline, and return `HOLD` unless cleanup verifies that exact
+  container name is absent.
 - Repeat trusted repository canaries against both artifacts and return bounded
   `SAFE`, `CHANGED`, or `HOLD` evidence. The generated template intentionally
   reports `FAIL`, so first-use scaffolding cannot earn `SAFE` by itself.
 - Add private nonce-bound receipts, explicitly requested Ed25519-signed public
   compatibility entries, pinned-key verification, and a static local evidence
   index that excludes repositories, commands, prompts, paths, raw output, and
-  environment data.
-- Bind the loaded configuration and complete canary harness, require pairwise
-  disjoint inputs, and re-inventory artifacts and canaries after execution so
-  empty, overlapping, or moving evidence fails closed to `HOLD`.
+  environment data. Public canary labels are receipt-specific nonce-blinded
+  pseudonyms unless the operator explicitly supplies a public ID.
+- At evaluation entry, require a fresh validated config read to equal the
+  caller's canonical snapshot; after trials, require its canonical path,
+  device/inode identity, and canonical content to match the entry checkpoint.
+  Bind its digest and the complete canary harness, require pairwise disjoint
+  inputs, and re-inventory artifact and canary trees after execution. These
+  checkpoints detect observed changes but do not claim continuous immutability
+  against same-host ABA or privileged races.
 - Refuse receipt and index outputs that alias keys, inputs, or evaluated trees.
+- Escape control and Unicode format characters in human upgrade receipts,
+  doctor output, init/index paths, and error messages without changing
+  structured evidence.
 - Keep Upgrade Guard out of the GitHub Action and hosted workflows until
   hostile candidate execution, adapter fidelity, and external retention have
   been independently established.
