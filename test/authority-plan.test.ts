@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -879,11 +879,12 @@ test("composite Action enforces an exact-SHA authority plan as a required check"
   const event = join(auxiliary, "event.json");
   const output = join(auxiliary, "output");
   const summary = join(auxiliary, "summary");
-  const runner = join(auxiliary, "runner");
+  const runnerPath = join(auxiliary, "runner");
   writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: value.base }, head: { sha: head } } }));
   writeFileSync(output, "");
   writeFileSync(summary, "");
-  mkdirSync(runner);
+  mkdirSync(runnerPath);
+  const runner = realpathSync(runnerPath);
 
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
   const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];

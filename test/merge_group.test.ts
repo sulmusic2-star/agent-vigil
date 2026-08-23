@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -82,11 +82,12 @@ test("composite Action routes a merge_group event to JSON and SARIF outputs", { 
   const script = join(aux, "run.sh");
   const output = join(aux, "output");
   const summary = join(aux, "summary");
-  const runner = join(aux, "runner");
+  const runnerPath = join(aux, "runner");
   writeFileSync(script, scriptText);
   writeFileSync(output, "");
   writeFileSync(summary, "");
-  mkdirSync(runner);
+  mkdirSync(runnerPath);
+  const runner = realpathSync(runnerPath);
   const actionEnv: NodeJS.ProcessEnv = {
     ...process.env,
     GITHUB_ACTION_PATH: process.cwd(),
@@ -119,9 +120,9 @@ test("composite Action routes a merge_group event to JSON and SARIF outputs", { 
   assert.equal(completed.status, 0, completed.stderr);
   const firstOutputs = readFileSync(output, "utf8");
   assert.match(firstOutputs, /^status=PASS$/m);
-  assert.match(firstOutputs, /^sarif=.+report\.sarif$/m);
-  assert.match(firstOutputs, /^value_card=.+value-card\.json$/m);
-  assert.match(firstOutputs, /^github_evidence=.+github-evidence\.json$/m);
+  assert.match(firstOutputs, /^sarif=.+agent-vigil\.sarif$/m);
+  assert.match(firstOutputs, /^value_card=.+agent-vigil-value-card\.json$/m);
+  assert.match(firstOutputs, /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
   const firstPath = (name: string): string => {
     const path = new RegExp(`^${name}=(.+)$`, "m").exec(firstOutputs)?.[1];
     assert.ok(path);

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGitHubEvidence, loadGitHubEvidence, recomputeGitHubEvidenceHash } from "../src/github-evidence.ts";
@@ -147,8 +147,9 @@ test("composite Action outcome mode closes a prior receipt without executing rep
   const script = join(root, "run.sh");
   const output = join(root, "output");
   const summary = join(root, "summary");
-  const runner = join(root, "runner");
-  mkdirSync(runner);
+  const runnerPath = join(root, "runner");
+  mkdirSync(runnerPath);
+  const runner = realpathSync(runnerPath);
   writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
   writeFileSync(output, "");
   writeFileSync(summary, "");
@@ -171,8 +172,8 @@ test("composite Action outcome mode closes a prior receipt without executing rep
     return [line.slice(0, separator), line.slice(separator + 1)];
   }));
   assert.equal(outputs.status, "PASS");
-  assert.match(outputs.value_card, /\/value-card\.json$/);
-  assert.match(outputs.github_evidence, /\/github-evidence\.json$/);
+  assert.match(outputs.value_card, /\/agent-vigil-value-card\.json$/);
+  assert.match(outputs.github_evidence, /\/agent-vigil-github-evidence\.json$/);
   assert.ok(outputs.value_card.startsWith(`${runner}/`));
   assert.ok(outputs.github_evidence.startsWith(`${runner}/`));
   assert.equal(JSON.parse(readFileSync(outputs.value_card, "utf8")).task.taskClass, "bugfix");

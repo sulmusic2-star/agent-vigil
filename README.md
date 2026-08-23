@@ -512,10 +512,13 @@ combined commit. See [the merge-queue contract](docs/MERGE_QUEUES.md).
 
 `mode: upgrade` is a separate APM compatibility check. It reads both lockfiles
 and the trusted harness directly from exact event Git objects using plumbing
-commands under a sanitized environment. It rejects any base-to-head harness
-change, materializes the selected exact pair into runner-owned temporary
-directories, runs the contained comparison, and removes the session before it
-returns. It never checks out repository code or updates the active APM
+commands under a sanitized environment. The protected workflow fetches those
+objects from the base repository into a private bare repository—fork heads use
+`refs/pull/<number>/head`—verifies the event SHAs, persists no remote or token,
+and removes the bare repository in an always-run cleanup. It rejects any
+base-to-head harness change, materializes the selected exact pair into
+runner-owned temporary directories, runs the contained comparison, and removes
+the session before it returns. It never checks out repository code or updates the active APM
 installation. See the
 [APM preflight Action contract](docs/APM_PREFLIGHT_ACTION.md) and the
 [complete workflow](examples/upgrade-guard/github-workflow.yml).

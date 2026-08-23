@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -260,11 +260,12 @@ test("composite Action routes authority mode with a base-anchored contract", { s
   const script = join(aux, "run.sh");
   const output = join(aux, "output");
   const summary = join(aux, "summary");
-  const runner = join(aux, "runner");
+  const runnerPath = join(aux, "runner");
   writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
   writeFileSync(output, "");
   writeFileSync(summary, "");
-  mkdirSync(runner);
+  mkdirSync(runnerPath);
+  const runner = realpathSync(runnerPath);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GITHUB_ACTION_PATH: process.cwd(), GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: runner,
@@ -283,8 +284,8 @@ test("composite Action routes authority mode with a base-anchored contract", { s
   assert.equal(completed.status, 0, `${completed.stdout}\n${completed.stderr}`);
   const outputs = readFileSync(output, "utf8");
   assert.match(outputs, /^status=PASS$/m);
-  assert.match(outputs, /^value_card=.+value-card\.json$/m);
-  assert.match(outputs, /^github_evidence=.+github-evidence\.json$/m);
+  assert.match(outputs, /^value_card=.+agent-vigil-value-card\.json$/m);
+  assert.match(outputs, /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
   const outputPath = (name: string): string => {
     const path = new RegExp(`^${name}=(.+)$`, "m").exec(outputs)?.[1];
     assert.ok(path);

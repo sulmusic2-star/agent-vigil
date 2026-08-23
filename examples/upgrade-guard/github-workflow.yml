@@ -17,15 +17,132 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-          # checkout v7 requires this opt-out before it will materialize a fork
-          # head under pull_request_target. Nothing in this job may execute,
-          # source, import, build, or run files from that checkout.
-          allow-unsafe-pr-checkout: ${{ github.event_name == 'pull_request_target' }}
+      - id: event_repo
+        name: Fetch exact event objects without a checkout
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS /bin/bash --noprofile --norc -e -o pipefail {0}
+        env:
+          VIGIL_EVENT_KIND: ${{ github.event_name }}
+          VIGIL_EVENT_REPOSITORY: ${{ github.repository }}
+          VIGIL_EVENT_BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name || github.repository }}
+          VIGIL_EVENT_PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          VIGIL_EVENT_BASE_REF: ${{ github.event.pull_request.base.ref && format('refs/heads/{0}', github.event.pull_request.base.ref) || github.event.merge_group.base_ref }}
+          VIGIL_EVENT_HEAD_REF: ${{ github.event.pull_request.number && format('refs/pull/{0}/head', github.event.pull_request.number) || github.event.merge_group.head_ref }}
+          VIGIL_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          VIGIL_EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          VIGIL_EVENT_TOKEN: ${{ github.token }}
+        run: |
+          /usr/bin/env -i LANG=C LC_ALL=C TZ=UTC PATH=/usr/bin:/bin \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_NO_REPLACE_OBJECTS=1 GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 \
+            GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+            "GITHUB_OUTPUT=${GITHUB_OUTPUT-}" "RUNNER_TEMP=${RUNNER_TEMP-}" \
+            "VIGIL_EVENT_KIND=${VIGIL_EVENT_KIND-}" \
+            "VIGIL_EVENT_REPOSITORY=${VIGIL_EVENT_REPOSITORY-}" \
+            "VIGIL_EVENT_BASE_REPOSITORY=${VIGIL_EVENT_BASE_REPOSITORY-}" \
+            "VIGIL_EVENT_PR_NUMBER=${VIGIL_EVENT_PR_NUMBER-}" \
+            "VIGIL_EVENT_BASE_REF=${VIGIL_EVENT_BASE_REF-}" \
+            "VIGIL_EVENT_HEAD_REF=${VIGIL_EVENT_HEAD_REF-}" \
+            "VIGIL_EVENT_BASE=${VIGIL_EVENT_BASE-}" "VIGIL_EVENT_HEAD=${VIGIL_EVENT_HEAD-}" \
+            /bin/bash --noprofile --norc -e -o pipefail -s \
+            3<<<"${VIGIL_EVENT_TOKEN-}" <<'AGENT_VIGIL_EVENT_REPO'
+          set -eo pipefail
+          set +x
+          umask 077
+          IFS= read -r VIGIL_EVENT_TOKEN <&3 || exit 2
+          if IFS= read -r unexpected_token_bytes <&3; then exit 2; fi
+          exec 3<&-
+          readonly git_bin=/usr/bin/git
+          [[ -x "$git_bin" && ! -w "$git_bin" ]] || exit 2
+          [[ -n "$RUNNER_TEMP" && -d "$RUNNER_TEMP" && ! -L "$RUNNER_TEMP" ]] || exit 2
+          runner_real=$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P) || exit 2
+          [[ "$RUNNER_TEMP" == "$runner_real" ]] || exit 2
+          [[ -n "$GITHUB_OUTPUT" && "$GITHUB_OUTPUT" == /* && -f "$GITHUB_OUTPUT" && ! -L "$GITHUB_OUTPUT" && -O "$GITHUB_OUTPUT" ]] || exit 2
+          output_parent="${GITHUB_OUTPUT%/*}"
+          output_parent_real=$(cd "$output_parent" 2>/dev/null && pwd -P) || exit 2
+          [[ "$GITHUB_OUTPUT" == "$output_parent_real/${GITHUB_OUTPUT##*/}" && "$output_parent_real" == "$runner_real"/* ]] || exit 2
+          [[ "$VIGIL_EVENT_BASE" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$VIGIL_EVENT_HEAD" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$VIGIL_EVENT_TOKEN" =~ ^[A-Za-z0-9_-]+$ \
+            && "${#VIGIL_EVENT_TOKEN}" -ge 20 && "${#VIGIL_EVENT_TOKEN}" -le 512 ]] || exit 2
+
+          valid_repository() {
+            [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$ ]]
+          }
+          valid_branch_ref() {
+            [[ "$1" =~ ^refs/heads/[A-Za-z0-9._/-]{1,240}$ ]] || return 1
+            [[ "$1" != *..* && "$1" != *//* && "$1" != *@\{* && "$1" != */.* ]] || return 1
+            [[ "$1" != *.lock && "$1" != */ && "$1" != *. ]] || return 1
+            "$git_bin" --no-pager --no-replace-objects \
+              -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+              -c core.attributesFile=/dev/null -c credential.helper= \
+              check-ref-format "$1" >/dev/null 2>&1
+          }
+          valid_repository "$VIGIL_EVENT_REPOSITORY" || exit 2
+          valid_repository "$VIGIL_EVENT_BASE_REPOSITORY" || exit 2
+          valid_branch_ref "$VIGIL_EVENT_BASE_REF" || exit 2
+          [[ "$VIGIL_EVENT_BASE_REPOSITORY" == "$VIGIL_EVENT_REPOSITORY" ]] || exit 2
+          case "$VIGIL_EVENT_KIND" in
+            pull_request_target)
+              [[ "$VIGIL_EVENT_PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]] || exit 2
+              [[ "$VIGIL_EVENT_HEAD_REF" == "refs/pull/$VIGIL_EVENT_PR_NUMBER/head" ]] || exit 2
+              ;;
+            merge_group)
+              [[ -z "$VIGIL_EVENT_PR_NUMBER" ]] || exit 2
+              valid_branch_ref "$VIGIL_EVENT_HEAD_REF" || exit 2
+              ;;
+            *) exit 2 ;;
+          esac
+
+          event_parent=$(/usr/bin/mktemp -d "$runner_real/agent-vigil-event-repo.XXXXXX") || exit 2
+          [[ "$event_parent" == "$runner_real"/agent-vigil-event-repo.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9] ]] || exit 2
+          [[ -O "$event_parent" ]] || exit 2
+          printf 'parent=%s\n' "$event_parent" >> "$GITHUB_OUTPUT"
+          /bin/mkdir -m 700 "$event_parent/home"
+          export HOME="$event_parent/home"
+          event_repo="$event_parent/event.git"
+          git_common=(
+            "$git_bin" --no-pager --no-replace-objects
+            -c core.hooksPath=/dev/null -c core.fsmonitor=false
+            -c core.attributesFile=/dev/null -c init.templateDir=
+            -c credential.helper= -c protocol.allow=never -c protocol.https.allow=always
+            -c http.followRedirects=false
+            -c transfer.fsckObjects=true -c fetch.fsckObjects=true
+          )
+          "${git_common[@]}" init --bare "$event_repo" >/dev/null
+          [[ -d "$event_repo" && ! -L "$event_repo" ]] || exit 2
+          /usr/bin/printf '[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = true\n' > "$event_repo/config"
+
+          authorization=$(/usr/bin/printf 'x-access-token:%s' "$VIGIL_EVENT_TOKEN" | /usr/bin/base64 | /usr/bin/tr -d '\n')
+          unset VIGIL_EVENT_TOKEN
+          fetch_exact_ref() {
+            local ref="$1" destination="$2" url
+            url="https://github.com/$VIGIL_EVENT_REPOSITORY.git"
+            GIT_CONFIG_COUNT=1 \
+              GIT_CONFIG_KEY_0=http.https://github.com/.extraHeader \
+              GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization" \
+              "${git_common[@]}" \
+              --git-dir="$event_repo" fetch --no-tags --no-write-fetch-head --depth=1 --force \
+              "$url" "+$ref:$destination" >/dev/null
+          }
+          # The base branch may have advanced after this event was emitted. Ask
+          # GitHub for the still-reachable exact event object, not the moving
+          # branch ref; the pull/queue head remains bound to its event ref.
+          fetch_exact_ref "$VIGIL_EVENT_BASE" refs/vigil/base
+          fetch_exact_ref "$VIGIL_EVENT_HEAD_REF" refs/vigil/head
+          unset authorization GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+
+          observed_base=$("${git_common[@]}" --git-dir="$event_repo" rev-parse --verify 'refs/vigil/base^{commit}')
+          observed_head=$("${git_common[@]}" --git-dir="$event_repo" rev-parse --verify 'refs/vigil/head^{commit}')
+          [[ "$observed_base" == "$VIGIL_EVENT_BASE" ]] || exit 2
+          [[ "$observed_head" == "$VIGIL_EVENT_HEAD" ]] || exit 2
+          "${git_common[@]}" --git-dir="$event_repo" cat-file -e "$VIGIL_EVENT_BASE^{commit}"
+          "${git_common[@]}" --git-dir="$event_repo" cat-file -e "$VIGIL_EVENT_HEAD^{commit}"
+          [[ "$("${git_common[@]}" --git-dir="$event_repo" rev-parse --is-bare-repository)" == true ]] || exit 2
+          [[ "$("${git_common[@]}" --git-dir="$event_repo" for-each-ref --format='%(refname)')" == $'refs/vigil/base\nrefs/vigil/head' ]] || exit 2
+          [[ -z "$("${git_common[@]}" --git-dir="$event_repo" remote)" ]] || exit 2
+          [[ -z "$("${git_common[@]}" --git-dir="$event_repo" config --local --get-regexp '^(http\.|credential\.|remote\.|url\.|include)' || true)" ]] || exit 2
+          printf 'repo=%s\n' "$event_repo" >> "$GITHUB_OUTPUT"
+          AGENT_VIGIL_EVENT_REPO
 
       # Required-workflow rulesets ignore event path filters. Classify the
       # exact event objects internally so unrelated PRs and merge groups pass
@@ -34,20 +151,29 @@ jobs:
         name: Classify exact APM control-path changes
         shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS /bin/bash --noprofile --norc -e -o pipefail {0}
         env:
+          VIGIL_EVENT_REPO: ${{ steps.event_repo.outputs.repo }}
           VIGIL_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           VIGIL_EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
-          /usr/bin/env -i LANG=C LC_ALL=C TZ=UTC \
-            GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_OUTPUT="$GITHUB_OUTPUT" \
+          /usr/bin/env -i LANG=C LC_ALL=C TZ=UTC PATH=/usr/bin:/bin \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_NO_REPLACE_OBJECTS=1 GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 \
+            GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false GITHUB_OUTPUT="$GITHUB_OUTPUT" \
+            VIGIL_EVENT_REPO="$VIGIL_EVENT_REPO" \
             VIGIL_EVENT_BASE="$VIGIL_EVENT_BASE" VIGIL_EVENT_HEAD="$VIGIL_EVENT_HEAD" \
             /bin/bash --noprofile --norc -e -o pipefail -c '
               umask 077
               [[ "$VIGIL_EVENT_BASE" =~ ^[0-9a-f]{40}$ ]] || exit 2
               [[ "$VIGIL_EVENT_HEAD" =~ ^[0-9a-f]{40}$ ]] || exit 2
+              [[ -n "$VIGIL_EVENT_REPO" && -d "$VIGIL_EVENT_REPO" && ! -L "$VIGIL_EVENT_REPO" ]] || exit 2
+              git_common=(/usr/bin/git --no-pager --no-replace-objects
+                -c core.hooksPath=/dev/null -c core.fsmonitor=false
+                -c core.attributesFile=/dev/null -c credential.helper=)
+              [[ "$("${git_common[@]}" -C "$VIGIL_EVENT_REPO" rev-parse --is-bare-repository)" == true ]] || exit 2
+              [[ "$("${git_common[@]}" -C "$VIGIL_EVENT_REPO" rev-parse --verify "refs/vigil/base^{commit}")" == "$VIGIL_EVENT_BASE" ]] || exit 2
+              [[ "$("${git_common[@]}" -C "$VIGIL_EVENT_REPO" rev-parse --verify "refs/vigil/head^{commit}")" == "$VIGIL_EVENT_HEAD" ]] || exit 2
               set +e
-              /usr/bin/git --no-pager --no-replace-objects \
-                -c core.hooksPath=/dev/null -c core.fsmonitor=false \
-                -c core.attributesFile=/dev/null -C "$GITHUB_WORKSPACE" \
+              "${git_common[@]}" -C "$VIGIL_EVENT_REPO" \
                 diff-tree --quiet "$VIGIL_EVENT_BASE" "$VIGIL_EVENT_HEAD" -- \
                 apm.lock.yaml .agent-vigil/upgrade .github/workflows/agent-vigil-upgrade.yml
               code=$?
@@ -72,9 +198,35 @@ jobs:
         uses: sulmusic2-star/agent-vigil@v0.15.0
         with:
           mode: upgrade
-          repo: .
+          repo: ${{ steps.event_repo.outputs.repo }}
           base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+
+      - id: event_repo_cleanup
+        name: Remove exact event object repository
+        if: ${{ always() && steps.event_repo.outputs.parent != '' }}
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS /bin/bash --noprofile --norc -e -o pipefail {0}
+        env:
+          VIGIL_EVENT_PARENT: ${{ steps.event_repo.outputs.parent }}
+        run: |
+          /usr/bin/env -i LANG=C LC_ALL=C TZ=UTC PATH=/usr/bin:/bin \
+            "RUNNER_TEMP=${RUNNER_TEMP-}" "VIGIL_EVENT_PARENT=${VIGIL_EVENT_PARENT-}" \
+            /bin/bash --noprofile --norc -e -o pipefail -c '
+              umask 077
+              [[ -n "$RUNNER_TEMP" && -d "$RUNNER_TEMP" && ! -L "$RUNNER_TEMP" ]] || exit 2
+              runner_real=$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P) || exit 2
+              [[ "$RUNNER_TEMP" == "$runner_real" ]] || exit 2
+              expected="$runner_real"/agent-vigil-event-repo.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]
+              [[ "$VIGIL_EVENT_PARENT" == $expected && -d "$VIGIL_EVENT_PARENT" && ! -L "$VIGIL_EVENT_PARENT" && -O "$VIGIL_EVENT_PARENT" ]] || exit 2
+              parent_real=$(cd "$VIGIL_EVENT_PARENT" 2>/dev/null && pwd -P) || exit 2
+              [[ "$parent_real" == "$VIGIL_EVENT_PARENT" ]] || exit 2
+              mode=$(/usr/bin/stat -c "%a" -- "$VIGIL_EVENT_PARENT" 2>/dev/null) || \
+                mode=$(/usr/bin/stat -f "%Lp" "$VIGIL_EVENT_PARENT" 2>/dev/null) || exit 2
+              [[ "$mode" =~ ^[0-7]{3,4}$ ]] || exit 2
+              (( (8#$mode & 077) == 0 )) || exit 2
+              /bin/rm -rf -- "$VIGIL_EVENT_PARENT"
+              [[ ! -e "$VIGIL_EVENT_PARENT" && ! -L "$VIGIL_EVENT_PARENT" ]] || exit 2
+            '
 
       # The report is a private wrapper containing exact manifest and canary
       # commitments. Do not upload it from a public repository. A private

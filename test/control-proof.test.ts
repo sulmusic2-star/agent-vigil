@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -105,8 +105,9 @@ test("composite Action prove mode returns the control receipt without synthetic 
     const script = join(aux, "run.sh");
     const output = join(aux, "output");
     const summary = join(aux, "summary");
-    const runner = join(aux, "runner");
-    mkdirSync(runner);
+    const runnerPath = join(aux, "runner");
+    mkdirSync(runnerPath);
+    const runner = realpathSync(runnerPath);
     writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
     writeFileSync(output, "");
     writeFileSync(summary, "");

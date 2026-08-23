@@ -229,57 +229,182 @@ runs:
         unset GIT_CONFIG GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_COUNT GIT_ATTR_NOSYSTEM
         unset GIT_SSH GIT_SSH_COMMAND GIT_ASKPASS SSH_ASKPASS GIT_PROXY_COMMAND
 
-        canonical_host_file() {
-          local selected="$1"
-          local parent canonical_parent target cursor attempts=0
-          while true; do
-            parent="${selected%/*}"
-            canonical_parent=$(cd "$parent" 2>/dev/null && pwd -P) || return 1
-            selected="$canonical_parent/${selected##*/}"
-            if [[ ! -L "$selected" ]]; then break; fi
-            attempts=$((attempts + 1))
-            [[ "$attempts" -le 8 ]] || return 1
-            target=$(/usr/bin/readlink -- "$selected") || return 1
-            if [[ "$target" == /* ]]; then selected="$target"; else selected="$canonical_parent/$target"; fi
-          done
-          [[ -f "$selected" && -x "$selected" && ! -w "$selected" ]] || return 1
-          cursor="${selected%/*}"
-          while [[ -n "$cursor" && "$cursor" != "/" ]]; do
-            [[ ! -w "$cursor" ]] || return 1
-            cursor="${cursor%/*}"
-          done
-          if [[ -n "${GITHUB_WORKSPACE:-}" && "$selected" == "$GITHUB_WORKSPACE"/* ]]; then return 1; fi
-          if [[ -n "${RUNNER_TEMP:-}" && "$selected" == "$RUNNER_TEMP"/* ]]; then return 1; fi
+        # The fixed host files below are part of the GitHub-hosted runner image
+        # trust boundary. Writable ancestors are permitted because Ubuntu runner
+        # images intentionally expose writable tool roots; arbitrary PATH,
+        # workspace, Action, and runner-temp executables remain ineligible.
+        readonly VIGIL_HOSTED_NODE_ROOT='/opt/hostedtoolcache/node'
+        readonly VIGIL_MACOS_HOSTED_NODE_ROOT='/Users/runner/hostedtoolcache/node'
+
+        bootstrap_host_file() {
+          local selected="$1" parent canonical_parent
+          parent="${selected%/*}"
+          canonical_parent=$(cd "$parent" 2>/dev/null && pwd -P) || return 1
+          selected="$canonical_parent/${selected##*/}"
+          [[ "$selected" == "$1" && -f "$selected" && ! -L "$selected" && -x "$selected" && ! -w "$selected" ]] || return 1
           printf '%s' "$selected"
         }
 
-        VIGIL_ENV_BIN=''
-        for candidate in /usr/bin/env /bin/env; do
-          if resolved=$(canonical_host_file "$candidate"); then VIGIL_ENV_BIN="$resolved"; break; fi
+        VIGIL_STAT_BIN=$(bootstrap_host_file /usr/bin/stat) || {
+          echo "agent-vigil: trusted host stat is unavailable" >&2
+          exit 2
+        }
+        file_mode() {
+          local selected="$1" mode
+          mode=$("$VIGIL_STAT_BIN" -c '%a' -- "$selected" 2>/dev/null) || \
+            mode=$("$VIGIL_STAT_BIN" -f '%Lp' "$selected" 2>/dev/null) || return 1
+          [[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+          printf '%s' "$mode"
+        }
+        file_fingerprint() {
+          local selected="$1" value
+          value=$("$VIGIL_STAT_BIN" -c '%d:%i:%s:%Y:%a' -- "$selected" 2>/dev/null) || \
+            value=$("$VIGIL_STAT_BIN" -f '%d:%i:%z:%m:%Lp' "$selected" 2>/dev/null) || return 1
+          [[ "$value" =~ ^[0-9]+:[0-9]+:[0-9]+:[0-9]+:[0-7]{3,4}$ ]] || return 1
+          printf '%s' "$value"
+        }
+        path_is_inside() {
+          local selected="$1" root="$2"
+          [[ -n "$root" && ( "$selected" == "$root" || "$selected" == "$root"/* ) ]]
+        }
+        canonical_host_file() {
+          local selected="$1" parent canonical_parent mode
+          parent="${selected%/*}"
+          canonical_parent=$(cd "$parent" 2>/dev/null && pwd -P) || return 1
+          selected="$canonical_parent/${selected##*/}"
+          [[ "$selected" == "$1" && -f "$selected" && ! -L "$selected" && -x "$selected" ]] || return 1
+          mode=$(file_mode "$selected") || return 1
+          (( (8#$mode & 022) == 0 )) || return 1
+          if path_is_inside "$selected" "${GITHUB_WORKSPACE:-}" \
+            || path_is_inside "$selected" "${RUNNER_TEMP:-}" \
+            || path_is_inside "$selected" "${GITHUB_ACTION_PATH:-}"; then return 1; fi
+          printf '%s' "$selected"
+        }
+        valid_node_source() {
+          local selected="$1" relative version architecture
+          case "$selected" in
+            /usr/bin/node|/usr/local/bin/node) return 0 ;;
+            "$VIGIL_HOSTED_NODE_ROOT"/*/x64/bin/node)
+              relative="${selected#"$VIGIL_HOSTED_NODE_ROOT"/}"
+              version="${relative%%/*}"
+              [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+                && (( 10#${version%%.*} >= 20 ))
+              ;;
+            "$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/*/bin/node)
+              relative="${selected#"$VIGIL_MACOS_HOSTED_NODE_ROOT"/}"
+              version="${relative%%/*}"
+              architecture="${relative#*/}"; architecture="${architecture%%/*}"
+              [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ \
+                && ( "$architecture" == x64 || "$architecture" == arm64 ) ]] \
+                && (( 10#${version%%.*} >= 20 ))
+              ;;
+            *) return 1 ;;
+          esac
+        }
+
+        VIGIL_ENV_BIN=$(canonical_host_file /usr/bin/env) || true
+        VIGIL_GIT_BIN=$(canonical_host_file /usr/bin/git) || true
+        VIGIL_MKTEMP_BIN=$(canonical_host_file /usr/bin/mktemp) || true
+        VIGIL_CP_BIN=''
+        for candidate in /usr/bin/cp /bin/cp; do
+          if resolved=$(canonical_host_file "$candidate"); then VIGIL_CP_BIN="$resolved"; break; fi
         done
-        VIGIL_GIT_BIN=''
-        for candidate in /usr/bin/git /usr/local/bin/git; do
-          if resolved=$(canonical_host_file "$candidate"); then VIGIL_GIT_BIN="$resolved"; break; fi
+        VIGIL_CHMOD_BIN=''
+        for candidate in /usr/bin/chmod /bin/chmod; do
+          if resolved=$(canonical_host_file "$candidate"); then VIGIL_CHMOD_BIN="$resolved"; break; fi
         done
-        VIGIL_NODE_BIN=''
-        for candidate in /usr/local/bin/node /usr/bin/node /opt/homebrew/bin/node; do
-          if resolved=$(canonical_host_file "$candidate"); then VIGIL_NODE_BIN="$resolved"; break; fi
+        VIGIL_CMP_BIN=$(canonical_host_file /usr/bin/cmp) || true
+        VIGIL_RM_BIN=''
+        for candidate in /usr/bin/rm /bin/rm; do
+          if resolved=$(canonical_host_file "$candidate"); then VIGIL_RM_BIN="$resolved"; break; fi
         done
-        if [[ -z "$VIGIL_NODE_BIN" ]]; then
-          for candidate in /opt/hostedtoolcache/node/*/x64/bin/node; do
-            if resolved=$(canonical_host_file "$candidate"); then VIGIL_NODE_BIN="$resolved"; break; fi
-          done
-        fi
-        if [[ -z "$VIGIL_ENV_BIN" || -z "$VIGIL_GIT_BIN" || -z "$VIGIL_NODE_BIN" ]]; then
-          echo "agent-vigil: trusted host runtime is unavailable" >&2
+        VIGIL_SHA_BIN=''
+        for candidate in /usr/bin/sha256sum /usr/bin/shasum; do
+          if resolved=$(canonical_host_file "$candidate"); then VIGIL_SHA_BIN="$resolved"; break; fi
+        done
+        VIGIL_NODE_SOURCE=''
+        for candidate in \
+          "$VIGIL_HOSTED_NODE_ROOT"/*/x64/bin/node \
+          "$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/x64/bin/node \
+          "$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/arm64/bin/node \
+          /usr/bin/node \
+          /usr/local/bin/node; do
+          if resolved=$(canonical_host_file "$candidate") && valid_node_source "$resolved"; then
+            VIGIL_NODE_SOURCE="$resolved"
+            break
+          fi
+        done
+        if [[ -z "$VIGIL_ENV_BIN" || -z "$VIGIL_GIT_BIN" || -z "$VIGIL_MKTEMP_BIN" \
+          || -z "$VIGIL_CP_BIN" || -z "$VIGIL_CHMOD_BIN" || -z "$VIGIL_CMP_BIN" \
+          || -z "$VIGIL_RM_BIN" || -z "$VIGIL_SHA_BIN" || -z "$VIGIL_NODE_SOURCE" ]]; then
+          missing_runtime=''
+          [[ -n "$VIGIL_ENV_BIN" ]] || missing_runtime+=' env'
+          [[ -n "$VIGIL_GIT_BIN" ]] || missing_runtime+=' git'
+          [[ -n "$VIGIL_MKTEMP_BIN" ]] || missing_runtime+=' mktemp'
+          [[ -n "$VIGIL_CP_BIN" ]] || missing_runtime+=' cp'
+          [[ -n "$VIGIL_CHMOD_BIN" ]] || missing_runtime+=' chmod'
+          [[ -n "$VIGIL_CMP_BIN" ]] || missing_runtime+=' cmp'
+          [[ -n "$VIGIL_RM_BIN" ]] || missing_runtime+=' rm'
+          [[ -n "$VIGIL_SHA_BIN" ]] || missing_runtime+=' sha256'
+          [[ -n "$VIGIL_NODE_SOURCE" ]] || missing_runtime+=' node'
+          echo "agent-vigil: trusted host runtime is unavailable:$missing_runtime" >&2
           exit 2
         fi
-        readonly VIGIL_ENV_BIN VIGIL_GIT_BIN VIGIL_NODE_BIN
-        if ! "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "$VIGIL_NODE_BIN" -e \
-          'const major=Number(process.versions.node.split(".")[0]); if (!Number.isInteger(major) || major < 20) process.exit(1)'; then
+        readonly VIGIL_STAT_BIN VIGIL_ENV_BIN VIGIL_GIT_BIN VIGIL_MKTEMP_BIN VIGIL_CP_BIN
+        readonly VIGIL_CHMOD_BIN VIGIL_CMP_BIN VIGIL_RM_BIN VIGIL_SHA_BIN VIGIL_NODE_SOURCE
+
+        if [[ -z "${RUNNER_TEMP:-}" || ! -d "$RUNNER_TEMP" || -L "$RUNNER_TEMP" ]]; then
+          echo "agent-vigil: runner-owned temporary directory is unavailable" >&2
+          exit 2
+        fi
+        runner_real=$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P) || exit 2
+        [[ "$RUNNER_TEMP" == "$runner_real" ]] || exit 2
+        VIGIL_RUNTIME_DIR=$("$VIGIL_MKTEMP_BIN" -d "$runner_real/agent-vigil-runtime.XXXXXX") || exit 2
+        [[ "$VIGIL_RUNTIME_DIR" == "$runner_real"/agent-vigil-runtime.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9] \
+          && -d "$VIGIL_RUNTIME_DIR" && ! -L "$VIGIL_RUNTIME_DIR" && -O "$VIGIL_RUNTIME_DIR" ]] || exit 2
+        "$VIGIL_CHMOD_BIN" 700 "$VIGIL_RUNTIME_DIR"
+        cleanup_runtime() {
+          [[ -n "${VIGIL_RUNTIME_DIR:-}" && "$VIGIL_RUNTIME_DIR" == "$runner_real"/agent-vigil-runtime.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9] \
+            && -d "$VIGIL_RUNTIME_DIR" && ! -L "$VIGIL_RUNTIME_DIR" && -O "$VIGIL_RUNTIME_DIR" ]] || return 1
+          "$VIGIL_RM_BIN" -rf -- "$VIGIL_RUNTIME_DIR"
+          [[ ! -e "$VIGIL_RUNTIME_DIR" && ! -L "$VIGIL_RUNTIME_DIR" ]]
+        }
+        trap 'cleanup_runtime >/dev/null 2>&1 || true' EXIT
+        VIGIL_NODE_BIN="$VIGIL_RUNTIME_DIR/node"
+        node_source_before=$(file_fingerprint "$VIGIL_NODE_SOURCE") || exit 2
+        if [[ "$VIGIL_SHA_BIN" == */sha256sum ]]; then
+          node_source_sha=$("$VIGIL_SHA_BIN" "$VIGIL_NODE_SOURCE" | { read -r digest _; printf '%s' "$digest"; })
+        else
+          node_source_sha=$("$VIGIL_SHA_BIN" -a 256 "$VIGIL_NODE_SOURCE" | { read -r digest _; printf '%s' "$digest"; })
+        fi
+        [[ "$node_source_sha" =~ ^[0-9a-f]{64}$ ]] || exit 2
+        "$VIGIL_CP_BIN" "$VIGIL_NODE_SOURCE" "$VIGIL_NODE_BIN"
+        "$VIGIL_CHMOD_BIN" 500 "$VIGIL_NODE_BIN"
+        node_source_after=$(file_fingerprint "$VIGIL_NODE_SOURCE") || exit 2
+        [[ "$node_source_before" == "$node_source_after" ]] || exit 2
+        if [[ "$VIGIL_SHA_BIN" == */sha256sum ]]; then
+          node_checkpoint_sha=$("$VIGIL_SHA_BIN" "$VIGIL_NODE_BIN" | { read -r digest _; printf '%s' "$digest"; })
+        else
+          node_checkpoint_sha=$("$VIGIL_SHA_BIN" -a 256 "$VIGIL_NODE_BIN" | { read -r digest _; printf '%s' "$digest"; })
+        fi
+        [[ "$node_checkpoint_sha" == "$node_source_sha" ]] || exit 2
+        "$VIGIL_CMP_BIN" -s "$VIGIL_NODE_SOURCE" "$VIGIL_NODE_BIN" || exit 2
+        checkpoint_mode=$(file_mode "$VIGIL_NODE_BIN") || exit 2
+        [[ "$checkpoint_mode" == 500 || "$checkpoint_mode" == 0500 ]] || exit 2
+        readonly VIGIL_RUNTIME_DIR VIGIL_NODE_BIN node_source_before node_source_after node_source_sha node_checkpoint_sha checkpoint_mode
+        observed_node_version=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "$VIGIL_NODE_BIN" -p 'process.versions.node') || true
+        if [[ ! "$observed_node_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ \
+          || "${observed_node_version%%.*}" -lt 20 ]]; then
           echo "agent-vigil: trusted Node.js 20 or newer is unavailable" >&2
           exit 2
         fi
+        case "$VIGIL_NODE_SOURCE" in
+          "$VIGIL_HOSTED_NODE_ROOT"/*/x64/bin/node|"$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/*/bin/node)
+            expected_node_version="${VIGIL_NODE_SOURCE#*/node/}"; expected_node_version="${expected_node_version%%/*}"
+            [[ "$observed_node_version" == "$expected_node_version" ]] || exit 2
+            ;;
+        esac
+        readonly observed_node_version
 
         if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "maintainer" && "$VIGIL_MODE" != "outcome" && "$VIGIL_MODE" != "upgrade" ]]; then
           echo "agent-vigil: mode must be plan, prove, maintainer, outcome, or upgrade when provided" >&2
@@ -382,14 +507,76 @@ runs:
             echo "agent-vigil: upgrade mode requires a pull_request or merge_group event" >&2
             exit 2
           fi
-          if [[ -z "${GITHUB_WORKSPACE:-}" || ! -d "$GITHUB_WORKSPACE" ]]; then
-            echo "agent-vigil: upgrade mode requires the GitHub-managed workspace" >&2
+          if [[ -z "${GITHUB_WORKSPACE:-}" || ! -d "$GITHUB_WORKSPACE" || -z "${RUNNER_TEMP:-}" || ! -d "$RUNNER_TEMP" ]]; then
+            echo "agent-vigil: upgrade mode requires GitHub-managed workspace and runner directories" >&2
             exit 2
           fi
-          if [[ "$(cd "$VIGIL_REPO" 2>/dev/null && pwd -P)" != "$(cd "$GITHUB_WORKSPACE" 2>/dev/null && pwd -P)" ]]; then
-            echo "agent-vigil: upgrade mode requires repo to equal the GitHub workspace" >&2
+          repo_real=$(cd "$VIGIL_REPO" 2>/dev/null && pwd -P) || {
+            echo "agent-vigil: upgrade repository is unavailable" >&2
+            exit 2
+          }
+          workspace_real=$(cd "$GITHUB_WORKSPACE" 2>/dev/null && pwd -P) || exit 2
+          runner_real=$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P) || exit 2
+          if [[ "$GITHUB_WORKSPACE" != "$workspace_real" || "$RUNNER_TEMP" != "$runner_real" ]]; then
+            echo "agent-vigil: GitHub workspace and runner paths must be canonical" >&2
             exit 2
           fi
+          if [[ "$repo_real" != "$workspace_real" ]]; then
+            validated_event_repo=$(
+              "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+                "$VIGIL_NODE_BIN" -e '
+                  const fs=require("node:fs"), path=require("node:path");
+                  const requested=path.resolve(process.argv[1]), runner=path.resolve(process.argv[2]);
+                  const runnerReal=fs.realpathSync(runner), repositoryReal=fs.realpathSync(requested);
+                  if(runnerReal!==runner || repositoryReal!==requested) process.exit(2);
+                  const relative=path.relative(runnerReal,repositoryReal).split(path.sep).join("/");
+                  if(!/^agent-vigil-event-repo\.[A-Za-z0-9]{6}\/event\.git$/.test(relative)) process.exit(2);
+                  const parent=path.dirname(repositoryReal);
+                  for(const selected of [parent,repositoryReal]){
+                    const status=fs.lstatSync(selected);
+                    if(!status.isDirectory()||status.isSymbolicLink()||(status.mode&0o077)!==0) process.exit(2);
+                    if(typeof process.getuid==="function"&&status.uid!==process.getuid()) process.exit(2);
+                  }
+                  const expectedConfig="[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = true\n";
+                  const config=path.join(repositoryReal,"config"), configStatus=fs.lstatSync(config);
+                  if(!configStatus.isFile()||configStatus.isSymbolicLink()||fs.readFileSync(config,"utf8")!==expectedConfig) process.exit(2);
+                  for(const name of ["objects","refs"]){
+                    const status=fs.lstatSync(path.join(repositoryReal,name));
+                    if(!status.isDirectory()||status.isSymbolicLink()) process.exit(2);
+                  }
+                  if(fs.existsSync(path.join(repositoryReal,"objects/info/alternates"))) process.exit(2);
+                  process.stdout.write(repositoryReal);
+                ' "$VIGIL_REPO" "$RUNNER_TEMP"
+            ) || {
+              echo "agent-vigil: upgrade repo must be the workspace or an exact private runner-owned event repository" >&2
+              exit 2
+            }
+            [[ "$validated_event_repo" == "$repo_real" ]] || exit 2
+            event_git() {
+              "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC PATH="$VIGIL_SAFE_PATH" \
+                GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+                GIT_NO_REPLACE_OBJECTS=1 GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 \
+                "$VIGIL_GIT_BIN" --no-pager --no-replace-objects \
+                -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+                -c core.attributesFile=/dev/null -c credential.helper= \
+                -C "$repo_real" "$@"
+            }
+            if [[ "$(event_git rev-parse --is-bare-repository)" != true \
+              || "$(event_git rev-parse --verify 'refs/vigil/base^{commit}')" != "$event_base" \
+              || "$(event_git rev-parse --verify 'refs/vigil/head^{commit}')" != "$event_head" \
+              || "$(event_git for-each-ref --format='%(refname)')" != $'refs/vigil/base\nrefs/vigil/head' \
+              || -n "$(event_git remote)" \
+              || -n "$(event_git config --local --get-regexp '^(http\.|credential\.|remote\.|url\.|include)' || true)" ]]; then
+              echo "agent-vigil: runner-owned event repository does not contain only the exact event objects" >&2
+              exit 2
+            fi
+            event_git cat-file -e "$event_base^{commit}" || exit 2
+            event_git cat-file -e "$event_head^{commit}" || exit 2
+          elif [[ "$(cd "$VIGIL_REPO" 2>/dev/null && pwd -P)" != "$workspace_real" ]]; then
+            echo "agent-vigil: upgrade workspace identity changed" >&2
+            exit 2
+          fi
+          VIGIL_REPO="$repo_real"
           if [[ "${VIGIL_UPGRADE_HAS_GITHUB_TOKEN:-false}" == "true" || -n "$VIGIL_GITHUB_TOKEN" ]]; then
             echo "agent-vigil: upgrade mode does not accept a GitHub token" >&2
             exit 2
@@ -407,8 +594,8 @@ runs:
         docker_home="$artifact_dir/docker-home"
         "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
           "$VIGIL_NODE_BIN" -e 'const fs=require("node:fs"); fs.mkdirSync(process.argv[1], {mode:0o700}); fs.chmodSync(process.argv[1], 0o700)' "$docker_home"
-        report_file="$artifact_dir/report.json"
-        sarif_file="$artifact_dir/report.sarif"
+        report_file="$artifact_dir/agent-vigil-report.json"
+        sarif_file="$artifact_dir/agent-vigil.sarif"
         if [[ "$VIGIL_MODE" == "outcome" ]]; then
           report_file="$VIGIL_OUTCOME_RECEIPT"
           code=0
@@ -434,7 +621,7 @@ runs:
               "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/scripts/materialize-trusted-upgrade-inputs.mjs" cleanup \
               --output "$trusted_inputs" --parent "$artifact_dir"
           }
-          trap 'cleanup_upgrade_inputs >/dev/null 2>&1 || true' EXIT
+          trap 'cleanup_upgrade_inputs >/dev/null 2>&1 || true; cleanup_runtime >/dev/null 2>&1 || true' EXIT
           args=(upgrade preflight --repo "$trusted_repo" --current-lock "$current_lock" --candidate-lock "$candidate_lock" --config "$VIGIL_UPGRADE_CONFIG" --work-directory "$artifact_dir" --output "$report_file")
         elif [[ "${event_kind:-}" == "merge_group" ]]; then
           if [[ -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ]]; then
@@ -513,7 +700,7 @@ runs:
               "$VIGIL_NODE_BIN" -e 'const {unlinkSync}=require("node:fs"); try { unlinkSync(process.argv[1]); } catch {}' "$report_file"
             code=2
           fi
-          trap - EXIT
+          trap 'cleanup_runtime >/dev/null 2>&1 || true' EXIT
           if ! cleanup_upgrade_inputs >/dev/null 2>&1; then
             echo "agent-vigil: runner-owned trusted-input cleanup failed" >&2
             "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
@@ -548,7 +735,7 @@ runs:
           value_card_path=""
           value_verdict=""
           if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "upgrade" && -n "${GITHUB_EVENT_PATH:-}" && -f "$GITHUB_EVENT_PATH" ]]; then
-            github_args=(github-evidence --event "$GITHUB_EVENT_PATH" --output "$artifact_dir/github-evidence.json")
+            github_args=(github-evidence --event "$GITHUB_EVENT_PATH" --output "$artifact_dir/agent-vigil-github-evidence.json")
           else
             github_args=()
           fi
@@ -580,13 +767,13 @@ runs:
             "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/dist/cli.js" "${github_args[@]}"
             github_code=$?
             set -e
-            if [[ "$github_code" -eq 0 && -s "$artifact_dir/github-evidence.json" ]]; then
-              github_evidence_path="$artifact_dir/github-evidence.json"
+            if [[ "$github_code" -eq 0 && -s "$artifact_dir/agent-vigil-github-evidence.json" ]]; then
+              github_evidence_path="$artifact_dir/agent-vigil-github-evidence.json"
             fi
           fi
 
           if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "upgrade" ]]; then
-            value_args=(value "$report_file" --format json --output "$artifact_dir/value-card.json")
+            value_args=(value "$report_file" --format json --output "$artifact_dir/agent-vigil-value-card.json")
             [[ -n "$github_evidence_path" ]] && value_args+=(--github-evidence "$github_evidence_path")
             [[ -n "$VIGIL_VALUE_TASK_CLASS" ]] && value_args+=(--task-class "$VIGIL_VALUE_TASK_CLASS")
             [[ -n "$VIGIL_VALUE_BUDGET_USD" ]] && value_args+=(--budget-usd "$VIGIL_VALUE_BUDGET_USD")
@@ -598,10 +785,10 @@ runs:
             "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/dist/cli.js" "${value_args[@]}"
             value_code=$?
             set -e
-            if [[ "$value_code" -le 2 && -s "$artifact_dir/value-card.json" ]]; then
-              value_card_path="$artifact_dir/value-card.json"
-              value_verdict=$("$VIGIL_NODE_BIN" -e 'const c=require(require("node:path").resolve(process.argv[1])); process.stdout.write(c.valueVerdict)' "$artifact_dir/value-card.json")
-              "$VIGIL_NODE_BIN" - "$artifact_dir/value-card.json" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'NODE'
+            if [[ "$value_code" -le 2 && -s "$artifact_dir/agent-vigil-value-card.json" ]]; then
+              value_card_path="$artifact_dir/agent-vigil-value-card.json"
+              value_verdict=$("$VIGIL_NODE_BIN" -e 'const c=require(require("node:path").resolve(process.argv[1])); process.stdout.write(c.valueVerdict)' "$artifact_dir/agent-vigil-value-card.json")
+              "$VIGIL_NODE_BIN" - "$artifact_dir/agent-vigil-value-card.json" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'NODE'
         const c = require(process.argv[2]);
         const actions = c.github?.actionsRunDurationSeconds === undefined ? "unavailable" : `${c.github.actionsRunDurationSeconds}s run / ${c.github.actionsJobDurationSeconds ?? "?"}s jobs`;
         process.stdout.write(`\n### Agent Value Card: ${c.valueVerdict}\n\n- Verification: ${c.receipt.verificationStatus}\n- Human disposition: ${c.human.disposition}\n- Downstream outcome: ${c.outcome.state}\n- Actions runtime: ${actions}\n- Evidence gaps: ${c.gaps.length}\n- Card: \`${c.cardHash}\`\n`);
