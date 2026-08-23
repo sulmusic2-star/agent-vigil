@@ -522,17 +522,33 @@ test("enabling a Claude sandbox does not treat conditional defaults as authority
   ));
 
   json(value.repo, ".claude/settings.json", {
-    sandbox: { enabled: false, autoAllowBashIfSandboxed: false, allowUnsandboxedCommands: false },
+    sandbox: {
+      enabled: false,
+      failIfUnavailable: true,
+      autoAllowBashIfSandboxed: false,
+      allowUnsandboxedCommands: false,
+      futureIsolationMode: "strict",
+      network: { futureProxyMode: "restricted" },
+    },
   });
   const disabledRestricted = commit(value.repo, "disabled sandbox with restrictive children");
   json(value.repo, ".claude/settings.json", {
-    sandbox: { enabled: false, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: true },
+    sandbox: {
+      enabled: false,
+      failIfUnavailable: false,
+      autoAllowBashIfSandboxed: true,
+      allowUnsandboxedCommands: true,
+      futureIsolationMode: "permissive",
+      network: { futureProxyMode: "automatic" },
+    },
   });
   const disabledWidened = commit(value.repo, "change inactive sandbox children");
   const inactive = buildAuthorityPlan(value.repo, disabledRestricted, disabledWidened);
 
   assert.equal(inactive.status, "PASS");
   assert.ok(inactive.deltas.every((delta) => delta.disposition === "ALLOW"));
+  assert.ok(inactive.deltas.some((delta) => delta.after?.action === "sandbox.fail-closed"));
+  assert.ok(inactive.deltas.some((delta) => delta.after?.action === "authority.opaque"));
 });
 
 test("removing an empty Claude network container preserves default-false controls", () => {

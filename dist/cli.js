@@ -5869,7 +5869,9 @@ function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
   );
   const rawDeltas = [];
   const conditionActiveAcrossRevision = (before2, after2) => {
-    const conditionalOn = after2?.conditionalOn ?? before2?.conditionalOn;
+    const representative = after2 ?? before2;
+    const inferredSandboxParent = representative?.platform === "claude-code" && representative.locator !== "sandbox.enabled" && representative.locator.startsWith("sandbox.") ? `claude-code\0${representative.sourcePath}\0sandbox-enabled` : void 0;
+    const conditionalOn = after2?.conditionalOn ?? before2?.conditionalOn ?? inferredSandboxParent;
     if (!conditionalOn) return true;
     return beforeByKey.get(conditionalOn)?.decision === "ALLOW" && afterByKey.get(conditionalOn)?.decision === "ALLOW";
   };

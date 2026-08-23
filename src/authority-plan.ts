@@ -1646,7 +1646,13 @@ export function buildAuthorityPlan(
   );
   const rawDeltas: AuthorityDelta[] = [];
   const conditionActiveAcrossRevision = (before?: InternalAtom, after?: InternalAtom): boolean => {
-    const conditionalOn = after?.conditionalOn ?? before?.conditionalOn;
+    const representative = after ?? before;
+    const inferredSandboxParent = representative?.platform === "claude-code"
+      && representative.locator !== "sandbox.enabled"
+      && representative.locator.startsWith("sandbox.")
+      ? `claude-code\0${representative.sourcePath}\0sandbox-enabled`
+      : undefined;
+    const conditionalOn = after?.conditionalOn ?? before?.conditionalOn ?? inferredSandboxParent;
     if (!conditionalOn) return true;
     return beforeByKey.get(conditionalOn)?.decision === "ALLOW"
       && afterByKey.get(conditionalOn)?.decision === "ALLOW";
