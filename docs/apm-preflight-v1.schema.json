@@ -112,7 +112,7 @@
       "required": [
         "routeSha256", "rowSha256", "commit", "expectedTreeSha256",
         "fetchedSha256", "fetchedBytes", "materializedTreeSha256",
-        "fileCount", "totalBytes", "selectedArtifact"
+        "fileCount", "totalBytes", "files", "selectedArtifact"
       ],
       "properties": {
         "routeSha256": { "$ref": "#/$defs/sha256" },
@@ -124,6 +124,23 @@
         "materializedTreeSha256": { "$ref": "#/$defs/sha256" },
         "fileCount": { "type": "integer", "minimum": 1, "maximum": 4096 },
         "totalBytes": { "type": "integer", "minimum": 0, "maximum": 268435456 },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "$comment": "Runtime verification requires sorted unique portable paths, exact byte totals, and recomputes both the OpenAPM canonical tree and selected Agent Vigil artifact inventory from these commitments.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "bytes", "mode", "sha256"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "bytes": { "type": "integer", "minimum": 0, "maximum": 33554432 },
+              "mode": { "enum": [420, 493] },
+              "sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        },
         "selectedArtifact": { "$ref": "upgrade-receipt-v1.schema.json#/$defs/artifactInventory" }
       }
     }

@@ -451,6 +451,23 @@ test("automatic APM preflight binds fetch, tree, plan, check, and restoration wi
     ),
     /trusted upgrade configuration/,
   );
+  const forgedTrees = structuredClone(receipt);
+  for (const [side, label] of [["current", "forged-current"], ["candidate", "forged-candidate"]] as const) {
+    const inventory = { treeSha256: digest(label), fileCount: 0, totalBytes: 0 };
+    forgedTrees.materialization![side]!.selectedArtifact = inventory;
+    Object.assign(forgedTrees.upgradeReceipt![side]!, inventory);
+  }
+  forgedTrees.upgradeReceipt!.receiptHash = recomputeUpgradeReceiptHash(forgedTrees.upgradeReceipt!);
+  forgedTrees.receiptHash = recomputeApmPreflightReceiptHash(forgedTrees);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      forgedTrees,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /exact lock-bound repository tree/,
+  );
   const serialized = JSON.stringify(receipt);
   assert.doesNotMatch(serialized, /github\.com\/example\/fixture/);
   assert.doesNotMatch(serialized, /codeload/);
@@ -461,6 +478,7 @@ test("automatic APM preflight returns HOLD before fetch for unbound or unsupport
     { label: "missing tree", extra: "", expected: "SOURCE_INTEGRITY_UNAVAILABLE", withTree: false },
     { label: "registry", extra: "resolved_url: https://registry.example/archive.tgz", expected: "SOURCE_ROUTE_UNSUPPORTED", withTree: true },
     { label: "Windows-reserved virtual path", extra: "virtual_path: CON", expected: "SOURCE_ROUTE_UNSUPPORTED", withTree: true },
+    { label: "virtual subtree lacks a v1 proof", extra: "virtual_path: packages/one", expected: "SOURCE_ROUTE_UNSUPPORTED", withTree: true },
     { label: "future route field", extra: "x-download-route: https://example.invalid/archive", expected: "SOURCE_SHAPE_UNSUPPORTED", withTree: true },
   ]) {
     const value = fixture();

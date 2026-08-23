@@ -931,6 +931,10 @@ function materializationEndpoint(record: ManagerRecord): ApmMaterializationEndpo
   const expectedTreeSha256 = exactSha256(optionalText(row.tree_sha256, "APM tree_sha256", 80));
   if (!commit || !expectedTreeSha256) throw new ApmMaterializationHold("SOURCE_INTEGRITY_UNAVAILABLE");
   const virtualPath = apmPortablePath(row.virtual_path);
+  // R0 binds the selected artifact directly to APM's canonical full-tree
+  // digest. A virtual subdirectory needs a separately verifiable subtree
+  // proof, which v1 receipts do not carry.
+  if (virtualPath) throw new ApmMaterializationHold("SOURCE_ROUTE_UNSUPPORTED");
   const routeSha256 = hash(canonical({
     protocol: "https",
     host: "codeload.github.com",
@@ -945,7 +949,6 @@ function materializationEndpoint(record: ManagerRecord): ApmMaterializationEndpo
     expectedTreeSha256,
     routeSha256,
     rowSha256: record.fingerprint,
-    ...(virtualPath ? { virtualPath } : {}),
   };
 }
 

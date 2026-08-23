@@ -33,6 +33,13 @@ export type ArtifactInventory = {
   totalBytes: number;
 };
 
+export type ArtifactFileCommitment = {
+  path: string;
+  bytes: number;
+  mode: number;
+  sha256: string;
+};
+
 export type CapabilityChange = {
   field: string;
   currentCount: number;
@@ -167,10 +174,21 @@ export type ArtifactInspectionHooks = {
   afterEntryLstat?: (path: string) => void;
 };
 
+export function artifactInventoryFromFileCommitments(
+  input: readonly ArtifactFileCommitment[],
+): ArtifactInventory {
+  const entries = [...input].sort((left, right) => left.path.localeCompare(right.path));
+  return {
+    treeSha256: hash(canonical(entries)),
+    fileCount: entries.length,
+    totalBytes: entries.reduce((total, entry) => total + entry.bytes, 0),
+  };
+}
+
 export function inspectArtifactTree(root: string, hooks: ArtifactInspectionHooks = {}): ArtifactInventory {
   const canonicalRoot = realpathSync(root);
   if (!lstatSync(canonicalRoot).isDirectory()) throw new Error("target must be a directory");
-  const entries: Array<{ path: string; bytes: number; mode: number; sha256: string }> = [];
+  const entries: ArtifactFileCommitment[] = [];
   let totalBytes = 0;
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
@@ -203,11 +221,9 @@ export function inspectArtifactTree(root: string, hooks: ArtifactInspectionHooks
     }
   };
   visit(canonicalRoot);
-  return {
-    treeSha256: hash(canonical(entries)),
-    fileCount: entries.length,
-    totalBytes,
-  };
+  const inventory = artifactInventoryFromFileCommitments(entries);
+  if (inventory.totalBytes !== totalBytes) throw new Error("artifact inventory byte accounting is inconsistent");
+  return inventory;
 }
 
 export function inspectTarget(directory: string, component: UpgradeComponentConfig): TargetSnapshot {

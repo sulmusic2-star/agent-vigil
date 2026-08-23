@@ -214,7 +214,10 @@ only `https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>`, permits no
 redirect, and recomputes the OpenAPM canonical tree SHA-256 before writing the
 artifact. Registry sources, local paths, ports, proxies, alternate hosts,
 unknown dependency fields, missing tree identities, or unsupported route
-shapes return `HOLD` without falling back to the active installer.
+shapes return `HOLD` without falling back to the active installer. R0 also
+rejects every `virtual_path`: the receipt binds the selected artifact directly
+to the full repository `tree_sha256`, and a subdirectory will not be supported
+until a verifiable subtree proof is part of the contract.
 
 The compressed response is limited to 64 MiB; expanded files retain the same
 4,096-file, 32-MiB-per-file, and 256-MiB-total ceilings used by Upgrade Guard.
@@ -229,7 +232,8 @@ contained check, and after the check. Its private
 [automatic APM receipt](apm-preflight-v1.schema.json) contains the complete
 pseudonymized plan, selected-row commitments, route commitment, locked commits,
 expected tree hashes, downloaded byte hashes and counts, materialized tree
-hashes, selected artifact inventories, the nested Upgrade Guard receipt, and
+hashes, a bounded sorted path/mode/size/blob commitment that lets verification
+recompute both the OpenAPM tree and selected artifact inventory, the nested Upgrade Guard receipt, and
 the final restoration result. It never copies the repository route into the
 receipt. A `SAFE` or `CHANGED` wrapper requires the nested verdict to agree and
 the exact temporary session to be removed; cleanup failure becomes `HOLD`.

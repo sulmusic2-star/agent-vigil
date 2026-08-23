@@ -13661,6 +13661,14 @@ function safeFile(root, path) {
   }
   return target;
 }
+function artifactInventoryFromFileCommitments(input) {
+  const entries = [...input].sort((left, right) => left.path.localeCompare(right.path));
+  return {
+    treeSha256: hash(canonical(entries)),
+    fileCount: entries.length,
+    totalBytes: entries.reduce((total, entry) => total + entry.bytes, 0)
+  };
+}
 function inspectArtifactTree(root, hooks = {}) {
   const canonicalRoot = realpathSync4(root);
   if (!lstatSync4(canonicalRoot).isDirectory()) throw new Error("target must be a directory");
@@ -13697,11 +13705,9 @@ function inspectArtifactTree(root, hooks = {}) {
     }
   };
   visit3(canonicalRoot);
-  return {
-    treeSha256: hash(canonical(entries)),
-    fileCount: entries.length,
-    totalBytes
-  };
+  const inventory = artifactInventoryFromFileCommitments(entries);
+  if (inventory.totalBytes !== totalBytes) throw new Error("artifact inventory byte accounting is inconsistent");
+  return inventory;
 }
 function inspectTarget(directory, component) {
   const requestedStatus = lstatSync4(directory);
@@ -15825,6 +15831,7 @@ function materializationEndpoint(record7) {
   const expectedTreeSha256 = exactSha256(optionalText(row.tree_sha256, "APM tree_sha256", 80));
   if (!commit2 || !expectedTreeSha256) throw new ApmMaterializationHold("SOURCE_INTEGRITY_UNAVAILABLE");
   const virtualPath = apmPortablePath(row.virtual_path);
+  if (virtualPath) throw new ApmMaterializationHold("SOURCE_ROUTE_UNSUPPORTED");
   const routeSha256 = hash4(canonical({
     protocol: "https",
     host: "codeload.github.com",
@@ -15838,8 +15845,7 @@ function materializationEndpoint(record7) {
     commit: commit2,
     expectedTreeSha256,
     routeSha256,
-    rowSha256: record7.fingerprint,
-    ...virtualPath ? { virtualPath } : {}
+    rowSha256: record7.fingerprint
   };
 }
 function selectApmMaterialization(input) {
@@ -16342,6 +16348,7 @@ function validateApmAutomaticPreflightReceipt(input) {
     "materializedTreeSha256",
     "fileCount",
     "totalBytes",
+    "files",
     "selectedArtifact"
   ];
   receiptExactKeys(currentProof, proofKeys, proofKeys, "current materialization");
@@ -16353,16 +16360,41 @@ function validateApmAutomaticPreflightReceipt(input) {
     if (typeof proof.commit !== "string" || !/^[0-9a-f]{40}$/.test(proof.commit) || !Number.isSafeInteger(proof.fetchedBytes) || proof.fetchedBytes < 1 || proof.fetchedBytes > MAX_ARCHIVE_BYTES || !Number.isSafeInteger(proof.fileCount) || proof.fileCount < 1 || proof.fileCount > MAX_FILES2 || !Number.isSafeInteger(proof.totalBytes) || proof.totalBytes < 0 || proof.totalBytes > MAX_TOTAL_BYTES2) {
       throw new Error(`${label} materialization evidence is invalid`);
     }
-    const artifact = receiptObject(proof.selectedArtifact, `${label} selected artifact`);
-    receiptExactKeys(
-      artifact,
-      ["treeSha256", "fileCount", "totalBytes"],
-      ["treeSha256", "fileCount", "totalBytes"],
-      `${label} selected artifact`
-    );
-    receiptSha256(artifact.treeSha256, `${label} selected artifact tree hash`);
-    if (!Number.isSafeInteger(artifact.fileCount) || artifact.fileCount < 0 || artifact.fileCount > MAX_FILES2 || !Number.isSafeInteger(artifact.totalBytes) || artifact.totalBytes < 0 || artifact.totalBytes > MAX_TOTAL_BYTES2) {
-      throw new Error(`${label} selected artifact inventory is invalid`);
+    if (!Array.isArray(proof.files) || proof.files.length !== proof.fileCount) {
+      throw new Error(`${label} materialized file proof is invalid`);
+    }
+    const fileIdentities = /* @__PURE__ */ new Set();
+    const files = proof.files.map((inputFile, index) => {
+      const file = receiptObject(inputFile, `${label} materialized file ${index}`);
+      receiptExactKeys(
+        file,
+        ["path", "bytes", "mode", "sha256"],
+        ["path", "bytes", "mode", "sha256"],
+        `${label} materialized file ${index}`
+      );
+      const path = receiptText(file.path, `${label} materialized file path`, 256);
+      const parts = path.split("/");
+      if (path.startsWith("/") || parts.some((part) => !isCrossPlatformSafeSegment(part))) {
+        throw new Error(`${label} materialized file path is invalid`);
+      }
+      const identity = portableIdentity(path);
+      if (fileIdentities.has(identity)) throw new Error(`${label} materialized file identities are invalid`);
+      fileIdentities.add(identity);
+      if (file.mode !== 420 && file.mode !== 493) throw new Error(`${label} materialized file mode is invalid`);
+      return {
+        path,
+        bytes: receiptInteger(file.bytes, `${label} materialized file bytes`, 0, MAX_FILE_BYTES),
+        mode: file.mode,
+        sha256: receiptSha256(file.sha256, `${label} materialized file hash`)
+      };
+    });
+    const sortedFiles = [...files].sort((left, right) => left.path.localeCompare(right.path));
+    if (canonical(files) !== canonical(sortedFiles) || files.reduce((total, file) => total + file.bytes, 0) !== proof.totalBytes || canonicalTreeSha256FromCommitments(files) !== proof.materializedTreeSha256) {
+      throw new Error(`${label} materialized file proof does not match the exact lock-bound repository tree`);
+    }
+    const artifact = validateArtifactInventory(proof.selectedArtifact, `${label} selected artifact`);
+    if (canonical(artifactInventoryFromFileCommitments(files)) !== canonical(artifact)) {
+      throw new Error(`${label} selected artifact is not derived from the exact lock-bound repository tree`);
     }
   }
   if (receiptSha256(selection.currentRowSha256, "current row hash") !== currentProof.rowSha256 || receiptSha256(selection.candidateRowSha256, "candidate row hash") !== candidateProof.rowSha256 || currentProof.expectedTreeSha256 !== currentProof.materializedTreeSha256 || candidateProof.expectedTreeSha256 !== candidateProof.materializedTreeSha256) {
@@ -16473,7 +16505,15 @@ function parentPaths(path) {
   const parts = path.split("/");
   return parts.slice(0, -1).map((_part, index) => parts.slice(0, index + 1).join("/"));
 }
-function canonicalTreeSha256(files) {
+function archiveFileCommitments(files) {
+  return files.map((file) => ({
+    path: file.path,
+    bytes: file.bytes.length,
+    mode: file.executable ? 493 : 420,
+    sha256: hash5(file.bytes)
+  })).sort((left, right) => left.path.localeCompare(right.path));
+}
+function canonicalTreeSha256FromCommitments(files) {
   const byDirectory = /* @__PURE__ */ new Map();
   const directories = /* @__PURE__ */ new Set([""]);
   for (const file of files) {
@@ -16497,9 +16537,11 @@ function canonicalTreeSha256(files) {
     const entries = [];
     for (const file of byDirectory.get(directory) ?? []) {
       const name = basename6(file.path);
-      const blob = createHash18("sha256").update(file.bytes).digest("hex");
-      entries.push({ name, line: `${file.executable ? "100755" : "100644"} ${name} ${blob}
-` });
+      entries.push({
+        name,
+        line: `${file.mode === 493 ? "100755" : "100644"} ${name} ${file.sha256.slice(7)}
+`
+      });
     }
     for (const child of directDirectories) {
       const name = child.slice(prefix.length);
@@ -16512,6 +16554,9 @@ function canonicalTreeSha256(files) {
     return digest5;
   };
   return `sha256:${digestDirectory("")}`;
+}
+function canonicalTreeSha256(files) {
+  return canonicalTreeSha256FromCommitments(archiveFileCommitments(files));
 }
 function parseApmGitHubArchive(compressed) {
   if (!compressed.length || compressed.length > MAX_ARCHIVE_BYTES) throw new PreflightHold("ARCHIVE_SIZE_EXCEEDED");
@@ -16802,6 +16847,7 @@ function materializeEndpoint(endpoint, label, session, fetchArchive) {
     throw new PreflightHold("ARCHIVE_COMMIT_MISMATCH");
   }
   if (parsed.treeSha256 !== endpoint.expectedTreeSha256) throw new PreflightHold("MATERIALIZED_TREE_MISMATCH");
+  const files = archiveFileCommitments(parsed.files);
   unlinkSync2(archivePath);
   const materializedRoot = join8(session, label);
   extractArchive(parsed, materializedRoot);
@@ -16823,6 +16869,7 @@ function materializeEndpoint(endpoint, label, session, fetchArchive) {
       materializedTreeSha256: parsed.treeSha256,
       fileCount: parsed.fileCount,
       totalBytes: parsed.totalBytes,
+      files,
       selectedArtifact
     }
   };

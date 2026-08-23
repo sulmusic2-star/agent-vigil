@@ -26,7 +26,9 @@ import { canonical } from "../report.ts";
 import {
   compareCanaryAggregates,
   decideUpgrade,
+  artifactInventoryFromFileCommitments,
   inspectArtifactTree,
+  type ArtifactFileCommitment,
   type ArtifactInventory,
   type CanaryAggregate,
   type CanaryComparison,
@@ -76,6 +78,7 @@ type MaterializedProof = {
   materializedTreeSha256: string;
   fileCount: number;
   totalBytes: number;
+  files: ArtifactFileCommitment[];
   selectedArtifact: ArtifactInventory;
 };
 
@@ -510,7 +513,7 @@ export function validateApmAutomaticPreflightReceipt(input: unknown): ApmAutomat
   const candidateProof = receiptObject(materialization.candidate, "candidate materialization");
   const proofKeys = [
     "routeSha256", "rowSha256", "commit", "expectedTreeSha256", "fetchedSha256", "fetchedBytes",
-    "materializedTreeSha256", "fileCount", "totalBytes", "selectedArtifact",
+    "materializedTreeSha256", "fileCount", "totalBytes", "files", "selectedArtifact",
   ] as const;
   receiptExactKeys(currentProof, proofKeys, proofKeys, "current materialization");
   receiptExactKeys(candidateProof, proofKeys, proofKeys, "candidate materialization");
@@ -527,15 +530,39 @@ export function validateApmAutomaticPreflightReceipt(input: unknown): ApmAutomat
       || (proof.totalBytes as number) > MAX_TOTAL_BYTES) {
       throw new Error(`${label} materialization evidence is invalid`);
     }
-    const artifact = receiptObject(proof.selectedArtifact, `${label} selected artifact`);
-    receiptExactKeys(artifact, ["treeSha256", "fileCount", "totalBytes"],
-      ["treeSha256", "fileCount", "totalBytes"], `${label} selected artifact`);
-    receiptSha256(artifact.treeSha256, `${label} selected artifact tree hash`);
-    if (!Number.isSafeInteger(artifact.fileCount) || (artifact.fileCount as number) < 0
-      || (artifact.fileCount as number) > MAX_FILES
-      || !Number.isSafeInteger(artifact.totalBytes) || (artifact.totalBytes as number) < 0
-      || (artifact.totalBytes as number) > MAX_TOTAL_BYTES) {
-      throw new Error(`${label} selected artifact inventory is invalid`);
+    if (!Array.isArray(proof.files) || proof.files.length !== proof.fileCount) {
+      throw new Error(`${label} materialized file proof is invalid`);
+    }
+    const fileIdentities = new Set<string>();
+    const files = proof.files.map((inputFile, index): ArtifactFileCommitment => {
+      const file = receiptObject(inputFile, `${label} materialized file ${index}`);
+      receiptExactKeys(file, ["path", "bytes", "mode", "sha256"],
+        ["path", "bytes", "mode", "sha256"], `${label} materialized file ${index}`);
+      const path = receiptText(file.path, `${label} materialized file path`, 256);
+      const parts = path.split("/");
+      if (path.startsWith("/") || parts.some((part) => !isCrossPlatformSafeSegment(part))) {
+        throw new Error(`${label} materialized file path is invalid`);
+      }
+      const identity = portableIdentity(path);
+      if (fileIdentities.has(identity)) throw new Error(`${label} materialized file identities are invalid`);
+      fileIdentities.add(identity);
+      if (file.mode !== 0o644 && file.mode !== 0o755) throw new Error(`${label} materialized file mode is invalid`);
+      return {
+        path,
+        bytes: receiptInteger(file.bytes, `${label} materialized file bytes`, 0, MAX_FILE_BYTES),
+        mode: file.mode,
+        sha256: receiptSha256(file.sha256, `${label} materialized file hash`),
+      };
+    });
+    const sortedFiles = [...files].sort((left, right) => left.path.localeCompare(right.path));
+    if (canonical(files) !== canonical(sortedFiles)
+      || files.reduce((total, file) => total + file.bytes, 0) !== proof.totalBytes
+      || canonicalTreeSha256FromCommitments(files) !== proof.materializedTreeSha256) {
+      throw new Error(`${label} materialized file proof does not match the exact lock-bound repository tree`);
+    }
+    const artifact = validateArtifactInventory(proof.selectedArtifact, `${label} selected artifact`);
+    if (canonical(artifactInventoryFromFileCommitments(files)) !== canonical(artifact)) {
+      throw new Error(`${label} selected artifact is not derived from the exact lock-bound repository tree`);
     }
   }
   if (receiptSha256(selection.currentRowSha256, "current row hash") !== currentProof.rowSha256
@@ -671,8 +698,17 @@ function parentPaths(path: string): string[] {
   return parts.slice(0, -1).map((_part, index) => parts.slice(0, index + 1).join("/"));
 }
 
-function canonicalTreeSha256(files: TarFile[]): string {
-  const byDirectory = new Map<string, TarFile[]>();
+function archiveFileCommitments(files: TarFile[]): ArtifactFileCommitment[] {
+  return files.map((file) => ({
+    path: file.path,
+    bytes: file.bytes.length,
+    mode: file.executable ? 0o755 : 0o644,
+    sha256: hash(file.bytes),
+  })).sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function canonicalTreeSha256FromCommitments(files: readonly ArtifactFileCommitment[]): string {
+  const byDirectory = new Map<string, ArtifactFileCommitment[]>();
   const directories = new Set<string>([""]);
   for (const file of files) {
     const parts = file.path.split("/");
@@ -695,8 +731,10 @@ function canonicalTreeSha256(files: TarFile[]): string {
     const entries: Array<{ name: string; line: string }> = [];
     for (const file of byDirectory.get(directory) ?? []) {
       const name = basename(file.path);
-      const blob = createHash("sha256").update(file.bytes).digest("hex");
-      entries.push({ name, line: `${file.executable ? "100755" : "100644"} ${name} ${blob}\n` });
+      entries.push({
+        name,
+        line: `${file.mode === 0o755 ? "100755" : "100644"} ${name} ${file.sha256.slice(7)}\n`,
+      });
     }
     for (const child of directDirectories) {
       const name = child.slice(prefix.length);
@@ -708,6 +746,10 @@ function canonicalTreeSha256(files: TarFile[]): string {
     return digest;
   };
   return `sha256:${digestDirectory("")}`;
+}
+
+function canonicalTreeSha256(files: TarFile[]): string {
+  return canonicalTreeSha256FromCommitments(archiveFileCommitments(files));
 }
 
 export function parseApmGitHubArchive(compressed: Buffer): ParsedArchive {
@@ -1008,6 +1050,7 @@ function materializeEndpoint(
     throw new PreflightHold("ARCHIVE_COMMIT_MISMATCH");
   }
   if (parsed.treeSha256 !== endpoint.expectedTreeSha256) throw new PreflightHold("MATERIALIZED_TREE_MISMATCH");
+  const files = archiveFileCommitments(parsed.files);
   unlinkSync(archivePath);
   const materializedRoot = join(session, label);
   extractArchive(parsed, materializedRoot);
@@ -1030,6 +1073,7 @@ function materializeEndpoint(
       materializedTreeSha256: parsed.treeSha256,
       fileCount: parsed.fileCount,
       totalBytes: parsed.totalBytes,
+      files,
       selectedArtifact,
     },
   };
