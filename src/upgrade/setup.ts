@@ -45,15 +45,15 @@ function ensureRepository(path: string): string {
   if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("--repo must be a regular directory, not a symbolic link");
   const repository = realpathSync(requested);
   try {
-    const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    const prefix = execFileSync("git", ["rev-parse", "--show-prefix"], {
       cwd: repository,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    // Git may spell the same Windows path with different case or separators.
-    // path.relative applies the host platform's path comparison rules without
-    // weakening the requirement that --repo itself is the repository root.
-    if (relative(realpathSync(root), repository) !== "") throw new Error("nested");
+    // Git reports an empty prefix only when cwd is the worktree root. This
+    // avoids comparing two equivalent Windows paths that Git and Node may
+    // spell with different drive-letter case, separators, or short names.
+    if (prefix !== "") throw new Error("nested");
   } catch {
     throw new Error("--repo must be the root of a Git repository");
   }

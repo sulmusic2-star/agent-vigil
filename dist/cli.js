@@ -6064,12 +6064,12 @@ function ensureRepository(path) {
   if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("--repo must be a regular directory, not a symbolic link");
   const repository2 = realpathSync7(requested);
   try {
-    const root = execFileSync10("git", ["rev-parse", "--show-toplevel"], {
+    const prefix = execFileSync10("git", ["rev-parse", "--show-prefix"], {
       cwd: repository2,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     }).trim();
-    if (realpathSync7(root) !== repository2) throw new Error("nested");
+    if (prefix !== "") throw new Error("nested");
   } catch {
     throw new Error("--repo must be the root of a Git repository");
   }

@@ -60,7 +60,7 @@ test("upgrade init creates a private, ignored, fail-closed scaffold and preserve
   }
   writeFileSync(canary, "user-owned canary\n");
   const second = initUpgrade(repo, false);
-  assert.ok(second.kept.some((path) => path.endsWith("/.agent-vigil/upgrade/canaries/template-canary.mjs")));
+  assert.ok(second.kept.some((path) => path.endsWith(join(".agent-vigil", "upgrade", "canaries", "template-canary.mjs"))));
   assert.equal(readFileSync(canary, "utf8"), "user-owned canary\n");
 });
 
