@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.example/schemas/team-entitlement-v1.schema.json",
+  "title": "Agent Vigil Team entitlement v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["org_id", "tier", "status", "contributor_limit", "billing_source", "starts_at", "ends_at", "source_event_id"],
+  "properties": {
+    "org_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$" },
+    "tier": { "const": "team" },
+    "status": { "enum": ["active", "grace", "read_only", "expired", "refunded"] },
+    "contributor_limit": { "const": 15 },
+    "billing_source": { "const": "stripe" },
+    "starts_at": { "type": "string", "format": "date-time" },
+    "ends_at": { "type": "string", "format": "date-time" },
+    "grace_until": { "type": ["string", "null"], "format": "date-time" },
+    "source_event_id": { "type": "string", "minLength": 3, "maxLength": 255 }
+  }
+}

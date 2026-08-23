@@ -1,0 +1,728 @@
+import { env, exports } from "cloudflare:workers";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { base64UrlEncode, hmacBase64Url, hmacHex } from "../src/crypto.ts";
+
+const ORIGIN = "https://team.example.test";
+const SESSION_SECRET = "test-only-team-session-secret-32-bytes-minimum";
+const WEBHOOK_SECRET = "test-only-stripe-webhook-secret-32-bytes-minimum";
+const RECONCILIATION_SECRET = "test-only-reconciliation-secret-32-bytes-minimum";
+
+async function clearDatabase(): Promise<void> {
+  await env.TEAM_CONTROL_DB.exec(`
+    DELETE FROM privacy_deletion_requests;
+    DELETE FROM provider_reconciliation_snapshots;
+    DELETE FROM provider_state_cursors;
+    DELETE FROM lifecycle_events;
+    DELETE FROM revenue_ledger;
+    DELETE FROM cash_ledger;
+    DELETE FROM entitlements;
+    DELETE FROM billing_commands;
+    DELETE FROM provider_events;
+    DELETE FROM commercial_transitions;
+    DELETE FROM checkout_intents;
+    DELETE FROM billing_accounts;
+    DELETE FROM audit_events;
+    DELETE FROM rollback_records;
+    DELETE FROM exception_records;
+    DELETE FROM update_history;
+    DELETE FROM policy_heads;
+    DELETE FROM policy_revisions;
+    DELETE FROM organization_members;
+    DELETE FROM organizations;
+  `);
+}
+
+async function seedOrganization(orgId = "org_main"): Promise<void> {
+  const at = new Date().toISOString();
+  await env.TEAM_CONTROL_DB.batch([
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO organizations (id, slug, display_name, status, created_at)
+       VALUES (?1, ?2, ?3, 'active', ?4)`
+    ).bind(orgId, `${orgId}-slug`, `${orgId} display`, at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO organization_members
+        (org_id, user_id, role, identity_kind, active, created_at, updated_at)
+       VALUES (?1, 'user_owner', 'owner', 'human', 1, ?2, ?2)`
+    ).bind(orgId, at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO organization_members
+        (org_id, user_id, role, identity_kind, active, created_at, updated_at)
+       VALUES (?1, 'user_admin', 'admin', 'human', 1, ?2, ?2)`
+    ).bind(orgId, at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO organization_members
+        (org_id, user_id, role, identity_kind, active, created_at, updated_at)
+       VALUES (?1, 'user_member', 'member', 'human', 1, ?2, ?2)`
+    ).bind(orgId, at)
+  ]);
+}
+
+async function session(orgId = "org_main", userId = "user_owner", issuedAt?: number): Promise<string> {
+  const now = issuedAt ?? Math.floor(Date.now() / 1000);
+  const payload = base64UrlEncode(
+    JSON.stringify({
+      schema_version: "team-session-v1",
+      kid: "team-session-key-v1",
+      sub: userId,
+      org_id: orgId,
+      jti: `session_${crypto.randomUUID()}`,
+      iat: now,
+      exp: now + 3600
+    })
+  );
+  const input = `avteam_v1.${payload}`;
+  return `${input}.${await hmacBase64Url(SESSION_SECRET, input)}`;
+}
+
+async function api(
+  path: string,
+  options: {
+    method?: string;
+    token?: string;
+    body?: object;
+    headers?: Record<string, string>;
+  } = {}
+): Promise<Response> {
+  const headers = new Headers(options.headers);
+  if (options.token) headers.set("Authorization", `Bearer ${options.token}`);
+  if (options.body) headers.set("Content-Type", "application/json");
+  return exports.default.fetch(`${ORIGIN}${path}`, {
+    method: options.method ?? "GET",
+    headers,
+    ...(options.body ? { body: JSON.stringify(options.body) } : {})
+  });
+}
+
+async function json<T>(response: Response): Promise<T> {
+  return response.json<T>();
+}
+
+function metadata(orgId: string, checkoutIntentId: string | null = null): Record<string, string> {
+  return {
+    team_org_id: orgId,
+    internal_price_id: "team_monthly_usd_v1",
+    provider_price_id: "price_team_monthly_test",
+    ...(checkoutIntentId ? { checkout_intent_id: checkoutIntentId } : {})
+  };
+}
+
+async function stripeWebhook(input: {
+  id: string;
+  type: string;
+  created: number;
+  object: Record<string, unknown>;
+}): Promise<Response> {
+  const raw = JSON.stringify({
+    id: input.id,
+    object: "event",
+    created: input.created,
+    livemode: false,
+    type: input.type,
+    data: { object: input.object }
+  });
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = await hmacHex(WEBHOOK_SECRET, `${timestamp}.${raw}`);
+  return exports.default.fetch(`${ORIGIN}/v1/billing/stripe/webhook`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Stripe-Signature": `t=${timestamp},v1=${signature}`
+    },
+    body: raw
+  });
+}
+
+interface ReconciliationOverrides {
+  reconciliation_id?: string;
+  observed_at?: string;
+  source_event_id?: string;
+  kind?: "payment" | "payment_failure" | "refund" | "subscription";
+  org_id?: string;
+  provider_customer_id?: string;
+  provider_subscription_id?: string;
+  provider_object_id?: string;
+  internal_price_id?: "team_monthly_usd_v1" | "team_annual_usd_v1";
+  provider_price_id?: string;
+  provider_status?: "paid" | "failed" | "active" | "past_due" | "canceled" | "refunded";
+  cash_amount_cents?: number;
+  net_recurring_amount_cents?: number;
+  refund_amount_cents?: number;
+  period_start?: string;
+  period_end?: string;
+  cancel_at_period_end?: boolean;
+}
+
+function reconciliation(overrides: ReconciliationOverrides = {}): Record<string, unknown> {
+  const now = Date.now();
+  return {
+    schema_version: "billing-reconciliation-v1",
+    reconciliation_id: overrides.reconciliation_id ?? `recon_${crypto.randomUUID()}`,
+    observed_at: overrides.observed_at ?? new Date(now).toISOString(),
+    source_event_id: overrides.source_event_id ?? "evt_invoice_paid",
+    kind: overrides.kind ?? "payment",
+    org_id: overrides.org_id ?? "org_main",
+    provider_customer_id: overrides.provider_customer_id ?? "cus_main",
+    provider_subscription_id: overrides.provider_subscription_id ?? "sub_main",
+    provider_object_id: overrides.provider_object_id ?? "in_main",
+    internal_price_id: overrides.internal_price_id ?? "team_monthly_usd_v1",
+    provider_price_id: overrides.provider_price_id ?? "price_team_monthly_test",
+    provider_status: overrides.provider_status ?? "paid",
+    currency: "usd",
+    cash_amount_cents: overrides.cash_amount_cents ?? 29_900,
+    net_recurring_amount_cents: overrides.net_recurring_amount_cents ?? 29_900,
+    refund_amount_cents: overrides.refund_amount_cents ?? 0,
+    period_start: overrides.period_start ?? new Date(now - 60_000).toISOString(),
+    period_end: overrides.period_end ?? new Date(now + 30 * 86_400_000).toISOString(),
+    cancel_at_period_end: overrides.cancel_at_period_end ?? false
+  };
+}
+
+async function reconcile(body: Record<string, unknown>): Promise<Response> {
+  const raw = JSON.stringify(body);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = await hmacHex(RECONCILIATION_SECRET, `${timestamp}.${raw}`);
+  return exports.default.fetch(`${ORIGIN}/v1/billing/stripe/reconciliation`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Agent-Vigil-Reconciliation-Signature": `t=${timestamp},v1=${signature}`
+    },
+    body: raw
+  });
+}
+
+async function activateMonthlyTeam(eventCreated: number): Promise<void> {
+  const paidEvent = await stripeWebhook({
+    id: "evt_invoice_paid",
+    type: "invoice.paid",
+    created: eventCreated,
+    object: {
+      id: "in_main",
+      customer: "cus_main",
+      subscription: "sub_main",
+      metadata: metadata("org_main")
+    }
+  });
+  expect(paidEvent.status).toBe(200);
+  const reconciled = await reconcile(reconciliation());
+  expect(reconciled.status).toBe(200);
+}
+
+describe.sequential("Team control plane", () => {
+  beforeEach(async () => {
+    await clearDatabase();
+    await seedOrganization();
+  });
+
+  it("enforces authenticated tenant membership and ignores role claims", async () => {
+    const health = await api("/healthz");
+    expect(health.status).toBe(200);
+    const catalog = await api("/v1/catalog");
+    expect(catalog.status).toBe(200);
+    expect(await json(catalog)).toMatchObject({ tier: "team", contributor_limit: 15, currency: "usd" });
+
+    const missing = await api("/v1/orgs/org_main");
+    expect(missing.status).toBe(401);
+
+    const owner = await session();
+    const organization = await api("/v1/orgs/org_main", { token: owner });
+    expect(organization.status).toBe(200);
+    expect(await json(organization)).toMatchObject({ membership: { role: "owner" } });
+
+    const crossTenant = await api("/v1/orgs/org_main", { token: await session("org_other") });
+    expect(crossTenant.status).toBe(403);
+
+    const expired = await api("/v1/orgs/org_main", {
+      token: await session("org_main", "user_owner", Math.floor(Date.now() / 1000) - 7200)
+    });
+    expect(expired.status).toBe(401);
+  });
+
+  it("keeps checkout and webhook state separate from paid entitlement and recognized MRR", async () => {
+    const owner = await session();
+    const checkout = await api("/v1/orgs/org_main/billing/checkout", {
+      method: "POST",
+      token: owner,
+      headers: { "Idempotency-Key": "checkout_test_1" },
+      body: { internal_price_id: "team_monthly_usd_v1" }
+    });
+    expect(checkout.status).toBe(202);
+    const checkoutBody = await json<{
+      checkout_intent_id: string;
+      command: { operation: string; parameters: { provider_price_id: string } };
+    }>(checkout);
+    expect(checkoutBody.command).toMatchObject({
+      operation: "create_checkout_session",
+      parameters: { provider_price_id: "price_team_monthly_test" }
+    });
+    const idempotencyMismatch = await api("/v1/orgs/org_main/billing/checkout", {
+      method: "POST",
+      token: owner,
+      headers: { "Idempotency-Key": "checkout_test_1" },
+      body: { internal_price_id: "team_annual_usd_v1" }
+    });
+    expect(idempotencyMismatch.status).toBe(409);
+
+    let ledger = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await json(ledger)).toMatchObject({ entitlement: null, recognized_mrr: { minor_unit_micros: 0 } });
+
+    const created = Math.floor(Date.now() / 1000);
+    const completedCheckout = await stripeWebhook({
+      id: "evt_checkout_completed",
+      type: "checkout.session.completed",
+      created,
+      object: {
+        id: "cs_main",
+        mode: "subscription",
+        customer: "cus_main",
+        subscription: "sub_main",
+        metadata: metadata("org_main", checkoutBody.checkout_intent_id)
+      }
+    });
+    expect(completedCheckout.status).toBe(200);
+
+    const webhook = await stripeWebhook({
+      id: "evt_invoice_paid",
+      type: "invoice.paid",
+      created: created + 1,
+      object: {
+        id: "in_main",
+        customer: "cus_main",
+        subscription: "sub_main",
+        metadata: metadata("org_main")
+      }
+    });
+    expect(webhook.status).toBe(200);
+    ledger = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await json(ledger)).toMatchObject({ entitlement: null, recognized_mrr: { minor_unit_micros: 0 } });
+
+    const snapshot = reconciliation();
+    const applied = await reconcile(snapshot);
+    expect(applied.status).toBe(200);
+    ledger = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await json(ledger)).toMatchObject({
+      billing_state: "entitled",
+      entitlement: { tier: "team", status: "active", contributor_limit: 15 },
+      recognized_mrr: { minor_unit_micros: 29_900_000_000 },
+      cash_ledger: [{ entry_type: "payment", amount_cents: 29_900 }]
+    });
+
+    const duplicateSnapshot = await reconcile(snapshot);
+    expect(duplicateSnapshot.status).toBe(200);
+    expect(await json(duplicateSnapshot)).toMatchObject({ duplicate: true });
+    const duplicateEvent = await stripeWebhook({
+      id: "evt_invoice_paid",
+      type: "invoice.paid",
+      created: created + 1,
+      object: {
+        id: "in_main",
+        customer: "cus_main",
+        subscription: "sub_main",
+        metadata: metadata("org_main")
+      }
+    });
+    expect(await json(duplicateEvent)).toMatchObject({ duplicate: true });
+  });
+
+  it("fails closed on plan substitution, event-id payload reuse, and stale ordering", async () => {
+    const created = Math.floor(Date.now() / 1000);
+    const wrongPrice = await stripeWebhook({
+      id: "evt_wrong_price",
+      type: "invoice.paid",
+      created,
+      object: {
+        id: "in_wrong",
+        customer: "cus_main",
+        subscription: "sub_main",
+        metadata: { ...metadata("org_main"), provider_price_id: "price_attacker" }
+      }
+    });
+    expect(wrongPrice.status).toBe(409);
+
+    await activateMonthlyTeam(created + 10);
+    const replayMismatch = await stripeWebhook({
+      id: "evt_invoice_paid",
+      type: "invoice.paid",
+      created: created + 10,
+      object: {
+        id: "in_changed",
+        customer: "cus_main",
+        subscription: "sub_main",
+        metadata: metadata("org_main")
+      }
+    });
+    expect(replayMismatch.status).toBe(409);
+
+    const stale = await stripeWebhook({
+      id: "evt_subscription_stale",
+      type: "customer.subscription.updated",
+      created: created + 5,
+      object: {
+        id: "sub_main",
+        customer: "cus_main",
+        metadata: metadata("org_main")
+      }
+    });
+    expect(stale.status).toBe(200);
+    expect(await json(stale)).toMatchObject({ stale: true });
+    const staleReconciliation = await reconcile(
+      reconciliation({
+        source_event_id: "evt_subscription_stale",
+        kind: "subscription",
+        provider_object_id: "sub_main",
+        provider_status: "canceled",
+        cash_amount_cents: 0,
+        net_recurring_amount_cents: 0
+      })
+    );
+    expect(staleReconciliation.status).toBe(409);
+
+    const ledger = await api("/v1/orgs/org_main/billing/ledger", { token: await session() });
+    expect(await json(ledger)).toMatchObject({
+      billing_state: "entitled",
+      entitlement: { status: "active" },
+      recognized_mrr: { minor_unit_micros: 29_900_000_000 }
+    });
+  });
+
+  it("requires reconciled entitlement for Team writes and prevents role escalation", async () => {
+    const created = Math.floor(Date.now() / 1000);
+    const owner = await session();
+    const noEntitlement = await api("/v1/orgs/org_main/policy", {
+      method: "PUT",
+      token: owner,
+      headers: { "If-Match": '"0"' },
+      body: {
+        schema_version: "team-policy-v1",
+        base_revision: 0,
+        required_gate_enabled: true,
+        policy: { allowed_version_tokens: [], denied_version_tokens: [], required_canary_ids: ["canary_1"] },
+        canaries: [{ id: "canary_1", artifact_class: "behavioral", description: "Bounded check" }]
+      }
+    });
+    expect(noEntitlement.status).toBe(402);
+
+    await activateMonthlyTeam(created);
+    const body = {
+      schema_version: "team-policy-v1",
+      base_revision: 0,
+      required_gate_enabled: true,
+      policy: { allowed_version_tokens: [], denied_version_tokens: [], required_canary_ids: ["canary_1"] },
+      canaries: [{ id: "canary_1", artifact_class: "behavioral", description: "Bounded check" }]
+    };
+    const policy = await api("/v1/orgs/org_main/policy", {
+      method: "PUT",
+      token: owner,
+      headers: { "If-Match": '"0"' },
+      body
+    });
+    expect(policy.status).toBe(201);
+    expect(policy.headers.get("ETag")).toBe('"1"');
+    const gate = await api("/v1/orgs/org_main/gate", { token: await session("org_main", "user_member") });
+    expect(await json(gate)).toMatchObject({ decision: "ALLOW", policy_revision: 1 });
+
+    const conflict = await api("/v1/orgs/org_main/policy", {
+      method: "PUT",
+      token: owner,
+      headers: { "If-Match": '"0"' },
+      body
+    });
+    expect(conflict.status).toBe(409);
+
+    const escalation = await api("/v1/orgs/org_main/members/user_attacker", {
+      method: "PUT",
+      token: await session("org_main", "user_admin"),
+      body: { role: "owner", identity_kind: "human", active: true }
+    });
+    expect(escalation.status).toBe(403);
+
+    const privilegedService = await api("/v1/orgs/org_main/members/github_installation_1", {
+      method: "PUT",
+      token: owner,
+      body: { role: "billing", identity_kind: "service", active: true }
+    });
+    expect(privilegedService.status).toBe(400);
+
+    for (let index = 0; index < 12; index += 1) {
+      const add = await api(`/v1/orgs/org_main/members/user_${index}`, {
+        method: "PUT",
+        token: owner,
+        body: { role: "member", identity_kind: "human", active: true }
+      });
+      expect(add.status).toBe(200);
+    }
+    const sixteenth = await api("/v1/orgs/org_main/members/user_16", {
+      method: "PUT",
+      token: owner,
+      body: { role: "member", identity_kind: "human", active: true }
+    });
+    expect(sixteenth.status).toBe(409);
+  });
+
+  it("prepares cancellation and refund without mutating money, then applies provider-confirmed refund", async () => {
+    const created = Math.floor(Date.now() / 1000);
+    await activateMonthlyTeam(created);
+    const owner = await session();
+    const before = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await json(before)).toMatchObject({ recognized_mrr: { minor_unit_micros: 29_900_000_000 } });
+
+    const cancellation = await api("/v1/orgs/org_main/billing/cancel", {
+      method: "POST",
+      token: owner,
+      headers: { "Idempotency-Key": "cancel_test_1" },
+      body: { reason: "no_longer_needed" }
+    });
+    expect(cancellation.status).toBe(202);
+    const refundCommand = await api("/v1/orgs/org_main/billing/refund", {
+      method: "POST",
+      token: owner,
+      headers: { "Idempotency-Key": "refund_test_1" },
+      body: {
+        reason: "first_subscription_14_day_unused",
+        amount_cents: 29_900,
+        paid_features_materially_used: false,
+        source_payment_event_id: "evt_invoice_paid"
+      }
+    });
+    expect(refundCommand.status).toBe(202);
+    const refundIdempotencyMismatch = await api("/v1/orgs/org_main/billing/refund", {
+      method: "POST",
+      token: owner,
+      headers: { "Idempotency-Key": "refund_test_1" },
+      body: {
+        reason: "first_subscription_14_day_unused",
+        amount_cents: 1,
+        paid_features_materially_used: false,
+        source_payment_event_id: "evt_invoice_paid"
+      }
+    });
+    expect(refundIdempotencyMismatch.status).toBe(409);
+    const stillActive = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await json(stillActive)).toMatchObject({
+      entitlement: { status: "active" },
+      recognized_mrr: { minor_unit_micros: 29_900_000_000 },
+      cash_ledger: [{ amount_cents: 29_900 }]
+    });
+
+    const refundEvent = await stripeWebhook({
+      id: "evt_refund",
+      type: "charge.refunded",
+      created: created + 1,
+      object: {
+        id: "ch_main",
+        customer: "cus_main",
+        subscription: "sub_main",
+        metadata: metadata("org_main")
+      }
+    });
+    expect(refundEvent.status).toBe(200);
+    const refundSnapshot = reconciliation({
+      source_event_id: "evt_refund",
+      kind: "refund",
+      provider_object_id: "ch_main",
+      provider_status: "refunded",
+      cash_amount_cents: 0,
+      refund_amount_cents: 29_900
+    });
+    const refunded = await reconcile(refundSnapshot);
+    expect(refunded.status).toBe(200);
+    const after = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await json(after)).toMatchObject({
+      billing_state: "refunded",
+      entitlement: { status: "refunded" },
+      recognized_mrr: { minor_unit_micros: 0 },
+      cash_ledger: [{ amount_cents: 29_900 }, { amount_cents: -29_900 }]
+    });
+  });
+
+  it("normalizes annual recurring value and applies confirmed period-end cancellation then expiration", async () => {
+    const created = Math.floor(Date.now() / 1000);
+    const annualMetadata = {
+      team_org_id: "org_main",
+      internal_price_id: "team_annual_usd_v1",
+      provider_price_id: "price_team_annual_test"
+    };
+    const annualEvent = await stripeWebhook({
+      id: "evt_annual_paid",
+      type: "invoice.paid",
+      created,
+      object: {
+        id: "in_annual",
+        customer: "cus_main",
+        subscription: "sub_main",
+        metadata: annualMetadata
+      }
+    });
+    expect(annualEvent.status).toBe(200);
+    const periodStart = new Date(Date.now() - 60_000).toISOString();
+    const periodEnd = new Date(Date.now() + 365 * 86_400_000).toISOString();
+    const annualReconciliation = await reconcile(
+      reconciliation({
+        source_event_id: "evt_annual_paid",
+        provider_object_id: "in_annual",
+        internal_price_id: "team_annual_usd_v1",
+        provider_price_id: "price_team_annual_test",
+        cash_amount_cents: 299_000,
+        net_recurring_amount_cents: 299_000,
+        period_start: periodStart,
+        period_end: periodEnd
+      })
+    );
+    expect(annualReconciliation.status).toBe(200);
+    const owner = await session();
+    let ledger = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await json(ledger)).toMatchObject({
+      entitlement: { status: "active" },
+      recognized_mrr: { minor_unit_micros: 24_916_666_667 },
+      cash_ledger: [{ amount_cents: 299_000 }]
+    });
+
+    const cancellationEvent = await stripeWebhook({
+      id: "evt_subscription_cancel_at_end",
+      type: "customer.subscription.updated",
+      created: created + 1,
+      object: {
+        id: "sub_main",
+        customer: "cus_main",
+        metadata: annualMetadata
+      }
+    });
+    expect(cancellationEvent.status).toBe(200);
+    const canceledAtEnd = await reconcile(
+      reconciliation({
+        source_event_id: "evt_subscription_cancel_at_end",
+        kind: "subscription",
+        provider_object_id: "sub_main",
+        internal_price_id: "team_annual_usd_v1",
+        provider_price_id: "price_team_annual_test",
+        provider_status: "active",
+        cash_amount_cents: 0,
+        net_recurring_amount_cents: 0,
+        period_start: periodStart,
+        period_end: periodEnd,
+        cancel_at_period_end: true
+      })
+    );
+    expect(canceledAtEnd.status).toBe(200);
+    ledger = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await json(ledger)).toMatchObject({
+      billing_state: "canceled_at_period_end",
+      entitlement: { status: "active" },
+      recognized_mrr: { minor_unit_micros: 24_916_666_667 }
+    });
+
+    const deletionEvent = await stripeWebhook({
+      id: "evt_subscription_deleted",
+      type: "customer.subscription.deleted",
+      created: created + 2,
+      object: {
+        id: "sub_main",
+        customer: "cus_main",
+        metadata: annualMetadata
+      }
+    });
+    expect(deletionEvent.status).toBe(200);
+    const expired = await reconcile(
+      reconciliation({
+        source_event_id: "evt_subscription_deleted",
+        kind: "subscription",
+        provider_object_id: "sub_main",
+        internal_price_id: "team_annual_usd_v1",
+        provider_price_id: "price_team_annual_test",
+        provider_status: "canceled",
+        cash_amount_cents: 0,
+        net_recurring_amount_cents: 0,
+        period_start: periodStart,
+        period_end: periodEnd
+      })
+    );
+    expect(expired.status).toBe(200);
+    ledger = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await json(ledger)).toMatchObject({
+      billing_state: "expired",
+      entitlement: { status: "expired" },
+      recognized_mrr: { minor_unit_micros: 0 }
+    });
+  });
+
+  it("rejects provider customer or subscription identifiers already bound to another tenant", async () => {
+    await seedOrganization("org_other");
+    const at = new Date().toISOString();
+    await env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO billing_accounts
+        (org_id, provider_customer_id, provider_subscription_id, commercial_state, updated_at)
+       VALUES ('org_other', 'cus_collision', 'sub_collision', 'entitled', ?1)`
+    )
+      .bind(at)
+      .run();
+    const created = Math.floor(Date.now() / 1000);
+    const event = await stripeWebhook({
+      id: "evt_collision",
+      type: "invoice.paid",
+      created,
+      object: {
+        id: "in_collision",
+        customer: "cus_collision",
+        subscription: "sub_collision",
+        metadata: metadata("org_main")
+      }
+    });
+    expect(event.status).toBe(200);
+    const result = await reconcile(
+      reconciliation({
+        source_event_id: "evt_collision",
+        provider_customer_id: "cus_collision",
+        provider_subscription_id: "sub_collision",
+        provider_object_id: "in_collision"
+      })
+    );
+    expect(result.status).toBe(409);
+    const ledger = await api("/v1/orgs/org_main/billing/ledger", { token: await session() });
+    expect(await json(ledger)).toMatchObject({ entitlement: null, recognized_mrr: { minor_unit_micros: 0 } });
+  });
+
+  it("exports data and requires one-time owner confirmation before deletion", async () => {
+    const owner = await session();
+    const preparedCheckout = await api("/v1/orgs/org_main/billing/checkout", {
+      method: "POST",
+      token: owner,
+      headers: { "Idempotency-Key": "privacy_checkout_1" },
+      body: { internal_price_id: "team_monthly_usd_v1" }
+    });
+    expect(preparedCheckout.status).toBe(202);
+    const exported = await api("/v1/orgs/org_main/privacy/export", { token: owner });
+    expect(exported.status).toBe(200);
+    expect(await json(exported)).toMatchObject({ schema_version: "team-privacy-export-v1" });
+
+    const deletion = await api("/v1/orgs/org_main/privacy/deletion-requests", {
+      method: "POST",
+      token: owner
+    });
+    expect(deletion.status).toBe(202);
+    const deletionBody = await json<{ confirmation: string }>(deletion);
+    const wrong = await api("/v1/orgs/org_main/privacy/data", {
+      method: "DELETE",
+      token: owner,
+      headers: { "X-Deletion-Confirmation": "wrong-confirmation" }
+    });
+    expect(wrong.status).toBe(403);
+    const confirmed = await api("/v1/orgs/org_main/privacy/data", {
+      method: "DELETE",
+      token: owner,
+      headers: { "X-Deletion-Confirmation": deletionBody.confirmation }
+    });
+    expect(confirmed.status).toBe(202);
+    expect(await json(confirmed)).toMatchObject({ deleted: true, access_revoked: true });
+    const checkoutState = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT status FROM checkout_intents WHERE org_id = 'org_main'`
+    ).first<{ status: string }>();
+    const commandState = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT status FROM billing_commands WHERE org_id = 'org_main'`
+    ).first<{ status: string }>();
+    expect(checkoutState?.status).toBe("canceled");
+    expect(commandState?.status).toBe("provider_rejected");
+    const after = await api("/v1/orgs/org_main", { token: owner });
+    expect(after.status).toBe(403);
+  });
+});
