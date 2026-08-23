@@ -1,0 +1,22 @@
+{
+  "name": "@sulmusic/agent-vigil-proof-network",
+  "version": "0.1.0-private",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types --env-interface Env worker-configuration.d.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:frequency-interop": "node scripts/verify-frequency-interop.mjs",
+    "check": "npm run types && npm run typecheck && npm test && wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "dev": "wrangler dev --local",
+    "db:migrate:local": "wrangler d1 migrations apply PROOF_DB --local"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.0.0",
+    "@types/node": "^24.3.0",
+    "typescript": "5.9.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.125.0"
+  }
+}

@@ -134,7 +134,7 @@ Usage:
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
-  vigil upgrade <init|doctor|plan|preflight|check|verify|evidence|resolve|enforce|index> [options]
+  vigil upgrade <init|doctor|plan|preflight|check|verify|evidence|resolve|enforce|index|publish|telemetry-register|telemetry> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -1083,7 +1083,11 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
-export function run(argv = process.argv.slice(2)): number {
+export function run(
+  argv: ["upgrade", "publish" | "telemetry-register" | "telemetry", ...string[]],
+): Promise<number>;
+export function run(argv?: string[]): number;
+export function run(argv = process.argv.slice(2)): number | Promise<number> {
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
@@ -1208,4 +1212,9 @@ function isMainModule(): boolean {
   catch { return false; }
 }
 
-if (isMainModule()) process.exit(run());
+if (isMainModule()) {
+  Promise.resolve(run()).then(
+    (code) => { process.exitCode = code; },
+    () => { process.exitCode = 2; },
+  );
+}

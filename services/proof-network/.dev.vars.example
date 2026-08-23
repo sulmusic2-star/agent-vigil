@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local development. Never commit real values.
+ADMIN_TOKEN=replace-with-a-random-local-admin-token
+TELEMETRY_HMAC_KEY=replace-with-a-separate-random-local-hmac-key
+LIFECYCLE_ISSUING_KEY=replace-with-a-separate-random-local-lifecycle-issuing-key

@@ -52,6 +52,12 @@ import {
 } from "./fleet.ts";
 import { terminalSafe } from "./presentation.ts";
 import {
+  publishCompatibilityRecord,
+  registerLifecycleInstallation,
+  uploadLifecycleEvent,
+  validateLifecycleCredential,
+} from "./hosted.ts";
+import {
   DEFAULT_UPGRADE_CONFIG,
   DEFAULT_UPGRADE_RECEIPT,
   doctorUpgrade,
@@ -73,6 +79,9 @@ Usage:
   vigil upgrade resolve --broken <entry.json> --fixed <entry.json> --output <resolution.json> --public-key <path> --signing-key <path>
   vigil upgrade enforce <entry.json> --policy <fleet-policy.json> --public-key <path> --expected-current-version <version> --expected-candidate-version <version> --expected-current-artifact-sha256 <sha256:...> --expected-candidate-artifact-sha256 <sha256:...> [--output <decision.json>]
   vigil upgrade index <entry-or-resolution.json>... --output <index.html> --public-key <path> [--api-output <registry.json>] [--badge-directory <dir>]
+  vigil upgrade publish <entry-or-resolution.json> --endpoint <https-origin> --public-key <path> --consent-public-proof
+  vigil upgrade telemetry-register --endpoint <https-origin> --channel <channel> --run-class <EXTERNAL_STANDARD|DEMO|INTERNAL> --credential-output <credential.json> --consent-lifecycle
+  vigil upgrade telemetry <event.json> --endpoint <https-origin> --credential <credential.json> --consent-lifecycle
 
 Exit codes: 0 SAFE/verified · 1 CHANGED/invalid signature · 2 HOLD or usage error`;
 }
@@ -501,7 +510,80 @@ function runIndex(args: string[]): number {
   return 0;
 }
 
-export function runUpgradeCommand(args: string[]): number {
+async function runHostedPublish(args: string[]): Promise<number> {
+  assertKnown(args, ["--endpoint", "--public-key"], ["--help", "--consent-public-proof"], true);
+  if (args.includes("--help")) { console.log(usage()); return 0; }
+  const inputs = positional(args, ["--endpoint", "--public-key"]);
+  const endpoint = option(args, "--endpoint");
+  const publicKey = option(args, "--public-key");
+  if (inputs.length !== 1 || !endpoint || !publicKey || !args.includes("--consent-public-proof")) {
+    throw new Error("hosted proof publication requires one record, endpoint, pinned public key, and explicit consent");
+  }
+  const raw = readBoundedJson(resolve(inputs[0]), 512 * 1024, "hosted compatibility record");
+  const schema = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>).schemaVersion : undefined;
+  let record: PublicCompatibilityEntry | CompatibilityResolution;
+  if (schema === COMPATIBILITY_RESOLUTION_SCHEMA) {
+    record = validateCompatibilityResolution(raw);
+    const checked = verifyCompatibilityResolution(record, resolve(publicKey));
+    if (!checked.hashValid || checked.signatureValid !== true) throw new Error("hosted resolution failed pinned-key verification");
+  } else {
+    record = validatePublicCompatibilityEntry(raw);
+    const checked = verifyPublicCompatibilityEntry(record, resolve(publicKey));
+    if (!checked.hashValid || checked.signatureValid !== true) throw new Error("hosted entry failed pinned-key verification");
+  }
+  const receipt = await publishCompatibilityRecord({ endpoint, record });
+  console.log(`Published verified ${receipt.recordType === "ENTRY" ? "compatibility entry" : "compatibility resolution"} ${receipt.recordHash}.`);
+  return 0;
+}
+
+async function runTelemetryRegister(args: string[]): Promise<number> {
+  assertKnown(
+    args,
+    ["--endpoint", "--channel", "--run-class", "--credential-output"],
+    ["--help", "--consent-lifecycle"],
+  );
+  if (args.includes("--help")) { console.log(usage()); return 0; }
+  const endpoint = option(args, "--endpoint");
+  const channel = option(args, "--channel");
+  const runClass = option(args, "--run-class");
+  const credentialOutput = option(args, "--credential-output");
+  const channels = new Set(["apm", "skills", "agent-plugin", "github-action", "github-app"]);
+  const runClasses = new Set(["EXTERNAL_STANDARD", "DEMO", "INTERNAL"]);
+  if (!endpoint || !channel || !channels.has(channel) || !runClass || !runClasses.has(runClass)
+    || !credentialOutput || !args.includes("--consent-lifecycle")) {
+    throw new Error("lifecycle registration requires an endpoint, supported channel/run class, private output, and explicit consent");
+  }
+  const credential = await registerLifecycleInstallation({
+    endpoint,
+    requestedChannel: channel as "apm" | "skills" | "agent-plugin" | "github-action" | "github-app",
+    runClass: runClass as "EXTERNAL_STANDARD" | "DEMO" | "INTERNAL",
+  });
+  writePrivateFileAtomic(resolve(credentialOutput), `${JSON.stringify(credential, null, 2)}\n`);
+  console.log("Saved a server-issued lifecycle credential as an owner-private file. Counts remain unverified and Sybil-susceptible.");
+  return 0;
+}
+
+async function runTelemetryUpload(args: string[]): Promise<number> {
+  assertKnown(args, ["--endpoint", "--credential"], ["--help", "--consent-lifecycle"], true);
+  if (args.includes("--help")) { console.log(usage()); return 0; }
+  const inputs = positional(args, ["--endpoint", "--credential"]);
+  const endpoint = option(args, "--endpoint");
+  const credentialPath = option(args, "--credential");
+  if (inputs.length !== 1 || !endpoint || !credentialPath || !args.includes("--consent-lifecycle")) {
+    throw new Error("lifecycle upload requires one event, endpoint, private credential, and explicit consent");
+  }
+  const credential = validateLifecycleCredential(readBoundedJson(resolve(credentialPath), 16 * 1024, "lifecycle credential"));
+  const event = readBoundedJson(resolve(inputs[0]), 32 * 1024, "lifecycle event");
+  const receipt = await uploadLifecycleEvent({ endpoint, credential, event });
+  console.log(`Uploaded one privacy-minimal UNVERIFIED_TELEMETRY event at ingestion sequence ${receipt.ingestionSequence}.`);
+  return 0;
+}
+
+export function runUpgradeCommand(
+  args: ["publish" | "telemetry-register" | "telemetry", ...string[]],
+): Promise<number>;
+export function runUpgradeCommand(args: string[]): number;
+export function runUpgradeCommand(args: string[]): number | Promise<number> {
   try {
     const command = args[0];
     const rest = args.slice(1);
@@ -516,6 +598,9 @@ export function runUpgradeCommand(args: string[]): number {
     if (command === "resolve") return runResolve(rest);
     if (command === "enforce") return runEnforce(rest);
     if (command === "index") return runIndex(rest);
+    if (command === "publish") return runHostedPublish(rest).catch((error) => reportCliError("agent-vigil upgrade", error));
+    if (command === "telemetry-register") return runTelemetryRegister(rest).catch((error) => reportCliError("agent-vigil upgrade", error));
+    if (command === "telemetry") return runTelemetryUpload(rest).catch((error) => reportCliError("agent-vigil upgrade", error));
     throw unknownUpgradeCommandError();
   } catch (error) {
     return reportCliError("agent-vigil upgrade", error);
