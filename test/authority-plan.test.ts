@@ -576,6 +576,25 @@ test("unknown authority can be overridden only by the trusted base policy", () =
   assert.equal(approvedPlan.summary.holds, 0);
   assert.ok(approvedPlan.summary.approved > 0);
 
+  const claude = fixture();
+  json(claude.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: [],
+    allowUnknownChanges: true,
+  });
+  const claudeBase = commit(claude.repo, "trusted Claude unknown policy");
+  json(claude.repo, ".claude/settings.json", { apiKeyHelper: "helper" });
+  const claudeHead = commit(claude.repo, "future Claude authority");
+  const claudePlan = buildAuthorityPlan(claude.repo, claudeBase, claudeHead);
+  assert.equal(claudePlan.status, "PASS");
+  assert.equal(claudePlan.summary.holds, 0);
+  assert.ok(claudePlan.deltas.some((delta) =>
+    delta.ruleId === "AVP001" && delta.after?.action === "approval.default" && delta.approvedByPolicy
+  ));
+  assert.ok(claudePlan.deltas.some((delta) =>
+    delta.ruleId === "AVP014" && delta.after?.action === "authority.opaque" && delta.approvedByPolicy
+  ));
+
   const selfApproved = fixture();
   write(selfApproved.repo, ".codex/config.toml", '[tools]\nfuture_control = true\n');
   json(selfApproved.repo, ".agent-vigil-authority-plan.json", {

@@ -5824,9 +5824,12 @@ function makeDelta(change, disposition, before, after) {
 }
 function applyAuthorityPlanPolicy(delta, policy) {
   const exactApproval = policy.approvedAdditions.includes(delta.approvalKey);
-  const unknownSetting = [delta.before, delta.after].some(
+  const values = [delta.before, delta.after];
+  const explicitUnknown = values.some(
     (value) => value?.action === "authority.opaque" || value?.decision === "UNKNOWN" && value.kind !== "model"
   );
+  const incidentalUnknown = delta.ruleId === "AVP001" && delta.change !== "CHANGED" && values.every((value) => !value || value.kind !== "model");
+  const unknownSetting = explicitUnknown || incidentalUnknown;
   const unknownApproval = delta.disposition === "HOLD" && policy.allowUnknownChanges && unknownSetting;
   if (delta.disposition === "ALLOW" || !exactApproval && !unknownApproval) return delta;
   return {
