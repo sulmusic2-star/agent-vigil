@@ -645,33 +645,47 @@ export function curlArchiveFetcher(fetchBin = "curl"): ArchiveFetcher {
 }
 
 function writeExclusiveFile(path: string, bytes: Buffer, executable: boolean, mode?: number): void {
+  const exactMode = mode ?? (executable ? 0o755 : 0o644);
   const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
   const descriptor = openSync(
     path,
     constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | noFollow,
-    mode ?? (executable ? 0o755 : 0o644),
+    exactMode,
   );
   try {
     writeFileSync(descriptor, bytes);
+    // Creation modes are filtered by the host umask. Reset the exact bounded
+    // mode on the already-open descriptor so the inventoried/tested artifact
+    // is identical across runners and matches the canonical Git tree model.
+    fchmodSync(descriptor, exactMode);
     const status = fstatSync(descriptor);
-    if (!status.isFile() || status.size !== bytes.length) throw new PreflightHold("MATERIALIZATION_FAILED");
+    if (!status.isFile() || status.size !== bytes.length || (status.mode & 0o777) !== exactMode) {
+      throw new PreflightHold("MATERIALIZATION_FAILED");
+    }
   } finally { closeSync(descriptor); }
 }
 
 function extractArchive(archive: ParsedArchive, root: string): void {
   mkdirSync(root, { mode: 0o755 });
+  chmodSync(root, 0o755);
   for (const directory of archive.directories.sort((left, right) => left.split("/").length - right.split("/").length)) {
     const output = join(root, ...directory.split("/"));
     const rel = relative(root, output);
     if (rel === ".." || rel.startsWith(`..${sep}`)) throw new PreflightHold("ARCHIVE_PATH_UNSAFE");
     if (!existsSync(output)) mkdirSync(output, { mode: 0o755 });
+    chmodSync(output, 0o755);
     const status = lstatSync(output);
-    if (status.isSymbolicLink() || !status.isDirectory()) throw new PreflightHold("MATERIALIZATION_FAILED");
+    if (status.isSymbolicLink() || !status.isDirectory() || (status.mode & 0o777) !== 0o755) {
+      throw new PreflightHold("MATERIALIZATION_FAILED");
+    }
   }
   for (const file of archive.files) {
     const output = join(root, ...file.path.split("/"));
     const parent = dirname(output);
-    if (!existsSync(parent)) mkdirSync(parent, { recursive: true, mode: 0o755 });
+    const parentStatus = lstatSync(parent);
+    if (parentStatus.isSymbolicLink() || !parentStatus.isDirectory()) {
+      throw new PreflightHold("MATERIALIZATION_FAILED");
+    }
     writeExclusiveFile(output, file.bytes, file.executable);
   }
 }

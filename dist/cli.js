@@ -15913,7 +15913,7 @@ var MAX_FILE_BYTES = 32 * 1024 * 1024;
 var MAX_TOTAL_BYTES2 = 256 * 1024 * 1024;
 var SESSION_PREFIX = "agent-vigil-apm-";
 var LIMITATIONS3 = [
-  "This receipt covers one selected APM package pair; other changes in the bound update plan remain separate decisions.",
+  "This receipt is eligible only when the bound update plan contains exactly one total change: the selected exact APM package pair.",
   "Automatic acquisition supports only credential-free public github.com git rows pinned by both a lowercase 40-character commit and APM tree_sha256.",
   "Archives containing links, special files, unsupported extension records, unsafe names, or entries beyond the documented bounds return HOLD.",
   "No APM installer, package lifecycle script, repository hook, or host update is executed; only temporary exact artifacts are mounted read-only into the existing contained check."
@@ -16409,34 +16409,45 @@ function curlArchiveFetcher(fetchBin = "curl") {
   };
 }
 function writeExclusiveFile(path, bytes, executable, mode) {
+  const exactMode = mode ?? (executable ? 493 : 420);
   const noFollow = typeof constants3.O_NOFOLLOW === "number" ? constants3.O_NOFOLLOW : 0;
   const descriptor = openSync4(
     path,
     constants3.O_CREAT | constants3.O_EXCL | constants3.O_WRONLY | noFollow,
-    mode ?? (executable ? 493 : 420)
+    exactMode
   );
   try {
     writeFileSync5(descriptor, bytes);
+    fchmodSync2(descriptor, exactMode);
     const status = fstatSync4(descriptor);
-    if (!status.isFile() || status.size !== bytes.length) throw new PreflightHold("MATERIALIZATION_FAILED");
+    if (!status.isFile() || status.size !== bytes.length || (status.mode & 511) !== exactMode) {
+      throw new PreflightHold("MATERIALIZATION_FAILED");
+    }
   } finally {
     closeSync4(descriptor);
   }
 }
 function extractArchive(archive, root) {
   mkdirSync4(root, { mode: 493 });
+  chmodSync2(root, 493);
   for (const directory of archive.directories.sort((left, right) => left.split("/").length - right.split("/").length)) {
     const output = join8(root, ...directory.split("/"));
     const rel = relative10(root, output);
     if (rel === ".." || rel.startsWith(`..${sep8}`)) throw new PreflightHold("ARCHIVE_PATH_UNSAFE");
     if (!existsSync5(output)) mkdirSync4(output, { mode: 493 });
+    chmodSync2(output, 493);
     const status = lstatSync7(output);
-    if (status.isSymbolicLink() || !status.isDirectory()) throw new PreflightHold("MATERIALIZATION_FAILED");
+    if (status.isSymbolicLink() || !status.isDirectory() || (status.mode & 511) !== 493) {
+      throw new PreflightHold("MATERIALIZATION_FAILED");
+    }
   }
   for (const file of archive.files) {
     const output = join8(root, ...file.path.split("/"));
     const parent = dirname7(output);
-    if (!existsSync5(parent)) mkdirSync4(parent, { recursive: true, mode: 493 });
+    const parentStatus = lstatSync7(parent);
+    if (parentStatus.isSymbolicLink() || !parentStatus.isDirectory()) {
+      throw new PreflightHold("MATERIALIZATION_FAILED");
+    }
     writeExclusiveFile(output, file.bytes, file.executable);
   }
 }

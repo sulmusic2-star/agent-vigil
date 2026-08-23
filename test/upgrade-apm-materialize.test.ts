@@ -347,6 +347,54 @@ test("automatic APM preflight returns HOLD before fetch for unbound or unsupport
   }
 });
 
+test("automatic APM materialization is invariant across restrictive host umasks", () => {
+  const originalUmask = process.umask();
+  const commitments: string[] = [];
+  try {
+    for (const mask of [0o022, 0o077]) {
+      const value = fixture();
+      try {
+        mkdirSync(value.workDirectory);
+        const currentArchive = archive(value.currentCommit, {
+          "package.json": `${JSON.stringify({ name: "fixture-agent", version: "1.0.0", tools: ["read"] })}\n`,
+        });
+        const candidateArchive = archive(value.candidateCommit, {
+          "package.json": `${JSON.stringify({ name: "fixture-agent", version: "1.1.0", tools: ["read"] })}\n`,
+        });
+        lock(value.currentLockPath, value.currentCommit, parseApmGitHubArchive(currentArchive).treeSha256);
+        lock(value.candidateLockPath, value.candidateCommit, parseApmGitHubArchive(candidateArchive).treeSha256);
+        process.umask(mask);
+        const receipt = runApmAutomaticPreflight({
+          repository: value.repository,
+          currentLockPath: value.currentLockPath,
+          candidateLockPath: value.candidateLockPath,
+          configPath: value.configPath,
+          workDirectory: value.workDirectory,
+          generatedAt: "2026-08-23T20:00:00.000Z",
+          nonce: "umask-invariance-nonce",
+        }, {
+          fetchArchive: (url, destination) => writeFileSync(
+            destination,
+            url.endsWith(value.currentCommit) ? currentArchive : candidateArchive,
+          ),
+          evaluate: (input) => fakeReceipt(
+            input.currentDirectory,
+            input.candidateDirectory,
+            input.generatedAt!,
+            input.nonce!,
+          ),
+        });
+        assert.equal(receipt.summary.verdict, "SAFE");
+        commitments.push(receipt.materialization!.current!.selectedArtifact.treeSha256);
+      } finally {
+        rmSync(value.repository, { recursive: true, force: true });
+      }
+    }
+  } finally { process.umask(originalUmask); }
+  assert.equal(commitments.length, 2);
+  assert.equal(commitments[0], commitments[1]);
+});
+
 test("a failed restoration can never preserve a SAFE nested verdict", () => {
   const value = fixture();
   mkdirSync(value.workDirectory);
