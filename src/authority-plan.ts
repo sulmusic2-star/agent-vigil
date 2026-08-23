@@ -576,9 +576,9 @@ function addBooleanExpansionControl(
     constraints: [`enabled=${enabled}`],
     locator,
     comparisonValue: enabled,
-    added: enabled ? expansion(ruleId, reason, "critical") : ALLOW_RESTRICTION,
-    // Removing the containing sandbox disables these conditional controls.
-    // Property-level removal is still compared against the declared default.
+    // Adding or removing the containing sandbox changes whether these controls
+    // apply at all. Property-level widening is still caught by the comparison.
+    added: ALLOW_RESTRICTION,
     removed: ALLOW_RESTRICTION,
     compare: (before, after) => decisionRelation(before.decision, after.decision),
   }));

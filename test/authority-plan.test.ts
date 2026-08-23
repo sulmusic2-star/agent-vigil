@@ -475,6 +475,40 @@ test("Claude sandbox escape controls block while unmodeled nested controls hold"
   assert.ok(opaque.deltas.some((delta) => delta.ruleId === "AVP014" && delta.after?.locator === "sandbox.network.allowedDomains"));
 });
 
+test("enabling a Claude sandbox does not treat conditional defaults as authority expansions", () => {
+  const value = fixture();
+  json(value.repo, ".claude/settings.json", { permissions: { defaultMode: "default" } });
+  const base = commit(value.repo, "claude settings without sandbox");
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    sandbox: { enabled: true, autoAllowBashIfSandboxed: false },
+  });
+  const sandboxHead = commit(value.repo, "enable claude sandbox");
+  const enabled = buildAuthorityPlan(value.repo, base, sandboxHead);
+
+  assert.equal(enabled.status, "PASS");
+  assert.ok(enabled.deltas.some((delta) => delta.after?.action === "sandbox.enforce"));
+  assert.ok(enabled.deltas.some((delta) => delta.after?.action === "sandbox.escape"));
+  assert.ok(enabled.deltas.every((delta) => delta.disposition === "ALLOW"));
+
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    sandbox: { enabled: true, autoAllowBashIfSandboxed: false, allowUnsandboxedCommands: false },
+  });
+  const restrictedHead = commit(value.repo, "disable unsandboxed retry");
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    sandbox: { enabled: true, autoAllowBashIfSandboxed: false },
+  });
+  const widenedHead = commit(value.repo, "restore unsandboxed retry default");
+  const widened = buildAuthorityPlan(value.repo, restrictedHead, widenedHead);
+
+  assert.equal(widened.status, "BLOCK");
+  assert.ok(widened.deltas.some((delta) =>
+    delta.disposition === "BLOCK" && delta.ruleId === "AVP005" && delta.after?.action === "sandbox.escape"
+  ));
+});
+
 test("removing an empty Claude network container preserves default-false controls", () => {
   const value = fixture();
   json(value.repo, ".claude/settings.json", { sandbox: { enabled: true, network: {} } });
