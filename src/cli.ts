@@ -32,7 +32,7 @@ import { buildMaintainerChecks, loadPullRequestEvidence } from "./maintainer.ts"
 import { routeIntegrity } from "./integrity-policy.ts";
 import { compareReceipts, renderReceiptDelta } from "./receipt-diff.ts";
 import { buildMergeGroupReport } from "./merge-group.ts";
-import { writePrivateFileAtomic } from "./safe-output.ts";
+import { appendPrivateFileAtomic, writePrivateFileAtomic } from "./safe-output.ts";
 import { analyzeTrajectory, authorityContractTemplate, buildAuthorityChecks, classifyTranscriptActions, loadAuthorityContract } from "./authority.ts";
 import {
   buildValueCard,
@@ -53,7 +53,8 @@ import {
   writeAttestationPredicate,
 } from "./attestation.ts";
 import { runUpgradeCommand } from "./upgrade/cli.ts";
-import { authorityPlanChecks, buildAuthorityPlan, renderAuthorityPlan } from "./authority-plan.ts";
+import { authorityPlanChecks, buildAuthorityPlan, renderAuthorityPlan, renderAuthorityPlanMarkdown } from "./authority-plan.ts";
+import { renderProofComment } from "./proof-comment.ts";
 
 type Options = {
   transcript?: string;
@@ -84,6 +85,7 @@ Usage:
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
+  vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
@@ -143,7 +145,7 @@ Exit codes: 0 PASS · 1 FAIL · 2 INCONCLUSIVE or usage error`;
 
 function runPlan(args: string[]): number {
   try {
-    const allowed = new Set(["plan", "--repo", "--base", "--head", "--policy", "--format", "--output", "--json"]);
+    const allowed = new Set(["plan", "--repo", "--base", "--head", "--policy", "--format", "--output", "--json", "--github-summary"]);
     const takesValue = new Set(["--repo", "--base", "--head", "--policy", "--format", "--output"]);
     for (let index = 1; index < args.length; index++) {
       const arg = args[index];
@@ -159,16 +161,39 @@ function runPlan(args: string[]): number {
     if (!existsSync(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef) || !gitRefExists(repo, headRef)) throw new Error(`invalid git range ${baseRef}..${headRef}`);
     const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
-    if (!new Set(["text", "json"]).has(format)) throw new Error("plan --format must be text or json");
+    if (!new Set(["text", "json", "markdown"]).has(format)) throw new Error("plan --format must be text, json, or markdown");
     const policyPath = optionValue(args, "--policy");
     if (policyPath && (isAbsolute(policyPath) || policyPath === ".." || policyPath.startsWith("../") || policyPath.includes("\\"))) {
       throw new Error("plan --policy must be a repository-relative POSIX path");
     }
     const report = buildAuthorityPlan(repo, baseRef, headRef, VERSION, policyPath);
+    const rendered = format === "json"
+      ? `${JSON.stringify(report, null, 2)}\n`
+      : format === "markdown"
+        ? renderAuthorityPlanMarkdown(report)
+        : `${renderAuthorityPlan(report)}\n`;
     const output = optionValue(args, "--output");
     if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
-    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderAuthorityPlan(report));
-    return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
+    else process.stdout.write(rendered);
+    if (args.includes("--github-summary")) {
+      const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+      if (!summaryPath) throw new Error("--github-summary requires GITHUB_STEP_SUMMARY");
+      appendPrivateFileAtomic(resolve(summaryPath), renderAuthorityPlanMarkdown(report));
+    }
+    return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runProofComment(args: string[]): number {
+  try {
+    const parsed = parseCommandArgs(args, new Set(["--verify-url", "--output"]));
+    if (parsed.positional.length !== 1) throw new Error("proof-comment requires exactly one full receipt JSON path");
+    const { report } = loadReceipt(resolve(parsed.positional[0]));
+    const rendered = renderProofComment(report, { verifyUrl: parsed.values.get("--verify-url") });
+    const output = parsed.values.get("--output");
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return 0;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -932,6 +957,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
   if (argv[0] === "plan") return runPlan(argv);
+  if (argv[0] === "proof-comment") return runProofComment(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);
   if (argv[0] === "init") return runInit(argv);
   if (argv[0] === "doctor") return runDoctor(argv);

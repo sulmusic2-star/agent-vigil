@@ -1,6 +1,6 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.14.1",
+  "version": "0.15.0-dev.0",
   "description": "Fail-closed change control, upgrade preflight, and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
@@ -78,6 +78,7 @@
     "docs/NOTARY_APP.md",
     "docs/OUTCOME_OBSERVER.md",
     "docs/PRIVATE_RECEIPT_GATE.md",
+    "docs/PROOF_COMMENT.md",
     "docs/PUBLIC_RELEASE_POLICY.md",
     "docs/RECEIPTS.md",
     "docs/RECEIPT_DELTAS.md",
@@ -86,6 +87,7 @@
     "docs/UPGRADE_GUARD.md",
     "docs/VALUE_COMPARISONS.md",
     "docs/authority-contract-v1.schema.json",
+    "docs/authority-plan-v1.schema.json",
     "docs/authority-plan-policy-v1.schema.json",
     "docs/ai-change-receipt-predicate-v1.schema.json",
     "docs/compatibility-entry-v1.schema.json",

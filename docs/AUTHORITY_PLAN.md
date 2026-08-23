@@ -33,8 +33,11 @@ evidence; the pull-request summary lists the blocking items in ordinary terms.
 The first release reads these repository files:
 
 - `.mcp.json`
+- `mcp.json`
 - `.cursor/mcp.json`
 - `.vscode/mcp.json`
+- `.github/mcp.json`
+- `.github/copilot/mcp.json`
 - `.claude/settings.json`
 - `.claude/settings.local.json`
 - `.codex/config.toml`
@@ -74,15 +77,16 @@ pull request starts. Put it in `.agent-vigil-authority-plan.json`:
 {
   "schemaVersion": 1,
   "approvedAdditions": [
-    "network:api.example.com=mcp-server"
+    "authority:AVP006:mcp:mcp.connect:https://api.example.com@sha256:<exact-delta-digest>"
   ],
   "allowUnknownChanges": false
 }
 ```
 
-Each approval binds the normalized kind, subject, and resulting value. When a
-server or hook has additional command details, the JSON plan adds a structural
-fingerprint to `approvalKey`; copy the entire key into the base policy. An
+Each approval binds the rule, platform, action, resource, and complete
+structural delta. Copy the entire `approvalKey` from the JSON plan into a
+separate policy change, merge that policy first, and then rebase the authority
+change so the approval exists in its exact base revision. An
 approval for one host does not approve every host, and an approval for one
 server identity does not approve a later command change. Editing this file in
 the candidate revision cannot approve that candidate because Agent Vigil reads

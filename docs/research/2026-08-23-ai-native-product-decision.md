@@ -118,13 +118,16 @@ The `0.13.0` candidate already provides substantial reusable machinery:
 
 Verification on 2026-08-23:
 
-- 391 tests passed when the five opt-in Docker tests used the selected local,
-  digest-pinned image; the ordinary run passed 386 and skipped those five
+- 411 tests passed when the five opt-in Docker tests used the selected local,
+  digest-pinned image; the ordinary run passed 406 and skipped those five
 - 20 of 20 failure-corpus expectations matched
 - public-surface gate passed
 
-This does not yet provide native cross-vendor config discovery or a semantic
-authority plan. Those are the product-defining missing pieces.
+At the reviewed baseline, this did not provide native cross-vendor config
+discovery or a semantic authority plan. The current isolated, uncommitted
+worktree now implements the first repository-declared slice for MCP, Claude
+Code, and Codex. That local implementation is technical progress, not external
+validation or a public release.
 
 ## Commercial path
 
