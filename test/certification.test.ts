@@ -80,7 +80,7 @@ test("chained corpus rejects duplicates, altered history, and broken sequence", 
 
   const rehashedCertificate = structuredClone(certificate);
   rehashedCertificate.proof.generatedAt = "2026-08-01T00:00:00.000Z";
-  assert.throws(() => appendCorpusEntry(first.line, rehashedCertificate), /certificate hash is invalid/);
+  assert.throws(() => appendCorpusEntry(first.line, rehashedCertificate), /receipt hash is invalid/);
 });
 
 test("seven-day policy distinguishes fresh, stale, missing, and future evidence", () => {
@@ -116,7 +116,7 @@ test("authority policy fails closed when a required challenge disappears", () =>
   assert.ok(last);
   // The certificate is deliberately not rehashed; altered evidence must be
   // rejected before policy evaluation can mistake it for a weaker pack.
-  assert.throws(() => validateCertificate(reduced), /certificate hash is invalid/);
+  assert.throws(() => validateCertificate(reduced), /receipt hash is invalid/);
 });
 
 test("certify CLI creates a private record, corpus, policy, and deterministic status report", () => {

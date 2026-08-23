@@ -91,3 +91,10 @@ one corpus writer at a time and retain the file in organization-controlled
 storage. The current adapter verifies Agent Vigil receipt structure and content
 hashes. It does not establish who ran the proof, verify a live GitHub ruleset,
 or turn local evidence into external adoption.
+
+The repository's `Weekly control proof` workflow runs the authority pack every
+Monday and retains its proof, certificate, policy, corpus entry, and status for
+90 days. Each run is a self-contained dogfood bundle. Organizations that need a
+single historical ledger should append those certificates to durable,
+access-controlled corpus storage. The four public JSON schemas in `docs/`
+define the interchange contract; unsupported adapters remain fail-closed.

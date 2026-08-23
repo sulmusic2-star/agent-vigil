@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/control-policy-v1.schema.json",
+  "title": "Control certification policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "policyId", "organization", "maxAgeHours", "repositories"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-control-policy/v1" },
+    "policyId": { "$ref": "#/$defs/text" },
+    "organization": { "$ref": "#/$defs/text" },
+    "maxAgeHours": { "type": "integer", "minimum": 1, "maximum": 8760 },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repository", "requiredCheck", "allowedControls", "requiredChallenges"],
+        "properties": {
+          "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+          "requiredCheck": { "$ref": "#/$defs/text" },
+          "allowedControls": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+          "requiredChallenges": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } }
+        }
+      }
+    }
+  },
+  "$defs": { "text": { "type": "string", "minLength": 1, "maxLength": 200 } }
+}
