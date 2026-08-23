@@ -14198,7 +14198,7 @@ function probeContainment(config, targetDirectory, canaryDirectory, selection = 
     };
   }
 }
-function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase, selection = "docker") {
+function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, selection = "docker") {
   let client;
   try {
     client = selectedDockerClient(selection);
@@ -14215,8 +14215,6 @@ function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase,
   args.push(
     "--env",
     "VIGIL_TARGET=/target",
-    "--env",
-    `VIGIL_PHASE=${phase}`,
     config.runner.image,
     ...canary.command
   );
@@ -14458,7 +14456,6 @@ function runUpgradeEvaluation(input) {
       canary,
       input.currentDirectory,
       canaryDirectory,
-      "current",
       dockerClient
     )) : [];
     const candidateTrials = containment.status === "PASS" ? Array.from({ length: config.runner.trials }, () => runCanaryTrial(
@@ -14466,7 +14463,6 @@ function runUpgradeEvaluation(input) {
       canary,
       input.candidateDirectory,
       canaryDirectory,
-      "candidate",
       dockerClient
     )) : [];
     return compareCanary(canary, commandDigest(canary), currentTrials, candidateTrials);

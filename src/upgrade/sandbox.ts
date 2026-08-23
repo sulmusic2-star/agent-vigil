@@ -451,7 +451,6 @@ export function runCanaryTrial(
   canary: UpgradeCanaryConfig,
   targetDirectory: string,
   canaryDirectory: string,
-  phase: "current" | "candidate",
   selection: DockerClientSelection = "docker",
 ): CanaryTrial {
   let client: ResolvedDockerClient;
@@ -469,7 +468,6 @@ export function runCanaryTrial(
   }
   args.push(
     "--env", "VIGIL_TARGET=/target",
-    "--env", `VIGIL_PHASE=${phase}`,
     config.runner.image,
     ...canary.command,
   );

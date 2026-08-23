@@ -333,12 +333,12 @@ export function runUpgradeEvaluation(input: {
   const canaries: CanaryComparison[] = config.canaries.map((canary) => {
     const currentTrials = containment.status === "PASS"
       ? Array.from({ length: config.runner.trials }, () => runCanaryTrial(
-          config, canary, input.currentDirectory, canaryDirectory, "current", dockerClient,
+          config, canary, input.currentDirectory, canaryDirectory, dockerClient,
         ))
       : [];
     const candidateTrials = containment.status === "PASS"
       ? Array.from({ length: config.runner.trials }, () => runCanaryTrial(
-          config, canary, input.candidateDirectory, canaryDirectory, "candidate", dockerClient,
+          config, canary, input.candidateDirectory, canaryDirectory, dockerClient,
         ))
       : [];
     return compareCanary(canary, commandDigest(canary), currentTrials, candidateTrials);

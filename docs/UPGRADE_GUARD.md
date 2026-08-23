@@ -502,7 +502,7 @@ Inside the container:
 - `/canaries` is the trusted canary directory, mounted read-only;
 - the working directory is `/canaries`;
 - `VIGIL_TARGET=/target`;
-- `VIGIL_PHASE=current` or `VIGIL_PHASE=candidate`;
+- no current/candidate phase label is exposed to evaluated code;
 - network access is disabled; and
 - proxy variables are explicitly cleared.
 

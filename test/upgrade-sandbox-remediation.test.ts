@@ -234,7 +234,7 @@ test("a SIGTERM-ignoring Docker client is killed on deadline and its exact conta
   try {
     const started = performance.now();
     const result = withoutDockerOverrides(() => runCanaryTrial(
-      config(), canary, target, canaries, "candidate", fake.executable,
+      config(), canary, target, canaries, fake.executable,
     ));
     const elapsed = performance.now() - started;
     assert.equal(result.state, "HOLD");
@@ -294,7 +294,6 @@ test("one resolved client pins every Docker call despite hostile endpoint and TL
       { id: "pinned", command: ["node", "canary.cjs"], timeoutSeconds: 1 },
       target,
       canaries,
-      "candidate",
       client,
     );
     assert.equal(trial.state, "PASS", trial.reason);
@@ -303,6 +302,7 @@ test("one resolved client pins every Docker call despite hostile endpoint and TL
     assert.equal(calls.filter((call) => call.commandArgs[0] === "context").length, 1);
     const controlled = calls.filter((call) => ["image", "run", "container"].includes(call.commandArgs[0]));
     assert.ok(controlled.length >= 7);
+    assert.equal(calls.some((call) => call.commandArgs.some((arg) => arg.includes("VIGIL_PHASE"))), false);
     for (const call of controlled) {
       assert.deepEqual(call.rawArgs.slice(0, 2), ["--host", endpoint]);
       for (const name of controlledNames) assert.equal(call.dockerEnv[name], undefined, `${name}: ${call.commandArgs.join(" ")}`);
@@ -330,7 +330,6 @@ test("cleanup and absence-list command errors force HOLD", { skip: POSIX_FAKE_DO
         { id: "cleanup", command: ["node", "canary.cjs"], timeoutSeconds: 1 },
         target,
         canaries,
-        "candidate",
         fake.executable,
       ));
       assert.equal(result.state, "HOLD", failure);
@@ -377,7 +376,6 @@ test("real Docker timeout removes a candidate that ignores SIGTERM", { skip: !RE
       canary,
       target,
       canaries,
-      "candidate",
       client,
     );
     const elapsed = performance.now() - started;
