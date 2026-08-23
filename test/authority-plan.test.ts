@@ -506,6 +506,35 @@ test("enabling a Claude sandbox does not treat conditional defaults as authority
 
   json(value.repo, ".claude/settings.json", {
     permissions: { defaultMode: "default" },
+    sandbox: { enabled: true, futureIsolationMode: "strict" },
+  });
+  const opaqueEnabledHead = commit(value.repo, "enable sandbox with opaque child");
+  const opaqueEnabled = buildAuthorityPlan(value.repo, base, opaqueEnabledHead);
+
+  assert.equal(opaqueEnabled.status, "HOLD");
+  assert.ok(opaqueEnabled.deltas.some((delta) =>
+    delta.disposition === "HOLD" && delta.ruleId === "AVP014" && delta.after?.locator === "sandbox.futureIsolationMode"
+  ));
+
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    sandbox: { enabled: false, futureIsolationMode: "strict" },
+  });
+  const opaqueDisabledHead = commit(value.repo, "disable sandbox with opaque child");
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    sandbox: { enabled: true, futureIsolationMode: "strict" },
+  });
+  const unchangedOpaqueEnabledHead = commit(value.repo, "activate unchanged opaque child");
+  const unchangedOpaqueEnabled = buildAuthorityPlan(value.repo, opaqueDisabledHead, unchangedOpaqueEnabledHead);
+
+  assert.equal(unchangedOpaqueEnabled.status, "HOLD");
+  assert.ok(unchangedOpaqueEnabled.deltas.some((delta) =>
+    delta.disposition === "HOLD" && delta.ruleId === "AVP014" && delta.after?.locator === "sandbox.futureIsolationMode"
+  ));
+
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
     sandbox: { enabled: true, autoAllowBashIfSandboxed: false, allowUnsandboxedCommands: false },
   });
   const restrictedHead = commit(value.repo, "disable unsandboxed retry");
@@ -714,6 +743,75 @@ test("unknown authority can be overridden only by the trusted base policy", () =
   const selfApprovedPlan = buildAuthorityPlan(selfApproved.repo, selfApproved.base, selfApprovedHead);
   assert.equal(selfApprovedPlan.status, "HOLD");
   assert.equal(selfApprovedPlan.policy.source, "built-in default");
+});
+
+test("allowUnknownChanges cannot waive recognized authority expansions", () => {
+  const codex = fixture();
+  json(codex.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: [],
+    allowUnknownChanges: true,
+  });
+  write(codex.repo, ".codex/config.toml", 'approval_policy = "future-mode"\nsandbox_mode = "future-mode"\n');
+  const codexBase = commit(codex.repo, "trusted policy with unknown Codex approval");
+  write(codex.repo, ".codex/config.toml", 'approval_policy = "never"\nsandbox_mode = "danger-full-access"\n');
+  const codexHead = commit(codex.repo, "suppress Codex approval prompts");
+  const codexPlan = buildAuthorityPlan(codex.repo, codexBase, codexHead);
+  assert.equal(codexPlan.status, "BLOCK");
+  assert.ok(codexPlan.deltas.some((delta) =>
+    delta.disposition === "BLOCK" && delta.ruleId === "AVP004" && delta.after?.action === "approval.policy"
+  ));
+  assert.ok(codexPlan.deltas.some((delta) =>
+    delta.disposition === "BLOCK" && delta.ruleId === "AVP005" && delta.after?.action === "sandbox.mode"
+  ));
+
+  const claude = fixture();
+  json(claude.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: [],
+    allowUnknownChanges: true,
+  });
+  json(claude.repo, ".claude/settings.json", { permissions: { defaultMode: "future-mode" } });
+  const claudeBase = commit(claude.repo, "trusted policy with unknown Claude approval");
+  json(claude.repo, ".claude/settings.json", { permissions: { defaultMode: "auto" } });
+  const claudeHead = commit(claude.repo, "enable automatic Claude approval");
+  const claudePlan = buildAuthorityPlan(claude.repo, claudeBase, claudeHead);
+  assert.equal(claudePlan.status, "BLOCK");
+  assert.ok(claudePlan.deltas.some((delta) =>
+    delta.disposition === "BLOCK" && delta.ruleId === "AVP004" && delta.after?.action === "approval.default"
+  ));
+  json(claude.repo, ".claude/settings.json", { permissions: { defaultMode: "default" } });
+  const claudePromptHead = commit(claude.repo, "restore interactive Claude approval");
+  const claudePromptPlan = buildAuthorityPlan(claude.repo, claudeBase, claudePromptHead);
+  assert.equal(claudePromptPlan.status, "PASS");
+  assert.ok(claudePromptPlan.deltas.some((delta) => delta.approvedByPolicy));
+
+  const mcp = fixture();
+  json(mcp.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: [],
+    allowUnknownChanges: true,
+  });
+  json(mcp.repo, ".mcp.json", {
+    mcpServers: { docs: { command: "node", default_tools_approval_mode: "future-mode" } },
+  });
+  const mcpBase = commit(mcp.repo, "trusted policy with unknown MCP approval");
+  json(mcp.repo, ".mcp.json", {
+    mcpServers: { docs: { command: "node", default_tools_approval_mode: "auto" } },
+  });
+  const mcpHead = commit(mcp.repo, "enable automatic MCP approval");
+  const mcpPlan = buildAuthorityPlan(mcp.repo, mcpBase, mcpHead);
+  assert.equal(mcpPlan.status, "BLOCK");
+  assert.ok(mcpPlan.deltas.some((delta) =>
+    delta.disposition === "BLOCK" && delta.ruleId === "AVP004" && delta.after?.action === "approval.mode"
+  ));
+  json(mcp.repo, ".mcp.json", {
+    mcpServers: { docs: { command: "node", default_tools_approval_mode: "prompt" } },
+  });
+  const mcpPromptHead = commit(mcp.repo, "require MCP approval prompts");
+  const mcpPromptPlan = buildAuthorityPlan(mcp.repo, mcpBase, mcpPromptHead);
+  assert.equal(mcpPromptPlan.status, "PASS");
+  assert.ok(mcpPromptPlan.deltas.some((delta) => delta.approvedByPolicy));
 });
 
 test("allowUnknownChanges does not approve recognized incomparable hooks or models", () => {

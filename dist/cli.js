@@ -5814,6 +5814,14 @@ function dispositionForRelation(relation, before, after) {
   if (relation === "incomparable") return hold("AVP014", `the change from ${before.locator} to ${after.locator} is not ordered by the supported authority lattice`);
   return { ...ALLOW_RESTRICTION, direction: "NEUTRAL", reason: "the semantic authority is unchanged" };
 }
+function recognizedExpansionFromUnknown(before, after) {
+  if (before.decision !== "UNKNOWN" || after.decision === "UNKNOWN") return void 0;
+  if (after.added.disposition === "BLOCK") return after.added;
+  if ((after.action === "approval.mode" || after.action === "approval.default") && after.decision === "ALLOW") {
+    return dispositionForRelation("expansion", before, after);
+  }
+  return void 0;
+}
 function deltaSummary(change, atomValue) {
   const prefix = change === "ADDED" ? "added" : change === "REMOVED" ? "removed" : "changed";
   return `${prefix} ${atomValue.platform} ${atomValue.action} for ${atomValue.resource}`;
@@ -5868,12 +5876,21 @@ function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
     [...beforeByKey.entries()].filter(([key, item2]) => key.endsWith("\0enabled") && item2.action === "mcp.connect" && item2.decision === "ALLOW" && !afterByKey.has(key)).map(([key]) => key.slice(0, -"\0enabled".length))
   );
   const rawDeltas = [];
-  const conditionActiveAcrossRevision = (before2, after2) => {
+  const conditionActivity = (before2, after2) => {
     const representative = after2 ?? before2;
     const inferredSandboxParent = representative?.platform === "claude-code" && representative.locator !== "sandbox.enabled" && representative.locator.startsWith("sandbox.") ? `claude-code\0${representative.sourcePath}\0sandbox-enabled` : void 0;
     const conditionalOn = after2?.conditionalOn ?? before2?.conditionalOn ?? inferredSandboxParent;
-    if (!conditionalOn) return true;
-    return beforeByKey.get(conditionalOn)?.decision === "ALLOW" && afterByKey.get(conditionalOn)?.decision === "ALLOW";
+    if (!conditionalOn) return { conditional: false, activeBefore: true, activeAfter: true };
+    return {
+      conditional: true,
+      activeBefore: beforeByKey.get(conditionalOn)?.decision === "ALLOW",
+      activeAfter: afterByKey.get(conditionalOn)?.decision === "ALLOW"
+    };
+  };
+  const conditionActiveAcrossRevision = (before2, after2) => {
+    const representative = after2 ?? before2;
+    const { activeBefore, activeAfter } = conditionActivity(before2, after2);
+    return activeBefore && activeAfter || activeAfter && representative?.action === "authority.opaque";
   };
   for (const key of keys) {
     const oldAtom = beforeByKey.get(key);
@@ -5894,12 +5911,19 @@ function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
       ));
     } else if (oldAtom && newAtom && oldAtom.comparisonToken !== newAtom.comparisonToken) {
       const relation = oldAtom.compare ? oldAtom.compare(oldAtom, newAtom) : newAtom.compare ? newAtom.compare(oldAtom, newAtom) : "incomparable";
+      const recognizedExpansion = relation === "incomparable" ? recognizedExpansionFromUnknown(oldAtom, newAtom) : void 0;
+      const disposition = recognizedExpansion ? recognizedExpansion : dispositionForRelation(relation, oldAtom, newAtom);
       rawDeltas.push(makeDelta(
         "CHANGED",
-        conditionActiveAcrossRevision(oldAtom, newAtom) ? dispositionForRelation(relation, oldAtom, newAtom) : ALLOW_RESTRICTION,
+        conditionActiveAcrossRevision(oldAtom, newAtom) ? disposition : ALLOW_RESTRICTION,
         oldAtom,
         newAtom
       ));
+    } else if (oldAtom && newAtom && newAtom.action === "authority.opaque") {
+      const activity = conditionActivity(oldAtom, newAtom);
+      if (activity.conditional && !activity.activeBefore && activity.activeAfter) {
+        rawDeltas.push(makeDelta("CHANGED", newAtom.added, oldAtom, newAtom));
+      }
     }
   }
   const deltas = rawDeltas.map((delta) => applyAuthorityPlanPolicy(delta, policy.value));
