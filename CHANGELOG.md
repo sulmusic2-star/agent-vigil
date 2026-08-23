@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add chained Control Proof certificates, weekly freshness policies, baseline
+  and authority policy packs, and organization status reports.
 - Add `vigil prove`, a local control-effectiveness check that creates a
   disposable clone, plants six safe change scenarios, and returns `HOLD`
   unless every expected PASS, BLOCK, and HOLD result is observed.

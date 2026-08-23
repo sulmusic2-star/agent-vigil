@@ -157,6 +157,21 @@ a weaker sandbox, and a skipped test. It returns `PASS` only when every planted
 case produces the expected result and the temporary clone is removed. It does
 not change or push the source repository. See [Control Proof](docs/CONTROL_PROOF.md).
 
+Retain those results in a chained corpus and answer whether every policy-listed
+repository has passed its required challenges within seven days:
+
+```bash
+vigil certify record control-proof.json --organization acme --repository acme/api --required-check "Agent Vigil evidence" --output certificate.json
+vigil certify add certificate.json --corpus control-corpus.jsonl
+vigil certify policy --organization acme --repository acme/api --required-check "Agent Vigil evidence" --pack authority --output control-policy.json
+vigil certify status --corpus control-corpus.jsonl --policy control-policy.json
+```
+
+The corpus schema can carry more control adapters over time. This release only
+accepts the Agent Vigil Control Proof adapter because it is the only adapter it
+can verify. A policy entry declares that a check is required; it does not prove
+that GitHub branch protection currently enforces that requirement.
+
 The design is tied to a dated ledger of
 [50 primary user reports](docs/research/2026-08-23-user-pain-ledger.md) covering
 false completion, test manipulation, loops and cost, environment drift,

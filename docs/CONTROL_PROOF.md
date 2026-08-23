@@ -65,3 +65,29 @@ Retain `steps.control-proof.outputs.report` as an artifact. `HOLD` exits 2, so a
 unexpected decision or cleanup error fails the job.
 The `v0.15.0` tag is the planned release for this feature and does not exist
 until that release is published.
+
+## Seven-day certification status
+
+`vigil certify` turns individual proofs into a private, chain-hashed JSONL
+corpus. An organization-owned policy lists its repositories, required check,
+allowed control, required planted challenges, and maximum proof age.
+
+```bash
+vigil certify record proof.json --organization acme --repository acme/api --required-check "Agent Vigil evidence" --output api-certificate.json
+vigil certify add api-certificate.json --corpus acme-control-corpus.jsonl
+vigil certify policy --organization acme --repository acme/api --required-check "Agent Vigil evidence" --pack authority --output acme-control-policy.json
+vigil certify status --corpus acme-control-corpus.jsonl --policy acme-control-policy.json
+```
+
+The default window is 168 hours. Each repository is reported as `FRESH`,
+`STALE`, `MISSING`, or `HOLD`; the organization receives `PASS` only when every
+listed repository is fresh. The `baseline` pack requires the clean control,
+skipped-test block, and cleanup check. The `authority` pack requires all seven
+v0.15 challenges.
+
+Corpus entries bind the prior entry hash and reject altered history, duplicate
+certificates, inconsistent proof decisions, and control-identity spoofing. Use
+one corpus writer at a time and retain the file in organization-controlled
+storage. The current adapter verifies Agent Vigil receipt structure and content
+hashes. It does not establish who ran the proof, verify a live GitHub ruleset,
+or turn local evidence into external adoption.
