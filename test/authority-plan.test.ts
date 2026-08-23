@@ -475,6 +475,18 @@ test("Claude sandbox escape controls block while unmodeled nested controls hold"
   assert.ok(opaque.deltas.some((delta) => delta.ruleId === "AVP014" && delta.after?.locator === "sandbox.network.allowedDomains"));
 });
 
+test("removing an empty Claude network container preserves default-false controls", () => {
+  const value = fixture();
+  json(value.repo, ".claude/settings.json", { sandbox: { enabled: true, network: {} } });
+  const base = commit(value.repo, "empty network container");
+  json(value.repo, ".claude/settings.json", { sandbox: { enabled: true } });
+  const head = commit(value.repo, "remove empty network container");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+
+  assert.equal(plan.status, "PASS");
+  assert.equal(plan.deltas.length, 0);
+});
+
 test("a pure Codex on-request to never transition is an approval expansion", () => {
   const value = fixture();
   write(value.repo, ".codex/config.toml", 'approval_policy = "on-request"\n');
@@ -556,7 +568,7 @@ test("unknown authority can be overridden only by the trusted base policy", () =
     allowUnknownChanges: true,
   });
   const approvedBase = commit(approved.repo, "trusted unknown policy");
-  write(approved.repo, ".codex/config.toml", 'approval_policy = "on-request"\n[tools]\nfuture_control = true\n');
+  write(approved.repo, ".codex/config.toml", '[tools]\nfuture_control = true\n');
   const approvedHead = commit(approved.repo, "future authority");
   const approvedPlan = buildAuthorityPlan(approved.repo, approvedBase, approvedHead);
   assert.equal(approvedPlan.status, "PASS");
@@ -565,7 +577,7 @@ test("unknown authority can be overridden only by the trusted base policy", () =
   assert.ok(approvedPlan.summary.approved > 0);
 
   const selfApproved = fixture();
-  write(selfApproved.repo, ".codex/config.toml", 'approval_policy = "on-request"\n[tools]\nfuture_control = true\n');
+  write(selfApproved.repo, ".codex/config.toml", '[tools]\nfuture_control = true\n');
   json(selfApproved.repo, ".agent-vigil-authority-plan.json", {
     schemaVersion: 1,
     approvedAdditions: [],
@@ -577,7 +589,7 @@ test("unknown authority can be overridden only by the trusted base policy", () =
   assert.equal(selfApprovedPlan.policy.source, "built-in default");
 });
 
-test("allowUnknownChanges does not approve recognized incomparable security controls", () => {
+test("allowUnknownChanges does not approve recognized incomparable hooks or models", () => {
   const value = fixture();
   json(value.repo, ".agent-vigil-authority-plan.json", {
     schemaVersion: 1,
@@ -600,6 +612,24 @@ test("allowUnknownChanges does not approve recognized incomparable security cont
   assert.equal(plan.summary.approved, 0);
   assert.ok(plan.deltas.some((delta) =>
     delta.ruleId === "AVP014" && delta.disposition === "HOLD" && delta.after?.action === "hook.execute"
+  ));
+
+  const model = fixture();
+  json(model.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: [],
+    allowUnknownChanges: true,
+  });
+  write(model.repo, ".codex/config.toml", 'model = "vendor/latest"\n');
+  const modelBase = commit(model.repo, "trusted policy and mutable model");
+  write(model.repo, ".codex/config.toml", 'model = "vendor/default"\n');
+  const modelHead = commit(model.repo, "change mutable model");
+  const modelPlan = buildAuthorityPlan(model.repo, modelBase, modelHead);
+
+  assert.equal(modelPlan.status, "HOLD");
+  assert.equal(modelPlan.summary.approved, 0);
+  assert.ok(modelPlan.deltas.some((delta) =>
+    delta.ruleId === "AVP014" && delta.disposition === "HOLD" && delta.after?.action === "model.select"
   ));
 });
 

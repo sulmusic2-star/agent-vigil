@@ -1082,31 +1082,31 @@ function extractClaude(path: string, parsed: RecordValue): InternalAtom[] {
     if (invalidStringList(network?.allowUnixSockets)) {
       addOpaqueAuthoritySection(out, "claude-code", path, "sandbox.network.allowUnixSockets", network?.allowUnixSockets, "sandbox.network.allowUnixSockets has an unsupported shape");
     }
+    addBooleanExpansionControl(
+      out,
+      path,
+      "sandbox-allow-all-unix-sockets",
+      network?.allowAllUnixSockets,
+      false,
+      "network.unix-socket-all",
+      "host-sockets:*",
+      "sandbox.network.allowAllUnixSockets",
+      "AVP005",
+      "sandboxed commands can access every host Unix socket",
+    );
+    addBooleanExpansionControl(
+      out,
+      path,
+      "sandbox-allow-local-binding",
+      network?.allowLocalBinding,
+      false,
+      "network.bind-local",
+      "localhost:*",
+      "sandbox.network.allowLocalBinding",
+      "AVP006",
+      "sandboxed commands can bind to local network ports",
+    );
     if (network) {
-      addBooleanExpansionControl(
-        out,
-        path,
-        "sandbox-allow-all-unix-sockets",
-        network.allowAllUnixSockets,
-        false,
-        "network.unix-socket-all",
-        "host-sockets:*",
-        "sandbox.network.allowAllUnixSockets",
-        "AVP005",
-        "sandboxed commands can access every host Unix socket",
-      );
-      addBooleanExpansionControl(
-        out,
-        path,
-        "sandbox-allow-local-binding",
-        network.allowLocalBinding,
-        false,
-        "network.bind-local",
-        "localhost:*",
-        "sandbox.network.allowLocalBinding",
-        "AVP006",
-        "sandboxed commands can bind to local network ports",
-      );
       for (const [locator, value] of Object.entries(network).sort(([a], [b]) => a.localeCompare(b))) {
         if (["allowedDomains", "allowUnixSockets", "allowAllUnixSockets", "allowLocalBinding"].includes(locator)) continue;
         addOpaqueAuthoritySection(out, "claude-code", path, `sandbox.network.${locator}`, value, `Claude Code sandbox.network.${locator} is not yet ordered by the authority lattice`);
@@ -1588,8 +1588,8 @@ function makeDelta(change: AuthorityDelta["change"], disposition: RuleDispositio
 
 function applyAuthorityPlanPolicy(delta: AuthorityDelta, policy: AuthorityPlanPolicy): AuthorityDelta {
   const exactApproval = policy.approvedAdditions.includes(delta.approvalKey);
-  const unknownSetting = delta.ruleId === "AVP014" && [delta.before, delta.after].some((value) =>
-    value?.action === "authority.opaque" || value?.decision === "UNKNOWN"
+  const unknownSetting = [delta.before, delta.after].some((value) =>
+    value?.action === "authority.opaque" || (value?.decision === "UNKNOWN" && value.kind !== "model")
   );
   const unknownApproval = delta.disposition === "HOLD" && policy.allowUnknownChanges && unknownSetting;
   if (delta.disposition === "ALLOW" || (!exactApproval && !unknownApproval)) return delta;
