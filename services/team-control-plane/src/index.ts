@@ -10,6 +10,12 @@ import {
 } from "./billing.ts";
 import { publicCatalog } from "./catalog.ts";
 import { ApiError, assertMethod, errorResponse, jsonResponse } from "./http.ts";
+import {
+  claimGitHubInstallation,
+  getGitHubInstallation,
+  handleGitHubReconciliation,
+  handleGitHubWebhook
+} from "./github-app.ts";
 import { confirmOrganizationDeletion, exportOrganizationData, requestOrganizationDeletion } from "./privacy.ts";
 import {
   addException,
@@ -46,6 +52,14 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (url.pathname === "/v1/billing/stripe/reconciliation") {
     assertMethod(request, "POST");
     return handleProviderReconciliation(request, env);
+  }
+  if (url.pathname === "/v1/github/app/webhook") {
+    assertMethod(request, "POST");
+    return handleGitHubWebhook(request, env);
+  }
+  if (url.pathname === "/v1/github/app/reconciliation") {
+    assertMethod(request, "POST");
+    return handleGitHubReconciliation(request, env);
   }
 
   const segments = url.pathname.split("/").filter(Boolean);
@@ -88,6 +102,14 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
   if (resource === "audit" && !child && request.method === "GET") {
     return listAudit(env, auth);
+  }
+  if (resource === "github") {
+    if (child === "installation-claim" && request.method === "POST") {
+      return claimGitHubInstallation(request, env, auth);
+    }
+    if (child === "installation" && request.method === "GET") {
+      return getGitHubInstallation(env, auth);
+    }
   }
   if (resource === "billing") {
     if (child === "checkout" && request.method === "POST") return prepareCheckout(request, env, auth);

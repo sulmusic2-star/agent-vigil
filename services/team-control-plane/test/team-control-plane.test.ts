@@ -7,9 +7,20 @@ const ORIGIN = "https://team.example.test";
 const SESSION_SECRET = "test-only-team-session-secret-32-bytes-minimum";
 const WEBHOOK_SECRET = "test-only-stripe-webhook-secret-32-bytes-minimum";
 const RECONCILIATION_SECRET = "test-only-reconciliation-secret-32-bytes-minimum";
+const GITHUB_WEBHOOK_SECRET = "test-only-github-webhook-secret-32-bytes-minimum";
+const GITHUB_RECONCILIATION_SECRET = "test-only-github-reconciliation-secret-32-bytes";
+const GITHUB_APP_ID = 12_345;
+const GITHUB_INSTALLATION_ID = 98_765;
+const GITHUB_ACCOUNT_NODE_ID = "ACCT_NODE_MAIN_123";
+const GITHUB_REPOSITORY_NODE_ID = "REPO_NODE_MAIN_123";
 
 async function clearDatabase(): Promise<void> {
   await env.TEAM_CONTROL_DB.exec(`
+    DELETE FROM github_installation_reconciliations;
+    DELETE FROM github_deliveries;
+    DELETE FROM github_installation_repositories;
+    DELETE FROM github_installations;
+    DELETE FROM github_installation_claims;
     DELETE FROM privacy_deletion_requests;
     DELETE FROM provider_reconciliation_snapshots;
     DELETE FROM provider_state_cursors;
@@ -190,6 +201,137 @@ async function reconcile(body: Record<string, unknown>): Promise<Response> {
     },
     body: raw
   });
+}
+
+interface GitHubWebhookInput {
+  deliveryId: string;
+  event: "installation" | "installation_repositories";
+  action: "created" | "deleted" | "suspend" | "unsuspend" | "added" | "removed";
+  eventTime: string;
+  repositorySelection?: "all" | "selected";
+  addedRepositoryNodeIds?: string[];
+  removedRepositoryNodeIds?: string[];
+  appId?: number;
+  installationId?: number;
+  accountNodeId?: string;
+}
+
+function githubPayload(input: GitHubWebhookInput): string {
+  const repositorySelection = input.repositorySelection ?? "selected";
+  const installation = {
+    id: input.installationId ?? GITHUB_INSTALLATION_ID,
+    app_id: input.appId ?? GITHUB_APP_ID,
+    account: { node_id: input.accountNodeId ?? GITHUB_ACCOUNT_NODE_ID, login: "must-never-be-stored" },
+    repository_selection: repositorySelection,
+    created_at: input.eventTime,
+    updated_at: input.eventTime,
+    html_url: "https://github.example/must-never-be-stored"
+  };
+  const repository = (nodeId: string) => ({
+    node_id: nodeId,
+    name: "must-never-be-stored",
+    full_name: "private/must-never-be-stored"
+  });
+  return JSON.stringify({
+    action: input.action,
+    installation,
+    ...(input.event === "installation" && input.action === "created"
+      ? { repositories: (input.addedRepositoryNodeIds ?? [GITHUB_REPOSITORY_NODE_ID]).map(repository) }
+      : {}),
+    ...(input.event === "installation_repositories"
+      ? {
+          repository_selection: repositorySelection,
+          repositories_added: (input.addedRepositoryNodeIds ?? []).map(repository),
+          repositories_removed: (input.removedRepositoryNodeIds ?? []).map(repository)
+        }
+      : {}),
+    sender: { login: "must-never-be-stored" }
+  });
+}
+
+async function sendGitHubWebhook(
+  raw: string,
+  event: GitHubWebhookInput["event"],
+  deliveryId: string,
+  secret = GITHUB_WEBHOOK_SECRET
+): Promise<Response> {
+  const signature = await hmacHex(secret, raw);
+  return exports.default.fetch(`${ORIGIN}/v1/github/app/webhook`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-GitHub-Event": event,
+      "X-GitHub-Delivery": deliveryId,
+      "X-Hub-Signature-256": `sha256=${signature}`
+    },
+    body: raw
+  });
+}
+
+async function claimGitHubInstallation(owner: string): Promise<Response> {
+  return api("/v1/orgs/org_main/github/installation-claim", {
+    method: "POST",
+    token: owner,
+    body: {
+      schema_version: "github-installation-claim-v1",
+      installation_id: GITHUB_INSTALLATION_ID,
+      account_node_id: GITHUB_ACCOUNT_NODE_ID
+    }
+  });
+}
+
+function githubReconciliation(
+  sourceDeliveryId: string,
+  overrides: Partial<{
+    reconciliation_id: string;
+    account_node_id: string;
+    repository_selection: "all" | "selected";
+    repository_node_ids: string[];
+  }> = {}
+): Record<string, unknown> {
+  return {
+    schema_version: "github-installation-reconciliation-v1",
+    reconciliation_id: overrides.reconciliation_id ?? `github_recon_${crypto.randomUUID()}`,
+    source_delivery_id: sourceDeliveryId,
+    observed_at: new Date().toISOString(),
+    app_id: GITHUB_APP_ID,
+    installation_id: GITHUB_INSTALLATION_ID,
+    account_node_id: overrides.account_node_id ?? GITHUB_ACCOUNT_NODE_ID,
+    provider_status: "active",
+    repository_selection: overrides.repository_selection ?? "selected",
+    repository_node_ids: overrides.repository_node_ids ?? [GITHUB_REPOSITORY_NODE_ID]
+  };
+}
+
+async function reconcileGitHub(body: Record<string, unknown>): Promise<Response> {
+  const raw = JSON.stringify(body);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = await hmacHex(GITHUB_RECONCILIATION_SECRET, `${timestamp}.${raw}`);
+  return exports.default.fetch(`${ORIGIN}/v1/github/app/reconciliation`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Agent-Vigil-GitHub-Reconciliation-Signature": `t=${timestamp},v1=${signature}`
+    },
+    body: raw
+  });
+}
+
+async function activateGitHubInstallation(owner: string, baseTime: number): Promise<{ deliveryId: string; serviceToken: string }> {
+  expect((await claimGitHubInstallation(owner)).status).toBe(201);
+  const deliveryId = crypto.randomUUID();
+  const raw = githubPayload({
+    deliveryId,
+    event: "installation",
+    action: "created",
+    eventTime: new Date(baseTime).toISOString()
+  });
+  expect((await sendGitHubWebhook(raw, "installation", deliveryId)).status).toBe(202);
+  expect((await reconcileGitHub(githubReconciliation(deliveryId))).status).toBe(200);
+  return {
+    deliveryId,
+    serviceToken: await session("org_main", `github-installation:${GITHUB_INSTALLATION_ID}`)
+  };
 }
 
 async function activateMonthlyTeam(eventCreated: number): Promise<void> {
@@ -682,6 +824,200 @@ describe.sequential("Team control plane", () => {
     expect(await json(ledger)).toMatchObject({ entitlement: null, recognized_mrr: { minor_unit_micros: 0 } });
   });
 
+  it("verifies raw GitHub signatures, requires an owner claim, deduplicates bytes, and reconciles before activation", async () => {
+    const invalidSignature = await sendGitHubWebhook(
+      "not-json",
+      "installation",
+      crypto.randomUUID(),
+      "wrong-test-only-github-secret-32-bytes"
+    );
+    expect(invalidSignature.status).toBe(401);
+
+    const createdAt = new Date(Date.now() - 10_000).toISOString();
+    const deliveryId = crypto.randomUUID();
+    const raw = githubPayload({
+      deliveryId,
+      event: "installation",
+      action: "created",
+      eventTime: createdAt
+    });
+    const unclaimed = await sendGitHubWebhook(raw, "installation", deliveryId);
+    expect(unclaimed.status).toBe(409);
+    expect((await claimGitHubInstallation(await session())).status).toBe(201);
+    await seedOrganization("org_other");
+    const tenantCollision = await api("/v1/orgs/org_other/github/installation-claim", {
+      method: "POST",
+      token: await session("org_other"),
+      body: {
+        schema_version: "github-installation-claim-v1",
+        installation_id: GITHUB_INSTALLATION_ID,
+        account_node_id: GITHUB_ACCOUNT_NODE_ID
+      }
+    });
+    expect(tenantCollision.status).toBe(409);
+
+    const wrongAppDelivery = crypto.randomUUID();
+    const wrongAppRaw = githubPayload({
+      deliveryId: wrongAppDelivery,
+      event: "installation",
+      action: "created",
+      eventTime: createdAt,
+      appId: GITHUB_APP_ID + 1
+    });
+    expect((await sendGitHubWebhook(wrongAppRaw, "installation", wrongAppDelivery)).status).toBe(409);
+
+    const accepted = await sendGitHubWebhook(raw, "installation", deliveryId);
+    expect(accepted.status).toBe(202);
+    expect(await json(accepted)).toMatchObject({ state: "pending_reconciliation" });
+    const serviceToken = await session("org_main", `github-installation:${GITHUB_INSTALLATION_ID}`);
+    expect((await api("/v1/orgs/org_main", { token: serviceToken })).status).toBe(403);
+
+    const stateBefore = await api("/v1/orgs/org_main/github/installation", { token: await session() });
+    const stateBeforeText = await stateBefore.text();
+    expect(stateBefore.status).toBe(200);
+    expect(stateBeforeText).not.toContain("must-never-be-stored");
+    expect(JSON.parse(stateBeforeText)).toMatchObject({
+      installation: { state: "pending_reconciliation" },
+      repositories: [{ repository_node_id: GITHUB_REPOSITORY_NODE_ID, selected: true }],
+      stores_repository_names_or_source: false
+    });
+
+    const snapshot = githubReconciliation(deliveryId, { reconciliation_id: "github_recon_created" });
+    const reconciled = await reconcileGitHub(snapshot);
+    expect(reconciled.status).toBe(200);
+    expect((await api("/v1/orgs/org_main", { token: serviceToken })).status).toBe(200);
+    const duplicateReconciliation = await reconcileGitHub(snapshot);
+    expect(duplicateReconciliation.status).toBe(200);
+    expect(await json(duplicateReconciliation)).toMatchObject({ duplicate: true, result: "applied" });
+
+    const duplicate = await sendGitHubWebhook(raw, "installation", deliveryId);
+    expect(duplicate.status).toBe(200);
+    expect(await json(duplicate)).toMatchObject({ duplicate: true, result: "applied" });
+    const changedBytes = raw.replace("must-never-be-stored", "different-name-never-stored");
+    const replayMismatch = await sendGitHubWebhook(changedBytes, "installation", deliveryId);
+    expect(replayMismatch.status).toBe(409);
+
+    const persistedNames = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT COUNT(*) AS count FROM audit_events
+        WHERE metadata_json LIKE '%must-never-be-stored%'
+           OR actor_id LIKE '%must-never-be-stored%'
+           OR resource_id LIKE '%must-never-be-stored%'`
+    ).first<{ count: number }>();
+    expect(persistedNames?.count).toBe(0);
+  });
+
+  it("revokes a suspended installation immediately and requires matching reconciliation after unsuspend", async () => {
+    const owner = await session();
+    const baseTime = Date.now() - 20_000;
+    const active = await activateGitHubInstallation(owner, baseTime);
+    expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(200);
+
+    const suspendDelivery = crypto.randomUUID();
+    const suspendRaw = githubPayload({
+      deliveryId: suspendDelivery,
+      event: "installation",
+      action: "suspend",
+      eventTime: new Date(baseTime + 2_000).toISOString()
+    });
+    expect((await sendGitHubWebhook(suspendRaw, "installation", suspendDelivery)).status).toBe(202);
+    expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(403);
+
+    const staleDelivery = crypto.randomUUID();
+    const staleRaw = githubPayload({
+      deliveryId: staleDelivery,
+      event: "installation_repositories",
+      action: "added",
+      eventTime: new Date(baseTime + 1_000).toISOString(),
+      addedRepositoryNodeIds: ["REPO_NODE_STALE_123"]
+    });
+    expect((await sendGitHubWebhook(staleRaw, "installation_repositories", staleDelivery)).status).toBe(409);
+
+    const unsuspendDelivery = crypto.randomUUID();
+    const unsuspendRaw = githubPayload({
+      deliveryId: unsuspendDelivery,
+      event: "installation",
+      action: "unsuspend",
+      eventTime: new Date(baseTime + 4_000).toISOString()
+    });
+    expect((await sendGitHubWebhook(unsuspendRaw, "installation", unsuspendDelivery)).status).toBe(202);
+    expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(403);
+
+    const mismatch = await reconcileGitHub(
+      githubReconciliation(unsuspendDelivery, {
+        reconciliation_id: "github_recon_wrong_account",
+        account_node_id: "ACCT_NODE_WRONG_123"
+      })
+    );
+    expect(mismatch.status).toBe(409);
+    expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(403);
+
+    const reconciled = await reconcileGitHub(
+      githubReconciliation(unsuspendDelivery, { reconciliation_id: "github_recon_unsuspend" })
+    );
+    expect(reconciled.status).toBe(200);
+    expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(200);
+  });
+
+  it("tracks opaque repository selection, reconciles selection-mode changes, and tombstones deletion", async () => {
+    const owner = await session();
+    const baseTime = Date.now() - 20_000;
+    const active = await activateGitHubInstallation(owner, baseTime);
+    const addedRepository = "REPO_NODE_SECOND_123";
+    const addDelivery = crypto.randomUUID();
+    const addRaw = githubPayload({
+      deliveryId: addDelivery,
+      event: "installation_repositories",
+      action: "added",
+      eventTime: new Date(baseTime + 2_000).toISOString(),
+      addedRepositoryNodeIds: [addedRepository]
+    });
+    expect((await sendGitHubWebhook(addRaw, "installation_repositories", addDelivery)).status).toBe(200);
+    expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(200);
+
+    const allDelivery = crypto.randomUUID();
+    const allRaw = githubPayload({
+      deliveryId: allDelivery,
+      event: "installation_repositories",
+      action: "added",
+      eventTime: new Date(baseTime + 4_000).toISOString(),
+      repositorySelection: "all"
+    });
+    expect((await sendGitHubWebhook(allRaw, "installation_repositories", allDelivery)).status).toBe(202);
+    expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(403);
+    expect(
+      (
+        await reconcileGitHub(
+          githubReconciliation(allDelivery, {
+            reconciliation_id: "github_recon_all",
+            repository_selection: "all",
+            repository_node_ids: []
+          })
+        )
+      ).status
+    ).toBe(200);
+    expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(200);
+
+    const deleteDelivery = crypto.randomUUID();
+    const deleteRaw = githubPayload({
+      deliveryId: deleteDelivery,
+      event: "installation",
+      action: "deleted",
+      eventTime: new Date(baseTime + 6_000).toISOString(),
+      repositorySelection: "all"
+    });
+    expect((await sendGitHubWebhook(deleteRaw, "installation", deleteDelivery)).status).toBe(202);
+    expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(403);
+    const state = await api("/v1/orgs/org_main/github/installation", { token: owner });
+    expect(await json(state)).toMatchObject({
+      claim: { status: "revoked" },
+      installation: { state: "deleted" },
+      repositories: [
+        { selected: false },
+        { selected: false }
+      ]
+    });
+  });
+
   it("exports data and requires one-time owner confirmation before deletion", async () => {
     const owner = await session();
     const preparedCheckout = await api("/v1/orgs/org_main/billing/checkout", {
@@ -691,9 +1027,14 @@ describe.sequential("Team control plane", () => {
       body: { internal_price_id: "team_monthly_usd_v1" }
     });
     expect(preparedCheckout.status).toBe(202);
+    const github = await activateGitHubInstallation(owner, Date.now() - 10_000);
+    expect((await api("/v1/orgs/org_main", { token: github.serviceToken })).status).toBe(200);
     const exported = await api("/v1/orgs/org_main/privacy/export", { token: owner });
     expect(exported.status).toBe(200);
-    expect(await json(exported)).toMatchObject({ schema_version: "team-privacy-export-v1" });
+    expect(await json(exported)).toMatchObject({
+      schema_version: "team-privacy-export-v1",
+      github_app: { installation: { state: "active" }, stores_repository_names_or_source: false }
+    });
 
     const deletion = await api("/v1/orgs/org_main/privacy/deletion-requests", {
       method: "POST",
@@ -722,6 +1063,24 @@ describe.sequential("Team control plane", () => {
     ).first<{ status: string }>();
     expect(checkoutState?.status).toBe("canceled");
     expect(commandState?.status).toBe("provider_rejected");
+    const githubState = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT state, github_account_node_id FROM github_installations WHERE org_id = 'org_main'`
+    ).first<{ state: string; github_account_node_id: string }>();
+    const githubClaim = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT status, github_account_node_id, claimed_by FROM github_installation_claims WHERE org_id = 'org_main'`
+    ).first<{ status: string; github_account_node_id: string; claimed_by: string }>();
+    const githubRepositoryCount = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT COUNT(*) AS count FROM github_installation_repositories WHERE installation_id = ?1`
+    )
+      .bind(GITHUB_INSTALLATION_ID)
+      .first<{ count: number }>();
+    expect(githubState?.state).toBe("deleted");
+    expect(githubState?.github_account_node_id).toMatch(/^deleted-/u);
+    expect(githubClaim?.status).toBe("revoked");
+    expect(githubClaim?.github_account_node_id).toBe(githubState?.github_account_node_id);
+    expect(githubClaim?.claimed_by).toBe("deleted_user");
+    expect(githubRepositoryCount?.count).toBe(0);
+    expect((await api("/v1/orgs/org_main", { token: github.serviceToken })).status).toBe(403);
     const after = await api("/v1/orgs/org_main", { token: owner });
     expect(after.status).toBe(403);
   });

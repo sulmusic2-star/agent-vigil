@@ -18,7 +18,21 @@ async function allRows(db: D1Database, sql: string, orgId: string): Promise<unkn
 export async function exportOrganizationData(env: Env, auth: AuthContext): Promise<Response> {
   requireRole(auth, ["owner"]);
   const db = env.TEAM_CONTROL_DB;
-  const [organization, members, policies, history, exceptions, rollbacks, entitlement, cash, revenue, audit] =
+  const [
+    organization,
+    members,
+    policies,
+    history,
+    exceptions,
+    rollbacks,
+    entitlement,
+    cash,
+    revenue,
+    audit,
+    githubClaim,
+    githubInstallation,
+    githubRepositories
+  ] =
     await Promise.all([
       db.prepare(`SELECT id, slug, display_name, status, created_at, deleted_at FROM organizations WHERE id = ?1`)
         .bind(auth.orgId)
@@ -31,7 +45,29 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
       db.prepare(`SELECT * FROM entitlements WHERE org_id = ?1`).bind(auth.orgId).first(),
       allRows(db, `SELECT id, source_event_id, entry_type, amount_cents, currency, occurred_at FROM cash_ledger WHERE org_id = ?1 ORDER BY occurred_at`, auth.orgId),
       allRows(db, `SELECT id, source_event_id, entry_type, recognized_mrr_delta_micros, currency, recognized_period_start, recognized_period_end, occurred_at FROM revenue_ledger WHERE org_id = ?1 ORDER BY occurred_at`, auth.orgId),
-      allRows(db, `SELECT id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at FROM audit_events WHERE org_id = ?1 ORDER BY created_at`, auth.orgId)
+      allRows(db, `SELECT id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at FROM audit_events WHERE org_id = ?1 ORDER BY created_at`, auth.orgId),
+      db.prepare(
+        `SELECT installation_id, github_account_node_id, status, claimed_by, claimed_at, updated_at
+           FROM github_installation_claims WHERE org_id = ?1`
+      )
+        .bind(auth.orgId)
+        .first(),
+      db.prepare(
+        `SELECT installation_id, app_id, github_account_node_id, state, repository_selection,
+                last_event_created_at, last_delivery_id, last_reconciliation_id, installed_at,
+                suspended_at, deleted_at, reconciled_at, updated_at
+           FROM github_installations WHERE org_id = ?1`
+      )
+        .bind(auth.orgId)
+        .first(),
+      allRows(
+        db,
+        `SELECT r.installation_id, r.repository_node_id, r.selected, r.updated_at
+           FROM github_installation_repositories r
+           JOIN github_installations i ON i.installation_id = r.installation_id
+          WHERE i.org_id = ?1 ORDER BY r.repository_node_id`,
+        auth.orgId
+      )
     ]);
   const generatedAt = nowIso();
   const exportId = newId("privacy_export");
@@ -49,6 +85,12 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
     entitlement,
     cash_ledger: cash,
     recognized_mrr_ledger: revenue,
+    github_app: {
+      claim: githubClaim,
+      installation: githubInstallation,
+      repositories: githubRepositories,
+      stores_repository_names_or_source: false
+    },
     audit_events: audit,
     retained_outside_deletion: [
       "provider-confirmed billing records required for accounting, chargeback, fraud, and legal obligations"
@@ -132,6 +174,7 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
   }
   const at = nowIso();
   const tombstone = (await sha256Hex(auth.orgId)).slice(0, 16);
+  const deletedGitHubAccount = `deleted-${tombstone}`;
   await db.batch([
     db.prepare(
       `UPDATE checkout_intents SET status = 'canceled'
@@ -141,6 +184,21 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
       `UPDATE billing_commands SET status = 'provider_rejected'
         WHERE org_id = ?1 AND status = 'prepared'`
     ).bind(auth.orgId),
+    db.prepare(
+      `DELETE FROM github_installation_repositories
+        WHERE installation_id IN (
+          SELECT installation_id FROM github_installations WHERE org_id = ?1
+        )`
+    ).bind(auth.orgId),
+    db.prepare(
+      `UPDATE github_installations SET state = 'deleted', deleted_at = ?1,
+        github_account_node_id = ?2, suspended_at = NULL, reconciled_at = NULL, updated_at = ?1
+        WHERE org_id = ?3`
+    ).bind(at, deletedGitHubAccount, auth.orgId),
+    db.prepare(
+      `UPDATE github_installation_claims SET status = 'revoked', github_account_node_id = ?2,
+        claimed_by = 'deleted_user', updated_at = ?1 WHERE org_id = ?3`
+    ).bind(at, deletedGitHubAccount, auth.orgId),
     db.prepare(`DELETE FROM policy_heads WHERE org_id = ?1`).bind(auth.orgId),
     db.prepare(`DELETE FROM policy_revisions WHERE org_id = ?1`).bind(auth.orgId),
     db.prepare(`DELETE FROM update_history WHERE org_id = ?1`).bind(auth.orgId),
