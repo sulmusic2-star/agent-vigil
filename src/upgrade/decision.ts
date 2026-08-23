@@ -226,14 +226,20 @@ export function inspectArtifactTree(root: string, hooks: ArtifactInspectionHooks
   return inventory;
 }
 
-export function inspectTarget(directory: string, component: UpgradeComponentConfig): TargetSnapshot {
-  const requestedStatus = lstatSync(directory);
-  if (requestedStatus.isSymbolicLink() || !requestedStatus.isDirectory()) {
-    throw new Error("target must be a regular directory, not a symbolic link");
+/**
+ * Derive every manifest-backed target field from exact bytes and an already
+ * established artifact inventory. Automatic materialization receipts reuse
+ * this boundary after binding those bytes to the selected tree's file
+ * commitment, so semantic target fields never need to be trusted copies.
+ */
+export function targetSnapshotFromManifestBytes(
+  manifestBytes: Buffer,
+  component: UpgradeComponentConfig,
+  artifact: ArtifactInventory,
+): TargetSnapshot {
+  if (!manifestBytes.length || manifestBytes.length > MAX_MANIFEST_BYTES) {
+    throw new Error(`manifest must contain from 1 to ${MAX_MANIFEST_BYTES} bytes`);
   }
-  const root = realpathSync(directory);
-  const manifestPath = safeFile(root, component.manifestPath);
-  const manifestBytes = readFileSync(manifestPath);
   let manifest: unknown;
   try { manifest = parseExactJson(manifestBytes, basename(component.manifestPath)); }
   catch { throw new Error(`${basename(component.manifestPath)} is not valid JSON`); }
@@ -254,10 +260,21 @@ export function inspectTarget(directory: string, component: UpgradeComponentConf
     ecosystem: component.ecosystem,
     name,
     version,
-    ...inspectArtifactTree(root),
+    ...artifact,
     manifestSha256: hash(manifestBytes),
     capabilities,
   };
+}
+
+export function inspectTarget(directory: string, component: UpgradeComponentConfig): TargetSnapshot {
+  const requestedStatus = lstatSync(directory);
+  if (requestedStatus.isSymbolicLink() || !requestedStatus.isDirectory()) {
+    throw new Error("target must be a regular directory, not a symbolic link");
+  }
+  const root = realpathSync(directory);
+  const manifestPath = safeFile(root, component.manifestPath);
+  const manifestBytes = readFileSync(manifestPath);
+  return targetSnapshotFromManifestBytes(manifestBytes, component, inspectArtifactTree(root));
 }
 
 export function aggregateTrials(trials: CanaryTrial[]): CanaryAggregate {

@@ -13709,14 +13709,10 @@ function inspectArtifactTree(root, hooks = {}) {
   if (inventory.totalBytes !== totalBytes) throw new Error("artifact inventory byte accounting is inconsistent");
   return inventory;
 }
-function inspectTarget(directory, component) {
-  const requestedStatus = lstatSync4(directory);
-  if (requestedStatus.isSymbolicLink() || !requestedStatus.isDirectory()) {
-    throw new Error("target must be a regular directory, not a symbolic link");
+function targetSnapshotFromManifestBytes(manifestBytes, component, artifact) {
+  if (!manifestBytes.length || manifestBytes.length > MAX_MANIFEST_BYTES) {
+    throw new Error(`manifest must contain from 1 to ${MAX_MANIFEST_BYTES} bytes`);
   }
-  const root = realpathSync4(directory);
-  const manifestPath = safeFile(root, component.manifestPath);
-  const manifestBytes = readFileSync15(manifestPath);
   let manifest;
   try {
     manifest = parseExactJson(manifestBytes, basename4(component.manifestPath));
@@ -13740,10 +13736,20 @@ function inspectTarget(directory, component) {
     ecosystem: component.ecosystem,
     name,
     version,
-    ...inspectArtifactTree(root),
+    ...artifact,
     manifestSha256: hash(manifestBytes),
     capabilities
   };
+}
+function inspectTarget(directory, component) {
+  const requestedStatus = lstatSync4(directory);
+  if (requestedStatus.isSymbolicLink() || !requestedStatus.isDirectory()) {
+    throw new Error("target must be a regular directory, not a symbolic link");
+  }
+  const root = realpathSync4(directory);
+  const manifestPath = safeFile(root, component.manifestPath);
+  const manifestBytes = readFileSync15(manifestPath);
+  return targetSnapshotFromManifestBytes(manifestBytes, component, inspectArtifactTree(root));
 }
 function aggregateTrials(trials) {
   if (!trials.length) return { state: "HOLD", trials: 0, stable: false, reason: "no canary trials ran" };
@@ -15928,11 +15934,15 @@ var MAX_FILES2 = 4096;
 var MAX_DIRECTORIES = 4096;
 var MAX_FILE_BYTES = 32 * 1024 * 1024;
 var MAX_TOTAL_BYTES2 = 256 * 1024 * 1024;
+var MAX_APM_MANIFEST_EVIDENCE_BYTES = 64 * 1024;
+var MAX_PREFLIGHT_RECEIPT_BYTES = 4 * 1024 * 1024;
 var SESSION_PREFIX = "agent-vigil-apm-";
 var LIMITATIONS3 = [
   "This receipt is eligible only when the bound update plan contains exactly one total change: the selected exact APM package pair.",
   "Automatic acquisition supports only credential-free public github.com git rows pinned by both a lowercase 40-character commit and APM tree_sha256.",
   "Archives containing links, special files, unsupported extension records, unsafe names, or entries beyond the documented bounds return HOLD.",
+  "The configured manifest must be at most 64 KiB so its exact lock-bound bytes fit inside the 4 MiB independently verifiable receipt.",
+  "Exact manifest bytes remain private wrapper evidence and are not copied into the privacy-minimized public compatibility entry.",
   "No APM installer, package lifecycle script, repository hook, or host update is executed; only temporary exact artifacts are mounted read-only into the existing contained check."
 ];
 var PreflightHold = class extends Error {
@@ -15945,7 +15955,26 @@ function hash5(value) {
   return `sha256:${createHash18("sha256").update(value).digest("hex")}`;
 }
 function finalizeReceipt2(receipt) {
-  return { ...receipt, receiptHash: hash5(canonical(receipt)) };
+  const finalized = { ...receipt, receiptHash: hash5(canonical(receipt)) };
+  if (Buffer.byteLength(`${JSON.stringify(finalized, null, 2)}
+`, "utf8") <= MAX_PREFLIGHT_RECEIPT_BYTES) {
+    return finalized;
+  }
+  const boundedHold = {
+    schemaVersion: receipt.schemaVersion,
+    generatedAt: receipt.generatedAt,
+    nonce: receipt.nonce,
+    plan: receipt.plan,
+    restoration: receipt.restoration,
+    summary: { verdict: "HOLD", reasonCodes: ["RECEIPT_SIZE_EXCEEDED"] },
+    limitations: receipt.limitations
+  };
+  const result5 = { ...boundedHold, receiptHash: hash5(canonical(boundedHold)) };
+  if (Buffer.byteLength(`${JSON.stringify(result5, null, 2)}
+`, "utf8") > MAX_PREFLIGHT_RECEIPT_BYTES) {
+    throw new Error("automatic APM preflight plan cannot fit inside the 4 MiB receipt bound");
+  }
+  return result5;
 }
 function recomputeApmPreflightReceiptHash(receipt) {
   const { receiptHash: _ignored, ...payload } = receipt;
@@ -15974,6 +16003,40 @@ function receiptInteger(value, label, minimum, maximum) {
     throw new Error(`${label} is invalid`);
   }
   return value;
+}
+function portableManifestPath(path) {
+  return path.split(sep8).join("/");
+}
+function exactManifestEvidenceBytes(value, label) {
+  const maximumEncodedLength = Math.ceil(MAX_APM_MANIFEST_EVIDENCE_BYTES / 3) * 4;
+  if (typeof value !== "string" || value.length < 4 || value.length > maximumEncodedLength || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error(`${label} is not canonical bounded base64`);
+  }
+  const bytes = Buffer.from(value, "base64");
+  if (!bytes.length || bytes.length > MAX_APM_MANIFEST_EVIDENCE_BYTES || bytes.toString("base64") !== value) {
+    throw new Error(`${label} is not canonical bounded base64`);
+  }
+  return bytes;
+}
+function validateManifestEvidence(input, files, label) {
+  const value = receiptObject(input, label);
+  receiptExactKeys(value, ["path", "contentBase64"], ["path", "contentBase64"], label);
+  const path = receiptText(value.path, `${label} path`, 256);
+  const parts = path.split("/");
+  if (path.startsWith("/") || parts.some((part) => !isCrossPlatformSafeSegment(part))) {
+    throw new Error(`${label} path is invalid`);
+  }
+  const contentBase64 = receiptText(
+    value.contentBase64,
+    `${label} content`,
+    Math.ceil(MAX_APM_MANIFEST_EVIDENCE_BYTES / 3) * 4
+  );
+  const content = exactManifestEvidenceBytes(contentBase64, `${label} content`);
+  const commitment = files.find((file) => file.path === path);
+  if (!commitment || commitment.bytes !== content.length || commitment.sha256 !== hash5(content)) {
+    throw new Error(`${label} does not match the exact selected-tree file commitment`);
+  }
+  return { path, contentBase64, content };
 }
 function validateArtifactInventory(input, label) {
   const value = receiptObject(input, label);
@@ -16065,6 +16128,28 @@ function trustedUpgradeConfig(context) {
     "canary directory"
   );
   return { config, canaryHarness: inspectArtifactTree(canaryDirectory) };
+}
+function validateManifestTargetBinding(proof, nestedTarget, trusted, label) {
+  const evidence = validateManifestEvidence(proof.manifestEvidence, proof.files, `${label} manifest evidence`);
+  if (evidence.path !== portableManifestPath(trusted.config.component.manifestPath)) {
+    throw new Error(`${label} manifest evidence does not match the trusted manifest path`);
+  }
+  const artifact = validateArtifactInventory(proof.selectedArtifact, `${label} selected artifact`);
+  const independentlyDerived = targetSnapshotFromManifestBytes(
+    evidence.content,
+    trusted.config.component,
+    artifact
+  );
+  if (canonical(independentlyDerived) !== canonical(nestedTarget)) {
+    throw new Error(`${label} nested target is not derived from the exact selected-tree manifest evidence`);
+  }
+}
+function validateManifestTargetBindings(materialization, nested, trusted) {
+  if (!materialization.current || !materialization.candidate || !nested.current || !nested.candidate) {
+    throw new Error("automatic preflight manifest target evidence is incomplete");
+  }
+  validateManifestTargetBinding(materialization.current, nested.current, trusted, "current");
+  validateManifestTargetBinding(materialization.candidate, nested.candidate, trusted, "candidate");
 }
 function validateNestedNonHoldReceipt(input, expectedVerdict, trustedContext) {
   const root = receiptObject(input, "automatic preflight nested receipt");
@@ -16263,6 +16348,15 @@ function validateNestedNonHoldReceipt(input, expectedVerdict, trustedContext) {
   return nested;
 }
 function validateApmAutomaticPreflightReceipt(input) {
+  let serialized;
+  try {
+    serialized = JSON.stringify(input);
+  } catch {
+    throw new Error("automatic preflight receipt is not serializable JSON evidence");
+  }
+  if (Buffer.byteLength(serialized, "utf8") > MAX_PREFLIGHT_RECEIPT_BYTES) {
+    throw new Error("automatic preflight receipt exceeds the 4 MiB evidence bound");
+  }
   const root = receiptObject(input, "automatic preflight receipt");
   receiptExactKeys(
     root,
@@ -16349,6 +16443,7 @@ function validateApmAutomaticPreflightReceipt(input) {
     "fileCount",
     "totalBytes",
     "files",
+    "manifestEvidence",
     "selectedArtifact"
   ];
   receiptExactKeys(currentProof, proofKeys, proofKeys, "current materialization");
@@ -16392,6 +16487,7 @@ function validateApmAutomaticPreflightReceipt(input) {
     if (canonical(files) !== canonical(sortedFiles) || files.reduce((total, file) => total + file.bytes, 0) !== proof.totalBytes || canonicalTreeSha256FromCommitments(files) !== proof.materializedTreeSha256) {
       throw new Error(`${label} materialized file proof does not match the exact lock-bound repository tree`);
     }
+    validateManifestEvidence(proof.manifestEvidence, files, `${label} manifest evidence`);
     const artifact = validateArtifactInventory(proof.selectedArtifact, `${label} selected artifact`);
     if (canonical(artifactInventoryFromFileCommitments(files)) !== canonical(artifact)) {
       throw new Error(`${label} selected artifact is not derived from the exact lock-bound repository tree`);
@@ -16409,7 +16505,17 @@ function validateApmAutomaticPreflightReceipt(input) {
   }
   const currentArtifact = receiptObject(currentProof.selectedArtifact, "current selected artifact");
   const candidateArtifact = receiptObject(candidateProof.selectedArtifact, "candidate selected artifact");
-  if (currentArtifact.treeSha256 !== nested.current?.treeSha256 || candidateArtifact.treeSha256 !== nested.candidate?.treeSha256 || currentArtifact.fileCount !== nested.current?.fileCount || candidateArtifact.fileCount !== nested.candidate?.fileCount || currentArtifact.totalBytes !== nested.current?.totalBytes || candidateArtifact.totalBytes !== nested.candidate?.totalBytes) {
+  const currentManifest = validateManifestEvidence(
+    currentProof.manifestEvidence,
+    currentProof.files,
+    "current manifest evidence"
+  );
+  const candidateManifest = validateManifestEvidence(
+    candidateProof.manifestEvidence,
+    candidateProof.files,
+    "candidate manifest evidence"
+  );
+  if (currentArtifact.treeSha256 !== nested.current?.treeSha256 || candidateArtifact.treeSha256 !== nested.candidate?.treeSha256 || currentArtifact.fileCount !== nested.current?.fileCount || candidateArtifact.fileCount !== nested.candidate?.fileCount || currentArtifact.totalBytes !== nested.current?.totalBytes || candidateArtifact.totalBytes !== nested.candidate?.totalBytes || hash5(currentManifest.content) !== nested.current?.manifestSha256 || hash5(candidateManifest.content) !== nested.candidate?.manifestSha256) {
     throw new Error("automatic preflight selected artifact binding is invalid");
   }
   return receipt;
@@ -16444,7 +16550,12 @@ function validateBoundApmAutomaticPreflightReceipt(input, currentLockPath, candi
     }
   }
   if (trustedContext) {
-    validateNestedNonHoldReceipt(receipt.upgradeReceipt, receipt.summary.verdict, trustedContext);
+    const nested = validateNestedNonHoldReceipt(
+      receipt.upgradeReceipt,
+      receipt.summary.verdict,
+      trustedContext
+    );
+    validateManifestTargetBindings(receipt.materialization, nested, trustedUpgradeConfig(trustedContext));
   }
   return receipt;
 }
@@ -16512,6 +16623,15 @@ function archiveFileCommitments(files) {
     mode: file.executable ? 493 : 420,
     sha256: hash5(file.bytes)
   })).sort((left, right) => left.path.localeCompare(right.path));
+}
+function manifestEvidenceFromArchive(files, manifestPath) {
+  const path = portableManifestPath(manifestPath);
+  const file = files.find((entry) => entry.path === path);
+  if (!file || !file.bytes.length) throw new PreflightHold("MANIFEST_EVIDENCE_UNAVAILABLE");
+  if (file.bytes.length > MAX_APM_MANIFEST_EVIDENCE_BYTES) {
+    throw new PreflightHold("MANIFEST_EVIDENCE_SIZE_EXCEEDED");
+  }
+  return { path, contentBase64: file.bytes.toString("base64") };
 }
 function canonicalTreeSha256FromCommitments(files) {
   const byDirectory = /* @__PURE__ */ new Map();
@@ -16814,7 +16934,7 @@ function extractArchive(archive, root) {
     writeExclusiveFile(output, file.bytes, file.executable);
   }
 }
-function materializeEndpoint(endpoint, label, session, fetchArchive) {
+function materializeEndpoint(endpoint, label, session, fetchArchive, manifestPath) {
   const archivePath = join8(session, `${label}.tar.gz`);
   const url = `https://codeload.github.com/${endpoint.repository.owner}/${endpoint.repository.name}/tar.gz/${endpoint.commit}`;
   fetchArchive(url, archivePath);
@@ -16848,6 +16968,7 @@ function materializeEndpoint(endpoint, label, session, fetchArchive) {
   }
   if (parsed.treeSha256 !== endpoint.expectedTreeSha256) throw new PreflightHold("MATERIALIZED_TREE_MISMATCH");
   const files = archiveFileCommitments(parsed.files);
+  const manifestEvidence = manifestEvidenceFromArchive(parsed.files, manifestPath);
   unlinkSync2(archivePath);
   const materializedRoot = join8(session, label);
   extractArchive(parsed, materializedRoot);
@@ -16870,6 +16991,7 @@ function materializeEndpoint(endpoint, label, session, fetchArchive) {
       fileCount: parsed.fileCount,
       totalBytes: parsed.totalBytes,
       files,
+      manifestEvidence,
       selectedArtifact
     }
   };
@@ -16993,10 +17115,25 @@ function runApmAutomaticPreflight(input, dependencies = {}) {
   let upgradeReceipt;
   const reasons = [];
   try {
+    const materializationConfig = loadUpgradeConfig(
+      trustedRegularFileInside(input.repository, input.configPath, "upgrade config")
+    );
     const fetchArchive = dependencies.fetchArchive ?? curlArchiveFetcher(input.fetchBin ?? "curl");
-    const current = materializeEndpoint(selection.current, "current", session, fetchArchive);
+    const current = materializeEndpoint(
+      selection.current,
+      "current",
+      session,
+      fetchArchive,
+      materializationConfig.component.manifestPath
+    );
     materialization.current = current.proof;
-    const candidate = materializeEndpoint(selection.candidate, "candidate", session, fetchArchive);
+    const candidate = materializeEndpoint(
+      selection.candidate,
+      "candidate",
+      session,
+      fetchArchive,
+      materializationConfig.component.manifestPath
+    );
     materialization.candidate = candidate.proof;
     const beforeCheckPlan = createUpdatePlan({
       manager: "apm",
@@ -17017,10 +17154,12 @@ function runApmAutomaticPreflight(input, dependencies = {}) {
     });
     if (upgradeReceipt.summary?.verdict === "SAFE" || upgradeReceipt.summary?.verdict === "CHANGED") {
       try {
-        validateNestedNonHoldReceipt(upgradeReceipt, upgradeReceipt.summary.verdict, {
+        const trustedContext = {
           repository: input.repository,
           configPath: input.configPath
-        });
+        };
+        const nested = validateNestedNonHoldReceipt(upgradeReceipt, upgradeReceipt.summary.verdict, trustedContext);
+        validateManifestTargetBindings(materialization, nested, trustedUpgradeConfig(trustedContext));
       } catch {
         reasons.push("CHECK_RECEIPT_INVALID");
       }

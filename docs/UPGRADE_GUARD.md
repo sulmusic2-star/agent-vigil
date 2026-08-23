@@ -221,6 +221,12 @@ until a verifiable subtree proof is part of the contract.
 
 The compressed response is limited to 64 MiB; expanded files retain the same
 4,096-file, 32-MiB-per-file, and 256-MiB-total ceilings used by Upgrade Guard.
+The automatic APM lane narrows the configured JSON manifest to 64 KiB. It
+stores those exact bytes as canonical base64 in the private wrapper so an
+offline verifier can bind them to the selected-tree file commitment and derive
+the manifest hash, component identity, version, and configured capability
+snapshots itself. The ordinary already-materialized check retains its separate
+4 MiB manifest ceiling.
 Tar paths must share one root and remain normalized. The exact leading GitHub
 codeload global PAX `comment=<commit>` record is validated against the selected
 commit; every other extension record, link, device, special entry, traversal,
@@ -233,10 +239,17 @@ contained check, and after the check. Its private
 pseudonymized plan, selected-row commitments, route commitment, locked commits,
 expected tree hashes, downloaded byte hashes and counts, materialized tree
 hashes, a bounded sorted path/mode/size/blob commitment that lets verification
-recompute both the OpenAPM tree and selected artifact inventory, the nested Upgrade Guard receipt, and
-the final restoration result. It never copies the repository route into the
-receipt. A `SAFE` or `CHANGED` wrapper requires the nested verdict to agree and
+recompute both the OpenAPM tree and selected artifact inventory, the bounded
+exact configured-manifest bytes used to recompute every nested target field,
+the nested Upgrade Guard receipt, and
+the final restoration result. It never copies lockfile acquisition-route fields
+into the receipt; the exact public-source manifest may itself contain package
+metadata, so this wrapper remains private and public proof export stays
+separate. A `SAFE` or `CHANGED` wrapper requires the nested verdict to agree and
 the exact temporary session to be removed; cleanup failure becomes `HOLD`.
+The pretty-printed private receipt must fit the verifier's 4 MiB input bound;
+an over-bound evidence set returns a minimal `HOLD` receipt instead of a
+compatibility verdict.
 
 Temporary materialization defaults to the trusted configuration directory so
 Docker Desktop and Colima can bind it. CI can select an already-existing shared

@@ -322,6 +322,12 @@ test("automatic APM preflight binds fetch, tree, plan, check, and restoration wi
   assert.ok(fetched.every((url) => /^https:\/\/codeload\.github\.com\/Example\/Fixture\/tar\.gz\/[ab]{40}$/.test(url)));
   assert.equal(receipt.materialization?.current?.fetchedSha256, `sha256:${createHash("sha256").update(currentArchive).digest("hex")}`);
   assert.equal(receipt.materialization?.candidate?.materializedTreeSha256, parseApmGitHubArchive(candidateArchive).treeSha256);
+  assert.equal(receipt.materialization?.current?.manifestEvidence.path, "package.json");
+  assert.deepEqual(
+    Buffer.from(receipt.materialization!.current!.manifestEvidence.contentBase64, "base64"),
+    Buffer.from(`${JSON.stringify({ name: "fixture-agent", version: "1.0.0", tools: ["read"] })}\n`),
+  );
+  assert.ok(Buffer.byteLength(`${JSON.stringify(receipt, null, 2)}\n`) < 4 * 1024 * 1024);
   assert.equal(recomputeApmPreflightReceiptHash(receipt), receipt.receiptHash);
   const trustedContext = { repository: value.repository, configPath: value.configPath };
   assert.equal(
@@ -380,6 +386,83 @@ test("automatic APM preflight binds fetch, tree, plan, check, and restoration wi
       configPath: value.configPath,
     }),
     /materialization does not match/,
+  );
+  const forgedManifestEvidence = structuredClone(receipt);
+  forgedManifestEvidence.materialization!.current!.manifestEvidence.contentBase64 = Buffer.from(
+    `${JSON.stringify({ name: "fixture-agent", version: "9.9.9", tools: [] })}\n`,
+  ).toString("base64");
+  forgedManifestEvidence.receiptHash = recomputeApmPreflightReceiptHash(forgedManifestEvidence);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      forgedManifestEvidence,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /does not match the exact selected-tree file commitment/,
+  );
+  const substitutedManifestPath = structuredClone(receipt);
+  substitutedManifestPath.materialization!.current!.manifestEvidence = {
+    path: "behavior.txt",
+    contentBase64: Buffer.from("stable\n").toString("base64"),
+  };
+  substitutedManifestPath.upgradeReceipt!.current!.manifestSha256 = digest("stable\n");
+  substitutedManifestPath.upgradeReceipt!.receiptHash = recomputeUpgradeReceiptHash(substitutedManifestPath.upgradeReceipt!);
+  substitutedManifestPath.receiptHash = recomputeApmPreflightReceiptHash(substitutedManifestPath);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      substitutedManifestPath,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /does not match the trusted manifest path/,
+  );
+  const forgedManifestHash = structuredClone(receipt);
+  forgedManifestHash.upgradeReceipt!.current!.manifestSha256 = digest("forged current manifest");
+  forgedManifestHash.upgradeReceipt!.candidate!.manifestSha256 = digest("forged candidate manifest");
+  forgedManifestHash.upgradeReceipt!.receiptHash = recomputeUpgradeReceiptHash(forgedManifestHash.upgradeReceipt!);
+  forgedManifestHash.receiptHash = recomputeApmPreflightReceiptHash(forgedManifestHash);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      forgedManifestHash,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /selected artifact binding/,
+  );
+  const forgedVersions = structuredClone(receipt);
+  forgedVersions.upgradeReceipt!.current!.version = "9.9.8";
+  forgedVersions.upgradeReceipt!.candidate!.version = "9.9.9";
+  forgedVersions.upgradeReceipt!.receiptHash = recomputeUpgradeReceiptHash(forgedVersions.upgradeReceipt!);
+  forgedVersions.receiptHash = recomputeApmPreflightReceiptHash(forgedVersions);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      forgedVersions,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /nested target is not derived from the exact selected-tree manifest evidence/,
+  );
+  const forgedCapabilities = structuredClone(receipt);
+  for (const side of ["current", "candidate"] as const) {
+    forgedCapabilities.upgradeReceipt![side]!.capabilities[0].count = 99;
+    forgedCapabilities.upgradeReceipt![side]!.capabilities[0].sha256 = digest("forged capability");
+  }
+  forgedCapabilities.upgradeReceipt!.capabilities[0].currentCount = 99;
+  forgedCapabilities.upgradeReceipt!.capabilities[0].candidateCount = 99;
+  forgedCapabilities.upgradeReceipt!.receiptHash = recomputeUpgradeReceiptHash(forgedCapabilities.upgradeReceipt!);
+  forgedCapabilities.receiptHash = recomputeApmPreflightReceiptHash(forgedCapabilities);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      forgedCapabilities,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /nested target is not derived from the exact selected-tree manifest evidence/,
   );
   const forgedContainment = structuredClone(receipt);
   Object.assign(forgedContainment.upgradeReceipt!.containment, {
@@ -500,6 +583,41 @@ test("automatic APM preflight returns HOLD before fetch for unbound or unsupport
     assert.deepEqual(receipt.summary.reasonCodes, [fixtureCase.expected], fixtureCase.label);
     assert.equal(fetched, false, fixtureCase.label);
   }
+});
+
+test("automatic APM preflight holds before evaluation when exact manifest evidence exceeds 64 KiB", () => {
+  const value = fixture();
+  mkdirSync(value.workDirectory);
+  const oversizedManifest = (version: string) => `${JSON.stringify({
+    name: "fixture-agent",
+    version,
+    tools: ["read"],
+    padding: "x".repeat(64 * 1024),
+  })}\n`;
+  const currentArchive = archive(value.currentCommit, { "package.json": oversizedManifest("1.0.0") });
+  const candidateArchive = archive(value.candidateCommit, { "package.json": oversizedManifest("1.1.0") });
+  lock(value.currentLockPath, value.currentCommit, parseApmGitHubArchive(currentArchive).treeSha256);
+  lock(value.candidateLockPath, value.candidateCommit, parseApmGitHubArchive(candidateArchive).treeSha256);
+  let evaluated = false;
+  const receipt = runApmAutomaticPreflight({
+    repository: value.repository,
+    currentLockPath: value.currentLockPath,
+    candidateLockPath: value.candidateLockPath,
+    configPath: value.configPath,
+    workDirectory: value.workDirectory,
+    generatedAt: "2026-08-23T20:00:00.000Z",
+  }, {
+    fetchArchive: (url, destination) => writeFileSync(
+      destination,
+      url.endsWith(value.currentCommit) ? currentArchive : candidateArchive,
+    ),
+    evaluate: () => { evaluated = true; throw new Error("must not evaluate"); },
+  });
+  assert.equal(evaluated, false);
+  assert.equal(receipt.summary.verdict, "HOLD");
+  assert.deepEqual(receipt.summary.reasonCodes, ["MANIFEST_EVIDENCE_SIZE_EXCEEDED"]);
+  assert.equal(receipt.restoration.status, "RESTORED");
+  assert.equal(readdirSync(value.workDirectory).length, 0);
 });
 
 test("automatic APM materialization is invariant across restrictive host umasks", () => {
@@ -871,6 +989,11 @@ test("the published APM wrapper schema names stable Action fields and fail-close
   assert.equal(schema.allOf[3].then.properties.restoration.properties.sessionRemoved.const, true);
   assert.equal(schema.allOf[3].else.properties.restoration.properties.sessionRemoved.const, false);
   assert.equal(schema.$defs.materializedProof.properties.fetchedBytes.maximum, 64 * 1024 * 1024);
+  assert.ok(schema.$defs.materializedProof.required.includes("manifestEvidence"));
+  assert.equal(
+    schema.$defs.materializedProof.properties.manifestEvidence.properties.contentBase64.maxLength,
+    Math.ceil((64 * 1024) / 3) * 4,
+  );
   assert.equal(schema.additionalProperties, false);
 });
 

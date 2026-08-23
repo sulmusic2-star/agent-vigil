@@ -69,8 +69,12 @@ or fetch-client inputs to candidate workflow code. It:
    rather than exposing a stale non-`HOLD` status.
 
 The private `agent-vigil-apm-preflight/v1` wrapper binds the plan, selected
-pair, acquired artifact bytes and tree identities, nested Upgrade Guard receipt,
-and restoration result. The plan must contain exactly that one eligible update;
+pair, acquired artifact bytes and tree identities, a 64-KiB-bounded exact copy
+of each configured manifest, the nested Upgrade Guard receipt, and restoration
+result. Verification matches those manifest bytes to their selected-tree file
+commitments and independently derives the manifest hashes, identities,
+versions, and configured capability snapshots. The plan must contain exactly
+that one eligible update;
 any added, removed, workspace, configuration, second update, or other
 unassessed row returns `HOLD`. The Action exposes the runner-owned wrapper path through its
    `report` output; it never copies the wrapper into the pull-request workspace.
