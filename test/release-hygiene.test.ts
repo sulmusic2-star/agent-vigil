@@ -57,6 +57,7 @@ test("publish workflow pins source Actions and enforces the complete exact-sourc
     "npm run test:package",
     "npm run proof:historical",
     "npm run proof:failure-corpus",
+    "npm run proof:update-pair-corpus",
     "npm audit",
   ]) {
     assert.match(workflow, new RegExp(`^\\s+${command}\\s*$`, "m"));
@@ -65,6 +66,8 @@ test("publish workflow pins source Actions and enforces the complete exact-sourc
   assert.equal(workflow.match(/cmp -s "\$RUNNER_TEMP\/dist-cli\.committed\.js" dist\/cli\.js/g)?.length, 2);
   assert.match(workflow, /"scripts\/materialize-trusted-upgrade-inputs\.mjs"/);
   assert.match(workflow, /"docs\/APM_PREFLIGHT_ACTION\.md"/);
+  assert.match(workflow, /"proof\/update-pair-corpus\/MANIFEST\.md"/);
+  assert.match(workflow, /"proof\/update-pair-corpus\/metadata\/corpus-validation\.json"/);
   assert.match(workflow, /path\.startsWith\("services\/"\)/);
 });
 

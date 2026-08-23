@@ -74,6 +74,7 @@ jobs:
           npm run test:package
           npm run proof:historical
           npm run proof:failure-corpus
+          npm run proof:update-pair-corpus
           npm audit
 
       - name: Build the package rehearsal
@@ -90,6 +91,8 @@ jobs:
           for (const required of [
             "scripts/materialize-trusted-upgrade-inputs.mjs",
             "docs/APM_PREFLIGHT_ACTION.md",
+            "proof/update-pair-corpus/MANIFEST.md",
+            "proof/update-pair-corpus/metadata/corpus-validation.json",
           ]) {
             if (!files.has(required)) throw new Error(`npm package is missing required release file: ${required}`);
           }
