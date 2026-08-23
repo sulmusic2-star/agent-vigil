@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add the offline `vigil continuity` Phase 0: exact-receipt roots, typed append-only
+  successor events, optional Ed25519 event signatures, base-revision policy loading,
+  and deterministic `CURRENT`, `HOLD`, `EXPIRED`, or `REVOKED` status.
+- Keep every state except `CURRENT` from allowing a protected action, retain the
+  original historical verdict, and reject subject changes, broken chains,
+  duplicate deliveries, clock rollback, untrusted signers, stale sources, and
+  privacy-unsafe receipt-tier fields.
+
 ## 0.16.0 - 2026-08-23
 
 - Add an open signed challenge-proof format, pinned Ed25519 signer identities,

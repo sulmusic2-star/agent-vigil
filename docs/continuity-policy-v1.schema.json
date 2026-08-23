@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/continuity-policy-v1.schema.json",
+  "title": "Agent Vigil Continuity Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "requiredSources", "maxAgeSeconds", "denyOn", "allowRemediation",
+    "requireSignedRoot", "requireSignedEvents", "trustedRootKeyIds", "trustedIssuerKeyIds",
+    "protectedEnvironments", "maxClockSkewSeconds"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-continuity-policy/v1" },
+    "requiredSources": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" }
+    },
+    "maxAgeSeconds": {
+      "type": "object", "maxProperties": 64, "additionalProperties": false,
+      "patternProperties": { "^[a-z0-9][a-z0-9._-]{0,63}$": { "type": "integer", "minimum": 1, "maximum": 31536000 } }
+    },
+    "denyOn": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": {
+        "enum": [
+          "merge_observed", "deployment_observed", "revert_observed", "hotfix_observed", "incident_linked",
+          "verification_refreshed", "policy_superseded", "authority_changed", "agent_upgrade_changed",
+          "security_advisory_observed", "credential_revoked", "attestation_invalid", "monitor_checkpoint",
+          "coverage_gap", "exception_granted", "remediation_verified"
+        ]
+      }
+    },
+    "allowRemediation": { "type": "boolean" },
+    "requireSignedRoot": { "type": "boolean" },
+    "requireSignedEvents": { "type": "boolean" },
+    "trustedRootKeyIds": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+    },
+    "trustedIssuerKeyIds": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+    },
+    "protectedEnvironments": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$" }
+    },
+    "maxClockSkewSeconds": { "type": "integer", "minimum": 0, "maximum": 86400 }
+  }
+}

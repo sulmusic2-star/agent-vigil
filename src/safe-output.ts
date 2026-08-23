@@ -165,6 +165,42 @@ export function writePrivateFileAtomic(destination: string, content: string): vo
   if (failure !== undefined) throw failure;
 }
 
+/**
+ * Create a new owner-only file without replacing an existing directory entry.
+ * This is used for append-only evidence where replacement would erase history.
+ */
+export function writePrivateFileExclusive(destination: string, content: string): void {
+  const requested = resolve(destination);
+  const parent = resolveSafeParent(requested);
+  const target = join(parent, basename(requested));
+  const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+  let descriptor: number | undefined;
+  let failure: unknown;
+  try {
+    descriptor = openSync(
+      target,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | noFollow,
+      0o600,
+    );
+    fchmodSync(descriptor, 0o600);
+    writeFileSync(descriptor, Buffer.from(content, "utf8"));
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = undefined;
+  } catch (error) {
+    failure = error;
+  } finally {
+    if (descriptor !== undefined) {
+      try {
+        closeSync(descriptor);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+  }
+  if (failure !== undefined) throw failure;
+}
+
 export function appendPrivateFileAtomic(destination: string, content: string): void {
   const requested = resolve(destination);
   const parent = resolveSafeParent(requested);

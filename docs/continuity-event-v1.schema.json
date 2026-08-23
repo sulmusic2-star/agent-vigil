@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/continuity-event-v1.schema.json",
+  "title": "Agent Vigil Continuity Event v1",
+  "description": "Closed draft and stored event shapes for an offline Agent Vigil continuity chain.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/draft"
+    },
+    {
+      "$ref": "#/$defs/stored"
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "uuidUrn": {
+      "type": "string",
+      "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "episodeReceiptHash",
+        "repositoryHash",
+        "baseSha",
+        "headSha"
+      ],
+      "properties": {
+        "episodeReceiptHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "repositoryHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "baseSha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "headSha": {
+          "$ref": "#/$defs/gitSha"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "issuer",
+        "evidenceHash",
+        "deliveryIdHash"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "issuer": {
+          "$ref": "#/$defs/sha256"
+        },
+        "evidenceHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "deliveryIdHash": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "eventBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "disposition",
+        "reasonCode",
+        "targetHash",
+        "freshUntil",
+        "supersedesEventId"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "merge_observed",
+            "deployment_observed",
+            "revert_observed",
+            "hotfix_observed",
+            "incident_linked",
+            "verification_refreshed",
+            "policy_superseded",
+            "authority_changed",
+            "agent_upgrade_changed",
+            "security_advisory_observed",
+            "credential_revoked",
+            "attestation_invalid",
+            "monitor_checkpoint",
+            "coverage_gap",
+            "exception_granted",
+            "remediation_verified"
+          ]
+        },
+        "disposition": {
+          "enum": [
+            "affirm",
+            "hold",
+            "revoke",
+            "observe"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "pattern": "^(?!(?:gh[pousr]_|github_pat_|sk_(?:live|test)_|xox[baprs]-))[a-z0-9][a-z0-9._-]{0,79}$"
+        },
+        "targetHash": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "freshUntil": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "supersedesEventId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uuidUrn"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "draft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "eventId",
+        "subject",
+        "source",
+        "event",
+        "observedAt",
+        "effectiveAt",
+        "privacyTier"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "agent-vigil-continuity-event/v1"
+        },
+        "eventId": {
+          "$ref": "#/$defs/uuidUrn"
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "event": {
+          "$ref": "#/$defs/eventBody"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "effectiveAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "privacyTier": {
+          "enum": [
+            "receipt",
+            "metadata",
+            "full-local"
+          ]
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "keyId",
+        "publicKey",
+        "value"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "keyId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "publicKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+          "maxLength": 256
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+          "maxLength": 128
+        }
+      }
+    },
+    "stored": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "eventId",
+        "subject",
+        "source",
+        "event",
+        "observedAt",
+        "effectiveAt",
+        "privacyTier",
+        "sequence",
+        "predecessorHash",
+        "eventHash",
+        "signature"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "agent-vigil-continuity-event/v1"
+        },
+        "eventId": {
+          "$ref": "#/$defs/uuidUrn"
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "event": {
+          "$ref": "#/$defs/eventBody"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "effectiveAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "privacyTier": {
+          "enum": [
+            "receipt",
+            "metadata",
+            "full-local"
+          ]
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "predecessorHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "eventHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "signature": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/signature"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

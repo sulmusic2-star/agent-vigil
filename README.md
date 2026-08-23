@@ -592,6 +592,30 @@ merge state, and deliberately does not check out or execute candidate code.
 > `test-cmd` value from untrusted issue or pull-request text. Read
 > [SECURITY.md](SECURITY.md) before running on untrusted forks.
 
+## Offline continuity receipts
+
+`vigil continuity` extends one exact Agent Vigil receipt with typed successor
+evidence without changing its historical `PASS`, `FAIL`, or `INCONCLUSIVE`
+verdict. The deterministic policy fold returns `CURRENT`, `HOLD`, `EXPIRED`,
+or `REVOKED`; only `CURRENT` permits a protected action.
+
+```bash
+vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
+vigil continuity append --chain .agent-vigil/continuity --event verification-refreshed.event.json
+vigil continuity verify --chain .agent-vigil/continuity --json
+vigil continuity status \
+  --chain .agent-vigil/continuity \
+  --policy .agent-vigil-continuity.json \
+  --repo . \
+  --policy-ref <base-commit-sha> \
+  --environment production
+```
+
+The Phase 0 implementation is local and offline. It does not include webhook
+ingestion, GitHub adapters, hosted storage, or a deployment integration. See
+[`docs/CONTINUITY.md`](docs/CONTINUITY.md) for schemas, signature trust,
+privacy constraints, remediation rules, and exit codes.
+
 ## CLI
 
 ```text

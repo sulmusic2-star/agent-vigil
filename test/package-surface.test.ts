@@ -29,6 +29,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/ATTESTED_RECEIPTS.md",
     "docs/AUTHORITY_PLAN.md",
     "docs/CONTROL_PROOF.md",
+    "docs/CONTINUITY.md",
     "docs/NOTARY_APP.md",
     "docs/PROOF_COMMENT.md",
     "docs/PUBLIC_RELEASE_POLICY.md",
@@ -41,6 +42,8 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/upgrade-canary-v1.schema.json",
     "docs/upgrade-receipt-v1.schema.json",
     "docs/compatibility-entry-v1.schema.json",
+    "docs/continuity-event-v1.schema.json",
+    "docs/continuity-policy-v1.schema.json",
     "proof/README.md",
     "proof/cases",
   ]) {

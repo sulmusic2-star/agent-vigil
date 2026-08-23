@@ -25,6 +25,9 @@ def main() -> int:
     (consumer / "package.json").write_text('{"private":true}\n')
     run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", str(tarball)], consumer)
     vigil = consumer / "node_modules" / ".bin" / "vigil"
+    continuity_help = run([str(vigil), "continuity", "--help"], consumer)
+    if "continuity init" not in continuity_help.stdout or "continuity status" not in continuity_help.stdout:
+        raise RuntimeError(f"packed continuity CLI help is incomplete: {continuity_help.stdout}\n{continuity_help.stderr}")
     private_key = lab / "operator.pem"
     public_key = lab / "operator.pub"
     run([str(vigil), "keygen", "--private", str(private_key), "--public", str(public_key)], consumer)
@@ -134,6 +137,7 @@ def main() -> int:
         "repositories": len(results),
         "setupFlows": len(results) * 3,
         "controlProof": control_proof_result,
+        "continuityHelpExit": continuity_help.returncode,
         "passed": len(results),
         "results": results,
     }, indent=2))

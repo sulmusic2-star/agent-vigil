@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "agent-vigil-continuity-policy/v1",
+  "requiredSources": ["verification", "github-outcome"],
+  "maxAgeSeconds": {
+    "verification": 604800,
+    "github-outcome": 86400
+  },
+  "denyOn": [
+    "revert_observed",
+    "incident_linked",
+    "attestation_invalid",
+    "credential_revoked"
+  ],
+  "allowRemediation": true,
+  "requireSignedRoot": true,
+  "requireSignedEvents": true,
+  "trustedRootKeyIds": ["sha256:0000000000000000000000000000000000000000000000000000000000000000"],
+  "trustedIssuerKeyIds": ["sha256:0000000000000000000000000000000000000000000000000000000000000000"],
+  "protectedEnvironments": ["production"],
+  "maxClockSkewSeconds": 300
+}
