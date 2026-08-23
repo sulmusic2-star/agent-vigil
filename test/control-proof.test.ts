@@ -151,7 +151,10 @@ test("composite Action prove mode returns the control receipt without synthetic 
     assert.match(outputs, /^status=PASS$/m);
     assert.match(outputs, /^sarif=$/m);
     assert.match(outputs, /^value_card=$/m);
-    assert.equal(JSON.parse(readFileSync(join(repo, "agent-vigil-report.json"), "utf8")).status, "PASS");
+    const reportPath = /^report=(.+)$/m.exec(outputs)?.[1];
+    assert.ok(reportPath);
+    assert.ok(reportPath.startsWith(`${runner}/`));
+    assert.equal(JSON.parse(readFileSync(reportPath, "utf8")).status, "PASS");
     assert.equal(existsInOutput(outputs, "agent-vigil-value-card.json"), false);
 
     const conflicting = spawnSync("bash", [script], {

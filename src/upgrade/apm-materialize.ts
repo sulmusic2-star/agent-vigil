@@ -118,6 +118,7 @@ type TarFile = { path: string; bytes: Buffer; executable: boolean };
 type ParsedArchive = {
   files: TarFile[];
   directories: string[];
+  paxCommit?: string;
   treeSha256: string;
   fileCount: number;
   totalBytes: number;
@@ -196,6 +197,14 @@ function portableIdentity(path: string): string {
   return path.normalize("NFC").toUpperCase();
 }
 
+function codeloadPaxCommit(bytes: Buffer): string {
+  if (bytes.length < 1 || bytes.length > 128) throw new PreflightHold("ARCHIVE_ENTRY_UNSUPPORTED");
+  const value = strictUtf8(bytes, "ARCHIVE_ENTRY_UNSUPPORTED");
+  const match = /^([1-9][0-9]{0,2}) comment=([0-9a-f]{40})\n$/.exec(value);
+  if (!match || Number(match[1]) !== bytes.length) throw new PreflightHold("ARCHIVE_ENTRY_UNSUPPORTED");
+  return match[2];
+}
+
 function parentPaths(path: string): string[] {
   const parts = path.split("/");
   return parts.slice(0, -1).map((_part, index) => parts.slice(0, index + 1).join("/"));
@@ -258,6 +267,7 @@ export function parseApmGitHubArchive(compressed: Buffer): ParsedArchive {
     portablePaths.set(identity, path);
   };
   let archiveRoot: string | undefined;
+  let paxCommit: string | undefined;
   let offset = 0;
   let ended = false;
   let totalBytes = 0;
@@ -277,9 +287,6 @@ export function parseApmGitHubArchive(compressed: Buffer): ParsedArchive {
     const name = tarText(block, 0, 100, "ARCHIVE_INVALID");
     const prefix = tarText(block, 345, 155, "ARCHIVE_INVALID");
     const path = prefix ? `${prefix}/${name}` : name;
-    const normalized = normalizedArchivePath(path);
-    archiveRoot ??= normalized.root;
-    if (normalized.root !== archiveRoot) throw new PreflightHold("ARCHIVE_PATH_UNSAFE");
     const size = tarOctal(block, 124, 12, "ARCHIVE_INVALID");
     const mode = tarOctal(block, 100, 8, "ARCHIVE_INVALID");
     const type = block[156];
@@ -287,6 +294,17 @@ export function parseApmGitHubArchive(compressed: Buffer): ParsedArchive {
     const dataEnd = dataStart + size;
     const paddedEnd = dataStart + Math.ceil(size / 512) * 512;
     if (dataEnd > tar.length || paddedEnd > tar.length) throw new PreflightHold("ARCHIVE_INVALID");
+    if (type === 0x67) {
+      if (archiveRoot !== undefined || paxCommit !== undefined || prefix || name !== "pax_global_header") {
+        throw new PreflightHold("ARCHIVE_ENTRY_UNSUPPORTED");
+      }
+      paxCommit = codeloadPaxCommit(Buffer.from(tar.subarray(dataStart, dataEnd)));
+      offset = paddedEnd;
+      continue;
+    }
+    const normalized = normalizedArchivePath(path);
+    archiveRoot ??= normalized.root;
+    if (normalized.root !== archiveRoot) throw new PreflightHold("ARCHIVE_PATH_UNSAFE");
     const relativePath = normalized.relativePath;
     if (type !== 0 && type !== 0x30 && type !== 0x35) throw new PreflightHold("ARCHIVE_ENTRY_UNSUPPORTED");
     if (type === 0x35) {
@@ -338,6 +356,7 @@ export function parseApmGitHubArchive(compressed: Buffer): ParsedArchive {
   return {
     files,
     directories: [...materializedDirectories].sort(),
+    ...(paxCommit ? { paxCommit } : {}),
     treeSha256: canonicalTreeSha256(files),
     fileCount: files.length,
     totalBytes,
@@ -510,6 +529,9 @@ function materializeEndpoint(
   } finally { closeSync(descriptor); }
   const fetchedSha256 = hash(compressed);
   const parsed = parseApmGitHubArchive(compressed);
+  if (parsed.paxCommit !== undefined && parsed.paxCommit !== endpoint.commit) {
+    throw new PreflightHold("ARCHIVE_COMMIT_MISMATCH");
+  }
   if (parsed.treeSha256 !== endpoint.expectedTreeSha256) throw new PreflightHold("MATERIALIZED_TREE_MISMATCH");
   unlinkSync(archivePath);
   const materializedRoot = join(session, label);
@@ -604,6 +626,10 @@ export function runApmAutomaticPreflight(
     });
     if (canonical(selection.plan) !== canonical(plan)) {
       throw new ApmMaterializationHold("SOURCE_STATE_CHANGED");
+    }
+    if (plan.summary.total !== 1 || plan.summary.eligiblePairs !== 1
+      || plan.changes.length !== 1 || canonical(plan.changes[0]) !== canonical(selection.change)) {
+      throw new ApmMaterializationHold("UNASSESSED_PLAN_CHANGES");
     }
   } catch (error) {
     const reasonCode = holdReason(error, "SELECTION_FAILED");

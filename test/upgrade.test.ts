@@ -14,6 +14,7 @@ import {
   PUBLIC_ENTRY_SCHEMA,
   UPGRADE_CONFIG_SCHEMA,
   loadUpgradeConfig,
+  parseCanaryDocument,
   validateCanaryDocument,
   validateUpgradeConfig,
   type UpgradeCanaryConfig,
@@ -190,6 +191,39 @@ test("canary output requires at least one bounded observation", () => {
   );
   assert.equal(comparison.comparable, false);
   assert.equal(comparison.current.state, "HOLD");
+});
+
+test("canary output rejects lossy numeric, duplicate-key, and UTF-8 representations", () => {
+  const wrapper = (value: string): Buffer => Buffer.from(
+    `{"schemaVersion":"agent-vigil-upgrade-canary/v1","outcome":"PASS","observations":{${value}}}`,
+    "utf8",
+  );
+  for (const value of [
+    '"n":9007199254740992',
+    '"n":9007199254740993',
+    '"n":1e400',
+    '"n":1e-400',
+    '"n":-0',
+    '"n":1.5',
+    '"n":1,"n":2',
+  ]) assert.throws(() => parseCanaryDocument(wrapper(value)));
+  assert.throws(() => validateCanaryDocument({
+    schemaVersion: "agent-vigil-upgrade-canary/v1",
+    outcome: "PASS",
+    observations: { n: Number.MAX_SAFE_INTEGER + 1 },
+  }), /bounded JSON primitive/);
+  assert.throws(() => validateCanaryDocument({
+    schemaVersion: "agent-vigil-upgrade-canary/v1",
+    outcome: "PASS",
+    observations: { n: -0 },
+  }), /bounded JSON primitive/);
+  const invalidUtf8 = wrapper('"value":"ok"');
+  invalidUtf8[invalidUtf8.indexOf(Buffer.from("ok"))] = 0x80;
+  assert.throws(() => parseCanaryDocument(invalidUtf8), /UTF-8/);
+  assert.deepEqual(parseCanaryDocument(wrapper('"n":9007199254740991,"fraction":"1.5"')).observations, {
+    n: 9007199254740991,
+    fraction: "1.5",
+  });
 });
 
 function component(): UpgradeComponentConfig {

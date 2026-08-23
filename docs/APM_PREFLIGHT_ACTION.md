@@ -63,9 +63,10 @@ client, or fetch-client inputs to candidate workflow code. It:
 
 The private `agent-vigil-apm-preflight/v1` wrapper binds the plan, selected
 pair, acquired artifact bytes and tree identities, nested Upgrade Guard receipt,
-   and restoration result. If more than one pair is eligible, selection remains
-   ambiguous and the Action returns `HOLD`; a pull request cannot select an
-   unrelated pair. The Action copies the wrapper to `agent-vigil-report.json`.
+and restoration result. The plan must contain exactly that one eligible update;
+any added, removed, workspace, configuration, second update, or other
+unassessed row returns `HOLD`. The Action exposes the runner-owned wrapper path through its
+   `report` output; it never copies the wrapper into the pull-request workspace.
 It does not publish that private wrapper or enable telemetry by default.
 
 ## Verdicts

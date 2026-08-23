@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -35,6 +35,11 @@ test("upgrade Action binds exact event locks, trusted base inputs, outputs, and 
   writeFileSync(join(repo, ".agent-vigil", "upgrade", "config.json"), "{\"trusted\":\"candidate-must-not-win\"}\n");
   const head = commit(repo, "candidate lock and config");
 
+  const victim = join(auxiliary, "runner-sensitive-file");
+  writeFileSync(victim, "must-not-change\n");
+  symlinkSync(victim, join(repo, "agent-vigil-report.json"));
+  const maliciousHead = commit(repo, "candidate report symlink");
+
   const event = join(auxiliary, "event.json");
   const output = join(auxiliary, "output");
   const summary = join(auxiliary, "summary");
@@ -43,7 +48,7 @@ test("upgrade Action binds exact event locks, trusted base inputs, outputs, and 
   const recorded = join(auxiliary, "recorded.json");
   mkdirSync(runner);
   mkdirSync(join(fakeAction, "dist"), { recursive: true });
-  writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: base }, head: { sha: head } } }));
+  writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: base }, head: { sha: maliciousHead } } }));
   writeFileSync(output, "");
   writeFileSync(summary, "");
   writeFileSync(join(fakeAction, "dist", "cli.js"), `
@@ -86,7 +91,7 @@ process.exit(1);
     VIGIL_ACTIONS_RUN_ID: "",
     VIGIL_REPO: repo,
     VIGIL_BASE: base,
-    VIGIL_HEAD: head,
+    VIGIL_HEAD: maliciousHead,
     VIGIL_TEST_CMD: "",
     VIGIL_POLICY: "",
     VIGIL_POLICY_REF: "",
@@ -107,12 +112,19 @@ process.exit(1);
   delete env.NODE_TEST_CONTEXT;
   const completed = spawnSync("bash", [script], { cwd: repo, encoding: "utf8", env });
   assert.equal(completed.status, 1, `${completed.stdout}\n${completed.stderr}`);
-  assert.match(readFileSync(output, "utf8"), /^status=CHANGED$/m);
-  assert.match(readFileSync(output, "utf8"), /^receipt_hash=sha256:a{64}$/m);
-  assert.match(readFileSync(output, "utf8"), /^sarif=$/m);
-  assert.match(readFileSync(output, "utf8"), /^value_card=$/m);
-  const report = JSON.parse(readFileSync(join(repo, "agent-vigil-report.json"), "utf8"));
+  const outputs = readFileSync(output, "utf8");
+  assert.match(outputs, /^status=CHANGED$/m);
+  assert.match(outputs, /^receipt_hash=sha256:a{64}$/m);
+  assert.match(outputs, /^sarif=$/m);
+  assert.match(outputs, /^value_card=$/m);
+  const reportPath = /^report=(.+)$/m.exec(outputs)?.[1];
+  assert.ok(reportPath);
+  assert.ok(reportPath.startsWith(`${runner}/`));
+  const report = JSON.parse(readFileSync(reportPath, "utf8"));
   assert.equal(report.summary.verdict, "CHANGED");
+  assert.equal(readFileSync(victim, "utf8"), "must-not-change\n");
+  assert.equal(readlinkSync(join(repo, "agent-vigil-report.json")), victim);
+  assert.equal(existsSync(join(repo, "agent-vigil.sarif")), false);
 
   const observed = JSON.parse(readFileSync(recorded, "utf8"));
   assert.match(observed.current, /exact-current/);

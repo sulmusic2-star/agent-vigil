@@ -22,6 +22,7 @@ import {
   type ArchiveFetcher,
 } from "../src/upgrade/apm-materialize.ts";
 import { inspectTarget, type TargetSnapshot } from "../src/upgrade/decision.ts";
+import { createUpdatePlan } from "../src/upgrade/manager-plan.ts";
 import {
   recomputeUpgradeReceiptHash,
   type UpgradePrivateReceipt,
@@ -43,7 +44,7 @@ function octal(value: number, width: number): Buffer {
   return Buffer.from(`${value.toString(8).padStart(width - 1, "0")}\0`, "ascii");
 }
 
-function tarHeader(name: string, size: number, type: "0" | "2" | "5", mode: number): Buffer {
+function tarHeader(name: string, size: number, type: "0" | "2" | "5" | "g", mode: number): Buffer {
   assert.ok(Buffer.byteLength(name) <= 100, "fixture path exceeds basic tar header");
   const block = Buffer.alloc(512);
   block.write(name, 0, 100, "utf8");
@@ -61,9 +62,20 @@ function tarHeader(name: string, size: number, type: "0" | "2" | "5", mode: numb
   return block;
 }
 
-function archive(commit: string, files: Record<string, string>, extra?: { path: string; type: "2" | "5" }): Buffer {
+function archive(
+  commit: string,
+  files: Record<string, string>,
+  extra?: { path: string; type: "2" | "5" },
+  paxCommit?: string,
+): Buffer {
   const root = `fixture-${commit}`;
-  const blocks: Buffer[] = [tarHeader(root, 0, "5", 0o775)];
+  const blocks: Buffer[] = [];
+  if (paxCommit) {
+    const pax = Buffer.from(`52 comment=${paxCommit}\n`, "utf8");
+    assert.equal(pax.length, 52);
+    blocks.push(tarHeader("pax_global_header", pax.length, "g", 0o666), pax, Buffer.alloc(512 - pax.length));
+  }
+  blocks.push(tarHeader(root, 0, "5", 0o775));
   const directories = new Set<string>();
   for (const path of Object.keys(files)) {
     const parts = path.split("/");
@@ -83,6 +95,29 @@ function archive(commit: string, files: Record<string, string>, extra?: { path: 
   return gzipSync(Buffer.concat(blocks));
 }
 
+test("GitHub codeload's exact global PAX commit header is metadata, not an archive-root entry", () => {
+  const commit = "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d";
+  const plain = parseApmGitHubArchive(archive(commit, { README: "Hello World!\n" }));
+  const codeload = parseApmGitHubArchive(archive(commit, { README: "Hello World!\n" }, undefined, commit));
+  assert.equal(codeload.paxCommit, commit);
+  assert.equal(codeload.treeSha256, plain.treeSha256);
+  assert.equal(codeload.treeSha256, "sha256:d81ff032f90a3e47b11fede18685a9ac8fd7ea477d24e113622d20ee847e59bd");
+});
+
+test("opt-in live GitHub codeload archive parses with an independently calculated tree commitment", {
+  skip: process.env.VIGIL_APM_NETWORK_TESTS !== "1" || process.platform === "win32",
+}, () => {
+  const commit = "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d";
+  const fetched = spawnSync("/usr/bin/curl", [
+    "-q", "--fail", "--silent", "--show-error", "--proto", "=https", "--proto-redir", "=https",
+    "--max-redirs", "0", `https://codeload.github.com/octocat/Hello-World/tar.gz/${commit}`,
+  ], { maxBuffer: 64 * 1024 * 1024 });
+  assert.equal(fetched.status, 0, fetched.stderr.toString("utf8"));
+  const parsed = parseApmGitHubArchive(fetched.stdout);
+  assert.equal(parsed.paxCommit, commit);
+  assert.equal(parsed.treeSha256, "sha256:d81ff032f90a3e47b11fede18685a9ac8fd7ea477d24e113622d20ee847e59bd");
+});
+
 function lock(path: string, commit: string, treeSha256?: string, extra = ""): void {
   writeFileSync(path, [
     'lockfile_version: "1"',
@@ -92,6 +127,26 @@ function lock(path: string, commit: string, treeSha256?: string, extra = ""): vo
     `    resolved_commit: ${commit}`,
     ...(treeSha256 ? [`    tree_sha256: ${treeSha256}`] : []),
     ...(extra ? [`    ${extra}`] : []),
+    "",
+  ].join("\n"));
+}
+
+function apmRow(repository: string, commit: string, treeSha256: string, extra: string[] = []): string[] {
+  return [
+    `  - repo_url: ${repository}`,
+    "    host: github.com",
+    `    resolved_commit: ${commit}`,
+    `    tree_sha256: ${treeSha256}`,
+    ...extra.map((line) => `    ${line}`),
+  ];
+}
+
+function lockRows(path: string, rows: string[][], workspace: string[] = []): void {
+  writeFileSync(path, [
+    'lockfile_version: "1"',
+    ...workspace,
+    "dependencies:",
+    ...rows.flat(),
     "",
   ].join("\n"));
 }
@@ -321,6 +376,80 @@ test("archive traversal, links, collisions, and tree mismatch fail closed and re
   assert.throws(() => parseApmGitHubArchive(archive("d".repeat(40), {
     "package.json": "{}\n",
   }, { path: "unbound-empty-directory", type: "5" })), /ARCHIVE_ENTRY_UNSUPPORTED/);
+});
+
+test("a codeload PAX commit that differs from the selected exact endpoint returns HOLD", () => {
+  const value = fixture();
+  mkdirSync(value.workDirectory);
+  const currentArchive = archive(value.currentCommit, { "package.json": "{}\n" }, undefined, "f".repeat(40));
+  const candidateArchive = archive(value.candidateCommit, { "package.json": "{\"x\":1}\n" }, undefined, value.candidateCommit);
+  lock(value.currentLockPath, value.currentCommit, parseApmGitHubArchive(currentArchive).treeSha256);
+  lock(value.candidateLockPath, value.candidateCommit, parseApmGitHubArchive(candidateArchive).treeSha256);
+  const receipt = runApmAutomaticPreflight({
+    repository: value.repository,
+    currentLockPath: value.currentLockPath,
+    candidateLockPath: value.candidateLockPath,
+    configPath: value.configPath,
+    workDirectory: value.workDirectory,
+    generatedAt: "2026-08-23T20:00:00.000Z",
+  }, {
+    fetchArchive: (url, destination) => writeFileSync(destination, url.endsWith(value.currentCommit) ? currentArchive : candidateArchive),
+  });
+  assert.equal(receipt.summary.verdict, "HOLD");
+  assert.deepEqual(receipt.summary.reasonCodes, ["ARCHIVE_COMMIT_MISMATCH"]);
+  assert.equal(receipt.restoration.status, "RESTORED");
+  assert.equal(readdirSync(value.workDirectory).length, 0);
+});
+
+test("one favorable pair cannot green added, removed, workspace, or second-update plan changes", () => {
+  const variants = ["added", "removed", "workspace", "second-update"] as const;
+  for (const variant of variants) {
+    const value = fixture();
+    mkdirSync(value.workDirectory);
+    const currentArchive = archive(value.currentCommit, { "package.json": "{}\n" });
+    const candidateArchive = archive(value.candidateCommit, { "package.json": "{\"x\":1}\n" });
+    const currentTree = parseApmGitHubArchive(currentArchive).treeSha256;
+    const candidateTree = parseApmGitHubArchive(candidateArchive).treeSha256;
+    const currentRows = [apmRow("example/fixture", value.currentCommit, currentTree)];
+    const candidateRows = [apmRow("example/fixture", value.candidateCommit, candidateTree)];
+    let currentWorkspace: string[] = [];
+    let candidateWorkspace: string[] = [];
+    if (variant === "added") candidateRows.push(apmRow("example/added", "c".repeat(40), candidateTree));
+    if (variant === "removed") currentRows.push(apmRow("example/removed", "d".repeat(40), currentTree));
+    if (variant === "workspace") {
+      currentWorkspace = ["mcp_configs: {}"];
+      candidateWorkspace = ["mcp_configs:", "  github:", "    command: changed-mcp"];
+    }
+    if (variant === "second-update") {
+      currentRows.push(apmRow("example/second", "e".repeat(40), currentTree, ["resolved_ref: main"]));
+      candidateRows.push(apmRow("example/second", "e".repeat(40), currentTree, ["resolved_ref: release"]));
+    }
+    lockRows(value.currentLockPath, currentRows, currentWorkspace);
+    lockRows(value.candidateLockPath, candidateRows, candidateWorkspace);
+    const plan = createUpdatePlan({
+      manager: "apm",
+      currentPath: value.currentLockPath,
+      candidatePath: value.candidateLockPath,
+      generatedAt: "2026-08-23T20:00:00.000Z",
+    });
+    const selected = plan.changes.find((change) => change.componentType === "apm-package"
+      && change.behavioralPreflight === "REQUIRED");
+    assert.ok(selected, variant);
+    let fetched = false;
+    const receipt = runApmAutomaticPreflight({
+      repository: value.repository,
+      currentLockPath: value.currentLockPath,
+      candidateLockPath: value.candidateLockPath,
+      configPath: value.configPath,
+      workDirectory: value.workDirectory,
+      identity: selected.identity,
+      generatedAt: "2026-08-23T20:00:00.000Z",
+    }, { fetchArchive: () => { fetched = true; } });
+    assert.equal(receipt.summary.verdict, "HOLD", variant);
+    assert.deepEqual(receipt.summary.reasonCodes, ["UNASSESSED_PLAN_CHANGES"], variant);
+    assert.equal(fetched, false, variant);
+    assert.equal(readdirSync(value.workDirectory).length, 0, variant);
+  }
 });
 
 test("a supplied plan must exactly match the current lockfile pair before any acquisition", () => {

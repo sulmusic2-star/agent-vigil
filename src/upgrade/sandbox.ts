@@ -3,7 +3,7 @@ import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { canonical } from "../report.ts";
-import { validateCanaryDocument, type CanaryDocument, type UpgradeCanaryConfig, type UpgradeConfig } from "./contracts.ts";
+import { parseCanaryDocument, type CanaryDocument, type UpgradeCanaryConfig, type UpgradeConfig } from "./contracts.ts";
 
 const PROXY_NAMES = [
   "HTTP_PROXY", "HTTPS_PROXY", "FTP_PROXY", "ALL_PROXY", "NO_PROXY",
@@ -473,11 +473,10 @@ export function runCanaryTrial(
     config.runner.image,
     ...canary.command,
   );
-  let result: SpawnSyncReturns<string>;
+  let result: SpawnSyncReturns<Buffer>;
   let cleanup: ContainerCleanup;
   try {
     result = spawnSync(client.executable, dockerArgs(client, args), {
-      encoding: "utf8",
       timeout: canary.timeoutSeconds * 1_000,
       killSignal: "SIGKILL",
       maxBuffer: 128 * 1024,
@@ -494,7 +493,7 @@ export function runCanaryTrial(
   if (result.status !== 0) return { state: "HOLD", reason: `container exited ${result.status ?? "without a status"}` };
   let document: CanaryDocument;
   try {
-    document = validateCanaryDocument(JSON.parse(result.stdout.trim()));
+    document = parseCanaryDocument(result.stdout);
   } catch {
     return { state: "HOLD", reason: "canary returned malformed or unbounded JSON" };
   }

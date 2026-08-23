@@ -600,10 +600,11 @@ Authority mode adds these base-anchored inputs to transcript mode:
 ```
 
 The Action runs the compiled verifier checked into this repository; it does not
-depend on an npm package being available. It writes `agent-vigil-report.json`,
-`agent-vigil.sarif`, `agent-vigil-github-evidence.json`,
-`agent-vigil-value-card.json`, and a readable job summary. The composite outputs
-expose `status`, `receipt-hash`, `report`, `sarif`, `github-evidence`, and
+depend on an npm package being available. It keeps the report, SARIF, GitHub
+evidence, and Value Card in a runner-owned temporary directory and exposes
+their absolute paths as Action outputs; it never copies them into the
+pull-request workspace. The composite outputs expose `status`, `receipt-hash`,
+`report`, `sarif`, `github-evidence`, and
 `value-card`; `value-verdict` exposes `POSITIVE`, `NEGATIVE`, or `INCONCLUSIVE`.
 When attestation is enabled, the Action also exposes `attestation-url`,
 `attestation-id`, and `attestation-bundle`.

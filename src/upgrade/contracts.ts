@@ -1,5 +1,7 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep, win32 } from "node:path";
+import { TextDecoder } from "node:util";
+import { isMap, isScalar, isSeq, parseDocument } from "yaml";
 
 export const UPGRADE_CONFIG_SCHEMA = "agent-vigil-upgrade-config/v1" as const;
 export const CANARY_SCHEMA = "agent-vigil-upgrade-canary/v1" as const;
@@ -260,9 +262,48 @@ export function validateCanaryDocument(input: unknown): CanaryDocument {
   for (const [key, value] of Object.entries(observations)) {
     boundedString(key, "canary observation key", 80, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
     if (value === null || typeof value === "boolean") parsed[key] = value;
-    else if (typeof value === "number" && Number.isFinite(value)) parsed[key] = value;
+    else if (typeof value === "number" && Number.isSafeInteger(value) && !Object.is(value, -0)) parsed[key] = value;
     else if (typeof value === "string" && value.length <= 512 && !value.includes("\0")) parsed[key] = value;
     else throw new Error(`canary observation ${key} must be a bounded JSON primitive`);
   }
   return { schemaVersion: CANARY_SCHEMA, outcome: root.outcome, observations: parsed };
+}
+
+export function parseCanaryDocument(bytes: Buffer): CanaryDocument {
+  let source: string;
+  try { source = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new Error("canary output is not valid UTF-8"); }
+  try { JSON.parse(source); }
+  catch { throw new Error("canary output is not valid JSON"); }
+  const document = parseDocument(source, { schema: "json", uniqueKeys: true });
+  if (document.errors.length || document.contents === null) throw new Error("canary output is invalid JSON");
+  let nodes = 0;
+  const inspect = (node: unknown, depth: number): void => {
+    nodes += 1;
+    if (nodes > 256 || depth > 8) throw new Error("canary output exceeds structural bounds");
+    if (isScalar(node)) {
+      if (typeof node.value === "number") {
+        const lexical = node.source;
+        if (typeof lexical !== "string" || !/^-?(?:0|[1-9][0-9]*)$/.test(lexical)
+          || lexical === "-0" || !Number.isSafeInteger(Number(lexical))) {
+          throw new Error("canary numeric observations must be exact safe integers");
+        }
+      }
+      return;
+    }
+    if (isSeq(node)) {
+      for (const item of node.items) inspect(item, depth + 1);
+      return;
+    }
+    if (isMap(node)) {
+      for (const pair of node.items) {
+        inspect(pair.key, depth + 1);
+        inspect(pair.value, depth + 1);
+      }
+      return;
+    }
+    throw new Error("canary output contains an unsupported JSON node");
+  };
+  inspect(document.contents, 0);
+  return validateCanaryDocument(document.toJS({ maxAliasCount: 0 }));
 }

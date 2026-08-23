@@ -361,12 +361,10 @@ runs:
             status=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.summary.status)' "$report_file")
             receipt_hash=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
           fi
-          cp "$report_file" agent-vigil-report.json
-          report_path="$PWD/agent-vigil-report.json"
+          report_path="$report_file"
           sarif_path=""
           if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "upgrade" && -s "$sarif_file" ]]; then
-            cp "$sarif_file" agent-vigil.sarif
-            sarif_path="$PWD/agent-vigil.sarif"
+            sarif_path="$sarif_file"
           fi
 
           github_evidence_path=""
@@ -406,8 +404,7 @@ runs:
             github_code=$?
             set -e
             if [[ "$github_code" -eq 0 && -s "$artifact_dir/github-evidence.json" ]]; then
-              cp "$artifact_dir/github-evidence.json" agent-vigil-github-evidence.json
-              github_evidence_path="$PWD/agent-vigil-github-evidence.json"
+              github_evidence_path="$artifact_dir/github-evidence.json"
             fi
           fi
 
@@ -425,8 +422,7 @@ runs:
             value_code=$?
             set -e
             if [[ "$value_code" -le 2 && -s "$artifact_dir/value-card.json" ]]; then
-              cp "$artifact_dir/value-card.json" agent-vigil-value-card.json
-              value_card_path="$PWD/agent-vigil-value-card.json"
+              value_card_path="$artifact_dir/value-card.json"
               value_verdict=$(node -e 'const c=require(require("node:path").resolve(process.argv[1])); process.stdout.write(c.valueVerdict)' "$artifact_dir/value-card.json")
               node - "$artifact_dir/value-card.json" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'NODE'
         const c = require(process.argv[2]);

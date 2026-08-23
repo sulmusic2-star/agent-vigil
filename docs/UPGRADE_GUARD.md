@@ -165,10 +165,14 @@ vigil upgrade preflight \
   --output .agent-vigil/upgrade/apm-preflight-receipt.json
 ```
 
-If the plan contains more than one eligible package pair, inspect the private
-plan and pass one emitted pseudonymous identity with `--identity`. Supplying
-`--plan` requires byte-semantic equality with a fresh plan over the two supplied
-lockfiles before acquisition. A plan is never enough by itself because it
+Automatic preflight requires exactly one total plan change and that change must
+be the one exact eligible package pair. Any added, removed, workspace, MCP,
+configuration, second update, or otherwise unassessed row returns
+`HOLD: UNASSESSED_PLAN_CHANGES`; one favorable pair can never green a broader
+lockfile update. `--identity` may bind the expected pseudonymous row but does
+not waive this whole-plan rule. Supplying `--plan` requires byte-semantic
+equality with a fresh plan over the two supplied lockfiles before acquisition.
+A plan is never enough by itself because it
 intentionally omits the private source route; both exact lockfiles remain
 required.
 
@@ -184,9 +188,10 @@ shapes return `HOLD` without falling back to the active installer.
 
 The compressed response is limited to 64 MiB; expanded files retain the same
 4,096-file, 32-MiB-per-file, and 256-MiB-total ceilings used by Upgrade Guard.
-Tar paths must share one root and remain normalized. Links, devices, special
-entries, extension records, path traversal, Unicode/case-folding collisions,
-and unsafe names return `HOLD`. No `apm install`, package install script,
+Tar paths must share one root and remain normalized. The exact leading GitHub
+codeload global PAX `comment=<commit>` record is validated against the selected
+commit; every other extension record, link, device, special entry, traversal,
+Unicode/case-folding collision, or unsafe name returns `HOLD`. No `apm install`, package install script,
 repository hook, or lifecycle command runs.
 
 The command checkpoints both lockfile digests before acquisition, before the
@@ -518,9 +523,12 @@ stdout. Diagnostic logging belongs on stderr. The document follows the
 ```
 
 `observations` must contain at least one and at most 64 fields. Keys are bounded identifiers;
-values are bounded strings, finite numbers, booleans, or `null`. Arrays and
-nested objects are intentionally unsupported. This keeps comparison
-deterministic and limits accidental disclosure.
+values are bounded strings, exact JSON safe integers from
+`-9007199254740991` through `9007199254740991`, booleans, or `null`. Decimal,
+exponent, negative-zero, unsafe-integer, duplicate-key, and malformed UTF-8
+representations return `HOLD`; larger or fractional values must be emitted as
+strings. Arrays and nested objects are intentionally unsupported. This keeps
+comparison deterministic and limits accidental disclosure.
 
 A current `FAIL` is not a healthy baseline and produces `HOLD`. A stable current
 `PASS` followed by a stable candidate `FAIL` is comparable evidence of changed
