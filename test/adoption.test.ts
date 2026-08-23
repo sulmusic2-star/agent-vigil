@@ -180,7 +180,7 @@ test("init creates a policy, evidence placeholder, and exact-SHA workflow", () =
   assert.match(workflow, /merge_group:/);
   assert.match(workflow, /merge_group\.base_sha/);
   assert.match(workflow, /merge_group\.head_sha/);
-  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.15\.0/);
+  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.16\.0/);
   assert.match(outcomes, /workflow_run:/);
   assert.match(outcomes, /actions\/download-artifact@v5/);
   assert.match(outcomes, /mode: outcome/);
