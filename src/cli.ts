@@ -55,6 +55,7 @@ import {
 import { runUpgradeCommand } from "./upgrade/cli.ts";
 import { authorityPlanChecks, buildAuthorityPlan, renderAuthorityPlan, renderAuthorityPlanMarkdown } from "./authority-plan.ts";
 import { renderProofComment } from "./proof-comment.ts";
+import { buildControlProof, renderControlProof } from "./control-proof.ts";
 
 type Options = {
   transcript?: string;
@@ -84,6 +85,7 @@ Usage:
   vigil init --profile maintainer [--repo <path>] [--force] [--attest]
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
+  vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
@@ -141,6 +143,32 @@ Value options:
   --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS · 1 FAIL · 2 INCONCLUSIVE or usage error`;
+}
+
+function runProve(args: string[]): number {
+  try {
+    const allowed = new Set(["prove", "--repo", "--base", "--format", "--output", "--json"]);
+    const takesValue = new Set(["--repo", "--base", "--format", "--output"]);
+    for (let index = 1; index < args.length; index++) {
+      const arg = args[index];
+      if (!allowed.has(arg)) throw new Error(`unknown prove argument: ${arg}`);
+      if (takesValue.has(arg)) {
+        if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${arg} requires a value`);
+        index += 1;
+      }
+    }
+    const repo = resolve(optionValue(args, "--repo") ?? ".");
+    const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_SHA ?? "HEAD";
+    if (!existsSync(repo)) throw new Error(`repository not found: ${repo}`);
+    if (!gitRefExists(repo, baseRef)) throw new Error(`invalid Git commit ${baseRef}`);
+    const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
+    if (!new Set(["text", "json"]).has(format)) throw new Error("prove --format must be text or json");
+    const report = buildControlProof(repo, baseRef, VERSION);
+    const output = optionValue(args, "--output");
+    if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
+    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderControlProof(report));
+    return report.status === "PASS" ? 0 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
 function runPlan(args: string[]): number {
@@ -956,6 +984,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
+  if (argv[0] === "prove") return runProve(argv);
   if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "proof-comment") return runProofComment(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);

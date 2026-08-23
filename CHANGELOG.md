@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add `vigil prove`, a local control-effectiveness check that creates a
+  disposable clone, plants six safe change scenarios, and returns `HOLD`
+  unless every expected PASS, BLOCK, and HOLD result is observed.
+- Add Action `mode: prove` for scheduled or on-demand control checks without
+  creating a Value Card from the planted run.
 - Add `vigil proof-comment`, a deterministic, aggregate-only rendering of an
   intact full receipt for one marker-based pull-request comment. It omits raw
   evidence and refuses non-HTTPS verification links.

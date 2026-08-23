@@ -145,6 +145,18 @@ candidate cannot approve its own new authority. The `protect` workflow includes
 the same check in pull-request and merge-queue evidence. See
 [Agent Authority Plan](docs/AUTHORITY_PLAN.md).
 
+You can challenge the installed controls before relying on them:
+
+```bash
+vigil prove --repo . --base HEAD
+```
+
+`prove` makes a disposable local clone and plants safe examples of an
+unapproved MCP server, candidate self-approval, an unreadable authority file,
+a weaker sandbox, and a skipped test. It returns `PASS` only when every planted
+case produces the expected result and the temporary clone is removed. It does
+not change or push the source repository. See [Control Proof](docs/CONTROL_PROOF.md).
+
 The design is tied to a dated ledger of
 [50 primary user reports](docs/research/2026-08-23-user-pain-ledger.md) covering
 false completion, test manipulation, loops and cost, environment drift,

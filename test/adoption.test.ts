@@ -232,8 +232,11 @@ test("Action accepts exactly one evidence mode", () => {
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
   assert.match(action, /VIGIL_RECEIPT/);
   assert.match(action, /VIGIL_AUTHORITY_CONTRACT/);
-  assert.match(action, /choose exactly one of transcript, authority contract, receipt, plan mode, maintainer mode, or outcome mode/);
+  assert.match(action, /choose exactly one of transcript, authority contract, receipt, plan mode, prove mode, maintainer mode, or outcome mode/);
   assert.match(action, /args=\(plan --repo "\$VIGIL_REPO" --base "\$VIGIL_BASE" --head "\$VIGIL_HEAD"/);
+  assert.match(action, /prove mode cannot be combined with another evidence input/);
+  assert.match(action, /args=\(prove --repo "\$VIGIL_REPO" --base "\$VIGIL_HEAD" --format json/);
+  assert.match(action, /inputs\.mode != 'prove'/);
   assert.match(action, /receipt mode requires a base-anchored policy/);
   assert.match(action, /args=\(authority "\$VIGIL_TRANSCRIPT"/);
   assert.match(action, /authority-contract-ref must equal GitHub event base/);
