@@ -4,6 +4,13 @@ import { sha256Hex, verifyHmacHex } from "./crypto.ts";
 import { auditStatement, newId, nowIso } from "./db.ts";
 import { ApiError, jsonResponse, parseJsonObject, readBoundedText, readJsonObject } from "./http.ts";
 import {
+  handlePersonalGitHubWebhook,
+  loadPersonalDelivery,
+  reconcilePersonalInstallation,
+  type PersonalGitHubSummary,
+  type PersonalReconciliationSnapshot
+} from "./individual-github.ts";
+import {
   assertExactKeys,
   requireEnum,
   requireInteger,
@@ -22,6 +29,7 @@ type GitHubEventName = "installation" | "installation_repositories";
 type GitHubAction = "created" | "deleted" | "suspend" | "unsuspend" | "added" | "removed";
 type GitHubInstallationState = "pending_reconciliation" | "active" | "suspended" | "deleted";
 type RepositorySelection = "all" | "selected";
+type GitHubAccountType = "Organization" | "User";
 
 interface GitHubSummary {
   eventName: GitHubEventName;
@@ -29,6 +37,7 @@ interface GitHubSummary {
   appId: number;
   installationId: number;
   accountNodeId: string;
+  accountType: GitHubAccountType;
   repositorySelection: RepositorySelection;
   addedRepositoryNodeIds: string[];
   removedRepositoryNodeIds: string[];
@@ -79,6 +88,7 @@ interface ReconciliationSnapshot {
   appId: number;
   installationId: number;
   accountNodeId: string;
+  accountType: GitHubAccountType;
   providerStatus: "active";
   repositorySelection: RepositorySelection;
   repositoryNodeIds: string[];
@@ -171,6 +181,7 @@ function parseGitHubPayload(eventName: GitHubEventName, body: Record<string, unk
   const installationId = requireInteger(installation.id, "installation.id", { min: 1 });
   const appId = requireInteger(installation.app_id, "installation.app_id", { min: 1 });
   const accountNodeId = requireNodeId(account.node_id, "installation.account.node_id");
+  const accountType = requireEnum(account.type, "installation.account.type", ["Organization", "User"] as const);
   const repositorySelection = requireEnum(
     eventName === "installation_repositories" ? body.repository_selection : installation.repository_selection,
     "repository_selection",
@@ -199,6 +210,7 @@ function parseGitHubPayload(eventName: GitHubEventName, body: Record<string, unk
     appId,
     installationId,
     accountNodeId,
+    accountType,
     repositorySelection,
     addedRepositoryNodeIds,
     removedRepositoryNodeIds,
@@ -414,15 +426,20 @@ export async function claimGitHubInstallation(request: Request, env: Env, auth: 
   const installationId = requireInteger(body.installation_id, "installation_id", { min: 1 });
   const accountNodeId = requireNodeId(body.account_node_id, "account_node_id");
   const existing = await env.TEAM_CONTROL_DB.prepare(
-    `SELECT installation_id, github_account_node_id, org_id, status
+    `SELECT installation_id, github_account_node_id, org_id, status, 'organization' AS lane
        FROM github_installation_claims
       WHERE installation_id = ?1 OR github_account_node_id = ?2 OR org_id = ?3
-      LIMIT 1`
+     UNION ALL
+     SELECT installation_id, github_account_node_id, NULL AS org_id, status, 'personal' AS lane
+       FROM github_personal_installation_claims
+      WHERE installation_id = ?1 OR github_account_node_id = ?2
+     LIMIT 1`
   )
     .bind(installationId, accountNodeId, auth.orgId)
-    .first<{ installation_id: number; github_account_node_id: string; org_id: string; status: string }>();
+    .first<{ installation_id: number; github_account_node_id: string; org_id: string | null; status: string; lane: string }>();
   if (existing) {
     if (
+      existing.lane === "organization" &&
       existing.installation_id === installationId &&
       existing.github_account_node_id === accountNodeId &&
       existing.org_id === auth.orgId &&
@@ -500,13 +517,35 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
     "installation_repositories"
   ] as const);
   const payloadHash = await sha256Hex(rawBody);
-  const existingDelivery = await env.TEAM_CONTROL_DB.prepare(
-    `SELECT delivery_id, payload_sha256, event_name, action, installation_id, org_id,
-            event_created_at, result
-       FROM github_deliveries WHERE delivery_id = ?1`
-  )
-    .bind(deliveryId)
-    .first<DeliveryRow>();
+  const body = parseJsonObject(rawBody);
+  const summary = parseGitHubPayload(eventName, body);
+  if (summary.appId !== configuredAppId(env)) {
+    throw new ApiError(409, "github_app_id_mismatch", "Webhook installation belongs to a different GitHub App.");
+  }
+  const [existingDelivery, existingPersonalDelivery] = await Promise.all([
+    env.TEAM_CONTROL_DB.prepare(
+      `SELECT delivery_id, payload_sha256, event_name, action, installation_id, org_id,
+              event_created_at, result
+         FROM github_deliveries WHERE delivery_id = ?1`
+    )
+      .bind(deliveryId)
+      .first<DeliveryRow>(),
+    loadPersonalDelivery(env.TEAM_CONTROL_DB, deliveryId)
+  ]);
+  if (summary.accountType === "User") {
+    if (existingDelivery) {
+      throw new ApiError(409, "github_delivery_lane_mismatch", "GitHub delivery identifier is already bound to an organization installation.");
+    }
+    return handlePersonalGitHubWebhook(env, {
+      deliveryId,
+      payloadHash,
+      summary: summary as PersonalGitHubSummary,
+      existingDelivery: existingPersonalDelivery
+    });
+  }
+  if (existingPersonalDelivery) {
+    throw new ApiError(409, "github_delivery_lane_mismatch", "GitHub delivery identifier is already bound to a personal installation.");
+  }
   if (existingDelivery) {
     if (existingDelivery.payload_sha256 !== payloadHash) {
       throw new ApiError(409, "github_delivery_replay_mismatch", "GitHub delivery identifier was reused with different bytes.");
@@ -518,12 +557,6 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
       return jsonResponse({ received: true, duplicate: true, result: existingDelivery.result });
     }
   }
-  const body = parseJsonObject(rawBody);
-  const summary = parseGitHubPayload(eventName, body);
-  if (summary.appId !== configuredAppId(env)) {
-    throw new ApiError(409, "github_app_id_mismatch", "Webhook installation belongs to a different GitHub App.");
-  }
-
   const claim = await claimForInstallation(env.TEAM_CONTROL_DB, summary.installationId);
   if (
     !claim ||
@@ -789,6 +822,7 @@ function parseReconciliation(body: Record<string, unknown>): ReconciliationSnaps
     "app_id",
     "installation_id",
     "account_node_id",
+    "account_type",
     "provider_status",
     "repository_selection",
     "repository_node_ids"
@@ -808,6 +842,7 @@ function parseReconciliation(body: Record<string, unknown>): ReconciliationSnaps
     appId: requireInteger(body.app_id, "app_id", { min: 1 }),
     installationId: requireInteger(body.installation_id, "installation_id", { min: 1 }),
     accountNodeId: requireNodeId(body.account_node_id, "account_node_id"),
+    accountType: requireEnum(body.account_type, "account_type", ["Organization", "User"] as const),
     providerStatus: requireEnum(body.provider_status, "provider_status", ["active"] as const),
     repositorySelection,
     repositoryNodeIds
@@ -829,6 +864,23 @@ export async function handleGitHubReconciliation(request: Request, env: Env): Pr
     throw new ApiError(409, "github_app_id_mismatch", "Reconciliation belongs to a different GitHub App.");
   }
   const payloadHash = await sha256Hex(rawBody);
+  const crossLaneReconciliation = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT 'organization' AS lane FROM github_installation_reconciliations WHERE reconciliation_id = ?1
+     UNION ALL
+     SELECT 'personal' AS lane FROM github_personal_installation_reconciliations WHERE reconciliation_id = ?1
+     LIMIT 1`
+  )
+    .bind(snapshot.reconciliationId)
+    .first<{ lane: "organization" | "personal" }>();
+  if (snapshot.accountType === "User") {
+    if (crossLaneReconciliation?.lane === "organization") {
+      throw new ApiError(409, "github_reconciliation_lane_mismatch", "Reconciliation identifier is already bound to an organization installation.");
+    }
+    return reconcilePersonalInstallation(env, snapshot as PersonalReconciliationSnapshot, payloadHash);
+  }
+  if (crossLaneReconciliation?.lane === "personal") {
+    throw new ApiError(409, "github_reconciliation_lane_mismatch", "Reconciliation identifier is already bound to a personal installation.");
+  }
   const prior = await env.TEAM_CONTROL_DB.prepare(
     `SELECT payload_sha256, result FROM github_installation_reconciliations
       WHERE reconciliation_id = ?1`

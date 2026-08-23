@@ -2,7 +2,7 @@
 
 ## Protected assets
 
-Private organization policy, canary metadata, update history, exception and rollback records; organization membership and roles; provider customer/subscription bindings; GitHub installation/account/repository-node bindings; R0 consent, opaque subject, classification, activation, repeat/PQL/offer, and exact-boundary evidence; entitlement state; cash and recognized-MRR ledgers; provider-event chronology; deletion confirmations; and audit history.
+Private organization policy, canary metadata, update history, exception and rollback records; organization membership and roles; provider customer/subscription bindings; organization and personal GitHub installation/account/repository-node bindings; R0 organization and individual consent, opaque subject, classification, activation, repeat/PQL/offer, and exact-boundary evidence; entitlement state; cash and recognized-MRR ledgers; provider-event chronology; deletion confirmations; and audit history.
 
 The service does not ingest source code, prompts, transcripts, credentials, environment variables, repository names/full names, account logins, private component names, command arguments, full receipts, canary output, email addresses, or organization domains. GitHub webhook bodies are verified and parsed in bounded request memory but are never persisted.
 
@@ -15,7 +15,8 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 5. A separately deployed reconciler has a read-only restricted key and the reconciliation signing secret. Its code issues only Stripe `GET` requests and cannot execute billing commands.
 6. D1 is the tenant boundary and commercial ledger. Every private query binds `org_id`; provider customer/subscription identifiers are unique across organizations.
 7. A GitHub webhook proves only that the configured webhook secret signed the raw body. Existing owner claims choose tenancy; a distinct read-only reconciliation snapshot is required before an installation service member becomes active.
-8. The R0 control, identity-classification, and activity bridges use unrelated secrets. Control pins an immutable release/channel/start boundary; identity can classify only an active reconciled installation; activity can record use or a real-offer presentation only for a currently opted-in eligible subject. None can derive an individual identity from anonymous telemetry.
+8. The R0 control, identity-classification, and activity bridges use unrelated secrets. Control pins an immutable release/channel/start boundary; identity can classify only authenticated bindings and owns signed rotation/merge; activity can record use or a real-offer presentation only for a currently opted-in eligible subject. None can derive an individual identity from anonymous telemetry.
+9. An individual bearer session is minted only by an external GitHub/OIDC adapter, is limited to 15 minutes, binds issuer/subject to a provider account node ID, and never supplies measurement classification. A GitHub webhook independently attests `account.type=User`; a separately signed read-only reconciliation must agree before personal installation state is active.
 
 ## Material abuse cases and controls
 
@@ -40,7 +41,12 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 | Release or R0 boundary moves retroactively | One immutable D1 boundary must exactly equal production configuration on every ingest/report | Initialize only after exact reviewed public release and retain the release evidence |
 | Reloads manufacture repeat/PQL | At most one activation per subject/UTC day; repeat and PQL require another day inside fixed 60/30-day windows | A compromised activity bridge can still emit false days; protect key and reconcile bridge operations |
 | Prepared offer is called a received offer | Offer evidence is accepted only after server-derived PQL and is bound to the canonical $299/month or $2,990/year contract | Bridge must emit only after authenticated UI presentation or provider-confirmed delivery, not an attempt |
-| Individual downloads are counted as people | Individual metrics are hard-coded `HOLD`/`UNMEASURABLE` with null denominators | Add reviewed GitHub/OIDC human binding, personal-install reconciliation, and individual opt-in |
+| Individual downloads are counted as people | Disabled lane returns `HOLD` with null denominators; enabled projection reads only authenticated opt-ins with active reconciled personal installs and signed exact-release activity | Real issuer/reconciler/bridge operations and exact-SHA review must exist before enablement |
+| Forged or swapped individual identity | Short-lived human-only issuer-bound session, one-to-one node/auth/token constraints, explicit consent, and a claim body that cannot supply account identity | Deploy and review the real GitHub/OIDC issuer; protect its session key |
+| Organization install is counted as personal | GitHub webhook and independent reconciliation must both attest `account.type=User`; delivery/reconciliation IDs are cross-lane bound | Read-only adapter must fetch the stable account node ID and provider account type |
+| Caller attributes another person's verifier run | Individual activity accepts no subject/node/session/IP/device identity; it resolves only a signed installation ID through active reconciled server state and exact release boundary | Activation bridge must emit only after successful exact-release verifier completion |
+| Reload/replay manufactures individual repeat | Exact-byte message replay binding, session/action mutation binding, one event per subject/UTC day, and a fixed 60-day matured cohort | A compromised activity bridge can still forge days; reconcile and rotate it independently |
+| Auth subject or provider account changes split counts | Identity bridge alone can perform strictly chronological auth-subject rotation or provider-confirmed merge; merged sources become inactive and aggregate through the canonical token | Stable HMAC-key replacement still needs a reviewed migration |
 | HMAC token split or reidentification | Stable subjects use a dedicated secret and only opaque tokens leave the projection | Key rotation requires an explicit migration; provider/org tables can still link tokens inside D1 |
 | Multiple provider accounts impersonate unique companies | Report explicitly marks `sybil_resistant: false` and does not claim legal-company uniqueness | Add buyer/entity dedupe appropriate to the commercial gate |
 | GitHub service identity escalates | Deterministic installation identity is constrained to service/member and activated conditionally | Production IdP must mint service sessions only for active D1 membership |
@@ -57,7 +63,7 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 | Refund event lacks tenant metadata | Accepted refund command stores PaymentIntent, Charge, Refund, amount, and source-payment bindings; `charge.refunded` is accepted only through that binding | Reconciliation still requires a read-only fetch of the exact Refund and Subscription |
 | Annual cash mislabeled MRR | Cash ledger and MRR projection are separate; annual net recurring value divides by 12 | Accounting review of discounts, credits, taxes, FX, and recognition |
 | Deletion token theft | Random one-time token, stored SHA-256 only, 15-minute expiration, owner role | Add notification and incident response before production |
-| Deletion destroys mandated records or retains measurement identity | Private product data is deleted and access revoked; repository node IDs are removed; retained GitHub account/claimant fields are pseudonymized; organization measurement/GitHub App audit rows, `morg_` tokens, classification/basis metadata, installation IDs, and event IDs are removed; only minimal non-identifying deletion/commercial evidence remains | Set jurisdiction-specific retention and purge schedules |
+| Deletion destroys mandated records or retains measurement identity | Private product data is deleted and access revoked; organization and personal claims, installations, deliveries, reconciliations, repository nodes, raw account/auth bindings, `morg_`/`mind_` tokens, classification metadata, installation IDs, event IDs, and measurement/GitHub audit rows are removed; only non-identifying deletion/commercial evidence remains | Set jurisdiction-specific retention and purge schedules |
 | Deletion leaves a future charge path | Locally prepared checkout commands are canceled; provider-created checkout or subscription state blocks local deletion | External adapter must cancel/expire the provider object before retry |
 | Body memory exhaustion | Streaming bounded reads; 32 KiB normal JSON, 64-256 KiB reconciliation, 256 KiB Stripe webhook, 1 MiB GitHub lifecycle | Queue/bulk strategy if provider payloads outgrow bounds |
 | Secret leakage | Secret binding types are declared without values; HMAC use rejects missing/short secrets; errors omit inputs | Install values with Wrangler, then run a secret scanner and exact-SHA review before deploy |
@@ -72,10 +78,11 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 - Provider, tenant, plan, price, currency, customer, subscription, and object mismatches stop reconciliation.
 - GitHub App, delivery bytes/header, installation, account node, tenant claim, lifecycle order, and repository-selection mismatches stop processing.
 - GitHub installation creation or unsuspension cannot activate a service identity without independent reconciliation.
+- A personal installation cannot enter the individual lane unless both provider-signed boundaries attest `account.type=User`, the stable node ID matches a separately authenticated human session, and the human explicitly opted in.
 - R0 events cannot count without exact boundary/config agreement, external attestation, owner opt-in, an active reconciled post-R0 installation, and the correct role-specific bridge signature.
 - Enabled measurement handling rejects missing, short, or pairwise-equal HMAC duty secrets with one generic configuration error.
 - Subject classification can change only at a strictly later observation; stale or equal-time non-exact messages cannot mutate or add evidence.
-- Anonymous lifecycle evidence and unauthenticated individual identities cannot enter R0 denominators.
+- Anonymous lifecycle evidence, downloads, IP/device inference, caller-supplied identities, and unauthenticated individuals cannot enter R0 denominators.
 - Duplicate-day activation cannot create repeat or PQL; offer evidence cannot precede server-derived PQL.
 - Missing adapter flags, secrets, restricted-key mode, price IDs, return origins, or Service Bindings stop before a Stripe call.
 - Paid access never changes proof verdict semantics.

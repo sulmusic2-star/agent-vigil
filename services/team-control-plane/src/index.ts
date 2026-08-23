@@ -1,4 +1,5 @@
 import { authenticate } from "./auth.ts";
+import { authenticateIndividual } from "./individual-auth.ts";
 import {
   getEntitlementAndRevenue,
   handleProviderReconciliation,
@@ -16,6 +17,16 @@ import {
   handleGitHubReconciliation,
   handleGitHubWebhook
 } from "./github-app.ts";
+import { claimPersonalInstallation, getPersonalInstallation } from "./individual-github.ts";
+import {
+  getIndividualMeasurement,
+  putIndividualMeasurementConsent
+} from "./individual-measurement.ts";
+import {
+  confirmIndividualDeletion,
+  exportIndividualData,
+  requestIndividualDeletion
+} from "./individual-privacy.ts";
 import {
   getOrganizationMeasurement,
   handleMeasurementBridge,
@@ -74,6 +85,31 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (url.pathname === "/v1/measurement/report") {
     assertMethod(request, "POST");
     return handleMeasurementReport(request, env);
+  }
+  if (url.pathname.startsWith("/v1/individual/")) {
+    const auth = await authenticateIndividual(request, env);
+    if (url.pathname === "/v1/individual/measurement-consent" && request.method === "PUT") {
+      return putIndividualMeasurementConsent(request, env, auth);
+    }
+    if (url.pathname === "/v1/individual/measurement" && request.method === "GET") {
+      return getIndividualMeasurement(env, auth);
+    }
+    if (url.pathname === "/v1/individual/github/installation-claim" && request.method === "POST") {
+      return claimPersonalInstallation(request, env, auth);
+    }
+    if (url.pathname === "/v1/individual/github/installation" && request.method === "GET") {
+      return getPersonalInstallation(env, auth);
+    }
+    if (url.pathname === "/v1/individual/privacy/export" && request.method === "GET") {
+      return exportIndividualData(env, auth);
+    }
+    if (url.pathname === "/v1/individual/privacy/deletion-requests" && request.method === "POST") {
+      return requestIndividualDeletion(request, env, auth);
+    }
+    if (url.pathname === "/v1/individual/privacy/data" && request.method === "DELETE") {
+      return confirmIndividualDeletion(request, env, auth);
+    }
+    throw new ApiError(404, "not_found", "Route not found.");
   }
 
   const segments = url.pathname.split("/").filter(Boolean);

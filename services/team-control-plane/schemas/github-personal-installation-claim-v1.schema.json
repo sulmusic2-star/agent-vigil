@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.example/schemas/github-personal-installation-claim-v1.schema.json",
+  "title": "Authenticated personal GitHub App installation claim v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "installation_id"],
+  "properties": {
+    "schema_version": { "const": "github-personal-installation-claim-v1" },
+    "installation_id": { "type": "integer", "minimum": 1 }
+  }
+}

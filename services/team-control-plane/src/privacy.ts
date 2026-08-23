@@ -178,7 +178,6 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
   }
   const at = nowIso();
   const tombstone = (await sha256Hex(auth.orgId)).slice(0, 16);
-  const deletedGitHubAccount = `deleted-${tombstone}`;
   await db.batch([
     db.prepare(
       `UPDATE checkout_intents SET status = 'canceled'
@@ -207,20 +206,26 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
       `DELETE FROM measurement_consents WHERE org_id = ?1`
     ).bind(auth.orgId),
     db.prepare(
+      `DELETE FROM github_installation_reconciliations WHERE org_id = ?1`
+    ).bind(auth.orgId),
+    db.prepare(
+      `DELETE FROM github_deliveries
+        WHERE org_id = ?1 OR installation_id IN (
+          SELECT installation_id FROM github_installations WHERE org_id = ?1
+        )`
+    ).bind(auth.orgId),
+    db.prepare(
       `DELETE FROM github_installation_repositories
         WHERE installation_id IN (
           SELECT installation_id FROM github_installations WHERE org_id = ?1
         )`
     ).bind(auth.orgId),
     db.prepare(
-      `UPDATE github_installations SET state = 'deleted', deleted_at = ?1,
-        github_account_node_id = ?2, suspended_at = NULL, reconciled_at = NULL, updated_at = ?1
-        WHERE org_id = ?3`
-    ).bind(at, deletedGitHubAccount, auth.orgId),
+      `DELETE FROM github_installations WHERE org_id = ?1`
+    ).bind(auth.orgId),
     db.prepare(
-      `UPDATE github_installation_claims SET status = 'revoked', github_account_node_id = ?2,
-        claimed_by = 'deleted_user', updated_at = ?1 WHERE org_id = ?3`
-    ).bind(at, deletedGitHubAccount, auth.orgId),
+      `DELETE FROM github_installation_claims WHERE org_id = ?1`
+    ).bind(auth.orgId),
     db.prepare(`DELETE FROM policy_heads WHERE org_id = ?1`).bind(auth.orgId),
     db.prepare(`DELETE FROM policy_revisions WHERE org_id = ?1`).bind(auth.orgId),
     db.prepare(`DELETE FROM update_history WHERE org_id = ?1`).bind(auth.orgId),

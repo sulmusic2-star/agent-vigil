@@ -3,6 +3,11 @@ import { requireRole } from "./auth.ts";
 import { hmacHex, sha256Hex, verifyHmacHex } from "./crypto.ts";
 import { auditStatement, newId, nowIso, userAudit } from "./db.ts";
 import { ApiError, jsonResponse, parseJsonObject, readBoundedText, readJsonObject } from "./http.ts";
+import { individualMeasurementEnabled } from "./individual-config.ts";
+import {
+  handleIndividualMeasurementBridge,
+  individualReportProjection
+} from "./individual-measurement.ts";
 import {
   assertExactKeys,
   requireBoolean,
@@ -56,8 +61,9 @@ interface BoundaryRow {
 
 interface ExistingMessage {
   payload_sha256: string;
-  message_kind: MessageKind;
+  message_kind: string;
   result: "applied" | "ignored_duplicate_day";
+  lane: "organization" | "individual";
 }
 
 interface ActiveInstallation {
@@ -242,14 +248,21 @@ function parseBase(body: Record<string, unknown>): BridgeBase {
 async function existingMessage(db: D1Database, messageId: string): Promise<ExistingMessage | null> {
   return db
     .prepare(
-      `SELECT payload_sha256, message_kind, result
-         FROM measurement_bridge_messages WHERE message_id = ?1`
+      `SELECT payload_sha256, message_kind, result, 'organization' AS lane
+         FROM measurement_bridge_messages WHERE message_id = ?1
+       UNION ALL
+       SELECT payload_sha256, message_kind, result, 'individual' AS lane
+         FROM individual_measurement_bridge_messages WHERE message_id = ?1
+       LIMIT 1`
     )
     .bind(messageId)
     .first<ExistingMessage>();
 }
 
 function duplicateResponse(existing: ExistingMessage, payloadHash: string, kind: MessageKind): Response {
+  if (existing.lane !== "organization") {
+    throw new ApiError(409, "measurement_message_lane_mismatch", "Message identifier is already bound to another measurement lane.");
+  }
   if (existing.payload_sha256 !== payloadHash) {
     throw new ApiError(409, "measurement_message_replay_mismatch", "Message identifier was reused with different bytes.");
   }
@@ -735,6 +748,14 @@ export async function handleMeasurementBridge(request: Request, env: Env): Promi
   requireEnabled(env);
   const rawBody = await readBoundedText(request, BODY_LIMIT);
   const body = parseJsonObject(rawBody);
+  if (
+    body.message_kind === "individual_subject_attestation_v1" ||
+    body.message_kind === "individual_auth_subject_rotation_v1" ||
+    body.message_kind === "individual_identity_merge_v1" ||
+    body.message_kind === "individual_activation_v1"
+  ) {
+    return handleIndividualMeasurementBridge(request, env, rawBody, body);
+  }
   const messageKind = requireEnum(body.message_kind, "message_kind", [
     "r0_boundary_v1",
     "organization_subject_attestation_v1",
@@ -833,7 +854,7 @@ export async function getOrganizationMeasurement(env: Env, auth: AuthContext): P
     subject,
     event_summary: events.results,
     stores_repository_or_account_names: false,
-    individual_measurement_status: "UNMEASURABLE"
+    individual_measurement_status: individualMeasurementEnabled(env) ? "SEPARATE_AUTHENTICATED_LANE" : "HOLD"
   });
 }
 
@@ -952,9 +973,10 @@ export async function handleMeasurementReport(request: Request, env: Env): Promi
   assertFresh(observedAt, "observed_at");
   const boundary = await requireBoundary(env);
   const generatedAt = nowIso();
-  const [metrics, exclusions] = await Promise.all([
+  const [metrics, exclusions, individuals] = await Promise.all([
     aggregateOrganizationMetrics(env.TEAM_CONTROL_DB, generatedAt),
-    exclusionCounts(env.TEAM_CONTROL_DB)
+    exclusionCounts(env.TEAM_CONTROL_DB),
+    individualReportProjection(env, generatedAt)
   ]);
   const repeatRate =
     metrics.matured_activated_organizations === 0
@@ -994,20 +1016,14 @@ export async function handleMeasurementReport(request: Request, env: Env): Promi
         Number(metrics.matured_activated_organizations) >= 200 &&
         Number(metrics.matured_pql_offered_organizations) >= 40
     },
-    individuals: {
-      identity_status: "UNMEASURABLE",
-      evidence_status: "HOLD",
-      eligible_installations: null,
-      activated_individuals: null,
-      matured_repeat_rate: null,
-      reason:
-        "The current Team/GitHub App contract authenticates organization installations but does not bind an opted-in human identity to a personal installation."
-    },
+    individuals,
     exclusions,
     definitions: {
       activation: "One signed bridge observation per opted-in external organization and UTC day.",
       matured_repeat:
         `A second activation on another UTC day within ${REPEAT_MATURITY_DAYS} days; denominator first activated at least ${REPEAT_MATURITY_DAYS} days ago.`,
+      individual_activation:
+        "One signed activity-bridge proof per opted-in external individual and UTC day, bound server-side to an active reconciled account.type=User installation and the exact R0 release.",
       pql: `A second activation on another UTC day within ${PQL_WINDOW_DAYS} days of first activation.`,
       matured_pql_offer:
         `A bridge-attested real offer presentation after server-derived PQL qualification, observed at least ${PQL_OFFER_MATURITY_DAYS} days ago.`

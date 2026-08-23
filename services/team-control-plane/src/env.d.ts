@@ -8,6 +8,8 @@ interface TeamControlPlaneSecrets {
   R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET: string;
   R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET: string;
   R0_MEASUREMENT_IDENTITY_HMAC_SECRET: string;
+  R0_INDIVIDUAL_IDENTITY_HMAC_SECRET: string;
+  INDIVIDUAL_SESSION_HMAC_SECRET: string;
 }
 
 interface Env extends TeamControlPlaneSecrets {}

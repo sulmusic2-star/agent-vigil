@@ -12,6 +12,7 @@
     "app_id",
     "installation_id",
     "account_node_id",
+    "account_type",
     "provider_status",
     "repository_selection",
     "repository_node_ids"
@@ -29,6 +30,7 @@
       "maxLength": 128,
       "pattern": "^[A-Za-z0-9_-]{8,128}={0,2}$"
     },
+    "account_type": { "enum": ["Organization", "User"] },
     "provider_status": { "const": "active" },
     "repository_selection": { "enum": ["all", "selected"] },
     "repository_node_ids": {

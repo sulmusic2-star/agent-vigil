@@ -1,6 +1,6 @@
 # R0 lifecycle measurement boundary
 
-This local-only projection provides bounded organization lifecycle evidence. It is disabled in the checked-in configuration, has not been deployed, and contains no external installation, activation, repeat, PQL, offer, payment, or revenue evidence.
+This local-only projection provides bounded organization lifecycle evidence and a fail-closed receiver for a separately authenticated individual lane. Both are disabled in the checked-in configuration, have not been deployed, and contain no external installation, activation, repeat, PQL, offer, payment, or revenue evidence.
 
 It does not promote the proof network's anonymous lifecycle events. Those events remain `UNVERIFIED_TELEMETRY`, `gateEligible: false`, Sybil-susceptible, and excluded from every count here.
 
@@ -64,7 +64,7 @@ R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET=...
 R0_MEASUREMENT_IDENTITY_HMAC_SECRET=...
 ```
 
-The receiver validates all six pairwise comparisons before handling any enabled measurement request. A missing, short, or repeated value produces one generic configuration error without identifying a duty or secret. `r0_boundary_v1` and report queries require the control key; subject attestations require the identity-bridge key; activations and offer presentations require the activity-bridge key. A holder of the activity key cannot classify a subject as external or move R0. Production deployments must place these duties in separately permissioned components.
+The receiver validates all four organization-measurement secrets pairwise before handling an enabled organization request. A missing, short, or repeated value produces one generic configuration error without identifying a duty or secret. `r0_boundary_v1` and report queries require the control key; subject attestations require the identity-bridge key; activations and offer presentations require the activity-bridge key. A holder of the activity key cannot classify a subject as external or move R0. Production deployments must place these duties in separately permissioned components.
 
 Requests and observations have a five-minute freshness window. `message_id` and exact payload SHA-256 provide idempotency and payload-reuse detection. The API rejects unknown fields. Bridge messages name only an installation ID; organization identity, channel, release, environment, opt-in, App state, and eligibility are resolved from trusted server state. Subject classification is accepted only from this authenticated bridge, never from an organization or anonymous event client.
 
@@ -85,19 +85,27 @@ Tenant routes are:
 
 Organization privacy export includes consent, opaque subject state, attestations, and events. Confirmed organization deletion removes them before revoking the provider installation and removes organization-scoped measurement and GitHub App audit rows, including `morg_` tokens, classification/basis metadata, installation IDs, and measurement event IDs. A minimal non-identifying deletion-completion audit remains; commercial retention is separate. Opt-out immediately excludes the subject from reports but preserves private evidence until deletion. This means the denominator covers current opt-ins, not all product users, and can change after withdrawal/deletion.
 
-## Individual lane: HOLD / UNMEASURABLE
+## Individual lane: implemented receiver, deployment HOLD
 
-The current contract authenticates a GitHub App installation claimed by a Team organization. It does not authenticate a human to a personal GitHub installation and does not prove that a CLI or Action activation belongs to one opted-in individual. Therefore individual installation, activation, and repeat denominators are `null`, not zero, and the report labels the lane `HOLD` / `UNMEASURABLE`.
+The individual receiver is enabled only when `R0_INDIVIDUAL_MEASUREMENT_ENABLED=true` and all exact configuration and secret-role checks pass. The checked-in value is `false`, so reports return `HOLD` / `UNMEASURABLE` with `null` denominators. Enabling requires:
 
-To clear HOLD, add and independently review all of:
+```text
+INDIVIDUAL_SESSION_ISSUER=https://.../       # exact trusted GitHub/OIDC adapter issuer
+INDIVIDUAL_SESSION_KEY_ID=...
+R0_INDIVIDUAL_IDENTITY_HMAC_KEY_ID=...
+INDIVIDUAL_SESSION_HMAC_SECRET=...           # secret binding
+R0_INDIVIDUAL_IDENTITY_HMAC_SECRET=...       # secret binding
+```
 
-1. GitHub/OIDC sign-in that binds a provider-attested human node ID to an active local session.
-2. A provider-attested personal-account installation contract (`account.type = User`) reconciled independently of the event webhook.
-3. Explicit individual opt-in bound to that identity.
-4. A signed activation bridge that proves the exact released channel and personal installation without accepting a caller-supplied identity.
-5. Identity rotation, merge, export, deletion, replay, internal/demo exclusion, and abuse controls.
+An `avindividual_v1` session is limited to 15 minutes, identifies a human, and binds its authenticated issuer/subject to one stable GitHub account node ID. The user must explicitly opt in and claim a numeric installation ID; the claim body cannot supply an account identity. GitHub's signed webhook must attest `installation.account.type = User`, and a separate fresh reconciliation snapshot must independently confirm the same App, installation, node ID, account type, lifecycle delivery, and selection mode before eligibility.
 
-Until then, installs inferred from downloads, anonymous telemetry, IP/device fingerprints, repository names, or self-asserted IDs are prohibited from the demand gates.
+The identity bridge records chronological external/internal/demo/test classification, signed auth-subject rotation, and provider-confirmed account merge. A stable HMAC-opaque `mind_...` token is persisted at first binding. A merged source becomes inactive and cannot emit new activity. Human mutations are session/action replay-bound; message IDs are exact-byte and cross-lane replay-bound.
+
+`individual_activation_v1` accepts no subject, account, login, IP, repository, or device identity. It names only the personal installation and proves `verifier_outcome=completed`, the exact immutable R0 version and commit, one verdict, and a receipt SHA-256 under the activity-bridge signature. Server state resolves the opted-in external subject. One event per UTC day counts; matured repeat is a second day within 60 days with a first activation at least 60 days old.
+
+Individual export includes the authenticated bindings and evidence. Confirmed deletion removes the raw node/auth binding, opaque token, personal claim/installation, deliveries, reconciliation, events, bridge evidence, and audit rows; only a non-identifying completion tombstone remains. Download counts, anonymous telemetry, IP/device fingerprints, repository names, and self-asserted identities are never joined.
+
+The receiver alone does not clear deployment HOLD. A real GitHub/OIDC issuer, read-only GitHub reconciliation adapter, operator/demo/test registry, activation bridge, production secrets, staging exercise, and independent exact-SHA review remain external prerequisites. No provider adapter is called by this Worker.
 
 ## Coverage and Sybil limits
 
@@ -105,6 +113,6 @@ Until then, installs inferred from downloads, anonymous telemetry, IP/device fin
 - GitHub installation identity prevents casual replay and duplicate counting, but it does not prove unique legal-company identity. A party can create multiple provider accounts or organizations.
 - The external classifier must maintain audited operator/demo/test registries and prevent its own accounts from receiving `provider_confirmed_non_operator` attestations.
 - The activation bridge is a separate trusted component that must authenticate successful verifier use and offer presentation. This repository implements only its receiving contract.
-- HMAC identity-key rotation needs an explicit, reviewed token-migration procedure; replacing the key silently would split identities.
+- Signed authentication-subject rotation and provider-account merge are implemented. Replacing the stable HMAC identity key still requires an explicit reviewed token-migration procedure and must never be done silently.
 
 These limits remain in every report and block any claim that anonymous interest, downloads, prepared offers, or synthetic tenants satisfy an R0 gate.

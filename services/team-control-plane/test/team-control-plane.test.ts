@@ -16,6 +16,20 @@ const GITHUB_REPOSITORY_NODE_ID = "REPO_NODE_MAIN_123";
 
 async function clearDatabase(): Promise<void> {
   await env.TEAM_CONTROL_DB.exec(`
+    DELETE FROM individual_measurement_events;
+    DELETE FROM individual_subject_attestations;
+    DELETE FROM individual_auth_subject_rotations;
+    DELETE FROM individual_identity_merges;
+    DELETE FROM individual_measurement_bridge_messages;
+    DELETE FROM github_personal_installation_reconciliations;
+    DELETE FROM github_personal_deliveries;
+    DELETE FROM github_personal_installations;
+    DELETE FROM github_personal_installation_claims;
+    DELETE FROM individual_audit_events;
+    DELETE FROM individual_session_mutations;
+    DELETE FROM individual_consents;
+    DELETE FROM individual_identities;
+    DELETE FROM individual_privacy_deletion_requests;
     DELETE FROM measurement_events;
     DELETE FROM measurement_subject_attestations;
     DELETE FROM measurement_bridge_messages;
@@ -221,6 +235,7 @@ interface GitHubWebhookInput {
   appId?: number;
   installationId?: number;
   accountNodeId?: string;
+  accountType?: "Organization" | "User";
 }
 
 function githubPayload(input: GitHubWebhookInput): string {
@@ -228,7 +243,11 @@ function githubPayload(input: GitHubWebhookInput): string {
   const installation = {
     id: input.installationId ?? GITHUB_INSTALLATION_ID,
     app_id: input.appId ?? GITHUB_APP_ID,
-    account: { node_id: input.accountNodeId ?? GITHUB_ACCOUNT_NODE_ID, login: "must-never-be-stored" },
+    account: {
+      node_id: input.accountNodeId ?? GITHUB_ACCOUNT_NODE_ID,
+      type: input.accountType ?? "Organization",
+      login: "must-never-be-stored"
+    },
     repository_selection: repositorySelection,
     created_at: input.eventTime,
     updated_at: input.eventTime,
@@ -292,6 +311,7 @@ function githubReconciliation(
   overrides: Partial<{
     reconciliation_id: string;
     account_node_id: string;
+    account_type: "Organization" | "User";
     repository_selection: "all" | "selected";
     repository_node_ids: string[];
   }> = {}
@@ -304,6 +324,7 @@ function githubReconciliation(
     app_id: GITHUB_APP_ID,
     installation_id: GITHUB_INSTALLATION_ID,
     account_node_id: overrides.account_node_id ?? GITHUB_ACCOUNT_NODE_ID,
+    account_type: overrides.account_type ?? "Organization",
     provider_status: "active",
     repository_selection: overrides.repository_selection ?? "selected",
     repository_node_ids: overrides.repository_node_ids ?? [GITHUB_REPOSITORY_NODE_ID]
@@ -1102,23 +1123,30 @@ describe.sequential("Team control plane", () => {
     ).first<{ status: string }>();
     expect(checkoutState?.status).toBe("canceled");
     expect(commandState?.status).toBe("provider_rejected");
-    const githubState = await env.TEAM_CONTROL_DB.prepare(
-      `SELECT state, github_account_node_id FROM github_installations WHERE org_id = 'org_main'`
-    ).first<{ state: string; github_account_node_id: string }>();
-    const githubClaim = await env.TEAM_CONTROL_DB.prepare(
-      `SELECT status, github_account_node_id, claimed_by FROM github_installation_claims WHERE org_id = 'org_main'`
-    ).first<{ status: string; github_account_node_id: string; claimed_by: string }>();
-    const githubRepositoryCount = await env.TEAM_CONTROL_DB.prepare(
-      `SELECT COUNT(*) AS count FROM github_installation_repositories WHERE installation_id = ?1`
+    const githubResiduals = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM github_installation_claims WHERE installation_id = ?1 OR org_id = 'org_main') AS claims,
+         (SELECT COUNT(*) FROM github_installations WHERE installation_id = ?1 OR org_id = 'org_main') AS installations,
+         (SELECT COUNT(*) FROM github_installation_repositories WHERE installation_id = ?1) AS repositories,
+         (SELECT COUNT(*) FROM github_deliveries WHERE installation_id = ?1 OR org_id = 'org_main') AS deliveries,
+         (SELECT COUNT(*) FROM github_installation_reconciliations
+           WHERE installation_id = ?1 OR org_id = 'org_main') AS reconciliations`
     )
       .bind(GITHUB_INSTALLATION_ID)
-      .first<{ count: number }>();
-    expect(githubState?.state).toBe("deleted");
-    expect(githubState?.github_account_node_id).toMatch(/^deleted-/u);
-    expect(githubClaim?.status).toBe("revoked");
-    expect(githubClaim?.github_account_node_id).toBe(githubState?.github_account_node_id);
-    expect(githubClaim?.claimed_by).toBe("deleted_user");
-    expect(githubRepositoryCount?.count).toBe(0);
+      .first<{
+        claims: number;
+        installations: number;
+        repositories: number;
+        deliveries: number;
+        reconciliations: number;
+      }>();
+    expect(githubResiduals).toEqual({
+      claims: 0,
+      installations: 0,
+      repositories: 0,
+      deliveries: 0,
+      reconciliations: 0
+    });
     const retainedAudit = await env.TEAM_CONTROL_DB.prepare(
       `SELECT actor_id, action, resource_type, resource_id, metadata_json
          FROM audit_events WHERE org_id = 'org_main' ORDER BY created_at`

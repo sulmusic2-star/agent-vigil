@@ -12,7 +12,9 @@ const TEST_SECRETS = {
   R0_MEASUREMENT_CONTROL_HMAC_SECRET: "test-only-r0-measurement-control-secret-32-bytes",
   R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET: "test-only-r0-identity-bridge-secret-32-bytes",
   R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET: "test-only-r0-activity-bridge-secret-32-bytes",
-  R0_MEASUREMENT_IDENTITY_HMAC_SECRET: "test-only-r0-measurement-identity-secret-32-bytes"
+  R0_MEASUREMENT_IDENTITY_HMAC_SECRET: "test-only-r0-measurement-identity-secret-32-bytes",
+  R0_INDIVIDUAL_IDENTITY_HMAC_SECRET: "test-only-r0-individual-identity-secret-32-bytes",
+  INDIVIDUAL_SESSION_HMAC_SECRET: "test-only-individual-session-secret-32-bytes-minimum"
 } as const;
 
 for (const [name, value] of Object.entries(TEST_SECRETS)) {
@@ -41,7 +43,11 @@ export default defineConfig(async () => {
             R0_MEASUREMENT_RELEASE_CHANNEL: "github_app",
             R0_MEASUREMENT_ENVIRONMENT: "production",
             R0_MEASUREMENT_RELEASE_PUBLISHED_AT: "2026-05-01T00:00:00.000Z",
-            R0_MEASUREMENT_STARTED_AT: "2026-05-01T00:00:00.000Z"
+            R0_MEASUREMENT_STARTED_AT: "2026-05-01T00:00:00.000Z",
+            R0_INDIVIDUAL_MEASUREMENT_ENABLED: "true",
+            INDIVIDUAL_SESSION_ISSUER: "https://auth.example.test/",
+            INDIVIDUAL_SESSION_KEY_ID: "individual-session-key-v1",
+            R0_INDIVIDUAL_IDENTITY_HMAC_KEY_ID: "individual-identity-key-v1"
           }
         }
       })

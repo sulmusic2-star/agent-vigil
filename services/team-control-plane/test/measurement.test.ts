@@ -25,6 +25,20 @@ const MEASUREMENT_SECRETS = {
 
 async function clearDatabase(): Promise<void> {
   await env.TEAM_CONTROL_DB.exec(`
+    DELETE FROM individual_measurement_events;
+    DELETE FROM individual_subject_attestations;
+    DELETE FROM individual_auth_subject_rotations;
+    DELETE FROM individual_identity_merges;
+    DELETE FROM individual_measurement_bridge_messages;
+    DELETE FROM github_personal_installation_reconciliations;
+    DELETE FROM github_personal_deliveries;
+    DELETE FROM github_personal_installations;
+    DELETE FROM github_personal_installation_claims;
+    DELETE FROM individual_audit_events;
+    DELETE FROM individual_session_mutations;
+    DELETE FROM individual_consents;
+    DELETE FROM individual_identities;
+    DELETE FROM individual_privacy_deletion_requests;
     DELETE FROM measurement_events;
     DELETE FROM measurement_subject_attestations;
     DELETE FROM measurement_bridge_messages;
@@ -481,10 +495,11 @@ describe("R0 organization measurement plane", () => {
       sample_floor_met: false
     });
     expect(body.individuals).toMatchObject({
-      identity_status: "UNMEASURABLE",
-      evidence_status: "HOLD",
-      eligible_installations: null,
-      activated_individuals: null
+      identity_status: "AUTHENTICATED_GITHUB_OIDC_AND_RECONCILED_PERSONAL_APP",
+      evidence_status: "BOUNDED_GATE_EVIDENCE",
+      eligible_installations: 0,
+      activated_individuals: 0,
+      matured_repeat_rate: null
     });
     expect(body.coverage_and_sybil_boundary).toMatchObject({
       anonymous_telemetry_included: false,

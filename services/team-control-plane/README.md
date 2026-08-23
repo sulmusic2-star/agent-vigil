@@ -14,7 +14,7 @@ This directory contains a local-only Cloudflare Worker/D1 implementation of the 
 - Separate cash and recognized-MRR ledgers. Annual value is normalized across 12 months; checkout, invoice face value, and cash are never reported as MRR.
 - Provider-confirmed failure grace, refund adjustments, period-end cancellation, expiration, privacy export, and two-step private-data deletion.
 - Claimed GitHub App installation tenancy with raw webhook HMAC verification, delivery/payload dedupe, opaque repository selection, immediate suspend/delete revocation, and signed reconciliation before creation/unsuspend becomes active.
-- A disabled-by-default R0 organization measurement projection with an immutable exact-release boundary, human-owner opt-in, reconciled GitHub App identity, signed activation/offer bridge, 60-day repeat and PQL cohorts, stable opaque identities, and privacy export/deletion. Individual demand metrics are explicitly `HOLD` / `UNMEASURABLE`; anonymous proof-network telemetry is never imported.
+- A disabled-by-default R0 organization projection plus a separately disabled individual receiver. The individual lane requires a short-lived GitHub/OIDC-bound human session, explicit opt-in, provider-attested `account.type=User`, independent personal-installation reconciliation, exact-release signed verifier activity, stable opaque identity, rotation/merge controls, and complete export/deletion. It reports `HOLD` until those external adapters and exact deployment settings are enabled; anonymous proof-network telemetry is never imported.
 
 Paid access never changes `SAFE`, `CHANGED`, `HOLD`, or fleet decision semantics. When trusted entitlement or policy state is unavailable, the required-gate endpoint returns `BLOCK`; the free local verifier remains separate.
 
@@ -29,7 +29,7 @@ npm run db:migrate:local
 npm run db:seed:local
 ```
 
-Create `.dev.vars` locally (never commit it) with nine unrelated, randomly generated values of at least 32 bytes:
+Create `.dev.vars` locally (never commit it) with eleven unrelated, randomly generated values of at least 32 bytes:
 
 ```text
 TEAM_SESSION_HMAC_SECRET=...
@@ -41,9 +41,11 @@ R0_MEASUREMENT_CONTROL_HMAC_SECRET=...
 R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET=...
 R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET=...
 R0_MEASUREMENT_IDENTITY_HMAC_SECRET=...
+R0_INDIVIDUAL_IDENTITY_HMAC_SECRET=...
+INDIVIDUAL_SESSION_HMAC_SECRET=...
 ```
 
-All four measurement HMAC values must be at least 32 UTF-8 bytes and pairwise distinct. Enabled measurement routes fail closed with a generic configuration error otherwise.
+All four organization-measurement HMAC values must be at least 32 UTF-8 bytes and pairwise distinct. When the individual lane is enabled, its two additional secrets and the Team-session/GitHub webhook/GitHub reconciliation duties must also be distinct. Enabled routes fail closed with a generic configuration error otherwise.
 
 Secret names are declared only in `src/env.d.ts`; Wrangler has no supported `secrets.required` configuration field. The HMAC implementation rejects missing or shorter-than-32-byte secrets at runtime, and production values must be installed with Wrangler rather than committed as vars.
 
@@ -87,6 +89,12 @@ Bearer-authenticated organization routes under `/v1/orgs/{org_id}`:
 - `GET /privacy/export`, `POST /privacy/deletion-requests`, `DELETE /privacy/data`
 - `PUT /measurement-consent`, `GET /measurement`
 
+GitHub/OIDC-bound individual routes under `/v1/individual`:
+
+- `PUT /measurement-consent`, `GET /measurement`
+- `POST /github/installation-claim`, `GET /github/installation`
+- `GET /privacy/export`, `POST /privacy/deletion-requests`, `DELETE /privacy/data`
+
 Mutating billing routes require `Idempotency-Key`; reuse with another operation or payload is rejected. A refund command must name a provider-confirmed payment event for the same tenant and cannot exceed that payment; the unused-first-subscription reason is accepted only within 14 days of that payment and before material paid-feature use. Privacy deletion cancels locally prepared billing work but blocks when a provider-created checkout or active provider subscription still requires external cancellation. Policy writes require `If-Match: "{base_revision}"` and the same `base_revision` in the body.
 
 ## Production prerequisites deliberately not crossed
@@ -98,6 +106,6 @@ Mutating billing routes require `Idempotency-Key`; reuse with another operation 
 - Publish terms, privacy/DPA, tax/VAT, refund, support, invoice/receipt, payment-method-update, chargeback, data-retention, and security-contact operations before accepting money.
 - Implement IdP/OIDC session minting and rotation. The service validates sessions but exposes no public session-minting route.
 - Exercise the local GitHub App adapter described in `GITHUB_APP_INTEGRATION.md` against a staging App and D1 database; local implementation is not registration, installation, or deployment evidence.
-- Register and independently review separate identity/activation bridge operations, exact R0 deployment values, identity-key rotation, external/internal/demo/test registries, and offer-delivery evidence before enabling R0 measurement. See [`R0_MEASUREMENT.md`](./R0_MEASUREMENT.md). No checked-in value starts R0.
+- Register and independently review separate GitHub/OIDC session issuer, read-only personal-installation reconciler, identity/activation bridge operations, exact R0 deployment values, stable-key rotation procedure, external/internal/demo/test registries, and offer-delivery evidence before enabling R0 measurement. See [`R0_MEASUREMENT.md`](./R0_MEASUREMENT.md). No checked-in value starts R0.
 
 Current Cloudflare implementation choices follow the official [Workers best practices](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/), [generated TypeScript bindings](https://developers.cloudflare.com/workers/languages/typescript/), [D1 transactional batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), and [Workers Vitest integration](https://developers.cloudflare.com/workers/testing/vitest-integration/). Stripe behavior follows its official [webhook documentation](https://docs.stripe.com/webhooks); GitHub verification and delivery handling follow its official [signature validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries) and [webhook guidance](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks).
