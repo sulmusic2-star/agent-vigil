@@ -269,6 +269,7 @@ test("upgrade workflow is base-selected and does not publish the private receipt
   assert.match(workflow, /\.github\/workflows\/agent-vigil-upgrade\.yml/);
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
   assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /allow-unsafe-pr-checkout: true/);
   assert.doesNotMatch(workflow, /actions\/upload-artifact|retention-days:/);
   assert.match(contract, /required-workflow ruleset/);
   assert.match(contract, /default public-repository example does\s+not upload it/);

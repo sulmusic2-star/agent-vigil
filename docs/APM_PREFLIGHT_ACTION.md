@@ -92,10 +92,17 @@ general security, provenance, or production-compatibility claim.
 Use the checked-in [workflow example](../examples/upgrade-guard/github-workflow.yml).
 It runs from the base branch through `pull_request_target`, grants read-only
 repository access, fetches the exact candidate object without executing
-repository content, and preloads the exact runner digest. Keep the installed
+repository content, explicitly enables checkout v7's fork-head materialization
+guard for that no-execution design, and preloads the exact runner digest. Keep the installed
 workflow at `.github/workflows/agent-vigil-upgrade.yml` so its own path change
 triggers the protected base copy. Do not add cloud, package-publishing,
 deployment, model-provider, signing, or other secrets to this job.
+
+The checkout opt-out is safe only under this narrow contract. Do not add
+dependency installation, build commands, repository scripts, local Action
+references, shell sourcing, or any other candidate-controlled execution to the
+job. If the job needs such a step, move it to an unprivileged `pull_request`
+workflow and keep this protected verifier separate.
 
 Configure an organization ruleset that requires this exact workflow from a
 separately controlled source repository, branch, and workflow path before

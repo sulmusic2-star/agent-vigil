@@ -24,6 +24,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
+          # checkout v7 requires this opt-out before it will materialize a fork
+          # head under pull_request_target. Nothing in this job may execute,
+          # source, import, build, or run files from that checkout.
+          allow-unsafe-pr-checkout: true
 
       # Upgrade Guard never pulls an image inside the comparison. Keep this
       # exact-digest cache mutation visible and separate from the receipt.
