@@ -86,10 +86,20 @@ test("upgrade Action uses exact Git blobs under an empty host environment and ne
   writeFileSync(output, ""); writeFileSync(summary, "");
   writeFileSync(join(fakeAction, "dist/cli.js"), `
 const fs=require("node:fs"), path=require("node:path"), args=process.argv.slice(2);
-if(args[0]!=="upgrade"||args[1]!=="preflight")process.exit(90);
-const value=(name)=>args[args.indexOf(name)+1], trustedRepo=value("--repo");
-fs.writeFileSync(${JSON.stringify(recorded)},JSON.stringify({args,current:fs.readFileSync(value("--current-lock"),"utf8"),candidate:fs.readFileSync(value("--candidate-lock"),"utf8"),config:fs.readFileSync(path.join(trustedRepo,value("--config")),"utf8"),canary:fs.readFileSync(path.join(trustedRepo,".agent-vigil/upgrade/canaries/canary.mjs"),"utf8"),environment:process.env,trustedRepo}));
-fs.writeFileSync(value("--output"),JSON.stringify({schemaVersion:"agent-vigil-apm-preflight/v1",summary:{verdict:"CHANGED"},receiptHash:"sha256:${"a".repeat(64)}"}));process.exit(1);
+if(args[0]!=="upgrade")process.exit(90);
+const value=(name)=>args[args.indexOf(name)+1];
+if(args[1]==="preflight"){
+  const trustedRepo=value("--repo");
+  fs.writeFileSync(${JSON.stringify(recorded)},JSON.stringify({args,current:fs.readFileSync(value("--current-lock"),"utf8"),candidate:fs.readFileSync(value("--candidate-lock"),"utf8"),config:fs.readFileSync(path.join(trustedRepo,value("--config")),"utf8"),canary:fs.readFileSync(path.join(trustedRepo,".agent-vigil/upgrade/canaries/canary.mjs"),"utf8"),environment:process.env,trustedRepo}));
+  fs.writeFileSync(value("--output"),JSON.stringify({schemaVersion:"agent-vigil-apm-preflight/v1",summary:{verdict:"CHANGED"},receiptHash:"sha256:${"a".repeat(64)}"}));process.exit(1);
+}
+if(args[1]==="verify-preflight"){
+  const observed=JSON.parse(fs.readFileSync(${JSON.stringify(recorded)},"utf8"));
+  observed.verifyArgs=args; observed.verifyEnvironment=process.env;
+  fs.writeFileSync(${JSON.stringify(recorded)},JSON.stringify(observed));
+  process.stdout.write(JSON.stringify({schemaVersion:"agent-vigil-apm-preflight/v1",verdict:"CHANGED",receiptHash:"sha256:${"a".repeat(64)}",valid:true}));process.exit(0);
+}
+process.exit(90);
 `);
 
   const fakeBin = join(auxiliary, "fake-bin"); mkdirSync(fakeBin);
@@ -123,9 +133,52 @@ fs.writeFileSync(value("--output"),JSON.stringify({schemaVersion:"agent-vigil-ap
     : ["DOCKER_HOST", "HOME", "LANG", "LC_ALL", "TZ"];
   assert.deepEqual(Object.keys(observed.environment).sort(), allowedEnvironment.sort());
   assert.equal(observed.environment.DOCKER_HOST, "unix:///var/run/docker.sock"); assert.ok(observed.environment.HOME.startsWith(`${runner}/`));
+  assert.deepEqual(observed.verifyArgs.slice(0, 3), ["upgrade", "verify-preflight", reportPath]);
+  assert.equal(observed.verifyArgs[observed.verifyArgs.indexOf("--repo") + 1], observed.trustedRepo);
+  assert.equal(observed.verifyArgs[observed.verifyArgs.indexOf("--config") + 1], ".agent-vigil/upgrade/config.json");
+  for (const forbidden of ["HOME", "DOCKER_HOST", "NODE_OPTIONS", "HTTP_PROXY", "GITHUB_TOKEN"]) assert.equal(observed.verifyEnvironment[forbidden], undefined);
   assert.equal(existsSync(observed.trustedRepo), false);
   const worktrees = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: repo, encoding: "utf8" });
   assert.equal((worktrees.match(/^worktree /gm) ?? []).length, 1);
+});
+
+test("upgrade Action maps only 0 SAFE, 1 CHANGED, and 2 HOLD after bound verification", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
+  const product = process.cwd(), root = mkdtempSync(join(tmpdir(), "vigil-exit-map-")), repo = repository(root);
+  const base = commit(repo, "base");
+  writeFileSync(join(repo, "apm.lock.yaml"), readFileSync(join(repo, "apm.lock.yaml"), "utf8") + "# candidate\n");
+  const head = commit(repo, "head"), event = join(root, "event.json"), action = join(root, "action");
+  writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: base }, head: { sha: head } } }));
+  mkdirSync(join(action, "dist"), { recursive: true }); mkdirSync(join(action, "scripts"), { recursive: true });
+  copyFileSync(join(product, "scripts/materialize-trusted-upgrade-inputs.mjs"), join(action, "scripts/materialize-trusted-upgrade-inputs.mjs"));
+  const fixtures = [
+    { label: "zero changed", preflightCode: 0, verdict: "CHANGED", verifierCode: 0 },
+    { label: "one safe", preflightCode: 1, verdict: "SAFE", verifierCode: 0 },
+    { label: "two changed", preflightCode: 2, verdict: "CHANGED", verifierCode: 0 },
+    { label: "invalid verifier", preflightCode: 0, verdict: "SAFE", verifierCode: 2 },
+  ];
+  for (const fixture of fixtures) {
+    const selected = fixture.verdict;
+    writeFileSync(join(action, "dist/cli.js"), `
+const fs=require("node:fs"),args=process.argv.slice(2),value=(name)=>args[args.indexOf(name)+1];
+if(args[1]==="preflight"){
+ fs.writeFileSync(value("--output"),JSON.stringify({schemaVersion:"agent-vigil-apm-preflight/v1",summary:{verdict:${JSON.stringify(selected)}},receiptHash:"sha256:${"b".repeat(64)}"}));process.exit(${fixture.preflightCode});
+}
+if(args[1]==="verify-preflight"){
+ if(${fixture.verifierCode}!==0)process.exit(${fixture.verifierCode});
+ process.stdout.write(JSON.stringify({schemaVersion:"agent-vigil-apm-preflight/v1",verdict:${JSON.stringify(selected)},receiptHash:"sha256:${"b".repeat(64)}",valid:true}));process.exit(0);
+}
+process.exit(90);
+`);
+    const runner = join(root, `runner-${fixture.label.replaceAll(" ", "-")}`), output = join(root, `output-${fixture.label.replaceAll(" ", "-")}`);
+    mkdirSync(runner); writeFileSync(output, "");
+    const env = actionEnvironment({ repo, base, head, event, output, summary: join(root, "summary"), runner, action });
+    const script = join(root, `run-${fixture.label.replaceAll(" ", "-")}.sh`); writeFileSync(script, actionScript(product));
+    const result = spawnSync("/usr/bin/env", ["-u", "BASH_ENV", "-u", "ENV", "-u", "SHELLOPTS", "-u", "BASHOPTS", "-u", "POSIXLY_CORRECT", "/bin/bash", "--noprofile", "--norc", "-e", "-o", "pipefail", script], { cwd: repo, encoding: "utf8", env });
+    assert.equal(result.status, 2, `${fixture.label}: ${result.stdout}\n${result.stderr}`);
+    const outputs = readFileSync(output, "utf8");
+    assert.match(outputs, /^status=HOLD$/m, fixture.label); assert.match(outputs, /^report=$/m, fixture.label);
+    assert.match(result.stderr, /exit-to-verdict binding is invalid/, fixture.label);
+  }
 });
 
 function runMaterializer(repo: string, base: string, head: string, output: string) {
@@ -200,6 +253,9 @@ test("upgrade Action declares a closed shell and plumbing-only trusted boundary"
   assert.match(action, /VIGIL_GITHUB_TOKEN: \$\{\{ inputs\.mode != 'upgrade'/);
   assert.match(action, /VIGIL_UPGRADE_HAS_GITHUB_TOKEN: \$\{\{ inputs\.mode == 'upgrade'/);
   assert.match(action, /materialize-trusted-upgrade-inputs\.mjs" materialize/); assert.match(action, /DOCKER_HOST=unix:\/\/\/var\/run\/docker\.sock/);
+  assert.match(action, /upgrade verify-preflight "\$report_file"/);
+  assert.match(action, /--repo "\$trusted_repo" --config "\$VIGIL_UPGRADE_CONFIG"/);
+  assert.match(action, /SAFE\) expected_preflight_code=0/); assert.match(action, /CHANGED\) expected_preflight_code=1/); assert.match(action, /HOLD\) expected_preflight_code=2/);
   assert.doesNotMatch(action, /git -C "\$VIGIL_REPO" (?:worktree|show|checkout)/); assert.doesNotMatch(action, /worktree add|git checkout/);
   assert.match(action, /inputs\.mode != 'upgrade'/);
 });

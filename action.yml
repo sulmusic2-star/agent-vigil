@@ -421,6 +421,7 @@ runs:
           trusted_repo="$trusted_inputs/repository"
           current_lock="$trusted_inputs/current-apm.lock.yaml"
           candidate_lock="$trusted_inputs/candidate-apm.lock.yaml"
+          verified_preflight="$artifact_dir/verified-preflight.json"
           if ! "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
             "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/scripts/materialize-trusted-upgrade-inputs.mjs" materialize \
             --repository "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" \
@@ -473,6 +474,45 @@ runs:
           set -e
         fi
         if [[ "$VIGIL_MODE" == "upgrade" ]]; then
+          set +e
+          "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+            "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/dist/cli.js" upgrade verify-preflight "$report_file" \
+            --current-lock "$current_lock" --candidate-lock "$candidate_lock" \
+            --repo "$trusted_repo" --config "$VIGIL_UPGRADE_CONFIG" > "$verified_preflight"
+          verification_code=$?
+          set -e
+          verified_status=''
+          if [[ "$verification_code" -eq 0 && -s "$verified_preflight" ]]; then
+            set +e
+            verified_status=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+              "$VIGIL_NODE_BIN" -e '
+                const fs=require("node:fs"), path=require("node:path"), selected=path.resolve(process.argv[1]);
+                const status=fs.lstatSync(selected), bytes=fs.readFileSync(selected);
+                if(!status.isFile()||status.isSymbolicLink()||bytes.length<2||bytes.length>4096)process.exit(2);
+                const value=JSON.parse(bytes.toString("utf8")), keys=Object.keys(value).sort();
+                if(JSON.stringify(keys)!==JSON.stringify(["receiptHash","schemaVersion","valid","verdict"])||
+                  value.schemaVersion!=="agent-vigil-apm-preflight/v1"||value.valid!==true||
+                  !["SAFE","CHANGED","HOLD"].includes(value.verdict)||
+                  !/^sha256:[0-9a-f]{64}$/.test(value.receiptHash))process.exit(2);
+                process.stdout.write(value.verdict);
+              ' "$verified_preflight")
+            verification_parse_code=$?
+            set -e
+          else
+            verification_parse_code=2
+          fi
+          case "$verified_status" in
+            SAFE) expected_preflight_code=0 ;;
+            CHANGED) expected_preflight_code=1 ;;
+            HOLD) expected_preflight_code=2 ;;
+            *) expected_preflight_code=99 ;;
+          esac
+          if [[ "$verification_code" -ne 0 || "$verification_parse_code" -ne 0 || "$code" -ne "$expected_preflight_code" ]]; then
+            echo "agent-vigil: automatic preflight receipt or exit-to-verdict binding is invalid" >&2
+            "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+              "$VIGIL_NODE_BIN" -e 'const {unlinkSync}=require("node:fs"); try { unlinkSync(process.argv[1]); } catch {}' "$report_file"
+            code=2
+          fi
           trap - EXIT
           if ! cleanup_upgrade_inputs >/dev/null 2>&1; then
             echo "agent-vigil: runner-owned trusted-input cleanup failed" >&2
@@ -491,9 +531,9 @@ runs:
             receipt_hash=$("$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
           elif [[ "$VIGIL_MODE" == "upgrade" ]]; then
             status=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
-              "$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.summary.verdict)' "$report_file")
+              "$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.verdict)' "$verified_preflight")
             receipt_hash=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
-              "$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
+              "$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$verified_preflight")
           else
             status=$("$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.summary.status)' "$report_file")
             receipt_hash=$("$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
@@ -571,7 +611,7 @@ runs:
         else
           # Preserve the verifier's original diagnostic and exit code when
           # parsing or configuration fails before a receipt can be written.
-          status="INCONCLUSIVE"
+          if [[ "$VIGIL_MODE" == "upgrade" ]]; then status="HOLD"; else status="INCONCLUSIVE"; fi
           receipt_hash="unavailable"
           report_path=""
           sarif_path=""
