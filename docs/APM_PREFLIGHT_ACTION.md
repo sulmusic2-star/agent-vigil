@@ -12,6 +12,19 @@ It does not update an active APM installation. Current and candidate artifacts
 are placed in an exclusive temporary session, mounted read-only for the same
 trusted canaries, and removed before a non-`HOLD` result is returned.
 
+## Release status
+
+This no-checkout workflow is prepared for the v0.17.0 release candidate; it was
+not part of the prior public v0.16.0 signed-control release. The checked-in
+workflow is local source until an independently reviewed exact release is live
+and an organization installs and requires it. There are zero verified external
+activations, payments, and revenue. R0 has not started, and neither local test
+execution nor a release-preparation commit starts it. Operational opt-in
+lifecycle measurement and commercial-name clearance remain separate gates.
+The broader candidate also packages the durable public update-pair corpus and
+disabled local proof-network and Team sources; this Action neither deploys nor
+connects either service.
+
 ## Required repository state
 
 The trusted base commit must contain:

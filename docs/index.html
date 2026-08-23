@@ -144,7 +144,7 @@
   observed release_publish via gh release create
 
 <span class="ok">✓ tests-pass</span>
-  trusted command observed 462 passing; 5 skipped.
+  trusted command observed 512 passing; 8 skipped.
 
 <span class="fail">FAIL</span> · sha256:c3128a2c6abc…</pre>
         </div>
@@ -250,9 +250,10 @@
       <section id="install" class="install">
         <div><p class="eyebrow">Install</p><h2>Protect a repository, then read the commands it found.</h2><p class="section-lead">The protection profile works without an agent transcript. It installs the required-check workflow, calibrated Test Integrity Guard, receipt retention, and outcome observer.</p></div>
         <div>
-          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz protect --attest</code>
-          <p>Then run <code>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz doctor</code>. Review the discovered commands and limits before merging the setup.</p>
-          <p>GitHub Action: <code>sulmusic2-star/agent-vigil@v0.16.0</code>.</p>
+          <p class="fine">v0.17.0 is a prepared coordinate, not a verified live release. Run this command only after the exact release and asset digest are independently confirmed.</p>
+          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz protect --attest</code>
+          <p>Then run <code>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz doctor</code>. Review the discovered commands and limits before merging the setup.</p>
+          <p>GitHub Action: <code>sulmusic2-star/agent-vigil@v0.17.0</code>.</p>
           <p class="fine">The scoped package prevents confusion with the separate <code>agentvigil</code> project. Agent Vigil reconciles observed evidence after execution; it is not a sandbox or proof that no unlogged action occurred.</p>
           <div class="actions">
             <a class="button" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml">Report a real trial</a>

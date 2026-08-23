@@ -4,6 +4,15 @@
 
 Security fixes target the latest release and `main`.
 
+The latest confirmed public release is v0.16.0, whose new surface is signed
+control proof. The v0.17.0 source tree is a release candidate for automatic APM
+preflight, the no-checkout upgrade Action, the packaged public update-pair
+corpus, and disabled local service implementations. Treat it as unreleased
+until one exact commit passes independent review and the corresponding tag and
+assets are verified. It has zero verified external adoption, payment, or
+revenue, and it has not started R0. Operational opt-in measurement and
+commercial-name clearance remain separate gates.
+
 ## Report privately
 
 Use the contact link on [Tim Sullivan's page](https://lastingground.com/tim) and
@@ -27,7 +36,8 @@ it does not sandbox repository code.
 
 ## Upgrade Guard containment
 
-The unreleased `vigil upgrade` lane is separate from repository test execution.
+The v0.17.0-candidate `vigil upgrade` lane is separate from repository test
+execution.
 It accepts only exact-digest OCI runner identities already present locally and
 uses fixed Docker argv with no shell, no network, read-only target, canary, and
 root filesystems, dropped capabilities, `no-new-privileges`, non-root

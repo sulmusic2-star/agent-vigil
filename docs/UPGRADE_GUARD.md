@@ -20,6 +20,17 @@ the configured canaries under the recorded contained runner**. It does not mean
 that the candidate is universally safe, semantically correct, free of
 vulnerabilities, or compatible with behavior that the canaries did not exercise.
 
+## Release status
+
+The public v0.16.0 release added signed control proof; it did not include the
+automatic APM materialize-check-restore path, the no-checkout upgrade Action,
+or the packaged public update-pair corpus. Those surfaces are prepared in the
+v0.17.0 release candidate. Its local proof-network and Team implementations
+are disabled and undeployed. Verified external adoption, payment, recognized
+MRR, and revenue are zero. R0 has not started and requires an independently
+reviewed exact release, operational opt-in lifecycle measurement, and a
+cleared commercial name gate.
+
 ## Current scope
 
 This first version is a local compatibility gate whose behavioral evaluation is
@@ -727,9 +738,9 @@ commands, raw outputs, local paths, or credentials.
 - That an embedded signing key belongs to a particular person or organization.
 - That a locally generated public entry has been submitted, accepted, indexed,
   adopted, or paid for.
-- That a local implementation, test, commit, or unreleased candidate has begun
-  an external release clock. R0 requires a separately reviewed external release
-  of this complete path.
+- That a local implementation, test, commit, or release candidate has begun an
+  external release clock. R0 requires a separately reviewed external release
+  of this complete path plus operational measurement and name gates.
 
 Treat a real outside update cycle with a retained decision as product evidence.
 A local fixture or generated entry is implementation proof only.

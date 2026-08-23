@@ -3,6 +3,9 @@
 Distribution states are verified independently. A GitHub release does not make
 the npm package or Marketplace listing live.
 
+For the v0.17.0 two-commit source and exact-SHA pin sequence, follow
+[the immutable release-preparation runbook](V0_17_RELEASE_PREPARATION.md).
+
 ## Release gate
 
 ```bash

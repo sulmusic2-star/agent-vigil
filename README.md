@@ -91,8 +91,13 @@ completion or timeout, the exact name must be verified absent. The result is
 detected no material change under the recorded runner. The default template
 deliberately cannot earn `SAFE`.
 
-The unreleased v0.16 release candidate extends that local verifier into a
-self-service compatibility-proof loop. Upgrade Guard can write a private nonce-bound receipt and, only when explicitly
+The public v0.16.0 release added signed challenge proofs and V2 control
+certificates. It did not contain the automatic APM path, the no-checkout
+upgrade Action, the public update-pair corpus, or either hosted-service
+implementation described below.
+
+The v0.17.0 release candidate extends the local verifier into a self-service
+compatibility-proof loop. Upgrade Guard can write a private nonce-bound receipt and, only when explicitly
 requested with an Ed25519 key, a privacy-minimized public compatibility entry.
 It can normalize exact update pairs from Microsoft APM, Vercel Skills v3, and
 Agent Plugins 1.0 manager state; turn signed failures into a copyable maintainer
@@ -127,6 +132,17 @@ removal. Unsupported sources return `HOLD`; no installer or package lifecycle
 script runs. Its private wrapper follows
 [`agent-vigil-apm-preflight/v1`](docs/apm-preflight-v1.schema.json). This local
 candidate is not a release, activation, customer, payment, or start of R0.
+It also packages the durable public update-pair corpus and its exact verifier;
+that committed corpus is implementation evidence, not external demand.
+
+**Release and demand status.** This source tree prepares v0.17.0; it does not
+prove that its tag, GitHub assets, npm package, Pages content, Marketplace
+listing, required workflow, or hosted services are live. Verified external
+adoption, paid organizations, recognized MRR, and revenue are all zero, and R0
+has not started. R0 starts only after an independently reviewed exact release
+is live, opt-in lifecycle measurement is operational, and the commercial name
+gate is cleared. The proof-network and Team service implementations remain
+disabled, local-only, and undeployed.
 
 It does not install an update, upload evidence, modify active APM state, or
 claim live model/provider behavior. The Action's upgrade mode can enforce this
@@ -137,7 +153,7 @@ trusted-base canaries. See the precise
 It also adds the one-command protection profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz protect
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz protect
 ```
 
 `protect` discovers common test, typecheck, lint, and build commands; installs
@@ -247,11 +263,12 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 
 ## Two-minute setup
 
-Until the npm registry package is current, use the verified GitHub release package:
+After the exact v0.17.0 tag and assets are independently verified, use the
+GitHub release package while the npm registry remains on an older version:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz init
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz init
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz doctor
 ```
 
 `init` creates a small JSON policy, a privacy warning and transcript placeholder,
@@ -269,8 +286,8 @@ that disagree with GitHub's event payload.
 To add a GitHub/Sigstore signature to each receipt:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz init --attest
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz init --attest
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz doctor
 ```
 
 The generated workflow adds GitHub signing permissions but does not gain write
@@ -278,7 +295,7 @@ access to repository contents. After a run, download
 `agent-vigil-report.json` and verify it with:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz verify-attestation \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz verify-attestation \
   agent-vigil-report.json --repository OWNER/REPOSITORY
 ```
 
@@ -288,7 +305,7 @@ the code is correct.
 Maintainer profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz init --profile maintainer
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz init --profile maintainer
 ```
 
 This creates base-anchored file, line, test, and protected-path limits; an
@@ -301,7 +318,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz init --profile authority
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz init --profile authority
 ```
 
 Review the generated task ID, expiry, paths, and action classes, then merge the
@@ -409,7 +426,7 @@ Node 20 or newer is required. Run the published npm package without installing
 it globally:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.16.0/sulmusic-agent-vigil-0.16.0.tgz --help
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz --help
 ```
 
 Or work from source:
@@ -539,7 +556,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.16.0
+  - uses: sulmusic2-star/agent-vigil@v0.17.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -573,7 +590,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.16.0
+    uses: sulmusic2-star/agent-vigil@v0.17.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
@@ -727,9 +744,9 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 505 tests, including 80 generated-repository compatibility scenarios across
-  18 runner-output families. In the latest unreleased v0.16 candidate run, 497
-  passed and eight opt-in integration tests skipped in the ordinary suite. With Docker enabled, the
+- 520 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families. In the v0.17.0 release-candidate run, 512 passed
+  and eight opt-in integration tests skipped in the ordinary suite. With Docker enabled, the
   combined 13-test containment, timeout-cleanup, verdict, signing, and index
   suite passed against the selected local test daemon with no residual Upgrade
   Guard containers. This demonstrates the tested environment, not that every

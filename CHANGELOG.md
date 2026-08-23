@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.17.0 release candidate - 2026-08-23
+
+This section records the prepared v0.17.0 package contents. The preparation
+commit is not itself a tag, GitHub release, npm publication, deployment,
+activation, adoption, payment, or revenue event. Verified external adoption,
+paid organizations, recognized MRR, and revenue are zero. R0 has not started;
+it requires an independently reviewed exact release, operational opt-in
+lifecycle measurement, and a cleared commercial name gate.
 
 - Add exact APM, Vercel Skills v3, and Agent Plugins 1.0 update plans that
   require behavioral preflight whenever manager-controlled state changes.
@@ -14,9 +21,9 @@
   independently recomputed target/capability snapshots, nested Upgrade Guard
   receipt, and restoration outcome.
 - Add a base-selected Action verifier that binds exact Git objects, rejects
-  harness changes, isolates ambient Bash/Node/Git/Docker state, and verifies
-  receipt semantics plus the exact exit-to-verdict mapping before exposing an
-  output.
+  harness changes, creates no candidate checkout or worktree, isolates ambient
+  Bash/Node/Git/Docker state, and verifies receipt semantics plus the exact
+  exit-to-verdict mapping before exposing an output.
 - Add privacy-minimized signed compatibility entries, broken-to-restored
   resolution records, static registry/API/badge output, and maintainer evidence.
 - Add a disabled-by-default Cloudflare Worker/D1 proof-network service with
@@ -28,7 +35,11 @@
   GitHub App installation reconciliation, and separately permissioned Stripe
   executor and read-only reconciliation adapters. Provider configuration is
   intentionally invalid or disabled, and no provider is connected by this
-  release.
+  candidate.
+- Include the durable public update-pair corpus and its exact manifest verifier
+  in the package rehearsal. The committed corpus is implementation evidence,
+  not external demand, activation, or a claim that the first-100 sample floor
+  has been reached.
 - Add organization-owned fleet policy that binds `ALLOW` to caller-supplied
   current/candidate versions and artifact digests.
 - Keep external URLs out of signed resolution records because credentials and
@@ -49,6 +60,9 @@
   V2 control certificates, and mixed V1/V2 certification corpora.
 - Add `vigil certify sign` for control providers and `record-signed` for
   organization-side verification against a separately obtained public key.
+- This was the prior public signed-control release. It did not include the
+  automatic APM path, no-checkout upgrade Action, packaged update-pair corpus,
+  proof-network service, or Team control plane prepared for v0.17.0.
 
 ## 0.15.0 - 2026-08-23
 
