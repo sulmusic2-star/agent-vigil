@@ -23,15 +23,17 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { TextDecoder } from "node:util";
 import { gunzipSync } from "node:zlib";
 import { canonical } from "../report.ts";
-import { inspectArtifactTree, type ArtifactInventory } from "./decision.ts";
+import { decideUpgrade, inspectArtifactTree, type ArtifactInventory } from "./decision.ts";
 import {
   ApmMaterializationHold,
   createUpdatePlan,
+  recomputeUpdatePlanHash,
   selectApmMaterialization,
   type ApmMaterializationEndpoint,
   type ApmMaterializationSelection,
   type UpdatePlan,
 } from "./manager-plan.ts";
+import { isCrossPlatformSafeSegment } from "./portable-path.ts";
 import {
   recomputeUpgradeReceiptHash,
   renderUpgradeReceipt,
@@ -125,7 +127,7 @@ type ParsedArchive = {
 };
 
 const LIMITATIONS = [
-  "This receipt covers one selected APM package pair; other changes in the bound update plan remain separate decisions.",
+  "This receipt is eligible only when the bound update plan contains exactly one total change: the selected exact APM package pair.",
   "Automatic acquisition supports only credential-free public github.com git rows pinned by both a lowercase 40-character commit and APM tree_sha256.",
   "Archives containing links, special files, unsupported extension records, unsafe names, or entries beyond the documented bounds return HOLD.",
   "No APM installer, package lifecycle script, repository hook, or host update is executed; only temporary exact artifacts are mounted read-only into the existing contained check.",
@@ -146,6 +148,186 @@ function finalizeReceipt(receipt: Omit<ApmAutomaticPreflightReceipt, "receiptHas
 export function recomputeApmPreflightReceiptHash(receipt: ApmAutomaticPreflightReceipt): string {
   const { receiptHash: _ignored, ...payload } = receipt;
   return hash(canonical(payload));
+}
+
+function receiptObject(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value as Record<string, unknown>;
+}
+
+function receiptExactKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  required: readonly string[],
+  label: string,
+): void {
+  const extras = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (extras.length || required.some((key) => !(key in value))) throw new Error(`${label} has an invalid shape`);
+}
+
+function receiptSha256(value: unknown, label: string): string {
+  if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) throw new Error(`${label} is invalid`);
+  return value;
+}
+
+export function validateApmAutomaticPreflightReceipt(input: unknown): ApmAutomaticPreflightReceipt {
+  const root = receiptObject(input, "automatic preflight receipt");
+  receiptExactKeys(root, [
+    "schemaVersion", "generatedAt", "nonce", "plan", "selection", "materialization",
+    "upgradeReceipt", "restoration", "summary", "limitations", "receiptHash",
+  ], ["schemaVersion", "generatedAt", "nonce", "plan", "restoration", "summary", "limitations", "receiptHash"],
+  "automatic preflight receipt");
+  if (root.schemaVersion !== APM_PREFLIGHT_SCHEMA) throw new Error("automatic preflight schema is invalid");
+  if (typeof root.generatedAt !== "string" || typeof root.nonce !== "string") throw new Error("automatic preflight identity is invalid");
+  const plan = receiptObject(root.plan, "automatic preflight plan") as unknown as UpdatePlan;
+  receiptSha256(plan.planHash, "automatic preflight plan hash");
+  if (recomputeUpdatePlanHash(plan) !== plan.planHash || plan.generatedAt !== root.generatedAt) {
+    throw new Error("automatic preflight plan binding is invalid");
+  }
+  const restoration = receiptObject(root.restoration, "automatic preflight restoration");
+  receiptExactKeys(restoration, ["status", "hostMutation", "sessionRemoved", "reasonCode"],
+    ["status", "hostMutation", "sessionRemoved", "reasonCode"], "automatic preflight restoration");
+  if ((restoration.status !== "RESTORED" && restoration.status !== "HOLD")
+    || restoration.hostMutation !== "NONE" || typeof restoration.sessionRemoved !== "boolean"
+    || typeof restoration.reasonCode !== "string"
+    || (restoration.status === "RESTORED") !== restoration.sessionRemoved) {
+    throw new Error("automatic preflight restoration binding is invalid");
+  }
+  const summary = receiptObject(root.summary, "automatic preflight summary");
+  receiptExactKeys(summary, ["verdict", "reasonCodes"], ["verdict", "reasonCodes"], "automatic preflight summary");
+  const verdict = summary.verdict;
+  if (verdict !== "SAFE" && verdict !== "CHANGED" && verdict !== "HOLD") throw new Error("automatic preflight verdict is invalid");
+  if (!Array.isArray(summary.reasonCodes) || !summary.reasonCodes.length
+    || summary.reasonCodes.some((reason) => typeof reason !== "string" || !reason.length)) {
+    throw new Error("automatic preflight reason codes are invalid");
+  }
+  if (!Array.isArray(root.limitations) || root.limitations.some((value) => typeof value !== "string")) {
+    throw new Error("automatic preflight limitations are invalid");
+  }
+  const receipt = root as unknown as ApmAutomaticPreflightReceipt;
+  receiptSha256(receipt.receiptHash, "automatic preflight receipt hash");
+  if (recomputeApmPreflightReceiptHash(receipt) !== receipt.receiptHash) {
+    throw new Error("automatic preflight receipt hash is invalid");
+  }
+  if (verdict === "HOLD") return receipt;
+  if (restoration.status !== "RESTORED" || plan.summary?.total !== 1
+    || plan.summary?.eligiblePairs !== 1 || !Array.isArray(plan.changes) || plan.changes.length !== 1) {
+    throw new Error("automatic preflight non-HOLD plan is invalid");
+  }
+  const selection = receiptObject(root.selection, "automatic preflight selection");
+  receiptExactKeys(selection, ["identity", "selectedChangeSha256", "currentRowSha256", "candidateRowSha256"],
+    ["identity", "selectedChangeSha256", "currentRowSha256", "candidateRowSha256"], "automatic preflight selection");
+  if (selection.identity !== plan.changes[0].identity
+    || receiptSha256(selection.selectedChangeSha256, "selected change hash") !== hash(canonical(plan.changes[0]))) {
+    throw new Error("automatic preflight selection binding is invalid");
+  }
+  const materialization = receiptObject(root.materialization, "automatic preflight materialization");
+  receiptExactKeys(materialization, ["current", "candidate"], ["current", "candidate"], "automatic preflight materialization");
+  const currentProof = receiptObject(materialization.current, "current materialization");
+  const candidateProof = receiptObject(materialization.candidate, "candidate materialization");
+  const proofKeys = [
+    "routeSha256", "rowSha256", "commit", "expectedTreeSha256", "fetchedSha256", "fetchedBytes",
+    "materializedTreeSha256", "fileCount", "totalBytes", "selectedArtifact",
+  ] as const;
+  receiptExactKeys(currentProof, proofKeys, proofKeys, "current materialization");
+  receiptExactKeys(candidateProof, proofKeys, proofKeys, "candidate materialization");
+  for (const [label, proof] of [["current", currentProof], ["candidate", candidateProof]] as const) {
+    for (const field of ["routeSha256", "rowSha256", "expectedTreeSha256", "fetchedSha256", "materializedTreeSha256"] as const) {
+      receiptSha256(proof[field], `${label} materialization ${field}`);
+    }
+    if (typeof proof.commit !== "string" || !/^[0-9a-f]{40}$/.test(proof.commit)
+      || !Number.isSafeInteger(proof.fetchedBytes) || (proof.fetchedBytes as number) < 1
+      || (proof.fetchedBytes as number) > MAX_ARCHIVE_BYTES
+      || !Number.isSafeInteger(proof.fileCount) || (proof.fileCount as number) < 1
+      || (proof.fileCount as number) > MAX_FILES
+      || !Number.isSafeInteger(proof.totalBytes) || (proof.totalBytes as number) < 0
+      || (proof.totalBytes as number) > MAX_TOTAL_BYTES) {
+      throw new Error(`${label} materialization evidence is invalid`);
+    }
+    const artifact = receiptObject(proof.selectedArtifact, `${label} selected artifact`);
+    receiptExactKeys(artifact, ["treeSha256", "fileCount", "totalBytes"],
+      ["treeSha256", "fileCount", "totalBytes"], `${label} selected artifact`);
+    receiptSha256(artifact.treeSha256, `${label} selected artifact tree hash`);
+    if (!Number.isSafeInteger(artifact.fileCount) || (artifact.fileCount as number) < 0
+      || (artifact.fileCount as number) > MAX_FILES
+      || !Number.isSafeInteger(artifact.totalBytes) || (artifact.totalBytes as number) < 0
+      || (artifact.totalBytes as number) > MAX_TOTAL_BYTES) {
+      throw new Error(`${label} selected artifact inventory is invalid`);
+    }
+  }
+  if (receiptSha256(selection.currentRowSha256, "current row hash") !== currentProof.rowSha256
+    || receiptSha256(selection.candidateRowSha256, "candidate row hash") !== candidateProof.rowSha256
+    || currentProof.expectedTreeSha256 !== currentProof.materializedTreeSha256
+    || candidateProof.expectedTreeSha256 !== candidateProof.materializedTreeSha256) {
+    throw new Error("automatic preflight materialization binding is invalid");
+  }
+  const nested = receiptObject(root.upgradeReceipt, "automatic preflight nested receipt") as unknown as UpgradePrivateReceipt;
+  if (recomputeUpgradeReceiptHash(nested) !== nested.receiptHash
+    || nested.generatedAt !== receipt.generatedAt || nested.nonce !== receipt.nonce
+    || nested.summary?.verdict !== verdict || nested.containment?.status !== "PASS"
+    || nested.containment?.localEndpoint !== true
+    || !nested.current || !nested.candidate || !nested.canaryHarness
+    || !Array.isArray(nested.canaries) || !nested.canaries.length
+    || !Array.isArray(nested.capabilities)) {
+    throw new Error("automatic preflight nested receipt binding is invalid");
+  }
+  const nestedDecision = decideUpgrade(nested.containment, nested.current, nested.candidate, nested.canaries);
+  if (canonical(nestedDecision.capabilities) !== canonical(nested.capabilities)
+    || nestedDecision.verdict !== nested.summary.verdict
+    || canonical(nestedDecision.reasons) !== canonical(nested.summary.reasons)
+    || nested.summary.comparedCanaries !== nested.canaries.filter((canary) => canary.comparable).length
+    || nested.summary.changedCanaries !== nested.canaries.filter((canary) => canary.changed).length
+    || nested.summary.changedCapabilities !== nested.capabilities.filter((capability) => capability.changed).length) {
+    throw new Error("automatic preflight nested decision is invalid");
+  }
+  const currentArtifact = receiptObject(currentProof.selectedArtifact, "current selected artifact");
+  const candidateArtifact = receiptObject(candidateProof.selectedArtifact, "candidate selected artifact");
+  if (currentArtifact.treeSha256 !== nested.current?.treeSha256
+    || candidateArtifact.treeSha256 !== nested.candidate?.treeSha256) {
+    throw new Error("automatic preflight selected artifact binding is invalid");
+  }
+  return receipt;
+}
+
+export function validateBoundApmAutomaticPreflightReceipt(
+  input: unknown,
+  currentLockPath: string,
+  candidateLockPath: string,
+): ApmAutomaticPreflightReceipt {
+  const receipt = validateApmAutomaticPreflightReceipt(input);
+  const exactPlan = createUpdatePlan({
+    manager: "apm",
+    currentPath: currentLockPath,
+    candidatePath: candidateLockPath,
+    generatedAt: receipt.generatedAt,
+  });
+  if (canonical(exactPlan) !== canonical(receipt.plan)) {
+    throw new Error("automatic preflight receipt does not match the exact APM lockfiles");
+  }
+  if (receipt.summary.verdict === "HOLD") return receipt;
+  const selection = selectApmMaterialization({
+    currentPath: currentLockPath,
+    candidatePath: candidateLockPath,
+    generatedAt: receipt.generatedAt,
+    identity: receipt.selection?.identity,
+  });
+  if (!receipt.selection || !receipt.materialization?.current || !receipt.materialization.candidate
+    || canonical(selection.plan) !== canonical(receipt.plan)
+    || selection.selectedChangeSha256 !== receipt.selection.selectedChangeSha256
+    || selection.current.rowSha256 !== receipt.selection.currentRowSha256
+    || selection.candidate.rowSha256 !== receipt.selection.candidateRowSha256) {
+    throw new Error("automatic preflight selection does not match the exact APM lockfiles");
+  }
+  for (const [expected, proof] of [
+    [selection.current, receipt.materialization.current],
+    [selection.candidate, receipt.materialization.candidate],
+  ] as const) {
+    if (expected.commit !== proof.commit || expected.expectedTreeSha256 !== proof.expectedTreeSha256
+      || expected.routeSha256 !== proof.routeSha256 || expected.rowSha256 !== proof.rowSha256) {
+      throw new Error("automatic preflight materialization does not match the selected APM row");
+    }
+  }
+  return receipt;
 }
 
 function strictUtf8(bytes: Buffer, label: string): string {
@@ -187,7 +369,7 @@ function normalizedArchivePath(value: string): { root: string; relativePath?: st
   }
   const trimmed = value.endsWith("/") ? value.slice(0, -1) : value;
   const parts = trimmed.split("/");
-  if (!parts[0] || parts.some((part) => !part || part === "." || part === "..")) {
+  if (!parts[0] || parts.some((part) => !isCrossPlatformSafeSegment(part))) {
     throw new PreflightHold("ARCHIVE_PATH_UNSAFE");
   }
   return { root: parts[0], ...(parts.length > 1 ? { relativePath: parts.slice(1).join("/") } : {}) };

@@ -5,6 +5,7 @@ import { TextDecoder } from "node:util";
 import { isMap, isScalar, isSeq, parseDocument } from "yaml";
 import { canonical } from "../report.ts";
 import { inspectArtifactTree } from "./decision.ts";
+import { isCrossPlatformSafeSegment } from "./portable-path.ts";
 import { terminalSafe } from "./presentation.ts";
 
 export const UPDATE_PLAN_SCHEMA = "agent-vigil-update-plan/v1" as const;
@@ -744,6 +745,11 @@ function finalizePlan(plan: Omit<UpdatePlan, "planHash">): UpdatePlan {
   return { ...plan, planHash: hash(canonical(plan)) };
 }
 
+export function recomputeUpdatePlanHash(plan: UpdatePlan): string {
+  const { planHash: _ignored, ...payload } = plan;
+  return hash(canonical(payload));
+}
+
 export function createUpdatePlan(input: {
   manager: UpdateManager;
   currentPath: string;
@@ -855,12 +861,26 @@ const APM_KNOWN_DEPENDENCY_FIELDS = new Set([
   "source_url", "source_digest", "license", "licenses", "homepage", "attestations",
 ]);
 
+// R0 materializes an exact public Git repository tree. It does not yet enact
+// APM's deployment-selection, ownership, policy, or ledger fields. Keep SAFE
+// limited to a pure exact-artifact transition by requiring every row field
+// outside these version/integrity coordinates to remain identical.
+const APM_MATERIALIZED_UPDATE_FIELDS = new Set([
+  "resolved_commit", "tree_sha256", "version", "resolved_ref", "resolved_tag",
+  "resolved_at", "resolved_by",
+]);
+
+function apmUnmaterializedState(row: Record<string, unknown>): string {
+  return canonical(Object.fromEntries(
+    Object.entries(row).filter(([field]) => !APM_MATERIALIZED_UPDATE_FIELDS.has(field)),
+  ));
+}
+
 function apmPortablePath(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   const path = text(value, "APM virtual_path", 1_024);
   const parts = path.split("/");
-  if (path.startsWith("/") || path.includes("\\") || /[\u0000-\u001f\u007f]/.test(path)
-    || parts.some((part) => !part || part === "." || part === "..")) {
+  if (path.startsWith("/") || parts.some((part) => !isCrossPlatformSafeSegment(part))) {
     throw new ApmMaterializationHold("SOURCE_ROUTE_UNSUPPORTED");
   }
   return path;
@@ -969,6 +989,10 @@ export function selectApmMaterialization(input: {
   const current = currentSnapshot.records.get(selected.identity);
   const candidate = candidateSnapshot.records.get(selected.identity);
   if (!current || !candidate) throw new ApmMaterializationHold("SELECTED_PAIR_UNAVAILABLE");
+  if (!current.apmRow || !candidate.apmRow
+    || apmUnmaterializedState(current.apmRow) !== apmUnmaterializedState(candidate.apmRow)) {
+    throw new ApmMaterializationHold("UNMATERIALIZED_ROW_STATE_CHANGED");
+  }
   return {
     plan,
     change: selected,

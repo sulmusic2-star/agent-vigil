@@ -3,7 +3,7 @@ import { closeSync, fstatSync, lstatSync, openSync, readFileSync, readSync, read
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { canonical } from "../report.ts";
 import type { ContainmentProbe, CanaryTrial } from "./sandbox.ts";
-import type { UpgradeCanaryConfig, UpgradeComponentConfig, UpgradeVerdict } from "./contracts.ts";
+import { parseExactJson, type UpgradeCanaryConfig, type UpgradeComponentConfig, type UpgradeVerdict } from "./contracts.ts";
 
 const MAX_FILES = 4_096;
 const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
@@ -219,7 +219,7 @@ export function inspectTarget(directory: string, component: UpgradeComponentConf
   const manifestPath = safeFile(root, component.manifestPath);
   const manifestBytes = readFileSync(manifestPath);
   let manifest: unknown;
-  try { manifest = JSON.parse(manifestBytes.toString("utf8")); }
+  try { manifest = parseExactJson(manifestBytes, basename(component.manifestPath)); }
   catch { throw new Error(`${basename(component.manifestPath)} is not valid JSON`); }
   const name = lookup(manifest, component.identityField);
   const version = lookup(manifest, component.versionField);

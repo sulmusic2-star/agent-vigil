@@ -19,6 +19,7 @@ import {
   parseApmGitHubArchive,
   recomputeApmPreflightReceiptHash,
   runApmAutomaticPreflight,
+  validateBoundApmAutomaticPreflightReceipt,
   type ArchiveFetcher,
 } from "../src/upgrade/apm-materialize.ts";
 import { inspectTarget, type TargetSnapshot } from "../src/upgrade/decision.ts";
@@ -199,7 +200,7 @@ function fakeReceipt(currentDirectory: string, candidateDirectory: string, gener
       changed: false, comparable: true,
     }],
     summary: {
-      verdict: "SAFE", reasons: ["recorded behavior and capabilities matched"],
+      verdict: "SAFE", reasons: ["no material change was detected by these exact canaries under the recorded contained runner"],
       comparedCanaries: 1, changedCanaries: 0, changedCapabilities: 0,
     },
     limitations: ["Bounded fixture."],
@@ -271,6 +272,48 @@ test("automatic APM preflight binds fetch, tree, plan, check, and restoration wi
   assert.equal(receipt.materialization?.current?.fetchedSha256, `sha256:${createHash("sha256").update(currentArchive).digest("hex")}`);
   assert.equal(receipt.materialization?.candidate?.materializedTreeSha256, parseApmGitHubArchive(candidateArchive).treeSha256);
   assert.equal(recomputeApmPreflightReceiptHash(receipt), receipt.receiptHash);
+  assert.equal(
+    validateBoundApmAutomaticPreflightReceipt(receipt, value.currentLockPath, value.candidateLockPath).receiptHash,
+    receipt.receiptHash,
+  );
+  const receiptPath = join(value.repository, "bound-preflight.json");
+  writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`);
+  const originalWrite = process.stdout.write;
+  process.stdout.write = (() => true) as typeof process.stdout.write;
+  try {
+    assert.equal(runUpgradeCommand([
+      "verify-preflight", receiptPath,
+      "--current-lock", value.currentLockPath,
+      "--candidate-lock", value.candidateLockPath,
+    ]), 0);
+  } finally { process.stdout.write = originalWrite; }
+  const bundledVerify = spawnSync(process.execPath, [
+    resolve("dist/cli.js"), "upgrade", "verify-preflight", receiptPath,
+    "--current-lock", value.currentLockPath,
+    "--candidate-lock", value.candidateLockPath,
+  ], { encoding: "utf8", env: withoutInheritedNodeCoverage() });
+  assert.equal(bundledVerify.status, 0, bundledVerify.stderr);
+  assert.deepEqual(JSON.parse(bundledVerify.stdout), {
+    schemaVersion: "agent-vigil-apm-preflight/v1",
+    verdict: "SAFE",
+    receiptHash: receipt.receiptHash,
+    valid: true,
+  });
+  const wrongExitVerdict = structuredClone(receipt);
+  wrongExitVerdict.summary.verdict = "CHANGED";
+  wrongExitVerdict.summary.reasonCodes = ["MATERIAL_CHANGE_DETECTED"];
+  wrongExitVerdict.receiptHash = recomputeApmPreflightReceiptHash(wrongExitVerdict);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(wrongExitVerdict, value.currentLockPath, value.candidateLockPath),
+    /nested receipt binding|nested decision/,
+  );
+  const wrongCommit = structuredClone(receipt);
+  wrongCommit.materialization!.candidate!.commit = "c".repeat(40);
+  wrongCommit.receiptHash = recomputeApmPreflightReceiptHash(wrongCommit);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(wrongCommit, value.currentLockPath, value.candidateLockPath),
+    /materialization does not match/,
+  );
   const serialized = JSON.stringify(receipt);
   assert.doesNotMatch(serialized, /github\.com\/example\/fixture/);
   assert.doesNotMatch(serialized, /codeload/);
@@ -280,6 +323,7 @@ test("automatic APM preflight returns HOLD before fetch for unbound or unsupport
   for (const fixtureCase of [
     { label: "missing tree", extra: "", expected: "SOURCE_INTEGRITY_UNAVAILABLE", withTree: false },
     { label: "registry", extra: "resolved_url: https://registry.example/archive.tgz", expected: "SOURCE_ROUTE_UNSUPPORTED", withTree: true },
+    { label: "Windows-reserved virtual path", extra: "virtual_path: CON", expected: "SOURCE_ROUTE_UNSUPPORTED", withTree: true },
     { label: "future route field", extra: "x-download-route: https://example.invalid/archive", expected: "SOURCE_SHAPE_UNSUPPORTED", withTree: true },
   ]) {
     const value = fixture();
@@ -376,6 +420,13 @@ test("archive traversal, links, collisions, and tree mismatch fail closed and re
   assert.throws(() => parseApmGitHubArchive(archive("d".repeat(40), {
     "package.json": "{}\n",
   }, { path: "unbound-empty-directory", type: "5" })), /ARCHIVE_ENTRY_UNSUPPORTED/);
+  for (const path of ["CON", "NUL.txt", "stream:ads", "terminal.", "terminal "]) {
+    assert.throws(
+      () => parseApmGitHubArchive(archive("e".repeat(40), { [path]: "unsafe\n" })),
+      /ARCHIVE_PATH_UNSAFE/,
+      path,
+    );
+  }
 });
 
 test("a codeload PAX commit that differs from the selected exact endpoint returns HOLD", () => {
@@ -449,6 +500,53 @@ test("one favorable pair cannot green added, removed, workspace, or second-updat
     assert.deepEqual(receipt.summary.reasonCodes, ["UNASSESSED_PLAN_CHANGES"], variant);
     assert.equal(fetched, false, variant);
     assert.equal(readdirSync(value.workDirectory).length, 0, variant);
+  }
+});
+
+test("unmaterialized APM row policy and deployment selection changes hold before fetch", () => {
+  const variants = [
+    { label: "skill subset", current: ["skill_subset:", "  - review"], candidate: ["skill_subset:", "  - deploy"] },
+    { label: "target subset", current: ["target_subset:", "  - codex"], candidate: ["target_subset:", "  - claude"] },
+    { label: "package type", current: ["package_type: skill"], candidate: ["package_type: plugin"] },
+    { label: "virtual path", current: ["virtual_path: packages/one"], candidate: ["virtual_path: packages/two"] },
+    { label: "deployment ledger", current: ["deployed_files:", "  - one.md"], candidate: ["deployed_files:", "  - two.md"] },
+  ];
+  for (const variant of variants) {
+    const value = fixture();
+    mkdirSync(value.workDirectory);
+    try {
+      const currentArchive = archive(value.currentCommit, { "package.json": "{}\n" });
+      const candidateArchive = archive(value.candidateCommit, { "package.json": "{\"x\":1}\n" });
+      lockRows(value.currentLockPath, [apmRow(
+        "example/fixture", value.currentCommit, parseApmGitHubArchive(currentArchive).treeSha256, variant.current,
+      )]);
+      lockRows(value.candidateLockPath, [apmRow(
+        "example/fixture", value.candidateCommit, parseApmGitHubArchive(candidateArchive).treeSha256, variant.candidate,
+      )]);
+      const plan = createUpdatePlan({
+        manager: "apm",
+        currentPath: value.currentLockPath,
+        candidatePath: value.candidateLockPath,
+        generatedAt: "2026-08-23T20:00:00.000Z",
+      });
+      assert.equal(plan.summary.total, 1, variant.label);
+      assert.equal(plan.summary.eligiblePairs, 1, variant.label);
+      let fetched = false;
+      const receipt = runApmAutomaticPreflight({
+        repository: value.repository,
+        currentLockPath: value.currentLockPath,
+        candidateLockPath: value.candidateLockPath,
+        configPath: value.configPath,
+        workDirectory: value.workDirectory,
+        generatedAt: "2026-08-23T20:00:00.000Z",
+      }, { fetchArchive: () => { fetched = true; } });
+      assert.equal(receipt.summary.verdict, "HOLD", variant.label);
+      assert.deepEqual(receipt.summary.reasonCodes, ["UNMATERIALIZED_ROW_STATE_CHANGED"], variant.label);
+      assert.equal(fetched, false, variant.label);
+      assert.equal(readdirSync(value.workDirectory).length, 0, variant.label);
+    } finally {
+      rmSync(value.repository, { recursive: true, force: true });
+    }
   }
 });
 

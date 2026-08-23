@@ -5,6 +5,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -292,6 +293,53 @@ test("capability evidence distinguishes an absent field from explicit null", () 
   const current = inspectTarget(currentDirectory, configured);
   const candidate = inspectTarget(candidateDirectory, configured);
   assert.notEqual(current.capabilities[0].sha256, candidate.capabilities[0].sha256);
+});
+
+test("target manifests with lossy JSON representations force HOLD before containment", () => {
+  const unsafeInteger = Buffer.from(
+    '{"name":"fixture-agent","version":"1.1.0","agent":{"permissions":9007199254740993}}',
+  );
+  const duplicateKey = Buffer.from(
+    '{"name":"fixture-agent","version":"1.1.0","agent":{"permissions":1,"permissions":2}}',
+  );
+  const invalidUtf8 = Buffer.from(
+    '{"name":"fixture-agent","version":"1.1.0","agent":{"permissions":"ok"}}',
+  );
+  invalidUtf8[invalidUtf8.lastIndexOf(Buffer.from("ok"))] = 0x80;
+  for (const [label, manifest] of [
+    ["unsafe integer", unsafeInteger],
+    ["duplicate key", duplicateKey],
+    ["invalid UTF-8", invalidUtf8],
+  ] as const) {
+    const repository = temp("vigil-upgrade-lossy-manifest-");
+    try {
+      const currentDirectory = join(repository, "current");
+      const candidateDirectory = join(repository, "candidate");
+      const canaryDirectory = join(repository, "test", "upgrade-canaries");
+      writeTarget(currentDirectory, "1.0.0");
+      mkdirSync(candidateDirectory);
+      writeFileSync(join(candidateDirectory, "package.json"), manifest);
+      writeFileSync(join(candidateDirectory, "implementation.txt"), "candidate\n");
+      mkdirSync(canaryDirectory, { recursive: true });
+      writeFileSync(join(canaryDirectory, "tool-contract.cjs"), "// trusted fixture\n");
+      const configPath = join(repository, "upgrade.json");
+      writeFileSync(configPath, JSON.stringify(validConfigInput()));
+      const receipt = runUpgradeEvaluation({
+        configPath,
+        repository,
+        currentDirectory,
+        candidateDirectory,
+        dockerBin: "/bin/false",
+        generatedAt: "2026-08-23T20:00:00.000Z",
+        nonce: `lossy-manifest-${label}`,
+      });
+      assert.equal(receipt.summary.verdict, "HOLD", label);
+      assert.match(receipt.summary.reasons[0], /candidate artifact could not be inspected.*not valid JSON/i, label);
+      assert.equal(receipt.candidate, undefined, label);
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
+  }
 });
 
 test("evaluation refuses a canary directory reached through a symbolic-link parent", (context) => {

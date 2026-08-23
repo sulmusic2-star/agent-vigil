@@ -134,7 +134,7 @@ Usage:
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
-  vigil upgrade <init|doctor|plan|preflight|check|verify|evidence|resolve|enforce|index|publish|telemetry-register|telemetry> [options]
+  vigil upgrade <init|doctor|plan|preflight|verify-preflight|check|verify|evidence|resolve|enforce|index|publish|telemetry-register|telemetry> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)

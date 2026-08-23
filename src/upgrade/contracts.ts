@@ -250,6 +250,50 @@ export function loadUpgradeConfig(path: string): UpgradeConfig {
   return validateUpgradeConfig(readBoundedJson(path, 256 * 1024, "upgrade config"));
 }
 
+export function parseExactJson(
+  bytes: Buffer,
+  label: string,
+  maximumNodes = 100_000,
+  maximumDepth = 64,
+): unknown {
+  let source: string;
+  try { source = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new Error(`${label} is not valid UTF-8`); }
+  try { JSON.parse(source); }
+  catch { throw new Error(`${label} is not valid JSON`); }
+  const document = parseDocument(source, { schema: "json", uniqueKeys: true });
+  if (document.errors.length || document.contents === null) throw new Error(`${label} is invalid JSON`);
+  let nodes = 0;
+  const inspect = (node: unknown, depth: number): void => {
+    nodes += 1;
+    if (nodes > maximumNodes || depth > maximumDepth) throw new Error(`${label} exceeds structural bounds`);
+    if (isScalar(node)) {
+      if (typeof node.value === "number") {
+        const lexical = node.source;
+        if (typeof lexical !== "string" || !/^-?(?:0|[1-9][0-9]*)$/.test(lexical)
+          || lexical === "-0" || !Number.isSafeInteger(Number(lexical))) {
+          throw new Error(`${label} numbers must be exact safe integers`);
+        }
+      }
+      return;
+    }
+    if (isSeq(node)) {
+      for (const item of node.items) inspect(item, depth + 1);
+      return;
+    }
+    if (isMap(node)) {
+      for (const pair of node.items) {
+        inspect(pair.key, depth + 1);
+        inspect(pair.value, depth + 1);
+      }
+      return;
+    }
+    throw new Error(`${label} contains an unsupported JSON node`);
+  };
+  inspect(document.contents, 0);
+  return document.toJS({ maxAliasCount: 0 });
+}
+
 export function validateCanaryDocument(input: unknown): CanaryDocument {
   const root = object(input, "canary output");
   exactKeys(root, ["schemaVersion", "outcome", "observations"], "canary output");
@@ -270,40 +314,5 @@ export function validateCanaryDocument(input: unknown): CanaryDocument {
 }
 
 export function parseCanaryDocument(bytes: Buffer): CanaryDocument {
-  let source: string;
-  try { source = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
-  catch { throw new Error("canary output is not valid UTF-8"); }
-  try { JSON.parse(source); }
-  catch { throw new Error("canary output is not valid JSON"); }
-  const document = parseDocument(source, { schema: "json", uniqueKeys: true });
-  if (document.errors.length || document.contents === null) throw new Error("canary output is invalid JSON");
-  let nodes = 0;
-  const inspect = (node: unknown, depth: number): void => {
-    nodes += 1;
-    if (nodes > 256 || depth > 8) throw new Error("canary output exceeds structural bounds");
-    if (isScalar(node)) {
-      if (typeof node.value === "number") {
-        const lexical = node.source;
-        if (typeof lexical !== "string" || !/^-?(?:0|[1-9][0-9]*)$/.test(lexical)
-          || lexical === "-0" || !Number.isSafeInteger(Number(lexical))) {
-          throw new Error("canary numeric observations must be exact safe integers");
-        }
-      }
-      return;
-    }
-    if (isSeq(node)) {
-      for (const item of node.items) inspect(item, depth + 1);
-      return;
-    }
-    if (isMap(node)) {
-      for (const pair of node.items) {
-        inspect(pair.key, depth + 1);
-        inspect(pair.value, depth + 1);
-      }
-      return;
-    }
-    throw new Error("canary output contains an unsupported JSON node");
-  };
-  inspect(document.contents, 0);
-  return validateCanaryDocument(document.toJS({ maxAliasCount: 0 }));
+  return validateCanaryDocument(parseExactJson(bytes, "canary output", 256, 8));
 }

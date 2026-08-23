@@ -12,6 +12,7 @@ import {
 import { writePrivateFileAtomic } from "../safe-output.ts";
 import {
   loadUpgradeConfig,
+  parseExactJson,
   readBoundedJson,
   trustedDirectoryInside,
   trustedRegularFileInside,
@@ -43,6 +44,7 @@ import {
 import {
   renderApmAutomaticPreflight,
   runApmAutomaticPreflight,
+  validateBoundApmAutomaticPreflightReceipt,
 } from "./apm-materialize.ts";
 import {
   enforceFleetPolicy,
@@ -73,6 +75,7 @@ Usage:
   vigil upgrade doctor [--repo <path>] [--config <path>] [--docker-bin <path>]
   vigil upgrade plan --manager <apm|skills|agent-plugin> --current <state> --candidate <state> [--repo <path>] [--output <plan.json>]
   vigil upgrade preflight --current-lock <apm.lock.yaml> --candidate-lock <apm.lock.yaml> [--plan <plan.json>] [--identity <apm:...>] [--repo <path>] [--config <path>] [--work-directory <path>] [--output <receipt.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>] [--fetch-bin <path>]
+  vigil upgrade verify-preflight <receipt.json> --current-lock <apm.lock.yaml> --candidate-lock <apm.lock.yaml>
   vigil upgrade check --current <dir> --candidate <dir> [--repo <path>] [--config <path>] [--output <private.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>]
   vigil upgrade verify <entry.json> [--public-key <path>]
   vigil upgrade evidence <entry.json> --output <issue.md> --public-key <path>
@@ -339,6 +342,36 @@ function positional(args: string[], optionsWithValues: string[]): string[] {
   return output;
 }
 
+function readBoundedExactJson(path: string, maximumBytes: number, label: string): unknown {
+  const status = lstatSync(path);
+  if (status.isSymbolicLink() || !status.isFile()) throw new Error(`${label} must be a regular non-symbolic-link file`);
+  if (status.size > maximumBytes) throw new Error(`${label} exceeds its maximum size`);
+  return parseExactJson(readFileSync(path), label);
+}
+
+function runVerifyPreflight(args: string[]): number {
+  assertKnown(args, ["--current-lock", "--candidate-lock"], ["--help"], true);
+  if (args.includes("--help")) { console.log(usage()); return 0; }
+  const inputs = positional(args, ["--current-lock", "--candidate-lock"]);
+  const currentOption = option(args, "--current-lock");
+  const candidateOption = option(args, "--candidate-lock");
+  if (inputs.length !== 1 || !currentOption || !candidateOption) {
+    throw new Error("upgrade verify-preflight requires one receipt and exact --current-lock and --candidate-lock files");
+  }
+  const receipt = validateBoundApmAutomaticPreflightReceipt(
+    readBoundedExactJson(resolve(inputs[0]), 4 * 1024 * 1024, "automatic APM preflight receipt"),
+    resolve(currentOption),
+    resolve(candidateOption),
+  );
+  console.log(JSON.stringify({
+    schemaVersion: receipt.schemaVersion,
+    verdict: receipt.summary.verdict,
+    receiptHash: receipt.receiptHash,
+    valid: true,
+  }));
+  return 0;
+}
+
 function runVerify(args: string[]): number {
   assertKnown(args, ["--public-key"], ["--help"], true);
   if (args.includes("--help")) { console.log(usage()); return 0; }
@@ -592,6 +625,7 @@ export function runUpgradeCommand(args: string[]): number | Promise<number> {
     if (command === "doctor") return runDoctor(rest);
     if (command === "plan") return runPlan(rest);
     if (command === "preflight") return runPreflight(rest);
+    if (command === "verify-preflight") return runVerifyPreflight(rest);
     if (command === "check") return runCheck(rest);
     if (command === "verify") return runVerify(rest);
     if (command === "evidence") return runEvidence(rest);

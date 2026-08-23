@@ -7059,7 +7059,7 @@ function buildNotaryCheck(reportPath, verification2, expectedHead, expectedPolic
 }
 
 // src/upgrade/cli.ts
-import { lstatSync as lstatSync9, realpathSync as realpathSync10, statSync as statSync9 } from "node:fs";
+import { lstatSync as lstatSync9, readFileSync as readFileSync21, realpathSync as realpathSync10, statSync as statSync9 } from "node:fs";
 import { basename as basename7, dirname as dirname9, isAbsolute as isAbsolute8, relative as relative12, resolve as resolve18, sep as sep10 } from "node:path";
 
 // src/upgrade/contracts.ts
@@ -13500,6 +13500,49 @@ function trustedDirectoryInside(repositoryPath, directoryPath, label) {
 function loadUpgradeConfig(path) {
   return validateUpgradeConfig(readBoundedJson(path, 256 * 1024, "upgrade config"));
 }
+function parseExactJson(bytes, label, maximumNodes = 1e5, maximumDepth = 64) {
+  let source;
+  try {
+    source = new TextDecoder2("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error(`${label} is not valid UTF-8`);
+  }
+  try {
+    JSON.parse(source);
+  } catch {
+    throw new Error(`${label} is not valid JSON`);
+  }
+  const document = parseDocument(source, { schema: "json", uniqueKeys: true });
+  if (document.errors.length || document.contents === null) throw new Error(`${label} is invalid JSON`);
+  let nodes = 0;
+  const inspect = (node, depth) => {
+    nodes += 1;
+    if (nodes > maximumNodes || depth > maximumDepth) throw new Error(`${label} exceeds structural bounds`);
+    if (isScalar(node)) {
+      if (typeof node.value === "number") {
+        const lexical = node.source;
+        if (typeof lexical !== "string" || !/^-?(?:0|[1-9][0-9]*)$/.test(lexical) || lexical === "-0" || !Number.isSafeInteger(Number(lexical))) {
+          throw new Error(`${label} numbers must be exact safe integers`);
+        }
+      }
+      return;
+    }
+    if (isSeq(node)) {
+      for (const item2 of node.items) inspect(item2, depth + 1);
+      return;
+    }
+    if (isMap(node)) {
+      for (const pair of node.items) {
+        inspect(pair.key, depth + 1);
+        inspect(pair.value, depth + 1);
+      }
+      return;
+    }
+    throw new Error(`${label} contains an unsupported JSON node`);
+  };
+  inspect(document.contents, 0);
+  return document.toJS({ maxAliasCount: 0 });
+}
 function validateCanaryDocument(input) {
   const root = object(input, "canary output");
   exactKeys2(root, ["schemaVersion", "outcome", "observations"], "canary output");
@@ -13519,47 +13562,7 @@ function validateCanaryDocument(input) {
   return { schemaVersion: CANARY_SCHEMA, outcome: root.outcome, observations: parsed };
 }
 function parseCanaryDocument(bytes) {
-  let source;
-  try {
-    source = new TextDecoder2("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw new Error("canary output is not valid UTF-8");
-  }
-  try {
-    JSON.parse(source);
-  } catch {
-    throw new Error("canary output is not valid JSON");
-  }
-  const document = parseDocument(source, { schema: "json", uniqueKeys: true });
-  if (document.errors.length || document.contents === null) throw new Error("canary output is invalid JSON");
-  let nodes = 0;
-  const inspect = (node, depth) => {
-    nodes += 1;
-    if (nodes > 256 || depth > 8) throw new Error("canary output exceeds structural bounds");
-    if (isScalar(node)) {
-      if (typeof node.value === "number") {
-        const lexical = node.source;
-        if (typeof lexical !== "string" || !/^-?(?:0|[1-9][0-9]*)$/.test(lexical) || lexical === "-0" || !Number.isSafeInteger(Number(lexical))) {
-          throw new Error("canary numeric observations must be exact safe integers");
-        }
-      }
-      return;
-    }
-    if (isSeq(node)) {
-      for (const item2 of node.items) inspect(item2, depth + 1);
-      return;
-    }
-    if (isMap(node)) {
-      for (const pair of node.items) {
-        inspect(pair.key, depth + 1);
-        inspect(pair.value, depth + 1);
-      }
-      return;
-    }
-    throw new Error("canary output contains an unsupported JSON node");
-  };
-  inspect(document.contents, 0);
-  return validateCanaryDocument(document.toJS({ maxAliasCount: 0 }));
+  return validateCanaryDocument(parseExactJson(bytes, "canary output", 256, 8));
 }
 
 // src/upgrade/receipt.ts
@@ -13698,7 +13701,7 @@ function inspectTarget(directory, component) {
   const manifestBytes = readFileSync15(manifestPath);
   let manifest;
   try {
-    manifest = JSON.parse(manifestBytes.toString("utf8"));
+    manifest = parseExactJson(manifestBytes, basename4(component.manifestPath));
   } catch {
     throw new Error(`${basename4(component.manifestPath)} is not valid JSON`);
   }
@@ -15036,6 +15039,16 @@ import { createHash as createHash17 } from "node:crypto";
 import { closeSync as closeSync3, fstatSync as fstatSync3, lstatSync as lstatSync6, openSync as openSync3, readFileSync as readFileSync18, readdirSync as readdirSync2, realpathSync as realpathSync7 } from "node:fs";
 import { basename as basename5, join as join7, resolve as resolve15 } from "node:path";
 import { TextDecoder as TextDecoder3 } from "node:util";
+
+// src/upgrade/portable-path.ts
+var WINDOWS_RESERVED_BASENAME = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+function isCrossPlatformSafeSegment(segment) {
+  if (!segment || segment === "." || segment === ".." || /[\u0000-\u001f\u007f<>:"/\\|?*]/.test(segment) || /[. ]$/.test(segment)) return false;
+  const basename8 = segment.split(".", 1)[0].replace(/[. ]+$/g, "");
+  return !WINDOWS_RESERVED_BASENAME.test(basename8);
+}
+
+// src/upgrade/manager-plan.ts
 var UPDATE_PLAN_SCHEMA = "agent-vigil-update-plan/v1";
 var UPDATE_PLAN_MAX_CHANGES = 4097;
 var LIMITATIONS2 = [
@@ -15621,6 +15634,10 @@ function changeReasons(current, candidate) {
 function finalizePlan(plan) {
   return { ...plan, planHash: hash4(canonical(plan)) };
 }
+function recomputeUpdatePlanHash(plan) {
+  const { planHash: _ignored, ...payload } = plan;
+  return hash4(canonical(payload));
+}
 function createUpdatePlan(input) {
   const generatedAt = exactUtcTimestamp(
     input.generatedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
@@ -15740,11 +15757,25 @@ var APM_KNOWN_DEPENDENCY_FIELDS = /* @__PURE__ */ new Set([
   "homepage",
   "attestations"
 ]);
+var APM_MATERIALIZED_UPDATE_FIELDS = /* @__PURE__ */ new Set([
+  "resolved_commit",
+  "tree_sha256",
+  "version",
+  "resolved_ref",
+  "resolved_tag",
+  "resolved_at",
+  "resolved_by"
+]);
+function apmUnmaterializedState(row) {
+  return canonical(Object.fromEntries(
+    Object.entries(row).filter(([field]) => !APM_MATERIALIZED_UPDATE_FIELDS.has(field))
+  ));
+}
 function apmPortablePath(value) {
   if (value === void 0) return void 0;
   const path = text3(value, "APM virtual_path", 1024);
   const parts = path.split("/");
-  if (path.startsWith("/") || path.includes("\\") || /[\u0000-\u001f\u007f]/.test(path) || parts.some((part) => !part || part === "." || part === "..")) {
+  if (path.startsWith("/") || parts.some((part) => !isCrossPlatformSafeSegment(part))) {
     throw new ApmMaterializationHold("SOURCE_ROUTE_UNSUPPORTED");
   }
   return path;
@@ -15822,6 +15853,9 @@ function selectApmMaterialization(input) {
   const current = currentSnapshot.records.get(selected.identity);
   const candidate = candidateSnapshot.records.get(selected.identity);
   if (!current || !candidate) throw new ApmMaterializationHold("SELECTED_PAIR_UNAVAILABLE");
+  if (!current.apmRow || !candidate.apmRow || apmUnmaterializedState(current.apmRow) !== apmUnmaterializedState(candidate.apmRow)) {
+    throw new ApmMaterializationHold("UNMATERIALIZED_ROW_STATE_CHANGED");
+  }
   return {
     plan,
     change: selected,
@@ -15896,6 +15930,174 @@ function hash5(value) {
 function finalizeReceipt2(receipt) {
   return { ...receipt, receiptHash: hash5(canonical(receipt)) };
 }
+function recomputeApmPreflightReceiptHash(receipt) {
+  const { receiptHash: _ignored, ...payload } = receipt;
+  return hash5(canonical(payload));
+}
+function receiptObject(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value;
+}
+function receiptExactKeys(value, allowed, required, label) {
+  const extras = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (extras.length || required.some((key) => !(key in value))) throw new Error(`${label} has an invalid shape`);
+}
+function receiptSha256(value, label) {
+  if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) throw new Error(`${label} is invalid`);
+  return value;
+}
+function validateApmAutomaticPreflightReceipt(input) {
+  const root = receiptObject(input, "automatic preflight receipt");
+  receiptExactKeys(
+    root,
+    [
+      "schemaVersion",
+      "generatedAt",
+      "nonce",
+      "plan",
+      "selection",
+      "materialization",
+      "upgradeReceipt",
+      "restoration",
+      "summary",
+      "limitations",
+      "receiptHash"
+    ],
+    ["schemaVersion", "generatedAt", "nonce", "plan", "restoration", "summary", "limitations", "receiptHash"],
+    "automatic preflight receipt"
+  );
+  if (root.schemaVersion !== APM_PREFLIGHT_SCHEMA) throw new Error("automatic preflight schema is invalid");
+  if (typeof root.generatedAt !== "string" || typeof root.nonce !== "string") throw new Error("automatic preflight identity is invalid");
+  const plan = receiptObject(root.plan, "automatic preflight plan");
+  receiptSha256(plan.planHash, "automatic preflight plan hash");
+  if (recomputeUpdatePlanHash(plan) !== plan.planHash || plan.generatedAt !== root.generatedAt) {
+    throw new Error("automatic preflight plan binding is invalid");
+  }
+  const restoration = receiptObject(root.restoration, "automatic preflight restoration");
+  receiptExactKeys(
+    restoration,
+    ["status", "hostMutation", "sessionRemoved", "reasonCode"],
+    ["status", "hostMutation", "sessionRemoved", "reasonCode"],
+    "automatic preflight restoration"
+  );
+  if (restoration.status !== "RESTORED" && restoration.status !== "HOLD" || restoration.hostMutation !== "NONE" || typeof restoration.sessionRemoved !== "boolean" || typeof restoration.reasonCode !== "string" || restoration.status === "RESTORED" !== restoration.sessionRemoved) {
+    throw new Error("automatic preflight restoration binding is invalid");
+  }
+  const summary = receiptObject(root.summary, "automatic preflight summary");
+  receiptExactKeys(summary, ["verdict", "reasonCodes"], ["verdict", "reasonCodes"], "automatic preflight summary");
+  const verdict = summary.verdict;
+  if (verdict !== "SAFE" && verdict !== "CHANGED" && verdict !== "HOLD") throw new Error("automatic preflight verdict is invalid");
+  if (!Array.isArray(summary.reasonCodes) || !summary.reasonCodes.length || summary.reasonCodes.some((reason) => typeof reason !== "string" || !reason.length)) {
+    throw new Error("automatic preflight reason codes are invalid");
+  }
+  if (!Array.isArray(root.limitations) || root.limitations.some((value) => typeof value !== "string")) {
+    throw new Error("automatic preflight limitations are invalid");
+  }
+  const receipt = root;
+  receiptSha256(receipt.receiptHash, "automatic preflight receipt hash");
+  if (recomputeApmPreflightReceiptHash(receipt) !== receipt.receiptHash) {
+    throw new Error("automatic preflight receipt hash is invalid");
+  }
+  if (verdict === "HOLD") return receipt;
+  if (restoration.status !== "RESTORED" || plan.summary?.total !== 1 || plan.summary?.eligiblePairs !== 1 || !Array.isArray(plan.changes) || plan.changes.length !== 1) {
+    throw new Error("automatic preflight non-HOLD plan is invalid");
+  }
+  const selection = receiptObject(root.selection, "automatic preflight selection");
+  receiptExactKeys(
+    selection,
+    ["identity", "selectedChangeSha256", "currentRowSha256", "candidateRowSha256"],
+    ["identity", "selectedChangeSha256", "currentRowSha256", "candidateRowSha256"],
+    "automatic preflight selection"
+  );
+  if (selection.identity !== plan.changes[0].identity || receiptSha256(selection.selectedChangeSha256, "selected change hash") !== hash5(canonical(plan.changes[0]))) {
+    throw new Error("automatic preflight selection binding is invalid");
+  }
+  const materialization = receiptObject(root.materialization, "automatic preflight materialization");
+  receiptExactKeys(materialization, ["current", "candidate"], ["current", "candidate"], "automatic preflight materialization");
+  const currentProof = receiptObject(materialization.current, "current materialization");
+  const candidateProof = receiptObject(materialization.candidate, "candidate materialization");
+  const proofKeys = [
+    "routeSha256",
+    "rowSha256",
+    "commit",
+    "expectedTreeSha256",
+    "fetchedSha256",
+    "fetchedBytes",
+    "materializedTreeSha256",
+    "fileCount",
+    "totalBytes",
+    "selectedArtifact"
+  ];
+  receiptExactKeys(currentProof, proofKeys, proofKeys, "current materialization");
+  receiptExactKeys(candidateProof, proofKeys, proofKeys, "candidate materialization");
+  for (const [label, proof] of [["current", currentProof], ["candidate", candidateProof]]) {
+    for (const field of ["routeSha256", "rowSha256", "expectedTreeSha256", "fetchedSha256", "materializedTreeSha256"]) {
+      receiptSha256(proof[field], `${label} materialization ${field}`);
+    }
+    if (typeof proof.commit !== "string" || !/^[0-9a-f]{40}$/.test(proof.commit) || !Number.isSafeInteger(proof.fetchedBytes) || proof.fetchedBytes < 1 || proof.fetchedBytes > MAX_ARCHIVE_BYTES || !Number.isSafeInteger(proof.fileCount) || proof.fileCount < 1 || proof.fileCount > MAX_FILES2 || !Number.isSafeInteger(proof.totalBytes) || proof.totalBytes < 0 || proof.totalBytes > MAX_TOTAL_BYTES2) {
+      throw new Error(`${label} materialization evidence is invalid`);
+    }
+    const artifact = receiptObject(proof.selectedArtifact, `${label} selected artifact`);
+    receiptExactKeys(
+      artifact,
+      ["treeSha256", "fileCount", "totalBytes"],
+      ["treeSha256", "fileCount", "totalBytes"],
+      `${label} selected artifact`
+    );
+    receiptSha256(artifact.treeSha256, `${label} selected artifact tree hash`);
+    if (!Number.isSafeInteger(artifact.fileCount) || artifact.fileCount < 0 || artifact.fileCount > MAX_FILES2 || !Number.isSafeInteger(artifact.totalBytes) || artifact.totalBytes < 0 || artifact.totalBytes > MAX_TOTAL_BYTES2) {
+      throw new Error(`${label} selected artifact inventory is invalid`);
+    }
+  }
+  if (receiptSha256(selection.currentRowSha256, "current row hash") !== currentProof.rowSha256 || receiptSha256(selection.candidateRowSha256, "candidate row hash") !== candidateProof.rowSha256 || currentProof.expectedTreeSha256 !== currentProof.materializedTreeSha256 || candidateProof.expectedTreeSha256 !== candidateProof.materializedTreeSha256) {
+    throw new Error("automatic preflight materialization binding is invalid");
+  }
+  const nested = receiptObject(root.upgradeReceipt, "automatic preflight nested receipt");
+  if (recomputeUpgradeReceiptHash(nested) !== nested.receiptHash || nested.generatedAt !== receipt.generatedAt || nested.nonce !== receipt.nonce || nested.summary?.verdict !== verdict || nested.containment?.status !== "PASS" || nested.containment?.localEndpoint !== true || !nested.current || !nested.candidate || !nested.canaryHarness || !Array.isArray(nested.canaries) || !nested.canaries.length || !Array.isArray(nested.capabilities)) {
+    throw new Error("automatic preflight nested receipt binding is invalid");
+  }
+  const nestedDecision = decideUpgrade(nested.containment, nested.current, nested.candidate, nested.canaries);
+  if (canonical(nestedDecision.capabilities) !== canonical(nested.capabilities) || nestedDecision.verdict !== nested.summary.verdict || canonical(nestedDecision.reasons) !== canonical(nested.summary.reasons) || nested.summary.comparedCanaries !== nested.canaries.filter((canary) => canary.comparable).length || nested.summary.changedCanaries !== nested.canaries.filter((canary) => canary.changed).length || nested.summary.changedCapabilities !== nested.capabilities.filter((capability) => capability.changed).length) {
+    throw new Error("automatic preflight nested decision is invalid");
+  }
+  const currentArtifact = receiptObject(currentProof.selectedArtifact, "current selected artifact");
+  const candidateArtifact = receiptObject(candidateProof.selectedArtifact, "candidate selected artifact");
+  if (currentArtifact.treeSha256 !== nested.current?.treeSha256 || candidateArtifact.treeSha256 !== nested.candidate?.treeSha256) {
+    throw new Error("automatic preflight selected artifact binding is invalid");
+  }
+  return receipt;
+}
+function validateBoundApmAutomaticPreflightReceipt(input, currentLockPath, candidateLockPath) {
+  const receipt = validateApmAutomaticPreflightReceipt(input);
+  const exactPlan = createUpdatePlan({
+    manager: "apm",
+    currentPath: currentLockPath,
+    candidatePath: candidateLockPath,
+    generatedAt: receipt.generatedAt
+  });
+  if (canonical(exactPlan) !== canonical(receipt.plan)) {
+    throw new Error("automatic preflight receipt does not match the exact APM lockfiles");
+  }
+  if (receipt.summary.verdict === "HOLD") return receipt;
+  const selection = selectApmMaterialization({
+    currentPath: currentLockPath,
+    candidatePath: candidateLockPath,
+    generatedAt: receipt.generatedAt,
+    identity: receipt.selection?.identity
+  });
+  if (!receipt.selection || !receipt.materialization?.current || !receipt.materialization.candidate || canonical(selection.plan) !== canonical(receipt.plan) || selection.selectedChangeSha256 !== receipt.selection.selectedChangeSha256 || selection.current.rowSha256 !== receipt.selection.currentRowSha256 || selection.candidate.rowSha256 !== receipt.selection.candidateRowSha256) {
+    throw new Error("automatic preflight selection does not match the exact APM lockfiles");
+  }
+  for (const [expected, proof] of [
+    [selection.current, receipt.materialization.current],
+    [selection.candidate, receipt.materialization.candidate]
+  ]) {
+    if (expected.commit !== proof.commit || expected.expectedTreeSha256 !== proof.expectedTreeSha256 || expected.routeSha256 !== proof.routeSha256 || expected.rowSha256 !== proof.rowSha256) {
+      throw new Error("automatic preflight materialization does not match the selected APM row");
+    }
+  }
+  return receipt;
+}
 function strictUtf82(bytes, label) {
   try {
     return new TextDecoder4("utf-8", { fatal: true }).decode(bytes);
@@ -15934,7 +16136,7 @@ function normalizedArchivePath(value) {
   }
   const trimmed = value.endsWith("/") ? value.slice(0, -1) : value;
   const parts = trimmed.split("/");
-  if (!parts[0] || parts.some((part) => !part || part === "." || part === "..")) {
+  if (!parts[0] || parts.some((part) => !isCrossPlatformSafeSegment(part))) {
     throw new PreflightHold("ARCHIVE_PATH_UNSAFE");
   }
   return { root: parts[0], ...parts.length > 1 ? { relativePath: parts.slice(1).join("/") } : {} };
@@ -17262,6 +17464,7 @@ Usage:
   vigil upgrade doctor [--repo <path>] [--config <path>] [--docker-bin <path>]
   vigil upgrade plan --manager <apm|skills|agent-plugin> --current <state> --candidate <state> [--repo <path>] [--output <plan.json>]
   vigil upgrade preflight --current-lock <apm.lock.yaml> --candidate-lock <apm.lock.yaml> [--plan <plan.json>] [--identity <apm:...>] [--repo <path>] [--config <path>] [--work-directory <path>] [--output <receipt.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>] [--fetch-bin <path>]
+  vigil upgrade verify-preflight <receipt.json> --current-lock <apm.lock.yaml> --candidate-lock <apm.lock.yaml>
   vigil upgrade check --current <dir> --candidate <dir> [--repo <path>] [--config <path>] [--output <private.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>]
   vigil upgrade verify <entry.json> [--public-key <path>]
   vigil upgrade evidence <entry.json> --output <issue.md> --public-key <path>
@@ -17532,6 +17735,37 @@ function positional(args, optionsWithValues) {
   }
   return output;
 }
+function readBoundedExactJson(path, maximumBytes, label) {
+  const status = lstatSync9(path);
+  if (status.isSymbolicLink() || !status.isFile()) throw new Error(`${label} must be a regular non-symbolic-link file`);
+  if (status.size > maximumBytes) throw new Error(`${label} exceeds its maximum size`);
+  return parseExactJson(readFileSync21(path), label);
+}
+function runVerifyPreflight(args) {
+  assertKnown(args, ["--current-lock", "--candidate-lock"], ["--help"], true);
+  if (args.includes("--help")) {
+    console.log(usage());
+    return 0;
+  }
+  const inputs = positional(args, ["--current-lock", "--candidate-lock"]);
+  const currentOption = option(args, "--current-lock");
+  const candidateOption = option(args, "--candidate-lock");
+  if (inputs.length !== 1 || !currentOption || !candidateOption) {
+    throw new Error("upgrade verify-preflight requires one receipt and exact --current-lock and --candidate-lock files");
+  }
+  const receipt = validateBoundApmAutomaticPreflightReceipt(
+    readBoundedExactJson(resolve18(inputs[0]), 4 * 1024 * 1024, "automatic APM preflight receipt"),
+    resolve18(currentOption),
+    resolve18(candidateOption)
+  );
+  console.log(JSON.stringify({
+    schemaVersion: receipt.schemaVersion,
+    verdict: receipt.summary.verdict,
+    receiptHash: receipt.receiptHash,
+    valid: true
+  }));
+  return 0;
+}
 function runVerify(args) {
   assertKnown(args, ["--public-key"], ["--help"], true);
   if (args.includes("--help")) {
@@ -17799,6 +18033,7 @@ function runUpgradeCommand(args) {
     if (command === "doctor") return runDoctor(rest);
     if (command === "plan") return runPlan(rest);
     if (command === "preflight") return runPreflight(rest);
+    if (command === "verify-preflight") return runVerifyPreflight(rest);
     if (command === "check") return runCheck(rest);
     if (command === "verify") return runVerify(rest);
     if (command === "evidence") return runEvidence(rest);
@@ -18491,7 +18726,7 @@ Usage:
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
-  vigil upgrade <init|doctor|plan|preflight|check|verify|evidence|resolve|enforce|index|publish|telemetry-register|telemetry> [options]
+  vigil upgrade <init|doctor|plan|preflight|verify-preflight|check|verify|evidence|resolve|enforce|index|publish|telemetry-register|telemetry> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)

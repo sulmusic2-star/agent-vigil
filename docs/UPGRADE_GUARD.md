@@ -176,6 +176,28 @@ A plan is never enough by itself because it
 intentionally omits the private source route; both exact lockfiles remain
 required.
 
+Re-verify a saved wrapper against those exact lockfile bytes before consuming
+its verdict or hash:
+
+```bash
+vigil upgrade verify-preflight \
+  .agent-vigil/upgrade/apm-preflight-receipt.json \
+  --current-lock ./states/current/apm.lock.yaml \
+  --candidate-lock ./states/candidate/apm.lock.yaml
+```
+
+This independently recomputes the plan and selected-row bindings, both receipt
+hashes, the recorded decision, artifact commitments, restoration state, and the
+nested verdict. It exits successfully only for a structurally and semantically
+valid wrapper; callers must separately enforce the preflight exit-to-verdict
+mapping (`0` to `SAFE`, `1` to `CHANGED`, `2` to `HOLD`).
+
+The selected row must also be a pure artifact version/tree transition. Changes
+to deployment selection, skill/target subsets, package type, virtual path,
+marketplace ownership, constraints, or deployment ledgers return
+`HOLD: UNMATERIALIZED_ROW_STATE_CHANGED` until an exact materialization
+transform implements and verifies those semantics.
+
 Automatic materialization is deliberately narrow. Both selected rows must be
 credential-free public GitHub git sources, expressed as `repo_url: owner/repo`
 with `host: github.com` or as `repo_url: github.com/owner/repo`, with a lowercase
