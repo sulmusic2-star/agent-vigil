@@ -26,7 +26,7 @@ policy identity, summary counts, and a signer key ID. CI verifies the signer
 against policy from the base branch and independently re-runs the trusted test
 command in the clean checkout.
 
-The local-alpha `vigil plan` command compares two exact Git revisions and
+The `vigil plan` command compares two exact Git revisions and
 shows semantic expansions and contractions in repository-declared MCP, Claude
 Code, and Codex authority:
 
@@ -40,6 +40,12 @@ hooks, removed denies, and weaker sandbox or approval boundaries block.
 Unsupported or incomparable changes return `HOLD`. The current scope does not
 claim live tools, managed settings, runtime behavior, provider-side grants, or
 effective credentials. See the [Agent Authority Plan contract](docs/AUTHORITY_PLAN.md).
+
+`vigil proof-comment` turns an intact full receipt into one deterministic,
+aggregate-only pull-request comment with a stable update marker. It reports the
+exact change and measured evidence counts without copying raw evidence,
+commands, paths, transcripts, or test output. See the
+[proof-comment contract](docs/PROOF_COMMENT.md).
 
 `vigil compare` checks two full receipts. It fails on weakened
 policy, tampered content, lost signer continuity, new contradictions, and

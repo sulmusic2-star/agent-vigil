@@ -1224,7 +1224,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.14.1";
+var VERSION = "0.15.0-dev.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1241,9 +1241,9 @@ function buildReport(input) {
     ...input.policy?.source ? { source: input.policy.source } : {},
     sha256: input.policy?.sha256 ?? "sha256:unavailable"
   };
-  const count = (verdict) => input.results.filter((r) => r.verdict === verdict).length;
-  const contradicted = count("contradicted");
-  const unverifiable = count("unverifiable");
+  const count2 = (verdict) => input.results.filter((r) => r.verdict === verdict).length;
+  const contradicted = count2("contradicted");
+  const unverifiable = count2("unverifiable");
   const meaningfulVerified = input.results.filter(
     (r) => r.verdict === "verified" && r.contributesToPass !== false
   ).length;
@@ -1252,7 +1252,7 @@ function buildReport(input) {
   else if (meaningfulVerified < policy.minVerified || input.results.some((result5) => result5.verdict === "unverifiable" && result5.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
   else status = "PASS";
   const summary = {
-    verified: count("verified"),
+    verified: count2("verified"),
     contradicted,
     unverifiable,
     meaningfulVerified,
@@ -1703,10 +1703,10 @@ function runDemo(run2) {
   git2(repo, "add", "README.md");
   git2(repo, "commit", "-qm", "head");
   const evidence = mkdtempSync(join2(tmpdir(), "agent-vigil-demo-evidence-"));
-  const count = join2(evidence, "false-count.md");
+  const count2 = join2(evidence, "false-count.md");
   const ghost = join2(evidence, "ghost-file.md");
   const loop = join2(evidence, "tool-loop.jsonl");
-  writeFileSync2(count, "All 99 tests pass.\n");
+  writeFileSync2(count2, "All 99 tests pass.\n");
   writeFileSync2(ghost, "I created src/ghost.ts. The work is complete.\n");
   const rows = [
     { type: "assistant", message: { content: [{ type: "text", text: "The test suite passes." }] } },
@@ -1715,7 +1715,7 @@ function runDemo(run2) {
   writeFileSync2(loop, `${rows.map((row) => JSON.stringify(row)).join("\n")}
 `);
   const scenarios = [
-    ["claimed 99 tests; runner has 1", count],
+    ["claimed 99 tests; runner has 1", count2],
     ["claimed a file that does not exist", ghost],
     ["repeated the identical tool call 3 times", loop]
   ];
@@ -1723,8 +1723,8 @@ function runDemo(run2) {
   console.log("Agent Vigil adversarial demo\n");
   for (const [label, transcript] of scenarios) {
     console.log(`=== ${label} ===`);
-    const code = run2([transcript, "--repo", repo, "--base", "HEAD~1", "--head", "HEAD", "--strict"]);
-    if (code === 1) caught++;
+    const code2 = run2([transcript, "--repo", repo, "--base", "HEAD~1", "--head", "HEAD", "--strict"]);
+    if (code2 === 1) caught++;
     console.log("");
   }
   console.log(`${caught}/${scenarios.length} planted contradictions caught.`);
@@ -2796,7 +2796,7 @@ function analyzeTrajectory(actions) {
     toolCalls: actions.length,
     failedToolCalls: actions.filter((action) => action.failed).length,
     maxIdenticalToolCalls: counts.length ? Math.max(...counts) : 0,
-    repeatedActionGroups: counts.filter((count) => count > 1).length,
+    repeatedActionGroups: counts.filter((count2) => count2 > 1).length,
     maxConsecutiveFailedToolCalls: maxFailureStreak,
     progressBearingActions: actions.filter((action) => action.classes.some((item2) => progressClasses.has(item2))).length
   };
@@ -3638,12 +3638,12 @@ function buildPortableGateReport(receipt, options) {
 import { createHash as createHash7 } from "node:crypto";
 function consistencyErrors(report) {
   const errors = [];
-  const count = (verdict) => report.results.filter((row) => row.verdict === verdict).length;
+  const count2 = (verdict) => report.results.filter((row) => row.verdict === verdict).length;
   const meaningfulVerified = report.results.filter((row) => row.verdict === "verified" && row.contributesToPass !== false).length;
-  const expectedStatus = count("contradicted") > 0 ? "FAIL" : meaningfulVerified < report.policy.minVerified || report.results.some((row) => row.verdict === "unverifiable" && row.blocksPass) || report.policy.strict && count("unverifiable") > 0 ? "INCONCLUSIVE" : "PASS";
-  if (report.summary.verified !== count("verified")) errors.push("verified count does not match results");
-  if (report.summary.contradicted !== count("contradicted")) errors.push("contradicted count does not match results");
-  if (report.summary.unverifiable !== count("unverifiable")) errors.push("unverifiable count does not match results");
+  const expectedStatus = count2("contradicted") > 0 ? "FAIL" : meaningfulVerified < report.policy.minVerified || report.results.some((row) => row.verdict === "unverifiable" && row.blocksPass) || report.policy.strict && count2("unverifiable") > 0 ? "INCONCLUSIVE" : "PASS";
+  if (report.summary.verified !== count2("verified")) errors.push("verified count does not match results");
+  if (report.summary.contradicted !== count2("contradicted")) errors.push("contradicted count does not match results");
+  if (report.summary.unverifiable !== count2("unverifiable")) errors.push("unverifiable count does not match results");
   if (report.summary.meaningfulVerified !== meaningfulVerified) errors.push("meaningfulVerified count does not match results");
   if (report.summary.status !== expectedStatus) errors.push(`status ${report.summary.status} should be ${expectedStatus}`);
   if (report.summary.pass !== (report.summary.status === "PASS")) errors.push("pass boolean does not match status");
@@ -5455,7 +5455,7 @@ function extractCodex(path, parsed) {
     constraints: [`mode=${approvalMode}`],
     locator: "approval_policy",
     comparisonValue: approval,
-    added: approvalMode === "never" ? hold("AVP004", "approval_policy=never suppresses interactive escalation; safety depends on the sandbox and policy rules", "high") : approvalMode === "unknown" ? HOLD_UNKNOWN : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
+    added: approvalMode === "never" ? expansion("AVP004", "approval_policy=never suppresses interactive escalation", "critical") : approvalMode === "unknown" ? HOLD_UNKNOWN : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
     removed: HOLD_UNKNOWN,
     compare: (before, after) => before.comparisonToken === after.comparisonToken ? "equal" : "incomparable"
   }));
@@ -5756,8 +5756,9 @@ function renderAuthorityPlanText(plan) {
     lines.push(`      ${delta.ruleId}: ${delta.reason}`);
   }
   for (const gap of plan.gaps) {
-    lines.push(`  ? [HOLD] ${gap.platform} ${gap.sourcePath}:${gap.locator}`);
-    lines.push(`      AVP001: ${gap.reason}`);
+    const disposition = plan.policy.allowUnknownChanges ? "ALLOW" : "HOLD";
+    lines.push(`  ? [${disposition}] ${gap.platform} ${gap.sourcePath}:${gap.locator}`);
+    lines.push(`      AVP001: ${gap.reason}${plan.policy.allowUnknownChanges ? "; allowed by the trusted base revision policy" : ""}`);
   }
   lines.push(
     "",
@@ -5771,7 +5772,7 @@ function renderAuthorityPlanMarkdown(plan) {
     (delta) => `| ${delta.disposition} | \`${delta.ruleId}\` | ${delta.change} | ${delta.direction} | ${delta.summary.replace(/\|/g, "\\|")} | ${delta.reason.replace(/\|/g, "\\|")} |`
   );
   const gaps = plan.gaps.map(
-    (gap) => `| HOLD | \`AVP001\` | GAP | INCOMPARABLE | ${gap.platform} ${gap.sourcePath}:${gap.locator} | ${gap.reason.replace(/\|/g, "\\|")} |`
+    (gap) => `| ${plan.policy.allowUnknownChanges ? "ALLOW" : "HOLD"} | \`AVP001\` | GAP | INCOMPARABLE | ${gap.platform} ${gap.sourcePath}:${gap.locator} | ${(gap.reason + (plan.policy.allowUnknownChanges ? "; allowed by the trusted base revision policy" : "")).replace(/\|/g, "\\|")} |`
   );
   return [
     `# Agent authority plan: ${plan.status}`,
@@ -5806,6 +5807,15 @@ function receiptRuleKind(delta) {
   if (atom2.action.startsWith("filesystem.") || atom2.resource.startsWith("unix:")) return "filesystem";
   return atom2.kind;
 }
+function receiptSubject(delta, kind) {
+  const atom2 = delta.after ?? delta.before;
+  if (!atom2) return delta.summary;
+  if (kind === "server") {
+    const name = atom2.action === "mcp.connect" ? atom2.resource.split(":", 1)[0] : atom2.subject;
+    return `server: mcp:${name}`;
+  }
+  return `${kind}: ${atom2.resource}`;
+}
 function authorityPlanChecks(plan) {
   const results = [{
     claim: {
@@ -5821,20 +5831,31 @@ function authorityPlanChecks(plan) {
   }];
   const advisories = [];
   for (const delta of plan.deltas) {
+    const kind = receiptRuleKind(delta);
     const check = {
       claim: {
         kind: "authority_scope",
-        subject: delta.summary,
+        subject: receiptSubject(delta, kind),
         quote: "semantic agent authority delta"
       },
       verdict: delta.disposition === "BLOCK" ? "contradicted" : delta.disposition === "HOLD" ? "unverifiable" : "verified",
       evidence: `${delta.ruleId}: ${delta.reason}; ${delta.approvalKey}`,
-      ruleId: `authority-${receiptRuleKind(delta)}`,
+      ruleId: `authority-${kind}`,
       contributesToPass: false,
       ...delta.disposition === "HOLD" ? { blocksPass: true } : {}
     };
     if (delta.disposition === "ALLOW") advisories.push(check);
     else results.push(check);
+    const atom2 = delta.after ?? delta.before;
+    if (kind !== "network" && atom2?.effect === "network") {
+      const networkCheck = {
+        ...check,
+        claim: { ...check.claim, subject: `network: ${atom2.resource}` },
+        ruleId: "authority-network"
+      };
+      if (delta.disposition === "ALLOW") advisories.push(networkCheck);
+      else results.push(networkCheck);
+    }
   }
   for (const gap of plan.gaps) {
     const check = {
@@ -8499,6 +8520,70 @@ function runUpgradeCommand(args) {
   }
 }
 
+// src/proof-comment.ts
+var PROOF_COMMENT_MARKER = "<!-- agent-vigil-proof-comment:v1 -->";
+function code(value) {
+  return `\`${terminalSafe(value).replace(/`/g, "\\`")}\``;
+}
+function count(results, ruleId, verdict) {
+  return results.filter((result5) => result5.ruleId === ruleId && (!verdict || result5.verdict === verdict)).length;
+}
+function verifiedUrl(raw) {
+  if (!raw) return void 0;
+  if (raw.length > 2048) throw new Error("proof comment verify URL exceeds 2048 characters");
+  let value;
+  try {
+    value = new URL(raw);
+  } catch {
+    throw new Error("proof comment verify URL must be an absolute HTTPS URL");
+  }
+  if (value.protocol !== "https:" || value.username || value.password) {
+    throw new Error("proof comment verify URL must be an absolute HTTPS URL without credentials");
+  }
+  return value.toString();
+}
+function renderProofComment(report, options = {}) {
+  const verification2 = verifyReport(report);
+  if (!verification2.hashValid) throw new Error("proof comment receipt content does not match receiptHash");
+  if (verification2.signatureValid === false) throw new Error("proof comment receipt signature is invalid");
+  const results = report.results ?? [];
+  const differentialEarned = count(results, "differential-test", "verified");
+  const differentialAlsoPassedBase = count(results, "differential-base-fail", "contradicted");
+  const integrityChanges = results.filter(
+    (result5) => result5.verdict === "contradicted" && (result5.claim.kind === "integrity" || result5.ruleId?.startsWith("integrity-"))
+  ).length;
+  const authorityBlocks = results.filter(
+    (result5) => result5.verdict === "contradicted" && result5.ruleId !== "authority-plan" && result5.ruleId?.startsWith("authority-")
+  ).length;
+  const signature = verification2.signatureValid ? "valid embedded Ed25519 signature; signer identity is not pinned" : "absent; content hash only";
+  const url = verifiedUrl(options.verifyUrl);
+  const title = report.summary.status === "PASS" ? "Required evidence is present for this exact change" : report.summary.status === "FAIL" ? "Required evidence was contradicted for this exact change" : "Evidence is incomplete for this exact change";
+  const facts = [
+    `- **Evidence:** ${report.summary.verified} verified, ${report.summary.contradicted} contradicted, ${report.summary.unverifiable} unresolved`,
+    `- **Candidate-only regression checks:** ${differentialEarned} verified`,
+    `- **Changed regression checks that also passed on base:** ${differentialAlsoPassedBase}`,
+    `- **Integrity-control contradictions:** ${integrityChanges}`,
+    `- **Unapproved authority contradictions:** ${authorityBlocks}`
+  ];
+  return [
+    PROOF_COMMENT_MARKER,
+    `### Agent Vigil: ${report.summary.status}`,
+    "",
+    title,
+    "",
+    ...facts,
+    "",
+    `**Change:** ${code(report.base)} -> ${code(report.head)}  `,
+    `**Policy:** ${code(report.policy.sha256)}  `,
+    `**Receipt:** ${code(report.receiptHash)}  `,
+    `**Signature:** ${signature}`,
+    ...url ? ["", `[Verify this receipt](${url.replace(/[()]/g, (character) => `\\${character}`)})`] : [],
+    "",
+    "The retained receipt contains the check details. This result does not prove that the code is bug-free or that unobserved actions did not occur.",
+    ""
+  ].join("\n");
+}
+
 // src/cli.ts
 function usage2() {
   return `agent-vigil ${VERSION}
@@ -8511,6 +8596,7 @@ Usage:
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
+  vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
@@ -8604,6 +8690,21 @@ function runPlan(args) {
       appendPrivateFileAtomic(resolve17(summaryPath), renderAuthorityPlanMarkdown(report));
     }
     return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runProofComment(args) {
+  try {
+    const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--verify-url", "--output"]));
+    if (parsed.positional.length !== 1) throw new Error("proof-comment requires exactly one full receipt JSON path");
+    const { report } = loadReceipt(resolve17(parsed.positional[0]));
+    const rendered = renderProofComment(report, { verifyUrl: parsed.values.get("--verify-url") });
+    const output = parsed.values.get("--output");
+    if (output) writePrivateFileAtomic(resolve17(output), rendered);
+    else process.stdout.write(rendered);
+    return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -9417,6 +9518,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
   if (argv[0] === "plan") return runPlan(argv);
+  if (argv[0] === "proof-comment") return runProofComment(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);
   if (argv[0] === "init") return runInit2(argv);
   if (argv[0] === "doctor") return runDoctor2(argv);

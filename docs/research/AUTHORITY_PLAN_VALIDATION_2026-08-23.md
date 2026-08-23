@@ -1,11 +1,14 @@
-# Authority Plan validation record
+# Authority Plan seed validation record
 
-Observed 2026-08-23 in the isolated local worktree
+Observed 2026-08-23 in the original isolated local worktree
 `agent-vigil-authority-plan.nosync` on branch `codex/authority-plan-v1`.
 Baseline commit: `79844663387cc6d45d8fee19f376d30ba263f302`.
+Seed implementation commit: `45c963faba1d7eb155473c7eb4f8ad0e6c4c5eb4`.
 
-Status: local, uncommitted candidate. Not pushed, published, installed in an
-external repository, paid for, or generating revenue.
+This record describes the seed evaluation before it was forward-ported onto
+v0.14.0. It is corpus provenance, not the release receipt for the v0.15
+candidate. The seed commit was local and not separately pushed, published,
+installed in an external repository, paid for, or generating revenue.
 
 ## Public-revision corpus
 
@@ -79,7 +82,7 @@ The five fixed defects above are internal corpus findings. They do not count as
 maintainer-accepted catches. Green local tests do not change any external
 count.
 
-## Final local verification
+## Seed local verification
 
 | Check | Result |
 |---|---|
@@ -96,5 +99,7 @@ count.
 
 The Docker run used
 `node@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2`.
-These are local technical results. They do not prove security, runtime effective
-authority, external usefulness, customer retention, payment, or revenue.
+These are seed-candidate local technical results. They do not prove the current
+branch, security, runtime effective authority, external usefulness, customer
+retention, payment, or revenue. Current-branch evidence belongs in its exact-SHA
+pull-request checks and release receipt.

@@ -54,6 +54,7 @@ import {
 } from "./attestation.ts";
 import { runUpgradeCommand } from "./upgrade/cli.ts";
 import { authorityPlanChecks, buildAuthorityPlan, renderAuthorityPlan, renderAuthorityPlanMarkdown } from "./authority-plan.ts";
+import { renderProofComment } from "./proof-comment.ts";
 
 type Options = {
   transcript?: string;
@@ -84,6 +85,7 @@ Usage:
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
+  vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
@@ -179,6 +181,19 @@ function runPlan(args: string[]): number {
       appendPrivateFileAtomic(resolve(summaryPath), renderAuthorityPlanMarkdown(report));
     }
     return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runProofComment(args: string[]): number {
+  try {
+    const parsed = parseCommandArgs(args, new Set(["--verify-url", "--output"]));
+    if (parsed.positional.length !== 1) throw new Error("proof-comment requires exactly one full receipt JSON path");
+    const { report } = loadReceipt(resolve(parsed.positional[0]));
+    const rendered = renderProofComment(report, { verifyUrl: parsed.values.get("--verify-url") });
+    const output = parsed.values.get("--output");
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return 0;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -942,6 +957,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
   if (argv[0] === "plan") return runPlan(argv);
+  if (argv[0] === "proof-comment") return runProofComment(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);
   if (argv[0] === "init") return runInit(argv);
   if (argv[0] === "doctor") return runDoctor(argv);

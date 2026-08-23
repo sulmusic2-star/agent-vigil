@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add `vigil proof-comment`, a deterministic, aggregate-only rendering of an
+  intact full receipt for one marker-based pull-request comment. It omits raw
+  evidence and refuses non-HTTPS verification links.
+- Extend Authority Plan with cross-vendor semantic atoms, control-specific
+  partial orders, exact structural approval keys, trusted-base exceptions,
+  broader repository configuration discovery, and a 100-revision public
+  execution corpus with 100 planted authority expansions.
+
 ## 0.14.1 - 2026-08-23
 
 - Correct Marketplace wording now that Agent Authority Plan is released.
