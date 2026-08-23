@@ -2,10 +2,13 @@
 
 ## Unreleased
 
+## 0.15.0 - 2026-08-23
+
 - Add chained Control Proof certificates, weekly freshness policies, baseline
-  and authority policy packs, and organization status reports.
+  and authority policy packs, organization status reports, four public JSON
+  Schemas, and a weekly 90-day dogfood bundle.
 - Add `vigil prove`, a local control-effectiveness check that creates a
-  disposable clone, plants six safe change scenarios, and returns `HOLD`
+  disposable clone, plants six safe change scenarios plus a cleanup check, and returns `HOLD`
   unless every expected PASS, BLOCK, and HOLD result is observed.
 - Add Action `mode: prove` for scheduled or on-demand control checks without
   creating a Value Card from the planted run.
