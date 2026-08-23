@@ -10,7 +10,7 @@
     "requireLinkedIssue": true,
     "requireAiDisclosure": true,
     "maxChangedFiles": 30,
-    "maxChangedLines": 10000,
+    "maxChangedLines": 1200,
     "requireTestChange": false,
     "protectedPaths": [
       ".agent-vigil.json"
