@@ -381,6 +381,111 @@ test("current MCP credential and remote-execution fields are normalized or held"
   assert.doesNotMatch(JSON.stringify(plan), /environment-reference|secret=omitted|automatic/);
 });
 
+test("unsupported MCP root and server-container shapes hold instead of passing silently", () => {
+  const value = fixture();
+  json(value.repo, ".mcp.json", { mcpServers: {} });
+  const base = commit(value.repo, "valid mcp root");
+  json(value.repo, ".mcp.json", {
+    mcpServers: [],
+    futureAuthority: { mode: "automatic", token: "sk_live_should_not_escape" },
+  });
+  const head = commit(value.repo, "unsupported mcp root");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+
+  assert.equal(plan.status, "HOLD");
+  assert.equal(plan.summary.holds, 2);
+  assert.ok(plan.deltas.every((delta) => delta.ruleId === "AVP014" && delta.after?.action === "authority.opaque"));
+  assert.doesNotMatch(JSON.stringify(plan), /automatic|sk_live_should_not_escape/);
+
+  json(value.repo, ".mcp.json", {
+    mcpServers: {},
+    servers: { shadow: { command: "node", args: ["--token=sk_live_should_not_escape"] } },
+  });
+  const dualRootHead = commit(value.repo, "ambiguous mcp roots");
+  const dualRoot = buildAuthorityPlan(value.repo, base, dualRootHead);
+  assert.equal(dualRoot.status, "HOLD");
+  assert.ok(dualRoot.deltas.some((delta) => delta.ruleId === "AVP014" && delta.after?.locator === "servers"));
+  assert.doesNotMatch(JSON.stringify(dualRoot), /sk_live_should_not_escape/);
+});
+
+test("Claude sandbox escape controls block while unmodeled nested controls hold", () => {
+  const value = fixture();
+  const restrictedSandbox = {
+    enabled: true,
+    failIfUnavailable: true,
+    autoAllowBashIfSandboxed: false,
+    allowUnsandboxedCommands: false,
+    excludedCommands: [],
+    enableWeakerNestedSandbox: false,
+    network: {
+      allowedDomains: [],
+      allowUnixSockets: [],
+      allowAllUnixSockets: false,
+      allowLocalBinding: false,
+    },
+  };
+  json(value.repo, ".claude/settings.json", { permissions: { defaultMode: "default" }, sandbox: restrictedSandbox });
+  const base = commit(value.repo, "strict claude sandbox");
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    sandbox: {
+      ...restrictedSandbox,
+      autoAllowBashIfSandboxed: true,
+      allowUnsandboxedCommands: true,
+      excludedCommands: ["docker *"],
+      enableWeakerNestedSandbox: true,
+      network: {
+        ...restrictedSandbox.network,
+        allowUnixSockets: ["/var/run/docker.sock"],
+        allowAllUnixSockets: true,
+        allowLocalBinding: true,
+      },
+    },
+  });
+  const expandedHead = commit(value.repo, "widen claude sandbox");
+  const expanded = buildAuthorityPlan(value.repo, base, expandedHead);
+
+  assert.equal(expanded.status, "BLOCK");
+  for (const action of [
+    "approval.sandbox-auto",
+    "sandbox.escape",
+    "sandbox.exclude",
+    "sandbox.weaker-nested",
+    "network.unix-socket",
+    "network.unix-socket-all",
+    "network.bind-local",
+  ]) {
+    assert.ok(expanded.deltas.some((delta) => delta.disposition === "BLOCK" && delta.after?.action === action), `missing ${action}`);
+  }
+
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    sandbox: {
+      ...restrictedSandbox,
+      network: { ...restrictedSandbox.network, allowedDomains: [42], httpProxyPort: 8080 },
+    },
+  });
+  const opaqueHead = commit(value.repo, "add unmodeled sandbox control");
+  const opaque = buildAuthorityPlan(value.repo, base, opaqueHead);
+  assert.equal(opaque.status, "HOLD");
+  assert.ok(opaque.deltas.some((delta) => delta.ruleId === "AVP014" && delta.after?.locator === "sandbox.network.httpProxyPort"));
+  assert.ok(opaque.deltas.some((delta) => delta.ruleId === "AVP014" && delta.after?.locator === "sandbox.network.allowedDomains"));
+});
+
+test("a pure Codex on-request to never transition is an approval expansion", () => {
+  const value = fixture();
+  write(value.repo, ".codex/config.toml", 'approval_policy = "on-request"\n');
+  const base = commit(value.repo, "interactive codex approval");
+  write(value.repo, ".codex/config.toml", 'approval_policy = "never"\n');
+  const head = commit(value.repo, "suppress codex approval");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+
+  assert.equal(plan.status, "BLOCK");
+  assert.ok(plan.deltas.some((delta) =>
+    delta.ruleId === "AVP004" && delta.direction === "EXPANSION" && delta.after?.action === "approval.policy"
+  ));
+});
+
 test("discovery reads the selected Git object rather than dirty worktree files", () => {
   const value = fixture();
   json(value.repo, ".mcp.json", { mcpServers: { risky: { command: "node", args: ["server.js"] } } });
@@ -448,7 +553,7 @@ test("unknown authority can be overridden only by the trusted base policy", () =
     allowUnknownChanges: true,
   });
   const approvedBase = commit(approved.repo, "trusted unknown policy");
-  write(approved.repo, ".codex/config.toml", "[tools]\nfuture_control = true\n");
+  write(approved.repo, ".codex/config.toml", 'approval_policy = "on-request"\n[tools]\nfuture_control = true\n');
   const approvedHead = commit(approved.repo, "future authority");
   const approvedPlan = buildAuthorityPlan(approved.repo, approvedBase, approvedHead);
   assert.equal(approvedPlan.status, "PASS");
@@ -457,7 +562,7 @@ test("unknown authority can be overridden only by the trusted base policy", () =
   assert.ok(approvedPlan.summary.approved > 0);
 
   const selfApproved = fixture();
-  write(selfApproved.repo, ".codex/config.toml", "[tools]\nfuture_control = true\n");
+  write(selfApproved.repo, ".codex/config.toml", 'approval_policy = "on-request"\n[tools]\nfuture_control = true\n');
   json(selfApproved.repo, ".agent-vigil-authority-plan.json", {
     schemaVersion: 1,
     approvedAdditions: [],
@@ -467,6 +572,32 @@ test("unknown authority can be overridden only by the trusted base policy", () =
   const selfApprovedPlan = buildAuthorityPlan(selfApproved.repo, selfApproved.base, selfApprovedHead);
   assert.equal(selfApprovedPlan.status, "HOLD");
   assert.equal(selfApprovedPlan.policy.source, "built-in default");
+});
+
+test("allowUnknownChanges does not approve recognized incomparable security controls", () => {
+  const value = fixture();
+  json(value.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: [],
+    allowUnknownChanges: true,
+  });
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    hooks: { PreToolUse: [{ matcher: "Edit|Write", hooks: [{ type: "command", command: "node guard.js" }] }] },
+  });
+  const base = commit(value.repo, "trusted policy and security hook");
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    hooks: { PreToolUse: [{ matcher: "Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "node guard.js" }] }] },
+  });
+  const head = commit(value.repo, "change security hook");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+
+  assert.equal(plan.status, "HOLD");
+  assert.equal(plan.summary.approved, 0);
+  assert.ok(plan.deltas.some((delta) =>
+    delta.ruleId === "AVP014" && delta.disposition === "HOLD" && delta.after?.action === "hook.execute"
+  ));
 });
 
 test("plan CLI writes private deterministic output and returns fail-closed exit codes", () => {
