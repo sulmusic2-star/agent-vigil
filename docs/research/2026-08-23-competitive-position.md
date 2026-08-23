@@ -88,6 +88,8 @@ Source, prompts and transcripts stay local unless the operator intentionally exp
 
 Agent Vigil is the independent release gate for agent-authored changes. It does not need to write code, review style, host an agent or replace existing tests. Its job is to prevent an agent, workflow or vendor from declaring its own work safe without evidence.
 
+The next product test is a protected [Agent Authority Plan](2026-08-23-ai-native-product-decision.md). It would show how a candidate changes tool, network, filesystem, secret, model, sandbox and approval authority before merge. Snyk Agent Scan already performs broad cross-agent discovery, so discovery alone is not a viable moat. The differentiator must be a base-owned semantic authority diff joined to contained execution and the exact change receipt.
+
 ## Evidence required before stronger market claims
 
 - 10 externally owned repositories configured
