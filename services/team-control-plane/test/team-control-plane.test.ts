@@ -16,6 +16,12 @@ const GITHUB_REPOSITORY_NODE_ID = "REPO_NODE_MAIN_123";
 
 async function clearDatabase(): Promise<void> {
   await env.TEAM_CONTROL_DB.exec(`
+    DELETE FROM measurement_events;
+    DELETE FROM measurement_subject_attestations;
+    DELETE FROM measurement_bridge_messages;
+    DELETE FROM measurement_subjects;
+    DELETE FROM measurement_consents;
+    DELETE FROM measurement_boundaries;
     DELETE FROM github_installation_reconciliations;
     DELETE FROM github_deliveries;
     DELETE FROM github_installation_repositories;

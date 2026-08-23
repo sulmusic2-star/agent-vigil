@@ -16,6 +16,12 @@ import {
   handleGitHubReconciliation,
   handleGitHubWebhook
 } from "./github-app.ts";
+import {
+  getOrganizationMeasurement,
+  handleMeasurementBridge,
+  handleMeasurementReport,
+  putMeasurementConsent
+} from "./measurement.ts";
 import { confirmOrganizationDeletion, exportOrganizationData, requestOrganizationDeletion } from "./privacy.ts";
 import {
   addException,
@@ -61,6 +67,14 @@ async function route(request: Request, env: Env): Promise<Response> {
     assertMethod(request, "POST");
     return handleGitHubReconciliation(request, env);
   }
+  if (url.pathname === "/v1/measurement/bridge") {
+    assertMethod(request, "POST");
+    return handleMeasurementBridge(request, env);
+  }
+  if (url.pathname === "/v1/measurement/report") {
+    assertMethod(request, "POST");
+    return handleMeasurementReport(request, env);
+  }
 
   const segments = url.pathname.split("/").filter(Boolean);
   if (segments[0] !== "v1" || segments[1] !== "orgs" || !segments[2]) {
@@ -102,6 +116,12 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
   if (resource === "audit" && !child && request.method === "GET") {
     return listAudit(env, auth);
+  }
+  if (resource === "measurement-consent" && !child && request.method === "PUT") {
+    return putMeasurementConsent(request, env, auth);
+  }
+  if (resource === "measurement" && !child && request.method === "GET") {
+    return getOrganizationMeasurement(env, auth);
   }
   if (resource === "github") {
     if (child === "installation-claim" && request.method === "POST") {

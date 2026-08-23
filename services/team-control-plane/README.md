@@ -14,6 +14,7 @@ This directory contains a local-only Cloudflare Worker/D1 implementation of the 
 - Separate cash and recognized-MRR ledgers. Annual value is normalized across 12 months; checkout, invoice face value, and cash are never reported as MRR.
 - Provider-confirmed failure grace, refund adjustments, period-end cancellation, expiration, privacy export, and two-step private-data deletion.
 - Claimed GitHub App installation tenancy with raw webhook HMAC verification, delivery/payload dedupe, opaque repository selection, immediate suspend/delete revocation, and signed reconciliation before creation/unsuspend becomes active.
+- A disabled-by-default R0 organization measurement projection with an immutable exact-release boundary, human-owner opt-in, reconciled GitHub App identity, signed activation/offer bridge, 60-day repeat and PQL cohorts, stable opaque identities, and privacy export/deletion. Individual demand metrics are explicitly `HOLD` / `UNMEASURABLE`; anonymous proof-network telemetry is never imported.
 
 Paid access never changes `SAFE`, `CHANGED`, `HOLD`, or fleet decision semantics. When trusted entitlement or policy state is unavailable, the required-gate endpoint returns `BLOCK`; the free local verifier remains separate.
 
@@ -28,7 +29,7 @@ npm run db:migrate:local
 npm run db:seed:local
 ```
 
-Create `.dev.vars` locally (never commit it) with five unrelated, randomly generated values of at least 32 bytes:
+Create `.dev.vars` locally (never commit it) with nine unrelated, randomly generated values of at least 32 bytes:
 
 ```text
 TEAM_SESSION_HMAC_SECRET=...
@@ -36,6 +37,10 @@ STRIPE_WEBHOOK_SECRET=...
 STRIPE_RECONCILIATION_HMAC_SECRET=...
 GITHUB_WEBHOOK_SECRET=...
 GITHUB_RECONCILIATION_HMAC_SECRET=...
+R0_MEASUREMENT_CONTROL_HMAC_SECRET=...
+R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET=...
+R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET=...
+R0_MEASUREMENT_IDENTITY_HMAC_SECRET=...
 ```
 
 Secret names are declared only in `src/env.d.ts`; Wrangler has no supported `secrets.required` configuration field. The HMAC implementation rejects missing or shorter-than-32-byte secrets at runtime, and production values must be installed with Wrangler rather than committed as vars.
@@ -59,6 +64,8 @@ Unauthenticated but cryptographically authenticated provider routes:
 - `POST /v1/billing/stripe/reconciliation` — independently fetched provider snapshots with `Agent-Vigil-Reconciliation-Signature`.
 - `POST /v1/github/app/webhook` — raw GitHub installation lifecycle with `X-Hub-Signature-256`.
 - `POST /v1/github/app/reconciliation` — independently fetched installation snapshots with `Agent-Vigil-GitHub-Reconciliation-Signature`.
+- `POST /v1/measurement/bridge` — signed, fresh, replay-resistant R0 boundary/identity/activation/offer evidence; disabled by default.
+- `POST /v1/measurement/report` — signed aggregate bounded-demand projection.
 
 The internal Service Binding request/response contract and adapter deployment split are specified in [`STRIPE_ADAPTERS.md`](./STRIPE_ADAPTERS.md). The executor and reconciler have different entrypoints, invocation secrets, Stripe restricted keys, and permissions.
 
@@ -76,6 +83,7 @@ Bearer-authenticated organization routes under `/v1/orgs/{org_id}`:
 - `POST /github/installation-claim`, `GET /github/installation`
 - `POST /billing/checkout`, `/billing/cancel`, `/billing/refund`; `GET /billing/commands`, `/billing/ledger`
 - `GET /privacy/export`, `POST /privacy/deletion-requests`, `DELETE /privacy/data`
+- `PUT /measurement-consent`, `GET /measurement`
 
 Mutating billing routes require `Idempotency-Key`; reuse with another operation or payload is rejected. A refund command must name a provider-confirmed payment event for the same tenant and cannot exceed that payment; the unused-first-subscription reason is accepted only within 14 days of that payment and before material paid-feature use. Privacy deletion cancels locally prepared billing work but blocks when a provider-created checkout or active provider subscription still requires external cancellation. Policy writes require `If-Match: "{base_revision}"` and the same `base_revision` in the body.
 
@@ -88,5 +96,6 @@ Mutating billing routes require `Idempotency-Key`; reuse with another operation 
 - Publish terms, privacy/DPA, tax/VAT, refund, support, invoice/receipt, payment-method-update, chargeback, data-retention, and security-contact operations before accepting money.
 - Implement IdP/OIDC session minting and rotation. The service validates sessions but exposes no public session-minting route.
 - Exercise the local GitHub App adapter described in `GITHUB_APP_INTEGRATION.md` against a staging App and D1 database; local implementation is not registration, installation, or deployment evidence.
+- Register and independently review separate identity/activation bridge operations, exact R0 deployment values, identity-key rotation, external/internal/demo/test registries, and offer-delivery evidence before enabling R0 measurement. See [`R0_MEASUREMENT.md`](./R0_MEASUREMENT.md). No checked-in value starts R0.
 
 Current Cloudflare implementation choices follow the official [Workers best practices](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/), [generated TypeScript bindings](https://developers.cloudflare.com/workers/languages/typescript/), [D1 transactional batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), and [Workers Vitest integration](https://developers.cloudflare.com/workers/testing/vitest-integration/). Stripe behavior follows its official [webhook documentation](https://docs.stripe.com/webhooks); GitHub verification and delivery handling follow its official [signature validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries) and [webhook guidance](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks).

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.example/schemas/r0-measurement-bridge-v1.schema.json",
+  "title": "Authenticated R0 measurement bridge message v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "message_id", "message_kind", "observed_at"],
+  "properties": {
+    "schema_version": { "const": "r0-measurement-bridge-v1" },
+    "message_id": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$" },
+    "message_kind": {
+      "enum": [
+        "r0_boundary_v1",
+        "organization_subject_attestation_v1",
+        "organization_activation_v1",
+        "team_offer_presented_v1"
+      ]
+    },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "installation_id": { "type": "integer", "minimum": 1 },
+    "classification": { "enum": ["external", "internal", "demo", "test"] },
+    "classification_basis": {
+      "enum": [
+        "provider_confirmed_non_operator",
+        "operator_identity_registry",
+        "demo_registry",
+        "test_environment_registry"
+      ]
+    },
+    "release_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$" },
+    "release_commit_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "release_channel": { "const": "github_app" },
+    "deployment_environment": { "const": "production" },
+    "release_published_at": { "type": "string", "format": "date-time" },
+    "r0_started_at": { "type": "string", "format": "date-time" },
+    "github_app_id": { "type": "integer", "minimum": 1 }
+  },
+  "oneOf": [
+    {
+      "properties": { "message_kind": { "const": "r0_boundary_v1" } },
+      "required": [
+        "release_version", "release_commit_sha", "release_channel", "deployment_environment",
+        "release_published_at", "r0_started_at", "github_app_id"
+      ]
+    },
+    {
+      "properties": { "message_kind": { "const": "organization_subject_attestation_v1" } },
+      "required": ["installation_id", "classification", "classification_basis"]
+    },
+    {
+      "properties": {
+        "message_kind": { "enum": ["organization_activation_v1", "team_offer_presented_v1"] }
+      },
+      "required": ["installation_id"]
+    }
+  ]
+}

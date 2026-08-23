@@ -2,7 +2,7 @@
 
 ## Protected assets
 
-Private organization policy, canary metadata, update history, exception and rollback records; organization membership and roles; provider customer/subscription bindings; GitHub installation/account/repository-node bindings; entitlement state; cash and recognized-MRR ledgers; provider-event chronology; deletion confirmations; and audit history.
+Private organization policy, canary metadata, update history, exception and rollback records; organization membership and roles; provider customer/subscription bindings; GitHub installation/account/repository-node bindings; R0 consent, opaque subject, classification, activation, repeat/PQL/offer, and exact-boundary evidence; entitlement state; cash and recognized-MRR ledgers; provider-event chronology; deletion confirmations; and audit history.
 
 The service does not ingest source code, prompts, transcripts, credentials, environment variables, repository names/full names, account logins, private component names, command arguments, full receipts, canary output, email addresses, or organization domains. GitHub webhook bodies are verified and parsed in bounded request memory but are never persisted.
 
@@ -15,6 +15,7 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 5. A separately deployed reconciler has a read-only restricted key and the reconciliation signing secret. Its code issues only Stripe `GET` requests and cannot execute billing commands.
 6. D1 is the tenant boundary and commercial ledger. Every private query binds `org_id`; provider customer/subscription identifiers are unique across organizations.
 7. A GitHub webhook proves only that the configured webhook secret signed the raw body. Existing owner claims choose tenancy; a distinct read-only reconciliation snapshot is required before an installation service member becomes active.
+8. The R0 control, identity-classification, and activity bridges use unrelated secrets. Control pins an immutable release/channel/start boundary; identity can classify only an active reconciled installation; activity can record use or a real-offer presentation only for a currently opted-in eligible subject. None can derive an individual identity from anonymous telemetry.
 
 ## Material abuse cases and controls
 
@@ -33,6 +34,14 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 | Stale GitHub lifecycle reactivates access | Older and equal-time ambiguous deliveries fail; suspend/delete immediately deactivate the service member | Read-only adapter must fetch current installation state |
 | Unsuspend bypasses reconciliation | Creation, unsuspend, and selection-mode changes remain pending; only a matching separately signed fresh snapshot activates | Keep reconciliation secret separate from App webhook/private key |
 | Repository or account names leak | Only stable account node ID and opaque repository node IDs persist; tests include sentinel names and assert absence | Review observability/export changes for accidental raw payload logging |
+| Anonymous or synthetic interest satisfies a demand gate | R0 projection reads only Team tenants with active reconciled App identity, external bridge attestation, and human-owner opt-in; anonymous proof-network events are never joined | Coverage remains opt-in and does not represent total installations |
+| Activity bridge creates its own external subjects | External/internal/demo/test classification requires a different identity-bridge secret; activity cannot initialize R0 or classify | Audit and secure the external-identity registry and its operator exclusions |
+| Release or R0 boundary moves retroactively | One immutable D1 boundary must exactly equal production configuration on every ingest/report | Initialize only after exact reviewed public release and retain the release evidence |
+| Reloads manufacture repeat/PQL | At most one activation per subject/UTC day; repeat and PQL require another day inside fixed 60/30-day windows | A compromised activity bridge can still emit false days; protect key and reconcile bridge operations |
+| Prepared offer is called a received offer | Offer evidence is accepted only after server-derived PQL and is bound to the canonical $299/month or $2,990/year contract | Bridge must emit only after authenticated UI presentation or provider-confirmed delivery, not an attempt |
+| Individual downloads are counted as people | Individual metrics are hard-coded `HOLD`/`UNMEASURABLE` with null denominators | Add reviewed GitHub/OIDC human binding, personal-install reconciliation, and individual opt-in |
+| HMAC token split or reidentification | Stable subjects use a dedicated secret and only opaque tokens leave the projection | Key rotation requires an explicit migration; provider/org tables can still link tokens inside D1 |
+| Multiple provider accounts impersonate unique companies | Report explicitly marks `sybil_resistant: false` and does not claim legal-company uniqueness | Add buyer/entity dedupe appropriate to the commercial gate |
 | GitHub service identity escalates | Deterministic installation identity is constrained to service/member and activated conditionally | Production IdP must mint service sessions only for active D1 membership |
 | Billing bypass through policy endpoint | Paid-surface writes require active/grace Team entitlement; gate fails closed | Cache client policy read-only for at most 72 hours if later added |
 | Refund/cancel command changes revenue | Commands do not mutate entitlement, cash, or MRR; refund preparation binds a same-tenant confirmed payment; only reconciled provider events mutate ledgers | Refund/legal policy approval before accepting payments |
@@ -62,5 +71,8 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 - Provider, tenant, plan, price, currency, customer, subscription, and object mismatches stop reconciliation.
 - GitHub App, delivery bytes/header, installation, account node, tenant claim, lifecycle order, and repository-selection mismatches stop processing.
 - GitHub installation creation or unsuspension cannot activate a service identity without independent reconciliation.
+- R0 events cannot count without exact boundary/config agreement, external attestation, owner opt-in, an active reconciled post-R0 installation, and the correct role-specific bridge signature.
+- Anonymous lifecycle evidence and unauthenticated individual identities cannot enter R0 denominators.
+- Duplicate-day activation cannot create repeat or PQL; offer evidence cannot precede server-derived PQL.
 - Missing adapter flags, secrets, restricted-key mode, price IDs, return origins, or Service Bindings stop before a Stripe call.
 - Paid access never changes proof verdict semantics.

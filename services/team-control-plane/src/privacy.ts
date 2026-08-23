@@ -3,6 +3,7 @@ import { requireRole } from "./auth.ts";
 import { randomOpaqueToken, sha256Hex, timingSafeHexEqual } from "./crypto.ts";
 import { auditStatement, newId, nowIso, userAudit } from "./db.ts";
 import { ApiError, jsonResponse } from "./http.ts";
+import { exportOrganizationMeasurement } from "./measurement.ts";
 
 interface DeletionRequestRow {
   id: string;
@@ -31,7 +32,8 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
     audit,
     githubClaim,
     githubInstallation,
-    githubRepositories
+    githubRepositories,
+    measurement
   ] =
     await Promise.all([
       db.prepare(`SELECT id, slug, display_name, status, created_at, deleted_at FROM organizations WHERE id = ?1`)
@@ -67,7 +69,8 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
            JOIN github_installations i ON i.installation_id = r.installation_id
           WHERE i.org_id = ?1 ORDER BY r.repository_node_id`,
         auth.orgId
-      )
+      ),
+      exportOrganizationMeasurement(db, auth.orgId)
     ]);
   const generatedAt = nowIso();
   const exportId = newId("privacy_export");
@@ -91,6 +94,7 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
       repositories: githubRepositories,
       stores_repository_names_or_source: false
     },
+    r0_measurement: measurement,
     audit_events: audit,
     retained_outside_deletion: [
       "provider-confirmed billing records required for accounting, chargeback, fraud, and legal obligations"
@@ -183,6 +187,24 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
     db.prepare(
       `UPDATE billing_commands SET status = 'provider_rejected'
         WHERE org_id = ?1 AND status = 'prepared'`
+    ).bind(auth.orgId),
+    db.prepare(
+      `DELETE FROM measurement_events WHERE org_id = ?1`
+    ).bind(auth.orgId),
+    db.prepare(
+      `DELETE FROM measurement_subject_attestations
+        WHERE subject_token IN (
+          SELECT subject_token FROM measurement_subjects WHERE org_id = ?1
+        )`
+    ).bind(auth.orgId),
+    db.prepare(
+      `DELETE FROM measurement_bridge_messages WHERE org_id = ?1`
+    ).bind(auth.orgId),
+    db.prepare(
+      `DELETE FROM measurement_subjects WHERE org_id = ?1`
+    ).bind(auth.orgId),
+    db.prepare(
+      `DELETE FROM measurement_consents WHERE org_id = ?1`
     ).bind(auth.orgId),
     db.prepare(
       `DELETE FROM github_installation_repositories
