@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/upgrade-canary-v1.schema.json",
+  "title": "Agent Vigil Upgrade Guard canary output v1",
+  "description": "Bounded stdout contract emitted by one trusted offline canary trial.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "outcome", "observations"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-upgrade-canary/v1" },
+    "outcome": { "enum": ["PASS", "FAIL"] },
+    "observations": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 64,
+      "propertyNames": {
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "null" },
+          { "type": "boolean" },
+          { "type": "number" },
+          {
+            "type": "string",
+            "maxLength": 512,
+            "pattern": "^[^\\u0000]*$"
+          }
+        ]
+      }
+    }
+  }
+}

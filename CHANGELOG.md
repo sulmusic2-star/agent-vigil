@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.13.0 - 2026-08-23
+
+- Add `vigil protect` to discover common repository checks and install the
+  exact-commit pull-request gate, merge-queue support, protected base policy,
+  retained receipts, and outcome workflow in one command.
+- Add calibrated Test Integrity Guard. Direct skips, focused tests, empty
+  tests, constant or self-equal assertions, zeroed coverage gates, reduced
+  test counts, and verification bypasses block. Broader static findings remain
+  advisory unless the repository deliberately enables strict mode.
+- Add `vigil test-integrity` for a standalone exact `base..head` scan with an
+  ordinary Agent Vigil receipt and reproduction command.
+- Publish a 20-case, source-backed adversarial test-integrity corpus across
+  JavaScript, TypeScript, Python, Rust, Go, Java, .NET, shell, and browser tests.
+  The corpus labels synthetic variants separately from directly reproduced
+  public-report mechanisms.
+- Publish a dated ledger of 50 primary user reports and a competitive map that
+  separates user-reported pain, vendor claims, observed product behavior, and
+  unproven market conclusions.
+
+- Add a local-only `vigil upgrade` lane for exact old-versus-new coding-agent
+  dependency comparisons without modifying the active installation.
+- Require digest-pinned, locally present OCI runner images and prove planted
+  network, filesystem, proxy, and inherited-secret containment controls before
+  any candidate canary can run.
+- Reject Docker endpoints that are not Unix sockets or Windows named pipes,
+  avoid ambient `PATH` when selecting the Docker client, and require explicit
+  client overrides to be absolute. Resolve one executable, endpoint, and
+  sanitized environment binding for each check; use its explicit `--host` for
+  image, probe, trial, cleanup, and absence-check calls. The selected client and
+  transport remain operator-trusted; a local socket can still proxy another
+  daemon. Record the successful transport binding as `localEndpoint` in private
+  and public v1 evidence, and require `true` for `SAFE` without publishing the
+  endpoint path.
+- Give every probe and trial an unpredictable container name, hard-kill the
+  client at its deadline, and return `HOLD` unless cleanup verifies that exact
+  container name is absent.
+- Repeat trusted repository canaries against both artifacts and return bounded
+  `SAFE`, `CHANGED`, or `HOLD` evidence. The generated template intentionally
+  reports `FAIL`, so first-use scaffolding cannot earn `SAFE` by itself.
+- Add private nonce-bound receipts, explicitly requested Ed25519-signed public
+  compatibility entries, pinned-key verification, and a static local evidence
+  index that excludes repositories, commands, prompts, paths, raw output, and
+  environment data. Public canary labels are receipt-specific nonce-blinded
+  pseudonyms unless the operator explicitly supplies a public ID.
+- At evaluation entry, require a fresh validated config read to equal the
+  caller's canonical snapshot; after trials, require its canonical path,
+  device/inode identity, and canonical content to match the entry checkpoint.
+  Bind its digest and the complete canary harness, require pairwise disjoint
+  inputs, and re-inventory artifact and canary trees after execution. These
+  checkpoints detect observed changes but do not claim continuous immutability
+  against same-host ABA or privileged races.
+- Refuse receipt and index outputs that alias keys, inputs, or evaluated trees.
+- Escape control and Unicode format characters in human upgrade receipts,
+  doctor output, init/index paths, and error messages without changing
+  structured evidence.
+- Keep Upgrade Guard out of the GitHub Action and hosted workflows until
+  hostile candidate execution, adapter fidelity, and external retention have
+  been independently established.
+
+Upgrade Guard remains a local alpha within this release. The repository has no
+verified external adoption, paying customer, or revenue evidence.
+
 ## 0.12.0 - 2026-08-22
 
 - Added optional GitHub artifact attestations for full Agent Vigil receipts.

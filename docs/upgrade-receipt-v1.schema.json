@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/upgrade-receipt-v1.schema.json",
+  "title": "Agent Vigil private Upgrade Guard receipt v1",
+  "description": "Private, nonce-bound evidence for one exact local old-versus-new component comparison.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "vigilVersion", "generatedAt", "nonce", "component", "configSha256",
+    "runner", "containment", "capabilities", "canaries", "summary",
+    "limitations", "receiptHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-upgrade-receipt/v1" },
+    "vigilVersion": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "generatedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "nonce": { "type": "string", "minLength": 16, "maxLength": 128 },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ecosystem", "name"],
+      "properties": {
+        "ecosystem": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+    "configSha256": {
+      "$ref": "#/$defs/sha256",
+      "description": "Digest of the validated configuration used for this evaluation. Runtime entry/final checkpoints detect observed path, identity, or canonical-content mismatch, but v1 does not prove continuous immutability between checkpoints."
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine", "image", "trials", "network", "filesystem", "environment"],
+      "properties": {
+        "engine": { "const": "docker" },
+        "image": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:~-]{0,246}@sha256:[0-9a-f]{64}$" },
+        "trials": { "type": "integer", "minimum": 2, "maximum": 5 },
+        "network": { "const": "none" },
+        "filesystem": { "const": "read-only" },
+        "environment": { "const": "explicit" }
+      }
+    },
+    "containment": { "$ref": "#/$defs/containment" },
+    "current": { "$ref": "#/$defs/target" },
+    "candidate": { "$ref": "#/$defs/target" },
+    "canaryHarness": { "$ref": "#/$defs/artifactInventory" },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/capabilityChange" }
+    },
+    "canaries": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/canaryComparison" }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "reasons", "comparedCanaries", "changedCanaries", "changedCapabilities"],
+      "properties": {
+        "verdict": { "enum": ["SAFE", "CHANGED", "HOLD"] },
+        "reasons": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 1024 } },
+        "comparedCanaries": { "type": "integer", "minimum": 0, "maximum": 32 },
+        "changedCanaries": { "type": "integer", "minimum": 0, "maximum": 32 },
+        "changedCapabilities": { "type": "integer", "minimum": 0, "maximum": 32 }
+      }
+    },
+    "limitations": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 1024 } },
+    "receiptHash": { "$ref": "#/$defs/sha256" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "summary": { "properties": { "verdict": { "enum": ["SAFE", "CHANGED"] } } } }
+      },
+      "then": {
+        "required": ["current", "candidate", "canaryHarness"],
+        "properties": {
+          "containment": {
+            "properties": {
+              "status": { "const": "PASS" },
+              "localEndpoint": { "const": true },
+              "imagePresent": { "const": true },
+              "networkBlocked": { "const": true },
+              "targetReadOnly": { "const": true },
+              "rootReadOnly": { "const": true },
+              "inheritedSecretAbsent": { "const": true },
+              "proxiesCleared": { "const": true }
+            }
+          },
+          "canaries": {
+            "minItems": 1,
+            "items": {
+              "properties": {
+                "comparable": { "const": true },
+                "current": {
+                  "required": ["observationSha256", "observationCount"],
+                  "properties": { "state": { "const": "PASS" }, "stable": { "const": true }, "observationCount": { "minimum": 1 } }
+                },
+                "candidate": {
+                  "required": ["observationSha256", "observationCount"],
+                  "properties": { "stable": { "const": true }, "observationCount": { "minimum": 1 } }
+                }
+              }
+            }
+          },
+          "summary": { "properties": { "comparedCanaries": { "minimum": 1 } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "summary": { "properties": { "verdict": { "const": "SAFE" } } } } },
+      "then": {
+        "properties": {
+          "capabilities": { "items": { "properties": { "changed": { "const": false } } } },
+          "canaries": {
+            "items": {
+              "properties": {
+                "changed": { "const": false },
+                "candidate": { "properties": { "state": { "const": "PASS" } } }
+              }
+            }
+          },
+          "summary": {
+            "properties": {
+              "changedCanaries": { "const": 0 },
+              "changedCapabilities": { "const": 0 }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "containment": {
+      "type": "object",
+      "additionalProperties": false,
+      "$comment": "localEndpoint records successful validation and binding of a Unix-socket or Windows named-pipe transport; it does not prove that the daemon behind that transport is physically local.",
+      "required": ["status", "localEndpoint", "imagePresent", "networkBlocked", "targetReadOnly", "rootReadOnly", "inheritedSecretAbsent", "proxiesCleared", "reason"],
+      "properties": {
+        "status": { "enum": ["PASS", "HOLD"] },
+        "localEndpoint": { "type": "boolean" },
+        "imagePresent": { "type": "boolean" },
+        "networkBlocked": { "type": "boolean" },
+        "targetReadOnly": { "type": "boolean" },
+        "rootReadOnly": { "type": "boolean" },
+        "inheritedSecretAbsent": { "type": "boolean" },
+        "proxiesCleared": { "type": "boolean" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      }
+    },
+    "capabilitySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "count", "sha256"],
+      "properties": {
+        "field": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "count": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "artifactInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["treeSha256", "fileCount", "totalBytes"],
+      "properties": {
+        "treeSha256": { "$ref": "#/$defs/sha256" },
+        "fileCount": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "totalBytes": { "type": "integer", "minimum": 0, "maximum": 67108864 }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ecosystem", "name", "version", "treeSha256", "manifestSha256", "fileCount", "totalBytes", "capabilities"],
+      "properties": {
+        "ecosystem": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "treeSha256": { "$ref": "#/$defs/sha256" },
+        "manifestSha256": { "$ref": "#/$defs/sha256" },
+        "fileCount": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "totalBytes": { "type": "integer", "minimum": 0, "maximum": 67108864 },
+        "capabilities": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/capabilitySnapshot" } }
+      }
+    },
+    "capabilityChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "currentCount", "candidateCount", "changed"],
+      "properties": {
+        "field": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "currentCount": { "type": "integer", "minimum": 0 },
+        "candidateCount": { "type": "integer", "minimum": 0 },
+        "changed": { "type": "boolean" }
+      }
+    },
+    "aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "trials", "stable", "reason"],
+      "properties": {
+        "state": { "enum": ["PASS", "FAIL", "HOLD"] },
+        "observationSha256": { "$ref": "#/$defs/sha256" },
+        "observationCount": { "type": "integer", "minimum": 0, "maximum": 64 },
+        "trials": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "stable": { "type": "boolean" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      }
+    },
+    "canaryComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "idSha256", "commandSha256", "current", "candidate", "changed", "comparable"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "publicId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "idSha256": { "$ref": "#/$defs/sha256" },
+        "commandSha256": { "$ref": "#/$defs/sha256" },
+        "current": { "$ref": "#/$defs/aggregate" },
+        "candidate": { "$ref": "#/$defs/aggregate" },
+        "changed": { "type": "boolean" },
+        "comparable": { "type": "boolean" }
+      }
+    }
+  }
+}

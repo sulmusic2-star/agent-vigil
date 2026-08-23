@@ -7,7 +7,7 @@ export const DEFAULT_POLICY_FILE = ".agent-vigil.json";
 
 export type VigilPolicy = {
   schemaVersion: 1;
-  integrityMode?: "advisory" | "blocking";
+  integrityMode?: "advisory" | "calibrated" | "blocking";
   transcript?: string;
   testCommand?: string;
   strict?: boolean;
@@ -74,8 +74,8 @@ function validatePolicy(input: unknown): VigilPolicy {
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`policy contains unknown field(s): ${unknown.join(", ")}`);
   if (value.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
-  if (value.integrityMode !== undefined && !new Set(["advisory", "blocking"]).has(String(value.integrityMode))) {
-    throw new Error("policy integrityMode must be advisory or blocking");
+  if (value.integrityMode !== undefined && !new Set(["advisory", "calibrated", "blocking"]).has(String(value.integrityMode))) {
+    throw new Error("policy integrityMode must be advisory, calibrated, or blocking");
   }
   if (value.transcript !== undefined && (typeof value.transcript !== "string" || !value.transcript.trim())) {
     throw new Error("policy transcript must be a non-empty string");
@@ -250,11 +250,11 @@ export function policyTemplate(testCommand?: string, portableSignerKeyId?: strin
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: string): string {
+export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: string, protectCommands?: string[]): string {
   const command = testCommand ?? "REPLACE_WITH_TEST_COMMAND";
   const value: VigilPolicy = {
     schemaVersion: 1,
-    integrityMode: "advisory",
+    integrityMode: protectCommands ? "calibrated" : "advisory",
     testCommand: command,
     strict: true,
     minVerified: 1,
@@ -276,7 +276,7 @@ export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: st
       },
       automatedReview: {
         ...(setupCommand ? { setupCommand } : {}),
-        commands: [command],
+        commands: protectCommands?.length ? protectCommands : [command],
         timeoutSeconds: 300,
       },
     },

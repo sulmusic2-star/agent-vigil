@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 1,
+  "corpusSha256": "sha256:abb18a2a06b8e0518183002dd4781203546c7bb35c769b1f125e434aa7e4cf9b",
+  "detectorMode": "calibrated",
+  "reproduction": "npm run proof:failure-corpus",
+  "summary": {
+    "total": 20,
+    "passed": 20,
+    "failed": 0
+  },
+  "cases": [
+    {
+      "id": "javascript-skip",
+      "expectedRule": "test-skip-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-skip-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "javascript-focus-only",
+      "expectedRule": "test-skip-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-skip-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "pytest-skip",
+      "expectedRule": "test-skip-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-skip-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "python-unittest-skip",
+      "expectedRule": "test-skip-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-skip-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "rust-ignore",
+      "expectedRule": "test-skip-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-skip-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "go-skip",
+      "expectedRule": "test-skip-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-skip-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "junit-disabled",
+      "expectedRule": "test-skip-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-skip-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "dotnet-ignore",
+      "expectedRule": "test-skip-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-skip-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "git-no-verify",
+      "expectedRule": "verification-bypass",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "verification-bypass"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "shell-success-mask",
+      "expectedRule": "verification-bypass",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "verification-bypass"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "jest-pass-with-no-tests",
+      "expectedRule": "verification-bypass",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "verification-bypass"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "coverage-threshold-zero",
+      "expectedRule": "coverage-weakened",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "coverage-weakened"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "coverage-fail-under-zero",
+      "expectedRule": "coverage-weakened",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "coverage-weakened"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "empty-javascript-test",
+      "expectedRule": "test-empty-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-empty-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "empty-python-test",
+      "expectedRule": "test-empty-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-empty-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "empty-rust-test",
+      "expectedRule": "test-empty-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-empty-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "empty-go-test",
+      "expectedRule": "test-empty-added",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-empty-added"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "constant-javascript-oracle",
+      "expectedRule": "test-oracle-constant",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-oracle-constant"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "constant-python-oracle",
+      "expectedRule": "test-oracle-constant",
+      "expectedRoute": "blocking",
+      "actualRoute": "blocking",
+      "verdict": "PASS",
+      "blockingRules": [
+        "test-oracle-constant"
+      ],
+      "advisoryRules": []
+    },
+    {
+      "id": "browser-runtime-patch",
+      "expectedRule": "test-runtime-patch",
+      "expectedRoute": "advisory",
+      "actualRoute": "advisory",
+      "verdict": "PASS",
+      "blockingRules": [],
+      "advisoryRules": [
+        "test-runtime-patch"
+      ]
+    }
+  ]
+}

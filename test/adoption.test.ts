@@ -144,7 +144,7 @@ test("policy validates the static integrity enforcement mode", () => {
   writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"integrityMode":"advisory"}');
   assert.equal(loadPolicy(path).value.integrityMode, "advisory");
   writeFileSync(join(path, ".agent-vigil.json"), '{"schemaVersion":1,"integrityMode":"magic"}');
-  assert.throws(() => loadPolicy(path), /integrityMode must be advisory or blocking/);
+  assert.throws(() => loadPolicy(path), /integrityMode must be advisory, calibrated, or blocking/);
 });
 
 test("policy can be anchored to a trusted Git ref", () => {
@@ -180,7 +180,7 @@ test("init creates a policy, evidence placeholder, and exact-SHA workflow", () =
   assert.match(workflow, /merge_group:/);
   assert.match(workflow, /merge_group\.base_sha/);
   assert.match(workflow, /merge_group\.head_sha/);
-  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.12\.0/);
+  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@v0\.13\.0/);
   assert.match(outcomes, /workflow_run:/);
   assert.match(outcomes, /actions\/download-artifact@v5/);
   assert.match(outcomes, /mode: outcome/);

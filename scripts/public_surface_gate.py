@@ -75,9 +75,17 @@ def version_failures() -> list[str]:
     failures: list[str] = []
     if f'VERSION = "{package_version}"' not in report_source:
         failures.append("src/report.ts VERSION differs from package.json")
+    public_version = package_version
+    if "-dev." in package_version:
+        setup_source = (ROOT / "src/setup.ts").read_text()
+        published = re.search(r'PUBLISHED_ACTION_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)"', setup_source)
+        if not published:
+            failures.append("src/setup.ts does not declare the public Action version used by development builds")
+            return failures
+        public_version = published.group(1)
     for path in [ROOT / "README.md", ROOT / "docs/index.html", ROOT / "docs/ATTESTED_RECEIPTS.md"]:
-        if f"@sulmusic/agent-vigil@{package_version}" not in path.read_text():
-            failures.append(f"{relative(path)} does not show the current package version {package_version}")
+        if f"@sulmusic/agent-vigil@{public_version}" not in path.read_text():
+            failures.append(f"{relative(path)} does not show the public Action version {public_version}")
     return failures
 
 
@@ -159,16 +167,23 @@ def claim_consistency_failures() -> list[str]:
     patterns = {
         "README.md": r"(?m)^- (\d+) tests, including",
         "docs/COMPATIBILITY.md": r"npm test` executes \*\*(\d+) tests\*\*",
-        "docs/index.html": r"trusted command observed (\d+) passing",
     }
     observed: dict[str, str] = {}
     failures: list[str] = []
-    for name, text in sources.items():
-        match = re.search(patterns[name], text)
+    for name, pattern in patterns.items():
+        match = re.search(pattern, sources[name])
         if not match:
             failures.append(f"{name} does not expose the public test count in the expected form")
         else:
             observed[name] = match.group(1)
+    landing_match = re.search(
+        r"trusted command observed (\d+) passing; (\d+) skipped",
+        sources["docs/index.html"],
+    )
+    if not landing_match:
+        failures.append("docs/index.html does not expose passing and skipped test counts in the expected form")
+    else:
+        observed["docs/index.html"] = str(int(landing_match.group(1)) + int(landing_match.group(2)))
     if len(set(observed.values())) > 1:
         failures.append("public test counts disagree: " + ", ".join(f"{name}={count}" for name, count in observed.items()))
     return failures
