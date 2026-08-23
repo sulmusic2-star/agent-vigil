@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:diffwitness:first-100-entry:v1",
+  "title": "DiffWitness chronological external update-pair entry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "registrationId",
+    "receivedAt",
+    "ingestionSequence",
+    "channel",
+    "external",
+    "optedIn",
+    "inspectionStarted",
+    "eligibility",
+    "pair"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "diffwitness-first-100-entry/v1" },
+    "kind": { "const": "pair" },
+    "registrationId": { "type": "string", "format": "uuid" },
+    "receivedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "ingestionSequence": { "type": "integer", "minimum": 1 },
+    "channel": {
+      "enum": [
+        "apm",
+        "skills",
+        "agent-plugin",
+        "mcp-registry-referral",
+        "github-action",
+        "github-app",
+        "public-proof-referral"
+      ]
+    },
+    "external": { "type": "boolean" },
+    "optedIn": { "type": "boolean" },
+    "inspectionStarted": { "type": "boolean" },
+    "eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "decidedAt", "reason"],
+      "properties": {
+        "decision": { "enum": ["INCLUDED", "EXCLUDED"] },
+        "decidedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "reason": {
+          "enum": [
+            "ELIGIBLE",
+            "BEFORE_R0",
+            "INTERNAL_OR_MAINTAINER",
+            "DEMO_OR_CORPUS",
+            "CI_RETRY",
+            "DUPLICATE_PAIR",
+            "MUTABLE_IDENTITY",
+            "NO_REAL_UPDATE_INTENT",
+            "UNSUPPORTED_CHANNEL",
+            "UNSUPPORTED_ARTIFACT",
+            "COMPONENT_CAP",
+            "CONSENT_WITHDRAWN_BEFORE_INSPECTION",
+            "MALFORMED_PREINSPECTION_RECORD"
+          ]
+        }
+      }
+    },
+    "pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ecosystem",
+        "componentIdentity",
+        "currentExactIdentity",
+        "candidateExactIdentity",
+        "realUpdateIntent"
+      ],
+      "properties": {
+        "ecosystem": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "componentIdentity": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "currentExactIdentity": { "type": "string", "minLength": 8, "maxLength": 256 },
+        "candidateExactIdentity": { "type": "string", "minLength": 8, "maxLength": 256 },
+        "realUpdateIntent": { "type": "boolean" }
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startedAt",
+        "completedAt",
+        "verdict",
+        "receiptHash",
+        "falseCompatible",
+        "materiality"
+      ],
+      "properties": {
+        "startedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "completedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "verdict": { "enum": ["SAFE", "CHANGED", "HOLD"] },
+        "receiptHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "falseCompatible": { "type": "boolean" },
+        "materiality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["classification", "evidenceComplete", "workflowConsequences"],
+          "properties": {
+            "classification": { "enum": ["MATERIAL", "NON_MATERIAL", "INCONCLUSIVE"] },
+            "evidenceComplete": { "type": "boolean" },
+            "workflowConsequences": {
+              "type": "array",
+              "uniqueItems": true,
+              "maxItems": 6,
+              "items": {
+                "enum": [
+                  "REQUIRED_BEHAVIOR_UNAVAILABLE",
+                  "FORBIDDEN_BEHAVIOR_EXECUTES",
+                  "DISABLED_PERMISSION_OR_CONFIG_CHANGED",
+                  "PROTOCOL_OR_DETERMINISTIC_CONTRACT_INCOMPATIBLE",
+                  "EXACT_RESTORATION_FAILED",
+                  "EXPLICIT_ORGANIZATION_POLICY_BREACHED"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "eligibility": { "properties": { "decision": { "const": "INCLUDED" } } } } },
+      "then": {
+        "properties": {
+          "external": { "const": true },
+          "optedIn": { "const": true },
+          "inspectionStarted": { "const": false },
+          "eligibility": { "properties": { "reason": { "const": "ELIGIBLE" } } }
+        }
+      }
+    },
+    {
+      "if": { "required": ["evaluation"] },
+      "then": { "properties": { "eligibility": { "properties": { "decision": { "const": "INCLUDED" } } } } }
+    }
+  ]
+}

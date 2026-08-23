@@ -29,7 +29,7 @@ npm run dev
 
 `npm run check` regenerates Worker types, type-checks, runs Miniflare/D1 tests, and performs `wrangler deploy --dry-run`; it does not deploy. Use obvious local-only values in `.dev.vars`. Never reuse production secrets.
 
-To verify interoperability with the separately frozen corpus at commit `b95d27016731d380d3f2705330c6191bcc32f31f`:
+To verify interoperability with the separately frozen corpus at commit `cd4c2fbd298fedfb6ac88689006e7be0fdae5755`:
 
 ```sh
 npm run test:frequency-interop -- --corpus /absolute/path/to/corpus

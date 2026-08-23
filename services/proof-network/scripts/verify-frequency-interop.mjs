@@ -46,7 +46,7 @@ assert.match(migration, /FIRST_100_SAMPLE_CLOSED/);
 assert.match(migration, /FIRST_100_COMPONENT_CAP/);
 
 process.stdout.write(`${JSON.stringify({
-  corpus: "b95d27016731d380d3f2705330c6191bcc32f31f",
+  corpus: "cd4c2fbd298fedfb6ac88689006e7be0fdae5755",
   registrationId: registration.registrationId,
   registrationSha256,
   schemaSha256,

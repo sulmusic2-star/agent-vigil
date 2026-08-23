@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "diffwitness-detached-signature/v1",
+  "registrationId": "d0a44ad6-acfc-4542-a5fa-84c68ff37067",
+  "algorithm": "Ed25519",
+  "signedAt": "2026-08-23T19:33:43Z",
+  "registrationSha256": "9a62537bf1bb047a1d971ee81d37bf1e35ffb7d8e7a76e2d29dd779c5ae1f2da",
+  "publicKeyDerSha256": "ac9e9413fe8fb4a93eb6ac59b6bdcc024ce09f8f290998f24f3830f67cade9a2",
+  "signatureBase64": "2zHN08HS/UozwWO6dYZ82uYhAQoc87cLb2NGKELiJjhWpdLRbQOgmBEJdoWtoMGoJJIxKUyWxqWGk8/PO4voCg=="
+}

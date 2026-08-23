@@ -25,3 +25,10 @@ does not fetch private transcripts or execute code from an external repository.
 The product claim is intentionally narrow: these cases show that the project
 can publish its own failures with exact revisions and keep them as regression
 controls. They do not establish a market-wide false-verdict rate.
+
+## Pre-registered external frequency test
+
+[`first-100/`](first-100/) contains the signed sampling frame frozen before R0.
+It is separate from these first-party historical cases and currently contains
+zero external pair entries. Run `node proof/first-100/verify.mjs` to authenticate
+the exact registration and confirm the empty-ledger boundary.

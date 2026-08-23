@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+## 0.16.0 - 2026-08-23
+
+- Add exact APM, Vercel Skills v3, and Agent Plugins 1.0 update plans that
+  require behavioral preflight whenever manager-controlled state changes.
+- Add `vigil upgrade preflight`, one fail-closed automatic APM path from exact
+  old/new lockfiles through credential-free public GitHub codeload acquisition,
+  OpenAPM `tree_sha256` verification, bounded link-free materialization, the
+  existing contained check, and verified temporary-session removal. It never
+  invokes an installer or lifecycle script; unsupported sources return `HOLD`.
+- Add a private `agent-vigil-apm-preflight/v1` wrapper that binds the plan,
+  selected row, exact archive and file commitments, bounded manifest evidence,
+  independently recomputed target/capability snapshots, nested Upgrade Guard
+  receipt, and restoration outcome.
+- Add a base-selected Action verifier that binds exact Git objects, rejects
+  harness changes, isolates ambient Bash/Node/Git/Docker state, and verifies
+  receipt semantics plus the exact exit-to-verdict mapping before exposing an
+  output.
+- Add privacy-minimized signed compatibility entries, broken-to-restored
+  resolution records, static registry/API/badge output, and maintainer evidence.
+- Add a disabled-by-default Cloudflare Worker/D1 proof-network service with
+  registered publisher keys, moderation, searchable public proof pages/API,
+  opt-in anonymous lifecycle events explicitly excluded from demand gates, and
+  a frozen append-only first-100 problem-frequency ledger.
+- Add a local-only, undeployed Team control-plane implementation with private
+  policy/history/gates/exceptions, RBAC, entitlement and revenue ledgers,
+  GitHub App installation reconciliation, and separately permissioned Stripe
+  executor and read-only reconciliation adapters. Provider configuration is
+  intentionally invalid or disabled, and no provider is connected by this
+  release.
+- Add organization-owned fleet policy that binds `ALLOW` to caller-supplied
+  current/candidate versions and artifact digests.
+- Keep external URLs out of signed resolution records because credentials and
+  private share tokens can appear in URL user information, query strings,
+  fragments, or opaque paths.
+- Preserve exact OpenAPM YAML scalar representation and reject custom tags,
+  anchors, and aliases so coercion cannot turn a changed state into no change.
+- Bind exact Skills v3 JSON number representations, reject malformed UTF-8,
+  validate required timestamps and source-specific identity shapes, and keep
+  source-lineage replacements out of automatically eligible update pairs.
+- Keep ref-only and additive metadata drift visible without scheduling a
+  same-artifact preflight, reject manager unions above the schema's bounded
+  4,097-change capacity, and keep parser source excerpts out of diagnostics.
+
 ## 0.15.0 - 2026-08-23
 
 - Add chained Control Proof certificates, weekly freshness policies, baseline
@@ -19,36 +62,6 @@
   partial orders, exact structural approval keys, trusted-base exceptions,
   broader repository configuration discovery, and a 100-revision public
   execution corpus with 100 planted authority expansions.
-- Add exact APM, Vercel Skills v3, and Agent Plugins 1.0 update plans that
-  require behavioral preflight whenever manager-controlled state changes.
-- Add `vigil upgrade preflight`, one fail-closed automatic APM path from exact
-  old/new lockfiles through public GitHub codeload acquisition, OpenAPM
-  `tree_sha256` verification, bounded link-free materialization, the existing
-  contained check, and verified temporary-session removal. It never invokes an
-  installer or lifecycle script; unsupported sources return `HOLD`.
-- Add the private `agent-vigil-apm-preflight/v1` wrapper binding the plan,
-  selected row, route and downloaded-byte commitments, materialized trees,
-  nested Upgrade Guard receipt, and restoration outcome.
-- Add privacy-minimized signed compatibility entries, broken-to-restored
-  resolution records, static registry/API/badge output, and maintainer evidence.
-- Keep external URLs out of signed resolution records because credentials and
-  private share tokens can appear in URL user information, query strings,
-  fragments, or opaque paths.
-- Add organization-owned fleet policy that binds `ALLOW` to caller-supplied
-  current/candidate versions and artifact digests.
-- Preserve exact OpenAPM YAML scalar representation and reject custom tags,
-  anchors, and aliases so coercion cannot turn a changed state into no change.
-- Bind exact Skills v3 JSON number representations, reject malformed UTF-8,
-  validate required timestamps and source-specific identity shapes, and keep
-  source-lineage replacements out of automatically eligible update pairs.
-- Keep ref-only and additive metadata drift visible without scheduling a
-  same-artifact preflight, and reject manager unions above the schema's bounded
-  4,097-change capacity.
-- Keep parser source excerpts out of manager-plan errors so malformed lockfiles
-  cannot echo credentials embedded in source URLs.
-- Bind complete Skills v3 update routes, content digests, plugin ownership, and
-  additive manager state so changed source or integrity metadata cannot become
-  a zero-change update plan.
 
 ## 0.14.1 - 2026-08-23
 
