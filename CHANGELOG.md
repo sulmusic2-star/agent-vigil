@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.14.0 - 2026-08-23
+
 - Add `vigil plan`, an exact-base/exact-head authority diff for repository MCP,
   Cursor, VS Code, Claude Code, and Codex settings.
 - Block new servers, hosts, tool grants, secret references, writable paths,
