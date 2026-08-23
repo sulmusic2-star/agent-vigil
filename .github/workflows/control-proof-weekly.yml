@@ -1,0 +1,42 @@
+name: Weekly control proof
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Challenge the installed control
+        run: node dist/cli.js prove --repo . --base "$GITHUB_SHA" --output "$RUNNER_TEMP/control-proof.json"
+      - name: Build the weekly certificate bundle
+        run: |
+          node dist/cli.js certify record "$RUNNER_TEMP/control-proof.json" --organization sulmusic2-star --repository sulmusic2-star/agent-vigil --required-check "Agent Vigil evidence" --output "$RUNNER_TEMP/control-certificate.json"
+          node dist/cli.js certify add "$RUNNER_TEMP/control-certificate.json" --corpus "$RUNNER_TEMP/control-corpus.jsonl"
+          node dist/cli.js certify policy --organization sulmusic2-star --repository sulmusic2-star/agent-vigil --required-check "Agent Vigil evidence" --pack authority --output "$RUNNER_TEMP/control-policy.json"
+          node dist/cli.js certify status --corpus "$RUNNER_TEMP/control-corpus.jsonl" --policy "$RUNNER_TEMP/control-policy.json" --output "$RUNNER_TEMP/control-status.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: control-certificate-${{ github.run_id }}
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/control-proof.json
+            ${{ runner.temp }}/control-certificate.json
+            ${{ runner.temp }}/control-corpus.jsonl
+            ${{ runner.temp }}/control-policy.json
+            ${{ runner.temp }}/control-status.json

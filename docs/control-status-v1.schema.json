@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/control-status-v1.schema.json",
+  "title": "Control certification status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "policyId", "organization", "asOf", "maxAgeHours", "status", "summary", "repositories", "reportHash"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-control-status/v1" },
+    "policyId": { "type": "string" },
+    "organization": { "type": "string" },
+    "asOf": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "maxAgeHours": { "type": "integer", "minimum": 1, "maximum": 8760 },
+    "status": { "enum": ["PASS", "HOLD"] },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fresh", "stale", "missing", "held", "total"],
+      "properties": {
+        "fresh": { "$ref": "#/$defs/count" }, "stale": { "$ref": "#/$defs/count" },
+        "missing": { "$ref": "#/$defs/count" }, "held": { "$ref": "#/$defs/count" }, "total": { "$ref": "#/$defs/count" }
+      }
+    },
+    "repositories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repository", "requiredCheck", "state", "reason"],
+        "properties": {
+          "repository": { "type": "string" }, "requiredCheck": { "type": "string" },
+          "state": { "enum": ["FRESH", "STALE", "MISSING", "HOLD"] }, "reason": { "type": "string" },
+          "proofGeneratedAt": { "type": "string", "format": "date-time" }, "ageHours": { "type": "number" },
+          "certificateHash": { "$ref": "#/$defs/hash" }, "control": { "type": "string" }
+        }
+      }
+    },
+    "reportHash": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 },
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

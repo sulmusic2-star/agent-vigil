@@ -9186,12 +9186,17 @@ function challenge(value, index) {
 }
 function verifyControlProof(input) {
   const proof = record3(input, "control proof");
+  exactKeys3(proof, ["schemaVersion", "vigilVersion", "status", "sourceCommit", "generatedAt", "receiptHash", "challenges", "summary", "reproduction", "limits"], "control proof");
   if (proof.schemaVersion !== "agent-vigil-control-proof/v1") throw new Error("only the verified Agent Vigil control-proof/v1 adapter is currently supported");
   const receiptHash = sha2563(proof.receiptHash, "control proof receiptHash");
   const { receiptHash: _receiptHash, ...payload } = proof;
   if (digest4(payload) !== receiptHash) throw new Error("control proof receipt hash is invalid");
   const generatedAt = timestamp2(proof.generatedAt, "control proof generatedAt");
   const sourceCommit = commitSha(proof.sourceCommit, "control proof sourceCommit");
+  const vigilVersion = identifier(proof.vigilVersion, "control proof vigilVersion");
+  const reproduction = text2(proof.reproduction, "control proof reproduction", 1e3);
+  if (!Array.isArray(proof.limits) || proof.limits.length > 100) throw new Error("control proof limits must be an array with at most 100 items");
+  const limits = proof.limits.map((item2, index) => text2(item2, `control proof limits[${index}]`, 1e3));
   if (proof.status !== "PASS" && proof.status !== "HOLD") throw new Error("control proof status must be PASS or HOLD");
   if (!Array.isArray(proof.challenges) || proof.challenges.length === 0 || proof.challenges.length > 100) throw new Error("control proof challenges must contain 1 to 100 items");
   const ids = /* @__PURE__ */ new Set();
@@ -9217,7 +9222,18 @@ function verifyControlProof(input) {
   const passed = parsedChallenges.filter((item2) => item2.passed).length;
   if (summary.passed !== passed || summary.total !== parsedChallenges.length) throw new Error("control proof summary does not match its challenges");
   if (proof.status !== decideControlProof(parsedChallenges)) throw new Error("control proof status does not match its challenge decisions");
-  return { ...proof, generatedAt, receiptHash, sourceCommit };
+  return {
+    schemaVersion: "agent-vigil-control-proof/v1",
+    vigilVersion,
+    status: proof.status,
+    sourceCommit,
+    generatedAt,
+    receiptHash,
+    challenges: parsedChallenges,
+    summary: { passed, total: parsedChallenges.length },
+    reproduction,
+    limits
+  };
 }
 function createCertificate(input) {
   const proof = verifyControlProof(input.proof);
@@ -9232,14 +9248,7 @@ function createCertificate(input) {
       adapter: "agent-vigil/control-proof-v1",
       version: identifier(proof.vigilVersion, "control version")
     },
-    proof: {
-      schemaVersion: proof.schemaVersion,
-      receiptHash: proof.receiptHash,
-      sourceCommit: proof.sourceCommit,
-      generatedAt: proof.generatedAt,
-      status: proof.status,
-      challenges: proof.challenges.map(({ id, expected, actual, passed }) => ({ id, expected, actual, passed }))
-    }
+    proof
   };
   return { ...payload, certificateHash: digest4(payload) };
 }
@@ -9249,12 +9258,9 @@ function validateCertificate(input) {
   if (root.schemaVersion !== CERTIFICATE_SCHEMA) throw new Error(`certificate schemaVersion must be ${CERTIFICATE_SCHEMA}`);
   const control = record3(root.control, "certificate.control");
   exactKeys3(control, ["vendor", "product", "adapter", "version"], "certificate.control");
-  const proof = record3(root.proof, "certificate.proof");
-  exactKeys3(proof, ["schemaVersion", "receiptHash", "sourceCommit", "generatedAt", "status", "challenges"], "certificate.proof");
-  if (proof.schemaVersion !== "agent-vigil-control-proof/v1" || control.adapter !== "agent-vigil/control-proof-v1") throw new Error("certificate adapter and proof schema are not supported");
+  const proof = verifyControlProof(root.proof);
+  if (control.adapter !== "agent-vigil/control-proof-v1") throw new Error("certificate adapter and proof schema are not supported");
   if (control.vendor !== "sulmusic2-star" || control.product !== "agent-vigil") throw new Error("certificate control identity does not match its verified adapter");
-  if (proof.status !== "PASS" && proof.status !== "HOLD") throw new Error("certificate proof status must be PASS or HOLD");
-  if (!Array.isArray(proof.challenges) || proof.challenges.length === 0 || proof.challenges.length > 100) throw new Error("certificate proof challenges must contain 1 to 100 items");
   const parsed = {
     schemaVersion: CERTIFICATE_SCHEMA,
     organization: identifier(root.organization, "certificate.organization"),
@@ -9266,18 +9272,9 @@ function validateCertificate(input) {
       adapter: identifier(control.adapter, "certificate.control.adapter"),
       version: identifier(control.version, "certificate.control.version")
     },
-    proof: {
-      schemaVersion: String(proof.schemaVersion),
-      receiptHash: sha2563(proof.receiptHash, "certificate.proof.receiptHash"),
-      sourceCommit: commitSha(proof.sourceCommit, "certificate.proof.sourceCommit"),
-      generatedAt: timestamp2(proof.generatedAt, "certificate.proof.generatedAt"),
-      status: proof.status,
-      challenges: proof.challenges.map(challenge)
-    }
+    proof
   };
-  if (parsed.proof.status !== (parsed.proof.challenges.every((item2) => item2.passed) ? "PASS" : "HOLD")) {
-    throw new Error("certificate proof status does not match its challenge decisions");
-  }
+  if (parsed.control.version !== proof.vigilVersion) throw new Error("certificate control version does not match its proof");
   const certificateHash = sha2563(root.certificateHash, "certificate.certificateHash");
   if (digest4(parsed) !== certificateHash) throw new Error("certificate hash is invalid");
   return { ...parsed, certificateHash };
