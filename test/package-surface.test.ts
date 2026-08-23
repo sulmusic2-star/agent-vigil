@@ -27,6 +27,7 @@ test("npm package surface excludes internal product and commercial working docum
     "SECURITY.md",
     "CONTRIBUTING.md",
     "docs/ATTESTED_RECEIPTS.md",
+    "docs/APM_PREFLIGHT_ACTION.md",
     "docs/AUTHORITY_PLAN.md",
     "docs/CONTROL_PROOF.md",
     "docs/NOTARY_APP.md",
@@ -49,7 +50,10 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/fleet-decision-v1.schema.json",
     "proof/README.md",
     "proof/cases",
+    "scripts/materialize-trusted-upgrade-inputs.mjs",
   ]) {
     assert.ok(files.includes(publicPath), `${publicPath} must ship with the npm package`);
   }
+
+  assert.ok(!files.some((path) => path === "services" || path.startsWith("services/")), "private services must remain outside the npm package");
 });

@@ -220,8 +220,12 @@ test("maintainer init creates a base-anchored evidence gate and retained receipt
   assert.match(workflow, /types: \[opened, synchronize, reopened\]/);
   assert.match(workflow, /pull-requests: read/);
   assert.match(workflow, /github-token: \$\{\{ github\.token \}\}/);
-  assert.match(workflow, /agent-vigil-value-card\.json/);
-  assert.match(workflow, /agent-vigil-github-evidence\.json/);
+  assert.match(workflow, /\$\{\{ steps\.vigil\.outputs\.report \}\}/);
+  assert.match(workflow, /\$\{\{ steps\.vigil\.outputs\.sarif \}\}/);
+  assert.match(workflow, /\$\{\{ steps\.vigil\.outputs\.value-card \}\}/);
+  assert.match(workflow, /\$\{\{ steps\.vigil\.outputs\.github-evidence \}\}/);
+  assert.match(workflow, /if-no-files-found: error/);
+  assert.doesNotMatch(workflow, /^\s+(?:agent-vigil-report\.json|agent-vigil\.sarif|agent-vigil-value-card\.json|agent-vigil-github-evidence\.json)\s*$/m);
   assert.doesNotMatch(template, /Responsible human|I reviewed every changed line|I can explain and maintain/);
   assert.match(template, /isolated checkout of the\s+exact candidate commit/);
   const doctor = doctorRepository(path);

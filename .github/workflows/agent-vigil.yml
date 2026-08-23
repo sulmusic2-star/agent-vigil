@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies for fresh verification
         run: npm ci --ignore-scripts
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.12.0
+        uses: sulmusic2-star/agent-vigil@v0.15.0
         with:
           attest: true
           mode: maintainer
@@ -41,8 +41,9 @@ jobs:
         with:
           name: agent-vigil-receipt
           path: |
-            agent-vigil-report.json
-            agent-vigil.sarif
-            agent-vigil-value-card.json
-            agent-vigil-github-evidence.json
+            ${{ steps.vigil.outputs.report }}
+            ${{ steps.vigil.outputs.sarif }}
+            ${{ steps.vigil.outputs.value-card }}
+            ${{ steps.vigil.outputs.github-evidence }}
+          if-no-files-found: error
           retention-days: 30

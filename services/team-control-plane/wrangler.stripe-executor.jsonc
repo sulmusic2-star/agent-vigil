@@ -5,12 +5,6 @@
   "compatibility_date": "2026-08-23",
   "workers_dev": false,
   "preview_urls": false,
-  "secrets": {
-    "required": [
-      "TEAM_STRIPE_EXECUTOR_HMAC_SECRET",
-      "STRIPE_EXECUTOR_RESTRICTED_KEY"
-    ]
-  },
   "vars": {
     "STRIPE_EXECUTION_ENABLED": "false",
     "STRIPE_LIVEMODE": "false",

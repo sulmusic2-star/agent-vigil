@@ -5,13 +5,6 @@
   "compatibility_date": "2026-08-23",
   "workers_dev": false,
   "preview_urls": false,
-  "secrets": {
-    "required": [
-      "TEAM_STRIPE_RECONCILER_INVOKE_HMAC_SECRET",
-      "STRIPE_READONLY_SECRET_KEY",
-      "STRIPE_RECONCILIATION_HMAC_SECRET"
-    ]
-  },
   "vars": {
     "STRIPE_RECONCILIATION_ENABLED": "false",
     "STRIPE_LIVEMODE": "false",

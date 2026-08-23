@@ -3069,10 +3069,11 @@ ${mode === "maintainer" && setupCommand ? `      - name: Install dependencies fo
         with:
           name: agent-vigil-receipt
           path: |
-            agent-vigil-report.json
-            agent-vigil.sarif
-            agent-vigil-value-card.json
-            agent-vigil-github-evidence.json
+            \${{ steps.vigil.outputs.report }}
+            \${{ steps.vigil.outputs.sarif }}
+            \${{ steps.vigil.outputs.value-card }}
+            \${{ steps.vigil.outputs.github-evidence }}
+          if-no-files-found: error
           retention-days: 30
 `;
 }

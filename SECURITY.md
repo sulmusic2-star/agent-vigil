@@ -65,11 +65,13 @@ remain trusted. Do not mount the Docker socket or credentials. Public
 compatibility output is opt-in, requires an Ed25519 key, and still exposes
 component, version, artifact-digest, and signer identities; review it before
 disclosure. The GitHub Action's APM upgrade mode reads both lockfiles from the
-exact event commits, loads config and canaries from a detached exact-base
-worktree, and uses only temporary materialization roots. It still trusts the
-base configuration, canaries, explicitly preloaded runner image, Docker client,
-daemon, and host. Do not grant that job cloud, package-publishing, deployment,
-model-provider, or signing credentials.
+exact event commits and loads config and canaries as exact Git blobs through
+plumbing-only `ls-tree` and `cat-file` access. It creates no checkout or
+worktree, so checkout hooks and content filters do not participate. It uses only
+temporary materialization roots and still trusts the base configuration,
+canaries, explicitly preloaded runner image, Docker client, daemon, and host. Do
+not grant that job cloud, package-publishing, deployment, model-provider, or
+signing credentials.
 
 Automatic APM acquisition is a separate explicit network boundary. It accepts
 only credential-free public GitHub git rows (`owner/repo` plus `host:
