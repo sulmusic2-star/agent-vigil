@@ -4,14 +4,14 @@ import { dirname, relative, resolve } from "node:path";
 import { DEFAULT_POLICY_FILE, loadPolicy, maintainerPolicyTemplate, policyTemplate } from "./config.ts";
 import { inferTestCommand } from "./detectors/reality.ts";
 import { loadTranscript } from "./transcript.ts";
-// Generated hosted workflows must resolve to an existing public Action. The
-// unreleased local v0.13 build stays pinned to the published v0.12 Action until
-// a v0.13 tag exists and its Action artifact is independently verified.
-const PUBLISHED_ACTION_VERSION = "0.12.0";
+// Generated hosted workflows resolve to the matching stable Action tag. Change
+// this only as part of an exact-version release candidate.
+const PUBLISHED_ACTION_VERSION = "0.13.0";
 import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts";
 
 type InitResult = { created: string[]; kept: string[] };
 type DoctorCheck = { status: "PASS" | "WARN" | "FAIL"; label: string; detail: string };
+export type SetupProfile = "default" | "maintainer" | "authority" | "protect";
 
 function workflow(mode: "transcript" | "portable" | "maintainer" | "authority", setupCommand?: string, attest = false): string { return `name: Agent Vigil
 
@@ -174,17 +174,35 @@ function writeScaffold(root: string, path: string, content: string, force: boole
   result.created.push(path);
 }
 
-export function initRepository(repo: string, force = false, portableSignerKeyId?: string, profile: "default" | "maintainer" | "authority" = "default", attest = false): InitResult {
+function inferProtectCommands(root: string, testCommand?: string): string[] {
+  const commands: string[] = [];
+  const packagePath = resolve(root, "package.json");
+  if (existsSync(packagePath)) {
+    try {
+      const scripts = JSON.parse(readFileSync(packagePath, "utf8"))?.scripts ?? {};
+      for (const name of ["typecheck", "lint", "build"] as const) {
+        if (typeof scripts[name] === "string" && scripts[name].trim()) commands.push(`npm run ${name}`);
+      }
+    } catch {
+      // Policy validation and doctor will report malformed package metadata.
+    }
+  }
+  if (testCommand) commands.push(testCommand);
+  return [...new Set(commands)].slice(0, 8);
+}
+
+export function initRepository(repo: string, force = false, portableSignerKeyId?: string, profile: SetupProfile = "default", attest = false): InitResult {
   const root = resolve(repo);
   try { execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" }); }
   catch { throw new Error(`not a Git repository: ${root}`); }
   const result: InitResult = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? undefined;
-  const mode = profile === "maintainer" ? "maintainer" : profile === "authority" ? "authority" : portableSignerKeyId ? "portable" : "transcript";
+  const mode = profile === "maintainer" || profile === "protect" ? "maintainer" : profile === "authority" ? "authority" : portableSignerKeyId ? "portable" : "transcript";
   const setupCommand = existsSync(resolve(root, "package-lock.json")) ? "npm ci --ignore-scripts" : undefined;
   const defaultPolicy = policyTemplate(inferred, portableSignerKeyId);
   const authorityPolicy = defaultPolicy.replace('"transcript": ".agent-vigil/session.md"', '"transcript": ".agent-vigil/session.jsonl"');
-  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : mode === "authority" ? authorityPolicy : defaultPolicy, force, result);
+  const protectCommands = profile === "protect" ? inferProtectCommands(root, inferred) : undefined;
+  writeScaffold(root, DEFAULT_POLICY_FILE, mode === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand, protectCommands) : mode === "authority" ? authorityPolicy : defaultPolicy, force, result);
   if (mode === "transcript" || mode === "authority") {
     writeScaffold(root, mode === "authority" ? ".agent-vigil/session.jsonl" : ".agent-vigil/session.md", mode === "authority" ? AUTHORITY_SESSION_TEMPLATE : SESSION_TEMPLATE, force, result);
     writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result);

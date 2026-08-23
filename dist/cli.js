@@ -1051,7 +1051,7 @@ function isStandaloneCommentLine(line) {
 function checkIntegrityPatches(patches) {
   const results = [];
   const checks = [
-    ["focused or skipped test introduced", /\b(?:test|it|describe)\.(?:skip|only)\s*\(|\b(?:xit|xdescribe)\s*\(|@pytest\.mark\.skip|#\[ignore\]/i, "test-skip-added", (patch) => isTestPath(patch.path)],
+    ["focused or skipped test introduced", /\b(?:test|it|describe)\.(?:skip|only)\s*\(|\b(?:xit|xdescribe)\s*\(|@pytest\.mark\.skip|@unittest\.skip\s*\(|#\[ignore\]|\bt\.Skip(?:Now|f)?\s*\(|@Disabled\b|\[(?:Ignore|Explicit)\b[^\]]*\]/i, "test-skip-added", (patch) => isTestPath(patch.path)],
     // vigil:detector-pattern
     ["verification bypass introduced", /--no-verify|\|\|\s*true\b|passWithNoTests|allowEmptyTests/i, "verification-bypass", (patch) => !isDocumentationPath(patch.path)],
     // vigil:detector-pattern
@@ -1097,6 +1097,18 @@ function checkIntegrityPatches(patches) {
       }
     }
     if (isTestPath(patch.path)) {
+      if (/\b(?:it|test)\s*\([^,]+,\s*(?:async\s*)?\(?(?:[^)=]*)\)?\s*=>\s*\{\s*\}\s*\)/s.test(added) || /\b(?:it|test)\s*\([^,]+,\s*function\s*\([^)]*\)\s*\{\s*\}\s*\)/s.test(added) || /\bdef\s+test_[A-Za-z0-9_]+\s*\([^)]*\)\s*:\s*pass\b/s.test(added) || /#\[test\]\s*(?:pub\s+)?fn\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added) || /\bfunc\s+Test[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added) || /@Test\b[\s\S]*?\bvoid\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added) || /\[(?:TestMethod|Test|Fact|Theory)\b[^\]]*\][\s\S]*?\bvoid\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added)) {
+        results.push(finding("empty test introduced", `${patch.path} adds a test body with no observable assertion or behavior`, "test-empty-added"));
+      }
+      if (/\bexpect\s*\(\s*(true|false|null|undefined|["'][^"']*["']|\d+)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual)\s*\(\s*\1\s*\)/s.test(added) || /\bassert(?:\.ok)?\s*\(\s*true\s*\)/.test(added) || /\bassert\.(?:equal|strictEqual)\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\)/.test(added) || /\bassert\s+True\b/.test(added) || /\b(?:assertTrue|Assert\.True)\s*\(\s*true\s*\)/.test(added) || /\bassertEqual\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\bassert_eq!\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\b(?:assertEquals|Assert\.Equal)\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added)) {
+        results.push(finding("constant or self-equal test oracle introduced", `${patch.path} adds an assertion that is true without exercising the candidate behavior`, "test-oracle-constant"));
+      }
+      if (/\b(?:page\.)?evaluate\s*\(|\baddInitScript\s*\(|\bevaluateOnNewDocument\s*\(/.test(added) && /\b(?:document\.|window\.|localStorage\.|sessionStorage\.|Object\.defineProperty)/.test(added)) {
+        results.push(finding("browser test mutates runtime state before judging behavior", `${patch.path} adds browser-side state mutation inside an evaluation hook; review whether the test repairs the application it is meant to test`, "test-runtime-patch"));
+      }
+      if (/\b(?:istanbul|c8)\s+ignore\b|#\s*pragma:\s*no\s*cover\b|\[ExcludeFromCodeCoverage\]/i.test(added)) {
+        results.push(finding("coverage exclusion introduced", `${patch.path} adds a coverage exclusion marker`, "coverage-exclusion-added"));
+      }
       const removedStrict = /\.(?:toBe|toEqual|toStrictEqual)\s*\(|\b(?:assertEqual|assertStrictEqual)\s*\(/.test(removed);
       const addedLoose = /\.(?:toBeTruthy|toBeDefined|toBeGreaterThan|toBeGreaterThanOrEqual|toContain)\s*\(|\bassert\s*\(/.test(added);
       if (removedStrict && addedLoose) {
@@ -1212,7 +1224,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.13.0-dev.0";
+var VERSION = "0.13.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1472,6 +1484,10 @@ function remediationFor(ruleId) {
     "verification-bypass": "Remove the verification bypass and let the underlying check fail honestly.",
     "suppression-added": "Remove the new suppression or narrow it with an explicit reviewed justification.",
     "coverage-weakened": "Restore a meaningful coverage threshold.",
+    "coverage-exclusion-added": "Remove the new coverage exclusion, or document the unreachable/platform-specific path and review the advisory explicitly.",
+    "test-empty-added": "Add an assertion against observable behavior or remove the empty test.",
+    "test-oracle-constant": "Replace the constant or self-equal assertion with an assertion whose value comes from the subject under test.",
+    "test-runtime-patch": "Test the application as delivered; remove browser-side repair code or prove that the mutation is only fixture setup outside the behavior being asserted.",
     "assertion-drop": "Restore equivalent assertions or review the intentional reduction explicitly.",
     "test-assertion-relaxed": "Restore the exact assertion, or document why the weaker predicate preserves the same contract and review the exception.",
     "subject-mocked": "Exercise the real subject or replace the self-fulfilling mock with a boundary fixture whose behavior is independently asserted.",
@@ -1725,8 +1741,8 @@ function validatePolicy(input) {
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
   if (unknown.length) throw new Error(`policy contains unknown field(s): ${unknown.join(", ")}`);
   if (value.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
-  if (value.integrityMode !== void 0 && !(/* @__PURE__ */ new Set(["advisory", "blocking"])).has(String(value.integrityMode))) {
-    throw new Error("policy integrityMode must be advisory or blocking");
+  if (value.integrityMode !== void 0 && !(/* @__PURE__ */ new Set(["advisory", "calibrated", "blocking"])).has(String(value.integrityMode))) {
+    throw new Error("policy integrityMode must be advisory, calibrated, or blocking");
   }
   if (value.transcript !== void 0 && (typeof value.transcript !== "string" || !value.transcript.trim())) {
     throw new Error("policy transcript must be a non-empty string");
@@ -1915,11 +1931,11 @@ function policyTemplate(testCommand, portableSignerKeyId) {
   return `${JSON.stringify(value, null, 2)}
 `;
 }
-function maintainerPolicyTemplate(testCommand, setupCommand) {
+function maintainerPolicyTemplate(testCommand, setupCommand, protectCommands) {
   const command = testCommand ?? "REPLACE_WITH_TEST_COMMAND";
   const value = {
     schemaVersion: 1,
-    integrityMode: "advisory",
+    integrityMode: protectCommands ? "calibrated" : "advisory",
     testCommand: command,
     strict: true,
     minVerified: 1,
@@ -1941,7 +1957,7 @@ function maintainerPolicyTemplate(testCommand, setupCommand) {
       },
       automatedReview: {
         ...setupCommand ? { setupCommand } : {},
-        commands: [command],
+        commands: protectCommands?.length ? protectCommands : [command],
         timeoutSeconds: 300
       }
     }
@@ -2922,7 +2938,7 @@ function authorityContractTemplate() {
 }
 
 // src/setup.ts
-var PUBLISHED_ACTION_VERSION = "0.12.0";
+var PUBLISHED_ACTION_VERSION = "0.13.0";
 function workflow(mode, setupCommand, attest = false) {
   return `name: Agent Vigil
 
@@ -3084,6 +3100,21 @@ function writeScaffold(root, path, content, force, result5) {
   writeFileSync3(target, content);
   result5.created.push(path);
 }
+function inferProtectCommands(root, testCommand) {
+  const commands = [];
+  const packagePath = resolve6(root, "package.json");
+  if (existsSync4(packagePath)) {
+    try {
+      const scripts = JSON.parse(readFileSync7(packagePath, "utf8"))?.scripts ?? {};
+      for (const name of ["typecheck", "lint", "build"]) {
+        if (typeof scripts[name] === "string" && scripts[name].trim()) commands.push(`npm run ${name}`);
+      }
+    } catch {
+    }
+  }
+  if (testCommand) commands.push(testCommand);
+  return [...new Set(commands)].slice(0, 8);
+}
 function initRepository(repo, force = false, portableSignerKeyId, profile = "default", attest = false) {
   const root = resolve6(repo);
   try {
@@ -3093,11 +3124,12 @@ function initRepository(repo, force = false, portableSignerKeyId, profile = "def
   }
   const result5 = { created: [], kept: [] };
   const inferred = inferTestCommand(root) ?? void 0;
-  const mode = profile === "maintainer" ? "maintainer" : profile === "authority" ? "authority" : portableSignerKeyId ? "portable" : "transcript";
+  const mode = profile === "maintainer" || profile === "protect" ? "maintainer" : profile === "authority" ? "authority" : portableSignerKeyId ? "portable" : "transcript";
   const setupCommand = existsSync4(resolve6(root, "package-lock.json")) ? "npm ci --ignore-scripts" : void 0;
   const defaultPolicy = policyTemplate(inferred, portableSignerKeyId);
   const authorityPolicy = defaultPolicy.replace('"transcript": ".agent-vigil/session.md"', '"transcript": ".agent-vigil/session.jsonl"');
-  writeScaffold(root, DEFAULT_POLICY_FILE, profile === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand) : mode === "authority" ? authorityPolicy : defaultPolicy, force, result5);
+  const protectCommands = profile === "protect" ? inferProtectCommands(root, inferred) : void 0;
+  writeScaffold(root, DEFAULT_POLICY_FILE, mode === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand, protectCommands) : mode === "authority" ? authorityPolicy : defaultPolicy, force, result5);
   if (mode === "transcript" || mode === "authority") {
     writeScaffold(root, mode === "authority" ? ".agent-vigil/session.jsonl" : ".agent-vigil/session.md", mode === "authority" ? AUTHORITY_SESSION_TEMPLATE : SESSION_TEMPLATE, force, result5);
     writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result5);
@@ -3438,8 +3470,22 @@ import { execFileSync as execFileSync7 } from "node:child_process";
 import { relative as relative5, resolve as resolve7, sep as sep4 } from "node:path";
 
 // src/integrity-policy.ts
+var CALIBRATED_BLOCKING_RULES = /* @__PURE__ */ new Set([
+  "coverage-weakened",
+  "test-count-drop",
+  "test-empty-added",
+  "test-oracle-constant",
+  "test-skip-added",
+  "verification-bypass"
+]);
 function routeIntegrity(checks, mode = "advisory") {
   if (mode === "blocking") return { results: checks, advisories: [] };
+  if (mode === "calibrated") {
+    return {
+      results: checks.filter((check) => check.verdict !== "contradicted" || CALIBRATED_BLOCKING_RULES.has(check.ruleId ?? "")),
+      advisories: checks.filter((check) => check.verdict === "contradicted" && !CALIBRATED_BLOCKING_RULES.has(check.ruleId ?? ""))
+    };
+  }
   return {
     results: checks.filter((check) => check.verdict !== "contradicted"),
     advisories: checks.filter((check) => check.verdict === "contradicted")
@@ -6415,6 +6461,8 @@ Usage:
   vigil init [--repo <path>] [--force] [--attest] [--portable --public-key <path>]
   vigil init --profile maintainer [--repo <path>] [--force] [--attest]
   vigil init --profile authority [--repo <path>] [--force] [--attest]
+  vigil protect [--repo <path>] [--force] [--attest]
+  vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
@@ -6534,7 +6582,7 @@ function runInit2(args) {
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
     const profile = optionValue(args, "--profile") ?? "default";
-    if (!(/* @__PURE__ */ new Set(["default", "maintainer", "authority"])).has(profile)) throw new Error("init --profile must be default, maintainer, or authority");
+    if (!(/* @__PURE__ */ new Set(["default", "maintainer", "authority", "protect"])).has(profile)) throw new Error("init --profile must be default, maintainer, authority, or protect");
     const publicKey = optionValue(args, "--public-key");
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
@@ -6548,6 +6596,30 @@ function runInit2(args) {
       console.log("Next for signing: push one pull request, download agent-vigil-report.json, and run vigil verify-attestation before making the check required.");
     }
     return 0;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runProtect(args) {
+  try {
+    const allowed = /* @__PURE__ */ new Set(["protect", "--repo", "--force", "--attest"]);
+    for (let index = 1; index < args.length; index++) {
+      const arg = args[index];
+      if (!allowed.has(arg)) throw new Error(`unknown protect argument: ${arg}`);
+      if (arg === "--repo") index += 1;
+    }
+    const repo = resolve17(optionValue(args, "--repo") ?? ".");
+    const result5 = initRepository(repo, args.includes("--force"), void 0, "protect", args.includes("--attest"));
+    console.log("Agent Vigil protection installed.\n");
+    for (const path of result5.created) console.log(`  created ${path}`);
+    for (const path of result5.kept) console.log(`  kept    ${path} (use --force to replace)`);
+    const checks = doctorRepository(repo);
+    console.log(`
+${renderDoctor(checks)}
+`);
+    console.log("Next: review the discovered commands and limits in .agent-vigil.json, commit the setup, push one pull request, then require the Agent Vigil evidence check.");
+    return checks.some((check) => check.status === "FAIL") ? 2 : 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -7112,6 +7184,53 @@ function runAudit(args) {
     return 2;
   }
 }
+function runTestIntegrity(args) {
+  try {
+    const options = parseArgs(args.slice(1));
+    const repo = resolve17(options.repo);
+    if (!gitRefExists(repo, options.base) || options.head !== "WORKTREE" && !gitRefExists(repo, options.head)) {
+      throw new Error(`invalid git range ${options.base}..${options.head}`);
+    }
+    const base = resolveGitRef(repo, options.base);
+    const head = resolveGitRef(repo, options.head);
+    const checks = checkIntegrity(repo, base, head);
+    const integrity = routeIntegrity(checks, options.strict ? "blocking" : "calibrated");
+    for (const check of integrity.results) {
+      if (check.ruleId === "integrity-scan" && check.verdict === "verified") check.contributesToPass = true;
+    }
+    const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
+    const diff = execFileSync11("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const digest3 = `sha256:${createHash15("sha256").update(diff).digest("hex")}`;
+    const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
+    const report = buildReport({
+      transcript: `${base}..${head}`,
+      transcriptSha256: digest3,
+      transcriptFormat: "test-integrity-diff",
+      repo,
+      base,
+      head,
+      results: integrity.results,
+      advisories: integrity.advisories,
+      policy: {
+        minVerified: 1,
+        strict: true,
+        source: policyName,
+        sha256: `sha256:${createHash15("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
+      },
+      repository: {
+        ...git7(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git7(repo, ["config", "--get", "remote.origin.url"]) } : {},
+        ...head !== "WORKTREE" && git7(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git7(repo, ["rev-parse", `${head}^{tree}`]) } : {}
+      },
+      reproduction: `vigil test-integrity --repo . --base ${base} --head ${head}${options.strict ? " --strict" : ""}`
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
 function runAuthority(args) {
   try {
     if (args[1] === "init") {
@@ -7202,6 +7321,8 @@ function shellQuote(value) {
 function run(argv = process.argv.slice(2)) {
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
+  if (argv[0] === "protect") return runProtect(argv);
+  if (argv[0] === "test-integrity") return runTestIntegrity(argv);
   if (argv[0] === "init") return runInit2(argv);
   if (argv[0] === "doctor") return runDoctor2(argv);
   if (argv[0] === "keygen") return runKeygen(argv);

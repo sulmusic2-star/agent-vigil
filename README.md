@@ -84,6 +84,39 @@ It does not install an update, upload evidence, modify the GitHub Action, or
 claim live model/provider behavior. See the precise
 [Upgrade Guard contract](docs/UPGRADE_GUARD.md).
 
+It also adds the one-command protection profile:
+
+```bash
+npx --yes @sulmusic/agent-vigil protect
+```
+
+`protect` discovers common test, typecheck, lint, and build commands; installs
+the exact-SHA pull-request and merge-queue gate; anchors policy to the base
+commit; and installs the post-run outcome observer. Existing files are kept
+unless `--force` is explicit. The generated policy uses the calibrated Test
+Integrity Guard: direct test weakening blocks, while broader static suspicions
+remain visible advisories.
+
+The guard can also be run by itself:
+
+```bash
+vigil test-integrity --base <base-sha> --head <head-sha>
+```
+
+It blocks new focused or skipped tests, verification bypasses, zeroed coverage
+gates, reduced test counts, empty tests, and constant/self-equal assertions.
+Browser-side runtime patching, new coverage exclusions, relaxed assertions,
+self-fulfilling mocks, and other lower-confidence patterns remain reviewable
+advisories unless a repository deliberately chooses full blocking mode.
+
+The design is tied to a dated ledger of
+[50 primary user reports](docs/research/2026-08-23-user-pain-ledger.md) covering
+false completion, test manipulation, loops and cost, environment drift,
+permissions, review state, and outcome evidence. A report proves that a user
+described the problem; it does not establish the root cause or prevalence. The
+[competitive position](docs/research/2026-08-23-competitive-position.md)
+records direct overlaps and the narrower evidence-chain product boundary.
+
 ```text
   ✗ [test-count] 99 tests
       evidence: claim says 99 tests; runner reported 42
@@ -113,8 +146,8 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 From npm:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.12.0 init
-npx --yes @sulmusic/agent-vigil@0.12.0 doctor
+npx --yes @sulmusic/agent-vigil@0.13.0 init
+npx --yes @sulmusic/agent-vigil@0.13.0 doctor
 ```
 
 `init` creates a small JSON policy, a privacy warning and transcript placeholder,
@@ -132,8 +165,8 @@ that disagree with GitHub's event payload.
 To add a GitHub/Sigstore signature to each receipt:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.12.0 init --attest
-npx --yes @sulmusic/agent-vigil@0.12.0 doctor
+npx --yes @sulmusic/agent-vigil@0.13.0 init --attest
+npx --yes @sulmusic/agent-vigil@0.13.0 doctor
 ```
 
 The generated workflow adds GitHub signing permissions but does not gain write
@@ -141,7 +174,7 @@ access to repository contents. After a run, download
 `agent-vigil-report.json` and verify it with:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.12.0 verify-attestation \
+npx --yes @sulmusic/agent-vigil@0.13.0 verify-attestation \
   agent-vigil-report.json --repository OWNER/REPOSITORY
 ```
 
@@ -151,7 +184,7 @@ the code is correct.
 Maintainer profile:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.12.0 init --profile maintainer
+npx --yes @sulmusic/agent-vigil@0.13.0 init --profile maintainer
 ```
 
 This creates base-anchored file, line, test, and protected-path limits; an
@@ -164,7 +197,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.12.0 init --profile authority
+npx --yes @sulmusic/agent-vigil@0.13.0 init --profile authority
 ```
 
 Review the generated task ID, expiry, paths, and action classes, then merge the
@@ -269,7 +302,7 @@ Node 20 or newer is required. Run the published npm package without installing
 it globally:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.12.0 --help
+npx --yes @sulmusic/agent-vigil@0.13.0 --help
 ```
 
 Or work from source:
@@ -386,7 +419,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.12.0
+  - uses: sulmusic2-star/agent-vigil@v0.13.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -420,7 +453,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.12.0
+    uses: sulmusic2-star/agent-vigil@v0.13.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
@@ -573,8 +606,8 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 365 tests, including 80 generated-repository compatibility scenarios across
-  18 runner-output families. In the latest unreleased v0.13 local run, 360
+- 391 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families. In the v0.13 release-candidate local run, 386
   passed and five opt-in Docker tests skipped in the ordinary suite. With Docker enabled, the
   combined 13-test containment, timeout-cleanup, verdict, signing, and index
   suite passed against the selected local test daemon with no residual Upgrade

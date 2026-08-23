@@ -81,6 +81,8 @@ Usage:
   vigil init [--repo <path>] [--force] [--attest] [--portable --public-key <path>]
   vigil init --profile maintainer [--repo <path>] [--force] [--attest]
   vigil init --profile authority [--repo <path>] [--force] [--attest]
+  vigil protect [--repo <path>] [--force] [--attest]
+  vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
   vigil verify <receipt.json> [--public-key <path>]
@@ -191,12 +193,12 @@ function runInit(args: string[]): number {
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
     const profile = optionValue(args, "--profile") ?? "default";
-    if (!new Set(["default", "maintainer", "authority"]).has(profile)) throw new Error("init --profile must be default, maintainer, or authority");
+    if (!new Set(["default", "maintainer", "authority", "protect"]).has(profile)) throw new Error("init --profile must be default, maintainer, authority, or protect");
     const publicKey = optionValue(args, "--public-key");
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer" | "authority", attest);
+    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer" | "authority" | "protect", attest);
     console.log("Agent Vigil initialized.\n");
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -213,6 +215,26 @@ function runInit(args: string[]): number {
       console.log("Next for signing: push one pull request, download agent-vigil-report.json, and run vigil verify-attestation before making the check required.");
     }
     return 0;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runProtect(args: string[]): number {
+  try {
+    const allowed = new Set(["protect", "--repo", "--force", "--attest"]);
+    for (let index = 1; index < args.length; index++) {
+      const arg = args[index];
+      if (!allowed.has(arg)) throw new Error(`unknown protect argument: ${arg}`);
+      if (arg === "--repo") index += 1;
+    }
+    const repo = resolve(optionValue(args, "--repo") ?? ".");
+    const result = initRepository(repo, args.includes("--force"), undefined, "protect", args.includes("--attest"));
+    console.log("Agent Vigil protection installed.\n");
+    for (const path of result.created) console.log(`  created ${path}`);
+    for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
+    const checks = doctorRepository(repo);
+    console.log(`\n${renderDoctor(checks)}\n`);
+    console.log("Next: review the discovered commands and limits in .agent-vigil.json, commit the setup, push one pull request, then require the Agent Vigil evidence check.");
+    return checks.some((check) => check.status === "FAIL") ? 2 : 0;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -748,6 +770,51 @@ function runAudit(args: string[]): number {
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
+function runTestIntegrity(args: string[]): number {
+  try {
+    const options = parseArgs(args.slice(1));
+    const repo = resolve(options.repo);
+    if (!gitRefExists(repo, options.base) || (options.head !== "WORKTREE" && !gitRefExists(repo, options.head))) {
+      throw new Error(`invalid git range ${options.base}..${options.head}`);
+    }
+    const base = resolveGitRef(repo, options.base);
+    const head = resolveGitRef(repo, options.head);
+    const checks = checkIntegrity(repo, base, head);
+    const integrity = routeIntegrity(checks, options.strict ? "blocking" : "calibrated");
+    for (const check of integrity.results) {
+      if (check.ruleId === "integrity-scan" && check.verdict === "verified") check.contributesToPass = true;
+    }
+    const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
+    const diff = execFileSync("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const digest = `sha256:${createHash("sha256").update(diff).digest("hex")}`;
+    const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
+    const report = buildReport({
+      transcript: `${base}..${head}`,
+      transcriptSha256: digest,
+      transcriptFormat: "test-integrity-diff",
+      repo,
+      base,
+      head,
+      results: integrity.results,
+      advisories: integrity.advisories,
+      policy: {
+        minVerified: 1,
+        strict: true,
+        source: policyName,
+        sha256: `sha256:${createHash("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`,
+      },
+      repository: {
+        ...(git(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git(repo, ["config", "--get", "remote.origin.url"]) } : {}),
+        ...(head !== "WORKTREE" && git(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git(repo, ["rev-parse", `${head}^{tree}`]) } : {}),
+      },
+      reproduction: `vigil test-integrity --repo . --base ${base} --head ${head}${options.strict ? " --strict" : ""}`,
+    });
+    writeOutputs(report, options);
+    printReport(report, options);
+    return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
 function runAuthority(args: string[]): number {
   try {
     if (args[1] === "init") {
@@ -827,6 +894,8 @@ function shellQuote(value: string): string {
 export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
+  if (argv[0] === "protect") return runProtect(argv);
+  if (argv[0] === "test-integrity") return runTestIntegrity(argv);
   if (argv[0] === "init") return runInit(argv);
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);

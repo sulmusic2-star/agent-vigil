@@ -1,6 +1,23 @@
 # Changelog
 
-## 0.13.0-dev.0 - Unreleased
+## 0.13.0 - 2026-08-23
+
+- Add `vigil protect` to discover common repository checks and install the
+  exact-commit pull-request gate, merge-queue support, protected base policy,
+  retained receipts, and outcome workflow in one command.
+- Add calibrated Test Integrity Guard. Direct skips, focused tests, empty
+  tests, constant or self-equal assertions, zeroed coverage gates, reduced
+  test counts, and verification bypasses block. Broader static findings remain
+  advisory unless the repository deliberately enables strict mode.
+- Add `vigil test-integrity` for a standalone exact `base..head` scan with an
+  ordinary Agent Vigil receipt and reproduction command.
+- Publish a 20-case, source-backed adversarial test-integrity corpus across
+  JavaScript, TypeScript, Python, Rust, Go, Java, .NET, shell, and browser tests.
+  The corpus labels synthetic variants separately from directly reproduced
+  public-report mechanisms.
+- Publish a dated ledger of 50 primary user reports and a competitive map that
+  separates user-reported pain, vendor claims, observed product behavior, and
+  unproven market conclusions.
 
 - Add a local-only `vigil upgrade` lane for exact old-versus-new coding-agent
   dependency comparisons without modifying the active installation.
@@ -42,8 +59,8 @@
   hostile candidate execution, adapter fidelity, and external retention have
   been independently established.
 
-This is a local alpha. It has no public v0.13 release, external adoption,
-paying customer, or revenue evidence.
+Upgrade Guard remains a local alpha within this release. The repository has no
+verified external adoption, paying customer, or revenue evidence.
 
 ## 0.12.0 - 2026-08-22
 

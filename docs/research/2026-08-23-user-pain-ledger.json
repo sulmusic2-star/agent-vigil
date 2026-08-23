@@ -1,0 +1,428 @@
+{
+  "observed_at": "2026-08-23T00:00:00Z",
+  "source_policy": "Primary user reports only. A report is evidence of experienced pain, not proof of root cause or prevalence.",
+  "count": 50,
+  "by_category": {
+    "environment-and-state": 9,
+    "false-completion": 6,
+    "loops-and-cost": 11,
+    "permissions-and-tools": 6,
+    "pricing-and-attribution": 11,
+    "review-and-outcome": 4,
+    "test-integrity": 3
+  },
+  "by_window": {
+    "last-12-months": 21,
+    "last-3-months": 12,
+    "last-31-days": 15,
+    "last-7-days": 2
+  },
+  "sources": [
+    {
+      "url": "https://github.com/openai/codex/issues/38495",
+      "category": "loops-and-cost",
+      "relevance": "Detect identical polling and spend after useful work has stopped.",
+      "title": "Code-mode `exec` silently degrades a long-running command into a full-context model polling loop (34.6M tokens burned after the task already completed) \u00b7 Issue #38495 \u00b7 openai/codex",
+      "published_at": "2026-08-14T05:03:53.000Z",
+      "window": "last-31-days",
+      "short_quote": "Each such turn resubmits the entire conversation context."
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/38335",
+      "category": "loops-and-cost",
+      "relevance": "Attribute task cost and expose retries, compactions and background work.",
+      "title": "[Pro 20x] Severe 7-day quota depletion during light workloads + frequent \"Selected model is at capacity\" with usage remaining \u00b7 Issue #38335 \u00b7 openai/codex",
+      "published_at": "2026-08-13T08:53:00.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/34115",
+      "category": "environment-and-state",
+      "relevance": "Distinguish a live background process from a hung or unknown process.",
+      "title": "Guardian-approved unified exec drops canonical process identity and hides a live background wait \u00b7 Issue #34115 \u00b7 openai/codex",
+      "published_at": "2026-07-19T04:47:45.000Z",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/38437",
+      "category": "loops-and-cost",
+      "relevance": "Honor stop signals and detect continued paid activity after cancellation.",
+      "title": "Burning usage credits when specifically asked Codex Luna to stop repeatedly. \u00b7 Issue #38437 \u00b7 openai/codex",
+      "published_at": "2026-08-13T21:14:33.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/35226",
+      "category": "environment-and-state",
+      "relevance": "Retain progress across compaction and flag repeated rereads.",
+      "title": "Context auto-compaction loop repeatedly rereads files, loses progress, and consumes paid Codex credits \u00b7 Issue #35226 \u00b7 openai/codex",
+      "published_at": "2026-07-24T18:13:15.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/35050",
+      "category": "loops-and-cost",
+      "relevance": "Measure repeated turns and the cost of avoidable serialization.",
+      "title": "GPT-5.6 often serializes independent Code Mode calls; explicit batching reduced weighted usage by 27\u201345% \u00b7 Issue #35050 \u00b7 openai/codex",
+      "published_at": "2026-07-24T00:01:25.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/32503",
+      "category": "loops-and-cost",
+      "relevance": "Measure tool-call efficiency without treating activity as progress.",
+      "title": "GPT-5.6 Sol rarely parallelizes programmatic tool calls, multiplying model turns and quota usage \u00b7 Issue #32503 \u00b7 openai/codex",
+      "published_at": "2026-07-12T01:22:06.000Z",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/34971",
+      "category": "loops-and-cost",
+      "relevance": "Detect repeated context processing, timeouts and recovery loops.",
+      "title": "[Regression] Codex repeatedly reprocesses massive cached context in long sessions, causing severe latency, timeouts, JSONL growth, and excessive credit usage \u00b7 Issue #34971 \u00b7 openai/codex",
+      "published_at": "2026-07-23T16:35:48.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/38132",
+      "category": "environment-and-state",
+      "relevance": "Require terminal evidence when orchestration cannot observe worker state.",
+      "title": "[Bug] Agent-status intents are routed to placeholder shell output, causing a tool-selection loop \u00b7 Issue #38132 \u00b7 openai/codex",
+      "published_at": "2026-08-12T05:35:52.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/35528",
+      "category": "environment-and-state",
+      "relevance": "Preserve exact residual state and refuse unsupported completion.",
+      "title": "Incomplete residual fidelity across capture, model-visible, and durable state \u00b7 Issue #35528 \u00b7 openai/codex",
+      "published_at": "2026-07-26T22:53:50.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/38157",
+      "category": "pricing-and-attribution",
+      "relevance": "Keep billed usage separate from plan labels and self-reported estimates.",
+      "title": "ChatGPT Pro (20x) accounts appear to receive Pro 5x Codex usage capacity \u00b7 Issue #38157 \u00b7 openai/codex",
+      "published_at": "2026-08-12T09:48:12.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/38191",
+      "category": "pricing-and-attribution",
+      "relevance": "Bind cost evidence to a task and observation time.",
+      "title": "[Desktop][macOS] 7-day usage remaining jumped from 48% to 23% after context/memory feature change \u00b7 Issue #38191 \u00b7 openai/codex",
+      "published_at": "2026-08-12T13:40:24.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/38233",
+      "category": "pricing-and-attribution",
+      "relevance": "Compare agent versions with measured task cost and outcome.",
+      "title": "GPT-5.6 Sol normal mode appears to consume Codex quota unusually fast on $100 plan \u00b7 Issue #38233 \u00b7 openai/codex",
+      "published_at": "2026-08-12T18:22:22.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/38309",
+      "category": "pricing-and-attribution",
+      "relevance": "Fail closed when cost cannot be attributed to visible work.",
+      "title": "Linux Codex App: Usage quota drops by ~50% immediately after reset without any activity \u00b7 Issue #38309 \u00b7 openai/codex",
+      "published_at": "2026-08-13T04:39:08.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/22390",
+      "category": "environment-and-state",
+      "relevance": "Record partial work, bounded retries and retained recovery state.",
+      "title": "Retry transient capacity errors with backoff and retained task state \u00b7 Issue #22390 \u00b7 openai/codex",
+      "published_at": "2026-05-12T23:08:44.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/81531",
+      "category": "loops-and-cost",
+      "relevance": "Use an external liveness signal instead of process existence alone.",
+      "title": "Mid-session agent-loop freeze: session permanently stops producing output, no error (v2.1.199 and v2.1.217) \u00b7 Issue #81531 \u00b7 anthropics/claude-code",
+      "published_at": "2026-07-27T03:31:05.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/81359",
+      "category": "loops-and-cost",
+      "relevance": "Detect restart storms, repeat-fail cycles and spend without progress.",
+      "title": "[BUG] Excessive Max plan usage drain from session restart storms and agent tool-loops (v2.1.216, Opus) \u00b7 Issue #81359 \u00b7 anthropics/claude-code",
+      "published_at": "2026-07-26T12:48:16.000Z",
+      "window": "last-31-days"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/85206",
+      "category": "loops-and-cost",
+      "relevance": "Detect identical retries that restart from zero and produce no change.",
+      "title": "Issue \u00b7 anthropics/claude-code",
+      "published_at": "2026-08-09T09:34:38.000Z",
+      "window": "last-31-days",
+      "short_quote": "4 attempts ... zero lines of code written."
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/45958",
+      "category": "loops-and-cost",
+      "relevance": "Retain subagent progress and quantify stalls before retrying.",
+      "title": "[BUG] [AGENT_TEAMS] Parallel Agent dispatch: 90min stall silently burns ~15M cache_read tokens, resets subagent context \u00b7 Issue #45958 \u00b7 anthropics/claude-code",
+      "published_at": "2026-04-09T22:36:43.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/26171",
+      "category": "loops-and-cost",
+      "relevance": "Set evidence-backed limits on thinking with no output or tool activity.",
+      "title": "Agent burns tokens endlessly - gets stuck in unbounded thinking loops \u00b7 Issue #26171 \u00b7 anthropics/claude-code",
+      "published_at": "2026-02-16T20:48:43.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/24147",
+      "category": "pricing-and-attribution",
+      "relevance": "Separate productive work from repeated cached-context overhead.",
+      "title": "Cache read tokens consume 99.93% of usage quota - architectural scaling issue with CLAUDE.md re-reads \u00b7 Issue #24147 \u00b7 anthropics/claude-code",
+      "published_at": "2026-02-08T10:18:55.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/20223",
+      "category": "pricing-and-attribution",
+      "relevance": "Expose avoidable input overhead instead of reporting only totals.",
+      "title": "[Bug] File loading adds 70% token overhead due to line number formatting \u00b7 Issue #20223 \u00b7 anthropics/claude-code",
+      "published_at": "2026-01-23T02:45:47.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/24044",
+      "category": "environment-and-state",
+      "relevance": "Detect duplicate context injection and configuration drift.",
+      "title": "MEMORY.md loaded twice: auto-memory and claudeMd loaders both inject same file \u00b7 Issue #24044 \u00b7 anthropics/claude-code",
+      "published_at": "2026-02-07T22:33:35.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/22607",
+      "category": "pricing-and-attribution",
+      "relevance": "Provide cumulative task-visible cost and cache accounting.",
+      "title": "Feature Request: Add cumulative cache token counts to status line input \u00b7 Issue #22607 \u00b7 anthropics/claude-code",
+      "published_at": "2026-02-02T20:15:15.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/26762",
+      "category": "pricing-and-attribution",
+      "relevance": "Keep calculated cost, billed cost and subscription allocation distinct.",
+      "title": "Clarification needed on /cost calculation logic and token breakdown \u00b7 Issue #26762 \u00b7 anthropics/claude-code",
+      "published_at": "2026-02-19T02:35:07.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/63861",
+      "category": "false-completion",
+      "relevance": "Require the canonical build before accepting verified or done.",
+      "title": "[BUG] Opus 4.8 in Claude Code declares work \"verified\" / \"done\" without running the canonical build \u2014 false-green regression vs. Opus 4.7 \u00b7 Issue #63861 \u00b7 anthropics/claude-code",
+      "published_at": "2026-05-30T04:59:53.000Z",
+      "window": "last-3-months",
+      "short_quote": "declared it genuinely done ... while never having run make -j4"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/42835",
+      "category": "permissions-and-tools",
+      "relevance": "Record tool availability changes and refuse fabricated unavailability claims.",
+      "title": "[MODEL] Deferred tools silently lost during context compression \u2014 AI confidently claims \"unavailable\" \u00b7 Issue #42835 \u00b7 anthropics/claude-code",
+      "published_at": "2026-04-02T22:51:29.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/42148",
+      "category": "permissions-and-tools",
+      "relevance": "Preflight required tools before unattended work begins.",
+      "title": "[BUG] MCP deferred tools not available on first turn \u2014 breaks scheduled/automated tasks \u00b7 Issue #42148 \u00b7 anthropics/claude-code",
+      "published_at": "2026-04-01T17:18:47.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/33073",
+      "category": "permissions-and-tools",
+      "relevance": "Treat policy-hook deadlocks as a failed control, not successful enforcement.",
+      "title": "[BUG] PreToolUse hooks cause agent hang after ToolSearch deferred tool loading \u00b7 Issue #33073 \u00b7 anthropics/claude-code",
+      "published_at": "2026-03-11T04:21:14.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/35262",
+      "category": "permissions-and-tools",
+      "relevance": "Bound deferred-tool discovery and surface deadlocks explicitly.",
+      "title": "[BUG] --print mode hangs in v2.1.76: deferred tools (Agent, Skill, WebSearch) cause intermittent deadlock \u00b7 Issue #35262 \u00b7 anthropics/claude-code",
+      "published_at": "2026-03-17T10:06:03.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-code/issues/44536",
+      "category": "permissions-and-tools",
+      "relevance": "Measure context/tool loading cost before expanding integrations.",
+      "title": "[FEATURE] Lazy context loading: extend the ToolSearch pattern to all context components \u00b7 Issue #44536 \u00b7 anthropics/claude-code",
+      "published_at": "2026-04-07T05:37:20.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/orgs/community/discussions/196715",
+      "category": "review-and-outcome",
+      "relevance": "Check actual merge readiness instead of trusting a completed checkbox.",
+      "title": "Copilot coding agent cannot resolve PR review threads \u00b7 community \u00b7 Discussion #196715",
+      "published_at": "2026-05-23T07:09:00Z",
+      "window": "last-3-months",
+      "short_quote": "Many threads still open ... marked done anyway."
+    },
+    {
+      "url": "https://github.com/orgs/community/discussions/190036",
+      "category": "review-and-outcome",
+      "relevance": "Time out stuck review work and report an actionable failure.",
+      "title": "\"Copilot encountered an error and was unable to review this pull request.\" \u00b7 community \u00b7 Discussion #190036",
+      "published_at": "2026-03-19T04:28:46Z",
+      "window": "last-12-months",
+      "short_quote": "runners stuck ... for as long as 6 hours"
+    },
+    {
+      "url": "https://github.com/orgs/community/discussions/190754",
+      "category": "review-and-outcome",
+      "relevance": "Reconcile prior review disposition before repeating a rejected finding.",
+      "title": "Copilot Code Review: Re-reviews ignore prior conversation and repeat the same incorrect suggestions \u00b7 community \u00b7 Discussion #190754",
+      "published_at": "2026-03-27T01:51:46Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/orgs/community/discussions/197646",
+      "category": "false-completion",
+      "relevance": "Treat instruction compliance as evidence to verify, not a model promise.",
+      "title": "Copilot is worse than useless - consistently ignores highest level instructions \u00b7 community \u00b7 Discussion #197646",
+      "published_at": "2026-06-01T16:01:12Z",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://github.com/orgs/community/discussions/197976",
+      "category": "permissions-and-tools",
+      "relevance": "Verify that an assigned agent actually started and retained task state.",
+      "title": "Unable to assign copilot cloud agent to github issues using rest API \u00b7 community \u00b7 Discussion #197976",
+      "published_at": "2026-06-04T07:54:19Z",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://github.com/orgs/community/discussions/170192",
+      "category": "environment-and-state",
+      "relevance": "Distinguish service failure from repository failure in the receipt.",
+      "title": "Coding agents not working since yesterday \u00b7 community \u00b7 Discussion #170192",
+      "published_at": "2025-08-18T11:31:31Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/19910",
+      "category": "false-completion",
+      "relevance": "Keep completion criteria and remaining work durable across compaction.",
+      "title": "Goals: active goal continuation prompt and audit requirements can be lost after mid-turn compaction \u00b7 Issue #19910 \u00b7 openai/codex",
+      "published_at": "2026-04-28T02:17:50.000Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://github.com/openai/codex/issues/34591",
+      "category": "review-and-outcome",
+      "relevance": "Retain review context when work moves between parent and child agents.",
+      "title": "Codex Desktop regression: Subagents panel no longer opens a writable child-agent chat \u00b7 Issue #34591 \u00b7 openai/codex",
+      "published_at": "2026-07-21T18:39:20.000Z",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://github.com/orgs/community/discussions/189795",
+      "category": "environment-and-state",
+      "relevance": "Expose service incidents so missing reviews do not look like clean work.",
+      "title": "[2026-03-16] Incident Thread - Copilot \u00b7 community \u00b7 Discussion #189795",
+      "published_at": "2026-03-16T17:23:31Z",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://www.reddit.com/r/ClaudeCode/comments/1rug14a/claude_wrote_playwright_tests_that_secretly/",
+      "published_at": "2026-03-15T00:00:00Z",
+      "title": "Claude wrote Playwright tests that secretly patched the app so they would pass",
+      "category": "test-integrity",
+      "relevance": "Detect tests that mutate the application under test before asserting success.",
+      "window": "last-12-months",
+      "short_quote": "patch the app at runtime"
+    },
+    {
+      "url": "https://www.reddit.com/r/ClaudeCode/comments/1ukfze0/tired_of_claude_code_saying_done_tests_pass_and/",
+      "published_at": "2026-07-01T00:00:00Z",
+      "title": "Tired of Claude Code saying done, tests pass and leaving a stub",
+      "category": "false-completion",
+      "relevance": "Require independent evidence for done and tests-pass claims.",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://www.reddit.com/r/ClaudeCode/comments/1txcow8/my_test_suite_is_green_for_the_first_time_in/",
+      "published_at": "2026-06-05T00:00:00Z",
+      "title": "My test suite is green for the first time in weeks. I have never trusted it less.",
+      "category": "test-integrity",
+      "relevance": "Detect disabled checks, no-verify bypasses and weakened test oracles.",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://www.reddit.com/r/claudeskills/comments/1ul91r4/my_claude_code_agents_kept_saying_done_all_tests/",
+      "published_at": "2026-07-02T00:00:00Z",
+      "title": "Agents said done and all tests passing while important buttons did nothing",
+      "category": "false-completion",
+      "relevance": "Require a check outside the agent loop and support observable behavior tests.",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://www.reddit.com/r/ClaudeCode/comments/1v39e95/claude_keeps_writing_tests_that_pass_im_not/",
+      "published_at": "2026-07-22T00:00:00Z",
+      "title": "Claude keeps writing tests that pass. I am not convinced they prove anything.",
+      "category": "test-integrity",
+      "relevance": "Flag tests that remain green under nearby implementation mutations.",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://www.reddit.com/r/ClaudeCode/comments/1qp7qbe/claude_code_loves_breaking_stuff_and_then/",
+      "published_at": "2026-01-28T00:00:00Z",
+      "title": "Claude Code loves breaking stuff and then declaring it an existing error",
+      "category": "false-completion",
+      "relevance": "Compare failures against the base revision before calling them pre-existing.",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://www.reddit.com/r/ClaudeAI/comments/1s7mkn3/psa_claude_code_has_two_cache_bugs_that_can/",
+      "published_at": "2026-03-30T00:00:00Z",
+      "title": "Cache bugs can silently increase Claude Code API costs",
+      "category": "pricing-and-attribution",
+      "relevance": "Preserve provider evidence and show cost anomalies separately from outcome.",
+      "window": "last-12-months"
+    },
+    {
+      "url": "https://www.reddit.com/r/coderabbit/comments/1u5b0q8/why_i_am_cancelling_coderabbit/",
+      "published_at": "2026-06-01T00:00:00Z",
+      "title": "Why I am cancelling CodeRabbit",
+      "category": "pricing-and-attribution",
+      "relevance": "Use transparent limits and show the unit that causes additional charges.",
+      "window": "last-3-months"
+    },
+    {
+      "url": "https://www.reddit.com/r/coderabbit/comments/1vuj1jz/day_7_of_paying_for_pro_and_not_being_able_to_use/",
+      "published_at": "2026-08-22T00:00:00Z",
+      "title": "Day 7 of paying for Pro+ and not being able to use it",
+      "category": "pricing-and-attribution",
+      "relevance": "Avoid surprise file-based charges for high-throughput agent changes.",
+      "window": "last-7-days"
+    },
+    {
+      "url": "https://www.reddit.com/r/coderabbit/comments/1vkv76b/gitlab_and_coderabbit/",
+      "published_at": "2026-08-16T00:00:00Z",
+      "title": "GitLab and CodeRabbit runner configuration problem",
+      "category": "environment-and-state",
+      "relevance": "Doctor installation and distinguish webhook success from runner readiness.",
+      "window": "last-7-days"
+    }
+  ]
+}

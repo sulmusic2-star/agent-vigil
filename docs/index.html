@@ -119,7 +119,7 @@
   <div class="wrap">
     <nav aria-label="Primary">
       <a class="brand" href="#top">AGENT VIGIL</a>
-        <div><a href="#proof">Failures caught</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
+        <div><a href="#protect">Protection</a><a href="#proof">Failures caught</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
     </nav>
     <main id="top">
       <div class="hero">
@@ -144,7 +144,7 @@
   observed release_publish via gh release create
 
 <span class="ok">✓ tests-pass</span>
-  trusted command observed 360 passing; 5 skipped.
+  trusted command observed 386 passing; 5 skipped.
 
 <span class="fail">FAIL</span> · sha256:c3128a2c6abc…</pre>
         </div>
@@ -154,6 +154,17 @@
         <div><b class="fail">FAIL</b>A required check found a contradiction or policy violation.</div>
         <div><b class="warn">INCONCLUSIVE</b>There is not enough reliable evidence to approve the change.</div>
       </div>
+
+      <section id="protect">
+        <p class="eyebrow">One-command protection</p>
+        <h2>Install the gate without sending us your code or transcript.</h2>
+        <p class="section-lead"><code>vigil protect</code> discovers common repository checks, verifies the exact pull-request commit under policy from the base branch, supports merge queues, retains a receipt, and records the review and merge outcome. Existing setup files are not overwritten unless you ask.</p>
+        <div class="cards">
+          <article class="card"><span class="number">01</span><h3>Protect the policy</h3><p>A pull request cannot relax the policy that judges that same pull request. Workflow and policy changes can be placed behind protected-path rules.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/THREAT_MODEL.md">Trust boundary →</a></article>
+          <article class="card"><span class="number">02</span><h3>Check the tests</h3><p>New skips, bypasses, zeroed coverage, lost tests, empty tests, and constant assertions block. Lower-confidence patterns remain visible for review.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/TEST_INTEGRITY_GUARD.md">Integrity rules →</a></article>
+          <article class="card"><span class="number">03</span><h3>Keep the outcome</h3><p>The retained Value Card keeps verification, review disposition, Actions runtime, merge state, and later linked failures separate and traceable.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/OUTCOME_OBSERVER.md">Outcome record →</a></article>
+        </div>
+      </section>
 
       <section id="proof">
         <p class="eyebrow">Failures found in real releases</p>
@@ -211,10 +222,10 @@
       </section>
 
       <section id="install" class="install">
-        <div><p class="eyebrow">Install</p><h2>Add the check, then read the policy.</h2><p class="section-lead">The authority profile records which paths and actions are allowed for one task. The maintainer profile works without an agent transcript.</p></div>
+        <div><p class="eyebrow">Install</p><h2>Protect a repository, then read the commands it found.</h2><p class="section-lead">The protection profile works without an agent transcript. It installs the required-check workflow, calibrated Test Integrity Guard, receipt retention, and outcome observer.</p></div>
         <div>
-          <code class="command">npx --yes @sulmusic/agent-vigil@0.12.0 init --profile authority --attest</code>
-          <p>Then run <code>npx --yes @sulmusic/agent-vigil@0.12.0 doctor</code> and review every generated command before merging.</p>
+          <code class="command">npx --yes @sulmusic/agent-vigil@0.13.0 protect --attest</code>
+          <p>Then run <code>npx --yes @sulmusic/agent-vigil@0.13.0 doctor</code>. Review the discovered commands and limits before merging the setup.</p>
           <p class="fine">The scoped package prevents confusion with the separate <code>agentvigil</code> project. Agent Vigil reconciles observed evidence after execution; it is not a sandbox or proof that no unlogged action occurred.</p>
           <div class="actions">
             <a class="button" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml">Report a real trial</a>

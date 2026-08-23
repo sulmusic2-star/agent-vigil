@@ -10,8 +10,8 @@ of the evidence record.
 ## Install with attestation enabled
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.12.0 init --attest
-npx --yes @sulmusic/agent-vigil@0.12.0 doctor
+npx --yes @sulmusic/agent-vigil@0.13.0 init --attest
+npx --yes @sulmusic/agent-vigil@0.13.0 doctor
 ```
 
 The generated workflow grants these additional permissions:
@@ -37,7 +37,7 @@ Download `agent-vigil-report.json` from the workflow artifact, authenticate the
 GitHub CLI, then run:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.12.0 verify-attestation \
+npx --yes @sulmusic/agent-vigil@0.13.0 verify-attestation \
   agent-vigil-report.json \
   --repository OWNER/REPOSITORY
 ```
@@ -52,7 +52,7 @@ from self-hosted runners. If the calling workflow has a different path, pin it
 explicitly:
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.12.0 verify-attestation \
+npx --yes @sulmusic/agent-vigil@0.13.0 verify-attestation \
   agent-vigil-report.json \
   --repository OWNER/REPOSITORY \
   --signer-workflow OWNER/REPOSITORY/.github/workflows/custom-vigil.yml
