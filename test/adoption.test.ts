@@ -232,11 +232,16 @@ test("Action accepts exactly one evidence mode", () => {
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
   assert.match(action, /VIGIL_RECEIPT/);
   assert.match(action, /VIGIL_AUTHORITY_CONTRACT/);
-  assert.match(action, /choose exactly one of transcript, authority contract, receipt, plan mode, prove mode, maintainer mode, or outcome mode/);
+  assert.match(action, /choose exactly one of transcript, authority contract, receipt, plan mode, prove mode, maintainer mode, outcome mode, or upgrade mode/);
   assert.match(action, /args=\(plan --repo "\$VIGIL_REPO" --base "\$VIGIL_BASE" --head "\$VIGIL_HEAD"/);
   assert.match(action, /prove mode cannot be combined with another evidence input/);
   assert.match(action, /args=\(prove --repo "\$VIGIL_REPO" --base "\$VIGIL_HEAD" --format json/);
   assert.match(action, /inputs\.mode != 'prove'/);
+  assert.match(action, /inputs\.mode != 'upgrade'/);
+  assert.match(action, /args=\(upgrade preflight --repo "\$trusted_repo" --current-lock "\$current_lock" --candidate-lock "\$candidate_lock"/);
+  assert.match(action, /git -C "\$VIGIL_REPO" worktree add --quiet --detach "\$trusted_repo" "\$VIGIL_BASE"/);
+  assert.match(action, /git -C "\$VIGIL_REPO" show "\$VIGIL_BASE:\$VIGIL_UPGRADE_LOCK_PATH"/);
+  assert.match(action, /r\.summary\.verdict/);
   assert.match(action, /receipt mode requires a base-anchored policy/);
   assert.match(action, /args=\(authority "\$VIGIL_TRANSCRIPT"/);
   assert.match(action, /authority-contract-ref must equal GitHub event base/);

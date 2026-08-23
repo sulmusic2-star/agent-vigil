@@ -119,8 +119,10 @@ the configuration at entry and after trials, but these bounded checks do not
 prove physical daemon locality or continuous immutability against same-host ABA
 or privileged races. Private and public v1 evidence records the successful
 local-transport binding as a boolean without disclosing the endpoint path.
-It does not install an update, upload evidence, modify the GitHub Action, or
-claim live model/provider behavior. See the precise
+It does not install an update, upload evidence by default, or claim live
+model/provider behavior. The v0.15 Action can enforce the bounded APM
+materialize-check-restore path using exact event commits and trusted-base
+canaries. See the precise
 [Upgrade Guard contract](docs/UPGRADE_GUARD.md).
 
 It also adds the one-command protection profile:
@@ -486,6 +488,14 @@ The generated workflow supports both pull requests and GitHub merge queues. A
 queued composition is checked against the exact `merge_group.base_sha` and
 `merge_group.head_sha`; trusted tests and integrity checks run again on the
 combined commit. See [the merge-queue contract](docs/MERGE_QUEUES.md).
+
+`mode: upgrade` is a separate APM compatibility check. It reads both lockfiles
+from the exact event commits, creates a detached trusted-base worktree for the
+configuration and canaries, materializes the selected exact pair into temporary
+directories, runs the contained comparison, and removes the session before it
+returns. It never updates the active APM installation. See the
+[APM preflight Action contract](docs/APM_PREFLIGHT_ACTION.md) and the
+[complete workflow](examples/upgrade-guard/github-workflow.yml).
 
 ```yaml
 on:

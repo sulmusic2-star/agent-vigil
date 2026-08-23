@@ -64,4 +64,9 @@ socket/pipe routing, host kernel, digest-pinned runner image, and canary harness
 remain trusted. Do not mount the Docker socket or credentials. Public
 compatibility output is opt-in, requires an Ed25519 key, and still exposes
 component, version, artifact-digest, and signer identities; review it before
-disclosure. Upgrade Guard is not enabled in the GitHub Action.
+disclosure. The GitHub Action's APM upgrade mode reads both lockfiles from the
+exact event commits, loads config and canaries from a detached exact-base
+worktree, and uses only temporary materialization roots. It still trusts the
+base configuration, canaries, explicitly preloaded runner image, Docker client,
+daemon, and host. Do not grant that job cloud, package-publishing, deployment,
+model-provider, or signing credentials.

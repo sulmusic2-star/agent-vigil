@@ -1,0 +1,47 @@
+name: Agent toolchain upgrade preflight
+
+on:
+  pull_request:
+    paths:
+      - apm.lock.yaml
+      - .agent-vigil/upgrade/**
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade-preflight:
+    name: Agent toolchain upgrade preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+
+      # Upgrade Guard never pulls an image inside the comparison. Keep this
+      # exact-digest cache mutation visible and separate from the receipt.
+      - name: Preload exact contained runner
+        run: >-
+          docker pull
+          node:22.22.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752
+
+      - id: vigil
+        uses: sulmusic2-star/agent-vigil@v0.15.0
+        with:
+          mode: upgrade
+          repo: .
+          base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+
+      - name: Retain private preflight receipt
+        if: ${{ always() && steps.vigil.outputs.report != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-vigil-apm-preflight
+          path: ${{ steps.vigil.outputs.report }}
+          if-no-files-found: error
+          retention-days: 14
