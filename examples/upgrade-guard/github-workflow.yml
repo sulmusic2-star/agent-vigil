@@ -1,12 +1,14 @@
 name: Agent toolchain upgrade preflight
 
 on:
-  pull_request:
+  # Keep the installed file at .github/workflows/agent-vigil-upgrade.yml.
+  # pull_request_target selects this workflow from the protected base branch;
+  # the job below never executes files from the pull request.
+  pull_request_target:
     paths:
       - apm.lock.yaml
       - .agent-vigil/upgrade/**
-  merge_group:
-    types: [checks_requested]
+      - .github/workflows/agent-vigil-upgrade.yml
 
 permissions:
   contents: read
@@ -14,13 +16,14 @@ permissions:
 jobs:
   upgrade-preflight:
     name: Agent toolchain upgrade preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
 
       # Upgrade Guard never pulls an image inside the comparison. Keep this
       # exact-digest cache mutation visible and separate from the receipt.
@@ -34,14 +37,10 @@ jobs:
         with:
           mode: upgrade
           repo: .
-          base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
 
-      - name: Retain private preflight receipt
-        if: ${{ always() && steps.vigil.outputs.report != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-vigil-apm-preflight
-          path: ${{ steps.vigil.outputs.report }}
-          if-no-files-found: error
-          retention-days: 14
+      # The report is a private wrapper containing exact manifest and canary
+      # commitments. Do not upload it from a public repository. A private
+      # repository may add an explicitly reviewed, access-controlled artifact
+      # step after choosing an appropriate retention policy.

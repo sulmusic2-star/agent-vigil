@@ -259,3 +259,17 @@ test("upgrade Action declares a closed shell and plumbing-only trusted boundary"
   assert.doesNotMatch(action, /git -C "\$VIGIL_REPO" (?:worktree|show|checkout)/); assert.doesNotMatch(action, /worktree add|git checkout/);
   assert.match(action, /inputs\.mode != 'upgrade'/);
 });
+
+test("upgrade workflow is base-selected and does not publish the private receipt by default", () => {
+  const workflow = readFileSync(join(process.cwd(), "examples/upgrade-guard/github-workflow.yml"), "utf8");
+  const contract = readFileSync(join(process.cwd(), "docs/APM_PREFLIGHT_ACTION.md"), "utf8");
+  assert.match(workflow, /pull_request_target:/);
+  assert.doesNotMatch(workflow, /^\s{2}pull_request:/m);
+  assert.doesNotMatch(workflow, /^\s{2}merge_group:/m);
+  assert.match(workflow, /\.github\/workflows\/agent-vigil-upgrade\.yml/);
+  assert.match(workflow, /runs-on: ubuntu-24\.04/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.doesNotMatch(workflow, /actions\/upload-artifact|retention-days:/);
+  assert.match(contract, /required-workflow ruleset/);
+  assert.match(contract, /default public-repository example does\s+not upload it/);
+});

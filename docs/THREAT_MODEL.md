@@ -138,8 +138,9 @@ candidate may attempt to interfere with a poorly designed canary, and a
 container escape can invalidate the boundary. The GitHub Action's APM mode
 extends the same offline boundary by reading old and new manager state from the
 exact event commits, acquiring only supported exact commit archives into an
-exclusive temporary session, and loading configuration and canaries from a
-detached exact-base worktree. It does not update the active APM installation or
+exclusive temporary session, requiring the base and head harness trees to be
+identical, and materializing exact config and canary blobs with sanitized Git
+plumbing. It does not check out or execute repository content, update the active APM installation, or
 establish live provider, model-alias, authentication, latency, payment, or
 production behavior. The separately visible exact-digest image preload mutates
 the runner's Docker cache and trusts the registry transport; it is outside the

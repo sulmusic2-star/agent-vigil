@@ -86,7 +86,21 @@ general security, provenance, or production-compatibility claim.
 ## Workflow
 
 Use the checked-in [workflow example](../examples/upgrade-guard/github-workflow.yml).
-It grants read-only repository access, fetches full Git history, preloads the
-exact runner digest, and retains the private receipt as a GitHub Actions
-artifact. Do not add cloud, package-publishing, deployment, model-provider, or
-signing credentials to this job.
+It runs from the base branch through `pull_request_target`, grants read-only
+repository access, fetches the exact candidate object without executing
+repository content, and preloads the exact runner digest. Keep the installed
+workflow at `.github/workflows/agent-vigil-upgrade.yml` so its own path change
+triggers the protected base copy. Do not add cloud, package-publishing,
+deployment, model-provider, signing, or other secrets to this job.
+
+Configure an organization ruleset that requires this exact workflow from a
+separately controlled source repository, branch, and workflow path before
+treating it as an unbypassable merge gate. A required status name alone is not
+the same control: another workflow can omit the Action or try to emit a
+look-alike check. If the repository cannot use a required-workflow ruleset,
+describe the result as advisory rather than self-protecting.
+
+The wrapper is private evidence. The default public-repository example does
+not upload it. Only add artifact retention in a private repository whose read
+access and retention policy are appropriate for exact component identities,
+manifest bytes, private canary IDs, commands, and observation commitments.
