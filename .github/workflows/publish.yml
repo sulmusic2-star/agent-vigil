@@ -80,7 +80,32 @@ jobs:
           PACKAGE_NAME="$(node -p "require('./package.json').name")"
           PACKAGE_VERSION="${RELEASE_TAG#v}"
           LOCAL_INTEGRITY="$(node -p "require(process.env.RUNNER_TEMP + '/npm-pack.json')[0].integrity")"
-          REMOTE_INTEGRITY="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --json 2>/dev/null | tr -d '\"' || true)"
+          read_remote_integrity() {
+            local output code
+            set +e
+            output="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --json 2>&1)"
+            code=$?
+            set -e
+
+            if [ "$code" -ne 0 ]; then
+              if printf '%s' "$output" | grep -Eq 'E404|No match found for version'; then
+                return 0
+              fi
+              printf '%s\n' "$output" >&2
+              return "$code"
+            fi
+
+            printf '%s' "$output" | node -e '
+              const fs = require("node:fs");
+              const value = JSON.parse(fs.readFileSync(0, "utf8"));
+              if (typeof value !== "string" || !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+                throw new Error("npm returned an invalid integrity value");
+              }
+              process.stdout.write(value);
+            '
+          }
+
+          REMOTE_INTEGRITY="$(read_remote_integrity)"
 
           if [ -n "$REMOTE_INTEGRITY" ]; then
             if [ "$REMOTE_INTEGRITY" != "$LOCAL_INTEGRITY" ]; then
@@ -95,7 +120,7 @@ jobs:
 
           for attempt in 1 2 3 4 5 6; do
             echo "Registry verification attempt $attempt of 6"
-            REMOTE_INTEGRITY="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --json 2>/dev/null | tr -d '\"' || true)"
+            REMOTE_INTEGRITY="$(read_remote_integrity)"
             [ "$REMOTE_INTEGRITY" = "$LOCAL_INTEGRITY" ] && exit 0
             sleep 10
           done
