@@ -51,8 +51,10 @@ latency therefore cannot be established by an Upgrade Guard verdict.
   local socket or named pipe can proxy another daemon.
 - For `init` and `doctor`, `--repo` must name the exact root of a Git
   repository, not a parent or nested directory.
-- A trusted runner image already present locally and named by an immutable
-  `@sha256:` digest. Upgrade Guard uses `--pull=never`.
+- A trusted Linux/amd64 single-platform runner manifest already present
+  locally and named by an immutable `@sha256:` digest. Multi-platform index
+  digests are rejected because they select different bytes by architecture.
+  Upgrade Guard uses `--pull=never`.
 - For automatic APM acquisition, a fixed-location `curl` executable or an
   explicit absolute `--fetch-bin` path. Repository-controlled `PATH`, curl
   configuration, proxy variables, redirects, credentials, and non-HTTPS
@@ -183,14 +185,20 @@ its verdict or hash:
 vigil upgrade verify-preflight \
   .agent-vigil/upgrade/apm-preflight-receipt.json \
   --current-lock ./states/current/apm.lock.yaml \
-  --candidate-lock ./states/candidate/apm.lock.yaml
+  --candidate-lock ./states/candidate/apm.lock.yaml \
+  --repo . \
+  --config .agent-vigil/upgrade/config.json
 ```
 
 This independently recomputes the plan and selected-row bindings, both receipt
-hashes, the recorded decision, artifact commitments, restoration state, and the
-nested verdict. It exits successfully only for a structurally and semantically
-valid wrapper; callers must separately enforce the preflight exit-to-verdict
-mapping (`0` to `SAFE`, `1` to `CHANGED`, `2` to `HOLD`).
+hashes, every recorded canary comparison from its aggregate evidence, the
+decision, artifact commitments, restoration state, and nested verdict. The
+trusted repository and config are required so verification can also rebind the
+runner, component, canary IDs and commands, configuration digest, and current
+canary-harness inventory. A non-HOLD receipt requires every containment control
+to be true. The command exits successfully only for a structurally and
+semantically valid wrapper; callers must separately enforce the preflight
+exit-to-verdict mapping (`0` to `SAFE`, `1` to `CHANGED`, `2` to `HOLD`).
 
 The selected row must also be a pure artifact version/tree transition. Changes
 to deployment selection, skill/target subsets, package type, virtual path,
@@ -449,7 +457,7 @@ fields are rejected.
   },
   "runner": {
     "engine": "docker",
-    "image": "node:22.22.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752",
+    "image": "node:22.22.3-bookworm-slim@sha256:16d364eebf6b62da439dc993d9b80940c78b0ca38438452f011ab9a25c752644",
     "trials": 2,
     "memoryMiB": 512,
     "cpus": 1,
@@ -467,7 +475,9 @@ fields are rejected.
 }
 ```
 
-`init` currently pins the exact runner image shown above. That image must
+`init` currently pins the Linux/amd64 single-platform child manifest shown
+above, rather than the multi-platform tag/index. The local Docker inspection
+must resolve that exact manifest as `linux/amd64` before any canary can run. The image must
 already be stored locally, and you must independently decide whether to trust
 it before using its result. A mutable tag alone is never accepted.
 

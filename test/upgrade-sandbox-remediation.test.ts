@@ -80,7 +80,15 @@ if (args[0] === "context" && args[1] === "inspect") {
   else if (process.env.VIGIL_FAKE_DOCKER_CONTEXT_MALFORMED === "1") process.stdout.write("not-json");
   else process.stdout.write(JSON.stringify(process.env.VIGIL_FAKE_DOCKER_ENDPOINT || "unix:///var/run/docker.sock"));
 } else if (args[0] === "image" && args[1] === "inspect") {
-  process.stdout.write(JSON.stringify([${JSON.stringify(IMAGE)}]));
+  const selected = args.at(-1);
+  const digest = selected.slice(selected.lastIndexOf("@") + 1);
+  process.stdout.write(JSON.stringify({
+    Descriptor:{mediaType:process.env.VIGIL_FAKE_DOCKER_MEDIA_TYPE||"application/vnd.oci.image.manifest.v1+json",digest},
+    Os:process.env.VIGIL_FAKE_DOCKER_OS||"linux",
+    Architecture:process.env.VIGIL_FAKE_DOCKER_ARCH||"amd64",
+    Variant:process.env.VIGIL_FAKE_DOCKER_VARIANT||"",
+    RepoDigests:[selected]
+  }));
 } else if (args[0] === "run") {
   if (process.env.VIGIL_FAKE_DOCKER_HANG === "1") {
     process.on("SIGTERM", () => {});
@@ -217,6 +225,31 @@ test("containment uses a random named container and verifies exact cleanup", { s
       assert.deepEqual(call.rawArgs.slice(0, 2), ["--host", "unix:///var/run/docker.sock"]);
     }
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a multi-platform index or non-linux-amd64 image cannot satisfy the exact runner identity", {
+  skip: POSIX_FAKE_DOCKER ? false : POSIX_FAKE_DOCKER_REASON,
+}, () => {
+  const { root, target, canaries } = fixture();
+  const fake = fakeDocker(root);
+  const cases = [
+    ["VIGIL_FAKE_DOCKER_MEDIA_TYPE", "application/vnd.oci.image.index.v1+json"],
+    ["VIGIL_FAKE_DOCKER_ARCH", "arm64"],
+    ["VIGIL_FAKE_DOCKER_OS", "windows"],
+    ["VIGIL_FAKE_DOCKER_VARIANT", "v8"],
+  ] as const;
+  try {
+    for (const [name, value] of cases) {
+      process.env[name] = value;
+      const result = withoutDockerOverrides(() => probeContainment(config(), target, canaries, fake.executable));
+      assert.equal(result.status, "HOLD", name);
+      assert.equal(result.imagePresent, false, name);
+      delete process.env[name];
+    }
+  } finally {
+    for (const [name] of cases) delete process.env[name];
     rmSync(root, { recursive: true, force: true });
   }
 });

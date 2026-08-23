@@ -323,7 +323,7 @@ export function dockerImagePresent(
   }
   const inspected = spawnSync(
     client.executable,
-    dockerArgs(client, ["image", "inspect", "--format", "{{json .RepoDigests}}", config.runner.image]),
+    dockerArgs(client, ["image", "inspect", "--format", "{{json .}}", config.runner.image]),
     {
       encoding: "utf8",
       timeout: DOCKER_CONTROL_TIMEOUT_MS,
@@ -334,8 +334,21 @@ export function dockerImagePresent(
   );
   if (inspected.status !== 0 || inspected.error || !inspected.stdout.trim()) return false;
   try {
-    const values = JSON.parse(inspected.stdout) as unknown;
-    return Array.isArray(values) && values.some((value) => typeof value === "string" && value.endsWith(`@${imageDigest(config)}`));
+    const value = JSON.parse(inspected.stdout) as Record<string, unknown>;
+    const descriptor = value.Descriptor && typeof value.Descriptor === "object" && !Array.isArray(value.Descriptor)
+      ? value.Descriptor as Record<string, unknown>
+      : undefined;
+    const repoDigests = value.RepoDigests;
+    const digest = imageDigest(config);
+    const singlePlatformManifest = descriptor?.digest === digest
+      && (descriptor.mediaType === "application/vnd.oci.image.manifest.v1+json"
+        || descriptor.mediaType === "application/vnd.docker.distribution.manifest.v2+json");
+    return singlePlatformManifest
+      && value.Os === "linux"
+      && value.Architecture === "amd64"
+      && (value.Variant === undefined || value.Variant === "")
+      && Array.isArray(repoDigests)
+      && repoDigests.some((item) => typeof item === "string" && item.endsWith(`@${digest}`));
   } catch {
     return false;
   }
@@ -373,7 +386,7 @@ export function probeContainment(
     return {
       status: "HOLD", localEndpoint: true, imagePresent: false, networkBlocked: false, targetReadOnly: false,
       rootReadOnly: false, inheritedSecretAbsent: false, proxiesCleared: false,
-      reason: "the exact-digest runner image is not present locally; Upgrade Guard never pulls during a check",
+      reason: "the exact Linux/amd64 single-platform runner manifest is not present locally; Upgrade Guard never pulls during a check",
     };
   }
   const name = containerName();

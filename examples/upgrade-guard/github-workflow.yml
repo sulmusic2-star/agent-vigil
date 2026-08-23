@@ -27,7 +27,7 @@ jobs:
       - name: Preload exact contained runner
         run: >-
           docker pull
-          node:22.22.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752
+          node:22.22.3-bookworm-slim@sha256:16d364eebf6b62da439dc993d9b80940c78b0ca38438452f011ab9a25c752644
 
       - id: vigil
         uses: sulmusic2-star/agent-vigil@v0.15.0

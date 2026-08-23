@@ -25,13 +25,14 @@ Generate the initial private scaffold with `vigil upgrade init --repo .`, then
 replace its deliberately failing template canary. The template can never earn
 `SAFE`.
 
-The runner image is immutable and must already be in the local Docker cache.
-Upgrade Guard never pulls it during a comparison. A hosted workflow should
+The runner image is an immutable Linux/amd64 child manifest and must already
+be in the local Docker cache. A multi-platform index digest is not accepted as
+an exact runner identity. Upgrade Guard never pulls it during a comparison. A hosted workflow should
 therefore preload the exact configured digest in a separate, visible step. The
 default scaffold currently uses:
 
 ```text
-node:22.22.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752
+node:22.22.3-bookworm-slim@sha256:16d364eebf6b62da439dc993d9b80940c78b0ca38438452f011ab9a25c752644
 ```
 
 Pulling that exact digest changes the runner's Docker cache and trusts the

@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
+import { canonical } from "../src/report.ts";
 import {
   parseApmGitHubArchive,
   recomputeApmPreflightReceiptHash,
@@ -22,13 +23,15 @@ import {
   validateBoundApmAutomaticPreflightReceipt,
   type ArchiveFetcher,
 } from "../src/upgrade/apm-materialize.ts";
-import { inspectTarget, type TargetSnapshot } from "../src/upgrade/decision.ts";
+import { inspectArtifactTree, inspectTarget, type TargetSnapshot } from "../src/upgrade/decision.ts";
+import { loadUpgradeConfig } from "../src/upgrade/contracts.ts";
 import { createUpdatePlan } from "../src/upgrade/manager-plan.ts";
 import {
   recomputeUpgradeReceiptHash,
   type UpgradePrivateReceipt,
 } from "../src/upgrade/receipt.ts";
 import { runUpgradeCommand } from "../src/upgrade/cli.ts";
+import { commandDigest } from "../src/upgrade/sandbox.ts";
 import { withoutInheritedNodeCoverage } from "./subprocess-env.ts";
 
 const IMAGE = `node:22@sha256:${"a".repeat(64)}`;
@@ -163,7 +166,15 @@ function target(directory: string): TargetSnapshot {
   });
 }
 
-function fakeReceipt(currentDirectory: string, candidateDirectory: string, generatedAt: string, nonce: string): UpgradePrivateReceipt {
+function fakeReceipt(
+  currentDirectory: string,
+  candidateDirectory: string,
+  generatedAt: string,
+  nonce: string,
+  repository: string,
+  configPath: string,
+): UpgradePrivateReceipt {
+  const config = loadUpgradeConfig(configPath);
   const current = target(currentDirectory);
   const candidate = target(candidateDirectory);
   const stable = {
@@ -179,10 +190,10 @@ function fakeReceipt(currentDirectory: string, candidateDirectory: string, gener
     vigilVersion: "0.15.0-test",
     generatedAt,
     nonce,
-    component: { ecosystem: "agent-plugin", name: "fixture-agent" },
-    configSha256: digest("config"),
+    component: { ecosystem: config.component.ecosystem, name: config.component.name },
+    configSha256: digest(canonical(config)),
     runner: {
-      engine: "docker", image: IMAGE, trials: 2,
+      engine: "docker", image: config.runner.image, trials: config.runner.trials,
       network: "none", filesystem: "read-only", environment: "explicit",
     },
     containment: {
@@ -192,11 +203,17 @@ function fakeReceipt(currentDirectory: string, candidateDirectory: string, gener
     },
     current,
     candidate,
-    canaryHarness: { treeSha256: digest("canary"), fileCount: 1, totalBytes: 10 },
-    capabilities: [{ field: "tools", currentCount: 1, candidateCount: 1, changed: false }],
+    canaryHarness: inspectArtifactTree(join(repository, config.canaryDirectory)),
+    capabilities: [{
+      field: "tools",
+      currentCount: current.capabilities[0].count,
+      candidateCount: candidate.capabilities[0].count,
+      changed: current.capabilities[0].sha256 !== candidate.capabilities[0].sha256,
+    }],
     canaries: [{
-      id: "behavior", publicId: "behavior-v1", idSha256: digest("behavior"),
-      commandSha256: digest("command"), current: stable, candidate: stable,
+      id: config.canaries[0].id, publicId: config.canaries[0].publicId,
+      idSha256: digest(config.canaries[0].id),
+      commandSha256: commandDigest(config.canaries[0]), current: { ...stable }, candidate: { ...stable },
       changed: false, comparable: true,
     }],
     summary: {
@@ -218,7 +235,34 @@ function fixture() {
   const configPath = join(repository, "config.json");
   const currentCommit = "a".repeat(40);
   const candidateCommit = "b".repeat(40);
-  writeFileSync(configPath, "{}\n");
+  mkdirSync(join(repository, "canaries"));
+  writeFileSync(join(repository, "canaries", "behavior.mjs"), "process.stdout.write('{}')\n");
+  writeFileSync(configPath, `${JSON.stringify({
+    schemaVersion: "agent-vigil-upgrade-config/v1",
+    component: {
+      ecosystem: "agent-plugin",
+      name: "fixture-agent",
+      manifestPath: "package.json",
+      identityField: "name",
+      versionField: "version",
+      capabilityFields: ["tools"],
+    },
+    runner: {
+      engine: "docker",
+      image: IMAGE,
+      trials: 2,
+      memoryMiB: 256,
+      cpus: 1,
+      pids: 64,
+    },
+    canaryDirectory: "canaries",
+    canaries: [{
+      id: "behavior",
+      publicId: "behavior-v1",
+      command: ["node", "/canaries/behavior.mjs"],
+      timeoutSeconds: 30,
+    }],
+  }, null, 2)}\n`);
   return {
     repository, workDirectory, currentLockPath, candidateLockPath, configPath,
     currentCommit, candidateCommit,
@@ -258,7 +302,14 @@ test("automatic APM preflight binds fetch, tree, plan, check, and restoration wi
     evaluate: (input) => {
       materializedRoots = [input.currentDirectory, input.candidateDirectory];
       assert.ok(materializedRoots.every(existsSync));
-      return fakeReceipt(input.currentDirectory, input.candidateDirectory, input.generatedAt!, input.nonce!);
+      return fakeReceipt(
+        input.currentDirectory,
+        input.candidateDirectory,
+        input.generatedAt!,
+        input.nonce!,
+        value.repository,
+        value.configPath,
+      );
     },
   });
   assert.equal(receipt.summary.verdict, "SAFE");
@@ -272,8 +323,14 @@ test("automatic APM preflight binds fetch, tree, plan, check, and restoration wi
   assert.equal(receipt.materialization?.current?.fetchedSha256, `sha256:${createHash("sha256").update(currentArchive).digest("hex")}`);
   assert.equal(receipt.materialization?.candidate?.materializedTreeSha256, parseApmGitHubArchive(candidateArchive).treeSha256);
   assert.equal(recomputeApmPreflightReceiptHash(receipt), receipt.receiptHash);
+  const trustedContext = { repository: value.repository, configPath: value.configPath };
   assert.equal(
-    validateBoundApmAutomaticPreflightReceipt(receipt, value.currentLockPath, value.candidateLockPath).receiptHash,
+    validateBoundApmAutomaticPreflightReceipt(
+      receipt,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ).receiptHash,
     receipt.receiptHash,
   );
   const receiptPath = join(value.repository, "bound-preflight.json");
@@ -285,12 +342,16 @@ test("automatic APM preflight binds fetch, tree, plan, check, and restoration wi
       "verify-preflight", receiptPath,
       "--current-lock", value.currentLockPath,
       "--candidate-lock", value.candidateLockPath,
+      "--repo", value.repository,
+      "--config", "config.json",
     ]), 0);
   } finally { process.stdout.write = originalWrite; }
   const bundledVerify = spawnSync(process.execPath, [
     resolve("dist/cli.js"), "upgrade", "verify-preflight", receiptPath,
     "--current-lock", value.currentLockPath,
     "--candidate-lock", value.candidateLockPath,
+    "--repo", value.repository,
+    "--config", "config.json",
   ], { encoding: "utf8", env: withoutInheritedNodeCoverage() });
   assert.equal(bundledVerify.status, 0, bundledVerify.stderr);
   assert.deepEqual(JSON.parse(bundledVerify.stdout), {
@@ -304,15 +365,91 @@ test("automatic APM preflight binds fetch, tree, plan, check, and restoration wi
   wrongExitVerdict.summary.reasonCodes = ["MATERIAL_CHANGE_DETECTED"];
   wrongExitVerdict.receiptHash = recomputeApmPreflightReceiptHash(wrongExitVerdict);
   assert.throws(
-    () => validateBoundApmAutomaticPreflightReceipt(wrongExitVerdict, value.currentLockPath, value.candidateLockPath),
-    /nested receipt binding|nested decision/,
+    () => validateBoundApmAutomaticPreflightReceipt(wrongExitVerdict, value.currentLockPath, value.candidateLockPath, {
+      repository: value.repository,
+      configPath: value.configPath,
+    }),
+    /nested receipt binding|nested decision|nested receipt summary/,
   );
   const wrongCommit = structuredClone(receipt);
   wrongCommit.materialization!.candidate!.commit = "c".repeat(40);
   wrongCommit.receiptHash = recomputeApmPreflightReceiptHash(wrongCommit);
   assert.throws(
-    () => validateBoundApmAutomaticPreflightReceipt(wrongCommit, value.currentLockPath, value.candidateLockPath),
+    () => validateBoundApmAutomaticPreflightReceipt(wrongCommit, value.currentLockPath, value.candidateLockPath, {
+      repository: value.repository,
+      configPath: value.configPath,
+    }),
     /materialization does not match/,
+  );
+  const forgedContainment = structuredClone(receipt);
+  Object.assign(forgedContainment.upgradeReceipt!.containment, {
+    networkBlocked: false,
+    targetReadOnly: false,
+    rootReadOnly: false,
+    inheritedSecretAbsent: false,
+    proxiesCleared: false,
+  });
+  forgedContainment.upgradeReceipt!.receiptHash = recomputeUpgradeReceiptHash(forgedContainment.upgradeReceipt!);
+  forgedContainment.receiptHash = recomputeApmPreflightReceiptHash(forgedContainment);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      forgedContainment,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /containment controls|nested receipt decision/,
+  );
+  const forgedComparison = structuredClone(receipt);
+  forgedComparison.upgradeReceipt!.canaries[0].candidate.state = "FAIL";
+  forgedComparison.upgradeReceipt!.canaries[0].candidate.observationSha256 = digest("different observation");
+  forgedComparison.upgradeReceipt!.canaries[0].changed = false;
+  forgedComparison.upgradeReceipt!.canaries[0].comparable = true;
+  forgedComparison.upgradeReceipt!.receiptHash = recomputeUpgradeReceiptHash(forgedComparison.upgradeReceipt!);
+  forgedComparison.receiptHash = recomputeApmPreflightReceiptHash(forgedComparison);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      forgedComparison,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /comparison is not derived/,
+  );
+  const forgedCommand = structuredClone(receipt);
+  forgedCommand.upgradeReceipt!.canaries[0].commandSha256 = digest("attacker command");
+  forgedCommand.upgradeReceipt!.receiptHash = recomputeUpgradeReceiptHash(forgedCommand.upgradeReceipt!);
+  forgedCommand.receiptHash = recomputeApmPreflightReceiptHash(forgedCommand);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      forgedCommand,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /trusted upgrade configuration/,
+  );
+  const forgedIdentity = structuredClone(receipt);
+  Object.assign(forgedIdentity.upgradeReceipt!.current!, {
+    ecosystem: "forged-ecosystem",
+    name: "forged-component",
+    version: "999.0.0",
+  });
+  Object.assign(forgedIdentity.upgradeReceipt!.candidate!, {
+    ecosystem: "forged-ecosystem",
+    name: "forged-component",
+    version: "999.0.1",
+  });
+  forgedIdentity.upgradeReceipt!.receiptHash = recomputeUpgradeReceiptHash(forgedIdentity.upgradeReceipt!);
+  forgedIdentity.receiptHash = recomputeApmPreflightReceiptHash(forgedIdentity);
+  assert.throws(
+    () => validateBoundApmAutomaticPreflightReceipt(
+      forgedIdentity,
+      value.currentLockPath,
+      value.candidateLockPath,
+      trustedContext,
+    ),
+    /trusted upgrade configuration/,
   );
   const serialized = JSON.stringify(receipt);
   assert.doesNotMatch(serialized, /github\.com\/example\/fixture/);
@@ -382,6 +519,8 @@ test("automatic APM materialization is invariant across restrictive host umasks"
             input.candidateDirectory,
             input.generatedAt!,
             input.nonce!,
+            value.repository,
+            value.configPath,
           ),
         });
         assert.equal(receipt.summary.verdict, "SAFE");
@@ -423,6 +562,8 @@ test("a failed restoration can never preserve a SAFE nested verdict", () => {
       input.candidateDirectory,
       input.generatedAt!,
       input.nonce!,
+      value.repository,
+      value.configPath,
     ),
     removeSession: () => false,
   });

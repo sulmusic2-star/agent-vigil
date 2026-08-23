@@ -88,8 +88,8 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 512,
-      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!\\.{1,2}$)(?!\\.\\./)[^\\u0000]+$",
-      "$comment": "The runtime also normalizes this path and rejects values that resolve outside the selected repository."
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*//)(?!.*[<>:\"|?*])(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[. ](?:/|$))[^\\u0000-\\u001f\\u007f]+$",
+      "$comment": "The runtime also rejects Windows device basenames, normalizes this path, and rejects values that resolve outside the selected repository."
     },
     "fieldPath": {
       "type": "string",

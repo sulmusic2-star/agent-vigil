@@ -2,6 +2,7 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep, win32 } from "node:path";
 import { TextDecoder } from "node:util";
 import { isMap, isScalar, isSeq, parseDocument } from "yaml";
+import { isCrossPlatformSafeSegment } from "./portable-path.ts";
 
 export const UPGRADE_CONFIG_SCHEMA = "agent-vigil-upgrade-config/v1" as const;
 export const CANARY_SCHEMA = "agent-vigil-upgrade-canary/v1" as const;
@@ -88,6 +89,10 @@ export function safeRelativePath(value: unknown, label: string): string {
   const path = boundedString(value, label, 512);
   if (isAbsolute(path) || win32.isAbsolute(path) || path.includes("\\")) {
     throw new Error(`${label} must be a portable repository-relative path`);
+  }
+  const parts = path.split("/");
+  if (parts.some((part) => !isCrossPlatformSafeSegment(part))) {
+    throw new Error(`${label} must use cross-platform-safe path segments`);
   }
   const normalized = normalize(path);
   if (normalized === "." || normalized === ".." || normalized.startsWith(`..${sep}`)) {

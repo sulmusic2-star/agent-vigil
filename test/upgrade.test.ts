@@ -128,15 +128,22 @@ test("upgrade config rejects traversal, platform-specific absolute paths, and mu
     ["manifestPath", "../outside/package.json"],
     ["manifestPath", "nested/../../outside.json"],
     ["manifestPath", "C:\\outside\\package.json"],
+    ["manifestPath", "CON/package.json"],
+    ["manifestPath", "CONOUT$/package.json"],
+    ["manifestPath", "COM¹/package.json"],
+    ["manifestPath", "package.json:stream"],
+    ["manifestPath", "nested./package.json"],
     ["canaryDirectory", "canaries/../../outside"],
     ["canaryDirectory", "/private/canaries"],
+    ["canaryDirectory", "NUL"],
+    ["canaryDirectory", "canaries//nested"],
   ] as const) {
     const input = cloneConfig();
     if (field === "manifestPath") input.component.manifestPath = value;
     else input.canaryDirectory = value;
     assert.throws(
       () => validateUpgradeConfig(input),
-      /must (?:remain inside the selected repository|be a portable repository-relative path)/,
+      /must (?:remain inside the selected repository|be a portable repository-relative path|use cross-platform-safe path segments)/,
       `${field} accepted ${value}`,
     );
   }
@@ -412,7 +419,6 @@ test("evaluation becomes HOLD when an artifact or canary harness changes during 
   writeFileSync(configPath, JSON.stringify(input));
 
   const fakeDocker = join(repository, "fake-docker.mjs");
-  const image = String(input.runner.image);
   writeFileSync(fakeDocker, `#!/usr/bin/env node
 import { existsSync, writeFileSync } from "node:fs";
 const rawArgs = process.argv.slice(2);
@@ -420,7 +426,12 @@ const args = rawArgs[0] === "--host" ? rawArgs.slice(2) : rawArgs;
 if (args[0] === "context" && args[1] === "inspect") {
   process.stdout.write(JSON.stringify("unix:///var/run/docker.sock"));
 } else if (args[0] === "image") {
-  process.stdout.write(JSON.stringify([${JSON.stringify(image)}]));
+  const selected = args.at(-1);
+  const digest = selected.slice(selected.lastIndexOf("@") + 1);
+  process.stdout.write(JSON.stringify({
+    Descriptor:{mediaType:"application/vnd.oci.image.manifest.v1+json",digest},
+    Os:"linux",Architecture:"amd64",Variant:"",RepoDigests:[selected]
+  }));
 } else if (args[0] === "container" && args[1] === "ls") {
   process.stdout.write("");
 } else if (args[0] === "container" && args[1] === "rm") {
@@ -557,6 +568,11 @@ test("pure decision fails closed to HOLD for containment, identity, artifact, or
 
   assert.equal(decideUpgrade(HOLD_CONTAINMENT, current, candidate, [compared()]).verdict, "HOLD");
   assert.equal(decideUpgrade({ ...PASS_CONTAINMENT, localEndpoint: false }, current, candidate, [compared()]).verdict, "HOLD");
+  for (const field of [
+    "imagePresent", "networkBlocked", "targetReadOnly", "rootReadOnly", "inheritedSecretAbsent", "proxiesCleared",
+  ] as const) {
+    assert.equal(decideUpgrade({ ...PASS_CONTAINMENT, [field]: false }, current, candidate, [compared()]).verdict, "HOLD", field);
+  }
   assert.equal(decideUpgrade(PASS_CONTAINMENT, current, { ...candidate, name: "other-agent" }, [compared()]).verdict, "HOLD");
   assert.equal(decideUpgrade(PASS_CONTAINMENT, current, { ...candidate, version: current.version }, [compared()]).verdict, "HOLD");
   assert.equal(decideUpgrade(PASS_CONTAINMENT, current, { ...candidate, treeSha256: current.treeSha256 }, [compared()]).verdict, "HOLD");

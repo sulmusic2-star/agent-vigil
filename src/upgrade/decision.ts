@@ -282,6 +282,21 @@ export function compareCanary(
 ): CanaryComparison {
   const current = aggregateTrials(currentTrials);
   const candidate = aggregateTrials(candidateTrials);
+  return compareCanaryAggregates(canary, commandSha256, current, candidate);
+}
+
+/**
+ * Recompute a comparison from the aggregate evidence stored in a receipt.
+ * Consumers must validate the aggregate shapes before calling this helper;
+ * this function deliberately derives, rather than trusts, the two decision
+ * booleans.
+ */
+export function compareCanaryAggregates(
+  canary: Pick<UpgradeCanaryConfig, "id" | "publicId">,
+  commandSha256: string,
+  current: CanaryAggregate,
+  candidate: CanaryAggregate,
+): CanaryComparison {
   const comparable = current.stable
     && candidate.stable
     && current.state === "PASS"
@@ -322,7 +337,16 @@ export function decideUpgrade(
 ): UpgradeDecision {
   const reasons: string[] = [];
   const capabilities = compareCapabilities(current, candidate);
-  if (containment.status !== "PASS" || !containment.localEndpoint) reasons.push("required containment controls were not established");
+  if (containment.status !== "PASS"
+    || !containment.localEndpoint
+    || !containment.imagePresent
+    || !containment.networkBlocked
+    || !containment.targetReadOnly
+    || !containment.rootReadOnly
+    || !containment.inheritedSecretAbsent
+    || !containment.proxiesCleared) {
+    reasons.push("required containment controls were not established");
+  }
   if (current.name !== candidate.name || current.ecosystem !== candidate.ecosystem) reasons.push("current and candidate identities are not comparable");
   if (current.version === candidate.version) reasons.push("current and candidate versions are identical");
   if (current.treeSha256 === candidate.treeSha256) reasons.push("current and candidate artifact digests are identical");

@@ -75,7 +75,7 @@ Usage:
   vigil upgrade doctor [--repo <path>] [--config <path>] [--docker-bin <path>]
   vigil upgrade plan --manager <apm|skills|agent-plugin> --current <state> --candidate <state> [--repo <path>] [--output <plan.json>]
   vigil upgrade preflight --current-lock <apm.lock.yaml> --candidate-lock <apm.lock.yaml> [--plan <plan.json>] [--identity <apm:...>] [--repo <path>] [--config <path>] [--work-directory <path>] [--output <receipt.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>] [--fetch-bin <path>]
-  vigil upgrade verify-preflight <receipt.json> --current-lock <apm.lock.yaml> --candidate-lock <apm.lock.yaml>
+  vigil upgrade verify-preflight <receipt.json> --current-lock <apm.lock.yaml> --candidate-lock <apm.lock.yaml> --repo <path> --config <path>
   vigil upgrade check --current <dir> --candidate <dir> [--repo <path>] [--config <path>] [--output <private.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>]
   vigil upgrade verify <entry.json> [--public-key <path>]
   vigil upgrade evidence <entry.json> --output <issue.md> --public-key <path>
@@ -350,18 +350,22 @@ function readBoundedExactJson(path: string, maximumBytes: number, label: string)
 }
 
 function runVerifyPreflight(args: string[]): number {
-  assertKnown(args, ["--current-lock", "--candidate-lock"], ["--help"], true);
+  assertKnown(args, ["--current-lock", "--candidate-lock", "--repo", "--config"], ["--help"], true);
   if (args.includes("--help")) { console.log(usage()); return 0; }
-  const inputs = positional(args, ["--current-lock", "--candidate-lock"]);
+  const inputs = positional(args, ["--current-lock", "--candidate-lock", "--repo", "--config"]);
   const currentOption = option(args, "--current-lock");
   const candidateOption = option(args, "--candidate-lock");
-  if (inputs.length !== 1 || !currentOption || !candidateOption) {
-    throw new Error("upgrade verify-preflight requires one receipt and exact --current-lock and --candidate-lock files");
+  const repositoryOption = option(args, "--repo");
+  const configOption = option(args, "--config");
+  if (inputs.length !== 1 || !currentOption || !candidateOption || !repositoryOption || !configOption) {
+    throw new Error("upgrade verify-preflight requires one receipt, exact lockfiles, and a trusted --repo and --config");
   }
+  const repository = resolve(repositoryOption);
   const receipt = validateBoundApmAutomaticPreflightReceipt(
     readBoundedExactJson(resolve(inputs[0]), 4 * 1024 * 1024, "automatic APM preflight receipt"),
     resolve(currentOption),
     resolve(candidateOption),
+    { repository, configPath: resolve(repository, configOption) },
   );
   console.log(JSON.stringify({
     schemaVersion: receipt.schemaVersion,

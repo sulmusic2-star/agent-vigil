@@ -23,7 +23,21 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { TextDecoder } from "node:util";
 import { gunzipSync } from "node:zlib";
 import { canonical } from "../report.ts";
-import { decideUpgrade, inspectArtifactTree, type ArtifactInventory } from "./decision.ts";
+import {
+  compareCanaryAggregates,
+  decideUpgrade,
+  inspectArtifactTree,
+  type ArtifactInventory,
+  type CanaryAggregate,
+  type CanaryComparison,
+  type TargetSnapshot,
+} from "./decision.ts";
+import {
+  loadUpgradeConfig,
+  trustedDirectoryInside,
+  trustedRegularFileInside,
+  type UpgradeConfig,
+} from "./contracts.ts";
 import {
   ApmMaterializationHold,
   createUpdatePlan,
@@ -40,6 +54,7 @@ import {
   runUpgradeEvaluation,
   type UpgradePrivateReceipt,
 } from "./receipt.ts";
+import { commandDigest, type ContainmentProbe } from "./sandbox.ts";
 
 export const APM_PREFLIGHT_SCHEMA = "agent-vigil-apm-preflight/v1" as const;
 
@@ -170,6 +185,268 @@ function receiptSha256(value: unknown, label: string): string {
   return value;
 }
 
+function receiptText(value: unknown, label: string, maximum: number): string {
+  if (typeof value !== "string" || !value.length || value.length > maximum || value.includes("\0")) {
+    throw new Error(`${label} is invalid`);
+  }
+  return value;
+}
+
+function receiptInteger(value: unknown, label: string, minimum: number, maximum: number): number {
+  if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) {
+    throw new Error(`${label} is invalid`);
+  }
+  return value as number;
+}
+
+function validateArtifactInventory(input: unknown, label: string): ArtifactInventory {
+  const value = receiptObject(input, label);
+  receiptExactKeys(value, ["treeSha256", "fileCount", "totalBytes"],
+    ["treeSha256", "fileCount", "totalBytes"], label);
+  return {
+    treeSha256: receiptSha256(value.treeSha256, `${label} tree hash`),
+    fileCount: receiptInteger(value.fileCount, `${label} file count`, 0, MAX_FILES),
+    totalBytes: receiptInteger(value.totalBytes, `${label} total bytes`, 0, MAX_TOTAL_BYTES),
+  };
+}
+
+function validateTargetSnapshot(input: unknown, label: string): TargetSnapshot {
+  const value = receiptObject(input, label);
+  receiptExactKeys(value, [
+    "ecosystem", "name", "version", "treeSha256", "manifestSha256", "fileCount", "totalBytes", "capabilities",
+  ], [
+    "ecosystem", "name", "version", "treeSha256", "manifestSha256", "fileCount", "totalBytes", "capabilities",
+  ], label);
+  if (!Array.isArray(value.capabilities) || value.capabilities.length > 32) {
+    throw new Error(`${label} capabilities are invalid`);
+  }
+  const capabilities = value.capabilities.map((inputCapability, index) => {
+    const capability = receiptObject(inputCapability, `${label} capability ${index}`);
+    receiptExactKeys(capability, ["field", "count", "sha256"], ["field", "count", "sha256"], `${label} capability ${index}`);
+    return {
+      field: receiptText(capability.field, `${label} capability field`, 128),
+      count: receiptInteger(capability.count, `${label} capability count`, 0, 100_000),
+      sha256: receiptSha256(capability.sha256, `${label} capability hash`),
+    };
+  });
+  if (new Set(capabilities.map((capability) => capability.field)).size !== capabilities.length) {
+    throw new Error(`${label} capability fields are invalid`);
+  }
+  return {
+    ecosystem: receiptText(value.ecosystem, `${label} ecosystem`, 80),
+    name: receiptText(value.name, `${label} name`, 160),
+    version: receiptText(value.version, `${label} version`, 128),
+    treeSha256: receiptSha256(value.treeSha256, `${label} tree hash`),
+    manifestSha256: receiptSha256(value.manifestSha256, `${label} manifest hash`),
+    fileCount: receiptInteger(value.fileCount, `${label} file count`, 0, MAX_FILES),
+    totalBytes: receiptInteger(value.totalBytes, `${label} total bytes`, 0, MAX_TOTAL_BYTES),
+    capabilities,
+  };
+}
+
+function validateCanaryAggregate(
+  input: unknown,
+  label: string,
+  expectedTrials: number,
+  requiredComparableSide: "current" | "candidate",
+): CanaryAggregate {
+  const value = receiptObject(input, label);
+  receiptExactKeys(value, ["state", "observationSha256", "observationCount", "trials", "stable", "reason"],
+    ["state", "observationSha256", "observationCount", "trials", "stable", "reason"], label);
+  if ((requiredComparableSide === "current" && value.state !== "PASS")
+    || (requiredComparableSide === "candidate" && value.state !== "PASS" && value.state !== "FAIL")
+    || value.stable !== true) {
+    throw new Error(`${label} is not stable comparable evidence`);
+  }
+  return {
+    state: value.state as "PASS" | "FAIL",
+    observationSha256: receiptSha256(value.observationSha256, `${label} observation hash`),
+    observationCount: receiptInteger(value.observationCount, `${label} observation count`, 1, 64),
+    trials: receiptInteger(value.trials, `${label} trials`, expectedTrials, expectedTrials),
+    stable: true,
+    reason: receiptText(value.reason, `${label} reason`, 1_024),
+  };
+}
+
+type TrustedNestedContext = {
+  repository: string;
+  configPath: string;
+};
+
+function trustedUpgradeConfig(context: TrustedNestedContext): { config: UpgradeConfig; canaryHarness: ArtifactInventory } {
+  const configFile = trustedRegularFileInside(context.repository, context.configPath, "upgrade config");
+  const config = loadUpgradeConfig(configFile);
+  const canaryDirectory = trustedDirectoryInside(
+    context.repository,
+    resolve(context.repository, config.canaryDirectory),
+    "canary directory",
+  );
+  return { config, canaryHarness: inspectArtifactTree(canaryDirectory) };
+}
+
+function validateNestedNonHoldReceipt(
+  input: unknown,
+  expectedVerdict: "SAFE" | "CHANGED",
+  trustedContext?: TrustedNestedContext,
+): UpgradePrivateReceipt {
+  const root = receiptObject(input, "automatic preflight nested receipt");
+  receiptExactKeys(root, [
+    "schemaVersion", "vigilVersion", "generatedAt", "nonce", "component", "configSha256", "runner",
+    "containment", "current", "candidate", "canaryHarness", "capabilities", "canaries", "summary",
+    "limitations", "receiptHash",
+  ], [
+    "schemaVersion", "vigilVersion", "generatedAt", "nonce", "component", "configSha256", "runner",
+    "containment", "current", "candidate", "canaryHarness", "capabilities", "canaries", "summary",
+    "limitations", "receiptHash",
+  ], "automatic preflight nested receipt");
+  if (root.schemaVersion !== "agent-vigil-upgrade-receipt/v1") throw new Error("nested receipt schema is invalid");
+  receiptText(root.vigilVersion, "nested receipt version", 40);
+  receiptText(root.generatedAt, "nested receipt timestamp", 64);
+  if (receiptText(root.nonce, "nested receipt nonce", 128).length < 16) throw new Error("nested receipt nonce is invalid");
+  receiptSha256(root.configSha256, "nested receipt config hash");
+
+  const component = receiptObject(root.component, "nested receipt component");
+  receiptExactKeys(component, ["ecosystem", "name"], ["ecosystem", "name"], "nested receipt component");
+  receiptText(component.ecosystem, "nested receipt component ecosystem", 80);
+  receiptText(component.name, "nested receipt component name", 160);
+
+  const runner = receiptObject(root.runner, "nested receipt runner");
+  receiptExactKeys(runner, ["engine", "image", "trials", "network", "filesystem", "environment"],
+    ["engine", "image", "trials", "network", "filesystem", "environment"], "nested receipt runner");
+  if (runner.engine !== "docker" || runner.network !== "none" || runner.filesystem !== "read-only"
+    || runner.environment !== "explicit" || typeof runner.image !== "string"
+    || !/^[A-Za-z0-9][A-Za-z0-9._/:~-]{0,246}@sha256:[0-9a-f]{64}$/.test(runner.image)) {
+    throw new Error("nested receipt runner is invalid");
+  }
+  const trials = receiptInteger(runner.trials, "nested receipt runner trials", 2, 5);
+
+  const containment = receiptObject(root.containment, "nested receipt containment");
+  receiptExactKeys(containment, [
+    "status", "localEndpoint", "imagePresent", "networkBlocked", "targetReadOnly", "rootReadOnly",
+    "inheritedSecretAbsent", "proxiesCleared", "reason",
+  ], [
+    "status", "localEndpoint", "imagePresent", "networkBlocked", "targetReadOnly", "rootReadOnly",
+    "inheritedSecretAbsent", "proxiesCleared", "reason",
+  ], "nested receipt containment");
+  for (const field of [
+    "localEndpoint", "imagePresent", "networkBlocked", "targetReadOnly", "rootReadOnly",
+    "inheritedSecretAbsent", "proxiesCleared",
+  ] as const) {
+    if (containment[field] !== true) throw new Error("nested receipt containment controls are incomplete");
+  }
+  if (containment.status !== "PASS") throw new Error("nested receipt containment did not pass");
+  receiptText(containment.reason, "nested receipt containment reason", 1_024);
+
+  const current = validateTargetSnapshot(root.current, "nested receipt current target");
+  const candidate = validateTargetSnapshot(root.candidate, "nested receipt candidate target");
+  const canaryHarness = validateArtifactInventory(root.canaryHarness, "nested receipt canary harness");
+
+  if (!Array.isArray(root.capabilities) || root.capabilities.length > 32) {
+    throw new Error("nested receipt capability changes are invalid");
+  }
+  const capabilities = root.capabilities.map((inputCapability, index) => {
+    const capability = receiptObject(inputCapability, `nested receipt capability change ${index}`);
+    receiptExactKeys(capability, ["field", "currentCount", "candidateCount", "changed"],
+      ["field", "currentCount", "candidateCount", "changed"], `nested receipt capability change ${index}`);
+    if (typeof capability.changed !== "boolean") throw new Error("nested receipt capability change is invalid");
+    return {
+      field: receiptText(capability.field, "nested receipt capability field", 128),
+      currentCount: receiptInteger(capability.currentCount, "nested receipt current capability count", 0, 100_000),
+      candidateCount: receiptInteger(capability.candidateCount, "nested receipt candidate capability count", 0, 100_000),
+      changed: capability.changed,
+    };
+  });
+
+  if (!Array.isArray(root.canaries) || root.canaries.length < 1 || root.canaries.length > 32) {
+    throw new Error("nested receipt canaries are invalid");
+  }
+  const canaries = root.canaries.map((inputCanary, index): CanaryComparison => {
+    const canary = receiptObject(inputCanary, `nested receipt canary ${index}`);
+    receiptExactKeys(canary, [
+      "id", "publicId", "idSha256", "commandSha256", "current", "candidate", "changed", "comparable",
+    ], [
+      "id", "idSha256", "commandSha256", "current", "candidate", "changed", "comparable",
+    ], `nested receipt canary ${index}`);
+    const id = receiptText(canary.id, `nested receipt canary ${index} id`, 80);
+    const publicId = canary.publicId === undefined
+      ? undefined
+      : receiptText(canary.publicId, `nested receipt canary ${index} public id`, 80);
+    const commandSha256 = receiptSha256(canary.commandSha256, `nested receipt canary ${index} command hash`);
+    if (receiptSha256(canary.idSha256, `nested receipt canary ${index} id hash`) !== hash(id)) {
+      throw new Error("nested receipt canary identity hash is invalid");
+    }
+    const currentAggregate = validateCanaryAggregate(canary.current, `nested receipt canary ${index} current`, trials, "current");
+    const candidateAggregate = validateCanaryAggregate(canary.candidate, `nested receipt canary ${index} candidate`, trials, "candidate");
+    const derived = compareCanaryAggregates({ id, ...(publicId ? { publicId } : {}) }, commandSha256, currentAggregate, candidateAggregate);
+    if (canary.changed !== derived.changed || canary.comparable !== derived.comparable) {
+      throw new Error("nested receipt canary comparison is not derived from its evidence");
+    }
+    return derived;
+  });
+  if (new Set(canaries.map((canary) => canary.id)).size !== canaries.length) {
+    throw new Error("nested receipt canary identities are invalid");
+  }
+  const publicIds = canaries.flatMap((canary) => canary.publicId ? [canary.publicId] : []);
+  if (new Set(publicIds).size !== publicIds.length) throw new Error("nested receipt public canary identities are invalid");
+
+  const summary = receiptObject(root.summary, "nested receipt summary");
+  receiptExactKeys(summary, ["verdict", "reasons", "comparedCanaries", "changedCanaries", "changedCapabilities"],
+    ["verdict", "reasons", "comparedCanaries", "changedCanaries", "changedCapabilities"], "nested receipt summary");
+  if (summary.verdict !== expectedVerdict || !Array.isArray(summary.reasons)
+    || summary.reasons.length < 1 || summary.reasons.length > 16) {
+    throw new Error("nested receipt summary is invalid");
+  }
+  summary.reasons.forEach((reason, index) => receiptText(reason, `nested receipt reason ${index}`, 1_024));
+  receiptInteger(summary.comparedCanaries, "nested receipt compared canaries", 0, 32);
+  receiptInteger(summary.changedCanaries, "nested receipt changed canaries", 0, 32);
+  receiptInteger(summary.changedCapabilities, "nested receipt changed capabilities", 0, 32);
+  if (!Array.isArray(root.limitations) || root.limitations.length < 1 || root.limitations.length > 16) {
+    throw new Error("nested receipt limitations are invalid");
+  }
+  root.limitations.forEach((limitation, index) => receiptText(limitation, `nested receipt limitation ${index}`, 1_024));
+  receiptSha256(root.receiptHash, "nested receipt hash");
+
+  const nested = root as unknown as UpgradePrivateReceipt;
+  if (recomputeUpgradeReceiptHash(nested) !== nested.receiptHash) throw new Error("nested receipt hash is invalid");
+  const derivedDecision = decideUpgrade(containment as unknown as ContainmentProbe, current, candidate, canaries);
+  if (derivedDecision.verdict !== expectedVerdict
+    || canonical(derivedDecision.capabilities) !== canonical(capabilities)
+    || canonical(derivedDecision.reasons) !== canonical(summary.reasons)
+    || summary.comparedCanaries !== canaries.filter((canary) => canary.comparable).length
+    || summary.changedCanaries !== canaries.filter((canary) => canary.changed).length
+    || summary.changedCapabilities !== capabilities.filter((capability) => capability.changed).length) {
+    throw new Error("nested receipt decision is invalid");
+  }
+
+  if (trustedContext) {
+    const trusted = trustedUpgradeConfig(trustedContext);
+    if (root.configSha256 !== hash(canonical(trusted.config))
+      || component.ecosystem !== trusted.config.component.ecosystem
+      || component.name !== trusted.config.component.name
+      || current.ecosystem !== trusted.config.component.ecosystem
+      || candidate.ecosystem !== trusted.config.component.ecosystem
+      || current.name !== trusted.config.component.name
+      || candidate.name !== trusted.config.component.name
+      || runner.image !== trusted.config.runner.image
+      || runner.trials !== trusted.config.runner.trials
+      || canonical(canaryHarness) !== canonical(trusted.canaryHarness)
+      || canonical(current.capabilities.map((item) => item.field)) !== canonical(trusted.config.component.capabilityFields)
+      || canonical(candidate.capabilities.map((item) => item.field)) !== canonical(trusted.config.component.capabilityFields)
+      || canaries.length !== trusted.config.canaries.length) {
+      throw new Error("nested receipt does not match the trusted upgrade configuration or canary harness");
+    }
+    for (let index = 0; index < canaries.length; index += 1) {
+      const expected = trusted.config.canaries[index];
+      const actual = canaries[index];
+      if (actual.id !== expected.id || actual.publicId !== expected.publicId
+        || actual.commandSha256 !== commandDigest(expected)) {
+        throw new Error("nested receipt canary does not match the trusted upgrade configuration");
+      }
+    }
+  }
+  return nested;
+}
+
 export function validateApmAutomaticPreflightReceipt(input: unknown): ApmAutomaticPreflightReceipt {
   const root = receiptObject(input, "automatic preflight receipt");
   receiptExactKeys(root, [
@@ -200,6 +477,12 @@ export function validateApmAutomaticPreflightReceipt(input: unknown): ApmAutomat
   if (!Array.isArray(summary.reasonCodes) || !summary.reasonCodes.length
     || summary.reasonCodes.some((reason) => typeof reason !== "string" || !reason.length)) {
     throw new Error("automatic preflight reason codes are invalid");
+  }
+  if (verdict !== "HOLD") {
+    const expectedReason = verdict === "SAFE" ? "NO_MATERIAL_CHANGE" : "MATERIAL_CHANGE_DETECTED";
+    if (summary.reasonCodes.length !== 1 || summary.reasonCodes[0] !== expectedReason) {
+      throw new Error("automatic preflight reason code does not match its verdict");
+    }
   }
   if (!Array.isArray(root.limitations) || root.limitations.some((value) => typeof value !== "string")) {
     throw new Error("automatic preflight limitations are invalid");
@@ -261,29 +544,21 @@ export function validateApmAutomaticPreflightReceipt(input: unknown): ApmAutomat
     || candidateProof.expectedTreeSha256 !== candidateProof.materializedTreeSha256) {
     throw new Error("automatic preflight materialization binding is invalid");
   }
-  const nested = receiptObject(root.upgradeReceipt, "automatic preflight nested receipt") as unknown as UpgradePrivateReceipt;
-  if (recomputeUpgradeReceiptHash(nested) !== nested.receiptHash
-    || nested.generatedAt !== receipt.generatedAt || nested.nonce !== receipt.nonce
-    || nested.summary?.verdict !== verdict || nested.containment?.status !== "PASS"
-    || nested.containment?.localEndpoint !== true
-    || !nested.current || !nested.candidate || !nested.canaryHarness
-    || !Array.isArray(nested.canaries) || !nested.canaries.length
-    || !Array.isArray(nested.capabilities)) {
+  const nested = validateNestedNonHoldReceipt(
+    root.upgradeReceipt,
+    verdict as "SAFE" | "CHANGED",
+  );
+  if (nested.generatedAt !== receipt.generatedAt || nested.nonce !== receipt.nonce) {
     throw new Error("automatic preflight nested receipt binding is invalid");
-  }
-  const nestedDecision = decideUpgrade(nested.containment, nested.current, nested.candidate, nested.canaries);
-  if (canonical(nestedDecision.capabilities) !== canonical(nested.capabilities)
-    || nestedDecision.verdict !== nested.summary.verdict
-    || canonical(nestedDecision.reasons) !== canonical(nested.summary.reasons)
-    || nested.summary.comparedCanaries !== nested.canaries.filter((canary) => canary.comparable).length
-    || nested.summary.changedCanaries !== nested.canaries.filter((canary) => canary.changed).length
-    || nested.summary.changedCapabilities !== nested.capabilities.filter((capability) => capability.changed).length) {
-    throw new Error("automatic preflight nested decision is invalid");
   }
   const currentArtifact = receiptObject(currentProof.selectedArtifact, "current selected artifact");
   const candidateArtifact = receiptObject(candidateProof.selectedArtifact, "candidate selected artifact");
   if (currentArtifact.treeSha256 !== nested.current?.treeSha256
-    || candidateArtifact.treeSha256 !== nested.candidate?.treeSha256) {
+    || candidateArtifact.treeSha256 !== nested.candidate?.treeSha256
+    || currentArtifact.fileCount !== nested.current?.fileCount
+    || candidateArtifact.fileCount !== nested.candidate?.fileCount
+    || currentArtifact.totalBytes !== nested.current?.totalBytes
+    || candidateArtifact.totalBytes !== nested.candidate?.totalBytes) {
     throw new Error("automatic preflight selected artifact binding is invalid");
   }
   return receipt;
@@ -293,6 +568,7 @@ export function validateBoundApmAutomaticPreflightReceipt(
   input: unknown,
   currentLockPath: string,
   candidateLockPath: string,
+  trustedContext?: TrustedNestedContext,
 ): ApmAutomaticPreflightReceipt {
   const receipt = validateApmAutomaticPreflightReceipt(input);
   const exactPlan = createUpdatePlan({
@@ -326,6 +602,9 @@ export function validateBoundApmAutomaticPreflightReceipt(
       || expected.routeSha256 !== proof.routeSha256 || expected.rowSha256 !== proof.rowSha256) {
       throw new Error("automatic preflight materialization does not match the selected APM row");
     }
+  }
+  if (trustedContext) {
+    validateNestedNonHoldReceipt(receipt.upgradeReceipt, receipt.summary.verdict as "SAFE" | "CHANGED", trustedContext);
   }
   return receipt;
 }
@@ -907,13 +1186,25 @@ export function runApmAutomaticPreflight(
       generatedAt: plan.generatedAt,
       nonce,
     });
-    if (recomputeUpgradeReceiptHash(upgradeReceipt) !== upgradeReceipt.receiptHash) {
+    if (upgradeReceipt.summary?.verdict === "SAFE" || upgradeReceipt.summary?.verdict === "CHANGED") {
+      try {
+        validateNestedNonHoldReceipt(upgradeReceipt, upgradeReceipt.summary.verdict, {
+          repository: input.repository,
+          configPath: input.configPath,
+        });
+      } catch {
+        reasons.push("CHECK_RECEIPT_INVALID");
+      }
+    } else if (recomputeUpgradeReceiptHash(upgradeReceipt) !== upgradeReceipt.receiptHash) {
       reasons.push("CHECK_RECEIPT_INVALID");
-    } else if (!upgradeReceipt.current || !upgradeReceipt.candidate
+    }
+    if (!reasons.includes("CHECK_RECEIPT_INVALID") && (!upgradeReceipt.current || !upgradeReceipt.candidate
       || upgradeReceipt.current.treeSha256 !== current.proof.selectedArtifact.treeSha256
-      || upgradeReceipt.candidate.treeSha256 !== candidate.proof.selectedArtifact.treeSha256) {
+      || upgradeReceipt.candidate.treeSha256 !== candidate.proof.selectedArtifact.treeSha256)) {
       reasons.push("CHECK_BINDING_MISMATCH");
-    } else if (upgradeReceipt.summary.verdict === "HOLD") reasons.push("CHECK_HOLD");
+    } else if (!reasons.includes("CHECK_RECEIPT_INVALID") && upgradeReceipt.summary.verdict === "HOLD") {
+      reasons.push("CHECK_HOLD");
+    }
     const afterCheckPlan = createUpdatePlan({
       manager: "apm",
       currentPath: input.currentLockPath,

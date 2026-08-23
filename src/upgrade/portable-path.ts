@@ -1,4 +1,4 @@
-const WINDOWS_RESERVED_BASENAME = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+const WINDOWS_RESERVED_BASENAME = /^(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])$/i;
 
 export function isCrossPlatformSafeSegment(segment: string): boolean {
   if (!segment || segment === "." || segment === ".."
