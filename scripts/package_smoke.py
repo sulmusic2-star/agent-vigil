@@ -44,6 +44,7 @@ def main() -> int:
     ]
 
     results = []
+    control_proof_result = None
     for name, files, directories, expected in shapes:
         repo = lab / f"repo-{name}"
         repo.mkdir()
@@ -59,6 +60,22 @@ def main() -> int:
             if rel == "gradlew": path.chmod(0o755)
         run(["git", "add", "-A"], repo)
         run(["git", "commit", "-qm", "fixture"], repo)
+        if name == "plain":
+            control_proof_path = lab / "packed-control-proof.json"
+            control_proof = run([
+                str(vigil), "prove", "--repo", str(repo), "--base", "HEAD",
+                "--format", "json", "--output", str(control_proof_path),
+            ], repo)
+            control_proof_receipt = json.loads(control_proof_path.read_text())
+            if control_proof_receipt.get("status") != "PASS" or control_proof_receipt.get("summary") != {"passed": 7, "total": 7}:
+                raise RuntimeError(f"packed control proof did not pass: {control_proof.stdout}\n{control_proof.stderr}")
+            if str(repo) in control_proof_path.read_text():
+                raise RuntimeError("packed control proof disclosed the source repository path")
+            control_proof_result = {
+                "exit": control_proof.returncode,
+                "status": control_proof_receipt["status"],
+                "challenges": control_proof_receipt["summary"]["total"],
+            }
         initialized = run([str(vigil), "init", "--repo", str(repo)], repo)
         doctor = run([str(vigil), "doctor", "--repo", str(repo)], repo)
         policy = json.loads((repo / ".agent-vigil.json").read_text())
@@ -112,7 +129,14 @@ def main() -> int:
             "authorityDoctorExit": authority_doctor.returncode,
         })
 
-    print(json.dumps({"packed": tarball.name, "repositories": len(results), "setupFlows": len(results) * 3, "passed": len(results), "results": results}, indent=2))
+    print(json.dumps({
+        "packed": tarball.name,
+        "repositories": len(results),
+        "setupFlows": len(results) * 3,
+        "controlProof": control_proof_result,
+        "passed": len(results),
+        "results": results,
+    }, indent=2))
     return 0
 
 

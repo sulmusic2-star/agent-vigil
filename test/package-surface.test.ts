@@ -28,6 +28,7 @@ test("npm package surface excludes internal product and commercial working docum
     "CONTRIBUTING.md",
     "docs/ATTESTED_RECEIPTS.md",
     "docs/AUTHORITY_PLAN.md",
+    "docs/CONTROL_PROOF.md",
     "docs/NOTARY_APP.md",
     "docs/PROOF_COMMENT.md",
     "docs/PUBLIC_RELEASE_POLICY.md",

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash16 } from "node:crypto";
-import { execFileSync as execFileSync12 } from "node:child_process";
-import { existsSync as existsSync6, mkdirSync as mkdirSync5, readFileSync as readFileSync19, realpathSync as realpathSync9, statSync as statSync9, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname9, isAbsolute as isAbsolute8, relative as relative12, resolve as resolve17 } from "node:path";
+import { createHash as createHash17 } from "node:crypto";
+import { execFileSync as execFileSync13 } from "node:child_process";
+import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync19, realpathSync as realpathSync10, statSync as statSync9, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname10, isAbsolute as isAbsolute9, relative as relative13, resolve as resolve18 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -3995,7 +3995,7 @@ function skipVoid(ctx, banNewLines, banComments) {
     skipComment(ctx);
   }
 }
-function skipUntil(ctx, sep10, end) {
+function skipUntil(ctx, sep11, end) {
   let ptr = ctx.p;
   if (!end) {
     ptr = indexOfNewline(ctx.s, ptr);
@@ -4006,7 +4006,7 @@ function skipUntil(ctx, sep10, end) {
     let c = ctx.s.charCodeAt(ctx.p);
     if (c === 35) {
       skipComment(ctx);
-    } else if (c === end || c === sep10) {
+    } else if (c === end || c === sep11) {
       return;
     }
   }
@@ -6633,9 +6633,9 @@ function subjectMatches(statement, expectedName, expectedDigest) {
   return subjects.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const subject = entry;
-    const digest3 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const digest4 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
     const name = String(subject.name ?? "");
-    return (name === expectedName || name.endsWith(`/${expectedName}`)) && digest3.sha256 === expectedDigest;
+    return (name === expectedName || name.endsWith(`/${expectedName}`)) && digest4.sha256 === expectedDigest;
   });
 }
 function predicateMatches(predicate, report, fileSha256) {
@@ -8584,6 +8584,279 @@ function renderProofComment(report, options = {}) {
   ].join("\n");
 }
 
+// src/control-proof.ts
+import { createHash as createHash16 } from "node:crypto";
+import { execFileSync as execFileSync12 } from "node:child_process";
+import {
+  existsSync as existsSync6,
+  lstatSync as lstatSync8,
+  mkdirSync as mkdirSync5,
+  mkdtempSync as mkdtempSync3,
+  realpathSync as realpathSync9,
+  rmSync as rmSync2,
+  writeFileSync as writeFileSync5
+} from "node:fs";
+import { tmpdir as tmpdir3 } from "node:os";
+import { dirname as dirname9, isAbsolute as isAbsolute8, join as join8, relative as relative12, resolve as resolve17, sep as sep10 } from "node:path";
+var FIXED_COMMIT_EPOCH = Date.parse("2000-01-01T00:00:00Z") / 1e3;
+function git8(repo, args, env) {
+  return execFileSync12("git", args, {
+    cwd: repo,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+    ...env ? { env } : {}
+  }).trim();
+}
+function digest3(value) {
+  return `sha256:${createHash16("sha256").update(canonical(value)).digest("hex")}`;
+}
+function safeError(error, redactions = []) {
+  let message = error instanceof Error ? error.message : String(error);
+  for (const value of redactions.filter(Boolean).sort((a, b) => b.length - a.length)) {
+    message = message.replaceAll(value, value.includes("control-proof-") ? "<temporary-directory>" : "<source-repository>");
+  }
+  return terminalSafe(message.replace(/\s+/g, " ").slice(0, 400));
+}
+function assertDisposableClone(root, repo) {
+  const realRoot = realpathSync9(root);
+  const realRepo = realpathSync9(repo);
+  if (!realRepo.startsWith(`${realRoot}${sep10}`) || !existsSync6(join8(realRepo, ".git"))) {
+    throw new Error("refused to mutate a directory outside the disposable control-proof clone");
+  }
+}
+function resetClone(root, repo, sourceCommit) {
+  assertDisposableClone(root, repo);
+  git8(repo, ["reset", "--hard", sourceCommit]);
+  git8(repo, ["clean", "-fdx"]);
+}
+function safeWrite(repo, gitPath, content) {
+  if (!gitPath || isAbsolute8(gitPath) || gitPath.includes("\\")) throw new Error("control-proof path must be repository-relative");
+  const target = resolve17(repo, gitPath);
+  const fromRoot = relative12(resolve17(repo), target);
+  if (!fromRoot || fromRoot === ".." || fromRoot.startsWith(`..${sep10}`)) throw new Error("control-proof path escaped the clone");
+  let current = resolve17(repo);
+  for (const part of dirname9(fromRoot).split(sep10).filter((item2) => item2 && item2 !== ".")) {
+    current = join8(current, part);
+    if (existsSync6(current) && (!lstatSync8(current).isDirectory() || lstatSync8(current).isSymbolicLink())) {
+      rmSync2(current, { recursive: true, force: true });
+    }
+    mkdirSync5(current, { recursive: true });
+  }
+  if (existsSync6(target)) rmSync2(target, { recursive: true, force: true });
+  writeFileSync5(target, content, { encoding: "utf8", mode: 384 });
+}
+function commit(repo, message, sequence) {
+  git8(repo, ["add", "-A"]);
+  if (!git8(repo, ["status", "--porcelain=v1"])) throw new Error(`challenge produced no Git change: ${message}`);
+  const epoch = String(FIXED_COMMIT_EPOCH + sequence);
+  git8(repo, ["commit", "-qm", message], {
+    ...process.env,
+    GIT_AUTHOR_DATE: epoch,
+    GIT_COMMITTER_DATE: epoch
+  });
+  return git8(repo, ["rev-parse", "HEAD"]);
+}
+function decideControlProof(challenges) {
+  return challenges.length > 0 && challenges.every((challenge) => challenge.passed) ? "PASS" : "HOLD";
+}
+function buildControlProof(repo, base, vigilVersion) {
+  const sourceRepo = realpathSync9(resolve17(repo));
+  const sourceCommit = git8(sourceRepo, ["rev-parse", "--verify", `${base}^{commit}`]);
+  const root = mkdtempSync3(join8(tmpdir3(), "agent-vigil-control-proof-"));
+  const clone = join8(root, "repo");
+  const challenges = [];
+  let commitSequence = 1;
+  const runChallenge = (id, claim, expected, execute) => {
+    try {
+      const result5 = execute();
+      challenges.push({ id, claim, expected, ...result5, passed: result5.actual === expected });
+    } catch (error) {
+      challenges.push({
+        id,
+        claim,
+        expected,
+        actual: "ERROR",
+        passed: false,
+        base: sourceCommit,
+        head: sourceCommit,
+        evidence: safeError(error, [sourceRepo, root, clone])
+      });
+    }
+  };
+  try {
+    execFileSync12("git", ["clone", "--quiet", "--no-local", "--no-checkout", sourceRepo, clone], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 64 * 1024 * 1024
+    });
+    assertDisposableClone(root, clone);
+    git8(clone, ["checkout", "--quiet", "--detach", sourceCommit]);
+    git8(clone, ["config", "user.email", "control-proof@agent-vigil.invalid"]);
+    git8(clone, ["config", "user.name", "Agent Vigil Control Proof"]);
+    runChallenge("clean-control", "An unchanged authority surface is allowed.", "PASS", () => {
+      resetClone(root, clone, sourceCommit);
+      const plan = buildAuthorityPlan(clone, sourceCommit, sourceCommit, vigilVersion);
+      return {
+        actual: plan.status,
+        base: plan.base,
+        head: plan.head,
+        evidence: `${plan.summary.changes} authority changes and ${plan.summary.holds} held decisions`
+      };
+    });
+    runChallenge("unapproved-mcp-server", "A new repository MCP server is blocked.", "BLOCK", () => {
+      resetClone(root, clone, sourceCommit);
+      safeWrite(clone, ".mcp.json", `${JSON.stringify({ mcpServers: { "agent-vigil-control-probe": { command: "node", args: ["probe.mjs"] } } }, null, 2)}
+`);
+      const head = commit(clone, "control proof: add unapproved MCP server", commitSequence++);
+      const plan = buildAuthorityPlan(clone, sourceCommit, head, vigilVersion);
+      return {
+        actual: plan.status,
+        base: plan.base,
+        head: plan.head,
+        evidence: `${plan.summary.blocking} blocking authority change(s); ${plan.deltas.filter((item2) => item2.disposition === "BLOCK").map((item2) => item2.summary).join(", ") || "none"}`
+      };
+    });
+    runChallenge("candidate-self-approval", "A candidate cannot approve its own authority expansion.", "BLOCK", () => {
+      resetClone(root, clone, sourceCommit);
+      safeWrite(clone, ".mcp.json", `${JSON.stringify({ mcpServers: { "agent-vigil-self-approval-probe": { command: "node", args: ["self-approval-probe.mjs"] } } }, null, 2)}
+`);
+      const expansionHead = commit(clone, "control proof: stage self-approved authority", commitSequence++);
+      const expansion2 = buildAuthorityPlan(clone, sourceCommit, expansionHead, vigilVersion);
+      const approvalKeys = expansion2.deltas.filter((item2) => item2.disposition === "BLOCK").map((item2) => item2.approvalKey);
+      if (!approvalKeys.length) throw new Error("the planted authority expansion did not produce an approval key");
+      safeWrite(clone, ".agent-vigil-authority-plan.json", `${JSON.stringify({ schemaVersion: 1, approvedAdditions: approvalKeys, allowUnknownChanges: true }, null, 2)}
+`);
+      const head = commit(clone, "control proof: candidate attempts self approval", commitSequence++);
+      const plan = buildAuthorityPlan(clone, sourceCommit, head, vigilVersion);
+      return {
+        actual: plan.status,
+        base: plan.base,
+        head: plan.head,
+        evidence: `${plan.summary.blocking} planted expansion(s) remained blocked; policy source: ${plan.policy.source}`
+      };
+    });
+    runChallenge("unreadable-authority-config", "An unreadable supported authority file stays on hold.", "HOLD", () => {
+      resetClone(root, clone, sourceCommit);
+      safeWrite(clone, ".codex/config.toml", 'sandbox_mode = "unterminated\n');
+      const head = commit(clone, "control proof: add unreadable authority config", commitSequence++);
+      const plan = buildAuthorityPlan(clone, sourceCommit, head, vigilVersion);
+      return {
+        actual: plan.status,
+        base: plan.base,
+        head: plan.head,
+        evidence: `${plan.summary.holds} held decision(s); ${plan.gaps.map((item2) => item2.reason).join(", ") || "no evidence gap recorded"}`
+      };
+    });
+    runChallenge("sandbox-weakening", "A weaker Codex sandbox setting is blocked.", "BLOCK", () => {
+      resetClone(root, clone, sourceCommit);
+      safeWrite(clone, ".codex/config.toml", 'sandbox_mode = "workspace-write"\n');
+      const baseline = commit(clone, "control proof: create sandbox baseline", commitSequence++);
+      safeWrite(clone, ".codex/config.toml", 'sandbox_mode = "danger-full-access"\n');
+      const head = commit(clone, "control proof: weaken sandbox", commitSequence++);
+      const plan = buildAuthorityPlan(clone, baseline, head, vigilVersion);
+      const sandbox = plan.deltas.find((item2) => item2.after?.action === "sandbox.mode" || item2.before?.action === "sandbox.mode");
+      return {
+        actual: plan.status,
+        base: plan.base,
+        head: plan.head,
+        evidence: sandbox ? `${sandbox.summary}; ${sandbox.reason}` : "no sandbox change found"
+      };
+    });
+    runChallenge("skipped-test", "A newly skipped test is blocked by the calibrated integrity policy.", "BLOCK", () => {
+      resetClone(root, clone, sourceCommit);
+      safeWrite(clone, "agent-vigil-control-proof.test.ts", 'import test from "node:test";\ntest.skip("planted control proof", () => { throw new Error("must not run"); });\n');
+      const head = commit(clone, "control proof: skip a test", commitSequence++);
+      const routed = routeIntegrity(checkIntegrity(clone, sourceCommit, head), "calibrated");
+      const blocking = routed.results.filter((item2) => item2.verdict === "contradicted");
+      const actual = blocking.length ? "BLOCK" : routed.results.some((item2) => item2.verdict === "unverifiable") ? "HOLD" : "PASS";
+      return {
+        actual,
+        base: sourceCommit,
+        head,
+        evidence: blocking.map((item2) => item2.ruleId ?? "unlabeled-integrity-rule").join(", ") || "no calibrated blocking rule fired"
+      };
+    });
+  } catch (error) {
+    challenges.push({
+      id: "disposable-environment",
+      claim: "The disposable control-proof repository can be created safely.",
+      expected: "PASS",
+      actual: "ERROR",
+      passed: false,
+      base: sourceCommit,
+      head: sourceCommit,
+      evidence: safeError(error, [sourceRepo, root, clone])
+    });
+  }
+  try {
+    rmSync2(root, { recursive: true, force: true });
+    challenges.push({
+      id: "disposable-cleanup",
+      claim: "The disposable repository is removed after the challenge run.",
+      expected: "PASS",
+      actual: existsSync6(root) ? "ERROR" : "PASS",
+      passed: !existsSync6(root),
+      base: sourceCommit,
+      head: sourceCommit,
+      evidence: existsSync6(root) ? "temporary control-proof directory still exists" : "temporary control-proof directory removed"
+    });
+  } catch (error) {
+    challenges.push({
+      id: "disposable-cleanup",
+      claim: "The disposable repository is removed after the challenge run.",
+      expected: "PASS",
+      actual: "ERROR",
+      passed: false,
+      base: sourceCommit,
+      head: sourceCommit,
+      evidence: safeError(error, [sourceRepo, root, clone])
+    });
+  }
+  const reproduction = `vigil prove --repo . --base ${sourceCommit}`;
+  const limits = [
+    "Challenges the installed Agent Vigil authority and test-integrity controls in a disposable local clone.",
+    "Does not prove that a GitHub ruleset requires the check or that branch protection cannot be changed.",
+    "Does not exercise every detector, a live coding agent, runtime IAM, deployments, or third-party services.",
+    "Uses only local repository paths and does not push a branch or modify the source repository; installed Git and its configuration remain trusted."
+  ];
+  const status = decideControlProof(challenges);
+  const payload = {
+    schemaVersion: "agent-vigil-control-proof/v1",
+    vigilVersion,
+    status,
+    sourceCommit,
+    challenges,
+    summary: { passed: challenges.filter((item2) => item2.passed).length, total: challenges.length },
+    reproduction,
+    limits
+  };
+  return {
+    ...payload,
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    receiptHash: digest3(payload)
+  };
+}
+function renderControlProof(report) {
+  const lines = [
+    `Agent Vigil control proof: ${report.status}`,
+    `Source: ${report.sourceCommit}`,
+    ""
+  ];
+  for (const challenge of report.challenges) {
+    const marker2 = challenge.passed ? "\u2713" : "\u2717";
+    lines.push(terminalSafe(`${marker2} ${challenge.claim}`));
+    if (!challenge.passed) lines.push(terminalSafe(`  expected ${challenge.expected}; observed ${challenge.actual}: ${challenge.evidence}`));
+  }
+  lines.push(
+    "",
+    `${report.summary.passed}/${report.summary.total} expected outcomes observed`,
+    `${report.status} \xB7 ${report.receiptHash}`,
+    `Reproduce: ${report.reproduction}`
+  );
+  return lines.join("\n");
+}
+
 // src/cli.ts
 function usage2() {
   return `agent-vigil ${VERSION}
@@ -8595,6 +8868,7 @@ Usage:
   vigil init --profile maintainer [--repo <path>] [--force] [--attest]
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
+  vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
@@ -8653,6 +8927,35 @@ Value options:
 
 Exit codes: 0 PASS \xB7 1 FAIL \xB7 2 INCONCLUSIVE or usage error`;
 }
+function runProve(args) {
+  try {
+    const allowed = /* @__PURE__ */ new Set(["prove", "--repo", "--base", "--format", "--output", "--json"]);
+    const takesValue = /* @__PURE__ */ new Set(["--repo", "--base", "--format", "--output"]);
+    for (let index = 1; index < args.length; index++) {
+      const arg = args[index];
+      if (!allowed.has(arg)) throw new Error(`unknown prove argument: ${arg}`);
+      if (takesValue.has(arg)) {
+        if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${arg} requires a value`);
+        index += 1;
+      }
+    }
+    const repo = resolve18(optionValue(args, "--repo") ?? ".");
+    const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_SHA ?? "HEAD";
+    if (!existsSync7(repo)) throw new Error(`repository not found: ${repo}`);
+    if (!gitRefExists(repo, baseRef)) throw new Error(`invalid Git commit ${baseRef}`);
+    const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
+    if (!(/* @__PURE__ */ new Set(["text", "json"])).has(format)) throw new Error("prove --format must be text or json");
+    const report = buildControlProof(repo, baseRef, VERSION);
+    const output = optionValue(args, "--output");
+    if (output) writePrivateFileAtomic(resolve18(output), `${JSON.stringify(report, null, 2)}
+`);
+    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderControlProof(report));
+    return report.status === "PASS" ? 0 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
 function runPlan(args) {
   try {
     const allowed = /* @__PURE__ */ new Set(["plan", "--repo", "--base", "--head", "--policy", "--format", "--output", "--json", "--github-summary"]);
@@ -8665,15 +8968,15 @@ function runPlan(args) {
         index += 1;
       }
     }
-    const repo = resolve17(optionValue(args, "--repo") ?? ".");
+    const repo = resolve18(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_BASE_SHA ?? "HEAD~1";
     const headRef = optionValue(args, "--head") ?? process.env.GITHUB_HEAD_SHA ?? "HEAD";
-    if (!existsSync6(repo)) throw new Error(`repository not found: ${repo}`);
+    if (!existsSync7(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef) || !gitRefExists(repo, headRef)) throw new Error(`invalid git range ${baseRef}..${headRef}`);
     const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
     if (!(/* @__PURE__ */ new Set(["text", "json", "markdown"])).has(format)) throw new Error("plan --format must be text, json, or markdown");
     const policyPath = optionValue(args, "--policy");
-    if (policyPath && (isAbsolute8(policyPath) || policyPath === ".." || policyPath.startsWith("../") || policyPath.includes("\\"))) {
+    if (policyPath && (isAbsolute9(policyPath) || policyPath === ".." || policyPath.startsWith("../") || policyPath.includes("\\"))) {
       throw new Error("plan --policy must be a repository-relative POSIX path");
     }
     const report = buildAuthorityPlan(repo, baseRef, headRef, VERSION, policyPath);
@@ -8681,13 +8984,13 @@ function runPlan(args) {
 ` : format === "markdown" ? renderAuthorityPlanMarkdown(report) : `${renderAuthorityPlan(report)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve17(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve18(output), `${JSON.stringify(report, null, 2)}
 `);
     else process.stdout.write(rendered);
     if (args.includes("--github-summary")) {
       const summaryPath = process.env.GITHUB_STEP_SUMMARY;
       if (!summaryPath) throw new Error("--github-summary requires GITHUB_STEP_SUMMARY");
-      appendPrivateFileAtomic(resolve17(summaryPath), renderAuthorityPlanMarkdown(report));
+      appendPrivateFileAtomic(resolve18(summaryPath), renderAuthorityPlanMarkdown(report));
     }
     return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
   } catch (error) {
@@ -8699,10 +9002,10 @@ function runProofComment(args) {
   try {
     const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--verify-url", "--output"]));
     if (parsed.positional.length !== 1) throw new Error("proof-comment requires exactly one full receipt JSON path");
-    const { report } = loadReceipt(resolve17(parsed.positional[0]));
+    const { report } = loadReceipt(resolve18(parsed.positional[0]));
     const rendered = renderProofComment(report, { verifyUrl: parsed.values.get("--verify-url") });
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve17(output), rendered);
+    if (output) writePrivateFileAtomic(resolve18(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -8770,7 +9073,7 @@ function optionValue(args, name) {
 }
 function runInit2(args) {
   try {
-    const repo = resolve17(optionValue(args, "--repo") ?? ".");
+    const repo = resolve18(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
     const profile = optionValue(args, "--profile") ?? "default";
@@ -8779,7 +9082,7 @@ function runInit2(args) {
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve17(publicKey)) : void 0, profile, attest);
+    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve18(publicKey)) : void 0, profile, attest);
     console.log("Agent Vigil initialized.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
     for (const path of result5.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -8801,7 +9104,7 @@ function runProtect(args) {
       if (!allowed.has(arg)) throw new Error(`unknown protect argument: ${arg}`);
       if (arg === "--repo") index += 1;
     }
-    const repo = resolve17(optionValue(args, "--repo") ?? ".");
+    const repo = resolve18(optionValue(args, "--repo") ?? ".");
     const result5 = initRepository(repo, args.includes("--force"), void 0, "protect", args.includes("--attest"));
     console.log("Agent Vigil protection installed.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
@@ -8833,8 +9136,8 @@ function runMaintainer(args) {
     const eventOption = optionValue(args, "--event");
     if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
     const options = parseArgs(withoutOption(args.slice(1), "--event"));
-    const repo = resolve17(options.repo);
-    const eventPath = resolve17(eventOption);
+    const repo = resolve18(options.repo);
+    const eventPath = resolve18(eventOption);
     const policy = loadPolicy(repo, options.policy, options.policyRef);
     if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -8858,10 +9161,10 @@ function runMaintainer(args) {
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     const rawEvent = readFileSync19(eventPath);
-    const eventHash = `sha256:${createHash16("sha256").update(rawEvent).digest("hex")}`;
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative12(repo, policy.path) : void 0;
-    const remote = git8(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = git8(repo, ["rev-parse", `${head}^{tree}`]);
+    const eventHash = `sha256:${createHash17("sha256").update(rawEvent).digest("hex")}`;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative13(repo, policy.path) : void 0;
+    const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git9(repo, ["rev-parse", `${head}^{tree}`]);
     const reproduction = [
       "vigil maintainer",
       "--event",
@@ -8920,7 +9223,7 @@ function runMergeGroup(args) {
 }
 function runDoctor2(args) {
   try {
-    const repo = resolve17(optionValue(args, "--repo") ?? ".");
+    const repo = resolve18(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -8934,9 +9237,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve17(privatePath), resolve17(publicPath));
+    generateSigningKey(resolve18(privatePath), resolve18(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve17(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve18(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -8954,10 +9257,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve17(options.repo, receiptPath);
+    const absoluteReceipt = resolve18(options.repo, receiptPath);
     const receipt = JSON.parse(readFileSync19(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve17(options.repo),
+      repo: resolve18(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -8976,10 +9279,10 @@ function runVerify2(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync19(resolve17(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync19(resolve18(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result5 = verifyReport(report, publicKey ? resolve17(publicKey) : void 0);
+    const result5 = verifyReport(report, publicKey ? resolve18(publicKey) : void 0);
     console.log(`Receipt hash: ${result5.hashValid ? "VALID" : "INVALID"}`);
     if (result5.signatureValid !== void 0) {
       console.log(`Ed25519 signature: ${result5.signatureValid ? "VALID" : "INVALID"} \xB7 ${result5.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
@@ -9023,7 +9326,7 @@ function runAttest(args) {
     const predicateOutput = parsed.values.get("--predicate-output");
     if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest requires <receipt.json> and --predicate-output <path>");
     const receiptPath = parsed.positional[0];
-    const predicate = writeAttestationPredicate(resolve17(receiptPath), resolve17(predicateOutput));
+    const predicate = writeAttestationPredicate(resolve18(receiptPath), resolve18(predicateOutput));
     console.log("Agent Vigil attestation predicate prepared.");
     console.log(`  receipt:  ${predicate.receipt.receiptHash}`);
     console.log(`  decision: ${predicate.receipt.status}`);
@@ -9044,8 +9347,8 @@ function runVerifyAttestation(args) {
     if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-attestation requires <receipt.json> and --repository <owner/name>");
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve17(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const { report } = loadReceipt(resolve17(receiptPath));
+    const verification2 = verifyGitHubAttestation(resolve18(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const { report } = loadReceipt(resolve18(receiptPath));
     console.log(`GitHub attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
     console.log(`Receipt file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
     console.log(`Receipt contents: ${verification2.receiptHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
@@ -9071,12 +9374,12 @@ function runNotary(args) {
     }
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve17(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const payload = buildNotaryCheck(resolve17(receiptPath), verification2, head, policySha256);
+    const verification2 = verifyGitHubAttestation(resolve18(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const payload = buildNotaryCheck(resolve18(receiptPath), verification2, head, policySha256);
     const rendered = `${JSON.stringify(payload, null, 2)}
 `;
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve17(output), rendered);
+    if (output) writePrivateFileAtomic(resolve18(output), rendered);
     else process.stdout.write(rendered);
     return payload.conclusion === "success" ? 0 : payload.conclusion === "failure" ? 1 : 2;
   } catch (error) {
@@ -9090,15 +9393,15 @@ function runCompare(args) {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync19(resolve17(values[0]), "utf8"));
-    const after = JSON.parse(readFileSync19(resolve17(values[1]), "utf8"));
+    const before = JSON.parse(readFileSync19(resolve18(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync19(resolve18(values[1]), "utf8"));
     if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
 ` : `${renderReceiptDelta(delta)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve17(output), rendered);
+    if (output) writePrivateFileAtomic(resolve18(output), rendered);
     else process.stdout.write(rendered);
     return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
   } catch (error) {
@@ -9190,23 +9493,23 @@ function readBoundedFile(path, maximumBytes, label) {
 function runValue(args) {
   try {
     const options = parseValueArgs(args);
-    const receiptPath = resolve17(options.receipt);
+    const receiptPath = resolve18(options.receipt);
     const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
     const report = JSON.parse(rawReceipt.toString("utf8"));
     if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
       throw new Error("value requires a full Agent Vigil receipt schema 2");
     }
-    const verification2 = verifyReport(report, options.publicKey ? resolve17(options.publicKey) : void 0);
+    const verification2 = verifyReport(report, options.publicKey ? resolve18(options.publicKey) : void 0);
     if (!verification2.hashValid) throw new Error("value receipt hash is invalid");
     if (verification2.signatureValid === false) throw new Error("value receipt signature is invalid");
     let transcriptPath;
-    if (options.transcript) transcriptPath = resolve17(options.transcript);
+    if (options.transcript) transcriptPath = resolve18(options.transcript);
     else if ((/* @__PURE__ */ new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"])).has(report.transcriptFormat)) {
       const candidates = [
-        resolve17(dirname9(receiptPath), report.transcript),
-        ...isAbsolute8(report.repo) ? [resolve17(report.repo, report.transcript)] : []
+        resolve18(dirname10(receiptPath), report.transcript),
+        ...isAbsolute9(report.repo) ? [resolve18(report.repo, report.transcript)] : []
       ];
-      transcriptPath = candidates.find((candidate) => existsSync6(candidate));
+      transcriptPath = candidates.find((candidate) => existsSync7(candidate));
     }
     let loaded;
     if (transcriptPath) {
@@ -9215,11 +9518,11 @@ function runValue(args) {
     }
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
-      const evidence = readBoundedFile(resolve17(path), 64 * 1024 * 1024, label);
-      return `sha256:${createHash16("sha256").update(evidence).digest("hex")}`;
+      const evidence = readBoundedFile(resolve18(path), 64 * 1024 * 1024, label);
+      return `sha256:${createHash17("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
-    const github = options.githubEvidence ? loadGitHubEvidence(resolve17(options.githubEvidence)) : void 0;
+    const github = options.githubEvidence ? loadGitHubEvidence(resolve18(options.githubEvidence)) : void 0;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;
     const inferredOutcome = options.outcome ?? github?.inference.outcome;
     const inferredOutcomeAsOf = options.outcomeAsOf ?? github?.inference.outcomeAsOf;
@@ -9261,7 +9564,7 @@ function runValue(args) {
     });
     const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}
 ` : options.format === "markdown" ? renderValueCardMarkdown(card) : options.format === "html" ? renderValueCardHtml(card) : renderValueCardText(card);
-    if (options.output) writePrivateFileAtomic(resolve17(options.output), rendered);
+    if (options.output) writePrivateFileAtomic(resolve18(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
   } catch (error) {
@@ -9302,7 +9605,7 @@ function runGitHubEvidence(args) {
     const bundle = buildGitHubEvidence(inputs);
     const rendered = `${JSON.stringify(bundle, null, 2)}
 `;
-    if (output) writePrivateFileAtomic(resolve17(output), rendered);
+    if (output) writePrivateFileAtomic(resolve18(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -9332,7 +9635,7 @@ function runCompareValue(args) {
     const comparison = compareValueCards(cards, paths.length);
     const rendered = format === "json" ? `${JSON.stringify(comparison, null, 2)}
 ` : format === "html" ? renderValueComparisonHtml(comparison) : renderValueComparisonText(comparison);
-    if (output) writePrivateFileAtomic(resolve17(output), rendered);
+    if (output) writePrivateFileAtomic(resolve18(output), rendered);
     else process.stdout.write(rendered);
     return comparison.status === "COMPARABLE" ? 0 : 2;
   } catch (error) {
@@ -9345,11 +9648,11 @@ function runAudit(args) {
     const options = parseArgs(args.slice(1));
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
-    const absolute = resolve17(diffPath);
+    const absolute = resolve18(diffPath);
     const raw = readFileSync19(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest3 = `sha256:${createHash16("sha256").update(raw).digest("hex")}`;
+    const digest4 = `sha256:${createHash17("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -9360,15 +9663,15 @@ function runAudit(args) {
       });
     }
     const report = buildReport({
-      transcript: relative12(process.cwd(), absolute) || absolute,
-      transcriptSha256: digest3,
+      transcript: relative13(process.cwd(), absolute) || absolute,
+      transcriptSha256: digest4,
       transcriptFormat: "unified-git-diff",
       repo: "static-diff-audit",
       base: "unavailable",
-      head: digest3,
+      head: digest4,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash16("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash17("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -9382,7 +9685,7 @@ function runAudit(args) {
 function runTestIntegrity(args) {
   try {
     const options = parseArgs(args.slice(1));
-    const repo = resolve17(options.repo);
+    const repo = resolve18(options.repo);
     if (!gitRefExists(repo, options.base) || options.head !== "WORKTREE" && !gitRefExists(repo, options.head)) {
       throw new Error(`invalid git range ${options.base}..${options.head}`);
     }
@@ -9394,12 +9697,12 @@ function runTestIntegrity(args) {
       if (check.ruleId === "integrity-scan" && check.verdict === "verified") check.contributesToPass = true;
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
-    const diff = execFileSync12("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    const digest3 = `sha256:${createHash16("sha256").update(diff).digest("hex")}`;
+    const diff = execFileSync13("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const digest4 = `sha256:${createHash17("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
       transcript: `${base}..${head}`,
-      transcriptSha256: digest3,
+      transcriptSha256: digest4,
       transcriptFormat: "test-integrity-diff",
       repo,
       base,
@@ -9410,11 +9713,11 @@ function runTestIntegrity(args) {
         minVerified: 1,
         strict: true,
         source: policyName,
-        sha256: `sha256:${createHash16("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
+        sha256: `sha256:${createHash17("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
       },
       repository: {
-        ...git8(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git8(repo, ["config", "--get", "remote.origin.url"]) } : {},
-        ...head !== "WORKTREE" && git8(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git8(repo, ["rev-parse", `${head}^{tree}`]) } : {}
+        ...git9(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git9(repo, ["config", "--get", "remote.origin.url"]) } : {},
+        ...head !== "WORKTREE" && git9(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git9(repo, ["rev-parse", `${head}^{tree}`]) } : {}
       },
       reproduction: `vigil test-integrity --repo . --base ${base} --head ${head}${options.strict ? " --strict" : ""}`
     });
@@ -9432,7 +9735,7 @@ function runAuthority(args) {
       const output = optionValue(args, "--output");
       const rendered = authorityContractTemplate();
       if (output) {
-        writePrivateFileAtomic(resolve17(output), rendered);
+        writePrivateFileAtomic(resolve18(output), rendered);
         console.log(`Created task-scoped authority contract ${output}. Review every allowed action and replace the task ID before use.`);
       } else process.stdout.write(rendered);
       return 0;
@@ -9445,12 +9748,12 @@ function runAuthority(args) {
     const options = parseArgs(stripped);
     const transcriptOption = options.transcript;
     if (!transcriptOption) throw new Error("authority requires a structured agent transcript");
-    const repo = resolve17(options.repo);
+    const repo = resolve18(options.repo);
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
     const base = resolveGitRef(repo, options.base);
     const head = resolveGitRef(repo, options.head);
-    const transcriptPath = isAbsolute8(transcriptOption) ? transcriptOption : resolve17(repo, transcriptOption);
-    if (!existsSync6(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
+    const transcriptPath = isAbsolute9(transcriptOption) ? transcriptOption : resolve18(repo, transcriptOption);
+    if (!existsSync7(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
     const contract = loadAuthorityContract(repo, contractOption, contractRef);
     const loaded = loadTranscript(transcriptPath);
     const inputs = [transcriptPath, ...contract.path ? [contract.path] : []];
@@ -9465,9 +9768,9 @@ function runAuthority(args) {
       ruleId: "authority-contract-anchor",
       contributesToPass: false
     });
-    const remote = git8(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = git8(repo, ["rev-parse", `${head}^{tree}`]);
-    const relativeTranscript = relative12(repo, transcriptPath) || transcriptOption;
+    const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git9(repo, ["rev-parse", `${head}^{tree}`]);
+    const relativeTranscript = relative13(repo, transcriptPath) || transcriptOption;
     const reproduction = [
       "vigil authority",
       shellQuote(relativeTranscript),
@@ -9494,7 +9797,7 @@ function runAuthority(args) {
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve17(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve18(options.signingKey));
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
@@ -9503,9 +9806,9 @@ function runAuthority(args) {
     return 2;
   }
 }
-function git8(repo, args) {
+function git9(repo, args) {
   try {
-    return execFileSync12("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync13("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -9517,6 +9820,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
+  if (argv[0] === "prove") return runProve(argv);
   if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "proof-comment") return runProofComment(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);
@@ -9553,7 +9857,7 @@ function run(argv = process.argv.slice(2)) {
 ${usage2()}`);
     return 2;
   }
-  const repo = resolve17(options.repo);
+  const repo = resolve18(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -9570,15 +9874,15 @@ ${usage2()}`);
     console.error(usage2());
     return 2;
   }
-  const transcriptPath = isAbsolute8(transcript) ? transcript : resolve17(repo, transcript);
+  const transcriptPath = isAbsolute9(transcript) ? transcript : resolve18(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
-  if (!existsSync6(transcriptPath)) {
+  if (!existsSync7(transcriptPath)) {
     console.error(`agent-vigil: transcript not found: ${transcriptPath}`);
     return 2;
   }
-  if (!existsSync6(repo)) {
+  if (!existsSync7(repo)) {
     console.error(`agent-vigil: repository not found: ${repo}`);
     return 2;
   }
@@ -9597,8 +9901,8 @@ ${usage2()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve17(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve17(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve18(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve18(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -9612,10 +9916,10 @@ ${usage2()}`);
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     results.push(...checkCompletion(claims, repo, base, head, results));
-    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative12(repo, policy.path) : void 0;
-    const remote = git8(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = head === "WORKTREE" ? void 0 : git8(repo, ["rev-parse", `${head}^{tree}`]);
-    const relativeTranscript = relative12(repo, transcriptPath) || transcript;
+    const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative13(repo, policy.path) : void 0;
+    const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = head === "WORKTREE" ? void 0 : git9(repo, ["rev-parse", `${head}^{tree}`]);
+    const relativeTranscript = relative13(repo, transcriptPath) || transcript;
     const reproduction = [
       "vigil",
       shellQuote(relativeTranscript),
@@ -9645,13 +9949,13 @@ ${usage2()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve17(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve18(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve17(options.signingKey));
-      const portablePath = resolve17(repo, options.portableOutput);
-      mkdirSync5(dirname9(portablePath), { recursive: true });
-      writeFileSync5(portablePath, `${JSON.stringify(portable, null, 2)}
+      const portable = createPortableReceipt(report, resolve18(options.signingKey));
+      const portablePath = resolve18(repo, options.portableOutput);
+      mkdirSync6(dirname10(portablePath), { recursive: true });
+      writeFileSync6(portablePath, `${JSON.stringify(portable, null, 2)}
 `);
     }
     printReport(report, options);
@@ -9664,7 +9968,7 @@ ${usage2()}`);
 function isMainModule() {
   if (!process.argv[1]) return false;
   try {
-    return realpathSync9(process.argv[1]) === realpathSync9(fileURLToPath(import.meta.url));
+    return realpathSync10(process.argv[1]) === realpathSync10(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }
