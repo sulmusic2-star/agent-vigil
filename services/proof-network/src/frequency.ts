@@ -112,6 +112,28 @@ export type First100Entry = {
   evaluation?: First100Evaluation["evaluation"];
 };
 
+export type First100ProvenanceRecord = {
+  schemaVersion: "agent-vigil-first-100-provenance/v1";
+  kind: "publisher-provenance";
+  registrationId: typeof FIRST_100_REGISTRATION_ID;
+  ingestionSequence: number;
+  publisher: {
+    keyId: string;
+    status: "ACTIVE" | "SUSPENDED" | "REVOKED";
+    statusUpdatedAt: string;
+  };
+  frozenEligibility: {
+    decision: "INCLUDED" | "EXCLUDED";
+    reason: First100Reason;
+  };
+  effectiveEligibility: {
+    decision: "INCLUDED" | "EXCLUDED" | "QUARANTINED";
+    reason: First100Reason | "PUBLISHER_SUSPENDED" | "PUBLISHER_REVOKED";
+    gateEligible: boolean;
+  };
+  chronologyMutable: false;
+};
+
 type FrequencyRow = {
   ingestion_sequence: number;
   received_at: string;
@@ -134,6 +156,15 @@ type FrequencyRow = {
   materiality_classification: "MATERIAL" | "NON_MATERIAL" | "INCONCLUSIVE" | null;
   evidence_complete: number | null;
   workflow_consequences_json: string | null;
+};
+
+type First100ProvenanceRow = {
+  ingestion_sequence: number;
+  publisher_key_id: string;
+  publisher_status: "ACTIVE" | "SUSPENDED" | "REVOKED";
+  publisher_updated_at: string;
+  eligibility_decision: "INCLUDED" | "EXCLUDED";
+  eligibility_reason: First100Reason;
 };
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -414,9 +445,17 @@ export async function storeFirst100Evaluation(
   recordedAt: string,
 ): Promise<{ created: boolean }> {
   const pair = await db.prepare(
-    "SELECT eligibility_decision, received_at FROM frequency_pairs WHERE ingestion_sequence = ?",
-  ).bind(value.ingestionSequence).first<{ eligibility_decision: string; received_at: string }>();
+    `SELECT pair.eligibility_decision, pair.received_at, publisher.status AS publisher_status
+       FROM frequency_pairs pair
+       JOIN publishers publisher ON publisher.key_id = pair.publisher_key_id
+      WHERE pair.ingestion_sequence = ?`,
+  ).bind(value.ingestionSequence).first<{
+    eligibility_decision: string;
+    received_at: string;
+    publisher_status: "ACTIVE" | "SUSPENDED" | "REVOKED";
+  }>();
   if (!pair || pair.eligibility_decision !== "INCLUDED") throw new Error("evaluation requires an included pre-inspection entry");
+  if (pair.publisher_status !== "ACTIVE") throw new Error("FIRST_100_PUBLISHER_NOT_ACTIVE");
   if (Date.parse(value.evaluation.startedAt) < Date.parse(pair.received_at)) throw new Error("evaluation started before server registration");
   const existing = await db.prepare("SELECT receipt_hash FROM frequency_evaluations WHERE ingestion_sequence = ?")
     .bind(value.ingestionSequence).first<{ receipt_hash: string }>();
@@ -462,6 +501,48 @@ export async function exportFirst100Entries(db: D1Database): Promise<First100Ent
   return result.results.map(rowToFirst100Entry);
 }
 
+export async function exportFirst100Provenance(db: D1Database): Promise<First100ProvenanceRecord[]> {
+  const cutoff = await db.prepare(
+    "SELECT ingestion_sequence FROM frequency_pairs WHERE eligibility_decision = 'INCLUDED' ORDER BY ingestion_sequence ASC LIMIT 1 OFFSET 99",
+  ).first<{ ingestion_sequence: number }>();
+  const result = await db.prepare(
+    `SELECT pair.ingestion_sequence, pair.publisher_key_id,
+            publisher.status AS publisher_status, publisher.updated_at AS publisher_updated_at,
+            pair.eligibility_decision, pair.eligibility_reason
+       FROM frequency_pairs pair
+       JOIN publishers publisher ON publisher.key_id = pair.publisher_key_id
+      WHERE ? IS NULL OR pair.ingestion_sequence <= ?
+      ORDER BY pair.ingestion_sequence ASC`,
+  ).bind(cutoff?.ingestion_sequence ?? null, cutoff?.ingestion_sequence ?? null).all<First100ProvenanceRow>();
+  return result.results.map((row) => {
+    const activeIncluded = row.eligibility_decision === "INCLUDED" && row.publisher_status === "ACTIVE";
+    const quarantined = row.eligibility_decision === "INCLUDED" && row.publisher_status !== "ACTIVE";
+    return {
+      schemaVersion: "agent-vigil-first-100-provenance/v1",
+      kind: "publisher-provenance",
+      registrationId: FIRST_100_REGISTRATION_ID,
+      ingestionSequence: row.ingestion_sequence,
+      publisher: {
+        keyId: row.publisher_key_id,
+        status: row.publisher_status,
+        statusUpdatedAt: row.publisher_updated_at,
+      },
+      frozenEligibility: {
+        decision: row.eligibility_decision,
+        reason: row.eligibility_reason,
+      },
+      effectiveEligibility: {
+        decision: quarantined ? "QUARANTINED" : row.eligibility_decision,
+        reason: quarantined
+          ? (row.publisher_status === "REVOKED" ? "PUBLISHER_REVOKED" : "PUBLISHER_SUSPENDED")
+          : row.eligibility_reason,
+        gateEligible: activeIncluded,
+      },
+      chronologyMutable: false,
+    };
+  });
+}
+
 export function first100Jsonl(entries: First100Entry[]): string {
   const anchor = {
     schemaVersion: "diffwitness-first-100-ledger/v1",
@@ -473,4 +554,17 @@ export function first100Jsonl(entries: First100Entry[]): string {
     pairEntries: 0,
   };
   return `${[anchor, ...entries].map((entry) => JSON.stringify(entry)).join("\n")}\n`;
+}
+
+export function first100ProvenanceJsonl(records: First100ProvenanceRecord[]): string {
+  const anchor = {
+    schemaVersion: "agent-vigil-first-100-provenance-ledger/v1",
+    kind: "provenance-anchor",
+    registrationId: FIRST_100_REGISTRATION_ID,
+    registrationSha256: FIRST_100_REGISTRATION_SHA256,
+    rawLedgerPath: "/api/v1/frequency/first-100.jsonl",
+    rawLedgerGateEligibleWithoutProvenance: false,
+    chronologyMutable: false,
+  };
+  return `${[anchor, ...records].map((record) => JSON.stringify(record)).join("\n")}\n`;
 }

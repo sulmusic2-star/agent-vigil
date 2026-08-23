@@ -16,6 +16,56 @@ CREATE TABLE publisher_status_events (
   occurred_at TEXT NOT NULL
 ) STRICT;
 
+-- A revoked key can never regain authority. The only restoration transition is
+-- SUSPENDED -> ACTIVE with an explicit RESTORED event. Keeping this invariant
+-- in D1 closes the check/write race between a Worker authorization read and a
+-- concurrent administrative status change.
+CREATE TRIGGER publisher_status_transition_guard
+BEFORE INSERT ON publisher_status_events
+BEGIN
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TRANSITION_INVALID')
+    WHERE NEW.reason_class = 'INITIAL_REGISTRATION'
+      AND (NEW.status <> 'ACTIVE'
+        OR (SELECT status FROM publishers WHERE key_id = NEW.key_id) <> 'ACTIVE'
+        OR (SELECT registered_at FROM publishers WHERE key_id = NEW.key_id) <> NEW.occurred_at
+        OR EXISTS (SELECT 1 FROM publisher_status_events WHERE key_id = NEW.key_id));
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TERMINAL')
+    WHERE NEW.reason_class <> 'INITIAL_REGISTRATION'
+      AND (SELECT status FROM publishers WHERE key_id = NEW.key_id) = 'REVOKED';
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TRANSITION_INVALID')
+    WHERE NEW.reason_class <> 'INITIAL_REGISTRATION'
+      AND (SELECT status FROM publishers WHERE key_id = NEW.key_id) = NEW.status;
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TRANSITION_INVALID')
+    WHERE NEW.reason_class <> 'INITIAL_REGISTRATION'
+      AND NEW.status = 'ACTIVE'
+      AND ((SELECT status FROM publishers WHERE key_id = NEW.key_id) <> 'SUSPENDED'
+        OR NEW.reason_class <> 'RESTORED');
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TRANSITION_INVALID')
+    WHERE NEW.reason_class <> 'INITIAL_REGISTRATION'
+      AND NEW.status <> 'ACTIVE' AND NEW.reason_class = 'RESTORED';
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TRANSITION_INVALID')
+    WHERE NEW.reason_class <> 'INITIAL_REGISTRATION'
+      AND NEW.reason_class = 'COMPROMISED' AND NEW.status <> 'REVOKED';
+END;
+
+CREATE TRIGGER publishers_status_update_guard
+BEFORE UPDATE OF status ON publishers
+BEGIN
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TERMINAL')
+    WHERE OLD.status = 'REVOKED' AND NEW.status <> 'REVOKED';
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TRANSITION_INVALID')
+    WHERE OLD.status = NEW.status;
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TRANSITION_INVALID')
+    WHERE NEW.status = 'ACTIVE' AND OLD.status <> 'SUSPENDED';
+  SELECT RAISE(ABORT, 'PUBLISHER_STATUS_TRANSITION_INVALID')
+    WHERE NOT EXISTS (
+      SELECT 1 FROM publisher_status_events
+       WHERE key_id = NEW.key_id
+         AND status = NEW.status
+         AND occurred_at = NEW.updated_at
+    );
+END;
+
 CREATE TABLE compatibility_entries (
   entry_hash TEXT PRIMARY KEY CHECK (entry_hash GLOB 'sha256:*' AND length(entry_hash) = 71),
   key_id TEXT NOT NULL REFERENCES publishers(key_id),
@@ -29,6 +79,16 @@ CREATE TABLE compatibility_entries (
   body_sha256 TEXT NOT NULL,
   body_json TEXT NOT NULL
 ) STRICT;
+
+CREATE TRIGGER compatibility_entries_active_publisher
+BEFORE INSERT ON compatibility_entries
+BEGIN
+  SELECT RAISE(ABORT, 'PUBLISHER_NOT_ACTIVE')
+    WHERE NOT EXISTS (
+      SELECT 1 FROM publishers
+       WHERE key_id = NEW.key_id AND status = 'ACTIVE'
+    );
+END;
 
 CREATE INDEX compatibility_entries_pair_idx
   ON compatibility_entries(ecosystem, component_name, current_version, candidate_version, generated_at DESC);
@@ -75,6 +135,65 @@ CREATE TABLE moderation_state (
   PRIMARY KEY (record_type, record_hash)
 ) STRICT;
 
+-- Public resolution trust is transitive: the resolution, its signer, and both
+-- exact entry referents must all remain active and free of current correction,
+-- takedown, or revocation state. RESTORE is an explicit current-state clear.
+CREATE VIEW public_compatibility_entries AS
+SELECT entry.*,
+       publisher.updated_at AS entry_publisher_updated_at,
+       moderation.action AS entry_moderation_action,
+       moderation.updated_at AS entry_moderation_updated_at
+  FROM compatibility_entries entry
+  JOIN publishers publisher ON publisher.key_id = entry.key_id
+  LEFT JOIN moderation_state moderation
+    ON moderation.record_type = 'ENTRY' AND moderation.record_hash = entry.entry_hash
+ WHERE publisher.status = 'ACTIVE'
+   AND (moderation.action IS NULL OR moderation.action = 'RESTORE');
+
+CREATE VIEW public_compatibility_resolutions AS
+SELECT resolution.*,
+       resolution_publisher.updated_at AS resolution_publisher_updated_at,
+       resolution_moderation.action AS resolution_moderation_action,
+       resolution_moderation.updated_at AS resolution_moderation_updated_at,
+       broken.entry_publisher_updated_at AS broken_publisher_updated_at,
+       broken.entry_moderation_action AS broken_moderation_action,
+       broken.entry_moderation_updated_at AS broken_moderation_updated_at,
+       fixed.entry_publisher_updated_at AS fixed_publisher_updated_at,
+       fixed.entry_moderation_action AS fixed_moderation_action,
+       fixed.entry_moderation_updated_at AS fixed_moderation_updated_at
+  FROM compatibility_resolutions resolution
+  JOIN publishers resolution_publisher ON resolution_publisher.key_id = resolution.key_id
+  LEFT JOIN moderation_state resolution_moderation
+    ON resolution_moderation.record_type = 'RESOLUTION'
+   AND resolution_moderation.record_hash = resolution.resolution_hash
+  JOIN public_compatibility_entries broken ON broken.entry_hash = resolution.broken_entry_hash
+  JOIN public_compatibility_entries fixed ON fixed.entry_hash = resolution.fixed_entry_hash
+ WHERE resolution_publisher.status = 'ACTIVE'
+   AND (resolution_moderation.action IS NULL OR resolution_moderation.action = 'RESTORE');
+
+-- Admission is protected at the write boundary as well as in the Worker so a
+-- concurrent moderation or publisher-status change cannot create a resolution
+-- whose transitive evidence is already unavailable.
+CREATE TRIGGER compatibility_resolutions_public_referents
+BEFORE INSERT ON compatibility_resolutions
+BEGIN
+  SELECT RAISE(ABORT, 'PUBLISHER_NOT_ACTIVE')
+    WHERE NOT EXISTS (
+      SELECT 1 FROM publishers
+       WHERE key_id = NEW.key_id AND status = 'ACTIVE'
+    );
+  SELECT RAISE(ABORT, 'RESOLUTION_REFERENT_UNAVAILABLE')
+    WHERE NOT EXISTS (
+      SELECT 1 FROM public_compatibility_entries
+       WHERE entry_hash = NEW.broken_entry_hash
+    );
+  SELECT RAISE(ABORT, 'RESOLUTION_REFERENT_UNAVAILABLE')
+    WHERE NOT EXISTS (
+      SELECT 1 FROM public_compatibility_entries
+       WHERE entry_hash = NEW.fixed_entry_hash
+    );
+END;
+
 CREATE TABLE lifecycle_installations (
   installation_id TEXT PRIMARY KEY,
   registration_idempotency_key TEXT NOT NULL UNIQUE,
@@ -93,6 +212,35 @@ CREATE TABLE lifecycle_installation_status_events (
   reason_class TEXT NOT NULL,
   occurred_at TEXT NOT NULL
 ) STRICT;
+
+-- Installation secrets are deterministically derived. Revocation therefore
+-- has to be terminal; reactivating the same ID would reactivate the same
+-- compromised credential.
+CREATE TRIGGER lifecycle_installation_status_transition_guard
+BEFORE INSERT ON lifecycle_installation_status_events
+BEGIN
+  SELECT RAISE(ABORT, 'LIFECYCLE_STATUS_TERMINAL')
+    WHERE (SELECT status FROM lifecycle_installations
+            WHERE installation_id = NEW.installation_id) = 'REVOKED';
+  SELECT RAISE(ABORT, 'LIFECYCLE_STATUS_TRANSITION_INVALID')
+    WHERE NEW.status <> 'REVOKED' OR NEW.reason_class = 'RESTORED';
+END;
+
+CREATE TRIGGER lifecycle_installations_status_update_guard
+BEFORE UPDATE OF status ON lifecycle_installations
+BEGIN
+  SELECT RAISE(ABORT, 'LIFECYCLE_STATUS_TERMINAL')
+    WHERE OLD.status = 'REVOKED' AND NEW.status <> 'REVOKED';
+  SELECT RAISE(ABORT, 'LIFECYCLE_STATUS_TRANSITION_INVALID')
+    WHERE OLD.status = NEW.status OR NEW.status <> 'REVOKED';
+  SELECT RAISE(ABORT, 'LIFECYCLE_STATUS_TRANSITION_INVALID')
+    WHERE NOT EXISTS (
+      SELECT 1 FROM lifecycle_installation_status_events
+       WHERE installation_id = NEW.installation_id
+         AND status = NEW.status
+         AND occurred_at = NEW.updated_at
+    );
+END;
 
 CREATE TABLE lifecycle_events (
   ingestion_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,6 +309,16 @@ BEGIN
              AND component_identity = NEW.component_identity) >= 20;
 END;
 
+CREATE TRIGGER frequency_pairs_active_publisher
+BEFORE INSERT ON frequency_pairs
+BEGIN
+  SELECT RAISE(ABORT, 'PUBLISHER_NOT_ACTIVE')
+    WHERE NOT EXISTS (
+      SELECT 1 FROM publishers
+       WHERE key_id = NEW.publisher_key_id AND status = 'ACTIVE'
+    );
+END;
+
 CREATE TABLE frequency_evaluations (
   ingestion_sequence INTEGER PRIMARY KEY REFERENCES frequency_pairs(ingestion_sequence),
   started_at TEXT NOT NULL,
@@ -173,3 +331,16 @@ CREATE TABLE frequency_evaluations (
   workflow_consequences_json TEXT NOT NULL,
   recorded_at TEXT NOT NULL
 ) STRICT;
+
+CREATE TRIGGER frequency_evaluations_active_publisher
+BEFORE INSERT ON frequency_evaluations
+BEGIN
+  SELECT RAISE(ABORT, 'FIRST_100_PUBLISHER_NOT_ACTIVE')
+    WHERE NOT EXISTS (
+      SELECT 1
+        FROM frequency_pairs pair
+        JOIN publishers publisher ON publisher.key_id = pair.publisher_key_id
+       WHERE pair.ingestion_sequence = NEW.ingestion_sequence
+         AND publisher.status = 'ACTIVE'
+    );
+END;

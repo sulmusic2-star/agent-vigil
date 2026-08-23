@@ -37,6 +37,24 @@ export type StoredJsonRow = {
   published_at: string;
 };
 
+export type PublicEntryRow = StoredJsonRow & {
+  entry_publisher_updated_at: string;
+  entry_moderation_action: "RESTORE" | null;
+  entry_moderation_updated_at: string | null;
+};
+
+export type PublicResolutionRow = StoredJsonRow & {
+  resolution_publisher_updated_at: string;
+  resolution_moderation_action: "RESTORE" | null;
+  resolution_moderation_updated_at: string | null;
+  broken_publisher_updated_at: string;
+  broken_moderation_action: "RESTORE" | null;
+  broken_moderation_updated_at: string | null;
+  fixed_publisher_updated_at: string;
+  fixed_moderation_action: "RESTORE" | null;
+  fixed_moderation_updated_at: string | null;
+};
+
 export type ModerationState = {
   action: "CORRECT" | "TAKEDOWN" | "REVOKE" | "RESTORE";
   reason_class: string;
@@ -126,6 +144,17 @@ export async function updatePublisherStatus(
   } else {
     const publisher = await getPublisher(db, input.keyId);
     if (!publisher) throw new Error("publisher is not registered");
+    if (publisher.status === "REVOKED") throw new Error("PUBLISHER_STATUS_TERMINAL");
+    if (publisher.status === input.status) throw new Error("PUBLISHER_STATUS_TRANSITION_INVALID");
+    if (input.status === "ACTIVE" && (publisher.status !== "SUSPENDED" || input.reasonClass !== "RESTORED")) {
+      throw new Error("PUBLISHER_STATUS_TRANSITION_INVALID");
+    }
+    if (input.status !== "ACTIVE" && input.reasonClass === "RESTORED") {
+      throw new Error("PUBLISHER_STATUS_TRANSITION_INVALID");
+    }
+    if (input.reasonClass === "COMPROMISED" && input.status !== "REVOKED") {
+      throw new Error("PUBLISHER_STATUS_TRANSITION_INVALID");
+    }
     await db.batch([
       db.prepare(
         "INSERT INTO publisher_status_events (event_id, key_id, status, reason_class, occurred_at) VALUES (?, ?, ?, ?, ?)",
@@ -220,6 +249,10 @@ export async function updateLifecycleInstallationStatus(
   } else {
     const installation = await getLifecycleInstallation(db, input.installationId);
     if (!installation) throw new Error("lifecycle installation is not registered");
+    if (installation.status === "REVOKED") throw new Error("LIFECYCLE_STATUS_TERMINAL");
+    if (input.status !== "REVOKED" || input.reasonClass === "RESTORED") {
+      throw new Error("LIFECYCLE_STATUS_TRANSITION_INVALID");
+    }
     await db.batch([
       db.prepare(
         `INSERT INTO lifecycle_installation_status_events
@@ -279,6 +312,15 @@ export async function getEntryRow(db: D1Database, entryHash: string): Promise<St
   ).bind(entryHash).first<StoredJsonRow>();
 }
 
+export async function getPublicEntryRow(db: D1Database, entryHash: string): Promise<PublicEntryRow | null> {
+  return db.prepare(
+    `SELECT body_json, key_id, generated_at, published_at,
+            entry_publisher_updated_at, entry_moderation_action, entry_moderation_updated_at
+       FROM public_compatibility_entries
+      WHERE entry_hash = ?`,
+  ).bind(entryHash).first<PublicEntryRow>();
+}
+
 export async function storeResolution(
   db: D1Database,
   resolution: CompatibilityResolution,
@@ -322,25 +364,35 @@ export async function getResolutionRow(db: D1Database, resolutionHash: string): 
   ).bind(resolutionHash).first<StoredJsonRow>();
 }
 
-export async function getResolutionForBroken(db: D1Database, brokenEntryHash: string): Promise<StoredJsonRow | null> {
+export async function getPublicResolutionRow(
+  db: D1Database,
+  resolutionHash: string,
+): Promise<PublicResolutionRow | null> {
   return db.prepare(
-    `SELECT r.body_json, r.key_id, r.generated_at, r.published_at
-       FROM compatibility_resolutions r
-       LEFT JOIN moderation_state m ON m.record_type = 'RESOLUTION' AND m.record_hash = r.resolution_hash
-       JOIN publishers p ON p.key_id = r.key_id
-      WHERE r.broken_entry_hash = ?
-        AND p.status = 'ACTIVE'
-        AND (m.action IS NULL OR m.action = 'RESTORE')
-      ORDER BY r.generated_at DESC
+    `SELECT body_json, key_id, generated_at, published_at,
+            resolution_publisher_updated_at, resolution_moderation_action, resolution_moderation_updated_at,
+            broken_publisher_updated_at, broken_moderation_action, broken_moderation_updated_at,
+            fixed_publisher_updated_at, fixed_moderation_action, fixed_moderation_updated_at
+       FROM public_compatibility_resolutions
+      WHERE resolution_hash = ?`,
+  ).bind(resolutionHash).first<PublicResolutionRow>();
+}
+
+export async function getResolutionForBroken(db: D1Database, brokenEntryHash: string): Promise<PublicResolutionRow | null> {
+  return db.prepare(
+    `SELECT body_json, key_id, generated_at, published_at,
+            resolution_publisher_updated_at, resolution_moderation_action, resolution_moderation_updated_at,
+            broken_publisher_updated_at, broken_moderation_action, broken_moderation_updated_at,
+            fixed_publisher_updated_at, fixed_moderation_action, fixed_moderation_updated_at
+       FROM public_compatibility_resolutions
+      WHERE broken_entry_hash = ?
+      ORDER BY generated_at DESC, resolution_hash ASC
       LIMIT 1`,
-  ).bind(brokenEntryHash).first<StoredJsonRow>();
+  ).bind(brokenEntryHash).first<PublicResolutionRow>();
 }
 
 export async function searchEntries(db: D1Database, filters: SearchFilters): Promise<EntrySummary[]> {
-  const clauses = [
-    "p.status = 'ACTIVE'",
-    "(m.action IS NULL OR m.action = 'RESTORE')",
-  ];
+  const clauses: string[] = [];
   const bindings: unknown[] = [];
   if (filters.ecosystem !== undefined) { clauses.push("e.ecosystem = ?"); bindings.push(filters.ecosystem); }
   if (filters.component !== undefined) { clauses.push("e.component_name = ?"); bindings.push(filters.component); }
@@ -356,13 +408,16 @@ export async function searchEntries(db: D1Database, filters: SearchFilters): Pro
   const result = await db.prepare(
     `SELECT e.entry_hash, e.key_id, e.ecosystem, e.component_name, e.current_version, e.candidate_version,
             e.verdict, e.generated_at, e.published_at, r.resolution_hash, r.fixed_entry_hash
-       FROM compatibility_entries e
-       JOIN publishers p ON p.key_id = e.key_id
-       LEFT JOIN moderation_state m ON m.record_type = 'ENTRY' AND m.record_hash = e.entry_hash
-       LEFT JOIN compatibility_resolutions r ON r.broken_entry_hash = e.entry_hash
-       LEFT JOIN moderation_state rm ON rm.record_type = 'RESOLUTION' AND rm.record_hash = r.resolution_hash
-      WHERE ${clauses.join(" AND ")}
-        AND (r.resolution_hash IS NULL OR rm.action IS NULL OR rm.action = 'RESTORE')
+       FROM public_compatibility_entries e
+       LEFT JOIN public_compatibility_resolutions r
+         ON r.resolution_hash = (
+           SELECT candidate.resolution_hash
+             FROM public_compatibility_resolutions candidate
+            WHERE candidate.broken_entry_hash = e.entry_hash
+            ORDER BY candidate.generated_at DESC, candidate.resolution_hash ASC
+            LIMIT 1
+         )
+      ${clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`}
       ORDER BY e.generated_at DESC, e.entry_hash ASC
       LIMIT ?`,
   ).bind(...bindings).all<EntrySummaryRow>();
@@ -385,6 +440,7 @@ export async function storeLifecycleEvent(
   db: D1Database,
   event: SanitizedLifecycleEvent,
   receivedAt: string,
+  installationId: string,
 ): Promise<{ created: boolean; ingestionSequence: number; receivedAt: string }> {
   const sanitizedJson = canonical(event);
   const eventSha256 = await sha256(sanitizedJson);
@@ -402,8 +458,13 @@ export async function storeLifecycleEvent(
   const inserted = await db.prepare(
     `INSERT OR IGNORE INTO lifecycle_events
       (event_id, event_name, event_day, release_version, channel, external, demo, measurement_class,
-       subject_type, subject_pseudo_hash, installation_pseudo_hash, organization_pseudo_hash, event_sha256, sanitized_json, received_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       subject_type, subject_pseudo_hash, installation_pseudo_hash, organization_pseudo_hash,
+       event_sha256, sanitized_json, received_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE EXISTS (
+         SELECT 1 FROM lifecycle_installations
+          WHERE installation_id = ? AND status = 'ACTIVE'
+       )`,
   ).bind(
     event.event_id,
     event.event_name,
@@ -420,11 +481,17 @@ export async function storeLifecycleEvent(
     eventSha256,
     sanitizedJson,
     receivedAt,
+    installationId,
   ).run();
   const stored = await db.prepare(
     "SELECT event_sha256, ingestion_sequence, received_at FROM lifecycle_events WHERE event_id = ?",
   ).bind(event.event_id).first<{ event_sha256: string; ingestion_sequence: number; received_at: string }>();
-  if (!stored || stored.event_sha256 !== eventSha256) throw new Error("lifecycle event idempotency conflict");
+  if (!stored) {
+    const installation = await getLifecycleInstallation(db, installationId);
+    if (!installation || installation.status !== "ACTIVE") throw new Error("LIFECYCLE_CREDENTIAL_NOT_ACTIVE");
+    throw new Error("lifecycle event idempotency conflict");
+  }
+  if (stored.event_sha256 !== eventSha256) throw new Error("lifecycle event idempotency conflict");
   return {
     created: Number(inserted.meta.changes) === 1,
     ingestionSequence: stored.ingestion_sequence,

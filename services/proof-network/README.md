@@ -9,7 +9,7 @@ This is a local, deployment-ready Cloudflare Worker/D1 candidate for signed comp
 - `/api/v1/search`, `/api/v1/entries/:hash`, `/api/v1/resolutions/:hash`, and `/api/v1/badges/:hash`: GET-only public JSON/SVG-adjacent badge data with CORS and bounded cache policy.
 - append-only publisher status and moderation state for correction, takedown, revocation, and restoration. Original signed bytes are retained.
 - authenticated, opt-in lifecycle ingestion. A server-issued per-installation credential HMAC-binds every exact request. This anonymous lane rejects organization events and labels every receipt/export `UNVERIFIED_TELEMETRY`, `gateEligible: false`, and `sybilSusceptible: true`.
-- publisher-authenticated pre-inspection registration and append-only export for the frozen first-100 problem-frequency frame.
+- publisher-authenticated pre-inspection registration and append-only export for the frozen first-100 problem-frequency frame. The frozen JSONL deliberately remains byte-stable; `/api/v1/frequency/first-100-provenance.jsonl` is the required sidecar for publisher key/status and effective quarantine state. The raw ledger is never gate-eligible by itself.
 
 No endpoint accepts source, prompts, transcripts, paths, argv, environment variables, secrets, private repository/organization names, raw canary output, or full receipts. Lifecycle schema validation rejects unknown fields instead of dropping them.
 
@@ -71,7 +71,9 @@ Telemetry decline or failure never changes an upgrade verdict. Anonymous registr
 - Proof and resolution bodies are capped at 512 KiB; lifecycle bodies at 32 KiB; administrative/frequency bodies at 64 KiB.
 - Writes have key- or installation-bound rate limits. Anonymous credential registration uses the Cloudflare edge address only as an ephemeral abuse-control key; it is not stored in D1 or analytics.
 - Publisher requests and lifecycle HMAC requests have five-minute replay windows plus persistent idempotency keys.
-- D1 assigns server receipt time and an autoincrement sequence. Frequency records are stored before evaluation; triggers prevent a concurrent 101st included pair or 21st pair for one component.
+- D1 assigns server receipt time and an autoincrement sequence. Frequency records are stored before evaluation; triggers prevent a concurrent 101st included pair or 21st pair for one component. Revoked/suspended publisher records keep their original sequence but are dynamically quarantined in the provenance sidecar and cannot receive a new evaluation.
+- Revoked publisher keys and lifecycle credentials are terminal because reactivation would restore the same compromised secret material. Only a suspended publisher may transition back to active, with an explicit `RESTORED` event. D1 guards the same transition invariants against concurrent administrative writes.
+- A public resolution is admitted and served only while the resolution, signer, broken entry, and fixed entry are all active and unmoderated. D1 rechecks referents on insert, and every direct, embedded, search, badge, and sitemap trust representation requires revalidation rather than serving a positive stale cache entry.
 - Public pages use escaped values and a restrictive CSP. Public APIs allow cross-origin GET only. Writes never permit browser CORS.
 - Logs contain method, fixed route, status, error class, and a random request ID—not query strings, bodies, identifiers, IPs, or secrets.
 

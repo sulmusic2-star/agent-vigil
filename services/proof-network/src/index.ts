@@ -22,6 +22,8 @@ import {
 import {
   exportLifecycleEvents,
   getEntryRow,
+  getPublicEntryRow,
+  getPublicResolutionRow,
   getLifecycleInstallation,
   getModerationState,
   getPublisher,
@@ -42,7 +44,9 @@ import {
 } from "./db";
 import {
   exportFirst100Entries,
+  exportFirst100Provenance,
   first100Jsonl,
+  first100ProvenanceJsonl,
   registerFirst100Pair,
   storeFirst100Evaluation,
   validateFirst100Evaluation,
@@ -262,6 +266,10 @@ function parseResolutionRow(row: { body_json: string }): CompatibilityResolution
   catch { throw new HttpError(500, "STORED_RECORD_INVALID", "Stored compatibility resolution failed validation"); }
 }
 
+function errorHasMarker(error: unknown, marker: string): boolean {
+  return error instanceof Error && error.message.includes(marker);
+}
+
 async function handleRegisterPublisher(request: Request, env: Env): Promise<Response> {
   await requireAdmin(request, env);
   const { value } = await readBoundedJson(request, ADMIN_BODY_MAX);
@@ -284,13 +292,28 @@ async function handlePublisherStatus(request: Request, env: Env): Promise<Respon
   if (typeof body.status !== "string" || !statusSet.has(body.status) || typeof body.reasonClass !== "string" || !reasonSet.has(body.reasonClass)) {
     throw new HttpError(400, "INVALID_REQUEST", "Publisher status or reason class is invalid");
   }
-  const publisher = await updatePublisherStatus(env.PROOF_DB, {
-    eventId: boundedString(body.eventId, "publisher event ID", 36, UUID_V4),
-    keyId: boundedString(body.keyId, "publisher key ID", 71, HASH),
-    status: body.status as PublisherStatus,
-    reasonClass: body.reasonClass,
-    occurredAt: new Date().toISOString(),
-  });
+  if ((body.status === "ACTIVE") !== (body.reasonClass === "RESTORED")
+    || (body.reasonClass === "COMPROMISED" && body.status !== "REVOKED")) {
+    throw new HttpError(400, "INVALID_REQUEST", "Publisher status transition and reason class conflict");
+  }
+  let publisher;
+  try {
+    publisher = await updatePublisherStatus(env.PROOF_DB, {
+      eventId: boundedString(body.eventId, "publisher event ID", 36, UUID_V4),
+      keyId: boundedString(body.keyId, "publisher key ID", 71, HASH),
+      status: body.status as PublisherStatus,
+      reasonClass: body.reasonClass,
+      occurredAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (errorHasMarker(error, "PUBLISHER_STATUS_TERMINAL")) {
+      throw new HttpError(409, "PUBLISHER_STATUS_TERMINAL", "A revoked publisher key cannot be restored; register rotated key material");
+    }
+    if (errorHasMarker(error, "PUBLISHER_STATUS_TRANSITION_INVALID")) {
+      throw new HttpError(409, "PUBLISHER_STATUS_TRANSITION_INVALID", "Publisher status transition is not permitted");
+    }
+    throw error;
+  }
   return jsonResponse({ schemaVersion: "agent-vigil-publisher-status/v1", keyId: publisher.key_id, status: publisher.status, updatedAt: publisher.updated_at }, 200, { "Cache-Control": "no-store" });
 }
 
@@ -298,19 +321,30 @@ async function handleLifecycleInstallationStatus(request: Request, env: Env): Pr
   await requireAdmin(request, env);
   const { value } = await readBoundedJson(request, ADMIN_BODY_MAX);
   const body = exactObject(value, ["eventId", "installationId", "status", "reasonClass"], "lifecycle installation status event");
-  const statusSet = new Set(["ACTIVE", "REVOKED"]);
-  const reasonSet = new Set(["CONSENT_WITHDRAWN", "CREDENTIAL_COMPROMISED", "ABUSE", "OPERATOR_REQUEST", "RESTORED"]);
+  const statusSet = new Set(["REVOKED"]);
+  const reasonSet = new Set(["CONSENT_WITHDRAWN", "CREDENTIAL_COMPROMISED", "ABUSE", "OPERATOR_REQUEST"]);
   if (typeof body.status !== "string" || !statusSet.has(body.status)
     || typeof body.reasonClass !== "string" || !reasonSet.has(body.reasonClass)) {
     throw new HttpError(400, "INVALID_REQUEST", "Lifecycle installation status or reason class is invalid");
   }
-  const installation = await updateLifecycleInstallationStatus(env.PROOF_DB, {
-    eventId: boundedString(body.eventId, "lifecycle installation status event ID", 36, UUID_V4),
-    installationId: boundedString(body.installationId, "lifecycle installation ID", 36, UUID_V4),
-    status: body.status as "ACTIVE" | "REVOKED",
-    reasonClass: body.reasonClass,
-    occurredAt: new Date().toISOString(),
-  });
+  let installation;
+  try {
+    installation = await updateLifecycleInstallationStatus(env.PROOF_DB, {
+      eventId: boundedString(body.eventId, "lifecycle installation status event ID", 36, UUID_V4),
+      installationId: boundedString(body.installationId, "lifecycle installation ID", 36, UUID_V4),
+      status: "REVOKED",
+      reasonClass: body.reasonClass,
+      occurredAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (errorHasMarker(error, "LIFECYCLE_STATUS_TERMINAL")) {
+      throw new HttpError(409, "LIFECYCLE_STATUS_TERMINAL", "A revoked lifecycle credential cannot be restored or revoked again");
+    }
+    if (errorHasMarker(error, "LIFECYCLE_STATUS_TRANSITION_INVALID")) {
+      throw new HttpError(409, "LIFECYCLE_STATUS_TRANSITION_INVALID", "Lifecycle credential status transition is not permitted");
+    }
+    throw error;
+  }
   return jsonResponse({
     schemaVersion: "agent-vigil-lifecycle-installation-status/v1",
     installationId: installation.installation_id,
@@ -332,7 +366,14 @@ async function handleEntryIngestion(request: Request, env: Env): Promise<Respons
   await proofWriteLimit(env, entry.signature.keyId);
   assertFresh(entry.generatedAt, positiveInteger(env.MAX_EVIDENCE_AGE_DAYS, "MAX_EVIDENCE_AGE_DAYS", 1, 3_650), new Date());
   const publishedAt = new Date().toISOString();
-  const stored = await storeEntry(env.PROOF_DB, entry, publishedAt);
+  let stored;
+  try { stored = await storeEntry(env.PROOF_DB, entry, publishedAt); }
+  catch (error) {
+    if (errorHasMarker(error, "PUBLISHER_NOT_ACTIVE")) {
+      throw new HttpError(403, "PUBLISHER_NOT_ACTIVE", "Publisher key became inactive before the entry was committed");
+    }
+    throw error;
+  }
   return jsonResponse({
     schemaVersion: "agent-vigil-proof-ingestion/v1",
     recordType: "ENTRY",
@@ -356,16 +397,28 @@ async function handleResolutionIngestion(request: Request, env: Env): Promise<Re
   await proofWriteLimit(env, resolution.signature.keyId);
   assertFresh(resolution.generatedAt, positiveInteger(env.MAX_EVIDENCE_AGE_DAYS, "MAX_EVIDENCE_AGE_DAYS", 1, 3_650), new Date());
   const [brokenRow, fixedRow] = await Promise.all([
-    getEntryRow(env.PROOF_DB, resolution.broken.entryHash),
-    getEntryRow(env.PROOF_DB, resolution.fixed.entryHash),
+    getPublicEntryRow(env.PROOF_DB, resolution.broken.entryHash),
+    getPublicEntryRow(env.PROOF_DB, resolution.fixed.entryHash),
   ]);
-  if (!brokenRow || !fixedRow) throw new HttpError(409, "RESOLUTION_REFERENCES_MISSING", "Resolution references records that are not present");
+  if (!brokenRow || !fixedRow) {
+    throw new HttpError(409, "RESOLUTION_REFERENCES_UNAVAILABLE", "Resolution requires active, unmoderated exact-pair evidence");
+  }
   const broken = parseEntryRow(brokenRow);
   const fixed = parseEntryRow(fixedRow);
   try { assertResolutionBinding(resolution, broken, fixed); }
   catch { throw new HttpError(422, "RESOLUTION_BINDING_INVALID", "Resolution is inconsistent with its referenced exact-pair evidence"); }
   const publishedAt = new Date().toISOString();
-  const stored = await storeResolution(env.PROOF_DB, resolution, publishedAt);
+  let stored;
+  try { stored = await storeResolution(env.PROOF_DB, resolution, publishedAt); }
+  catch (error) {
+    if (errorHasMarker(error, "PUBLISHER_NOT_ACTIVE")) {
+      throw new HttpError(403, "PUBLISHER_NOT_ACTIVE", "Publisher key became inactive before the resolution was committed");
+    }
+    if (errorHasMarker(error, "RESOLUTION_REFERENT_UNAVAILABLE")) {
+      throw new HttpError(409, "RESOLUTION_REFERENCES_UNAVAILABLE", "Referenced evidence became unavailable before the resolution was committed");
+    }
+    throw error;
+  }
   return jsonResponse({
     schemaVersion: "agent-vigil-proof-ingestion/v1",
     recordType: "RESOLUTION",
@@ -434,6 +487,9 @@ async function handleLifecycleRegistration(request: Request, env: Env): Promise<
     ...derived,
     registeredAt: now.toISOString(),
   });
+  if (result.installation.status !== "ACTIVE") {
+    throw new HttpError(409, "LIFECYCLE_STATUS_TERMINAL", "A revoked lifecycle registration cannot reissue its deterministic credential");
+  }
   const secret = await lifecycleInstallationSecret(result.installation.installation_id, env.LIFECYCLE_ISSUING_KEY);
   return jsonResponse({
     schemaVersion: "agent-vigil-lifecycle-installation-credential/v1",
@@ -492,7 +548,14 @@ async function handleLifecycleIngestion(request: Request, env: Env): Promise<Res
   const limited = await env.LIFECYCLE_WRITE_LIMITER.limit({ key: installationId });
   if (!limited.success) throw new HttpError(429, "RATE_LIMITED", "Lifecycle write rate limit exceeded");
   const receivedAt = now.toISOString();
-  const result = await storeLifecycleEvent(env.PROOF_DB, sanitized, receivedAt);
+  let result;
+  try { result = await storeLifecycleEvent(env.PROOF_DB, sanitized, receivedAt, installationId); }
+  catch (error) {
+    if (errorHasMarker(error, "LIFECYCLE_CREDENTIAL_NOT_ACTIVE")) {
+      throw new HttpError(401, "LIFECYCLE_CREDENTIAL_REVOKED", "Lifecycle credential became inactive before the event was committed");
+    }
+    throw error;
+  }
   return jsonResponse({
     schemaVersion: "agent-vigil-lifecycle-ingestion-receipt/v1",
     eventId: event.event_id,
@@ -543,6 +606,9 @@ async function handleFirst100Proposal(request: Request, env: Env): Promise<Respo
     });
   } catch (error) {
     if (error instanceof Error && error.message === "first-100 sample is closed") throw new HttpError(409, "FIRST_100_SAMPLE_CLOSED", "The frozen first-100 sample is complete");
+    if (errorHasMarker(error, "PUBLISHER_NOT_ACTIVE")) {
+      throw new HttpError(403, "PUBLISHER_NOT_ACTIVE", "Publisher key became inactive before the chronological record was committed");
+    }
     throw error;
   }
   return jsonResponse(entry, 201, { "Cache-Control": "no-store" });
@@ -554,7 +620,14 @@ async function handleFirst100Evaluation(request: Request, env: Env): Promise<Res
   let evaluation;
   try { evaluation = validateFirst100Evaluation(value); }
   catch { throw new HttpError(422, "FIRST_100_EVALUATION_INVALID", "First-100 evaluation failed the frozen contract"); }
-  const result = await storeFirst100Evaluation(env.PROOF_DB, evaluation, new Date().toISOString());
+  let result;
+  try { result = await storeFirst100Evaluation(env.PROOF_DB, evaluation, new Date().toISOString()); }
+  catch (error) {
+    if (errorHasMarker(error, "FIRST_100_PUBLISHER_NOT_ACTIVE")) {
+      throw new HttpError(409, "FIRST_100_PUBLISHER_NOT_ACTIVE", "Quarantined publisher evidence cannot receive a new evaluation");
+    }
+    throw error;
+  }
   return jsonResponse({ schemaVersion: "diffwitness-first-100-evaluation-receipt/v1", ingestionSequence: evaluation.ingestionSequence, created: result.created }, result.created ? 201 : 200, { "Cache-Control": "no-store" });
 }
 
@@ -608,14 +681,23 @@ async function handleEntryGet(request: Request, env: Env, entryHash: string, htm
   const entry = parseEntryRow(row);
   const resolutionRow = await getResolutionForBroken(env.PROOF_DB, entryHash);
   const resolution = resolutionRow ? parseResolutionRow(resolutionRow) : undefined;
-  const representationTag = await sha256(canonical({ entryHash, publisherUpdatedAt: publisher.updated_at, moderation: state, resolutionHash: resolution?.resolutionHash }));
+  const resolutionTrust = resolutionRow === null ? null : {
+    resolutionHash: resolution?.resolutionHash,
+    resolutionPublisherUpdatedAt: resolutionRow.resolution_publisher_updated_at,
+    resolutionModerationUpdatedAt: resolutionRow.resolution_moderation_updated_at,
+    brokenPublisherUpdatedAt: resolutionRow.broken_publisher_updated_at,
+    brokenModerationUpdatedAt: resolutionRow.broken_moderation_updated_at,
+    fixedPublisherUpdatedAt: resolutionRow.fixed_publisher_updated_at,
+    fixedModerationUpdatedAt: resolutionRow.fixed_moderation_updated_at,
+  };
+  const representationTag = await sha256(canonical({ entryHash, publisherUpdatedAt: publisher.updated_at, moderation: state, resolutionTrust }));
   if (request.headers.get("If-None-Match") === `"${representationTag}"`) return new Response(null, { status: 304, headers: {
     ETag: `"${representationTag}"`,
-    "Cache-Control": "public, max-age=300",
+    "Cache-Control": "public, no-cache",
     ...(html ? {} : { "Access-Control-Allow-Origin": "*" }),
   } });
-  if (html) return htmlResponse(renderProofPage(entry, resolution, state ?? undefined), 200, { "Cache-Control": "public, max-age=300, stale-while-revalidate=600", ETag: `"${representationTag}"` });
-  return publicApiResponse({ schemaVersion: "agent-vigil-proof-api-entry/v1", entry, moderation: state, resolution: resolution ?? null }, "public, max-age=300, stale-while-revalidate=600", representationTag);
+  if (html) return htmlResponse(renderProofPage(entry, resolution, state ?? undefined), 200, { "Cache-Control": "public, no-cache", ETag: `"${representationTag}"` });
+  return publicApiResponse({ schemaVersion: "agent-vigil-proof-api-entry/v1", entry, moderation: state, resolution: resolution ?? null }, "public, no-cache", representationTag);
 }
 
 async function handleResolutionGet(request: Request, env: Env, resolutionHash: string, html: boolean): Promise<Response> {
@@ -628,15 +710,31 @@ async function handleResolutionGet(request: Request, env: Env, resolutionHash: s
   if (moderationUnavailable(state)) return revokedResponse(state!);
   const publisher = await getPublisher(env.PROOF_DB, row.key_id);
   if (!publisher || publisher.status !== "ACTIVE") return jsonResponse({ error: { code: "PUBLISHER_NOT_ACTIVE", message: "Record publisher is not active" } }, 410, { "Cache-Control": "public, max-age=60", "Access-Control-Allow-Origin": "*" });
-  const resolution = parseResolutionRow(row);
-  const representationTag = await sha256(canonical({ resolutionHash, publisherUpdatedAt: publisher.updated_at, moderation: state }));
+  const publicRow = await getPublicResolutionRow(env.PROOF_DB, resolutionHash);
+  if (!publicRow) return jsonResponse({
+    error: {
+      code: "RESOLUTION_EVIDENCE_UNAVAILABLE",
+      message: "Resolution or referenced exact-pair evidence is not active and unmoderated",
+    },
+  }, 410, { "Cache-Control": "public, no-cache", "Access-Control-Allow-Origin": "*" });
+  const resolution = parseResolutionRow(publicRow);
+  const representationTag = await sha256(canonical({
+    resolutionHash,
+    publisherUpdatedAt: publicRow.resolution_publisher_updated_at,
+    moderation: state,
+    resolutionModerationUpdatedAt: publicRow.resolution_moderation_updated_at,
+    brokenPublisherUpdatedAt: publicRow.broken_publisher_updated_at,
+    brokenModerationUpdatedAt: publicRow.broken_moderation_updated_at,
+    fixedPublisherUpdatedAt: publicRow.fixed_publisher_updated_at,
+    fixedModerationUpdatedAt: publicRow.fixed_moderation_updated_at,
+  }));
   if (request.headers.get("If-None-Match") === `"${representationTag}"`) return new Response(null, { status: 304, headers: {
     ETag: `"${representationTag}"`,
-    "Cache-Control": "public, max-age=300",
+    "Cache-Control": "public, no-cache",
     ...(html ? {} : { "Access-Control-Allow-Origin": "*" }),
   } });
-  if (html) return htmlResponse(renderResolutionPage(resolution), 200, { "Cache-Control": "public, max-age=300, stale-while-revalidate=600", ETag: `"${representationTag}"` });
-  return publicApiResponse({ schemaVersion: "agent-vigil-proof-api-resolution/v1", resolution, moderation: state }, "public, max-age=300, stale-while-revalidate=600", representationTag);
+  if (html) return htmlResponse(renderResolutionPage(resolution), 200, { "Cache-Control": "public, no-cache", ETag: `"${representationTag}"` });
+  return publicApiResponse({ schemaVersion: "agent-vigil-proof-api-resolution/v1", resolution, moderation: state }, "public, no-cache", representationTag);
 }
 
 async function handleSearch(request: Request, env: Env, html: boolean): Promise<Response> {
@@ -660,8 +758,8 @@ async function handleSearch(request: Request, env: Env, html: boolean): Promise<
     ...(textParam("q", 160) === undefined ? {} : { query: textParam("q", 160)! }),
     limit: positiveInteger(limitText, "search limit", 1, 50),
   });
-  if (html) return htmlResponse(renderSearchPage(entries, textParam("q", 160) ?? ""), 200, { "Cache-Control": "public, max-age=60" });
-  return publicApiResponse({ schemaVersion: "agent-vigil-proof-search/v1", entries, count: entries.length }, "public, max-age=60");
+  if (html) return htmlResponse(renderSearchPage(entries, textParam("q", 160) ?? ""), 200, { "Cache-Control": "public, no-cache" });
+  return publicApiResponse({ schemaVersion: "agent-vigil-proof-search/v1", entries, count: entries.length }, "public, no-cache");
 }
 
 async function handleBadge(request: Request, env: Env, entryHash: string): Promise<Response> {
@@ -672,7 +770,7 @@ async function handleBadge(request: Request, env: Env, entryHash: string): Promi
   if (!publisher || publisher.status !== "ACTIVE") return publicApiResponse({ schemaVersion: 1, label: "agent update", message: "revoked", color: "lightgrey", cacheSeconds: 60 }, "public, max-age=60");
   const entry = parseEntryRow(row);
   const origin = new URL(request.url).origin;
-  return publicApiResponse(badgePayload(entry, `${origin}/proof/${entry.entryHash}`), "public, max-age=300, stale-while-revalidate=600", entryHash);
+  return publicApiResponse(badgePayload(entry, `${origin}/proof/${entry.entryHash}`), "public, no-cache", entryHash);
 }
 
 async function handleLifecycleExport(request: Request, env: Env): Promise<Response> {
@@ -691,8 +789,21 @@ async function handleFirst100Export(request: Request, env: Env): Promise<Respons
   const entries = await exportFirst100Entries(env.PROOF_DB);
   const headers = securityHeaders("application/x-ndjson; charset=utf-8");
   headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Cache-Control", "public, max-age=60");
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Agent-Vigil-Gate-Eligible", "false");
+  headers.set("X-Agent-Vigil-Provenance-Required", "true");
+  headers.set("Link", "</api/v1/frequency/first-100-provenance.jsonl>; rel=\"provenance\"; type=\"application/x-ndjson\"");
   return new Response(first100Jsonl(entries), { headers });
+}
+
+async function handleFirst100ProvenanceExport(request: Request, env: Env): Promise<Response> {
+  await publicReadLimit(env, request, "first-100-provenance-export");
+  const records = await exportFirst100Provenance(env.PROOF_DB);
+  const headers = securityHeaders("application/x-ndjson; charset=utf-8");
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Agent-Vigil-Chronology-Mutable", "false");
+  return new Response(first100ProvenanceJsonl(records), { headers });
 }
 
 async function handleRobots(request: Request, env: Env): Promise<Response> {
@@ -718,7 +829,7 @@ async function handleSitemap(request: Request, env: Env): Promise<Response> {
     ]),
   ];
   const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${locations.map((location) => `  <url><loc>${escapeXml(location)}</loc></url>`).join("\n")}\n</urlset>\n`;
-  return textResponse(body, "application/xml; charset=utf-8", { "Cache-Control": "public, max-age=300" });
+  return textResponse(body, "application/xml; charset=utf-8", { "Cache-Control": "public, no-cache" });
 }
 
 function corsPreflight(request: Request): Response {
@@ -751,6 +862,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === "POST" && url.pathname === "/v1/admin/frequency/first-100/evaluations") return handleFirst100Evaluation(request, env);
   if (request.method === "GET" && url.pathname === "/v1/admin/lifecycle/export") return handleLifecycleExport(request, env);
   if (request.method === "GET" && url.pathname === "/api/v1/frequency/first-100.jsonl") return handleFirst100Export(request, env);
+  if (request.method === "GET" && url.pathname === "/api/v1/frequency/first-100-provenance.jsonl") return handleFirst100ProvenanceExport(request, env);
   if (request.method === "GET" && url.pathname === "/") return handleSearch(request, env, true);
   if (request.method === "GET" && url.pathname === "/api/v1/search") return handleSearch(request, env, false);
   const entryApi = url.pathname.match(/^\/api\/v1\/entries\/(sha256:[0-9a-f]{64})$/);
@@ -778,7 +890,7 @@ export default {
       "/v1/admin/lifecycle/installations/status", "/v1/admin/moderation", "/v1/entries", "/v1/resolutions",
       "/v1/lifecycle/installations", "/v1/lifecycle", "/v1/frequency/first-100/pairs",
       "/v1/admin/frequency/first-100/evaluations", "/v1/admin/lifecycle/export",
-      "/api/v1/frequency/first-100.jsonl", "/api/v1/search",
+      "/api/v1/frequency/first-100.jsonl", "/api/v1/frequency/first-100-provenance.jsonl", "/api/v1/search",
     ]);
     const routeClass = fixedRoutes.has(pathname) ? pathname
       : /^\/api\/v1\/entries\//.test(pathname) ? "/api/v1/entries/:hash"
