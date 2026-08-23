@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent-vigil-authority-corpus/v1",
-  "observedAt": "2026-08-23T14:25:13.204Z",
+  "observedAt": "2026-08-23T15:15:25.416Z",
   "status": "COMPLETE_UNREVIEWED_NATURAL_WITH_PLANTED_PASS",
   "target": 100,
   "counts": {
@@ -1714,11 +1714,11 @@
       "observed": {
         "status": "BLOCK",
         "changes": 7,
-        "expansions": 5,
+        "expansions": 6,
         "contractions": 0,
-        "incomparable": 1,
-        "blocking": 5,
-        "holds": 1
+        "incomparable": 0,
+        "blocking": 6,
+        "holds": 0
       },
       "planted": {
         "mutation": "codex:sandbox-mode-danger-full-access",
