@@ -43,6 +43,8 @@ R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET=...
 R0_MEASUREMENT_IDENTITY_HMAC_SECRET=...
 ```
 
+All four measurement HMAC values must be at least 32 UTF-8 bytes and pairwise distinct. Enabled measurement routes fail closed with a generic configuration error otherwise.
+
 Secret names are declared only in `src/env.d.ts`; Wrangler has no supported `secrets.required` configuration field. The HMAC implementation rejects missing or shorter-than-32-byte secrets at runtime, and production values must be installed with Wrangler rather than committed as vars.
 
 Set real Stripe price identifiers and the numeric GitHub App ID in a deployment-specific Wrangler environment before any deployment. The checked-in `CONFIGURE_BEFORE_DEPLOYMENT` values deliberately make provider processing fail closed.

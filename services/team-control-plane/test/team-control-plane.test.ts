@@ -1119,6 +1119,14 @@ describe.sequential("Team control plane", () => {
     expect(githubClaim?.github_account_node_id).toBe(githubState?.github_account_node_id);
     expect(githubClaim?.claimed_by).toBe("deleted_user");
     expect(githubRepositoryCount?.count).toBe(0);
+    const retainedAudit = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT actor_id, action, resource_type, resource_id, metadata_json
+         FROM audit_events WHERE org_id = 'org_main' ORDER BY created_at`
+    ).all<Record<string, unknown>>();
+    const retainedAuditJson = JSON.stringify(retainedAudit.results);
+    expect(retainedAuditJson).not.toContain(String(GITHUB_INSTALLATION_ID));
+    expect(retainedAudit.results.some((row) => String(row.action).startsWith("github."))).toBe(false);
+    expect(retainedAudit.results.some((row) => row.action === "privacy.deletion.completed")).toBe(true);
     expect((await api("/v1/orgs/org_main", { token: github.serviceToken })).status).toBe(403);
     const after = await api("/v1/orgs/org_main", { token: owner });
     expect(after.status).toBe(403);

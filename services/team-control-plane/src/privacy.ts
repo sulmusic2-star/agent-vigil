@@ -228,6 +228,20 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
     db.prepare(`DELETE FROM rollback_records WHERE org_id = ?1`).bind(auth.orgId),
     db.prepare(`DELETE FROM organization_members WHERE org_id = ?1`).bind(auth.orgId),
     db.prepare(
+      `DELETE FROM audit_events
+        WHERE org_id = ?1
+          AND (
+            action GLOB 'measurement.*' OR
+            resource_type GLOB 'measurement_*' OR
+            actor_id GLOB 'r0-measurement-*' OR
+            resource_id GLOB 'morg_*' OR
+            instr(metadata_json, 'morg_') > 0 OR
+            action GLOB 'github.*' OR
+            resource_type GLOB 'github_*' OR
+            actor_id GLOB 'github-app:*'
+          )`
+    ).bind(auth.orgId),
+    db.prepare(
       `UPDATE audit_events SET actor_id = 'deleted_user', metadata_json = '{}'
         WHERE org_id = ?1 AND actor_type = 'user'`
     ).bind(auth.orgId),

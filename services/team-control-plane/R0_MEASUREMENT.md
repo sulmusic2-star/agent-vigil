@@ -17,6 +17,8 @@ An organization installation enters the opted-in denominator only after all of t
 
 The service computes a stable HMAC-opaque `morg_...` subject token. Measurement tables and report responses store no repository names, account names, email addresses, source code, receipt bodies, or credentials. The Team service's existing provider adapter state remains separate and subject to its own privacy contract.
 
+Subject classification is chronological. A newer signed identity observation may replace the current classification, but an older observation is rejected without mutation. A different message at the same `observed_at` is ambiguous and rejected even when its classification matches; only replay of the exact same message ID and bytes is idempotent. D1 also enforces the strictly increasing classification timestamp so a concurrent or non-HTTP write cannot roll the projection backward.
+
 An activation is one fresh, signed bridge observation per eligible subject and UTC day. Additional observations on the same day are accepted as idempotent evidence but marked `ignored_duplicate_day`; they cannot manufacture repeat.
 
 - A matured activation cohort contains subjects whose first activation is at least 60 days old.
@@ -62,7 +64,7 @@ R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET=...
 R0_MEASUREMENT_IDENTITY_HMAC_SECRET=...
 ```
 
-`r0_boundary_v1` and report queries require the control key; subject attestations require the identity-bridge key; activations and offer presentations require the activity-bridge key. A holder of the activity key cannot classify a subject as external or move R0. Production deployments must place these duties in separately permissioned components.
+The receiver validates all six pairwise comparisons before handling any enabled measurement request. A missing, short, or repeated value produces one generic configuration error without identifying a duty or secret. `r0_boundary_v1` and report queries require the control key; subject attestations require the identity-bridge key; activations and offer presentations require the activity-bridge key. A holder of the activity key cannot classify a subject as external or move R0. Production deployments must place these duties in separately permissioned components.
 
 Requests and observations have a five-minute freshness window. `message_id` and exact payload SHA-256 provide idempotency and payload-reuse detection. The API rejects unknown fields. Bridge messages name only an installation ID; organization identity, channel, release, environment, opt-in, App state, and eligibility are resolved from trusted server state. Subject classification is accepted only from this authenticated bridge, never from an organization or anonymous event client.
 
@@ -81,7 +83,7 @@ Tenant routes are:
 - `PUT /v1/orgs/{org_id}/measurement-consent` — human-owner opt-in or withdrawal.
 - `GET /v1/orgs/{org_id}/measurement` — owner/admin private state.
 
-Organization privacy export includes consent, opaque subject state, attestations, and events. Confirmed organization deletion removes them before revoking the provider installation. Opt-out immediately excludes the subject from reports but preserves private evidence until deletion. This means the denominator covers current opt-ins, not all product users, and can change after withdrawal/deletion.
+Organization privacy export includes consent, opaque subject state, attestations, and events. Confirmed organization deletion removes them before revoking the provider installation and removes organization-scoped measurement and GitHub App audit rows, including `morg_` tokens, classification/basis metadata, installation IDs, and measurement event IDs. A minimal non-identifying deletion-completion audit remains; commercial retention is separate. Opt-out immediately excludes the subject from reports but preserves private evidence until deletion. This means the denominator covers current opt-ins, not all product users, and can change after withdrawal/deletion.
 
 ## Individual lane: HOLD / UNMEASURABLE
 

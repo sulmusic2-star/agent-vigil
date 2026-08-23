@@ -77,10 +77,45 @@ interface EligibleSubject {
   eligible_at: string;
 }
 
+interface SubjectClassificationState {
+  subject_token: string;
+  org_id: string;
+  installation_id: number;
+  classification: Classification;
+  classification_basis: ClassificationBasis;
+  classification_attested_at: string;
+}
+
 interface BridgeBase {
   messageId: string;
   messageKind: MessageKind;
   observedAt: string;
+}
+
+const MEASUREMENT_SECRET_NAMES = [
+  "R0_MEASUREMENT_CONTROL_HMAC_SECRET",
+  "R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET",
+  "R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET",
+  "R0_MEASUREMENT_IDENTITY_HMAC_SECRET"
+] as const;
+
+type MeasurementSecretName = (typeof MEASUREMENT_SECRET_NAMES)[number];
+
+export function assertMeasurementSecretConfiguration(
+  env: Pick<Env, MeasurementSecretName>
+): void {
+  const encoder = new TextEncoder();
+  const secrets = MEASUREMENT_SECRET_NAMES.map((name) => env[name]);
+  if (
+    secrets.some((secret) => typeof secret !== "string" || encoder.encode(secret).byteLength < 32) ||
+    new Set(secrets).size !== secrets.length
+  ) {
+    throw new ApiError(
+      503,
+      "r0_measurement_secret_configuration_invalid",
+      "R0 measurement secret configuration is invalid."
+    );
+  }
 }
 
 function requireEnabled(env: Env): void {
@@ -88,6 +123,7 @@ function requireEnabled(env: Env): void {
   if (enabled !== "true") {
     throw new ApiError(503, "r0_measurement_disabled", "R0 measurement ingestion is disabled.");
   }
+  assertMeasurementSecretConfiguration(env);
 }
 
 function parseConfiguredAppId(value: string): number {
@@ -456,19 +492,35 @@ async function attestSubject(
     throw new ApiError(409, "measurement_app_mismatch", "Installation belongs to a different GitHub App.");
   }
   const subjectToken = await stableSubjectToken(env, installationId, installation.org_id);
-  const collision = await env.TEAM_CONTROL_DB.prepare(
-    `SELECT subject_token, org_id, installation_id FROM measurement_subjects
+  const priorSubject = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT subject_token, org_id, installation_id, classification,
+            classification_basis, classification_attested_at
+       FROM measurement_subjects
       WHERE subject_token = ?1 OR org_id = ?2 OR installation_id = ?3 LIMIT 1`
   )
     .bind(subjectToken, installation.org_id, installationId)
-    .first<{ subject_token: string; org_id: string; installation_id: number }>();
+    .first<SubjectClassificationState>();
   if (
-    collision &&
-    (collision.subject_token !== subjectToken ||
-      collision.org_id !== installation.org_id ||
-      collision.installation_id !== installationId)
+    priorSubject &&
+    (priorSubject.subject_token !== subjectToken ||
+      priorSubject.org_id !== installation.org_id ||
+      priorSubject.installation_id !== installationId)
   ) {
     throw new ApiError(409, "measurement_subject_collision", "Organization measurement identity is already bound.");
+  }
+  if (priorSubject && base.observedAt < priorSubject.classification_attested_at) {
+    throw new ApiError(
+      409,
+      "stale_measurement_classification_observation",
+      "Subject classification observations must be strictly chronological."
+    );
+  }
+  if (priorSubject && base.observedAt === priorSubject.classification_attested_at) {
+    throw new ApiError(
+      409,
+      "ambiguous_measurement_classification_observation",
+      "A different message cannot reuse a subject classification timestamp."
+    );
   }
   const at = nowIso();
   const results = await env.TEAM_CONTROL_DB.batch([

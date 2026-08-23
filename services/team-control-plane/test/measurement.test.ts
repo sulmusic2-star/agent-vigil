@@ -2,6 +2,10 @@ import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { base64UrlEncode, hmacBase64Url, hmacHex } from "../src/crypto.ts";
+import {
+  assertMeasurementSecretConfiguration,
+  handleMeasurementBridge
+} from "../src/measurement.ts";
 
 const ORIGIN = "https://team.example.test";
 const SESSION_SECRET = "test-only-team-session-secret-32-bytes-minimum";
@@ -12,6 +16,12 @@ const APP_ID = 12_345;
 const INSTALLATION_ID = 71_234;
 const ACCOUNT_NODE_ID = "ACCT_MEASUREMENT_123";
 const RELEASE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
+const MEASUREMENT_SECRETS = {
+  R0_MEASUREMENT_CONTROL_HMAC_SECRET: CONTROL_SECRET,
+  R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET: IDENTITY_BRIDGE_SECRET,
+  R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET: ACTIVITY_BRIDGE_SECRET,
+  R0_MEASUREMENT_IDENTITY_HMAC_SECRET: "test-only-r0-measurement-identity-secret-32-bytes"
+} as const;
 
 async function clearDatabase(): Promise<void> {
   await env.TEAM_CONTROL_DB.exec(`
@@ -163,7 +173,8 @@ function boundary(messageId = `boundary_${crypto.randomUUID()}`): Record<string,
 
 function attestation(
   classification: "external" | "internal" | "demo" | "test" = "external",
-  messageId = `attest_${crypto.randomUUID()}`
+  messageId = `attest_${crypto.randomUUID()}`,
+  observedAt = new Date().toISOString()
 ): Record<string, unknown> {
   const bases = {
     external: "provider_confirmed_non_operator",
@@ -175,7 +186,7 @@ function attestation(
     schema_version: "r0-measurement-bridge-v1",
     message_id: messageId,
     message_kind: "organization_subject_attestation_v1",
-    observed_at: new Date().toISOString(),
+    observed_at: observedAt,
     installation_id: INSTALLATION_ID,
     classification,
     classification_basis: bases[classification]
@@ -281,6 +292,131 @@ describe("R0 organization measurement plane", () => {
     expect(await rejectedField.json()).toMatchObject({ error: { code: "unexpected_field" } });
   });
 
+  it("requires every measurement HMAC duty to use a distinct secret before request handling", async () => {
+    const names = Object.keys(MEASUREMENT_SECRETS) as Array<keyof typeof MEASUREMENT_SECRETS>;
+    let collisionsChecked = 0;
+    for (let left = 0; left < names.length; left += 1) {
+      for (let right = left + 1; right < names.length; right += 1) {
+        const leftName = names[left];
+        const rightName = names[right];
+        if (!leftName || !rightName) throw new Error("test secret matrix is incomplete");
+        const collided = { ...MEASUREMENT_SECRETS, [rightName]: MEASUREMENT_SECRETS[leftName] };
+        let error: unknown;
+        try {
+          assertMeasurementSecretConfiguration(collided);
+        } catch (caught) {
+          error = caught;
+        }
+        expect(error).toMatchObject({
+          status: 503,
+          code: "r0_measurement_secret_configuration_invalid",
+          message: "R0 measurement secret configuration is invalid."
+        });
+        collisionsChecked += 1;
+      }
+    }
+    expect(collisionsChecked).toBe(6);
+
+    const invalidEnv = {
+      R0_MEASUREMENT_ENABLED: "true",
+      ...MEASUREMENT_SECRETS,
+      R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET: IDENTITY_BRIDGE_SECRET
+    } as unknown as Env;
+    await expect(
+      handleMeasurementBridge(
+        new Request(`${ORIGIN}/v1/measurement/bridge`, { method: "POST", body: "not-read" }),
+        invalidEnv
+      )
+    ).rejects.toMatchObject({
+      status: 503,
+      code: "r0_measurement_secret_configuration_invalid",
+      message: "R0 measurement secret configuration is invalid."
+    });
+  });
+
+  it("keeps subject classification strictly monotonic and permits only exact replay at equal time", async () => {
+    expect((await signedPost("/v1/measurement/bridge", boundary())).status).toBe(201);
+    const baseTime = Date.now() - 4_000;
+    const firstAt = new Date(baseTime).toISOString();
+    const staleAt = new Date(baseTime + 1_000).toISOString();
+    const newestAt = new Date(baseTime + 2_000).toISOString();
+
+    const first = attestation("external", "attest_chronology_first", firstAt);
+    expect((await signedPost("/v1/measurement/bridge", first)).status).toBe(201);
+    const newest = attestation("internal", "attest_chronology_newest", newestAt);
+    expect((await signedPost("/v1/measurement/bridge", newest)).status).toBe(201);
+
+    const exactReplay = await signedPost("/v1/measurement/bridge", newest);
+    expect(exactReplay.status).toBe(200);
+    expect(await exactReplay.json()).toMatchObject({ accepted: true, duplicate: true, counted: true });
+
+    const stale = await signedPost(
+      "/v1/measurement/bridge",
+      attestation("external", "attest_chronology_stale", staleAt)
+    );
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({
+      error: { code: "stale_measurement_classification_observation" }
+    });
+
+    const equalDifferent = await signedPost(
+      "/v1/measurement/bridge",
+      attestation("external", "attest_chronology_equal_different", newestAt)
+    );
+    expect(equalDifferent.status).toBe(409);
+    expect(await equalDifferent.json()).toMatchObject({
+      error: { code: "ambiguous_measurement_classification_observation" }
+    });
+    const equalSame = await signedPost(
+      "/v1/measurement/bridge",
+      attestation("internal", "attest_chronology_equal_same", newestAt)
+    );
+    expect(equalSame.status).toBe(409);
+    expect(await equalSame.json()).toMatchObject({
+      error: { code: "ambiguous_measurement_classification_observation" }
+    });
+
+    const subject = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT classification, classification_basis, classification_attested_at
+         FROM measurement_subjects WHERE org_id = 'org_measure'`
+    ).first<{
+      classification: string;
+      classification_basis: string;
+      classification_attested_at: string;
+    }>();
+    expect(subject).toEqual({
+      classification: "internal",
+      classification_basis: "operator_identity_registry",
+      classification_attested_at: newestAt
+    });
+    const evidenceCounts = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM measurement_subject_attestations) AS attestations,
+         (SELECT COUNT(*) FROM measurement_bridge_messages
+           WHERE message_kind = 'organization_subject_attestation_v1') AS messages,
+         (SELECT COUNT(*) FROM audit_events
+           WHERE action = 'measurement.organization.classified') AS audits`
+    ).first<{ attestations: number; messages: number; audits: number }>();
+    expect(evidenceCounts).toEqual({ attestations: 2, messages: 2, audits: 2 });
+
+    await expect(
+      env.TEAM_CONTROL_DB.prepare(
+        `UPDATE measurement_subjects
+            SET classification = 'external',
+                classification_basis = 'provider_confirmed_non_operator',
+                classification_attested_at = ?1
+          WHERE org_id = 'org_measure'`
+      )
+        .bind(staleAt)
+        .run()
+    ).rejects.toThrow(/measurement classification chronology conflict/u);
+    const afterDirectWrite = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT classification, classification_attested_at
+         FROM measurement_subjects WHERE org_id = 'org_measure'`
+    ).first<{ classification: string; classification_attested_at: string }>();
+    expect(afterDirectWrite).toEqual({ classification: "internal", classification_attested_at: newestAt });
+  });
+
   it("deduplicates same-day use and derives repeat, PQL, and matured offer cohorts", async () => {
     await initializeEligibleSubject();
 
@@ -359,7 +495,15 @@ describe("R0 organization measurement plane", () => {
 
   it("exports and deletes measurement evidence with organization privacy data", async () => {
     await initializeEligibleSubject();
-    expect((await signedPost("/v1/measurement/bridge", event("organization_activation_v1"))).status).toBe(201);
+    const measurementEventId = "privacy_activation_event_1";
+    expect(
+      (
+        await signedPost(
+          "/v1/measurement/bridge",
+          event("organization_activation_v1", measurementEventId)
+        )
+      ).status
+    ).toBe(201);
 
     const exported = await tenantApi("/v1/orgs/org_measure/privacy/export");
     expect(exported.status).toBe(200);
@@ -369,6 +513,8 @@ describe("R0 organization measurement plane", () => {
       stores_repository_or_account_names: false
     });
     expect(exportBody.r0_measurement.events).toHaveLength(1);
+    const subjectToken = exportBody.r0_measurement.subject.subject_token as string;
+    expect(subjectToken).toMatch(/^morg_[a-f0-9]{64}$/u);
 
     const request = await tenantApi("/v1/orgs/org_measure/privacy/deletion-requests", { method: "POST" });
     expect(request.status).toBe(202);
@@ -385,5 +531,18 @@ describe("R0 organization measurement plane", () => {
          (SELECT COUNT(*) FROM measurement_consents WHERE org_id = 'org_measure') AS consents`
     ).first<{ subjects: number; events: number; consents: number }>();
     expect(rows).toEqual({ subjects: 0, events: 0, consents: 0 });
+    const retainedAudit = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT actor_type, actor_id, action, resource_type, resource_id, metadata_json
+         FROM audit_events WHERE org_id = 'org_measure' ORDER BY created_at`
+    ).all<Record<string, unknown>>();
+    const retainedAuditJson = JSON.stringify(retainedAudit.results);
+    expect(retainedAuditJson).not.toContain(subjectToken);
+    expect(retainedAuditJson).not.toContain("morg_");
+    expect(retainedAuditJson).not.toContain("classification");
+    expect(retainedAuditJson).not.toContain("provider_confirmed_non_operator");
+    expect(retainedAuditJson).not.toContain(String(INSTALLATION_ID));
+    expect(retainedAuditJson).not.toContain(measurementEventId);
+    expect(retainedAudit.results.some((row) => row.action === "privacy.deletion.completed")).toBe(true);
+    expect(retainedAudit.results.some((row) => String(row.action).startsWith("measurement."))).toBe(false);
   });
 });
