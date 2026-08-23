@@ -41,6 +41,10 @@ import {
   type UpdateManager,
 } from "./manager-plan.ts";
 import {
+  renderApmAutomaticPreflight,
+  runApmAutomaticPreflight,
+} from "./apm-materialize.ts";
+import {
   enforceFleetPolicy,
   renderFleetDecision,
   validateFleetDeploymentIntent,
@@ -62,6 +66,7 @@ Usage:
   vigil upgrade init [--repo <path>] [--force]
   vigil upgrade doctor [--repo <path>] [--config <path>] [--docker-bin <path>]
   vigil upgrade plan --manager <apm|skills|agent-plugin> --current <state> --candidate <state> [--repo <path>] [--output <plan.json>]
+  vigil upgrade preflight --current-lock <apm.lock.yaml> --candidate-lock <apm.lock.yaml> [--plan <plan.json>] [--identity <apm:...>] [--repo <path>] [--config <path>] [--work-directory <path>] [--output <receipt.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>] [--fetch-bin <path>]
   vigil upgrade check --current <dir> --candidate <dir> [--repo <path>] [--config <path>] [--output <private.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>]
   vigil upgrade verify <entry.json> [--public-key <path>]
   vigil upgrade evidence <entry.json> --output <issue.md> --public-key <path>
@@ -99,7 +104,12 @@ function repository(args: string[]): string {
 }
 
 function insideRepository(repositoryPath: string, value: string, label: string): string {
-  const repository = realpathSync(repositoryPath);
+  // Keep the caller's lexical spelling here. On macOS, /var is a root-owned
+  // alias for /private/var; returning the canonical spelling would make the
+  // later no-symlink trust check compare two otherwise equivalent roots.
+  // Existing inputs receive a separate realpath containment check, while
+  // atomic outputs reject symbolic-link parents before writing.
+  const repository = resolve(repositoryPath);
   const path = resolve(repository, value);
   const rel = relative(repository, path);
   if (rel === ".." || rel.startsWith(`..${sep}`)) throw new Error(`${label} must remain inside --repo`);
@@ -249,6 +259,65 @@ function runCheck(args: string[]): number {
     writePrivateFileAtomic(publicOutput, `${JSON.stringify(entry, null, 2)}\n`);
   }
   process.stdout.write(renderUpgradeReceipt(receipt));
+  return receipt.summary.verdict === "SAFE" ? 0 : receipt.summary.verdict === "CHANGED" ? 1 : 2;
+}
+
+function runPreflight(args: string[]): number {
+  const valueOptions = [
+    "--repo", "--current-lock", "--candidate-lock", "--plan", "--identity",
+    "--config", "--work-directory", "--output", "--public-output", "--signing-key", "--docker-bin", "--fetch-bin",
+  ];
+  assertKnown(args, valueOptions, ["--help"]);
+  if (args.includes("--help")) { console.log(usage()); return 0; }
+  const repo = repository(args);
+  const currentOption = option(args, "--current-lock");
+  const candidateOption = option(args, "--candidate-lock");
+  if (!currentOption || !candidateOption) {
+    throw new Error("upgrade preflight requires --current-lock <state> and --candidate-lock <state>");
+  }
+  const currentLockPath = resolve(currentOption);
+  const candidateLockPath = resolve(candidateOption);
+  const config = insideRepository(repo, option(args, "--config") ?? DEFAULT_UPGRADE_CONFIG, "--config");
+  const trustedConfig = trustedRegularFileInside(repo, config, "upgrade config");
+  const planOption = option(args, "--plan");
+  const planPath = planOption ? resolve(planOption) : undefined;
+  const suppliedPlan = planPath ? readBoundedJson(planPath, 4 * 1024 * 1024, "APM update plan") : undefined;
+  const outputOption = option(args, "--output");
+  const output = outputOption
+    ? resolve(outputOption)
+    : insideRepository(repo, ".agent-vigil/upgrade/apm-preflight-receipt.json", "--output");
+  const publicOption = option(args, "--public-output");
+  const signingKey = option(args, "--signing-key");
+  if (Boolean(publicOption) !== Boolean(signingKey)) {
+    throw new Error("--public-output and --signing-key must be supplied together");
+  }
+  const publicOutput = publicOption ? resolve(publicOption) : undefined;
+  const outputs = [output, ...(publicOutput ? [publicOutput] : [])];
+  assertDistinctOutputs(outputs);
+  assertOutputsDoNotAliasInputs(outputs, [
+    currentLockPath,
+    candidateLockPath,
+    trustedConfig,
+    ...(planPath ? [planPath] : []),
+    ...(signingKey ? [resolve(signingKey)] : []),
+  ]);
+  const receipt = runApmAutomaticPreflight({
+    repository: repo,
+    currentLockPath,
+    candidateLockPath,
+    configPath: trustedConfig,
+    ...(option(args, "--identity") ? { identity: option(args, "--identity") } : {}),
+    ...(suppliedPlan !== undefined ? { suppliedPlan } : {}),
+    ...(option(args, "--docker-bin") ? { dockerBin: option(args, "--docker-bin") } : {}),
+    ...(option(args, "--fetch-bin") ? { fetchBin: option(args, "--fetch-bin") } : {}),
+    ...(option(args, "--work-directory") ? { workDirectory: resolve(option(args, "--work-directory")!) } : {}),
+  });
+  writePrivateFileAtomic(output, `${JSON.stringify(receipt, null, 2)}\n`);
+  if (publicOutput && signingKey && receipt.summary.verdict !== "HOLD" && receipt.upgradeReceipt) {
+    const entry = createPublicCompatibilityEntry(receipt.upgradeReceipt, resolve(signingKey));
+    writePrivateFileAtomic(publicOutput, `${JSON.stringify(entry, null, 2)}\n`);
+  }
+  process.stdout.write(renderApmAutomaticPreflight(receipt));
   return receipt.summary.verdict === "SAFE" ? 0 : receipt.summary.verdict === "CHANGED" ? 1 : 2;
 }
 
@@ -440,6 +509,7 @@ export function runUpgradeCommand(args: string[]): number {
     if (command === "init") return runInit(rest);
     if (command === "doctor") return runDoctor(rest);
     if (command === "plan") return runPlan(rest);
+    if (command === "preflight") return runPreflight(rest);
     if (command === "check") return runCheck(rest);
     if (command === "verify") return runVerify(rest);
     if (command === "evidence") return runEvidence(rest);

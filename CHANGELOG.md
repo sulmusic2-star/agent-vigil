@@ -21,6 +21,14 @@
   execution corpus with 100 planted authority expansions.
 - Add exact APM, Vercel Skills v3, and Agent Plugins 1.0 update plans that
   require behavioral preflight whenever manager-controlled state changes.
+- Add `vigil upgrade preflight`, one fail-closed automatic APM path from exact
+  old/new lockfiles through public GitHub codeload acquisition, OpenAPM
+  `tree_sha256` verification, bounded link-free materialization, the existing
+  contained check, and verified temporary-session removal. It never invokes an
+  installer or lifecycle script; unsupported sources return `HOLD`.
+- Add the private `agent-vigil-apm-preflight/v1` wrapper binding the plan,
+  selected row, route and downloaded-byte commitments, materialized trees,
+  nested Upgrade Guard receipt, and restoration outcome.
 - Add privacy-minimized signed compatibility entries, broken-to-restored
   resolution records, static registry/API/badge output, and maintainer evidence.
 - Keep external URLs out of signed resolution records because credentials and

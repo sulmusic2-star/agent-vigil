@@ -119,10 +119,19 @@ the configuration at entry and after trials, but these bounded checks do not
 prove physical daemon locality or continuous immutability against same-host ABA
 or privileged races. Private and public v1 evidence records the successful
 local-transport binding as a boolean without disclosing the endpoint path.
-It does not install an update, upload evidence by default, or claim live
-model/provider behavior. The v0.15 Action can enforce the bounded APM
-materialize-check-restore path using exact event commits and trusted-base
-canaries. See the precise
+For one strict APM source shape, `vigil upgrade preflight` now binds an exact
+old/new lockfile plan to credential-free public GitHub codeload acquisition,
+OpenAPM tree-hash verification, bounded link-free tar materialization, the
+existing network-disabled contained check, and verified temporary-session
+removal. Unsupported sources return `HOLD`; no installer or package lifecycle
+script runs. Its private wrapper follows
+[`agent-vigil-apm-preflight/v1`](docs/apm-preflight-v1.schema.json). This local
+candidate is not a release, activation, customer, payment, or start of R0.
+
+It does not install an update, upload evidence, modify active APM state, or
+claim live model/provider behavior. The Action's upgrade mode can enforce this
+bounded materialize-check-restore path using exact event commits and
+trusted-base canaries. See the precise
 [Upgrade Guard contract](docs/UPGRADE_GUARD.md).
 
 It also adds the one-command protection profile:

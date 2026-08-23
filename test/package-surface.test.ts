@@ -38,6 +38,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/UPGRADE_GUARD.md",
     "docs/THREAT_MODEL.md",
     "docs/upgrade-config-v1.schema.json",
+    "docs/apm-preflight-v1.schema.json",
     "docs/upgrade-canary-v1.schema.json",
     "docs/upgrade-receipt-v1.schema.json",
     "docs/compatibility-entry-v1.schema.json",

@@ -51,7 +51,7 @@ test("upgrade help is non-mutating", () => {
 });
 
 test("every upgrade subcommand help path is non-mutating", () => {
-  for (const command of ["doctor", "plan", "check", "verify", "evidence", "resolve", "enforce", "index"]) {
+  for (const command of ["doctor", "plan", "preflight", "check", "verify", "evidence", "resolve", "enforce", "index"]) {
     assert.equal(quiet(() => runUpgradeCommand([command, "--help"])), 0, command);
   }
 });

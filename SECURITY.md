@@ -70,3 +70,16 @@ worktree, and uses only temporary materialization roots. It still trusts the
 base configuration, canaries, explicitly preloaded runner image, Docker client,
 daemon, and host. Do not grant that job cloud, package-publishing, deployment,
 model-provider, or signing credentials.
+
+Automatic APM acquisition is a separate explicit network boundary. It accepts
+only credential-free public GitHub git rows (`owner/repo` plus `host:
+github.com`, or the host-prefixed equivalent) with both an exact commit and
+OpenAPM `tree_sha256`, then invokes a fixed-location or
+explicit-absolute curl client with curl configuration, proxy variables,
+credentials, redirects, and non-HTTPS protocols disabled. The request target is
+limited to `codeload.github.com/<owner>/<repo>/tar.gz/<commit>`. Downloaded bytes
+and the reconstructed OpenAPM tree are receipt-bound. Bounded tar extraction
+rejects links, special or extension records, traversal, portable-name
+collisions, and over-limit input. No APM installer or package lifecycle script
+runs. This reduces but does not eliminate trust in DNS, TLS roots, curl, GitHub
+codeload, the host filesystem, archive parser, or same-host privileged actors.

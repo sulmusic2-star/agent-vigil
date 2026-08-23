@@ -58,6 +58,7 @@ type ManagerRecord = {
   fingerprint: string;
   capabilityFingerprint?: string;
   reasonFingerprints?: Record<string, string>;
+  apmRow?: Record<string, unknown>;
 };
 
 type ManagerSnapshot = {
@@ -273,6 +274,7 @@ function exactGitCommit(value: string | undefined): string | undefined {
 
 function apmEndpoint(item: Record<string, unknown>, index: number): UpdatePlanEndpoint {
   const commit = exactGitCommit(optionalText(item.resolved_commit, `dependencies[${index}].resolved_commit`, 64));
+  const treeHash = exactSha256(optionalText(item.tree_sha256, `dependencies[${index}].tree_sha256`, 80));
   const resolvedHash = exactSha256(optionalText(item.resolved_hash, `dependencies[${index}].resolved_hash`, 80));
   const contentHash = exactSha256(optionalText(item.content_hash, `dependencies[${index}].content_hash`, 80));
   optionalText(item.version, `dependencies[${index}].version`, 128);
@@ -281,9 +283,14 @@ function apmEndpoint(item: Record<string, unknown>, index: number): UpdatePlanEn
   // Manager version, tag, and ref values are private inputs and may contain
   // credentials. Plans retain a useful endpoint label without copying them.
   const version = commit ? `commit:${commit.slice(0, 12)}`
-    : resolvedHash ? `digest:${resolvedHash.slice(7, 19)}`
+    : treeHash ? `digest:${treeHash.slice(7, 19)}`
+      : resolvedHash ? `digest:${resolvedHash.slice(7, 19)}`
       : contentHash ? `digest:${contentHash.slice(7, 19)}`
         : "unbound";
+  // APM's collision-resistant canonical tree identity is the exact artifact
+  // identity when present. The commit remains a required materialization
+  // coordinate and is carried privately by the automatic preflight adapter.
+  if (treeHash) return { version, integrityKind: "sha256", integrity: treeHash };
   if (commit) return { version, integrityKind: "git-commit", integrity: commit };
   if (resolvedHash) return { version, integrityKind: "sha256", integrity: resolvedHash };
   if (contentHash) return { version, integrityKind: "sha256", integrity: contentHash };
@@ -382,6 +389,7 @@ function parseApm(bytes: Buffer): Map<string, ManagerRecord> {
       componentType: "apm-package",
       endpoint,
       fingerprint,
+      apmRow: item,
     });
   });
   return output;
@@ -811,6 +819,163 @@ export function createUpdatePlan(input: {
     limitations: LIMITATIONS,
   } satisfies Omit<UpdatePlan, "planHash">;
   return finalizePlan(plan);
+}
+
+export type ApmMaterializationEndpoint = {
+  repository: { owner: string; name: string };
+  commit: string;
+  expectedTreeSha256: string;
+  routeSha256: string;
+  rowSha256: string;
+  virtualPath?: string;
+};
+
+export type ApmMaterializationSelection = {
+  plan: UpdatePlan;
+  change: UpdatePlanChange;
+  selectedChangeSha256: string;
+  current: ApmMaterializationEndpoint;
+  candidate: ApmMaterializationEndpoint;
+};
+
+export class ApmMaterializationHold extends Error {
+  constructor(readonly reasonCode: string) {
+    super(reasonCode);
+  }
+}
+
+const APM_KNOWN_DEPENDENCY_FIELDS = new Set([
+  "repo_url", "materialization_repo_url", "host", "port", "registry_prefix",
+  "host_type",
+  "resolved_ref", "resolved_commit", "resolved_tag", "resolved_url", "resolved_hash",
+  "resolved_at", "tree_sha256", "version", "virtual_path", "is_virtual", "depth", "resolved_by",
+  "package_type", "skill_subset", "target_subset", "deployed_files", "deployed_file_hashes",
+  "content_hash", "source", "local_path", "name", "constraint", "is_dev", "is_insecure",
+  "allow_insecure", "exec_status", "discovered_via", "marketplace_plugin_name",
+  "source_url", "source_digest", "license", "licenses", "homepage", "attestations",
+]);
+
+function apmPortablePath(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const path = text(value, "APM virtual_path", 1_024);
+  const parts = path.split("/");
+  if (path.startsWith("/") || path.includes("\\") || /[\u0000-\u001f\u007f]/.test(path)
+    || parts.some((part) => !part || part === "." || part === "..")) {
+    throw new ApmMaterializationHold("SOURCE_ROUTE_UNSUPPORTED");
+  }
+  return path;
+}
+
+function githubRepository(value: unknown): { owner: string; name: string } {
+  const route = text(value, "APM repo_url", 512);
+  // Current APM lockfiles normally store owner/repo with host: github.com;
+  // OpenAPM examples also permit the host-prefixed spelling. Support exactly
+  // those two canonical shapes, never a URL, scp route, query, or fragment.
+  const match = /^(?:github\.com\/)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?)\/([A-Za-z0-9_.-]{1,100})$/.exec(route);
+  const name = match?.[2].endsWith(".git") ? match[2].slice(0, -4) : match?.[2];
+  if (!match || !name || name === "." || name === "..") {
+    throw new ApmMaterializationHold("SOURCE_ROUTE_UNSUPPORTED");
+  }
+  return { owner: match[1], name };
+}
+
+function sameRepository(left: { owner: string; name: string }, right: { owner: string; name: string }): boolean {
+  return left.owner.toLowerCase() === right.owner.toLowerCase()
+    && left.name.toLowerCase() === right.name.toLowerCase();
+}
+
+function materializationEndpoint(record: ManagerRecord): ApmMaterializationEndpoint {
+  const row = record.apmRow;
+  if (!row || Object.keys(row).some((field) => !APM_KNOWN_DEPENDENCY_FIELDS.has(field))) {
+    throw new ApmMaterializationHold("SOURCE_SHAPE_UNSUPPORTED");
+  }
+  const source = row.source === undefined ? "git" : text(row.source, "APM source", 80);
+  const host = row.host === undefined ? "github.com" : text(row.host, "APM host", 255);
+  if (source !== "git" || host.toLowerCase() !== "github.com"
+    || row.host_type !== undefined || row.port !== undefined || row.registry_prefix !== undefined
+    || row.resolved_url !== undefined || row.resolved_hash !== undefined
+    || row.local_path !== undefined
+    || (row.is_insecure !== undefined && row.is_insecure !== "false")
+    || (row.allow_insecure !== undefined && row.allow_insecure !== "false")) {
+    throw new ApmMaterializationHold("SOURCE_ROUTE_UNSUPPORTED");
+  }
+  const repository = githubRepository(row.repo_url);
+  let materializationRepository = repository;
+  if (row.materialization_repo_url !== undefined) {
+    materializationRepository = githubRepository(row.materialization_repo_url);
+    if (!sameRepository(repository, materializationRepository)) {
+      throw new ApmMaterializationHold("SOURCE_ROUTE_UNSUPPORTED");
+    }
+  }
+  const commit = exactGitCommit(optionalText(row.resolved_commit, "APM resolved_commit", 64));
+  const expectedTreeSha256 = exactSha256(optionalText(row.tree_sha256, "APM tree_sha256", 80));
+  if (!commit || !expectedTreeSha256) throw new ApmMaterializationHold("SOURCE_INTEGRITY_UNAVAILABLE");
+  const virtualPath = apmPortablePath(row.virtual_path);
+  const routeSha256 = hash(canonical({
+    protocol: "https",
+    host: "codeload.github.com",
+    owner: materializationRepository.owner.toLowerCase(),
+    repository: materializationRepository.name.toLowerCase(),
+    route: "tar.gz",
+    commit,
+  }));
+  return {
+    repository: materializationRepository,
+    commit,
+    expectedTreeSha256,
+    routeSha256,
+    rowSha256: record.fingerprint,
+    ...(virtualPath ? { virtualPath } : {}),
+  };
+}
+
+/**
+ * Select one exact APM package row without copying source coordinates into the
+ * update plan or CLI output. Only credential-free public GitHub git entries
+ * with both a locked commit and APM canonical tree SHA-256 are materializable.
+ */
+export function selectApmMaterialization(input: {
+  currentPath: string;
+  candidatePath: string;
+  generatedAt?: string;
+  identity?: string;
+}): ApmMaterializationSelection {
+  const plan = createUpdatePlan({
+    manager: "apm",
+    currentPath: input.currentPath,
+    candidatePath: input.candidatePath,
+    ...(input.generatedAt ? { generatedAt: input.generatedAt } : {}),
+  });
+  const eligible = plan.changes.filter((change) => (
+    change.componentType === "apm-package"
+    && change.change === "UPDATED"
+    && change.behavioralPreflight === "REQUIRED"
+  ));
+  const selected = input.identity
+    ? eligible.find((change) => change.identity === input.identity)
+    : eligible.length === 1 ? eligible[0] : undefined;
+  if (!selected) {
+    throw new ApmMaterializationHold(
+      eligible.length === 0 ? "NO_ELIGIBLE_PAIR"
+        : input.identity ? "SELECTED_PAIR_UNAVAILABLE" : "MULTIPLE_ELIGIBLE_PAIRS",
+    );
+  }
+  const currentSnapshot = readManager("apm", input.currentPath);
+  const candidateSnapshot = readManager("apm", input.candidatePath);
+  if (currentSnapshot.sourceSha256 !== plan.source.currentSha256
+    || candidateSnapshot.sourceSha256 !== plan.source.candidateSha256) {
+    throw new ApmMaterializationHold("SOURCE_STATE_CHANGED");
+  }
+  const current = currentSnapshot.records.get(selected.identity);
+  const candidate = candidateSnapshot.records.get(selected.identity);
+  if (!current || !candidate) throw new ApmMaterializationHold("SELECTED_PAIR_UNAVAILABLE");
+  return {
+    plan,
+    change: selected,
+    selectedChangeSha256: hash(canonical(selected)),
+    current: materializationEndpoint(current),
+    candidate: materializationEndpoint(candidate),
+  };
 }
 
 export function renderUpdatePlan(plan: UpdatePlan): string {

@@ -22,8 +22,8 @@ vulnerabilities, or compatible with behavior that the canaries did not exercise.
 
 ## Current scope
 
-This first version is a local, offline compatibility gate for bounded component
-directories with JSON manifests. Typical candidates include a packaged plugin,
+This first version is a local compatibility gate whose behavioral evaluation is
+offline. It accepts bounded component directories with JSON manifests. Typical candidates include a packaged plugin,
 skill bundle, MCP server, agent extension, or another dependency whose current
 and candidate trees can be materialized separately. Updater-native planning can
 also normalize exact changes from Microsoft APM lockfiles, Vercel Skills v3
@@ -32,7 +32,9 @@ The plan is private input selection, not a safety verdict.
 
 It does not install the candidate into the user's active agent stack. The old
 version remains untouched because both versions are mounted read-only for the
-comparison. It also does not upload a receipt or publish an index entry.
+comparison. The automatic APM lane performs an explicit bounded download from
+`codeload.github.com`, but it does not upload a receipt or publish an index
+entry.
 
 Live model and provider behavior is outside this lane. The runner has no network
 access and receives no provider credentials. Mutable model aliases such as
@@ -51,6 +53,10 @@ latency therefore cannot be established by an Upgrade Guard verdict.
   repository, not a parent or nested directory.
 - A trusted runner image already present locally and named by an immutable
   `@sha256:` digest. Upgrade Guard uses `--pull=never`.
+- For automatic APM acquisition, a fixed-location `curl` executable or an
+  explicit absolute `--fetch-bin` path. Repository-controlled `PATH`, curl
+  configuration, proxy variables, redirects, credentials, and non-HTTPS
+  protocols are not used.
 - The runner image must contain `node`, which the containment preflight uses.
 - Pairwise separate, non-overlapping current, candidate, and trusted canary
   directories containing regular files only.
@@ -127,8 +133,10 @@ hosts, sources, local paths, declared versions, tags, refs, and additive fields
 remain private inputs: plans emit only a stable pseudonymous dependency identity,
 an integrity-derived endpoint label, exact artifact integrity, and static change
 reasons. Parser and duplicate-identity diagnostics do not quote manager input.
-The plan does not yet materialize an exact pair for
-`upgrade check`; the operator must supply the corresponding old/new artifact directories.
+The `plan` command itself never fetches or executes anything. The separate
+automatic `preflight` command below can materialize one strictly supported APM
+row and bind it to the contained check; other manager plans still require the
+operator to supply old/new artifact directories.
 Skills support reads the current v3 lock shape. Each skill commitment covers
 its complete strict-JSON entry except validated installation timestamps,
 including `sourceUrl`, `sourceBaseUrl`, `wellKnownDigest`, `pluginName`, and
@@ -145,6 +153,66 @@ prompt and installation-target preferences. Entry-only metadata drift that does
 not change exact artifact integrity remains visible but cannot request a same-artifact
 behavioral preflight. Agent Plugins support binds the
 complete directory tree plus the declared skill and MCP surface.
+
+Run the complete automatic APM path for one old/new lockfile pair:
+
+```bash
+vigil upgrade preflight \
+  --repo . \
+  --current-lock ./states/current/apm.lock.yaml \
+  --candidate-lock ./states/candidate/apm.lock.yaml \
+  --config .agent-vigil/upgrade/config.json \
+  --output .agent-vigil/upgrade/apm-preflight-receipt.json
+```
+
+If the plan contains more than one eligible package pair, inspect the private
+plan and pass one emitted pseudonymous identity with `--identity`. Supplying
+`--plan` requires byte-semantic equality with a fresh plan over the two supplied
+lockfiles before acquisition. A plan is never enough by itself because it
+intentionally omits the private source route; both exact lockfiles remain
+required.
+
+Automatic materialization is deliberately narrow. Both selected rows must be
+credential-free public GitHub git sources, expressed as `repo_url: owner/repo`
+with `host: github.com` or as `repo_url: github.com/owner/repo`, with a lowercase
+40-character `resolved_commit` and OpenAPM `tree_sha256`. The adapter requests
+only `https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>`, permits no
+redirect, and recomputes the OpenAPM canonical tree SHA-256 before writing the
+artifact. Registry sources, local paths, ports, proxies, alternate hosts,
+unknown dependency fields, missing tree identities, or unsupported route
+shapes return `HOLD` without falling back to the active installer.
+
+The compressed response is limited to 64 MiB; expanded files retain the same
+4,096-file, 32-MiB-per-file, and 256-MiB-total ceilings used by Upgrade Guard.
+Tar paths must share one root and remain normalized. Links, devices, special
+entries, extension records, path traversal, Unicode/case-folding collisions,
+and unsafe names return `HOLD`. No `apm install`, package install script,
+repository hook, or lifecycle command runs.
+
+The command checkpoints both lockfile digests before acquisition, before the
+contained check, and after the check. Its private
+[automatic APM receipt](apm-preflight-v1.schema.json) contains the complete
+pseudonymized plan, selected-row commitments, route commitment, locked commits,
+expected tree hashes, downloaded byte hashes and counts, materialized tree
+hashes, selected artifact inventories, the nested Upgrade Guard receipt, and
+the final restoration result. It never copies the repository route into the
+receipt. A `SAFE` or `CHANGED` wrapper requires the nested verdict to agree and
+the exact temporary session to be removed; cleanup failure becomes `HOLD`.
+
+Temporary materialization defaults to the trusted configuration directory so
+Docker Desktop and Colima can bind it. CI can select an already-existing shared
+directory such as `RUNNER_TEMP` with `--work-directory`. Current/candidate
+lockfiles and an explicit `--output` may live outside the checkout; the
+configuration and canary harness remain trusted repo-contained inputs. Signal
+handlers attempt the same bounded cleanup for `SIGINT` and `SIGTERM`; no program
+can promise cleanup after `SIGKILL`, power loss, kernel failure, or a privileged
+same-host replacement.
+
+Exit codes retain the normal Upgrade Guard contract: `0` for `SAFE`, `1` for
+`CHANGED`, and `2` for `HOLD` or usage failure. The default wrapper output is
+`.agent-vigil/upgrade/apm-preflight-receipt.json`. `--public-output` remains
+opt-in and is created only after a non-`HOLD` nested receipt and successful
+restoration.
 
 Compare two already-materialized artifact directories:
 
@@ -321,6 +389,9 @@ contained record remains independently signed even though the aggregate
 registry hash is not a separate publisher signature.
 
 None of these commands host, upload, contact a maintainer, or publish evidence.
+`preflight` makes only the explicitly described exact codeload request needed
+to acquire a supported public APM pair; the index, evidence, resolve, enforce,
+verify, plan, and already-materialized check lanes make no such request.
 `--public-key <path>` is required: every entry and resolution must match that
 separately pinned signer key. `doctor` and `check` also accept
 `--docker-bin <path>` for a compatible Docker client executable. An explicit
@@ -575,7 +646,8 @@ The public network artifacts deliberately remain static and customer-owned:
 - the registry contains individually signed entries and resolution records,
   and resolution v1 contains no external URL locator;
 - badge files contain only `safe`, `changed`, or `hold`; and
-- no command enables telemetry, uploads a private receipt, or sends a request.
+- no command enables telemetry or uploads a private receipt; automatic APM
+  preflight performs only its disclosed allowlisted artifact GET.
 
 This makes updater integrations, searchable proof pages, issue links, badges,
 and registry queries possible without giving Agent Vigil source code, prompts,
@@ -598,6 +670,9 @@ commands, raw outputs, local paths, or credentials.
 - That an embedded signing key belongs to a particular person or organization.
 - That a locally generated public entry has been submitted, accepted, indexed,
   adopted, or paid for.
+- That a local implementation, test, commit, or unreleased candidate has begun
+  an external release clock. R0 requires a separately reviewed external release
+  of this complete path.
 
 Treat a real outside update cycle with a retained decision as product evidence.
 A local fixture or generated entry is implementation proof only.

@@ -107,6 +107,7 @@
     "docs/receipt-v2.schema.json",
     "docs/upgrade-canary-v1.schema.json",
     "docs/upgrade-config-v1.schema.json",
+    "docs/apm-preflight-v1.schema.json",
     "docs/upgrade-receipt-v1.schema.json",
     "docs/update-plan-v1.schema.json",
     "examples",
