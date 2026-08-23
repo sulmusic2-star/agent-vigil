@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash15 } from "node:crypto";
-import { execFileSync as execFileSync11 } from "node:child_process";
+import { createHash as createHash16 } from "node:crypto";
+import { execFileSync as execFileSync12 } from "node:child_process";
 import { existsSync as existsSync6, mkdirSync as mkdirSync5, readFileSync as readFileSync19, realpathSync as realpathSync9, statSync as statSync9, writeFileSync as writeFileSync5 } from "node:fs";
 import { dirname as dirname9, isAbsolute as isAbsolute8, relative as relative12, resolve as resolve17 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1224,7 +1224,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.13.0";
+var VERSION = "0.14.0-dev.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -1536,7 +1536,18 @@ function remediationFor(ruleId) {
     "unknown-action-risk": "Use a supported structured tool adapter or normalize the action explicitly; do not allow unknown_effect in a blocking policy.",
     "complete-tool-results": "Export the complete session trajectory with terminal results for every tool call.",
     "observed-action-coverage": "Provide a supported JSONL transcript with structured tool calls; narrative summaries cannot prove action boundaries.",
-    "authority-contract-anchor": "Store the contract in the trusted base revision and pass --contract-ref <base-sha> in CI."
+    "authority-contract-anchor": "Store the contract in the trusted base revision and pass --contract-ref <base-sha> in CI.",
+    "authority-plan": "Review each blocking authority change below; remove it or approve the exact kind, subject, and value in the base revision policy before reopening the code change.",
+    "authority-server": "Remove the new or changed agent server, or approve its exact normalized identity in the base revision policy.",
+    "authority-tool": "Restore the prior tool boundary, or approve the exact tool grant in the base revision policy.",
+    "authority-network": "Remove the new network destination, or approve that exact host in the base revision policy.",
+    "authority-filesystem": "Narrow the filesystem scope, or approve that exact path in the base revision policy.",
+    "authority-secret": "Remove the new secret reference, or approve the exact variable or header name in the base revision policy; never commit the secret value.",
+    "authority-model": "Restore the pinned model or review the model-identity change; do not replace a pinned version with a mutable alias.",
+    "authority-approval": "Restore the prior approval mode or approve the weaker mode in the base revision policy.",
+    "authority-sandbox": "Restore the prior sandbox boundary or approve the weaker setting in the base revision policy.",
+    "authority-hook": "Remove the new hook or approve its exact hashed command identity in the base revision policy.",
+    "authority-setting-unknown": "Upgrade the adapter or remove the unrecognized setting change; use a separately reviewed base-policy exception only after inspecting its effect."
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }
@@ -2722,39 +2733,39 @@ function splitShellCommands(command) {
 function classesForCommand(raw) {
   const command = raw.trim().replace(/^(?:sudo\s+|env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)+)+/, "");
   const classes = /* @__PURE__ */ new Set();
-  const add = (...items) => items.forEach((item2) => classes.add(item2));
-  if (/^(?:ls|pwd|cat|head|tail|grep|rg|find|stat|wc|diff|jq|sed\s+(?!.*(?:-i|--in-place))|git\s+(?:status|diff|log|show|rev-parse|ls-files|remote\s+-v)\b)/i.test(command)) add("repository_read");
-  if (/^(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|check|lint|typecheck|smoke|verify)|exec\s+.*test)|^(?:pytest|python\s+-m\s+pytest|go\s+test|cargo\s+test|dotnet\s+test|mvn\s+test|gradle\s+test|make\s+(?:test|check|verify))\b/i.test(command)) add("test_execute");
-  if (/^(?:npm|pnpm|yarn|bun)\s+(?:run\s+build|build)|^(?:cargo|go|dotnet|mvn|gradle|make)\s+build\b/i.test(command)) add("build_execute");
-  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:i|install|add|ci)\b|pipx?\s+install\b|python\s+-m\s+pip\s+install\b|uv\s+(?:add|sync|pip\s+install)\b|brew\s+install\b|apt(?:-get)?\s+install\b|dnf\s+install\b|gem\s+install\b)/i.test(command)) add("dependency_install");
-  if (/^(?:rm|rmdir|del|erase|trash)\b|\bgit\s+(?:clean|reset\s+--hard)\b/i.test(command)) add("destructive_filesystem");
-  if (/^git\s+commit\b/i.test(command)) add("git_commit");
-  if (/^git\s+push\b/i.test(command)) add("git_push");
-  if (/^gh\s+pr\s+(?:create|merge|close|comment|edit|review)\b/i.test(command)) add("pull_request_write");
-  if (/^(?:gh\s+release\s+(?:create|upload|edit|delete)|npm\s+publish|cargo\s+publish|twine\s+upload)\b/i.test(command)) add("release_publish");
-  if (/^(?:vercel|netlify|wrangler\s+deploy|flyctl\s+deploy|gcloud\s+(?:run\s+deploy|app\s+deploy)|aws\s+.*deploy|kubectl\s+(?:apply|delete|rollout)|helm\s+(?:install|upgrade|uninstall)|terraform\s+apply)\b/i.test(command)) add("deploy");
-  if (/^(?:curl|wget)\b/i.test(command)) add(/(?:\s-X\s*(?:POST|PUT|PATCH|DELETE)\b|--request\s+(?:POST|PUT|PATCH|DELETE)\b|--data(?:-\w+)?\b|-d\s)/i.test(command) ? "external_write" : "network_read");
-  if (/^(?:gh\s+(?:issue|api)\s+.*(?:comment|create|edit|delete)|mail|sendmail|osascript\s+.*mail)\b/i.test(command)) add("external_write");
-  if (/(?:\.env\b|\.ssh\/|credentials?|api[_-]?key|token|secret|keychain|security\s+find-generic-password)/i.test(command)) add("credential_access");
-  if (/^(?:git\s+(?:add|checkout|switch|restore|mv|rm)|mkdir|touch|cp|mv|sed\s+.*(?:-i|--in-place)|tee\b|printf\b.*>|echo\b.*>)\b/i.test(command)) add("repository_write");
-  if (/^(?:sh|bash|zsh|cmd|powershell|pwsh)\s+(?:-c|\/c)\b|\beval\b/i.test(command)) add("unknown_effect");
-  if (!classes.size) add("unknown_effect");
+  const add2 = (...items) => items.forEach((item2) => classes.add(item2));
+  if (/^(?:ls|pwd|cat|head|tail|grep|rg|find|stat|wc|diff|jq|sed\s+(?!.*(?:-i|--in-place))|git\s+(?:status|diff|log|show|rev-parse|ls-files|remote\s+-v)\b)/i.test(command)) add2("repository_read");
+  if (/^(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|check|lint|typecheck|smoke|verify)|exec\s+.*test)|^(?:pytest|python\s+-m\s+pytest|go\s+test|cargo\s+test|dotnet\s+test|mvn\s+test|gradle\s+test|make\s+(?:test|check|verify))\b/i.test(command)) add2("test_execute");
+  if (/^(?:npm|pnpm|yarn|bun)\s+(?:run\s+build|build)|^(?:cargo|go|dotnet|mvn|gradle|make)\s+build\b/i.test(command)) add2("build_execute");
+  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:i|install|add|ci)\b|pipx?\s+install\b|python\s+-m\s+pip\s+install\b|uv\s+(?:add|sync|pip\s+install)\b|brew\s+install\b|apt(?:-get)?\s+install\b|dnf\s+install\b|gem\s+install\b)/i.test(command)) add2("dependency_install");
+  if (/^(?:rm|rmdir|del|erase|trash)\b|\bgit\s+(?:clean|reset\s+--hard)\b/i.test(command)) add2("destructive_filesystem");
+  if (/^git\s+commit\b/i.test(command)) add2("git_commit");
+  if (/^git\s+push\b/i.test(command)) add2("git_push");
+  if (/^gh\s+pr\s+(?:create|merge|close|comment|edit|review)\b/i.test(command)) add2("pull_request_write");
+  if (/^(?:gh\s+release\s+(?:create|upload|edit|delete)|npm\s+publish|cargo\s+publish|twine\s+upload)\b/i.test(command)) add2("release_publish");
+  if (/^(?:vercel|netlify|wrangler\s+deploy|flyctl\s+deploy|gcloud\s+(?:run\s+deploy|app\s+deploy)|aws\s+.*deploy|kubectl\s+(?:apply|delete|rollout)|helm\s+(?:install|upgrade|uninstall)|terraform\s+apply)\b/i.test(command)) add2("deploy");
+  if (/^(?:curl|wget)\b/i.test(command)) add2(/(?:\s-X\s*(?:POST|PUT|PATCH|DELETE)\b|--request\s+(?:POST|PUT|PATCH|DELETE)\b|--data(?:-\w+)?\b|-d\s)/i.test(command) ? "external_write" : "network_read");
+  if (/^(?:gh\s+(?:issue|api)\s+.*(?:comment|create|edit|delete)|mail|sendmail|osascript\s+.*mail)\b/i.test(command)) add2("external_write");
+  if (/(?:\.env\b|\.ssh\/|credentials?|api[_-]?key|token|secret|keychain|security\s+find-generic-password)/i.test(command)) add2("credential_access");
+  if (/^(?:git\s+(?:add|checkout|switch|restore|mv|rm)|mkdir|touch|cp|mv|sed\s+.*(?:-i|--in-place)|tee\b|printf\b.*>|echo\b.*>)\b/i.test(command)) add2("repository_write");
+  if (/^(?:sh|bash|zsh|cmd|powershell|pwsh)\s+(?:-c|\/c)\b|\beval\b/i.test(command)) add2("unknown_effect");
+  if (!classes.size) add2("unknown_effect");
   return [...classes];
 }
 function classifyToolCall(call) {
   const name = call.name.toLowerCase();
   const classes = /* @__PURE__ */ new Set();
-  const add = (...items) => items.forEach((item2) => classes.add(item2));
+  const add2 = (...items) => items.forEach((item2) => classes.add(item2));
   const command = commandText(call);
   if (command !== void 0) {
     for (const segment of splitShellCommands(command)) for (const item2 of classesForCommand(segment)) classes.add(item2);
-  } else if (/create_thread|spawn_agent|delegate/.test(name)) add("task_create");
-  else if (/apply[_-]?patch|write|edit|create_file|delete_file/.test(name)) add("repository_write");
-  else if (/read|glob|grep|search_files|list_files|view_image/.test(name)) add("repository_read");
-  else if (/web|fetch|search_query|open_url|browser/.test(name)) add("network_read");
-  else if (/send|email|message|comment|post|submit/.test(name)) add("external_write");
-  else add("unknown_effect");
-  if (/credential|secret|keychain|token/.test(name)) add("credential_access");
+  } else if (/create_thread|spawn_agent|delegate/.test(name)) add2("task_create");
+  else if (/apply[_-]?patch|write|edit|create_file|delete_file/.test(name)) add2("repository_write");
+  else if (/read|glob|grep|search_files|list_files|view_image/.test(name)) add2("repository_read");
+  else if (/web|fetch|search_query|open_url|browser/.test(name)) add2("network_read");
+  else if (/send|email|message|comment|post|submit/.test(name)) add2("external_write");
+  else add2("unknown_effect");
+  if (/credential|secret|keychain|token/.test(name)) add2("credential_access");
   const identityInput = command ?? call.input;
   return {
     toolCallId: call.id,
@@ -3808,10 +3819,1153 @@ function renderReceiptDelta(delta) {
 }
 
 // src/merge-group.ts
-import { createHash as createHash8 } from "node:crypto";
-import { execFileSync as execFileSync8 } from "node:child_process";
+import { createHash as createHash9 } from "node:crypto";
+import { execFileSync as execFileSync9 } from "node:child_process";
 import { readFileSync as readFileSync10 } from "node:fs";
 import { relative as relative6, resolve as resolve8 } from "node:path";
+
+// src/authority-plan.ts
+import { createHash as createHash8 } from "node:crypto";
+import { execFileSync as execFileSync8 } from "node:child_process";
+import { basename as basename2, posix } from "node:path";
+
+// node_modules/smol-toml/dist/date.js
+var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
+var TomlDate = class _TomlDate extends Date {
+  #hasDate = false;
+  #hasTime = false;
+  #offset = null;
+  constructor(date) {
+    let hasDate = true;
+    let hasTime = true;
+    let offset = "Z";
+    if (typeof date === "string") {
+      let match = date.match(DATE_TIME_RE);
+      if (match) {
+        if (!match[1]) {
+          hasDate = false;
+          date = `0000-01-01T${date}`;
+        }
+        hasTime = !!match[2];
+        hasTime && date[10] === " " && (date = date.replace(" ", "T"));
+        if (match[2] && +match[2] > 23) {
+          date = "";
+        } else {
+          offset = match[3] || null;
+          date = date.toUpperCase();
+          if (!offset && hasTime)
+            date += "Z";
+        }
+      } else {
+        date = "";
+      }
+    }
+    super(date);
+    if (!isNaN(this.getTime())) {
+      this.#hasDate = hasDate;
+      this.#hasTime = hasTime;
+      this.#offset = offset;
+    }
+  }
+  isDateTime() {
+    return this.#hasDate && this.#hasTime;
+  }
+  isLocal() {
+    return !this.#hasDate || !this.#hasTime || !this.#offset;
+  }
+  isDate() {
+    return this.#hasDate && !this.#hasTime;
+  }
+  isTime() {
+    return this.#hasTime && !this.#hasDate;
+  }
+  isValid() {
+    return this.#hasDate || this.#hasTime;
+  }
+  toISOString() {
+    let iso = super.toISOString();
+    if (this.isDate())
+      return iso.slice(0, 10);
+    if (this.isTime())
+      return iso.slice(11, 23);
+    if (this.#offset === null)
+      return iso.slice(0, -1);
+    if (this.#offset === "Z")
+      return iso;
+    let offset = +this.#offset.slice(1, 3) * 60 + +this.#offset.slice(4, 6);
+    offset = this.#offset[0] === "-" ? offset : -offset;
+    let offsetDate = new Date(this.getTime() - offset * 6e4);
+    return offsetDate.toISOString().slice(0, -1) + this.#offset;
+  }
+  static wrapAsOffsetDateTime(jsDate, offset = "Z") {
+    let date = new _TomlDate(jsDate);
+    date.#offset = offset;
+    return date;
+  }
+  static wrapAsLocalDateTime(jsDate) {
+    let date = new _TomlDate(jsDate);
+    date.#offset = null;
+    return date;
+  }
+  static wrapAsLocalDate(jsDate) {
+    let date = new _TomlDate(jsDate);
+    date.#hasTime = false;
+    date.#offset = null;
+    return date;
+  }
+  static wrapAsLocalTime(jsDate) {
+    let date = new _TomlDate(jsDate);
+    date.#hasDate = false;
+    date.#offset = null;
+    return date;
+  }
+};
+
+// node_modules/smol-toml/dist/error.js
+function getLineColFromPtr(string, ptr) {
+  let lines = string.slice(0, ptr).split(/\r\n|\n|\r/g);
+  return [lines.length, lines.pop().length + 1];
+}
+function makeCodeBlock(string, line, column) {
+  let lines = string.split(/\r\n|\n|\r/g);
+  let codeblock = "";
+  let numberLen = (Math.log10(line + 1) | 0) + 1;
+  for (let i = line - 1; i <= line + 1; i++) {
+    let l = lines[i - 1];
+    if (!l)
+      continue;
+    codeblock += i.toString().padEnd(numberLen, " ");
+    codeblock += ":  ";
+    codeblock += l;
+    codeblock += "\n";
+    if (i === line) {
+      codeblock += " ".repeat(numberLen + column + 2);
+      codeblock += "^\n";
+    }
+  }
+  return codeblock;
+}
+var TomlError = class extends Error {
+  line;
+  column;
+  codeblock;
+  constructor(message, options) {
+    const [line, column] = getLineColFromPtr(options.toml, options.ptr);
+    const codeblock = makeCodeBlock(options.toml, line, column);
+    super(`Invalid TOML document: ${message}
+
+${codeblock}`, options);
+    this.line = line;
+    this.column = column;
+    this.codeblock = codeblock;
+  }
+};
+
+// node_modules/smol-toml/dist/util.js
+function indexOfNewline(str, start = 0) {
+  let idx = str.indexOf("\n", start);
+  if (str.charCodeAt(idx - 1) === 13)
+    idx--;
+  return idx;
+}
+function skipComment(ctx) {
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    let c = ctx.s.charCodeAt(ctx.p);
+    if (c === 10)
+      break;
+    if (c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10) {
+      ctx.p++;
+      break;
+    }
+    if (c < 32 && c !== 9 || c === 127) {
+      throw new TomlError("control characters are not allowed in comments", {
+        toml: ctx.s,
+        ptr: ctx.p
+      });
+    }
+  }
+}
+function skipVoid(ctx, banNewLines, banComments) {
+  let c;
+  while (1) {
+    while ((c = ctx.s.charCodeAt(ctx.p)) === 32 || c === 9 || !banNewLines && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10))
+      ctx.p++;
+    if (banComments || c !== 35)
+      break;
+    skipComment(ctx);
+  }
+}
+function skipUntil(ctx, sep10, end) {
+  let ptr = ctx.p;
+  if (!end) {
+    ptr = indexOfNewline(ctx.s, ptr);
+    ctx.p = ptr < 0 ? ctx.s.length : ptr;
+    return;
+  }
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    let c = ctx.s.charCodeAt(ctx.p);
+    if (c === 35) {
+      skipComment(ctx);
+    } else if (c === end || c === sep10) {
+      return;
+    }
+  }
+  throw new TomlError("cannot find end of structure", {
+    toml: ctx.s,
+    ptr
+  });
+}
+
+// node_modules/smol-toml/dist/primitive.js
+var INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
+var FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
+var LEADING_ZERO = /^[+-]?0[0-9_]/;
+function parseString(ctx) {
+  let start = ctx.p;
+  let c = ctx.s.charCodeAt(ctx.p++);
+  let first = c;
+  let isLiteral = c === 39;
+  let isMultiline = c === ctx.s.charCodeAt(ctx.p) && c === ctx.s.charCodeAt(ctx.p + 1);
+  if (isMultiline) {
+    if ((c = ctx.s.charCodeAt(ctx.p += 2)) === 10)
+      ctx.p++;
+    else if (c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)
+      ctx.p += 2;
+  }
+  let parsed = "";
+  let sliceStart = ctx.p;
+  let state = 0;
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    c = ctx.s.charCodeAt(ctx.p);
+    if (isMultiline && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)) {
+      state = state && 3;
+    } else if (c < 32 && c !== 9 || c === 127) {
+      throw new TomlError("control characters are not allowed in strings", {
+        toml: ctx.s,
+        ptr: ctx.p
+      });
+    } else if ((!state || state === 3) && c === first && (!isMultiline || ctx.s.charCodeAt(ctx.p + 1) === first && ctx.s.charCodeAt(ctx.p + 2) === first)) {
+      if (isMultiline) {
+        if (ctx.s.charCodeAt(ctx.p + 3) === first)
+          ctx.p++;
+        if (ctx.s.charCodeAt(ctx.p + 3) === first)
+          ctx.p++;
+      }
+      if (!state)
+        parsed += ctx.s.slice(sliceStart, ctx.p);
+      ctx.p += isMultiline ? 3 : 1;
+      return parsed;
+    } else if (!state) {
+      if (!isLiteral && c === 92) {
+        parsed += ctx.s.slice(sliceStart, sliceStart = ctx.p);
+        state = 1;
+      }
+    } else if (state === 1) {
+      if (c === 120 || c === 117 || c === 85) {
+        let value = 0;
+        let len = c === 120 ? 2 : c === 117 ? 4 : 8;
+        for (let j = 0; j < len; j++, ctx.p++) {
+          let hex = ctx.s.charCodeAt(ctx.p + 1);
+          let digit = (
+            /* 0-9 */
+            hex >= 48 && hex <= 57 ? hex - 48 : (
+              /* A-F */
+              hex >= 65 && hex <= 70 ? hex - 65 + 10 : (
+                /* a-f */
+                hex >= 97 && hex <= 102 ? hex - 97 + 10 : -1
+              )
+            )
+          );
+          if (digit < 0)
+            throw new TomlError("invalid non-hex character in unicode escape", { toml: ctx.s, ptr: ctx.p + 1 });
+          value = value << 4 | digit;
+        }
+        if (value < 0 || value > 1114111 || value >= 55296 && value <= 57343) {
+          throw new TomlError("invalid unicode escape", { toml: ctx.s, ptr: ctx.p });
+        }
+        parsed += String.fromCodePoint(value);
+        sliceStart = ctx.p + 1;
+        state = 0;
+      } else if (c === 32 || c === 9) {
+        state = 2;
+      } else {
+        if (c === 98)
+          parsed += "\b";
+        else if (c === 116)
+          parsed += "	";
+        else if (c === 110)
+          parsed += "\n";
+        else if (c === 102)
+          parsed += "\f";
+        else if (c === 114)
+          parsed += "\r";
+        else if (c === 101)
+          parsed += "\x1B";
+        else if (c === 34)
+          parsed += '"';
+        else if (c === 92)
+          parsed += "\\";
+        else
+          throw new TomlError("unrecognized escape sequence", { toml: ctx.s, ptr: ctx.p });
+        sliceStart = ctx.p + 1;
+        state = 0;
+      }
+    } else if (c !== 32 && c !== 9) {
+      if (state === 2) {
+        throw new TomlError("invalid escape: only line-ending whitespace may be escaped", {
+          toml: ctx.s,
+          ptr: sliceStart
+        });
+      }
+      state = !isLiteral && c === 92 ? 1 : 0;
+      sliceStart = ctx.p;
+    }
+  }
+  throw new TomlError("unfinished string", { toml: ctx.s, ptr: start });
+}
+function sliceAndTrimEndOf(ctx, start, end) {
+  let value = ctx.s.slice(start, end);
+  let commentIdx = value.indexOf("#");
+  if (commentIdx > 0) {
+    skipComment({ s: value, p: commentIdx, d: 0 });
+    value = value.slice(0, commentIdx);
+  }
+  return value.trimEnd();
+}
+function parseValue(ctx, integersAsBigInt, end) {
+  let ptr = ctx.p;
+  let err = { toml: ctx.s, ptr };
+  skipUntil(ctx, 44, end);
+  let value = sliceAndTrimEndOf(ctx, ptr, ctx.p);
+  if (!value)
+    throw new TomlError("incomplete declaration: value expected", err);
+  if (value === "-inf")
+    return -Infinity;
+  if (value === "inf" || value === "+inf")
+    return Infinity;
+  if (value === "nan" || value === "+nan" || value === "-nan")
+    return NaN;
+  if (value === "-0")
+    return integersAsBigInt ? 0n : 0;
+  let isInt = INT_REGEX.test(value);
+  if (isInt || FLOAT_REGEX.test(value)) {
+    if (LEADING_ZERO.test(value)) {
+      throw new TomlError("leading zeroes are not allowed", err);
+    }
+    value = value.replace(/_/g, "");
+    let numeric = +value;
+    if (isNaN(numeric)) {
+      throw new TomlError("invalid number", err);
+    }
+    if (isInt) {
+      if ((isInt = !Number.isSafeInteger(numeric)) && !integersAsBigInt) {
+        throw new TomlError("integer value cannot be represented losslessly", err);
+      }
+      if (isInt || integersAsBigInt === true)
+        numeric = BigInt(value);
+    }
+    return numeric;
+  }
+  const date = new TomlDate(value);
+  if (!date.isValid())
+    throw new TomlError("invalid value", err);
+  return date;
+}
+
+// node_modules/smol-toml/dist/extract.js
+function extractValue(ctx, end, integersAsBigInt) {
+  let ptr = ctx.p;
+  let c = ctx.s.charCodeAt(ptr);
+  if (c === 91 || c === 123) {
+    if (!ctx.d--) {
+      throw new TomlError("document contains excessively nested structures. aborting.", {
+        toml: ctx.s,
+        ptr
+      });
+    }
+    let value = c === 91 ? parseArray(ctx, integersAsBigInt) : parseInlineTable(ctx, integersAsBigInt);
+    ctx.d++;
+    return value;
+  }
+  if (c === 34 || c === 39) {
+    return parseString(ctx);
+  }
+  if (c === 116) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 114 || ctx.s.charCodeAt(++ctx.p) !== 117 || ctx.s.charCodeAt(++ctx.p) !== 101)
+      throw new TomlError("invalid value", { toml: ctx.s, ptr });
+    ctx.p++;
+    return true;
+  }
+  if (c === 102) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 97 || ctx.s.charCodeAt(++ctx.p) !== 108 || ctx.s.charCodeAt(++ctx.p) !== 115 || ctx.s.charCodeAt(++ctx.p) !== 101)
+      throw new TomlError("invalid value", { toml: ctx.s, ptr });
+    ctx.p++;
+    return false;
+  }
+  return parseValue(ctx, integersAsBigInt, end);
+}
+
+// node_modules/smol-toml/dist/struct.js
+var KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
+function parseKey(ctx, end = "=") {
+  let start = ctx.p;
+  let dot = start - 1;
+  let parsed = [];
+  let endPtr = ctx.s.indexOf(end, start);
+  if (endPtr < 0) {
+    throw new TomlError("incomplete key-value: cannot find end of key", {
+      toml: ctx.s,
+      ptr: start
+    });
+  }
+  do {
+    let c = ctx.s.charCodeAt(ctx.p = ++dot);
+    if (c !== 32 && c !== 9) {
+      if (c === 34 || c === 39) {
+        if (c === ctx.s.charCodeAt(ctx.p + 1) && c === ctx.s.charCodeAt(ctx.p + 2)) {
+          throw new TomlError("multiline strings are not allowed in keys", {
+            toml: ctx.s,
+            ptr: ctx.p
+          });
+        }
+        let part = parseString(ctx);
+        dot = ctx.s.indexOf(".", ctx.p);
+        let strEnd = ctx.s.slice(ctx.p, dot < 0 || dot > endPtr ? endPtr : dot);
+        let newLine = indexOfNewline(strEnd);
+        if (newLine > -1) {
+          throw new TomlError("newlines are not allowed in keys", {
+            toml: ctx.s,
+            ptr: newLine
+          });
+        }
+        if (strEnd.trimStart()) {
+          throw new TomlError("found extra tokens after the string part", {
+            toml: ctx.s,
+            ptr: ctx.p
+          });
+        }
+        if (endPtr < ctx.p) {
+          endPtr = ctx.s.indexOf(end, ctx.p);
+          if (endPtr < 0) {
+            throw new TomlError("incomplete key-value: cannot find end of key", {
+              toml: ctx.s,
+              ptr: start
+            });
+          }
+        }
+        parsed.push(part);
+      } else {
+        dot = ctx.s.indexOf(".", ctx.p);
+        let part = ctx.s.slice(ctx.p, dot < 0 || dot > endPtr ? endPtr : dot);
+        if (!KEY_PART_RE.test(part)) {
+          throw new TomlError("only letter, numbers, dashes and underscores are allowed in keys", {
+            toml: ctx.s,
+            ptr: ctx.p
+          });
+        }
+        parsed.push(part.trimEnd());
+      }
+    }
+  } while (dot + 1 && dot < endPtr);
+  ctx.p = endPtr + 1;
+  skipVoid(ctx, true, true);
+  return parsed;
+}
+function parseInlineTable(ctx, integersAsBigInt) {
+  let res = {};
+  let seen = /* @__PURE__ */ new Set();
+  let c;
+  ctx.p++;
+  while (ctx.p < ctx.s.length) {
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p)) === 125) {
+      ctx.p++;
+      return res;
+    }
+    let k;
+    let t = res;
+    let hasOwn = false;
+    let p = ctx.p;
+    let key = parseKey(ctx);
+    for (let i = 0; i < key.length; i++) {
+      if (i)
+        t = hasOwn ? t[k] : t[k] = {};
+      k = key[i];
+      if ((hasOwn = Object.hasOwn(t, k)) && (typeof t[k] !== "object" || seen.has(t[k]))) {
+        throw new TomlError("trying to redefine an already defined value", {
+          toml: ctx.s,
+          ptr: p
+        });
+      }
+      if (!hasOwn && k === "__proto__") {
+        Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
+      }
+    }
+    if (hasOwn) {
+      throw new TomlError("trying to redefine an already defined value", {
+        toml: ctx.s,
+        ptr: ctx.p
+      });
+    }
+    let value = extractValue(ctx, 125, integersAsBigInt);
+    seen.add(t[k] = value);
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p++)) === 125) {
+      return res;
+    }
+    if (c !== 44) {
+      throw new TomlError("expected comma or end of structure", { toml: ctx.s, ptr: ctx.p - 1 });
+    }
+  }
+  throw new TomlError("unfinished table encountered", {
+    toml: ctx.s,
+    ptr: ctx.p
+  });
+}
+function parseArray(ctx, integersAsBigInt) {
+  let res = [];
+  let c;
+  ctx.p++;
+  while (ctx.p < ctx.s.length) {
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p)) === 93) {
+      ctx.p++;
+      return res;
+    }
+    res.push(extractValue(ctx, 93, integersAsBigInt));
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p++)) === 93) {
+      return res;
+    }
+    if (c !== 44) {
+      throw new TomlError("expected comma or end of structure", { toml: ctx.s, ptr: ctx.p - 1 });
+    }
+  }
+  throw new TomlError("unfinished array encountered", {
+    toml: ctx.s,
+    ptr: ctx.p
+  });
+}
+
+// node_modules/smol-toml/dist/parse.js
+function peekTable(key, table, meta, type) {
+  let t = table;
+  let m = meta;
+  let k;
+  let hasOwn = false;
+  let state;
+  for (let i = 0; i < key.length; i++) {
+    if (i) {
+      t = hasOwn ? t[k] : t[k] = {};
+      m = (state = m[k]).c;
+      if (type === 0 && (state.t === 1 || state.t === 2)) {
+        return null;
+      }
+      if (state.t === 2) {
+        let l = t.length - 1;
+        t = t[l];
+        m = m[l].c;
+      }
+    }
+    k = key[i];
+    if ((hasOwn = Object.hasOwn(t, k)) && m[k]?.t === 0 && m[k]?.d) {
+      return null;
+    }
+    if (!hasOwn) {
+      if (k === "__proto__") {
+        Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
+        Object.defineProperty(m, k, { enumerable: true, configurable: true, writable: true });
+      }
+      m[k] = {
+        t: i < key.length - 1 && type === 2 ? 3 : type,
+        d: false,
+        i: 0,
+        c: {}
+      };
+    }
+  }
+  state = m[k];
+  if (state.t !== type && !(type === 1 && state.t === 3)) {
+    return null;
+  }
+  if (type === 2) {
+    if (!state.d) {
+      state.d = true;
+      t[k] = [];
+    }
+    t[k].push(t = {});
+    state.c[state.i++] = state = { t: 1, d: false, i: 0, c: {} };
+  }
+  if (state.d) {
+    return null;
+  }
+  state.d = true;
+  if (type === 1) {
+    t = hasOwn ? t[k] : t[k] = {};
+  } else if (type === 0 && hasOwn) {
+    return null;
+  }
+  return [k, t, state.c];
+}
+function parse2(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
+  let ctx = { s: toml, p: 0, d: maxDepth };
+  let res = {};
+  let meta = {};
+  let tmp;
+  let tbl = res;
+  let m = meta;
+  skipVoid(ctx);
+  while (ctx.p < toml.length) {
+    if (toml.charCodeAt(ctx.p) === 91) {
+      let isTableArray = toml.charCodeAt(++ctx.p) === 91;
+      tmp = ctx.p += +isTableArray;
+      let k = parseKey(ctx, "]");
+      if (isTableArray) {
+        if (toml.charCodeAt(ctx.p - 1) !== 93) {
+          throw new TomlError("expected end of table declaration", {
+            toml,
+            ptr: ctx.p - 1
+          });
+        }
+        ctx.p++;
+      }
+      let p = peekTable(
+        k,
+        res,
+        meta,
+        isTableArray ? 2 : 1
+        /* Type.EXPLICIT */
+      );
+      if (!p) {
+        throw new TomlError("trying to redefine an already defined table or value", {
+          toml,
+          ptr: tmp
+        });
+      }
+      m = p[2];
+      tbl = p[1];
+    } else {
+      tmp = ctx.p;
+      let k = parseKey(ctx);
+      let p = peekTable(
+        k,
+        tbl,
+        m,
+        0
+        /* Type.DOTTED */
+      );
+      if (!p) {
+        throw new TomlError("trying to redefine an already defined table or value", {
+          toml,
+          ptr: tmp
+        });
+      }
+      p[1][p[0]] = extractValue(ctx, void 0, integersAsBigInt);
+    }
+    skipVoid(ctx, true);
+    if (ctx.p < toml.length && (tmp = toml.charCodeAt(ctx.p)) !== 10 && tmp !== 13) {
+      throw new TomlError("each key-value declaration must be followed by an end-of-line", {
+        toml,
+        ptr: ctx.p
+      });
+    }
+    skipVoid(ctx);
+  }
+  return res;
+}
+
+// src/upgrade/presentation.ts
+var TERMINAL_UNSAFE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu;
+function terminalSafe(value) {
+  return value.replace(TERMINAL_UNSAFE, (character) => {
+    const codePoint = character.codePointAt(0);
+    return `\\u{${(codePoint ?? 0).toString(16).toUpperCase().padStart(4, "0")}}`;
+  });
+}
+
+// src/authority-plan.ts
+var AUTHORITY_CONFIG_PATHS = [
+  ".mcp.json",
+  ".cursor/mcp.json",
+  ".vscode/mcp.json",
+  ".claude/settings.json",
+  ".claude/settings.local.json",
+  ".codex/config.toml"
+];
+var MAX_CONFIG_BYTES = 1024 * 1024;
+var DEFAULT_POLICY = { schemaVersion: 1, approvedAdditions: [], allowUnknownChanges: false };
+function git6(repo, args, maxBuffer = MAX_CONFIG_BYTES + 1) {
+  return execFileSync8("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer });
+}
+function gitOptional2(repo, args, maxBuffer = MAX_CONFIG_BYTES + 1) {
+  try {
+    return git6(repo, args, maxBuffer);
+  } catch {
+    return void 0;
+  }
+}
+function sha256(value) {
+  return `sha256:${createHash8("sha256").update(value).digest("hex")}`;
+}
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function strings(value) {
+  if (typeof value === "string") return [value];
+  return Array.isArray(value) ? value.filter((item2) => typeof item2 === "string") : [];
+}
+function scalar(value) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return void 0;
+}
+function safeExecutable(command) {
+  if (typeof command !== "string" || !command.trim()) return "unresolved-command";
+  return basename2(command.trim().split(/\s+/)[0]).slice(0, 100);
+}
+function redactLikelySecret(value) {
+  if (/(?:token|secret|password|passwd|api[_-]?key|authorization|bearer)[=:]/i.test(value)) return "<redacted-secret>";
+  if (/^[A-Fa-f0-9]{32,}$/.test(value) || /^[A-Za-z0-9+/_-]{40,}={0,2}$/.test(value)) return "<redacted-secret>";
+  return value.slice(0, 300);
+}
+function safeUrlIdentity(value) {
+  if (typeof value !== "string") return void 0;
+  try {
+    const parsed = new URL(value);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return void 0;
+  }
+}
+function safeEnvironmentIdentity(value) {
+  const result5 = {};
+  for (const [key, raw] of Object.entries(object(value) ?? {})) {
+    const text2 = scalar(raw) ?? canonical(raw);
+    result5[key] = /(?:token|secret|password|passwd|api[_-]?key|authorization|credential)/i.test(key) ? "<secret-value>" : redactLikelySecret(text2);
+  }
+  return result5;
+}
+function serverFingerprint(server) {
+  return canonical({
+    type: scalar(server.type),
+    command: redactLikelySecret(scalar(server.command) ?? ""),
+    args: strings(server.args).map(redactLikelySecret),
+    url: safeUrlIdentity(server.url),
+    cwd: scalar(server.cwd),
+    enabled: scalar(server.enabled),
+    required: scalar(server.required),
+    env: safeEnvironmentIdentity(server.env),
+    headerKeys: Object.keys(object(server.headers) ?? object(server.http_headers) ?? {}).sort(),
+    envHeaderKeys: Object.keys(object(server.env_http_headers) ?? {}).sort(),
+    bearerTokenEnv: scalar(server.bearer_token_env_var),
+    enabledTools: strings(server.enabled_tools).sort(),
+    disabledTools: strings(server.disabled_tools).sort()
+  });
+}
+function host(value) {
+  if (typeof value !== "string") return void 0;
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname.toLowerCase() || void 0;
+  } catch {
+    return void 0;
+  }
+}
+function add(entries, kind, subject, value, source, fingerprint = value) {
+  const cleanSubject = subject.trim().replace(/\s+/g, " ").slice(0, 300);
+  if (!cleanSubject) return;
+  entries.set(`${kind}\0${cleanSubject}`, { kind, subject: cleanSubject, value: value.slice(0, 500), fingerprint: sha256(fingerprint), source });
+}
+function flatten(value, prefix = "", out = /* @__PURE__ */ new Map()) {
+  if (Array.isArray(value)) {
+    value.forEach((item2, index) => flatten(item2, `${prefix}[${index}]`, out));
+  } else if (value && typeof value === "object") {
+    for (const [key, item2] of Object.entries(value)) {
+      flatten(item2, prefix ? `${prefix}.${key}` : key, out);
+    }
+  } else {
+    out.set(prefix || "$", sha256(canonical(value)));
+  }
+  return out;
+}
+function removeKnown(flat, patterns) {
+  for (const key of flat.keys()) if (patterns.some((pattern) => pattern.test(key))) flat.delete(key);
+}
+function parseMcp(raw, source) {
+  const parsed = JSON.parse(raw);
+  const root = object(parsed);
+  if (!root) throw new Error("top level must be an object");
+  const rootKey = object(root.mcpServers) ? "mcpServers" : object(root.servers) ? "servers" : void 0;
+  const servers = rootKey ? object(root[rootKey]) : void 0;
+  if (!servers || !rootKey) throw new Error("mcpServers or servers must be an object");
+  const entries = /* @__PURE__ */ new Map();
+  for (const [name, rawServer] of Object.entries(servers)) {
+    const server = object(rawServer);
+    if (!server) continue;
+    const command = safeExecutable(server.command);
+    const urlHost = host(server.url);
+    const transport = scalar(server.type) ?? (urlHost ? "remote" : "stdio");
+    add(entries, "server", `mcp:${name}`, `${transport}:${urlHost ?? command}`, source, serverFingerprint(server));
+    if (urlHost) add(entries, "network", urlHost, "mcp-server", source);
+    for (const key of Object.keys(object(server.env) ?? {})) add(entries, "secret", `env:${key}`, "referenced", source);
+    for (const key of Object.keys(object(server.headers) ?? {})) add(entries, "secret", `header:${key}`, "referenced", source);
+    const cwd = scalar(server.cwd);
+    if (cwd) add(entries, "filesystem", cwd, "mcp-cwd", source);
+  }
+  const unknown = flatten(parsed);
+  removeKnown(unknown, [
+    /^(?:mcpServers|servers)\.[^.]+\.(command|args(?:\[\d+\])?|env\.[^.]+|headers\.[^.]+|url|type|cwd|disabled|enabled|timeout|startup_timeout_sec|tool_timeout_sec)$/
+  ]);
+  return { entries, unknown };
+}
+function parseClaude2(raw, source) {
+  const parsed = JSON.parse(raw);
+  const root = object(parsed);
+  if (!root) throw new Error("top level must be an object");
+  const entries = /* @__PURE__ */ new Map();
+  const permissions = object(root.permissions);
+  for (const tool of strings(permissions?.allow)) add(entries, "tool", `allow:${tool}`, "allowed", source);
+  for (const tool of strings(permissions?.deny)) add(entries, "tool", `deny:${tool}`, "denied", source);
+  for (const tool of strings(permissions?.ask)) add(entries, "tool", `ask:${tool}`, "approval-required", source);
+  const defaultMode = scalar(permissions?.defaultMode);
+  if (defaultMode) add(entries, "approval", "claude-default-mode", defaultMode, source);
+  const disableBypass = scalar(permissions?.disableBypassPermissionsMode);
+  if (disableBypass === "disable") add(entries, "approval", "claude-disable-bypass-permissions", disableBypass, source);
+  for (const key of ["allowManagedPermissionRulesOnly", "allowManagedHooksOnly"]) {
+    const value = scalar(root[key]);
+    if (value === "true") add(entries, "approval", `claude-${key}`, value, source);
+  }
+  const model = scalar(root.model);
+  if (model) add(entries, "model", "claude-model", model, source);
+  for (const key of Object.keys(object(root.env) ?? {})) add(entries, "secret", `env:${key}`, "referenced", source);
+  const sandbox = object(root.sandbox);
+  const sandboxEnabled = scalar(sandbox?.enabled);
+  if (sandboxEnabled !== void 0) add(entries, "sandbox", "claude-enabled", sandboxEnabled, source);
+  for (const key of ["autoAllowBashIfSandboxed", "allowUnsandboxedCommands", "enableWeakerNestedSandbox"]) {
+    if (scalar(sandbox?.[key]) === "true") add(entries, "sandbox", `claude-${key}`, "true", source);
+  }
+  for (const item2 of strings(sandbox?.excludedCommands)) add(entries, "tool", `sandbox-exclusion:${item2}`, "excluded", source);
+  const network = object(sandbox?.network);
+  for (const domain of strings(network?.allowedDomains)) add(entries, "network", domain.toLowerCase(), "allowed", source);
+  for (const domain of strings(network?.allowUnixSockets)) add(entries, "filesystem", domain, "unix-socket", source);
+  for (const key of ["allowAllUnixSockets", "allowLocalBinding"]) {
+    const value = scalar(network?.[key]);
+    if (value === "true") add(entries, "sandbox", `claude-network-${key}`, value, source);
+  }
+  for (const key of ["httpProxyPort", "socksProxyPort"]) {
+    const value = scalar(network?.[key]);
+    if (value !== void 0) add(entries, "network", `localhost:${value}`, key, source);
+  }
+  for (const [event, rows] of Object.entries(object(root.hooks) ?? {})) {
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const group = object(row);
+      const hooks = Array.isArray(group?.hooks) ? group.hooks : [];
+      for (const hook of hooks) {
+        const item2 = object(hook);
+        if (item2?.type === "command" && typeof item2.command === "string") {
+          add(entries, "hook", `${event}:${safeExecutable(item2.command)}`, "command configured", source, item2.command.split(/\s+/).map(redactLikelySecret).join(" "));
+        }
+      }
+    }
+  }
+  const unknown = flatten(parsed);
+  removeKnown(unknown, [
+    /^permissions\.(allow|deny|ask)\[\d+\]$/,
+    /^permissions\.(defaultMode|disableBypassPermissionsMode)$/,
+    /^(allowManagedPermissionRulesOnly|allowManagedHooksOnly)$/,
+    /^model$/,
+    /^env\.[^.]+$/,
+    /^sandbox\.(enabled|autoAllowBashIfSandboxed|allowUnsandboxedCommands|enableWeakerNestedSandbox|excludedCommands\[\d+\])$/,
+    /^sandbox\.network\.(allowedDomains|allowUnixSockets)\[\d+\]$/,
+    /^sandbox\.network\.(allowAllUnixSockets|allowLocalBinding|httpProxyPort|socksProxyPort)$/,
+    /^hooks\.[^.]+\[\d+\]\.(matcher|hooks\[\d+\]\.(type|command|timeout|async))$/,
+    /^(enabledMcpjsonServers|disabledMcpjsonServers)\[\d+\]$/,
+    /^enableAllProjectMcpServers$/,
+    /^(cleanupPeriodDays|companyAnnouncements|statusLine|outputStyle|language|respectGitignore|plansDirectory|alwaysThinkingEnabled|autoUpdatesChannel|spinnerTipsEnabled|showTurnDuration|prefersReducedMotion|spinnerVerbs\[\d+\])$/
+  ]);
+  return { entries, unknown };
+}
+function parseCodex2(raw, source) {
+  const parsed = parse2(raw);
+  const root = object(parsed);
+  if (!root) throw new Error("top level must be a table");
+  const entries = /* @__PURE__ */ new Map();
+  const model = scalar(root.model);
+  if (model) add(entries, "model", "codex-model", model, source);
+  const approval = scalar(root.approval_policy);
+  if (approval) add(entries, "approval", "codex-approval-policy", approval, source);
+  const sandboxMode = scalar(root.sandbox_mode);
+  if (sandboxMode) add(entries, "sandbox", "codex-sandbox-mode", sandboxMode, source);
+  const workspaceWrite = object(root.sandbox_workspace_write);
+  if (scalar(workspaceWrite?.network_access) === "true") add(entries, "network", "*", "workspace-write-network", source);
+  for (const path of strings(workspaceWrite?.writable_roots)) add(entries, "filesystem", path, "writable-root", source);
+  const servers = object(root.mcp_servers);
+  for (const [name, rawServer] of Object.entries(servers ?? {})) {
+    const server = object(rawServer);
+    if (!server || server.enabled === false) continue;
+    const urlHost = host(server.url);
+    add(entries, "server", `mcp:${name}`, `${urlHost ? "remote" : "stdio"}:${urlHost ?? safeExecutable(server.command)}`, source, serverFingerprint(server));
+    if (urlHost) add(entries, "network", urlHost, "mcp-server", source);
+    for (const key of Object.keys(object(server.env) ?? {})) add(entries, "secret", `env:${key}`, "referenced", source);
+    const bearerToken = scalar(server.bearer_token_env_var);
+    if (bearerToken) add(entries, "secret", `env:${bearerToken}`, "bearer-token", source);
+    for (const key of Object.keys(object(server.http_headers) ?? {})) add(entries, "secret", `header:${key}`, "referenced", source);
+    for (const key of Object.keys(object(server.env_http_headers) ?? {})) add(entries, "secret", `env-header:${key}`, "referenced", source);
+    for (const tool of strings(server.enabled_tools)) add(entries, "tool", `allow:${name}:${tool}`, "allowed", source);
+    for (const tool of strings(server.disabled_tools)) add(entries, "tool", `deny:${name}:${tool}`, "denied", source);
+  }
+  const unknown = flatten(parsed);
+  removeKnown(unknown, [
+    /^(model|model_provider|model_reasoning_effort|model_reasoning_summary|model_verbosity|approval_policy|sandbox_mode|web_search|disable_response_storage|show_raw_agent_reasoning|hide_agent_reasoning)$/,
+    /^sandbox_workspace_write\.(network_access|writable_roots\[\d+\])$/,
+    /^mcp_servers\.[^.]+\.(command|args\[\d+\]|env\.[^.]+|url|enabled|required|startup_timeout_sec|tool_timeout_sec|bearer_token_env_var|http_headers\.[^.]+|env_http_headers\.[^.]+|enabled_tools\[\d+\]|disabled_tools\[\d+\]|cwd)$/,
+    /^features\.[^.]+$/
+  ]);
+  return { entries, unknown };
+}
+function parseConfig(raw, source) {
+  if (Buffer.byteLength(raw) > MAX_CONFIG_BYTES) throw new Error(`file exceeds ${MAX_CONFIG_BYTES} bytes`);
+  if (source.endsWith("mcp.json")) return parseMcp(raw, source);
+  if (source.startsWith(".claude/")) return parseClaude2(raw, source);
+  if (source === ".codex/config.toml") return parseCodex2(raw, source);
+  throw new Error("unsupported authority configuration path");
+}
+function readAt(repo, ref, path) {
+  return gitOptional2(repo, ["show", `${ref}:${path}`]);
+}
+function snapshot(repo, ref) {
+  const entries = /* @__PURE__ */ new Map();
+  const unknown = /* @__PURE__ */ new Map();
+  const inspected = [];
+  for (const path of AUTHORITY_CONFIG_PATHS) {
+    const raw = readAt(repo, ref, path);
+    if (raw === void 0) continue;
+    inspected.push(path);
+    try {
+      const parsed = parseConfig(raw, path);
+      for (const [key, value] of parsed.entries) entries.set(`${path}\0${key}`, value);
+      for (const [key, value] of parsed.unknown) unknown.set(`${path}:${key}`, value);
+    } catch (error) {
+      unknown.set(`${path}:$parse`, sha256(`${error.message}\0${raw}`));
+    }
+  }
+  return { entries, unknown, inspected };
+}
+function isMutableModel(value) {
+  return /(?:^|[-_.])(latest|current|preview|nightly|dev|beta)(?:$|[-_.])/i.test(value) || !/\d/.test(value);
+}
+function approvalStrength(value) {
+  const normalized = value.toLowerCase();
+  if (/^(untrusted|default|ask|plan)$/.test(normalized)) return 4;
+  if (/^(on-request|on_request|acceptedits)$/.test(normalized)) return 3;
+  if (/^(on-failure|on_failure|dontask)$/.test(normalized)) return 2;
+  if (/^(never|bypasspermissions|bypass)$/.test(normalized)) return 0;
+  return 1;
+}
+function sandboxStrength(value) {
+  const normalized = value.toLowerCase();
+  if (/^(true|read-only|read_only)$/.test(normalized)) return 3;
+  if (/^(workspace-write|workspace_write)$/.test(normalized)) return 2;
+  if (/^(false|danger-full-access|danger_full_access|disabled)$/.test(normalized)) return 0;
+  return 1;
+}
+function permissiveBooleanStrength(value) {
+  const normalized = value.toLowerCase();
+  if (normalized === "false") return 3;
+  if (normalized === "true") return 0;
+  return 1;
+}
+function restrictiveBooleanStrength(value) {
+  const normalized = value.toLowerCase();
+  if (normalized === "true" || normalized === "disable") return 3;
+  if (normalized === "false" || normalized === "enable") return 0;
+  return 1;
+}
+function classify(before, after, policy) {
+  const item2 = after ?? before;
+  let effect = before && after ? "changed" : after ? "expanded" : "reduced";
+  let blocking = effect === "expanded";
+  let reason = effect === "expanded" ? "new authority requires review" : effect === "reduced" ? "authority was removed" : "authority changed";
+  if (item2.kind === "tool" && item2.subject.startsWith("deny:")) {
+    effect = after ? before ? "changed" : "reduced" : "expanded";
+    blocking = !after;
+    reason = after ? "a tool is now denied" : "a tool denial was removed";
+  } else if (item2.kind === "approval" && (item2.subject === "claude-disable-bypass-permissions" || item2.subject === "claude-allowManagedPermissionRulesOnly" || item2.subject === "claude-allowManagedHooksOnly")) {
+    const delta = (after ? restrictiveBooleanStrength(after.value) : 0) - (before ? restrictiveBooleanStrength(before.value) : 0);
+    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
+    blocking = delta <= 0;
+    reason = delta < 0 ? "an administrative restriction was weakened" : delta > 0 ? "an administrative restriction was strengthened" : "administrative restriction changed with no proven safer ordering";
+  } else if (item2.kind === "approval" && before && after) {
+    const delta = approvalStrength(after.value) - approvalStrength(before.value);
+    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
+    blocking = delta <= 0;
+    reason = delta < 0 ? "approval was weakened" : delta > 0 ? "approval was strengthened" : "approval mode changed with no proven safer ordering";
+  } else if (item2.kind === "sandbox" && item2.subject === "claude-enabled") {
+    const delta = (after ? sandboxStrength(after.value) : 0) - (before ? sandboxStrength(before.value) : 0);
+    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
+    blocking = delta < 0;
+    reason = delta < 0 ? "sandbox protection was weakened" : delta > 0 ? "sandbox protection was strengthened" : "sandbox setting did not change effective protection";
+  } else if (item2.kind === "sandbox" && item2.subject !== "codex-sandbox-mode") {
+    const delta = (after ? permissiveBooleanStrength(after.value) : 3) - (before ? permissiveBooleanStrength(before.value) : 3);
+    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
+    blocking = delta <= 0;
+    reason = delta < 0 ? "sandbox protection was weakened" : delta > 0 ? "sandbox protection was strengthened" : "sandbox setting changed with no proven safer ordering";
+  } else if (item2.kind === "sandbox" && before && after) {
+    const delta = sandboxStrength(after.value) - sandboxStrength(before.value);
+    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
+    blocking = delta <= 0;
+    reason = delta < 0 ? "sandbox protection was weakened" : delta > 0 ? "sandbox protection was strengthened" : "sandbox setting changed with no proven safer ordering";
+  } else if (item2.kind === "model" && before && after) {
+    const becameMutable = !isMutableModel(before.value) && isMutableModel(after.value);
+    effect = becameMutable ? "expanded" : "changed";
+    blocking = becameMutable;
+    reason = becameMutable ? "a pinned model became a mutable alias" : "model identity changed";
+  } else if (before && after) {
+    blocking = true;
+    reason = "effective authority changed";
+  }
+  const target = after ?? before;
+  const publicKey = `${item2.kind}:${item2.subject}=${after?.value ?? "removed"}`;
+  const approvalKey = target.fingerprint === sha256(target.value) ? publicKey : `${publicKey}@${target.fingerprint}`;
+  if (blocking && policy.approvedAdditions.includes(approvalKey)) {
+    blocking = false;
+    reason = `${reason}; approved by the base revision policy`;
+  }
+  return {
+    kind: item2.kind,
+    subject: item2.subject,
+    ...before ? { before: before.value } : {},
+    ...after ? { after: after.value } : {},
+    effect,
+    blocking,
+    reason,
+    source: item2.source,
+    approvalKey
+  };
+}
+function validatePolicy2(input) {
+  const root = object(input);
+  if (!root || root.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
+  const allowed = /* @__PURE__ */ new Set(["schemaVersion", "approvedAdditions", "allowUnknownChanges"]);
+  const extras = Object.keys(root).filter((key) => !allowed.has(key));
+  if (extras.length) throw new Error(`policy contains unknown field(s): ${extras.join(", ")}`);
+  if (!Array.isArray(root.approvedAdditions) || root.approvedAdditions.some((item2) => typeof item2 !== "string" || !item2.trim())) throw new Error("policy approvedAdditions must be an array of non-empty strings");
+  if (root.approvedAdditions.length > 1e3 || root.approvedAdditions.some((item2) => item2.length > 1e3)) throw new Error("policy approvedAdditions must contain at most 1000 entries of at most 1000 characters");
+  if (new Set(root.approvedAdditions).size !== root.approvedAdditions.length) throw new Error("policy approvedAdditions must not contain duplicates");
+  if (typeof root.allowUnknownChanges !== "boolean") throw new Error("policy allowUnknownChanges must be boolean");
+  return { schemaVersion: 1, approvedAdditions: [...new Set(root.approvedAdditions)], allowUnknownChanges: root.allowUnknownChanges };
+}
+function loadPolicy2(repo, base, path = ".agent-vigil-authority-plan.json") {
+  const clean = posix.normalize(path.replace(/^\.\//, ""));
+  if (!clean || clean === ".." || clean.startsWith("../") || clean.startsWith("/") || path.includes("\\") || path.includes(":")) {
+    throw new Error("authority plan policy path must stay inside the repository");
+  }
+  const raw = readAt(repo, base, clean);
+  if (raw === void 0) return { value: DEFAULT_POLICY, source: "built-in default", sha256: sha256(canonical(DEFAULT_POLICY)) };
+  if (Buffer.byteLength(raw) > MAX_CONFIG_BYTES) throw new Error("authority plan policy is too large");
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`authority plan policy at ${base}:${clean} is not valid JSON`);
+  }
+  const value = validatePolicy2(parsed);
+  return { value, source: `${clean}@${base}`, sha256: sha256(canonical(value)) };
+}
+function buildAuthorityPlan(repo, base, head, vigilVersion, policyPath) {
+  const baseSha = git6(repo, ["rev-parse", "--verify", `${base}^{commit}`]).trim();
+  const headSha = git6(repo, ["rev-parse", "--verify", `${head}^{commit}`]).trim();
+  const policy = loadPolicy2(repo, baseSha, policyPath);
+  const before = snapshot(repo, baseSha);
+  const after = snapshot(repo, headSha);
+  const keys = /* @__PURE__ */ new Set([...before.entries.keys(), ...after.entries.keys()]);
+  const changes = [];
+  for (const key of keys) {
+    const left = before.entries.get(key);
+    const right = after.entries.get(key);
+    if (left?.fingerprint === right?.fingerprint) continue;
+    changes.push(classify(left, right, policy.value));
+  }
+  changes.sort((a, b) => Number(b.blocking) - Number(a.blocking) || a.kind.localeCompare(b.kind) || a.subject.localeCompare(b.subject));
+  const unknownKeys = /* @__PURE__ */ new Set([...before.unknown.keys(), ...after.unknown.keys()]);
+  const uncertainties = [...unknownKeys].filter((key) => before.unknown.get(key) !== after.unknown.get(key)).map((key) => {
+    const separator = key.indexOf(":");
+    return {
+      source: key.slice(0, separator),
+      setting: key.slice(separator + 1),
+      reason: key.endsWith(":$parse") ? "the changed configuration could not be parsed" : "the changed setting is not normalized by this Agent Vigil version"
+    };
+  });
+  const changedConfigPaths = git6(repo, ["diff", "--name-only", "-z", baseSha, headSha]).split("\0").filter(Boolean).filter((path) => AUTHORITY_CONFIG_PATHS.includes(posix.normalize(path)));
+  const inspected = [.../* @__PURE__ */ new Set([...before.inspected, ...after.inspected, ...changedConfigPaths])].sort();
+  const blocking = changes.filter((change) => change.blocking).length;
+  const relevantUncertainty = policy.value.allowUnknownChanges ? 0 : uncertainties.length;
+  const status = blocking ? "FAIL" : relevantUncertainty ? "INCONCLUSIVE" : "PASS";
+  const reproduction = `vigil plan --repo . --base ${baseSha} --head ${headSha}`;
+  const payload = { schemaVersion: "1", vigilVersion, status, base: baseSha, head: headSha, policy: { source: policy.source, sha256: policy.sha256 }, inspected, changes, uncertainties, reproduction };
+  return {
+    ...payload,
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    receiptHash: sha256(canonical(payload)),
+    summary: { changes: changes.length, blocking, reduced: changes.filter((change) => change.effect === "reduced").length, uncertain: uncertainties.length }
+  };
+}
+function renderAuthorityPlan(report) {
+  const title = report.status === "PASS" ? "PASS" : report.status === "FAIL" ? "BLOCK" : "INCONCLUSIVE";
+  const lines = [`Agent authority plan: ${title}`, `Change: ${report.base.slice(0, 12)} -> ${report.head.slice(0, 12)}`, terminalSafe(`Policy: ${report.policy.source} (${report.policy.sha256})`), ""];
+  if (!report.changes.length && !report.uncertainties.length) lines.push("No effective authority changes found.");
+  for (const change of report.changes) {
+    const marker = change.blocking ? "!" : change.effect === "reduced" ? "-" : "~";
+    const values = change.before !== void 0 && change.after !== void 0 ? `  ${change.before} -> ${change.after}` : change.after !== void 0 ? `  + ${change.after}` : `  - ${change.before}`;
+    lines.push(terminalSafe(`${marker} ${change.kind.padEnd(10)} ${change.subject}${values}`));
+    if (change.blocking) lines.push(terminalSafe(`  review: ${change.reason}`));
+  }
+  for (const item2 of report.uncertainties) {
+    lines.push(terminalSafe(`? setting    ${item2.source}:${item2.setting}`));
+    lines.push(terminalSafe(`  review: ${item2.reason}`));
+  }
+  lines.push("", `${report.summary.changes} authority change(s), ${report.summary.blocking} blocking, ${report.summary.uncertain} uncertain`);
+  lines.push(`${report.status} \xB7 ${report.receiptHash}`, `Reproduce: ${report.reproduction}`);
+  return lines.join("\n");
+}
+function authorityPlanChecks(report) {
+  const results = [];
+  const advisories = [];
+  results.push({
+    claim: { kind: "authority_scope", subject: "agent authority configuration", quote: "the exact change does not expand unapproved agent authority" },
+    verdict: report.summary.blocking ? "contradicted" : report.status === "INCONCLUSIVE" ? "unverifiable" : "verified",
+    evidence: `${report.summary.changes} effective change(s), ${report.summary.blocking} blocking, ${report.summary.uncertain} uncertain; plan ${report.receiptHash}`,
+    ruleId: "authority-plan",
+    contributesToPass: false,
+    ...report.status === "INCONCLUSIVE" ? { blocksPass: true } : {}
+  });
+  for (const change of report.changes) {
+    const check = {
+      claim: { kind: "authority_scope", subject: `${change.kind}: ${change.subject}`, quote: "agent authority delta" },
+      verdict: change.blocking ? "contradicted" : "verified",
+      evidence: `${change.reason}; ${change.before ?? "absent"} -> ${change.after ?? "absent"} in ${change.source}`,
+      ruleId: `authority-${change.kind}`,
+      contributesToPass: false
+    };
+    if (change.blocking) results.push(check);
+    else advisories.push(check);
+  }
+  for (const item2 of report.uncertainties) {
+    const check = {
+      claim: { kind: "authority_scope", subject: `unrecognized setting: ${item2.source}:${item2.setting}`, quote: "changed authority configuration is fully understood" },
+      verdict: "unverifiable",
+      evidence: item2.reason,
+      ruleId: "authority-setting-unknown",
+      contributesToPass: false,
+      ...report.status === "INCONCLUSIVE" ? { blocksPass: true } : {}
+    };
+    if (report.status === "INCONCLUSIVE") results.push(check);
+    else advisories.push(check);
+  }
+  return { results, advisories };
+}
+
+// src/merge-group.ts
 function loadMergeGroupEvent(path) {
   const value = JSON.parse(readFileSync10(path, "utf8"));
   if (!value.merge_group?.base_sha || !value.merge_group?.head_sha) {
@@ -3819,9 +4973,9 @@ function loadMergeGroupEvent(path) {
   }
   return value;
 }
-function git6(repo, args) {
+function git7(repo, args) {
   try {
-    return execFileSync8("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync9("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -3855,7 +5009,7 @@ function buildMergeGroupReport(options) {
   if (policy.ref && resolveGitRef(repo, policy.ref) !== base) {
     throw new Error(`merge-group policy-ref ${policy.ref} does not match event base ${base}`);
   }
-  const eventHash = `sha256:${createHash8("sha256").update(readFileSync10(eventPath)).digest("hex")}`;
+  const eventHash = `sha256:${createHash9("sha256").update(readFileSync10(eventPath)).digest("hex")}`;
   const inputs = [eventPath, ...policy.path ? [policy.path] : []];
   const results = [];
   const advisories = [];
@@ -3865,7 +5019,7 @@ function buildMergeGroupReport(options) {
     `GitHub event binds base ${base} and merge-group head ${head}`,
     "merge-group-binding"
   ));
-  const ancestor = git6(repo, ["merge-base", "--is-ancestor", base, head]) !== void 0;
+  const ancestor = git7(repo, ["merge-base", "--is-ancestor", base, head]) !== void 0;
   results.push(result4(
     "merge-group head descends from its target base",
     ancestor ? "verified" : "contradicted",
@@ -3873,6 +5027,9 @@ function buildMergeGroupReport(options) {
     "merge-group-range"
   ));
   results.push(...checkWorkspaceBinding(repo, head, inputs));
+  const authorityPlan = authorityPlanChecks(buildAuthorityPlan(repo, base, head, VERSION));
+  results.push(...authorityPlan.results);
+  advisories.push(...authorityPlan.advisories);
   const testClaim = {
     kind: "tests_pass",
     quote: "trusted base policy verification passes on the composed merge-group commit",
@@ -3884,8 +5041,8 @@ function buildMergeGroupReport(options) {
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
   const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative6(repo, policy.path) : void 0;
-  const remote = git6(repo, ["config", "--get", "remote.origin.url"]);
-  const tree = git6(repo, ["rev-parse", `${head}^{tree}`]);
+  const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
+  const tree = git7(repo, ["rev-parse", `${head}^{tree}`]);
   const eventName = relative6(repo, eventPath) || eventPath;
   const reproduction = [
     "vigil merge-group",
@@ -3920,7 +5077,7 @@ function buildMergeGroupReport(options) {
 }
 
 // src/value.ts
-import { createHash as createHash9 } from "node:crypto";
+import { createHash as createHash10 } from "node:crypto";
 function nonNegative(value, name) {
   if (value !== void 0 && (!Number.isFinite(value) || value < 0)) throw new Error(`${name} must be a non-negative number`);
 }
@@ -3934,7 +5091,7 @@ function cardPayload(card) {
 }
 function recomputeValueCardHash(card) {
   const { cardHash: _cardHash, ...withoutHash } = card;
-  return `sha256:${createHash9("sha256").update(cardPayload(withoutHash)).digest("hex")}`;
+  return `sha256:${createHash10("sha256").update(cardPayload(withoutHash)).digest("hex")}`;
 }
 function buildValueCard(input) {
   nonNegative(input.values.budgetUsd, "budget USD");
@@ -4124,9 +5281,9 @@ function renderValueCardHtml(card) {
 }
 
 // src/github-evidence.ts
-import { createHash as createHash10 } from "node:crypto";
+import { createHash as createHash11 } from "node:crypto";
 import { readFileSync as readFileSync11, statSync as statSync4 } from "node:fs";
-import { basename as basename2, resolve as resolve9 } from "node:path";
+import { basename as basename3, resolve as resolve9 } from "node:path";
 var MAX_SOURCE_BYTES = 32 * 1024 * 1024;
 function timestamp(value) {
   if (typeof value !== "string" || !value.trim()) return void 0;
@@ -4156,7 +5313,7 @@ function readSource(path, kind) {
   }
   return {
     value,
-    source: { kind, file: basename2(path), bytes, sha256: `sha256:${createHash10("sha256").update(raw).digest("hex")}` }
+    source: { kind, file: basename3(path), bytes, sha256: `sha256:${createHash11("sha256").update(raw).digest("hex")}` }
   };
 }
 function pullObject(value) {
@@ -4266,7 +5423,7 @@ function payloadWithoutHash(bundle) {
 }
 function recomputeGitHubEvidenceHash(bundle) {
   const { evidenceHash: _hash, ...withoutHash } = bundle;
-  return `sha256:${createHash10("sha256").update(payloadWithoutHash(withoutHash)).digest("hex")}`;
+  return `sha256:${createHash11("sha256").update(payloadWithoutHash(withoutHash)).digest("hex")}`;
 }
 function buildGitHubEvidence(inputs) {
   const sources = [];
@@ -4480,13 +5637,13 @@ function renderValueComparisonHtml(comparison) {
 }
 
 // src/attestation.ts
-import { createHash as createHash11, createHmac, timingSafeEqual } from "node:crypto";
-import { execFileSync as execFileSync9 } from "node:child_process";
+import { createHash as createHash12, createHmac, timingSafeEqual } from "node:crypto";
+import { execFileSync as execFileSync10 } from "node:child_process";
 import { readFileSync as readFileSync13, statSync as statSync6 } from "node:fs";
-import { basename as basename3, resolve as resolve11 } from "node:path";
+import { basename as basename4, resolve as resolve11 } from "node:path";
 var ATTESTATION_PREDICATE_TYPE = "https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json";
-function sha256(buffer) {
-  return createHash11("sha256").update(buffer).digest("hex");
+function sha2562(buffer) {
+  return createHash12("sha256").update(buffer).digest("hex");
 }
 function fullGitHash(value) {
   return typeof value === "string" && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/i.test(value);
@@ -4515,7 +5672,7 @@ function loadReceipt(path) {
   if (!/^sha256:[0-9a-f]{64}$/i.test(report.policy?.sha256)) throw new Error("attestation requires a SHA-256 policy digest");
   if (!/^sha256:[0-9a-f]{64}$/i.test(report.receiptHash)) throw new Error("receipt has an invalid receiptHash");
   if (recomputeReceiptHash(report) !== report.receiptHash) throw new Error("receipt content does not match receiptHash");
-  return { report, bytes, fileSha256: sha256(bytes) };
+  return { report, bytes, fileSha256: sha2562(bytes) };
 }
 function buildAttestationPredicate(reportPath) {
   const { report, fileSha256 } = loadReceipt(reportPath);
@@ -4585,7 +5742,7 @@ function verifyGhAttestationOutput(reportPath, ghOutput) {
   let matched;
   for (const statement of statements) {
     if (statement.predicateType !== ATTESTATION_PREDICATE_TYPE) continue;
-    const subjectOk = subjectMatches(statement, basename3(reportPath), fileSha256);
+    const subjectOk = subjectMatches(statement, basename4(reportPath), fileSha256);
     const predicateOk = predicateMatches(statement.predicate, report, fileSha256);
     subjectDigestValid ||= subjectOk;
     predicateValid ||= predicateOk;
@@ -4601,7 +5758,7 @@ function verifyGhAttestationOutput(reportPath, ghOutput) {
     ...matched ? { predicate: matched } : {}
   };
 }
-var runGitHubCli = (args) => execFileSync9("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+var runGitHubCli = (args) => execFileSync10("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 function verifyGitHubAttestation(reportPath, repository2, trust = {}, executeGh = runGitHubCli) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository2)) throw new Error("repository must be owner/name");
   const signerWorkflow = trust.signerWorkflow ?? `${repository2}/.github/workflows/agent-vigil.yml`;
@@ -4668,7 +5825,7 @@ function buildNotaryCheck(reportPath, verification2, expectedHead, expectedPolic
 
 // src/upgrade/cli.ts
 import { realpathSync as realpathSync8, statSync as statSync8 } from "node:fs";
-import { basename as basename5, dirname as dirname8, isAbsolute as isAbsolute7, relative as relative11, resolve as resolve16, sep as sep9 } from "node:path";
+import { basename as basename6, dirname as dirname8, isAbsolute as isAbsolute7, relative as relative11, resolve as resolve16, sep as sep9 } from "node:path";
 
 // src/upgrade/contracts.ts
 import { lstatSync as lstatSync3, readFileSync as readFileSync14, realpathSync as realpathSync3 } from "node:fs";
@@ -4677,7 +5834,7 @@ var UPGRADE_CONFIG_SCHEMA = "agent-vigil-upgrade-config/v1";
 var CANARY_SCHEMA = "agent-vigil-upgrade-canary/v1";
 var PRIVATE_RECEIPT_SCHEMA = "agent-vigil-upgrade-receipt/v1";
 var PUBLIC_ENTRY_SCHEMA = "agent-vigil-compatibility-entry/v1";
-function object(value, label) {
+function object2(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
   }
@@ -4729,12 +5886,12 @@ function imageDigest(value) {
   );
 }
 function validateUpgradeConfig(input) {
-  const root = object(input, "upgrade config");
+  const root = object2(input, "upgrade config");
   exactKeys2(root, ["schemaVersion", "component", "runner", "canaryDirectory", "canaries"], "upgrade config");
   if (root.schemaVersion !== UPGRADE_CONFIG_SCHEMA) {
     throw new Error(`upgrade config schemaVersion must be ${UPGRADE_CONFIG_SCHEMA}`);
   }
-  const component = object(root.component, "component");
+  const component = object2(root.component, "component");
   exactKeys2(component, ["ecosystem", "name", "manifestPath", "identityField", "versionField", "capabilityFields"], "component");
   const capabilityFields = component.capabilityFields;
   if (!Array.isArray(capabilityFields) || capabilityFields.length > 32) {
@@ -4744,14 +5901,14 @@ function validateUpgradeConfig(input) {
   if (new Set(parsedCapabilities).size !== parsedCapabilities.length) {
     throw new Error("component.capabilityFields must not contain duplicates");
   }
-  const runner = object(root.runner, "runner");
+  const runner = object2(root.runner, "runner");
   exactKeys2(runner, ["engine", "image", "trials", "memoryMiB", "cpus", "pids"], "runner");
   if (runner.engine !== "docker") throw new Error("runner.engine must be docker");
   if (!Array.isArray(root.canaries) || root.canaries.length < 1 || root.canaries.length > 32) {
     throw new Error("canaries must contain from 1 to 32 entries");
   }
   const canaries = root.canaries.map((item2, index) => {
-    const canary = object(item2, `canaries[${index}]`);
+    const canary = object2(item2, `canaries[${index}]`);
     exactKeys2(canary, ["id", "publicId", "command", "timeoutSeconds"], `canaries[${index}]`);
     const id = boundedString(canary.id, `canaries[${index}].id`, 80, /^[a-z0-9][a-z0-9._-]*$/);
     const publicId = canary.publicId === void 0 ? void 0 : boundedString(canary.publicId, `canaries[${index}].publicId`, 80, /^[a-z0-9][a-z0-9._-]*$/);
@@ -4858,11 +6015,11 @@ function loadUpgradeConfig(path) {
   return validateUpgradeConfig(readBoundedJson(path, 256 * 1024, "upgrade config"));
 }
 function validateCanaryDocument(input) {
-  const root = object(input, "canary output");
+  const root = object2(input, "canary output");
   exactKeys2(root, ["schemaVersion", "outcome", "observations"], "canary output");
   if (root.schemaVersion !== CANARY_SCHEMA) throw new Error(`canary output schemaVersion must be ${CANARY_SCHEMA}`);
   if (root.outcome !== "PASS" && root.outcome !== "FAIL") throw new Error("canary output outcome must be PASS or FAIL");
-  const observations = object(root.observations, "canary observations");
+  const observations = object2(root.observations, "canary observations");
   if (Object.keys(observations).length < 1) throw new Error("canary observations must contain at least one field");
   if (Object.keys(observations).length > 64) throw new Error("canary observations contain more than 64 fields");
   const parsed = {};
@@ -4880,7 +6037,7 @@ function validateCanaryDocument(input) {
 import {
   createPrivateKey as createPrivateKey3,
   createPublicKey as createPublicKey3,
-  createHash as createHash14,
+  createHash as createHash15,
   randomBytes as randomBytes3,
   sign as sign3,
   verify as verify3
@@ -4888,24 +6045,15 @@ import {
 import { lstatSync as lstatSync5, readFileSync as readFileSync16, realpathSync as realpathSync6 } from "node:fs";
 import { dirname as dirname6, isAbsolute as isAbsolute6, relative as relative9, resolve as resolve14, sep as sep7 } from "node:path";
 
-// src/upgrade/presentation.ts
-var TERMINAL_UNSAFE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu;
-function terminalSafe(value) {
-  return value.replace(TERMINAL_UNSAFE, (character) => {
-    const codePoint = character.codePointAt(0);
-    return `\\u{${(codePoint ?? 0).toString(16).toUpperCase().padStart(4, "0")}}`;
-  });
-}
-
 // src/upgrade/decision.ts
-import { createHash as createHash12 } from "node:crypto";
+import { createHash as createHash13 } from "node:crypto";
 import { lstatSync as lstatSync4, readdirSync, readFileSync as readFileSync15, realpathSync as realpathSync4 } from "node:fs";
-import { basename as basename4, dirname as dirname5, join as join5, relative as relative8, resolve as resolve13, sep as sep6 } from "node:path";
+import { basename as basename5, dirname as dirname5, join as join5, relative as relative8, resolve as resolve13, sep as sep6 } from "node:path";
 var MAX_FILES = 4096;
 var MAX_FILE_BYTES = 4 * 1024 * 1024;
 var MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 function hash(value) {
-  return `sha256:${createHash12("sha256").update(value).digest("hex")}`;
+  return `sha256:${createHash13("sha256").update(value).digest("hex")}`;
 }
 function lookup(root, field) {
   let value = root;
@@ -4981,7 +6129,7 @@ function inspectTarget(directory, component) {
   try {
     manifest = JSON.parse(manifestBytes.toString("utf8"));
   } catch {
-    throw new Error(`${basename4(component.manifestPath)} is not valid JSON`);
+    throw new Error(`${basename5(component.manifestPath)} is not valid JSON`);
   }
   const name = lookup(manifest, component.identityField);
   const version = lookup(manifest, component.versionField);
@@ -5086,7 +6234,7 @@ function decideUpgrade(containment, current, candidate, canaries) {
 }
 
 // src/upgrade/sandbox.ts
-import { createHash as createHash13, randomBytes as randomBytes2 } from "node:crypto";
+import { createHash as createHash14, randomBytes as randomBytes2 } from "node:crypto";
 import { spawnSync as spawnSync3 } from "node:child_process";
 import { accessSync, constants as constants2, realpathSync as realpathSync5, statSync as statSync7 } from "node:fs";
 import { isAbsolute as isAbsolute5 } from "node:path";
@@ -5104,6 +6252,7 @@ var PROXY_NAMES = [
 ];
 var RESOLVED_DOCKER_CLIENT = Symbol("resolved-docker-client");
 var DOCKER_CONTROL_TIMEOUT_MS = 1e4;
+var CONTAINMENT_PROBE_TIMEOUT_MS = 15e3;
 var DOCKER_ENDPOINT_ENV = /* @__PURE__ */ new Set([
   "DOCKER_CERT_PATH",
   "DOCKER_CONFIG",
@@ -5244,7 +6393,7 @@ function dockerEnvironment(client, additions = {}) {
   return environment;
 }
 function digest2(value) {
-  return `sha256:${createHash13("sha256").update(value).digest("hex")}`;
+  return `sha256:${createHash14("sha256").update(value).digest("hex")}`;
 }
 function mountedPath(path, label) {
   const canonicalPath = realpathSync5(path);
@@ -5411,7 +6560,7 @@ function probeContainment(config, targetDirectory, canaryDirectory, selection = 
   try {
     result5 = spawnSync3(client.executable, dockerArgs(client, args), {
       encoding: "utf8",
-      timeout: 5e3,
+      timeout: CONTAINMENT_PROBE_TIMEOUT_MS,
       killSignal: "SIGKILL",
       maxBuffer: 64 * 1024,
       env: dockerEnvironment(client, { VIGIL_UPGRADE_PROBE_SECRET: secret })
@@ -5545,7 +6694,7 @@ var LIMITATIONS = [
   "Network-disabled offline canaries do not establish live provider, model-alias, authentication, or production behavior."
 ];
 function hash2(value) {
-  return `sha256:${createHash14("sha256").update(value).digest("hex")}`;
+  return `sha256:${createHash15("sha256").update(value).digest("hex")}`;
 }
 function publicCanaryPseudonym(receiptNonce, privateCanaryId) {
   return hash2(canonical({
@@ -6044,7 +7193,7 @@ function renderBreakageIndex(entries) {
 }
 
 // src/upgrade/setup.ts
-import { execFileSync as execFileSync10 } from "node:child_process";
+import { execFileSync as execFileSync11 } from "node:child_process";
 import {
   chmodSync as chmodSync2,
   existsSync as existsSync5,
@@ -6064,7 +7213,7 @@ function ensureRepository(path) {
   if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("--repo must be a regular directory, not a symbolic link");
   const repository2 = realpathSync7(requested);
   try {
-    const prefix = execFileSync10("git", ["rev-parse", "--show-prefix"], {
+    const prefix = execFileSync11("git", ["rev-parse", "--show-prefix"], {
       cwd: repository2,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
@@ -6267,7 +7416,7 @@ function insideRepository(repositoryPath, value, label) {
 function outputIdentity(path) {
   const parent = realpathSync8(dirname8(resolve16(path)));
   const status = statSync8(parent, { bigint: true });
-  const name = basename5(path);
+  const name = basename6(path);
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.endsWith(".") || name.endsWith(" ") || name.includes("~")) {
     throw new Error(`output basename is not portable and collision-safe: ${name}`);
   }
@@ -6298,7 +7447,7 @@ function assertOutputsOutsideRoots(outputs, roots) {
     const root = realpathSync8(rootPath);
     for (const output of outputs) {
       const parent = realpathSync8(dirname8(resolve16(output)));
-      const target = resolve16(parent, basename5(output));
+      const target = resolve16(parent, basename6(output));
       const rel = relative11(root, target);
       if (rel === "" || !isAbsolute7(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`)) {
         throw new Error("requested output path must remain outside current, candidate, and canary input trees");
@@ -6462,6 +7611,7 @@ Usage:
   vigil init --profile maintainer [--repo <path>] [--force] [--attest]
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
+  vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
@@ -6517,6 +7667,40 @@ Value options:
   --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS \xB7 1 FAIL \xB7 2 INCONCLUSIVE or usage error`;
+}
+function runPlan(args) {
+  try {
+    const allowed = /* @__PURE__ */ new Set(["plan", "--repo", "--base", "--head", "--policy", "--format", "--output", "--json"]);
+    const takesValue = /* @__PURE__ */ new Set(["--repo", "--base", "--head", "--policy", "--format", "--output"]);
+    for (let index = 1; index < args.length; index++) {
+      const arg = args[index];
+      if (!allowed.has(arg)) throw new Error(`unknown plan argument: ${arg}`);
+      if (takesValue.has(arg)) {
+        if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${arg} requires a value`);
+        index += 1;
+      }
+    }
+    const repo = resolve17(optionValue(args, "--repo") ?? ".");
+    const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_BASE_SHA ?? "HEAD~1";
+    const headRef = optionValue(args, "--head") ?? process.env.GITHUB_HEAD_SHA ?? "HEAD";
+    if (!existsSync6(repo)) throw new Error(`repository not found: ${repo}`);
+    if (!gitRefExists(repo, baseRef) || !gitRefExists(repo, headRef)) throw new Error(`invalid git range ${baseRef}..${headRef}`);
+    const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
+    if (!(/* @__PURE__ */ new Set(["text", "json"])).has(format)) throw new Error("plan --format must be text or json");
+    const policyPath = optionValue(args, "--policy");
+    if (policyPath && (isAbsolute8(policyPath) || policyPath === ".." || policyPath.startsWith("../") || policyPath.includes("\\"))) {
+      throw new Error("plan --policy must be a repository-relative POSIX path");
+    }
+    const report = buildAuthorityPlan(repo, baseRef, headRef, VERSION, policyPath);
+    const output = optionValue(args, "--output");
+    if (output) writePrivateFileAtomic(resolve17(output), `${JSON.stringify(report, null, 2)}
+`);
+    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderAuthorityPlan(report));
+    return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
 }
 function parseArgs(args) {
   const options = {
@@ -6655,6 +7839,9 @@ function runMaintainer(args) {
     const results = [...checkWorkspaceBinding(repo, head, inputs)];
     const advisories = [];
     results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer));
+    const authorityPlan = authorityPlanChecks(buildAuthorityPlan(repo, base, head, VERSION));
+    results.push(...authorityPlan.results);
+    advisories.push(...authorityPlan.advisories);
     if (policy.value.testCommand) {
       results.push(...checkTestsPass([{ kind: "tests_pass", quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" }], repo, policy.value.testCommand));
       results.push(...checkWorkspaceMutation(repo, inputs, head));
@@ -6663,10 +7850,10 @@ function runMaintainer(args) {
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     const rawEvent = readFileSync19(eventPath);
-    const eventHash = `sha256:${createHash15("sha256").update(rawEvent).digest("hex")}`;
+    const eventHash = `sha256:${createHash16("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative12(repo, policy.path) : void 0;
-    const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = git7(repo, ["rev-parse", `${head}^{tree}`]);
+    const remote = git8(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git8(repo, ["rev-parse", `${head}^{tree}`]);
     const reproduction = [
       "vigil maintainer",
       "--event",
@@ -7021,7 +8208,7 @@ function runValue(args) {
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
       const evidence = readBoundedFile(resolve17(path), 64 * 1024 * 1024, label);
-      return `sha256:${createHash15("sha256").update(evidence).digest("hex")}`;
+      return `sha256:${createHash16("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
     const github = options.githubEvidence ? loadGitHubEvidence(resolve17(options.githubEvidence)) : void 0;
@@ -7154,7 +8341,7 @@ function runAudit(args) {
     const raw = readFileSync19(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest3 = `sha256:${createHash15("sha256").update(raw).digest("hex")}`;
+    const digest3 = `sha256:${createHash16("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -7173,7 +8360,7 @@ function runAudit(args) {
       head: digest3,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash15("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash16("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -7199,8 +8386,8 @@ function runTestIntegrity(args) {
       if (check.ruleId === "integrity-scan" && check.verdict === "verified") check.contributesToPass = true;
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
-    const diff = execFileSync11("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    const digest3 = `sha256:${createHash15("sha256").update(diff).digest("hex")}`;
+    const diff = execFileSync12("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const digest3 = `sha256:${createHash16("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
       transcript: `${base}..${head}`,
@@ -7215,11 +8402,11 @@ function runTestIntegrity(args) {
         minVerified: 1,
         strict: true,
         source: policyName,
-        sha256: `sha256:${createHash15("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
+        sha256: `sha256:${createHash16("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
       },
       repository: {
-        ...git7(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git7(repo, ["config", "--get", "remote.origin.url"]) } : {},
-        ...head !== "WORKTREE" && git7(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git7(repo, ["rev-parse", `${head}^{tree}`]) } : {}
+        ...git8(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git8(repo, ["config", "--get", "remote.origin.url"]) } : {},
+        ...head !== "WORKTREE" && git8(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git8(repo, ["rev-parse", `${head}^{tree}`]) } : {}
       },
       reproduction: `vigil test-integrity --repo . --base ${base} --head ${head}${options.strict ? " --strict" : ""}`
     });
@@ -7270,8 +8457,8 @@ function runAuthority(args) {
       ruleId: "authority-contract-anchor",
       contributesToPass: false
     });
-    const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = git7(repo, ["rev-parse", `${head}^{tree}`]);
+    const remote = git8(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = git8(repo, ["rev-parse", `${head}^{tree}`]);
     const relativeTranscript = relative12(repo, transcriptPath) || transcriptOption;
     const reproduction = [
       "vigil authority",
@@ -7308,9 +8495,9 @@ function runAuthority(args) {
     return 2;
   }
 }
-function git7(repo, args) {
+function git8(repo, args) {
   try {
-    return execFileSync11("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync12("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -7322,6 +8509,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
+  if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);
   if (argv[0] === "init") return runInit2(argv);
   if (argv[0] === "doctor") return runDoctor2(argv);
@@ -7416,8 +8604,8 @@ ${usage2()}`);
     advisories.push(...integrity.advisories);
     results.push(...checkCompletion(claims, repo, base, head, results));
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative12(repo, policy.path) : void 0;
-    const remote = git7(repo, ["config", "--get", "remote.origin.url"]);
-    const tree = head === "WORKTREE" ? void 0 : git7(repo, ["rev-parse", `${head}^{tree}`]);
+    const remote = git8(repo, ["config", "--get", "remote.origin.url"]);
+    const tree = head === "WORKTREE" ? void 0 : git8(repo, ["rev-parse", `${head}^{tree}`]);
     const relativeTranscript = relative12(repo, transcriptPath) || transcript;
     const reproduction = [
       "vigil",
@@ -7476,3 +8664,42 @@ if (isMainModule()) process.exit(run());
 export {
   run
 };
+/*! Bundled license information:
+
+smol-toml/dist/date.js:
+smol-toml/dist/error.js:
+smol-toml/dist/util.js:
+smol-toml/dist/primitive.js:
+smol-toml/dist/extract.js:
+smol-toml/dist/struct.js:
+smol-toml/dist/parse.js:
+smol-toml/dist/stringify.js:
+smol-toml/dist/index.js:
+  (*!
+   * Copyright (c) Squirrel Chat et al., All rights reserved.
+   * SPDX-License-Identifier: BSD-3-Clause
+   *
+   * Redistribution and use in source and binary forms, with or without
+   * modification, are permitted provided that the following conditions are met:
+   *
+   * 1. Redistributions of source code must retain the above copyright notice, this
+   *    list of conditions and the following disclaimer.
+   * 2. Redistributions in binary form must reproduce the above copyright notice,
+   *    this list of conditions and the following disclaimer in the
+   *    documentation and/or other materials provided with the distribution.
+   * 3. Neither the name of the copyright holder nor the names of its contributors
+   *    may be used to endorse or promote products derived from this software without
+   *    specific prior written permission.
+   *
+   * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+   * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+   * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+   * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+   * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+   * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+   * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+   * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+   * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+   * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+   *)
+*/

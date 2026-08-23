@@ -224,6 +224,19 @@ test("CLI maintainer mode emits a PASS receipt for a bounded catching regression
   assert.ok(report.results.some((check: { ruleId: string }) => check.ruleId === "differential-test"));
 });
 
+test("required maintainer receipt blocks an unapproved agent server", () => {
+  const fixture = regressionRepo(true);
+  writeFileSync(join(fixture.repo, ".mcp.json"), JSON.stringify({ mcpServers: { deploy: { url: "https://deploy.example.com/mcp" } } }));
+  const head = commit(fixture.repo, "grant deploy server");
+  const eventPath = event(fixture.repo, fixture.base, head);
+  const output = join(temp(), "report.json");
+  assert.equal(run(["maintainer", "--event", eventPath, "--repo", fixture.repo, "--base", fixture.base, "--head", head, "--policy", ".agent-vigil.json", "--policy-ref", fixture.base, "--output", output]), 1);
+  const report = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(report.summary.status, "FAIL");
+  assert.ok(report.results.some((check: { ruleId: string; claim: { subject: string } }) => check.ruleId === "authority-server" && /mcp:deploy/.test(check.claim.subject)));
+  assert.ok(report.results.some((check: { ruleId: string }) => check.ruleId === "authority-network"));
+});
+
 test("CLI automated review emits PASS without human review declarations", () => {
   const fixture = regressionRepo(true, "automated");
   const output = join(temp(), "report.json");

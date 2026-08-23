@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/authority-plan-policy-v1.schema.json",
+  "title": "Agent Vigil Authority Plan policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "approvedAdditions", "allowUnknownChanges"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "approvedAdditions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 },
+      "maxItems": 1000
+    },
+    "allowUnknownChanges": { "type": "boolean" }
+  }
+}
