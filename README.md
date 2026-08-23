@@ -499,10 +499,12 @@ queued composition is checked against the exact `merge_group.base_sha` and
 combined commit. See [the merge-queue contract](docs/MERGE_QUEUES.md).
 
 `mode: upgrade` is a separate APM compatibility check. It reads both lockfiles
-from the exact event commits, creates a detached trusted-base worktree for the
-configuration and canaries, materializes the selected exact pair into temporary
+and the trusted harness directly from exact event Git objects using plumbing
+commands under a sanitized environment. It rejects any base-to-head harness
+change, materializes the selected exact pair into runner-owned temporary
 directories, runs the contained comparison, and removes the session before it
-returns. It never updates the active APM installation. See the
+returns. It never checks out repository code or updates the active APM
+installation. See the
 [APM preflight Action contract](docs/APM_PREFLIGHT_ACTION.md) and the
 [complete workflow](examples/upgrade-guard/github-workflow.yml).
 

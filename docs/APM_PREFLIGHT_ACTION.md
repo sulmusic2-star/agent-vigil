@@ -47,20 +47,22 @@ client, or fetch-client inputs to candidate workflow code. It:
 
 1. requires the caller's `base` and `head` inputs to equal the event payload;
 2. requires `repo` to resolve to the GitHub-managed workspace and reads both
-   lockfiles with `git show <exact-sha>:apm.lock.yaml` rather than
-   trusting the checked-out candidate file;
+   lockfiles as exact regular blobs through sanitized `git ls-tree` and
+   `git cat-file` plumbing rather than trusting the checkout;
 3. rejects a missing lockfile or one larger than 4 MiB before materialization;
-4. creates a detached worktree at the exact base commit and loads the config
-   and canaries only from its fixed `.agent-vigil/upgrade/config.json`;
+4. requires the base and head `.agent-vigil/upgrade` tree identities to match,
+   rejects links, submodules, extras, collisions, and unsafe paths, and
+   materializes the exact base config and canary blobs into a private
+   runner-owned directory without running checkout hooks or filters;
 5. permits only exact, credential-free GitHub commit archive acquisition through
    the preflight's fixed, sanitized `curl` boundary;
 6. passes both temporary artifacts through Upgrade Guard's planted containment
    probe and repeated canaries; and
 7. requires `restoration.status=RESTORED`, `sessionRemoved=true`, and
    `hostMutation=NONE` before `SAFE` or `CHANGED` can be returned; and
-8. removes the detached trusted-base worktree before publishing Action outputs.
-   Cleanup failure deletes the temporary wrapper and forces exit `2` rather
-   than exposing a stale non-`HOLD` status.
+8. removes the runner-owned trusted-input directory before publishing Action
+   outputs. Cleanup failure deletes the temporary wrapper and forces exit `2`
+   rather than exposing a stale non-`HOLD` status.
 
 The private `agent-vigil-apm-preflight/v1` wrapper binds the plan, selected
 pair, acquired artifact bytes and tree identities, nested Upgrade Guard receipt,
