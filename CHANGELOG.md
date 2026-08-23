@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.14.1 - 2026-08-23
+
+- Correct Marketplace wording now that Agent Authority Plan is released.
+- Point CLI examples at the verified GitHub release package while the npm
+  registry remains on an older version.
+
 ## 0.14.0 - 2026-08-23
 
 - Add `vigil plan`, an exact-base/exact-head authority diff for repository MCP,
