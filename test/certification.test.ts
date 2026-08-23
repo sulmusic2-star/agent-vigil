@@ -289,3 +289,24 @@ test("certify CLI creates a private record, corpus, policy, and deterministic st
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("certify signed CLI creates a pinned V2 certificate and adds it to a corpus", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vigil-certify-signed-cli-"));
+  try {
+    const privateKey = join(directory, "provider-private.pem");
+    const publicKey = join(directory, "provider-public.pem");
+    const payloadPath = join(directory, "payload.json");
+    const proofPath = join(directory, "signed-proof.json");
+    const certificatePath = join(directory, "signed-certificate.json");
+    const corpusPath = join(directory, "corpus.jsonl");
+    generateSigningKey(privateKey, publicKey);
+    writeFileSync(payloadPath, `${JSON.stringify(signedPayload())}\n`);
+    assert.equal(run(["certify", "sign", payloadPath, "--private-key", privateKey, "--output", proofPath]), 0);
+    assert.equal(run(["certify", "record-signed", proofPath, "--public-key", publicKey, "--organization", "example", "--repository", "example/api", "--required-check", "Independent AI control", "--output", certificatePath]), 0);
+    assert.equal(run(["certify", "add", certificatePath, "--corpus", corpusPath]), 0);
+    const entries = parseCorpus(readFileSync(corpusPath, "utf8"));
+    assert.equal(entries[0].schemaVersion, "agent-vigil-control-corpus-entry/v2");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

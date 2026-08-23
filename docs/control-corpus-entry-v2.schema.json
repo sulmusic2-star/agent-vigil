@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/control-corpus-entry-v2.schema.json",
+  "title": "Signed control certification corpus entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sequence", "previousEntryHash", "certificate", "entryHash"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-control-corpus-entry/v2" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "previousEntryHash": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/hash" }] },
+    "certificate": { "$ref": "control-certificate-v2.schema.json" },
+    "entryHash": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+}
