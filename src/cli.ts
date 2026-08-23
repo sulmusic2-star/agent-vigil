@@ -56,6 +56,18 @@ import { runUpgradeCommand } from "./upgrade/cli.ts";
 import { authorityPlanChecks, buildAuthorityPlan, renderAuthorityPlan, renderAuthorityPlanMarkdown } from "./authority-plan.ts";
 import { renderProofComment } from "./proof-comment.ts";
 import { buildControlProof, renderControlProof } from "./control-proof.ts";
+import {
+  CONTROL_POLICY_PACKS,
+  appendCorpusEntry,
+  buildStatusReport,
+  createCertificate,
+  createSingleRepositoryPolicy,
+  loadCorpus,
+  loadPolicy as loadCertificationPolicy,
+  renderStatusReport,
+  validateCertificate,
+} from "./certification.ts";
+import { readBoundedJson } from "./upgrade/contracts.ts";
 
 type Options = {
   transcript?: string;
@@ -86,6 +98,10 @@ Usage:
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
+  vigil certify record <control-proof.json> --organization <name> --repository <owner/name> --required-check <name> --output <path>
+  vigil certify add <certificate.json> --corpus <corpus.jsonl>
+  vigil certify status --corpus <corpus.jsonl> --policy <policy.json> [--as-of <time>] [--format text|json] [--output <path>]
+  vigil certify policy --organization <name> --repository <owner/name> --required-check <name> --pack baseline|authority --output <path>
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
@@ -168,6 +184,69 @@ function runProve(args: string[]): number {
     if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderControlProof(report));
     return report.status === "PASS" ? 0 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runCertify(args: string[]): number {
+  try {
+    const command = args[1];
+    if (command === "record") {
+      const parsed = parseCommandArgs(args.slice(1), new Set(["--organization", "--repository", "--required-check", "--output"]));
+      if (parsed.positional.length !== 1) throw new Error("certify record requires exactly one control-proof JSON path");
+      const organization = parsed.values.get("--organization");
+      const repository = parsed.values.get("--repository");
+      const requiredCheck = parsed.values.get("--required-check");
+      const output = parsed.values.get("--output");
+      if (!organization || !repository || !requiredCheck || !output) throw new Error("certify record requires --organization, --repository, --required-check, and --output");
+      const proof = readBoundedJson(resolve(parsed.positional[0]), 2 * 1024 * 1024, "control proof");
+      const certificate = createCertificate({ proof, organization, repository, requiredCheck });
+      writePrivateFileAtomic(resolve(output), `${JSON.stringify(certificate, null, 2)}\n`);
+      console.log(`Control certificate: ${certificate.proof.status} · ${certificate.certificateHash}`);
+      return certificate.proof.status === "PASS" ? 0 : 2;
+    }
+    if (command === "add") {
+      const parsed = parseCommandArgs(args.slice(1), new Set(["--corpus"]));
+      const corpus = parsed.values.get("--corpus");
+      if (parsed.positional.length !== 1 || !corpus) throw new Error("certify add requires <certificate.json> --corpus <corpus.jsonl>");
+      const certificate = validateCertificate(readBoundedJson(resolve(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
+      const corpusPath = resolve(corpus);
+      const current = loadCorpus(corpusPath).map((entry) => JSON.stringify(entry)).join("\n");
+      const { entry, line } = appendCorpusEntry(current, certificate);
+      appendPrivateFileAtomic(corpusPath, line);
+      console.log(`Added certificate ${entry.sequence} · ${entry.entryHash}`);
+      return 0;
+    }
+    if (command === "status") {
+      const parsed = parseCommandArgs(args.slice(1), new Set(["--corpus", "--policy", "--as-of", "--format", "--output"]));
+      const corpus = parsed.values.get("--corpus");
+      const policy = parsed.values.get("--policy");
+      if (!corpus || !policy || parsed.positional.length) throw new Error("certify status requires --corpus <corpus.jsonl> --policy <policy.json>");
+      const format = parsed.values.get("--format") ?? "text";
+      if (format !== "text" && format !== "json") throw new Error("certify status --format must be text or json");
+      const report = buildStatusReport(loadCertificationPolicy(resolve(policy)), loadCorpus(resolve(corpus)), parsed.values.get("--as-of") ?? new Date().toISOString());
+      const rendered = format === "json" ? `${JSON.stringify(report, null, 2)}\n` : `${renderStatusReport(report)}\n`;
+      const output = parsed.values.get("--output");
+      if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
+      process.stdout.write(rendered);
+      return report.status === "PASS" ? 0 : 2;
+    }
+    if (command === "policy") {
+      const parsed = parseCommandArgs(args.slice(1), new Set(["--organization", "--repository", "--required-check", "--pack", "--max-age-hours", "--output"]));
+      const organization = parsed.values.get("--organization");
+      const repository = parsed.values.get("--repository");
+      const requiredCheck = parsed.values.get("--required-check");
+      const output = parsed.values.get("--output");
+      const pack = parsed.values.get("--pack") ?? "authority";
+      if (!organization || !repository || !requiredCheck || !output || parsed.positional.length) throw new Error("certify policy requires --organization, --repository, --required-check, and --output");
+      if (!(pack in CONTROL_POLICY_PACKS)) throw new Error("certify policy --pack must be baseline or authority");
+      const maxAgeRaw = parsed.values.get("--max-age-hours");
+      const maxAgeHours = maxAgeRaw === undefined ? undefined : Number(maxAgeRaw);
+      const generated = createSingleRepositoryPolicy({ organization, repository, requiredCheck, pack: pack as keyof typeof CONTROL_POLICY_PACKS, ...(maxAgeHours === undefined ? {} : { maxAgeHours }) });
+      writePrivateFileAtomic(resolve(output), `${JSON.stringify(generated, null, 2)}\n`);
+      console.log(`Created ${pack} control policy with a ${generated.maxAgeHours}-hour proof window.`);
+      return 0;
+    }
+    throw new Error("certify requires record, add, status, or policy");
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -985,6 +1064,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
   if (argv[0] === "prove") return runProve(argv);
+  if (argv[0] === "certify") return runCertify(argv);
   if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "proof-comment") return runProofComment(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);

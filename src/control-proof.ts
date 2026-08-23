@@ -296,6 +296,7 @@ export function buildControlProof(repo: string, base: string, vigilVersion: stri
     vigilVersion,
     status,
     sourceCommit,
+    generatedAt: new Date().toISOString(),
     challenges,
     summary: { passed: challenges.filter((item) => item.passed).length, total: challenges.length },
     reproduction,
@@ -303,7 +304,6 @@ export function buildControlProof(repo: string, base: string, vigilVersion: stri
   };
   return {
     ...payload,
-    generatedAt: new Date().toISOString(),
     receiptHash: digest(payload),
   };
 }
