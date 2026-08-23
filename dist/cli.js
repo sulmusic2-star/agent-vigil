@@ -4567,11 +4567,20 @@ function atom(input) {
     comparisonToken: sha256(canonical(input.comparisonValue)),
     added: input.added,
     removed: input.removed,
+    ...input.conditionalOn ? { conditionalOn: input.conditionalOn } : {},
     ...input.compare ? { compare: input.compare } : {}
   };
 }
 function publicAtom(value) {
-  const { semanticKey: _key, comparisonToken: _token, added: _added, removed: _removed, compare: _compare, ...safe } = value;
+  const {
+    semanticKey: _key,
+    comparisonToken: _token,
+    added: _added,
+    removed: _removed,
+    conditionalOn: _conditionalOn,
+    compare: _compare,
+    ...safe
+  } = value;
   return safe;
 }
 function decisionRelation(before, after) {
@@ -4855,10 +4864,9 @@ function addBooleanExpansionControl(out, path, semanticName, rawValue, defaultVa
     constraints: [`enabled=${enabled}`],
     locator,
     comparisonValue: enabled,
-    // Adding or removing the containing sandbox changes whether these controls
-    // apply at all. Property-level widening is still caught by the comparison.
-    added: ALLOW_RESTRICTION,
+    added: enabled ? expansion(ruleId, reason, "critical") : ALLOW_RESTRICTION,
     removed: ALLOW_RESTRICTION,
+    conditionalOn: `claude-code\0${path}\0sandbox-enabled`,
     compare: (before, after) => decisionRelation(before.decision, after.decision)
   }));
 }
@@ -5310,7 +5318,8 @@ function extractClaude(path, parsed) {
         locator: "sandbox.excludedCommands",
         comparisonValue: command,
         added: expansion("AVP005", "an additional command can run outside the declared sandbox", "critical"),
-        removed: ALLOW_RESTRICTION
+        removed: ALLOW_RESTRICTION,
+        conditionalOn: `claude-code\0${path}\0sandbox-enabled`
       }));
     }
     if (invalidStringList(sandbox.excludedCommands)) {
@@ -5332,7 +5341,8 @@ function extractClaude(path, parsed) {
         locator: "sandbox.network.allowedDomains",
         comparisonValue: host,
         added: expansion("AVP006", "sandboxed commands can reach an additional network destination", "critical"),
-        removed: ALLOW_RESTRICTION
+        removed: ALLOW_RESTRICTION,
+        conditionalOn: `claude-code\0${path}\0sandbox-enabled`
       }));
     }
     if (invalidStringList(network?.allowedDomains)) {
@@ -5353,7 +5363,8 @@ function extractClaude(path, parsed) {
         locator: "sandbox.network.allowUnixSockets",
         comparisonValue: socket,
         added: expansion("AVP005", "sandboxed commands can access an additional host Unix socket", "critical"),
-        removed: ALLOW_RESTRICTION
+        removed: ALLOW_RESTRICTION,
+        conditionalOn: `claude-code\0${path}\0sandbox-enabled`
       }));
     }
     if (invalidStringList(network?.allowUnixSockets)) {
@@ -5857,16 +5868,36 @@ function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
     [...beforeByKey.entries()].filter(([key, item2]) => key.endsWith("\0enabled") && item2.action === "mcp.connect" && item2.decision === "ALLOW" && !afterByKey.has(key)).map(([key]) => key.slice(0, -"\0enabled".length))
   );
   const rawDeltas = [];
+  const conditionActiveAcrossRevision = (before2, after2) => {
+    const conditionalOn = after2?.conditionalOn ?? before2?.conditionalOn;
+    if (!conditionalOn) return true;
+    return beforeByKey.get(conditionalOn)?.decision === "ALLOW" && afterByKey.get(conditionalOn)?.decision === "ALLOW";
+  };
   for (const key of keys) {
     const oldAtom = beforeByKey.get(key);
     const newAtom = afterByKey.get(key);
-    if (!oldAtom && newAtom) rawDeltas.push(makeDelta("ADDED", newAtom.added, void 0, newAtom));
-    else if (oldAtom && !newAtom) {
+    if (!oldAtom && newAtom) {
+      rawDeltas.push(makeDelta(
+        "ADDED",
+        conditionActiveAcrossRevision(void 0, newAtom) ? newAtom.added : ALLOW_RESTRICTION,
+        void 0,
+        newAtom
+      ));
+    } else if (oldAtom && !newAtom) {
       const removedWithServer = [...removedMcpServers].some((prefix) => key.startsWith(`${prefix}\0`));
-      rawDeltas.push(makeDelta("REMOVED", removedWithServer ? ALLOW_RESTRICTION : oldAtom.removed, oldAtom));
+      rawDeltas.push(makeDelta(
+        "REMOVED",
+        removedWithServer || !conditionActiveAcrossRevision(oldAtom) ? ALLOW_RESTRICTION : oldAtom.removed,
+        oldAtom
+      ));
     } else if (oldAtom && newAtom && oldAtom.comparisonToken !== newAtom.comparisonToken) {
       const relation = oldAtom.compare ? oldAtom.compare(oldAtom, newAtom) : newAtom.compare ? newAtom.compare(oldAtom, newAtom) : "incomparable";
-      rawDeltas.push(makeDelta("CHANGED", dispositionForRelation(relation, oldAtom, newAtom), oldAtom, newAtom));
+      rawDeltas.push(makeDelta(
+        "CHANGED",
+        conditionActiveAcrossRevision(oldAtom, newAtom) ? dispositionForRelation(relation, oldAtom, newAtom) : ALLOW_RESTRICTION,
+        oldAtom,
+        newAtom
+      ));
     }
   }
   const deltas = rawDeltas.map((delta) => applyAuthorityPlanPolicy(delta, policy.value));

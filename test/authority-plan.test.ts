@@ -292,7 +292,7 @@ test("Claude discovery covers sandbox, MCP approvals, environment, plugin, hook,
   const head = commit(value.repo, "claude expanded");
   const plan = buildAuthorityPlan(value.repo, base, head);
   assert.equal(plan.status, "BLOCK");
-  for (const ruleId of ["AVP003", "AVP004", "AVP005", "AVP006", "AVP007", "AVP008", "AVP012", "AVP015"]) {
+  for (const ruleId of ["AVP003", "AVP004", "AVP005", "AVP007", "AVP008", "AVP012", "AVP015"]) {
     assert.ok(plan.deltas.some((delta) => delta.ruleId === ruleId), `missing ${ruleId}`);
   }
   assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP014" && delta.after?.action === "hook.execute"));
@@ -436,6 +436,7 @@ test("Claude sandbox escape controls block while unmodeled nested controls hold"
       enableWeakerNestedSandbox: true,
       network: {
         ...restrictedSandbox.network,
+        allowedDomains: ["api.example.test"],
         allowUnixSockets: ["/var/run/docker.sock"],
         allowAllUnixSockets: true,
         allowLocalBinding: true,
@@ -453,6 +454,7 @@ test("Claude sandbox escape controls block while unmodeled nested controls hold"
     ["sandbox.weaker-nested", "AVP005"],
     ["network.unix-socket", "AVP005"],
     ["network.unix-socket-all", "AVP005"],
+    ["network.connect", "AVP006"],
     ["network.bind-local", "AVP006"],
   ]);
   for (const [action, ruleId] of expectedRules) {
@@ -481,7 +483,15 @@ test("enabling a Claude sandbox does not treat conditional defaults as authority
   const base = commit(value.repo, "claude settings without sandbox");
   json(value.repo, ".claude/settings.json", {
     permissions: { defaultMode: "default" },
-    sandbox: { enabled: true, autoAllowBashIfSandboxed: false },
+    sandbox: {
+      enabled: true,
+      autoAllowBashIfSandboxed: false,
+      excludedCommands: ["docker *"],
+      network: {
+        allowedDomains: ["api.example.test"],
+        allowUnixSockets: ["/var/run/docker.sock"],
+      },
+    },
   });
   const sandboxHead = commit(value.repo, "enable claude sandbox");
   const enabled = buildAuthorityPlan(value.repo, base, sandboxHead);
@@ -489,6 +499,9 @@ test("enabling a Claude sandbox does not treat conditional defaults as authority
   assert.equal(enabled.status, "PASS");
   assert.ok(enabled.deltas.some((delta) => delta.after?.action === "sandbox.enforce"));
   assert.ok(enabled.deltas.some((delta) => delta.after?.action === "sandbox.escape"));
+  assert.ok(enabled.deltas.some((delta) => delta.after?.action === "sandbox.exclude"));
+  assert.ok(enabled.deltas.some((delta) => delta.after?.action === "network.connect"));
+  assert.ok(enabled.deltas.some((delta) => delta.after?.action === "network.unix-socket"));
   assert.ok(enabled.deltas.every((delta) => delta.disposition === "ALLOW"));
 
   json(value.repo, ".claude/settings.json", {
@@ -507,6 +520,19 @@ test("enabling a Claude sandbox does not treat conditional defaults as authority
   assert.ok(widened.deltas.some((delta) =>
     delta.disposition === "BLOCK" && delta.ruleId === "AVP005" && delta.after?.action === "sandbox.escape"
   ));
+
+  json(value.repo, ".claude/settings.json", {
+    sandbox: { enabled: false, autoAllowBashIfSandboxed: false, allowUnsandboxedCommands: false },
+  });
+  const disabledRestricted = commit(value.repo, "disabled sandbox with restrictive children");
+  json(value.repo, ".claude/settings.json", {
+    sandbox: { enabled: false, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: true },
+  });
+  const disabledWidened = commit(value.repo, "change inactive sandbox children");
+  const inactive = buildAuthorityPlan(value.repo, disabledRestricted, disabledWidened);
+
+  assert.equal(inactive.status, "PASS");
+  assert.ok(inactive.deltas.every((delta) => delta.disposition === "ALLOW"));
 });
 
 test("removing an empty Claude network container preserves default-false controls", () => {
