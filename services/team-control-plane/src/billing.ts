@@ -25,6 +25,7 @@ import {
 
 const SIGNATURE_TOLERANCE_SECONDS = 300;
 const WEBHOOK_BODY_LIMIT = 262_144;
+const STRIPE_API_VERSION = "2026-07-29.dahlia";
 
 type SupportedStripeEventType =
   | "checkout.session.completed"
@@ -106,13 +107,13 @@ function nullableProviderId(value: unknown, field: string): string | null {
   return requireOpaqueId(value, field, 255);
 }
 
-function parseMetadata(object: Record<string, unknown>): {
+function parseMetadataValue(value: unknown): {
   orgId: string;
   internalPriceId: InternalPriceId;
   providerPriceId: string;
   checkoutIntentId: string | null;
 } {
-  const metadata = requireObject(object.metadata, "data.object.metadata");
+  const metadata = requireObject(value, "provider metadata");
   const orgId = requireOrgId(requireString(metadata.team_org_id, "metadata.team_org_id", { max: 64 }));
   if (!isInternalPriceId(metadata.internal_price_id)) {
     throw new ApiError(400, "invalid_provider_event", "Provider event contains an unknown internal price.");
@@ -125,11 +126,31 @@ function parseMetadata(object: Record<string, unknown>): {
   };
 }
 
+function invoiceBinding(object: Record<string, unknown>): { metadata: unknown; subscriptionId: string | null } {
+  if (object.parent !== null && object.parent !== undefined) {
+    const parent = requireObject(object.parent, "data.object.parent");
+    if (parent.type !== "subscription_details") {
+      throw new ApiError(400, "invalid_provider_event", "Invoice is not bound to a subscription.");
+    }
+    const details = requireObject(parent.subscription_details, "data.object.parent.subscription_details");
+    return {
+      metadata: details.metadata,
+      subscriptionId: nullableProviderId(details.subscription, "data.object.parent.subscription_details.subscription")
+    };
+  }
+  // Compatibility for already-created test fixtures and pre-Dahlia event replays.
+  return {
+    metadata: object.metadata,
+    subscriptionId: nullableProviderId(object.subscription, "data.object.subscription")
+  };
+}
+
 function extractStripeSummary(eventType: SupportedStripeEventType, object: Record<string, unknown>): StripeSummary {
-  const metadata = parseMetadata(object);
+  const invoice = eventType === "invoice.paid" || eventType === "invoice.payment_failed" ? invoiceBinding(object) : null;
+  const metadata = parseMetadataValue(invoice?.metadata ?? object.metadata);
   const objectId = requireOpaqueId(object.id, "data.object.id", 255);
   let customerId = nullableProviderId(object.customer, "data.object.customer");
-  let subscriptionId = nullableProviderId(object.subscription, "data.object.subscription");
+  let subscriptionId = invoice?.subscriptionId ?? nullableProviderId(object.subscription, "data.object.subscription");
   if (eventType.startsWith("customer.subscription.")) {
     subscriptionId = objectId;
     customerId = nullableProviderId(object.customer, "data.object.customer");
@@ -145,6 +166,59 @@ function extractStripeSummary(eventType: SupportedStripeEventType, object: Recor
     }
   }
   return { ...metadata, objectId, customerId, subscriptionId };
+}
+
+async function extractRefundStripeSummary(env: Env, object: Record<string, unknown>): Promise<StripeSummary> {
+  const chargeId = requireOpaqueId(object.id, "data.object.id", 255);
+  const customerId = requireOpaqueId(object.customer, "data.object.customer", 255);
+  const paymentIntentId = requireOpaqueId(object.payment_intent, "data.object.payment_intent", 255);
+  const bindings = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT bc.org_id, bc.command_json, ba.provider_customer_id, ba.provider_subscription_id,
+            ba.internal_price_id
+       FROM billing_commands bc
+       JOIN billing_accounts ba ON ba.org_id = bc.org_id
+      WHERE bc.command_type = 'request_refund'
+        AND bc.status IN ('provider_accepted', 'confirmed')
+        AND json_extract(bc.command_json, '$.provider_result.charge_id') = ?1
+        AND ba.provider_customer_id = ?2
+      LIMIT 2`
+  )
+    .bind(chargeId, customerId)
+    .all<{
+      org_id: string;
+      command_json: string;
+      provider_customer_id: string;
+      provider_subscription_id: string;
+      internal_price_id: string;
+    }>();
+  if (bindings.results.length !== 1) {
+    throw new ApiError(409, "refund_command_binding_missing", "Refund event is not bound to one accepted command.");
+  }
+  const binding = bindings.results[0]!;
+  let command: unknown;
+  try {
+    command = JSON.parse(binding.command_json);
+  } catch {
+    throw new ApiError(500, "billing_command_corrupt", "Stored refund command could not be verified.");
+  }
+  const commandObject = requireObject(command, "refund command");
+  const providerResult = requireObject(commandObject.provider_result, "refund command provider_result");
+  if (
+    providerResult.charge_id !== chargeId ||
+    providerResult.payment_intent_id !== paymentIntentId ||
+    !isInternalPriceId(binding.internal_price_id)
+  ) {
+    throw new ApiError(409, "refund_command_binding_mismatch", "Refund event does not match its accepted command.");
+  }
+  return {
+    orgId: binding.org_id,
+    objectId: chargeId,
+    customerId,
+    subscriptionId: requireOpaqueId(binding.provider_subscription_id, "provider_subscription_id", 255),
+    internalPriceId: binding.internal_price_id,
+    providerPriceId: providerPriceId(env, binding.internal_price_id),
+    checkoutIntentId: null
+  };
 }
 
 function parseStripeSignature(header: string): { timestamp: number; signatures: string[] } {
@@ -518,6 +592,9 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
     throw new ApiError(400, "invalid_provider_event", "Stripe payload is not an event object.");
   }
   const eventCreated = requireInteger(event.created, "event.created", { min: 1 });
+  if (event.api_version !== STRIPE_API_VERSION) {
+    throw new ApiError(400, "provider_api_version_mismatch", "Stripe event API version is not supported.");
+  }
   const eventTypeValue = requireString(event.type, "event.type", { max: 128 });
   const livemode = requireBoolean(event.livemode, "event.livemode");
   if (livemode !== stripeLivemode(env)) {
@@ -537,7 +614,10 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
   const eventType = eventTypeValue as SupportedStripeEventType;
   const data = requireObject(event.data, "event.data");
   const object = requireObject(data.object, "event.data.object");
-  const summary = extractStripeSummary(eventType, object);
+  const summary =
+    eventType === "charge.refunded"
+      ? await extractRefundStripeSummary(env, object)
+      : extractStripeSummary(eventType, object);
   if (summary.providerPriceId !== providerPriceId(env, summary.internalPriceId)) {
     throw new ApiError(409, "provider_price_mismatch", "Provider event does not match the canonical price catalog.");
   }
@@ -1190,6 +1270,12 @@ async function applyRefund(
   const statements = reconciliationBaseStatements(env, snapshot, event, payloadHash, at);
   statements.push(
     env.TEAM_CONTROL_DB.prepare(
+      `UPDATE billing_commands SET status = 'confirmed'
+        WHERE org_id = ?1 AND command_type = 'request_refund' AND status = 'provider_accepted'
+          AND json_extract(command_json, '$.provider_result.charge_id') = ?2
+          AND json_extract(command_json, '$.provider_result.amount_cents') = ?3`
+    ).bind(snapshot.orgId, snapshot.providerObjectId, snapshot.refundAmountCents),
+    env.TEAM_CONTROL_DB.prepare(
       `UPDATE billing_accounts SET commercial_state = ?1, current_recognized_mrr_micros = ?2,
         last_reconciled_event_created = ?3, last_reconciled_event_id = ?4, updated_at = ?5
        WHERE org_id = ?6`
@@ -1259,6 +1345,15 @@ async function applySubscription(
   const graceUntil = pastDue ? new Date(Date.parse(snapshot.observedAt) + 7 * 86_400_000).toISOString() : null;
   const statements = reconciliationBaseStatements(env, snapshot, event, payloadHash, at);
   statements.push(
+    ...(snapshot.cancelAtPeriodEnd || canceled
+      ? [
+          env.TEAM_CONTROL_DB.prepare(
+            `UPDATE billing_commands SET status = 'confirmed'
+              WHERE org_id = ?1 AND command_type = 'cancel_at_period_end' AND status = 'provider_accepted'
+                AND json_extract(command_json, '$.provider_subscription_id') = ?2`
+          ).bind(snapshot.orgId, snapshot.providerSubscriptionId)
+        ]
+      : []),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE billing_accounts SET commercial_state = ?1, current_period_start = ?2,
         current_period_end = ?3, grace_until = ?4, cancel_at_period_end = ?5,

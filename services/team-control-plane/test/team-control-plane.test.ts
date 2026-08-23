@@ -127,6 +127,7 @@ async function stripeWebhook(input: {
   const raw = JSON.stringify({
     id: input.id,
     object: "event",
+    api_version: "2026-07-29.dahlia",
     created: input.created,
     livemode: false,
     type: input.type,
@@ -431,8 +432,14 @@ describe.sequential("Team control plane", () => {
       object: {
         id: "in_main",
         customer: "cus_main",
-        subscription: "sub_main",
-        metadata: metadata("org_main")
+        metadata: { team_org_id: "org_spoofed" },
+        parent: {
+          type: "subscription_details",
+          subscription_details: {
+            subscription: "sub_main",
+            metadata: metadata("org_main")
+          }
+        }
       }
     });
     expect(webhook.status).toBe(200);
@@ -460,8 +467,14 @@ describe.sequential("Team control plane", () => {
       object: {
         id: "in_main",
         customer: "cus_main",
-        subscription: "sub_main",
-        metadata: metadata("org_main")
+        metadata: { team_org_id: "org_spoofed" },
+        parent: {
+          type: "subscription_details",
+          subscription_details: {
+            subscription: "sub_main",
+            metadata: metadata("org_main")
+          }
+        }
       }
     });
     expect(await json(duplicateEvent)).toMatchObject({ duplicate: true });
@@ -628,6 +641,27 @@ describe.sequential("Team control plane", () => {
       }
     });
     expect(refundCommand.status).toBe(202);
+    const preparedRefund = await json<{ command_id: string }>(refundCommand.clone());
+    const refundRow = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT command_json FROM billing_commands WHERE id = ?1`
+    )
+      .bind(preparedRefund.command_id)
+      .first<{ command_json: string }>();
+    const acceptedRefundCommand = {
+      ...JSON.parse(refundRow!.command_json),
+      provider_result: {
+        refund_id: "re_main",
+        payment_intent_id: "pi_main",
+        charge_id: "ch_main",
+        amount_cents: 29_900,
+        source_payment_event_id: "evt_invoice_paid"
+      }
+    };
+    await env.TEAM_CONTROL_DB.prepare(
+      `UPDATE billing_commands SET status = 'provider_accepted', command_json = ?1 WHERE id = ?2`
+    )
+      .bind(JSON.stringify(acceptedRefundCommand), preparedRefund.command_id)
+      .run();
     const refundIdempotencyMismatch = await api("/v1/orgs/org_main/billing/refund", {
       method: "POST",
       token: owner,
@@ -654,8 +688,7 @@ describe.sequential("Team control plane", () => {
       object: {
         id: "ch_main",
         customer: "cus_main",
-        subscription: "sub_main",
-        metadata: metadata("org_main")
+        payment_intent: "pi_main"
       }
     });
     expect(refundEvent.status).toBe(200);

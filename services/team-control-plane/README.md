@@ -8,7 +8,7 @@ This directory contains a local-only Cloudflare Worker/D1 implementation of the 
 - Owner/admin/member/billing authorization, last-owner protection, and a hard 15-active-human Team limit.
 - Versioned private policy and canary metadata, revision preconditions, required-gate fail-closed status, update history, exception records, rollback records, and audit export.
 - Canonical immutable Team prices: `team_monthly_usd_v1` at $299/month and `team_annual_usd_v1` at $2,990/year, each for 15 contributors.
-- Checkout, cancellation, and refund **commands** for an external Stripe adapter. Command preparation does not activate access or count as checkout, payment, MRR, or revenue.
+- Checkout, cancellation, and refund **commands**, plus separately deployed Stripe executor and read-only reconciler Workers. Both adapter feature flags are checked in as `false`. Command preparation or provider acceptance does not activate access or count as payment, MRR, or revenue.
 - Raw-body Stripe webhook HMAC verification, five-minute replay window, event-id idempotency, payload-reuse detection, test/live-mode isolation, canonical price checks, tenant collision checks, and stale/equal-time ordering rejection.
 - A second signed reconciliation boundary for a separate read-only provider adapter. Access activates only when a verified provider event and a fresh provider snapshot agree on tenant, customer, subscription, object, plan, and price.
 - Separate cash and recognized-MRR ledgers. Annual value is normalized across 12 months; checkout, invoice face value, and cash are never reported as MRR.
@@ -60,6 +60,8 @@ Unauthenticated but cryptographically authenticated provider routes:
 - `POST /v1/github/app/webhook` — raw GitHub installation lifecycle with `X-Hub-Signature-256`.
 - `POST /v1/github/app/reconciliation` — independently fetched installation snapshots with `Agent-Vigil-GitHub-Reconciliation-Signature`.
 
+The internal Service Binding request/response contract and adapter deployment split are specified in [`STRIPE_ADAPTERS.md`](./STRIPE_ADAPTERS.md). The executor and reconciler have different entrypoints, invocation secrets, Stripe restricted keys, and permissions.
+
 Public metadata:
 
 - `GET /healthz`
@@ -80,7 +82,7 @@ Mutating billing routes require `Idempotency-Key`; reuse with another operation 
 ## Production prerequisites deliberately not crossed
 
 - Create separate Cloudflare D1 databases for staging and production; replace the zero UUID in `wrangler.jsonc`; configure required secrets with Wrangler; set a production price catalog; and complete a fresh security review.
-- Build the narrow adapter that creates Stripe Checkout sessions and performs read-only Stripe API reconciliation. Keep its API key outside this Worker. Register only the six documented webhook event types and pin/test an explicit Stripe API version.
+- Create two separately permissioned Stripe restricted keys and two internal Service Bindings, replace all placeholder deployment values, pin the webhook endpoint to `2026-07-29.dahlia`, and enable each adapter only after a fresh exact-SHA review. The checked-in Workers make no provider call while disabled.
 - Register and security-review the GitHub App, least-privilege permissions, private-key rotation, and read-only installation reconciliation adapter. The Worker has no GitHub private key and makes no GitHub API call.
 - Add an asynchronous Queue if live webhook volume requires it. Current bounded synchronous D1 processing is intended for the local proof and low-volume pilot only.
 - Publish terms, privacy/DPA, tax/VAT, refund, support, invoice/receipt, payment-method-update, chargeback, data-retention, and security-contact operations before accepting money.

@@ -11,9 +11,10 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 1. A bearer session proves only a signed subject/organization/session tuple. D1 membership is authoritative for role and active status.
 2. A Stripe webhook proves only that the configured endpoint secret signed the raw event. It cannot activate access by itself.
 3. A reconciliation snapshot proves that a distinct read-only adapter observed current provider state. It must match a stored webhook event and the canonical product catalog before access or revenue changes.
-4. Checkout/cancel/refund routes create commands. An external adapter performs provider mutations; provider-confirmed events plus reconciliation are the authority.
-5. D1 is the tenant boundary and commercial ledger. Every private query binds `org_id`; provider customer/subscription identifiers are unique across organizations.
-6. A GitHub webhook proves only that the configured webhook secret signed the raw body. Existing owner claims choose tenancy; a distinct read-only reconciliation snapshot is required before an installation service member becomes active.
+4. Checkout/cancel/refund routes create commands. A separately deployed executor with a mutation-scoped restricted key performs provider mutations. It cannot sign reconciliation snapshots.
+5. A separately deployed reconciler has a read-only restricted key and the reconciliation signing secret. Its code issues only Stripe `GET` requests and cannot execute billing commands.
+6. D1 is the tenant boundary and commercial ledger. Every private query binds `org_id`; provider customer/subscription identifiers are unique across organizations.
+7. A GitHub webhook proves only that the configured webhook secret signed the raw body. Existing owner claims choose tenancy; a distinct read-only reconciliation snapshot is required before an installation service member becomes active.
 
 ## Material abuse cases and controls
 
@@ -36,6 +37,14 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 | Billing bypass through policy endpoint | Paid-surface writes require active/grace Team entitlement; gate fails closed | Cache client policy read-only for at most 72 hours if later added |
 | Refund/cancel command changes revenue | Commands do not mutate entitlement, cash, or MRR; refund preparation binds a same-tenant confirmed payment; only reconciled provider events mutate ledgers | Refund/legal policy approval before accepting payments |
 | Billing key replay changes intent | Idempotency keys are tenant-scoped and reject a different operation or payload | The external adapter must preserve the command idempotency key |
+| Forged internal adapter invocation | Service Binding requests carry a five-minute HMAC over the exact body; executor loads the named command from D1 instead of trusting caller-supplied price, mode, provider IDs, or amount | Use unrelated invocation secrets per adapter and rotate them independently |
+| Open redirect through Checkout | Caller supplies only the fixed `team_billing_v1` target; executor maps it to two configured HTTPS URLs whose origins must appear in an exact JSON allowlist | Review production return origins before enabling execution |
+| Cross-tenant provider mutation | Executor binds command row, tenant, canonical price, checkout intent, billing account, subscription, confirmed cash event, InvoicePayment, PaymentIntent, and Charge before a call | Never add a generic Stripe proxy route |
+| Executor forges payment or MRR | Executor lacks the reconciliation HMAC secret; provider acceptance changes only command/checkout-intent status | Deploy executor and reconciler as distinct Workers with distinct keys |
+| Reconciler mutates Stripe | Reconciler requires an `rk_` key and its client path issues only `GET`; it has no command-executor signing secret | Configure the Stripe key itself with read-only Event, Subscription, and Refund access |
+| Provider API shape drift | Every request pins `Stripe-Version: 2026-07-29.dahlia`; webhook events with another `api_version` are rejected | Upgrade only with fixtures and exact-SHA review |
+| Duplicate mutation after timeout | All Stripe `POST`s use a stable tenant-and-command idempotency key; retry count and per-attempt timeout are bounded | Retain command records longer than Stripe's idempotency window |
+| Refund event lacks tenant metadata | Accepted refund command stores PaymentIntent, Charge, Refund, amount, and source-payment bindings; `charge.refunded` is accepted only through that binding | Reconciliation still requires a read-only fetch of the exact Refund and Subscription |
 | Annual cash mislabeled MRR | Cash ledger and MRR projection are separate; annual net recurring value divides by 12 | Accounting review of discounts, credits, taxes, FX, and recognition |
 | Deletion token theft | Random one-time token, stored SHA-256 only, 15-minute expiration, owner role | Add notification and incident response before production |
 | Deletion destroys mandated records | Private product data is deleted and access revoked; repository node IDs are removed; retained GitHub account/claimant fields are pseudonymized; minimal billing/audit evidence remains isolated | Set jurisdiction-specific retention and purge schedules |
@@ -53,4 +62,5 @@ The service does not ingest source code, prompts, transcripts, credentials, envi
 - Provider, tenant, plan, price, currency, customer, subscription, and object mismatches stop reconciliation.
 - GitHub App, delivery bytes/header, installation, account node, tenant claim, lifecycle order, and repository-selection mismatches stop processing.
 - GitHub installation creation or unsuspension cannot activate a service identity without independent reconciliation.
+- Missing adapter flags, secrets, restricted-key mode, price IDs, return origins, or Service Bindings stop before a Stripe call.
 - Paid access never changes proof verdict semantics.

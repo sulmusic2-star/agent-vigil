@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.dev/schemas/stripe-reconciliation-result-v1.schema.json",
+  "title": "Stripe reconciliation result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "source_event_id",
+    "provider_object_id",
+    "submitted"
+  ],
+  "properties": {
+    "schema_version": { "const": "stripe-reconciliation-result-v1" },
+    "request_id": { "$ref": "#/$defs/opaque_id" },
+    "source_event_id": { "$ref": "#/$defs/opaque_id" },
+    "provider_object_id": { "$ref": "#/$defs/opaque_id" },
+    "submitted": { "const": true }
+  },
+  "$defs": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$"
+    }
+  }
+}
