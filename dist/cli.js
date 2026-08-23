@@ -1224,7 +1224,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.15.0";
+var VERSION = "0.16.0-dev.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -9221,6 +9221,24 @@ function ed25519PublicKey(der, label) {
   if (key.asymmetricKeyType !== "ed25519") throw new Error(`${label} must be Ed25519`);
   return key;
 }
+function signControlProof(payloadInput, privateKeyPath) {
+  const payload = parsePayload(payloadInput);
+  const privateKey = createPrivateKey4(readFileSync19(privateKeyPath));
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signed proof private key must be Ed25519");
+  const der = publicKeyDer(createPublicKey4(privateKey));
+  const payloadHash = digest4(payload);
+  return {
+    schemaVersion: SIGNED_CONTROL_PROOF_SCHEMA,
+    payload,
+    payloadHash,
+    signature: {
+      algorithm: "Ed25519",
+      keyId: signingKeyId(der),
+      publicKey: der.toString("base64"),
+      value: sign4(null, Buffer.from(payloadHash), privateKey).toString("base64")
+    }
+  };
+}
 function verifySignedControlProof(input, pinnedPublicKeyPath) {
   const root = record3(input, "signed control proof");
   exactKeys3(root, ["schemaVersion", "payload", "payloadHash", "signature"], "signed control proof");
@@ -9428,6 +9446,24 @@ function validateCertificate(input) {
   if (digest5(parsed) !== certificateHash) throw new Error("certificate hash is invalid");
   return { ...parsed, certificateHash };
 }
+function createSignedCertificate(input) {
+  const proof = verifySignedControlProof(input.proof, input.publicKeyPath);
+  const payload = {
+    schemaVersion: SIGNED_CERTIFICATE_SCHEMA,
+    organization: identifier(input.organization, "organization"),
+    repository: repositoryName(input.repository),
+    requiredCheck: identifier(input.requiredCheck, "requiredCheck"),
+    control: {
+      vendor: proof.payload.control.vendor,
+      product: proof.payload.control.product,
+      adapter: "signed-control-proof/v1",
+      version: proof.payload.control.version,
+      keyId: proof.signature.keyId
+    },
+    proof
+  };
+  return { ...payload, certificateHash: digest5(payload) };
+}
 function validateSignedCertificate(input) {
   const root = record4(input, "signed certificate");
   exactKeys4(root, ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"], "signed certificate");
@@ -9616,6 +9652,8 @@ Usage:
   vigil protect [--repo <path>] [--force] [--attest]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil certify record <control-proof.json> --organization <name> --repository <owner/name> --required-check <name> --output <path>
+  vigil certify sign <proof-payload.json> --private-key <pem> --output <path>
+  vigil certify record-signed <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>
   vigil certify add <certificate.json> --corpus <corpus.jsonl>
   vigil certify status --corpus <corpus.jsonl> --policy <policy.json> [--as-of <time>] [--format text|json] [--output <path>]
   vigil certify policy --organization <name> --repository <owner/name> --required-check <name> --pack baseline|authority --output <path>
@@ -9724,11 +9762,44 @@ function runCertify(args) {
       console.log(`Control certificate: ${certificate.proof.status} \xB7 ${certificate.certificateHash}`);
       return certificate.proof.status === "PASS" ? 0 : 2;
     }
+    if (command === "sign") {
+      const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--private-key", "--output"]));
+      const privateKey = parsed.values.get("--private-key");
+      const output = parsed.values.get("--output");
+      if (parsed.positional.length !== 1 || !privateKey || !output) throw new Error("certify sign requires <proof-payload.json> --private-key <pem> --output <path>");
+      const proof = signControlProof(readBoundedJson(resolve18(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve18(privateKey));
+      writePrivateFileAtomic(resolve18(output), `${JSON.stringify(proof, null, 2)}
+`);
+      console.log(`Signed control proof: ${proof.payload.status}`);
+      console.log(`Control identity: ${signedControlIdentity(proof)}`);
+      return proof.payload.status === "PASS" ? 0 : 2;
+    }
+    if (command === "record-signed") {
+      const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--public-key", "--organization", "--repository", "--required-check", "--output"]));
+      const publicKeyPath = parsed.values.get("--public-key");
+      const organization = parsed.values.get("--organization");
+      const repository2 = parsed.values.get("--repository");
+      const requiredCheck = parsed.values.get("--required-check");
+      const output = parsed.values.get("--output");
+      if (parsed.positional.length !== 1 || !publicKeyPath || !organization || !repository2 || !requiredCheck || !output) throw new Error("certify record-signed requires <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>");
+      const certificate = createSignedCertificate({
+        proof: readBoundedJson(resolve18(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
+        publicKeyPath: resolve18(publicKeyPath),
+        organization,
+        repository: repository2,
+        requiredCheck
+      });
+      writePrivateFileAtomic(resolve18(output), `${JSON.stringify(certificate, null, 2)}
+`);
+      console.log(`Signed control certificate: ${certificate.proof.payload.status} \xB7 ${certificate.certificateHash}`);
+      console.log(`Control identity: ${signedControlIdentity(certificate.proof)}`);
+      return certificate.proof.payload.status === "PASS" ? 0 : 2;
+    }
     if (command === "add") {
       const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--corpus"]));
       const corpus = parsed.values.get("--corpus");
       if (parsed.positional.length !== 1 || !corpus) throw new Error("certify add requires <certificate.json> --corpus <corpus.jsonl>");
-      const certificate = validateCertificate(readBoundedJson(resolve18(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
+      const certificate = validateAnyCertificate(readBoundedJson(resolve18(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
       const corpusPath = resolve18(corpus);
       const current = loadCorpus(corpusPath).map((entry2) => JSON.stringify(entry2)).join("\n");
       const { entry, line } = appendCorpusEntry(current, certificate);
@@ -9770,7 +9841,7 @@ function runCertify(args) {
       console.log(`Created ${pack} control policy with a ${generated.maxAgeHours}-hour proof window.`);
       return 0;
     }
-    throw new Error("certify requires record, add, status, or policy");
+    throw new Error("certify requires record, sign, record-signed, add, status, or policy");
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;

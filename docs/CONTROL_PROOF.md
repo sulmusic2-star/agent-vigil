@@ -95,5 +95,32 @@ The repository's `Weekly control proof` workflow runs the authority pack every
 Monday and retains its proof, certificate, policy, corpus entry, and status for
 90 days. Each run is a self-contained dogfood bundle. Organizations that need a
 single historical ledger should append those certificates to durable,
-access-controlled corpus storage. The four public JSON schemas in `docs/`
-define the interchange contract; unsupported adapters remain fail-closed.
+access-controlled corpus storage. The four V1 JSON schemas in `docs/` define
+the original interchange contract; unsupported adapters remain fail-closed.
+
+## Signed proofs from other controls
+
+The signed challenge format lets another control report the same small set of
+facts without asking Agent Vigil to understand that control's private receipt:
+
+```bash
+vigil certify sign proof-payload.json --private-key provider-private.pem --output signed-proof.json
+vigil certify record-signed signed-proof.json --public-key provider-public.pem --organization acme --repository acme/api --required-check "Required AI control" --output signed-certificate.json
+vigil certify add signed-certificate.json --corpus acme-control-corpus.jsonl
+```
+
+The payload names the control, exact source commit, generation time, challenge
+decisions, evidence hashes, and stated limits. `record-signed` refuses a signer
+that does not match the separately supplied Ed25519 public key. Organization
+policies pin the V2 identity as `vendor/product@sha256:...`. A replacement key gets a
+different identity and remains on `HOLD` until the organization changes policy.
+
+V1 and V2 entries may share one chain. New readers validate both; V1 files and
+hashes are unchanged. The public contracts are
+`signed-control-proof-v1.schema.json`, `control-certificate-v2.schema.json`,
+and `control-corpus-entry-v2.schema.json`.
+
+This verifies structure, content integrity, signer identity, required challenge
+results, and freshness. It does not independently prove a vendor's private
+evidence, make the signer trustworthy, or show that a check is required by a
+live repository ruleset.

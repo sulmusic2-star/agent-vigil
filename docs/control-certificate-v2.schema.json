@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/control-certificate-v2.schema.json",
+  "title": "Pinned signed control certificate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-control-certificate/v2" },
+    "organization": { "$ref": "#/$defs/text" },
+    "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+    "requiredCheck": { "$ref": "#/$defs/text" },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vendor", "product", "adapter", "version", "keyId"],
+      "properties": {
+        "vendor": { "$ref": "#/$defs/text" },
+        "product": { "$ref": "#/$defs/text" },
+        "adapter": { "const": "signed-control-proof/v1" },
+        "version": { "$ref": "#/$defs/text" },
+        "keyId": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "proof": { "$ref": "signed-control-proof-v1.schema.json" },
+    "certificateHash": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

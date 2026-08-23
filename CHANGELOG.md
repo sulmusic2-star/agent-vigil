@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add an open signed challenge-proof format, pinned Ed25519 signer identities,
+  V2 control certificates, and mixed V1/V2 certification corpora.
+- Add `vigil certify sign` for control providers and `record-signed` for
+  organization-side verification against a separately obtained public key.
+
 ## 0.15.0 - 2026-08-23
 
 - Add chained Control Proof certificates, weekly freshness policies, baseline
