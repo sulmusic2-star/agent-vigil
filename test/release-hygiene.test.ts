@@ -9,14 +9,18 @@ function source(path: string): string {
 const CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE_SHA = "820762786026740c76f36085b0efc47a31fe5020";
 const UPLOAD_ARTIFACT_SHA = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
+const ATTEST_SHA = "1e69f48acb82d1966a394da916b4c1698aa569d6";
 const OBSOLETE_RECEIPT_PATH = /^\s+(?:agent-vigil-report\.json|agent-vigil\.sarif|agent-vigil-value-card\.json|agent-vigil-github-evidence\.json)\s*$/m;
 
 test("CI pins third-party Actions and uploads dogfood runner-owned outputs", () => {
   const workflow = source(".github/workflows/ci.yml");
+  const action = source("action.yml");
   assert.equal(workflow.match(new RegExp(`actions/checkout@${CHECKOUT_SHA}`, "g"))?.length, 2);
   assert.equal(workflow.match(new RegExp(`actions/setup-node@${SETUP_NODE_SHA}`, "g"))?.length, 2);
   assert.equal(workflow.match(new RegExp(`actions/upload-artifact@${UPLOAD_ARTIFACT_SHA}`, "g"))?.length, 1);
   assert.doesNotMatch(workflow, /uses:\s+actions\/(?:checkout|setup-node|upload-artifact)@v\d/);
+  assert.match(action, new RegExp(`actions/attest@${ATTEST_SHA}`));
+  assert.doesNotMatch(action, /uses:\s+actions\/attest@v\d/);
   assert.match(workflow, /name: Dogfood Agent Vigil\n\s+id: dogfood\n\s+uses: \.\//);
   for (const output of ["report", "sarif", "github-evidence", "value-card"]) {
     assert.match(workflow, new RegExp(`\\$\\{\\{ steps\\.dogfood\\.outputs\\.${output} \\}\\}`));

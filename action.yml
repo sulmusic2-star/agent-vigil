@@ -830,7 +830,7 @@ runs:
     - id: github_attestation
       name: Sign AI Change Receipt with GitHub
       if: ${{ always() && inputs.attest == 'true' && steps.prepare_attestation.outputs.predicate != '' }}
-      uses: actions/attest@v4
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
       with:
         subject-path: ${{ steps.vigil.outputs.report }}
         predicate-type: https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json
