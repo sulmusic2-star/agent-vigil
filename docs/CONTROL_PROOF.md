@@ -63,8 +63,7 @@ The Action can run the same proof on demand or on a schedule:
 
 Retain `steps.control-proof.outputs.report` as an artifact. `HOLD` exits 2, so an
 unexpected decision or cleanup error fails the job.
-The `v0.15.0` tag is the planned release for this feature and does not exist
-until that release is published.
+This feature ships in `v0.15.0`.
 
 ## Seven-day certification status
 
