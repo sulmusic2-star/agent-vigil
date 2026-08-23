@@ -142,7 +142,7 @@ test("composite Action outcome mode closes a prior receipt without executing rep
   const { receipt } = receiptFixture(root);
   const event = json(root, "workflow-run-event.json", { repository: { full_name: "owner/repo" }, workflow_run: { id: 99, event: "pull_request", pull_requests: [] } });
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+  const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
   assert.ok(block);
   const script = join(root, "run.sh");
   const output = join(root, "output");

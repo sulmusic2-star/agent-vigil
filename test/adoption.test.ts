@@ -239,8 +239,9 @@ test("Action accepts exactly one evidence mode", () => {
   assert.match(action, /inputs\.mode != 'prove'/);
   assert.match(action, /inputs\.mode != 'upgrade'/);
   assert.match(action, /args=\(upgrade preflight --repo "\$trusted_repo" --current-lock "\$current_lock" --candidate-lock "\$candidate_lock"/);
-  assert.match(action, /git -C "\$VIGIL_REPO" worktree add --quiet --detach "\$trusted_repo" "\$VIGIL_BASE"/);
-  assert.match(action, /git -C "\$VIGIL_REPO" show "\$VIGIL_BASE:\$VIGIL_UPGRADE_LOCK_PATH"/);
+  assert.match(action, /materialize-trusted-upgrade-inputs\.mjs" materialize/);
+  assert.doesNotMatch(action, /worktree add|git checkout/);
+  assert.doesNotMatch(action, /git -C "\$VIGIL_REPO" show/);
   assert.match(action, /r\.summary\.verdict/);
   assert.match(action, /receipt mode requires a base-anchored policy/);
   assert.match(action, /args=\(authority "\$VIGIL_TRANSCRIPT"/);

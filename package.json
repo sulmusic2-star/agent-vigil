@@ -114,6 +114,7 @@
     "proof/README.md",
     "proof/cases",
     "proof/failure-patterns",
+    "scripts/materialize-trusted-upgrade-inputs.mjs",
     "scripts/public_adoption_census.py",
     "scripts/verify_failure_corpus.ts"
   ],

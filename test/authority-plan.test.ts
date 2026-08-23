@@ -886,7 +886,7 @@ test("composite Action enforces an exact-SHA authority plan as a required check"
   mkdirSync(runner);
 
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+  const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
   assert.ok(block);
   const script = join(auxiliary, "run.sh");
   writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));

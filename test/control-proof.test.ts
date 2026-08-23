@@ -100,7 +100,7 @@ test("composite Action prove mode returns the control receipt without synthetic 
   const aux = mkdtempSync(join(tmpdir(), "vigil-control-proof-action-"));
   try {
     const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-    const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+    const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
     assert.ok(block);
     const script = join(aux, "run.sh");
     const output = join(aux, "output");

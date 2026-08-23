@@ -75,7 +75,7 @@ test("merge-group CLI writes JSON and SARIF receipts", () => {
 test("composite Action routes a merge_group event to JSON and SARIF outputs", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
   const value = fixture();
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+  const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
   assert.ok(block, "composite Action run script is present");
   const scriptText = block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n");
   const aux = mkdtempSync(join(tmpdir(), "vigil-action-merge-"));

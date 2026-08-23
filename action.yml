@@ -124,35 +124,163 @@ runs:
   using: "composite"
   steps:
     - id: vigil
-      shell: bash
+      shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS -u POSIXLY_CORRECT /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
-        VIGIL_TRANSCRIPT: ${{ inputs.transcript }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        BASH_XTRACEFD: ""
+        CDPATH: ""
+        GLOBIGNORE: ""
+        POSIXLY_CORRECT: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        GCONV_PATH: ""
+        LOCPATH: ""
+        NLSPATH: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        OPENSSL_CONF: ""
+        OPENSSL_MODULES: ""
+        NODE_OPTIONS: ""
+        NODE_PATH: ""
+        PATH: /usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
+        VIGIL_TRANSCRIPT: ${{ inputs.mode != 'upgrade' && inputs.transcript || '' }}
         VIGIL_ATTEST: ${{ inputs.attest }}
-        VIGIL_RECEIPT: ${{ inputs.receipt }}
-        VIGIL_AUTHORITY_CONTRACT: ${{ inputs.authority-contract }}
-        VIGIL_AUTHORITY_CONTRACT_REF: ${{ inputs.authority-contract-ref }}
+        VIGIL_RECEIPT: ${{ inputs.mode != 'upgrade' && inputs.receipt || '' }}
+        VIGIL_AUTHORITY_CONTRACT: ${{ inputs.mode != 'upgrade' && inputs.authority-contract || '' }}
+        VIGIL_AUTHORITY_CONTRACT_REF: ${{ inputs.mode != 'upgrade' && inputs.authority-contract-ref || '' }}
         VIGIL_MODE: ${{ inputs.mode }}
-        VIGIL_OUTCOME_RECEIPT: ${{ inputs.outcome-receipt }}
-        VIGIL_ACTIONS_RUN_ID: ${{ inputs.actions-run-id }}
+        VIGIL_OUTCOME_RECEIPT: ${{ inputs.mode != 'upgrade' && inputs.outcome-receipt || '' }}
+        VIGIL_ACTIONS_RUN_ID: ${{ inputs.mode != 'upgrade' && inputs.actions-run-id || '' }}
         VIGIL_REPO: ${{ inputs.repo }}
         VIGIL_BASE: ${{ inputs.base }}
         VIGIL_HEAD: ${{ inputs.head }}
-        VIGIL_TEST_CMD: ${{ inputs.test-cmd }}
-        VIGIL_POLICY: ${{ inputs.policy }}
-        VIGIL_POLICY_REF: ${{ inputs.policy-ref }}
+        VIGIL_TEST_CMD: ${{ inputs.mode != 'upgrade' && inputs.test-cmd || '' }}
+        VIGIL_POLICY: ${{ inputs.mode != 'upgrade' && inputs.policy || '' }}
+        VIGIL_POLICY_REF: ${{ inputs.mode != 'upgrade' && inputs.policy-ref || '' }}
         VIGIL_STRICT: ${{ inputs.strict }}
         VIGIL_MIN_VERIFIED: ${{ inputs.min-verified }}
-        VIGIL_GITHUB_TOKEN: ${{ inputs.github-token }}
-        VIGIL_VALUE_TASK_CLASS: ${{ inputs.value-task-class }}
-        VIGIL_VALUE_BUDGET_USD: ${{ inputs.value-budget-usd }}
-        VIGIL_VALUE_COST_USD: ${{ inputs.value-cost-usd }}
-        VIGIL_VALUE_COST_SOURCE: ${{ inputs.value-cost-source }}
-        VIGIL_VALUE_COST_EVIDENCE: ${{ inputs.value-cost-evidence }}
-        VIGIL_VALUE_REVIEW_MINUTES: ${{ inputs.value-review-minutes }}
-        VIGIL_REVERT_EVIDENCE: ${{ inputs.revert-commit-evidence }}
-        VIGIL_HOTFIX_EVIDENCE: ${{ inputs.hotfix-pr-evidence }}
-        VIGIL_INCIDENT_EVIDENCE: ${{ inputs.incident-issue-evidence }}
+        VIGIL_GITHUB_TOKEN: ${{ inputs.mode != 'upgrade' && inputs.github-token || '' }}
+        VIGIL_UPGRADE_HAS_GITHUB_TOKEN: ${{ inputs.mode == 'upgrade' && inputs.github-token != '' && 'true' || 'false' }}
+        VIGIL_VALUE_TASK_CLASS: ${{ inputs.mode != 'upgrade' && inputs.value-task-class || '' }}
+        VIGIL_VALUE_BUDGET_USD: ${{ inputs.mode != 'upgrade' && inputs.value-budget-usd || '' }}
+        VIGIL_VALUE_COST_USD: ${{ inputs.mode != 'upgrade' && inputs.value-cost-usd || '' }}
+        VIGIL_VALUE_COST_SOURCE: ${{ inputs.mode != 'upgrade' && inputs.value-cost-source || '' }}
+        VIGIL_VALUE_COST_EVIDENCE: ${{ inputs.mode != 'upgrade' && inputs.value-cost-evidence || '' }}
+        VIGIL_VALUE_REVIEW_MINUTES: ${{ inputs.mode != 'upgrade' && inputs.value-review-minutes || '' }}
+        VIGIL_REVERT_EVIDENCE: ${{ inputs.mode != 'upgrade' && inputs.revert-commit-evidence || '' }}
+        VIGIL_HOTFIX_EVIDENCE: ${{ inputs.mode != 'upgrade' && inputs.hotfix-pr-evidence || '' }}
+        VIGIL_INCIDENT_EVIDENCE: ${{ inputs.mode != 'upgrade' && inputs.incident-issue-evidence || '' }}
       run: |
+        /usr/bin/env -i \
+          LANG=C LC_ALL=C TZ=UTC PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin \
+          "GITHUB_ACTION_PATH=${GITHUB_ACTION_PATH-}" \
+          "GITHUB_EVENT_PATH=${GITHUB_EVENT_PATH-}" \
+          "GITHUB_WORKSPACE=${GITHUB_WORKSPACE-}" \
+          "GITHUB_OUTPUT=${GITHUB_OUTPUT-}" \
+          "GITHUB_STEP_SUMMARY=${GITHUB_STEP_SUMMARY-}" \
+          "GITHUB_REPOSITORY=${GITHUB_REPOSITORY-}" \
+          "RUNNER_TEMP=${RUNNER_TEMP-}" \
+          "VIGIL_TRANSCRIPT=${VIGIL_TRANSCRIPT-}" \
+          "VIGIL_ATTEST=${VIGIL_ATTEST-}" \
+          "VIGIL_RECEIPT=${VIGIL_RECEIPT-}" \
+          "VIGIL_AUTHORITY_CONTRACT=${VIGIL_AUTHORITY_CONTRACT-}" \
+          "VIGIL_AUTHORITY_CONTRACT_REF=${VIGIL_AUTHORITY_CONTRACT_REF-}" \
+          "VIGIL_MODE=${VIGIL_MODE-}" \
+          "VIGIL_OUTCOME_RECEIPT=${VIGIL_OUTCOME_RECEIPT-}" \
+          "VIGIL_ACTIONS_RUN_ID=${VIGIL_ACTIONS_RUN_ID-}" \
+          "VIGIL_REPO=${VIGIL_REPO-}" \
+          "VIGIL_BASE=${VIGIL_BASE-}" \
+          "VIGIL_HEAD=${VIGIL_HEAD-}" \
+          "VIGIL_TEST_CMD=${VIGIL_TEST_CMD-}" \
+          "VIGIL_POLICY=${VIGIL_POLICY-}" \
+          "VIGIL_POLICY_REF=${VIGIL_POLICY_REF-}" \
+          "VIGIL_STRICT=${VIGIL_STRICT-}" \
+          "VIGIL_MIN_VERIFIED=${VIGIL_MIN_VERIFIED-}" \
+          "VIGIL_GITHUB_TOKEN=${VIGIL_GITHUB_TOKEN-}" \
+          "VIGIL_UPGRADE_HAS_GITHUB_TOKEN=${VIGIL_UPGRADE_HAS_GITHUB_TOKEN-}" \
+          "VIGIL_VALUE_TASK_CLASS=${VIGIL_VALUE_TASK_CLASS-}" \
+          "VIGIL_VALUE_BUDGET_USD=${VIGIL_VALUE_BUDGET_USD-}" \
+          "VIGIL_VALUE_COST_USD=${VIGIL_VALUE_COST_USD-}" \
+          "VIGIL_VALUE_COST_SOURCE=${VIGIL_VALUE_COST_SOURCE-}" \
+          "VIGIL_VALUE_COST_EVIDENCE=${VIGIL_VALUE_COST_EVIDENCE-}" \
+          "VIGIL_VALUE_REVIEW_MINUTES=${VIGIL_VALUE_REVIEW_MINUTES-}" \
+          "VIGIL_REVERT_EVIDENCE=${VIGIL_REVERT_EVIDENCE-}" \
+          "VIGIL_HOTFIX_EVIDENCE=${VIGIL_HOTFIX_EVIDENCE-}" \
+          "VIGIL_INCIDENT_EVIDENCE=${VIGIL_INCIDENT_EVIDENCE-}" \
+          /bin/bash --noprofile --norc -e -o pipefail -s <<'AGENT_VIGIL_TRUSTED_BOOTSTRAP'
+        set -eo pipefail
+        set +x
+        umask 077
+        export BASH_ENV='' ENV='' PS4='' BASH_XTRACEFD='' CDPATH='' GLOBIGNORE=''
+        unset POSIXLY_CORRECT
+        export LD_PRELOAD='' LD_LIBRARY_PATH='' LD_AUDIT=''
+        export DYLD_INSERT_LIBRARIES='' DYLD_LIBRARY_PATH='' DYLD_FRAMEWORK_PATH=''
+        export OPENSSL_CONF='' OPENSSL_MODULES='' NODE_OPTIONS='' NODE_PATH=''
+        readonly VIGIL_SAFE_PATH='/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin'
+        export PATH="$VIGIL_SAFE_PATH"
+        unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+        unset GIT_COMMON_DIR GIT_NAMESPACE GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM
+        unset GIT_CONFIG GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_COUNT GIT_ATTR_NOSYSTEM
+        unset GIT_SSH GIT_SSH_COMMAND GIT_ASKPASS SSH_ASKPASS GIT_PROXY_COMMAND
+
+        canonical_host_file() {
+          local selected="$1"
+          local parent canonical_parent target cursor attempts=0
+          while true; do
+            parent="${selected%/*}"
+            canonical_parent=$(cd "$parent" 2>/dev/null && pwd -P) || return 1
+            selected="$canonical_parent/${selected##*/}"
+            if [[ ! -L "$selected" ]]; then break; fi
+            attempts=$((attempts + 1))
+            [[ "$attempts" -le 8 ]] || return 1
+            target=$(/usr/bin/readlink -- "$selected") || return 1
+            if [[ "$target" == /* ]]; then selected="$target"; else selected="$canonical_parent/$target"; fi
+          done
+          [[ -f "$selected" && -x "$selected" && ! -w "$selected" ]] || return 1
+          cursor="${selected%/*}"
+          while [[ -n "$cursor" && "$cursor" != "/" ]]; do
+            [[ ! -w "$cursor" ]] || return 1
+            cursor="${cursor%/*}"
+          done
+          if [[ -n "${GITHUB_WORKSPACE:-}" && "$selected" == "$GITHUB_WORKSPACE"/* ]]; then return 1; fi
+          if [[ -n "${RUNNER_TEMP:-}" && "$selected" == "$RUNNER_TEMP"/* ]]; then return 1; fi
+          printf '%s' "$selected"
+        }
+
+        VIGIL_ENV_BIN=''
+        for candidate in /usr/bin/env /bin/env; do
+          if resolved=$(canonical_host_file "$candidate"); then VIGIL_ENV_BIN="$resolved"; break; fi
+        done
+        VIGIL_GIT_BIN=''
+        for candidate in /usr/bin/git /usr/local/bin/git; do
+          if resolved=$(canonical_host_file "$candidate"); then VIGIL_GIT_BIN="$resolved"; break; fi
+        done
+        VIGIL_NODE_BIN=''
+        for candidate in /usr/local/bin/node /usr/bin/node /opt/homebrew/bin/node; do
+          if resolved=$(canonical_host_file "$candidate"); then VIGIL_NODE_BIN="$resolved"; break; fi
+        done
+        if [[ -z "$VIGIL_NODE_BIN" ]]; then
+          for candidate in /opt/hostedtoolcache/node/*/x64/bin/node; do
+            if resolved=$(canonical_host_file "$candidate"); then VIGIL_NODE_BIN="$resolved"; break; fi
+          done
+        fi
+        if [[ -z "$VIGIL_ENV_BIN" || -z "$VIGIL_GIT_BIN" || -z "$VIGIL_NODE_BIN" ]]; then
+          echo "agent-vigil: trusted host runtime is unavailable" >&2
+          exit 2
+        fi
+        readonly VIGIL_ENV_BIN VIGIL_GIT_BIN VIGIL_NODE_BIN
+        if ! "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "$VIGIL_NODE_BIN" -e \
+          'const major=Number(process.versions.node.split(".")[0]); if (!Number.isInteger(major) || major < 20) process.exit(1)'; then
+          echo "agent-vigil: trusted Node.js 20 or newer is unavailable" >&2
+          exit 2
+        fi
+
         if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "maintainer" && "$VIGIL_MODE" != "outcome" && "$VIGIL_MODE" != "upgrade" ]]; then
           echo "agent-vigil: mode must be plan, prove, maintainer, outcome, or upgrade when provided" >&2
           exit 2
@@ -212,13 +340,15 @@ runs:
         # workflow edits must not redirect verification to different commits or
         # to a policy from the candidate branch.
         if [[ -n "${GITHUB_EVENT_PATH:-}" && -f "$GITHUB_EVENT_PATH" ]]; then
-          IFS=$'\t' read -r event_kind event_base event_head < <(node -e '
-            const e = require(process.env.GITHUB_EVENT_PATH);
+          event_identity=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+            "$VIGIL_NODE_BIN" -e '
+            const e = require(require("node:path").resolve(process.argv[1]));
             const kind = e.pull_request ? "pull_request" : e.merge_group ? "merge_group" : e.workflow_run ? "workflow_run" : "";
             const base = e.pull_request?.base?.sha ?? e.merge_group?.base_sha ?? "";
             const head = e.pull_request?.head?.sha ?? e.merge_group?.head_sha ?? "";
             process.stdout.write(`${kind}\t${base}\t${head}\n`);
-          ')
+          ' "$GITHUB_EVENT_PATH")
+          IFS=$'\t' read -r event_kind event_base event_head <<< "$event_identity"
           if [[ -n "$event_base" && "$VIGIL_MODE" == "prove" && "$VIGIL_HEAD" != "$event_head" ]]; then
             echo "agent-vigil: pull-request control proof must challenge the event head $event_head" >&2
             exit 2
@@ -260,11 +390,23 @@ runs:
             echo "agent-vigil: upgrade mode requires repo to equal the GitHub workspace" >&2
             exit 2
           fi
+          if [[ "${VIGIL_UPGRADE_HAS_GITHUB_TOKEN:-false}" == "true" || -n "$VIGIL_GITHUB_TOKEN" ]]; then
+            echo "agent-vigil: upgrade mode does not accept a GitHub token" >&2
+            exit 2
+          fi
           VIGIL_UPGRADE_LOCK_PATH="apm.lock.yaml"
           VIGIL_UPGRADE_CONFIG=".agent-vigil/upgrade/config.json"
         fi
 
-        artifact_dir=$(node -e 'const {mkdtempSync}=require("node:fs"); const {join}=require("node:path"); process.stdout.write(mkdtempSync(join(process.env.RUNNER_TEMP || process.cwd(), "agent-vigil-")))')
+        if [[ -z "${RUNNER_TEMP:-}" || ! -d "$RUNNER_TEMP" ]]; then
+          echo "agent-vigil: runner-owned temporary directory is unavailable" >&2
+          exit 2
+        fi
+        artifact_dir=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+          "$VIGIL_NODE_BIN" -e 'const {mkdtempSync}=require("node:fs"); const {join,resolve}=require("node:path"); process.stdout.write(mkdtempSync(join(resolve(process.argv[1]), "agent-vigil-")))' "$RUNNER_TEMP")
+        docker_home="$artifact_dir/docker-home"
+        "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+          "$VIGIL_NODE_BIN" -e 'const fs=require("node:fs"); fs.mkdirSync(process.argv[1], {mode:0o700}); fs.chmodSync(process.argv[1], 0o700)' "$docker_home"
         report_file="$artifact_dir/report.json"
         sarif_file="$artifact_dir/report.sarif"
         if [[ "$VIGIL_MODE" == "outcome" ]]; then
@@ -275,36 +417,23 @@ runs:
         elif [[ "$VIGIL_MODE" == "prove" ]]; then
           args=(prove --repo "$VIGIL_REPO" --base "$VIGIL_HEAD" --format json --output "$report_file")
         elif [[ "$VIGIL_MODE" == "upgrade" ]]; then
-          current_lock="$artifact_dir/current-apm.lock.yaml"
-          candidate_lock="$artifact_dir/candidate-apm.lock.yaml"
-          trusted_repo="$artifact_dir/trusted-base"
-          for selected_ref in "$VIGIL_BASE" "$VIGIL_HEAD"; do
-            object_size=$(git -C "$VIGIL_REPO" cat-file -s "$selected_ref:$VIGIL_UPGRADE_LOCK_PATH" 2>/dev/null || true)
-            if [[ ! "$object_size" =~ ^[0-9]+$ || "$object_size" -gt 4194304 ]]; then
-              echo "agent-vigil: exact APM lockfile is missing or exceeds 4 MiB at the selected event commit" >&2
-              exit 2
-            fi
-          done
-          if ! git -C "$VIGIL_REPO" show "$VIGIL_BASE:$VIGIL_UPGRADE_LOCK_PATH" > "$current_lock"; then
-            echo "agent-vigil: could not read the exact base APM lockfile" >&2
+          trusted_inputs="$artifact_dir/trusted-inputs"
+          trusted_repo="$trusted_inputs/repository"
+          current_lock="$trusted_inputs/current-apm.lock.yaml"
+          candidate_lock="$trusted_inputs/candidate-apm.lock.yaml"
+          if ! "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+            "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/scripts/materialize-trusted-upgrade-inputs.mjs" materialize \
+            --repository "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" \
+            --output "$trusted_inputs" --git "$VIGIL_GIT_BIN" >/dev/null; then
+            echo "agent-vigil: exact trusted Upgrade Guard inputs could not be materialized" >&2
             exit 2
           fi
-          if ! git -C "$VIGIL_REPO" show "$VIGIL_HEAD:$VIGIL_UPGRADE_LOCK_PATH" > "$candidate_lock"; then
-            echo "agent-vigil: could not read the exact candidate APM lockfile" >&2
-            exit 2
-          fi
-          if ! git -C "$VIGIL_REPO" worktree add --quiet --detach "$trusted_repo" "$VIGIL_BASE"; then
-            echo "agent-vigil: could not create the trusted-base Upgrade Guard worktree" >&2
-            exit 2
-          fi
-          cleanup_upgrade_worktree() {
-            git -C "$VIGIL_REPO" worktree remove --force "$trusted_repo"
+          cleanup_upgrade_inputs() {
+            "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+              "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/scripts/materialize-trusted-upgrade-inputs.mjs" cleanup \
+              --output "$trusted_inputs" --parent "$artifact_dir"
           }
-          trap 'cleanup_upgrade_worktree >/dev/null 2>&1 || true' EXIT
-          if [[ ! -f "$trusted_repo/$VIGIL_UPGRADE_CONFIG" ]]; then
-            echo "agent-vigil: trusted-base Upgrade Guard config is missing" >&2
-            exit 2
-          fi
+          trap 'cleanup_upgrade_inputs >/dev/null 2>&1 || true' EXIT
           args=(upgrade preflight --repo "$trusted_repo" --current-lock "$current_lock" --candidate-lock "$candidate_lock" --config "$VIGIL_UPGRADE_CONFIG" --work-directory "$artifact_dir" --output "$report_file")
         elif [[ "${event_kind:-}" == "merge_group" ]]; then
           if [[ -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ]]; then
@@ -334,32 +463,40 @@ runs:
 
         if [[ "$VIGIL_MODE" != "outcome" ]]; then
           set +e
-          node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
+          if [[ "$VIGIL_MODE" == "upgrade" ]]; then
+            "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC HOME="$docker_home" DOCKER_HOST=unix:///var/run/docker.sock \
+              "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
+          else
+            "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
+          fi
           code=$?
           set -e
         fi
         if [[ "$VIGIL_MODE" == "upgrade" ]]; then
           trap - EXIT
-          if ! cleanup_upgrade_worktree >/dev/null 2>&1; then
-            echo "agent-vigil: trusted-base worktree restoration failed" >&2
-            node -e 'const {unlinkSync}=require("node:fs"); try { unlinkSync(process.argv[1]); } catch {}' "$report_file"
+          if ! cleanup_upgrade_inputs >/dev/null 2>&1; then
+            echo "agent-vigil: runner-owned trusted-input cleanup failed" >&2
+            "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+              "$VIGIL_NODE_BIN" -e 'const {unlinkSync}=require("node:fs"); try { unlinkSync(process.argv[1]); } catch {}' "$report_file"
             code=2
           fi
         fi
 
         if [[ -s "$report_file" ]]; then
           if [[ "$VIGIL_MODE" == "plan" ]]; then
-            status=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.status)' "$report_file")
-            receipt_hash=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.planSha256)' "$report_file")
+            status=$("$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.status)' "$report_file")
+            receipt_hash=$("$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.planSha256)' "$report_file")
           elif [[ "$VIGIL_MODE" == "prove" ]]; then
-            status=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.status)' "$report_file")
-            receipt_hash=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
+            status=$("$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.status)' "$report_file")
+            receipt_hash=$("$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
           elif [[ "$VIGIL_MODE" == "upgrade" ]]; then
-            status=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.summary.verdict)' "$report_file")
-            receipt_hash=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
+            status=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+              "$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.summary.verdict)' "$report_file")
+            receipt_hash=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+              "$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
           else
-            status=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.summary.status)' "$report_file")
-            receipt_hash=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
+            status=$("$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.summary.status)' "$report_file")
+            receipt_hash=$("$VIGIL_NODE_BIN" -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
           fi
           report_path="$report_file"
           sarif_path=""
@@ -376,10 +513,10 @@ runs:
             github_args=()
           fi
           if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "upgrade" && -n "$VIGIL_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_EVENT_PATH:-}" ]] && command -v gh >/dev/null 2>&1; then
-            pr_number=$(node -e 'const e=require(process.env.GITHUB_EVENT_PATH); process.stdout.write(String(e.pull_request?.number || e.number || e.workflow_run?.pull_requests?.[0]?.number || ""))')
+            pr_number=$("$VIGIL_NODE_BIN" -e 'const e=require(process.env.GITHUB_EVENT_PATH); process.stdout.write(String(e.pull_request?.number || e.number || e.workflow_run?.pull_requests?.[0]?.number || ""))')
             run_id="$VIGIL_ACTIONS_RUN_ID"
             if [[ -z "$run_id" && "${event_kind:-}" == "workflow_run" ]]; then
-              run_id=$(node -e 'const e=require(process.env.GITHUB_EVENT_PATH); process.stdout.write(String(e.workflow_run?.id || ""))')
+              run_id=$("$VIGIL_NODE_BIN" -e 'const e=require(process.env.GITHUB_EVENT_PATH); process.stdout.write(String(e.workflow_run?.id || ""))')
             fi
             export GH_TOKEN="$VIGIL_GITHUB_TOKEN"
             if [[ -n "$pr_number" ]]; then
@@ -400,7 +537,7 @@ runs:
             [[ -n "$VIGIL_HOTFIX_EVIDENCE" ]] && github_args+=(--hotfix-pull-request "$VIGIL_HOTFIX_EVIDENCE")
             [[ -n "$VIGIL_INCIDENT_EVIDENCE" ]] && github_args+=(--incident-issue "$VIGIL_INCIDENT_EVIDENCE")
             set +e
-            node "$GITHUB_ACTION_PATH/dist/cli.js" "${github_args[@]}"
+            "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/dist/cli.js" "${github_args[@]}"
             github_code=$?
             set -e
             if [[ "$github_code" -eq 0 && -s "$artifact_dir/github-evidence.json" ]]; then
@@ -418,13 +555,13 @@ runs:
             [[ -n "$VIGIL_VALUE_COST_EVIDENCE" ]] && value_args+=(--cost-evidence "$VIGIL_VALUE_COST_EVIDENCE")
             [[ -n "$VIGIL_VALUE_REVIEW_MINUTES" ]] && value_args+=(--review-minutes "$VIGIL_VALUE_REVIEW_MINUTES")
             set +e
-            node "$GITHUB_ACTION_PATH/dist/cli.js" "${value_args[@]}"
+            "$VIGIL_NODE_BIN" "$GITHUB_ACTION_PATH/dist/cli.js" "${value_args[@]}"
             value_code=$?
             set -e
             if [[ "$value_code" -le 2 && -s "$artifact_dir/value-card.json" ]]; then
               value_card_path="$artifact_dir/value-card.json"
-              value_verdict=$(node -e 'const c=require(require("node:path").resolve(process.argv[1])); process.stdout.write(c.valueVerdict)' "$artifact_dir/value-card.json")
-              node - "$artifact_dir/value-card.json" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'NODE'
+              value_verdict=$("$VIGIL_NODE_BIN" -e 'const c=require(require("node:path").resolve(process.argv[1])); process.stdout.write(c.valueVerdict)' "$artifact_dir/value-card.json")
+              "$VIGIL_NODE_BIN" - "$artifact_dir/value-card.json" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'NODE'
         const c = require(process.argv[2]);
         const actions = c.github?.actionsRunDurationSeconds === undefined ? "unavailable" : `${c.github.actionsRunDurationSeconds}s run / ${c.github.actionsJobDurationSeconds ?? "?"}s jobs`;
         process.stdout.write(`\n### Agent Value Card: ${c.valueVerdict}\n\n- Verification: ${c.receipt.verificationStatus}\n- Human disposition: ${c.human.disposition}\n- Downstream outcome: ${c.outcome.state}\n- Actions runtime: ${actions}\n- Evidence gaps: ${c.gaps.length}\n- Card: \`${c.cardHash}\`\n`);
@@ -452,6 +589,7 @@ runs:
           echo "github_evidence=$github_evidence_path"
         } >> "$GITHUB_OUTPUT"
         exit "$code"
+        AGENT_VIGIL_TRUSTED_BOOTSTRAP
     - id: prepare_attestation
       name: Prepare privacy-reduced AI Change Receipt predicate
       if: ${{ always() && inputs.mode != 'plan' && inputs.mode != 'prove' && inputs.mode != 'upgrade' && inputs.attest == 'true' && steps.vigil.outputs.report != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}

@@ -254,7 +254,7 @@ test("composite Action routes authority mode with a base-anchored contract", { s
   const event = join(mkdtempSync(join(tmpdir(), "vigil-authority-event-")), "event.json");
   writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: fx.base }, head: { sha: fx.head } } }));
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+  const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
   assert.ok(block);
   const aux = mkdtempSync(join(tmpdir(), "vigil-action-authority-"));
   const script = join(aux, "run.sh");
