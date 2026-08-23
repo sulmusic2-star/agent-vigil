@@ -9,8 +9,8 @@
     "requireHumanAttestation": false,
     "requireLinkedIssue": true,
     "requireAiDisclosure": true,
-    "maxChangedFiles": 70,
-    "maxChangedLines": 12000,
+    "maxChangedFiles": 30,
+    "maxChangedLines": 1200,
     "requireTestChange": false,
     "protectedPaths": [
       ".agent-vigil.json"
