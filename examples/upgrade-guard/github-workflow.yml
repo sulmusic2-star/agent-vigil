@@ -5,10 +5,8 @@ on:
   # pull_request_target selects this workflow from the protected base branch;
   # the job below never executes files from the pull request.
   pull_request_target:
-    paths:
-      - apm.lock.yaml
-      - .agent-vigil/upgrade/**
-      - .github/workflows/agent-vigil-upgrade.yml
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -23,26 +21,60 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
           # checkout v7 requires this opt-out before it will materialize a fork
           # head under pull_request_target. Nothing in this job may execute,
           # source, import, build, or run files from that checkout.
-          allow-unsafe-pr-checkout: true
+          allow-unsafe-pr-checkout: ${{ github.event_name == 'pull_request_target' }}
+
+      # Required-workflow rulesets ignore event path filters. Classify the
+      # exact event objects internally so unrelated PRs and merge groups pass
+      # without an image pull or a compatibility claim.
+      - id: relevance
+        name: Classify exact APM control-path changes
+        shell: /usr/bin/env -u BASH_ENV -u ENV -u SHELLOPTS -u BASHOPTS /bin/bash --noprofile --norc -e -o pipefail {0}
+        env:
+          VIGIL_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          VIGIL_EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: |
+          /usr/bin/env -i LANG=C LC_ALL=C TZ=UTC \
+            GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_OUTPUT="$GITHUB_OUTPUT" \
+            VIGIL_EVENT_BASE="$VIGIL_EVENT_BASE" VIGIL_EVENT_HEAD="$VIGIL_EVENT_HEAD" \
+            /bin/bash --noprofile --norc -e -o pipefail -c '
+              umask 077
+              [[ "$VIGIL_EVENT_BASE" =~ ^[0-9a-f]{40}$ ]] || exit 2
+              [[ "$VIGIL_EVENT_HEAD" =~ ^[0-9a-f]{40}$ ]] || exit 2
+              set +e
+              /usr/bin/git --no-pager --no-replace-objects \
+                -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+                -c core.attributesFile=/dev/null -C "$GITHUB_WORKSPACE" \
+                diff-tree --quiet "$VIGIL_EVENT_BASE" "$VIGIL_EVENT_HEAD" -- \
+                apm.lock.yaml .agent-vigil/upgrade .github/workflows/agent-vigil-upgrade.yml
+              code=$?
+              set -e
+              case "$code" in
+                0) printf "relevant=false\n" >> "$GITHUB_OUTPUT" ;;
+                1) printf "relevant=true\n" >> "$GITHUB_OUTPUT" ;;
+                *) exit 2 ;;
+              esac
+            '
 
       # Upgrade Guard never pulls an image inside the comparison. Keep this
       # exact-digest cache mutation visible and separate from the receipt.
       - name: Preload exact contained runner
+        if: ${{ steps.relevance.outputs.relevant == 'true' }}
         run: >-
           docker pull
           node:22.22.3-bookworm-slim@sha256:16d364eebf6b62da439dc993d9b80940c78b0ca38438452f011ab9a25c752644
 
       - id: vigil
+        if: ${{ steps.relevance.outputs.relevant == 'true' }}
         uses: sulmusic2-star/agent-vigil@v0.15.0
         with:
           mode: upgrade
           repo: .
-          base: ${{ github.event.pull_request.base.sha }}
-          head: ${{ github.event.pull_request.head.sha }}
+          base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
       # The report is a private wrapper containing exact manifest and canary
       # commitments. Do not upload it from a public repository. A private

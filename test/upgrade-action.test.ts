@@ -265,11 +265,14 @@ test("upgrade workflow is base-selected and does not publish the private receipt
   const contract = readFileSync(join(process.cwd(), "docs/APM_PREFLIGHT_ACTION.md"), "utf8");
   assert.match(workflow, /pull_request_target:/);
   assert.doesNotMatch(workflow, /^\s{2}pull_request:/m);
-  assert.doesNotMatch(workflow, /^\s{2}merge_group:/m);
+  assert.match(workflow, /^\s{2}merge_group:/m);
   assert.match(workflow, /\.github\/workflows\/agent-vigil-upgrade\.yml/);
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
   assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /allow-unsafe-pr-checkout: true/);
+  assert.match(workflow, /allow-unsafe-pr-checkout: \$\{\{ github\.event_name == 'pull_request_target' \}\}/);
+  assert.match(workflow, /git --no-pager --no-replace-objects/);
+  assert.match(workflow, /diff-tree --quiet "\$VIGIL_EVENT_BASE" "\$VIGIL_EVENT_HEAD"/);
+  assert.match(workflow, /if: \$\{\{ steps\.relevance\.outputs\.relevant == 'true' \}\}/);
   assert.doesNotMatch(workflow, /actions\/upload-artifact|retention-days:/);
   assert.match(contract, /required-workflow ruleset/);
   assert.match(contract, /default public-repository example does\s+not upload it/);

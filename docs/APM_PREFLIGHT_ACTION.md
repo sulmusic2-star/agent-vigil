@@ -1,7 +1,7 @@
 # APM preflight GitHub Action
 
-The Action's `upgrade` mode turns a pull-request APM lockfile change into one
-fail-closed compatibility check:
+The Action's `upgrade` mode turns a pull-request or merge-queue APM lockfile
+change into one fail-closed compatibility check:
 
 ```text
 exact event base/head -> private APM plan -> exact artifact acquisition
@@ -41,13 +41,14 @@ bytes used by the subsequent comparison; it is not provenance proof.
 
 ## Event and evidence binding
 
-The low-level Action accepts `pull_request` and `merge_group` event identities,
-but the shipped R0 workflow deliberately invokes the automatic path only from
-`pull_request_target`. A merge-queue installation needs an additional exact
-relevance gate so a composition with no APM change can pass without describing
-it as a checked update; that complete workflow is not shipped in v1. The first
-pull-request contract exposes no alternate path, pair-identity, Docker client,
-or fetch-client inputs to candidate workflow code. It:
+The workflow accepts `pull_request_target` and `merge_group` event identities.
+An internal sanitized `git diff-tree` classifier compares only the exact event
+objects and fixed APM lock, harness, and protected-workflow paths. An unrelated
+composition exits successfully without pulling the runner or producing a
+compatibility verdict; a relevant composition enters the preflight below.
+This is required because GitHub ruleset-required workflows ignore event path
+filters. The comparison contract exposes no alternate path, pair-identity,
+Docker client, or fetch-client inputs to candidate workflow code. It:
 
 1. requires the caller's `base` and `head` inputs to equal the event payload;
 2. requires `repo` to resolve to the GitHub-managed workspace and reads both
@@ -99,7 +100,7 @@ repository access, fetches the exact candidate object without executing
 repository content, explicitly enables checkout v7's fork-head materialization
 guard for that no-execution design, and preloads the exact runner digest. Keep the installed
 workflow at `.github/workflows/agent-vigil-upgrade.yml` so its own path change
-triggers the protected base copy. Do not add cloud, package-publishing,
+is classified as relevant by the protected base copy. Do not add cloud, package-publishing,
 deployment, model-provider, signing, or other secrets to this job.
 
 The checkout opt-out is safe only under this narrow contract. Do not add
