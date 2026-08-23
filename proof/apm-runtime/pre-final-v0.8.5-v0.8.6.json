@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "agent-vigil-public-apm-runtime-proof/v1",
+  "evidenceStatus": "PRE_FINAL_RUNTIME",
+  "validatedCodeSha": "cb5a6bc55966bb4687d196ace7719f8fb41b5edb",
+  "releaseReplay": {
+    "required": true,
+    "completed": false,
+    "gate": "HOLD"
+  },
+  "source": {
+    "repository": "microsoft/apm",
+    "current": {
+      "tag": "v0.8.5",
+      "commit": "52e9b1b952d61aa2f97259fc3f9ea509cc833d3a",
+      "archive": {
+        "sha256": "sha256:2376fbde78672ce6548400937abf0dcd374489735839a180a4ae955614441680",
+        "bytes": 1242115
+      },
+      "tree": {
+        "expectedSha256": "sha256:aee0224fd5a4194bf4df01e4564194c55b7de263bf8a9ba48054cedda3d8813e",
+        "observedSha256": "sha256:aee0224fd5a4194bf4df01e4564194c55b7de263bf8a9ba48054cedda3d8813e",
+        "fileCount": 499,
+        "totalBytes": 5959236
+      }
+    },
+    "candidate": {
+      "tag": "v0.8.6",
+      "commit": "b56c537cf5a23807b01ca7ea434968981bdded36",
+      "archive": {
+        "sha256": "sha256:f0ab85f5ef97fa188802ff1768c0f9c4922eb196635d56b35443b067365e9ed7",
+        "bytes": 1260808
+      },
+      "tree": {
+        "expectedSha256": "sha256:231b80c97d619dcf56c99cf9e2f7b97654eefd6e8d63509bb6e0ce483c84e845",
+        "observedSha256": "sha256:231b80c97d619dcf56c99cf9e2f7b97654eefd6e8d63509bb6e0ce483c84e845",
+        "fileCount": 502,
+        "totalBytes": 6054248
+      }
+    }
+  },
+  "publicVersionSelections": [
+    {
+      "path": "docs/package.json",
+      "name": "apm-docs",
+      "versionField": "dependencies.astro",
+      "currentVersion": "5.18.0",
+      "candidateVersion": "5.18.1"
+    },
+    {
+      "path": "pyproject.toml",
+      "name": "apm-cli",
+      "versionField": "project.version",
+      "currentVersion": "0.8.5",
+      "candidateVersion": "0.8.6"
+    }
+  ],
+  "outcome": {
+    "verdict": "CHANGED",
+    "reason": "MATERIAL_CHANGE_DETECTED",
+    "wrapperSha256": "sha256:6870faa9bf1688a4a3c483affac305ea92553084f487d39faed52e19201f02a2"
+  },
+  "elapsedSeconds": 8.55,
+  "containment": {
+    "localTransportAccepted": true,
+    "exactImagePresent": true,
+    "networkBlocked": true,
+    "targetReadOnly": true,
+    "rootReadOnly": true,
+    "inheritedSecretAbsent": true,
+    "proxiesCleared": true
+  },
+  "restoration": {
+    "restored": true,
+    "hostMutationAbsent": true,
+    "sessionRemoved": true
+  },
+  "validation": {
+    "schema": {
+      "errors": 0
+    },
+    "verifier": {
+      "valid": true,
+      "exitCode": 0
+    }
+  },
+  "transientRetryDisclosure": {
+    "occurred": true,
+    "attempts": 2,
+    "boundedRetries": 1,
+    "firstAttemptVerdict": "HOLD",
+    "firstAttemptReason": "The contained amd64 probe exited 139 before canary trials.",
+    "firstAttemptCleanupVerified": true,
+    "doctorReadyBeforeRetry": true,
+    "finalAttemptUsed": true
+  }
+}
