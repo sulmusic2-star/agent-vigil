@@ -161,7 +161,7 @@ function withoutFramingNewlines(value: string): string {
   return value.replaceAll("\n", "");
 }
 
-test("upgrade CLI errors escape terminal controls from untrusted arguments", () => {
+test("upgrade CLI errors do not reflect commands containing terminal controls", () => {
   const messages: string[] = [];
   const original = console.error;
   console.error = (...values: unknown[]) => { messages.push(values.map(String).join(" ")); };
@@ -172,7 +172,7 @@ test("upgrade CLI errors escape terminal controls from untrusted arguments", () 
   }
   assert.equal(messages.length, 1);
   assert.doesNotMatch(messages[0], UNSAFE_TERMINAL);
-  assert.match(messages[0], /unknown\\u\{001B\}\[2J\\u\{000D\}\\u\{000A\}\\u\{202E\}\\u\{200B\}\\u\{FE0F\}command/);
+  assert.equal(messages[0], "agent-vigil upgrade: unknown upgrade command");
 });
 
 test("doctor presentation escapes dynamic paths, labels, details, and invisible text", () => {
@@ -220,7 +220,7 @@ test("init success output escapes a repository path containing terminal controls
   assert.match(output, /repo\\u\{001B\}\[2J\\u\{000D\}\\u\{202E\}\\u\{200B\}/);
 });
 
-test("index argument errors cannot inject terminal controls", () => {
+test("index argument errors neither reflect caller values nor inject terminal controls", () => {
   const messages: string[] = [];
   const original = console.error;
   console.error = (...values: unknown[]) => { messages.push(values.map(String).join(" ")); };
@@ -229,6 +229,7 @@ test("index argument errors cannot inject terminal controls", () => {
       "index",
       "entry.json",
       "--output", "bad\u001b[2J\r\n\u202E\u200B.html",
+      "--api-output", "registry.json",
       "--public-key", "publisher.pem",
     ]), 2);
   } finally {
@@ -236,5 +237,6 @@ test("index argument errors cannot inject terminal controls", () => {
   }
   assert.equal(messages.length, 1);
   assert.doesNotMatch(messages[0], UNSAFE_TERMINAL);
-  assert.match(messages[0], /bad\\u\{001B\}\[2J\\u\{000D\}\\u\{000A\}\\u\{202E\}\\u\{200B\}\.html/);
+  assert.equal(messages[0], "agent-vigil upgrade: operation failed");
+  assert.doesNotMatch(messages[0], /bad|entry\.json|publisher\.pem/);
 });

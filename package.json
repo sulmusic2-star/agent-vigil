@@ -11,7 +11,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
+    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --alias:yaml=./node_modules/yaml/browser/index.js --outfile=dist/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:coverage": "node --import tsx --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 --test test/*.test.ts",
@@ -96,6 +96,10 @@
     "docs/control-corpus-entry-v1.schema.json",
     "docs/control-policy-v1.schema.json",
     "docs/control-status-v1.schema.json",
+    "docs/compatibility-resolution-v1.schema.json",
+    "docs/compatibility-registry-v1.schema.json",
+    "docs/fleet-policy-v1.schema.json",
+    "docs/fleet-decision-v1.schema.json",
     "docs/notary-app-manifest.example.json",
     "docs/policy.schema.json",
     "docs/portable-receipt-v1.schema.json",
@@ -103,6 +107,7 @@
     "docs/upgrade-canary-v1.schema.json",
     "docs/upgrade-config-v1.schema.json",
     "docs/upgrade-receipt-v1.schema.json",
+    "docs/update-plan-v1.schema.json",
     "examples",
     "proof/README.md",
     "proof/cases",
@@ -123,6 +128,7 @@
     "esbuild": "^0.25.9",
     "smol-toml": "^1.8.0",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "yaml": "2.9.0"
   }
 }

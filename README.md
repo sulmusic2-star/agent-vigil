@@ -80,7 +80,7 @@ public predicate contains hashes, commit SHAs, evidence counts, and the
 decision. It does not contain source code, prompts, transcript text, file paths,
 or test output. See [GitHub-attested receipts](docs/ATTESTED_RECEIPTS.md).
 
-Version 0.13 adds **Agent Upgrade Guard**, a local behavioral
+The released v0.13 includes **Agent Upgrade Guard**, a local behavioral
 preflight for already-materialized coding-agent plugin, skill, MCP, hook, or
 configuration bundle updates. It compares exact current and candidate artifact
 trees with repeated private canaries inside a digest-pinned, network-disabled,
@@ -91,8 +91,26 @@ completion or timeout, the exact name must be verified absent. The result is
 detected no material change under the recorded runner. The default template
 deliberately cannot earn `SAFE`.
 
-Upgrade Guard can write a private nonce-bound receipt and, only when explicitly
+The unreleased v0.15 development candidate extends that local verifier into a
+self-service compatibility-proof loop. Upgrade Guard can write a private nonce-bound receipt and, only when explicitly
 requested with an Ed25519 key, a privacy-minimized public compatibility entry.
+It can normalize exact update pairs from Microsoft APM, Vercel Skills v3, and
+Agent Plugins 1.0 manager state; turn signed failures into a copyable maintainer
+evidence packet; link a recorded broken version to a later candidate that
+restores the same baseline canaries; and build a searchable static proof page,
+JSON registry API, and badge endpoint files. For APM, planning binds every
+dependency field and all top-level semantic or additive workspace state while
+ignoring only APM's documented diagnostic timestamp and writer-version fields.
+An organization-owned fleet policy
+can then require the exact publisher, component, runner, configuration, canary
+harness, evidence age, and minimum canary count before an update is allowed;
+the gate also requires independently caller-supplied current/candidate versions
+and artifact digests so evidence for another update cannot be replayed.
+These are local artifacts until an operator deliberately publishes them.
+Signed resolution v1 deliberately excludes external URL locators because URL
+user information, queries, fragments, and opaque paths can carry credentials or
+private share tokens; separately review any issue link before publishing it
+next to a resolution.
 Private canary labels become receipt-specific nonce-blinded pseudonyms unless
 the operator supplies an explicit public label. The selected Docker client,
 daemon, and local transport remain trusted: a local socket can proxy a remote
@@ -672,8 +690,8 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 391 tests, including 80 generated-repository compatibility scenarios across
-  18 runner-output families. In the v0.13 release-candidate local run, 386
+- 467 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families. In the latest unreleased v0.15 successor run, 462
   passed and five opt-in Docker tests skipped in the ordinary suite. With Docker enabled, the
   combined 13-test containment, timeout-cleanup, verdict, signing, and index
   suite passed against the selected local test daemon with no residual Upgrade

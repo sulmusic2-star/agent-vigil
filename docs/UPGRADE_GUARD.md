@@ -25,7 +25,10 @@ vulnerabilities, or compatible with behavior that the canaries did not exercise.
 This first version is a local, offline compatibility gate for bounded component
 directories with JSON manifests. Typical candidates include a packaged plugin,
 skill bundle, MCP server, agent extension, or another dependency whose current
-and candidate trees can be materialized separately.
+and candidate trees can be materialized separately. Updater-native planning can
+also normalize exact changes from Microsoft APM lockfiles, Vercel Skills v3
+lockfiles, and Agent Plugins 1.0 directories before any behavior check runs.
+The plan is private input selection, not a safety verdict.
 
 It does not install the candidate into the user's active agent stack. The old
 version remains untouched because both versions are mounted read-only for the
@@ -52,10 +55,13 @@ latency therefore cannot be established by an Upgrade Guard verdict.
 - Pairwise separate, non-overlapping current, candidate, and trusted canary
   directories containing regular files only.
 
-Each artifact directory is limited to 4,096 files, 4 MiB per file, and 64 MiB
-in total. Symbolic links and non-regular filesystem entries are refused. The
-component manifest must be valid JSON, remain inside its artifact directory,
-and match the configured component identity.
+Each artifact directory is limited to 4,096 files, 32 MiB per file, and 256 MiB
+in total. Files are hashed in bounded 1 MiB chunks with stable descriptor,
+identity, size, and timestamp checks rather than loaded wholly into memory.
+The JSON component manifest retains a separate 4 MiB parsing ceiling. Symbolic
+links and non-regular filesystem entries are refused. The component manifest
+must remain inside its artifact directory and match the configured component
+identity.
 
 ## Commands
 
@@ -76,6 +82,69 @@ preflight without running candidate canaries:
 ```bash
 vigil upgrade doctor --repo .
 ```
+
+Normalize a manager-native old/new state into exact update pairs. APM and
+Skills inputs are lockfiles; Agent Plugins inputs are complete plugin
+directories:
+
+```bash
+vigil upgrade plan \
+  --manager apm \
+  --current ./states/current/apm.lock.yaml \
+  --candidate ./states/candidate/apm.lock.yaml \
+  --repo . \
+  --output ./.agent-vigil/upgrade/update-plan.json
+
+vigil upgrade plan \
+  --manager skills \
+  --current ./states/current/.skill-lock.json \
+  --candidate ./states/candidate/.skill-lock.json \
+  --repo .
+
+vigil upgrade plan \
+  --manager agent-plugin \
+  --current ./artifacts/plugin-current \
+  --candidate ./artifacts/plugin-candidate \
+  --repo .
+```
+
+The plan follows the [update-plan schema](update-plan-v1.schema.json). It binds
+the two manager states, distinguishes updates from additions and removals, and
+marks only old/new endpoints with distinct exact artifact identities as requiring behavioral preflight. It
+does not fetch, install, execute, or declare an update safe. APM support reads
+lockfile versions 1 and 2. It binds every dependency field and a distinct
+`apm-workspace` digest covering every top-level field except `dependencies` and
+APM's documented diagnostic-only `generated_at` and `apm_version` fields. This
+includes MCP commands and arguments, MCP/LSP ownership and target state, local
+deployment state, the canonical deployment ledger, and unknown additive fields;
+YAML scalar source and style, including non-finite values and coercion-prone
+spellings such as `01` versus `1`, remain distinct. The parser follows
+OpenAPM's failsafe scalar contract and rejects custom tags, anchors, and aliases;
+changing bound state produces a nonzero plan. Behavioral preflight is required
+only when the old and new exact artifact identities differ; same-artifact
+metadata drift remains visible as `UNAVAILABLE`. APM repository URLs, names,
+hosts, sources, local paths, declared versions, tags, refs, and additive fields
+remain private inputs: plans emit only a stable pseudonymous dependency identity,
+an integrity-derived endpoint label, exact artifact integrity, and static change
+reasons. Parser and duplicate-identity diagnostics do not quote manager input.
+The plan does not yet materialize an exact pair for
+`upgrade check`; the operator must supply the corresponding old/new artifact directories.
+Skills support reads the current v3 lock shape. Each skill commitment covers
+its complete strict-JSON entry except validated installation timestamps,
+including `sourceUrl`, `sourceBaseUrl`, `wellKnownDigest`, `pluginName`, and
+unknown additive fields. Exact JSON number spellings remain distinct, malformed
+UTF-8 is rejected, and required timestamps must be canonical UTC ISO strings.
+GitHub entries use an exact 40-character Git tree identity; supported 64-character
+content hashes become prefixed SHA-256 identities. Well-known entries require an
+empty folder hash, credential-free HTTPS source and base URLs, and an exact
+prefixed SHA-256 `wellKnownDigest`. Unsupported source combinations fail closed,
+local entries remain unbound, and source/path/owner replacements become separate
+removed and added lineages rather than eligible artifact updates. A separate
+`skills-workspace` commitment catches unknown top-level manager state as well as
+prompt and installation-target preferences. Entry-only metadata drift that does
+not change exact artifact integrity remains visible but cannot request a same-artifact
+behavioral preflight. Agent Plugins support binds the
+complete directory tree plus the declared skill and MCP surface.
 
 Compare two already-materialized artifact directories:
 
@@ -156,19 +225,104 @@ vigil upgrade verify \
   --public-key ~/.config/agent-vigil/compatibility-public.pem
 ```
 
-Build a standalone local index from one or more public entries:
+Create a copyable, privacy-minimized maintainer issue packet from a signed
+entry. The pinned publisher key is mandatory:
+
+```bash
+vigil upgrade evidence \
+  ./compatibility-entry.json \
+  --output ./maintainer-evidence.md \
+  --public-key ~/.config/agent-vigil/compatibility-public.pem
+```
+
+When one baseline-to-candidate entry is `CHANGED` and a later comparison from
+the same exact baseline is `SAFE`, link the broken and restored versions with a
+separately signed resolution record:
+
+```bash
+vigil upgrade resolve \
+  --broken ./baseline-to-broken.json \
+  --fixed ./baseline-to-fixed.json \
+  --output ./compatibility-resolution.json \
+  --public-key ~/.config/agent-vigil/compatibility-public.pem \
+  --signing-key ~/.config/agent-vigil/compatibility-private.pem
+```
+
+Both entries must have the same component, publisher, exact baseline, runner,
+configuration, and canary-harness commitments. The broken entry must be
+`CHANGED`, the fixed entry must be `SAFE`, their candidate artifacts must
+differ, and the fixed entry's signed `generatedAt` must be strictly later than
+the broken entry's. The relation means only that the later recorded candidate
+restored the baseline observations. Its contract is the
+[compatibility-resolution schema](compatibility-resolution-v1.schema.json).
+
+Resolution v1 deliberately has no external URL field. URL user information,
+queries, fragments, and opaque path segments can all carry credentials or
+private share tokens, so `--evidence-url` is rejected instead of copying an
+unverifiable locator into a signed public artifact. Publish a separately
+reviewed issue link next to the resolution when one is needed.
+
+An organization can enforce one exact signed entry against an organization-
+owned fleet policy:
+
+```bash
+vigil upgrade enforce \
+  ./compatibility-entry.json \
+  --policy ./fleet-policy.json \
+  --public-key ~/.config/agent-vigil/compatibility-public.pem \
+  --expected-current-version 1.0.0 \
+  --expected-candidate-version 1.1.0 \
+  --expected-current-artifact-sha256 sha256:<current-tree-digest> \
+  --expected-candidate-artifact-sha256 sha256:<candidate-tree-digest> \
+  --output ./fleet-decision.json
+```
+
+Fleet policy v1 is deliberately fail-closed. It can allow only `SAFE` evidence
+and requires exact allowlists for publisher key, component, runner image,
+configuration, and canary harness, plus a maximum evidence age and minimum
+canary count. It has no switch that permits `CHANGED` or `HOLD` and no inline
+exception that a candidate update can redefine. See the
+[fleet-policy schema](fleet-policy-v1.schema.json) and
+[fleet-decision schema](fleet-decision-v1.schema.json). This local gate is an
+enforcement primitive; it is not hosted policy distribution, identity
+management, billing, or proof that an organization has deployed the policy.
+
+The four `--expected-*` values are the deployment-intent trust boundary. A
+trusted deployment controller must derive them independently from the actual
+installed baseline and intended candidate; copying them from the compatibility
+entry would recreate the replay flaw this gate prevents. The policy and pinned
+public key must likewise come from organization-controlled state outside the
+candidate. Agent Vigil compares and receipt-binds those caller assertions, but
+cannot prove that the caller sourced them independently.
+
+Build a searchable standalone page, static JSON API, and optional Shields
+endpoint files from signed entries and resolution records:
 
 ```bash
 vigil upgrade index \
   ./compatibility-entry.json \
   ./another-compatibility-entry.json \
+  ./compatibility-resolution.json \
   --output ./agent-compatibility-index.html \
+  --api-output ./compatibility-registry.json \
+  --badge-directory ./badges \
   --public-key ~/.config/agent-vigil/compatibility-public.pem
 ```
 
-The index command verifies every entry before writing a local HTML artifact. It
-does not host or publish it. `--public-key <path>` is required: every entry must
-match that separately pinned signer key. `doctor` and `check` also accept
+The badge directory must already exist. The index command verifies every entry
+and resolution before writing anything, then produces a locally searchable
+single-file HTML page. Supplying `--api-output` also writes a deterministic
+machine-readable registry, and `--badge-directory` writes one
+Shields endpoint JSON document per entry when requested. HTML detail anchors
+and resolution links make exact broken and restored version pairs directly
+shareable. The static API follows the
+[compatibility-registry schema](compatibility-registry-v1.schema.json); each
+contained record remains independently signed even though the aggregate
+registry hash is not a separate publisher signature.
+
+None of these commands host, upload, contact a maintainer, or publish evidence.
+`--public-key <path>` is required: every entry and resolution must match that
+separately pinned signer key. `doctor` and `check` also accept
 `--docker-bin <path>` for a compatible Docker client executable. An explicit
 value must be absolute and is canonicalized before execution. Without the
 option, Upgrade Guard checks only fixed platform Docker locations; it never
@@ -413,6 +567,19 @@ text, raw stdout or stderr, environment variables, file names, credentials, and
 raw artifact contents. Privacy minimization does not make publication risk-free:
 component names, version pairs, artifact hashes, optional `publicId` values, and
 the signer key remain visible. Review every public entry before disclosure.
+
+The public network artifacts deliberately remain static and customer-owned:
+
+- the maintainer packet contains only fields already present in a verified
+  public entry;
+- the registry contains individually signed entries and resolution records,
+  and resolution v1 contains no external URL locator;
+- badge files contain only `safe`, `changed`, or `hold`; and
+- no command enables telemetry, uploads a private receipt, or sends a request.
+
+This makes updater integrations, searchable proof pages, issue links, badges,
+and registry queries possible without giving Agent Vigil source code, prompts,
+commands, raw outputs, local paths, or credentials.
 
 ## What this does not prove
 

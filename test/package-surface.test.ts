@@ -41,6 +41,11 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/upgrade-canary-v1.schema.json",
     "docs/upgrade-receipt-v1.schema.json",
     "docs/compatibility-entry-v1.schema.json",
+    "docs/compatibility-resolution-v1.schema.json",
+    "docs/compatibility-registry-v1.schema.json",
+    "docs/update-plan-v1.schema.json",
+    "docs/fleet-policy-v1.schema.json",
+    "docs/fleet-decision-v1.schema.json",
     "proof/README.md",
     "proof/cases",
   ]) {

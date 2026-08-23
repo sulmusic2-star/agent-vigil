@@ -1,5 +1,14 @@
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  fleetDeploymentIntentRequiredError,
+  optionOnlyOnceError,
+  optionRequiresValueError,
+  reportCliError,
+  unexpectedPositionalError,
+  unknownOptionError,
+  unknownUpgradeCommandError,
+} from "../cli-errors.ts";
 import { writePrivateFileAtomic } from "../safe-output.ts";
 import {
   loadUpgradeConfig,
@@ -9,13 +18,34 @@ import {
 } from "./contracts.ts";
 import {
   createPublicCompatibilityEntry,
-  renderBreakageIndex,
   renderUpgradeReceipt,
   runUpgradeEvaluation,
   validatePublicCompatibilityEntry,
   verifyPublicCompatibilityEntry,
   type PublicCompatibilityEntry,
 } from "./receipt.ts";
+import {
+  COMPATIBILITY_RESOLUTION_SCHEMA,
+  createCompatibilityRegistry,
+  createCompatibilityResolution,
+  renderBadgeEndpoint,
+  renderCompatibilityRegistryPage,
+  renderMaintainerEvidence,
+  validateCompatibilityResolution,
+  verifyCompatibilityResolution,
+  type CompatibilityResolution,
+} from "./network.ts";
+import {
+  createUpdatePlan,
+  renderUpdatePlan,
+  type UpdateManager,
+} from "./manager-plan.ts";
+import {
+  enforceFleetPolicy,
+  renderFleetDecision,
+  validateFleetDeploymentIntent,
+  validateFleetPolicy,
+} from "./fleet.ts";
 import { terminalSafe } from "./presentation.ts";
 import {
   DEFAULT_UPGRADE_CONFIG,
@@ -31,19 +61,23 @@ function usage(): string {
 Usage:
   vigil upgrade init [--repo <path>] [--force]
   vigil upgrade doctor [--repo <path>] [--config <path>] [--docker-bin <path>]
+  vigil upgrade plan --manager <apm|skills|agent-plugin> --current <state> --candidate <state> [--repo <path>] [--output <plan.json>]
   vigil upgrade check --current <dir> --candidate <dir> [--repo <path>] [--config <path>] [--output <private.json>] [--public-output <entry.json> --signing-key <key>] [--docker-bin <path>]
   vigil upgrade verify <entry.json> [--public-key <path>]
-  vigil upgrade index <entry.json>... --output <index.html> --public-key <path>
+  vigil upgrade evidence <entry.json> --output <issue.md> --public-key <path>
+  vigil upgrade resolve --broken <entry.json> --fixed <entry.json> --output <resolution.json> --public-key <path> --signing-key <path>
+  vigil upgrade enforce <entry.json> --policy <fleet-policy.json> --public-key <path> --expected-current-version <version> --expected-candidate-version <version> --expected-current-artifact-sha256 <sha256:...> --expected-candidate-artifact-sha256 <sha256:...> [--output <decision.json>]
+  vigil upgrade index <entry-or-resolution.json>... --output <index.html> --public-key <path> [--api-output <registry.json>] [--badge-directory <dir>]
 
 Exit codes: 0 SAFE/verified · 1 CHANGED/invalid signature · 2 HOLD or usage error`;
 }
 
 function option(args: string[], name: string): string | undefined {
   const indexes = args.flatMap((arg, index) => arg === name ? [index] : []);
-  if (indexes.length > 1) throw new Error(`${name} may be supplied only once`);
+  if (indexes.length > 1) throw optionOnlyOnceError(name);
   if (!indexes.length) return undefined;
   const value = args[indexes[0] + 1];
-  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`);
+  if (!value || value.startsWith("--")) throw optionRequiresValueError(name);
   return value;
 }
 
@@ -52,10 +86,10 @@ function assertKnown(args: string[], values: string[], flags: string[] = [], all
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (!arg.startsWith("--")) {
-      if (!allowPositionals) throw new Error(`unexpected positional argument: ${arg}`);
+      if (!allowPositionals) throw unexpectedPositionalError();
       continue;
     }
-    if (!allowed.has(arg)) throw new Error(`unknown argument: ${arg}`);
+    if (!allowed.has(arg)) throw unknownOptionError(arg);
     if (values.includes(arg)) index += 1;
   }
 }
@@ -123,6 +157,17 @@ function readPublicEntry(path: string): PublicCompatibilityEntry {
   return validatePublicCompatibilityEntry(readBoundedJson(path, 512 * 1024, "public compatibility entry"));
 }
 
+function readResolution(path: string): CompatibilityResolution {
+  return validateCompatibilityResolution(readBoundedJson(path, 512 * 1024, "compatibility resolution"));
+}
+
+function manager(value: string | undefined): UpdateManager {
+  if (value !== "apm" && value !== "skills" && value !== "agent-plugin") {
+    throw new Error("--manager must be apm, skills, or agent-plugin");
+  }
+  return value;
+}
+
 function runInit(args: string[]): number {
   assertKnown(args, ["--repo"], ["--force", "--help"]);
   if (args.includes("--help")) { console.log(usage()); return 0; }
@@ -143,6 +188,25 @@ function runDoctor(args: string[]): number {
   const result = doctorUpgrade(repo, configPath, option(args, "--docker-bin") ?? "docker");
   process.stdout.write(renderUpgradeDoctor(result));
   return result.status === "READY" ? 0 : 2;
+}
+
+function runPlan(args: string[]): number {
+  assertKnown(args, ["--repo", "--manager", "--current", "--candidate", "--output"], ["--help"]);
+  if (args.includes("--help")) { console.log(usage()); return 0; }
+  const repo = repository(args);
+  const current = option(args, "--current");
+  const candidate = option(args, "--candidate");
+  if (!current || !candidate) throw new Error("upgrade plan requires --current <state> and --candidate <state>");
+  const selectedManager = manager(option(args, "--manager"));
+  const currentPath = resolve(current);
+  const candidatePath = resolve(candidate);
+  const output = insideRepository(repo, option(args, "--output") ?? ".agent-vigil/upgrade/update-plan.json", "--output");
+  assertOutputsDoNotAliasInputs([output], [currentPath, candidatePath]);
+  if (selectedManager === "agent-plugin") assertOutputsOutsideRoots([output], [currentPath, candidatePath]);
+  const plan = createUpdatePlan({ manager: selectedManager, currentPath, candidatePath });
+  writePrivateFileAtomic(output, `${JSON.stringify(plan, null, 2)}\n`);
+  process.stdout.write(renderUpdatePlan(plan));
+  return plan.summary.total ? 1 : 0;
 }
 
 function runCheck(args: string[]): number {
@@ -202,31 +266,169 @@ function runVerify(args: string[]): number {
   if (args.includes("--help")) { console.log(usage()); return 0; }
   const entries = positional(args, ["--public-key"]);
   if (entries.length !== 1) throw new Error("upgrade verify requires exactly one public entry path");
-  const result = verifyPublicCompatibilityEntry(readPublicEntry(resolve(entries[0])), option(args, "--public-key") ? resolve(option(args, "--public-key")!) : undefined);
+  const inputPath = resolve(entries[0]);
+  const raw = readBoundedJson(inputPath, 512 * 1024, "compatibility record");
+  const schema = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>).schemaVersion : undefined;
+  const publicKey = option(args, "--public-key") ? resolve(option(args, "--public-key")!) : undefined;
+  const result = schema === COMPATIBILITY_RESOLUTION_SCHEMA
+    ? verifyCompatibilityResolution(validateCompatibilityResolution(raw), publicKey)
+    : verifyPublicCompatibilityEntry(validatePublicCompatibilityEntry(raw), publicKey);
   console.log(JSON.stringify(result));
   return result.hashValid && result.signatureValid === true ? 0 : 1;
 }
 
-function runIndex(args: string[]): number {
+function runEvidence(args: string[]): number {
   assertKnown(args, ["--output", "--public-key"], ["--help"], true);
   if (args.includes("--help")) { console.log(usage()); return 0; }
   const inputs = positional(args, ["--output", "--public-key"]);
   const outputOption = option(args, "--output");
   const publicKey = option(args, "--public-key");
-  if (!inputs.length || !outputOption || !publicKey) throw new Error("upgrade index requires entries, --output <index.html>, and --public-key <path>");
-  if (inputs.length > 512) throw new Error("upgrade index accepts at most 512 entries");
+  if (inputs.length !== 1 || !outputOption || !publicKey) {
+    throw new Error("upgrade evidence requires one entry, --output <issue.md>, and --public-key <path>");
+  }
+  const inputPath = resolve(inputs[0]);
   const output = resolve(outputOption);
+  const publicKeyPath = resolve(publicKey);
+  assertOutputsDoNotAliasInputs([output], [inputPath, publicKeyPath]);
+  const entry = readPublicEntry(inputPath);
+  const checked = verifyPublicCompatibilityEntry(entry, publicKeyPath);
+  if (!checked.hashValid || checked.signatureValid !== true) throw new Error("public entry failed pinned-key verification");
+  writePrivateFileAtomic(output, renderMaintainerEvidence(entry));
+  console.log(`Wrote privacy-minimized maintainer evidence to ${terminalSafe(output)}`);
+  return 0;
+}
+
+function runResolve(args: string[]): number {
+  assertKnown(args, ["--broken", "--fixed", "--output", "--public-key", "--signing-key"], ["--help"]);
+  if (args.includes("--help")) { console.log(usage()); return 0; }
+  const brokenOption = option(args, "--broken");
+  const fixedOption = option(args, "--fixed");
+  const outputOption = option(args, "--output");
+  const publicKeyOption = option(args, "--public-key");
+  const signingKeyOption = option(args, "--signing-key");
+  if (!brokenOption || !fixedOption || !outputOption || !publicKeyOption || !signingKeyOption) {
+    throw new Error("upgrade resolve requires --broken, --fixed, --output, --public-key, and --signing-key");
+  }
+  const brokenPath = resolve(brokenOption);
+  const fixedPath = resolve(fixedOption);
+  const output = resolve(outputOption);
+  const publicKeyPath = resolve(publicKeyOption);
+  const signingKeyPath = resolve(signingKeyOption);
+  assertOutputsDoNotAliasInputs([output], [brokenPath, fixedPath, publicKeyPath, signingKeyPath]);
+  const broken = readPublicEntry(brokenPath);
+  const fixed = readPublicEntry(fixedPath);
+  for (const [label, entry] of [["broken", broken], ["fixed", fixed]] as const) {
+    const checked = verifyPublicCompatibilityEntry(entry, publicKeyPath);
+    if (!checked.hashValid || checked.signatureValid !== true) throw new Error(`${label} entry failed pinned-key verification`);
+  }
+  const resolution = createCompatibilityResolution({
+    broken,
+    fixed,
+    privateKeyPath: signingKeyPath,
+  });
+  writePrivateFileAtomic(output, `${JSON.stringify(resolution, null, 2)}\n`);
+  console.log(`Wrote signed compatibility restoration record to ${terminalSafe(output)}`);
+  return 0;
+}
+
+function runEnforce(args: string[]): number {
+  const valueOptions = [
+    "--policy", "--public-key", "--output",
+    "--expected-current-version", "--expected-candidate-version",
+    "--expected-current-artifact-sha256", "--expected-candidate-artifact-sha256",
+  ];
+  assertKnown(args, valueOptions, ["--help"], true);
+  if (args.includes("--help")) { console.log(usage()); return 0; }
+  const inputs = positional(args, valueOptions);
+  const policyOption = option(args, "--policy");
+  const publicKeyOption = option(args, "--public-key");
+  const expectedCurrentVersion = option(args, "--expected-current-version");
+  const expectedCandidateVersion = option(args, "--expected-candidate-version");
+  const expectedCurrentArtifactSha256 = option(args, "--expected-current-artifact-sha256");
+  const expectedCandidateArtifactSha256 = option(args, "--expected-candidate-artifact-sha256");
+  if (inputs.length !== 1 || !policyOption || !publicKeyOption
+    || !expectedCurrentVersion || !expectedCandidateVersion
+    || !expectedCurrentArtifactSha256 || !expectedCandidateArtifactSha256) {
+    throw fleetDeploymentIntentRequiredError();
+  }
+  // Trust boundary: these values come from the deployment controller, independently
+  // of the signed compatibility entry. Never populate them from the entry below.
+  const deploymentIntent = validateFleetDeploymentIntent({
+    currentVersion: expectedCurrentVersion,
+    candidateVersion: expectedCandidateVersion,
+    currentArtifactSha256: expectedCurrentArtifactSha256,
+    candidateArtifactSha256: expectedCandidateArtifactSha256,
+  });
+  const entryPath = resolve(inputs[0]);
+  const policyPath = resolve(policyOption);
+  const publicKeyPath = resolve(publicKeyOption);
+  const outputOption = option(args, "--output");
+  const output = outputOption ? resolve(outputOption) : undefined;
+  if (output) assertOutputsDoNotAliasInputs([output], [entryPath, policyPath, publicKeyPath]);
+  const entry = readPublicEntry(entryPath);
+  const checked = verifyPublicCompatibilityEntry(entry, publicKeyPath);
+  if (!checked.hashValid || checked.signatureValid !== true) throw new Error("public entry failed pinned-key verification");
+  const policy = validateFleetPolicy(readBoundedJson(policyPath, 256 * 1024, "fleet policy"));
+  const decision = enforceFleetPolicy({ policy, entry, deploymentIntent });
+  if (output) writePrivateFileAtomic(output, `${JSON.stringify(decision, null, 2)}\n`);
+  process.stdout.write(renderFleetDecision(decision));
+  return decision.status === "ALLOW" ? 0 : 1;
+}
+
+function runIndex(args: string[]): number {
+  assertKnown(args, ["--output", "--api-output", "--public-key", "--badge-directory"], ["--help"], true);
+  if (args.includes("--help")) { console.log(usage()); return 0; }
+  const inputs = positional(args, ["--output", "--api-output", "--public-key", "--badge-directory"]);
+  const outputOption = option(args, "--output");
+  const apiOutputOption = option(args, "--api-output");
+  const publicKey = option(args, "--public-key");
+  if (!inputs.length || !outputOption || !publicKey) throw new Error("upgrade index requires entries or resolutions, --output <index.html>, and --public-key <path>");
+  if (inputs.length > 2_048) throw new Error("upgrade index accepts at most 2048 inputs");
+  const output = resolve(outputOption);
+  const apiOutput = apiOutputOption ? resolve(apiOutputOption) : undefined;
+  if (apiOutput) assertDistinctOutputs([output, apiOutput]);
   const inputPaths = inputs.map((path) => resolve(path));
   const publicKeyPath = resolve(publicKey);
-  assertOutputsDoNotAliasInputs([output], [...inputPaths, publicKeyPath]);
-  const entries = inputs.map((path) => {
-    const entry = readPublicEntry(resolve(path));
-    const checked = verifyPublicCompatibilityEntry(entry, publicKeyPath);
-    if (!checked.hashValid || checked.signatureValid !== true) throw new Error(`public entry failed verification: ${path}`);
-    return entry;
-  });
-  writePrivateFileAtomic(output, renderBreakageIndex(entries));
-  console.log(`Wrote ${entries.length} verified compatibility entr${entries.length === 1 ? "y" : "ies"} to ${terminalSafe(output)}`);
+  const badgeOption = option(args, "--badge-directory");
+  let badgeDirectory: string | undefined;
+  if (badgeOption) {
+    const requested = resolve(badgeOption);
+    const status = lstatSync(requested);
+    if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("--badge-directory must be an existing regular directory");
+    badgeDirectory = realpathSync(requested);
+  }
+  const entries: PublicCompatibilityEntry[] = [];
+  const resolutions: CompatibilityResolution[] = [];
+  for (const inputPath of inputPaths) {
+    const raw = readBoundedJson(inputPath, 512 * 1024, "registry input");
+    const schema = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>).schemaVersion : undefined;
+    if (schema === COMPATIBILITY_RESOLUTION_SCHEMA) {
+      const resolution = validateCompatibilityResolution(raw);
+      const checked = verifyCompatibilityResolution(resolution, publicKeyPath);
+      if (!checked.hashValid || checked.signatureValid !== true) throw new Error(`resolution failed verification: ${inputPath}`);
+      resolutions.push(resolution);
+    } else {
+      const entry = validatePublicCompatibilityEntry(raw);
+      const checked = verifyPublicCompatibilityEntry(entry, publicKeyPath);
+      if (!checked.hashValid || checked.signatureValid !== true) throw new Error(`public entry failed verification: ${inputPath}`);
+      entries.push(entry);
+    }
+  }
+  const badgeOutputs = badgeDirectory
+    ? entries.map((entry) => resolve(badgeDirectory!, `${entry.entryHash.slice(7)}.json`))
+    : [];
+  const outputs = [output, ...(apiOutput ? [apiOutput] : []), ...badgeOutputs];
+  assertDistinctOutputs(outputs);
+  assertOutputsDoNotAliasInputs(outputs, [...inputPaths, publicKeyPath]);
+  const registry = createCompatibilityRegistry(entries, resolutions);
+  writePrivateFileAtomic(output, renderCompatibilityRegistryPage(registry));
+  if (apiOutput) writePrivateFileAtomic(apiOutput, `${JSON.stringify(registry, null, 2)}\n`);
+  if (badgeDirectory) {
+    for (const entry of entries) {
+      writePrivateFileAtomic(resolve(badgeDirectory, `${entry.entryHash.slice(7)}.json`), renderBadgeEndpoint(entry));
+    }
+  }
+  console.log(`Wrote ${entries.length} verified compatibility entr${entries.length === 1 ? "y" : "ies"}, ${resolutions.length} resolution record(s)${apiOutput ? ", and a static JSON API" : ""} to ${terminalSafe(output)}`);
   return 0;
 }
 
@@ -237,13 +439,15 @@ export function runUpgradeCommand(args: string[]): number {
     if (!command || command === "--help" || command === "help") { console.log(usage()); return 0; }
     if (command === "init") return runInit(rest);
     if (command === "doctor") return runDoctor(rest);
+    if (command === "plan") return runPlan(rest);
     if (command === "check") return runCheck(rest);
     if (command === "verify") return runVerify(rest);
+    if (command === "evidence") return runEvidence(rest);
+    if (command === "resolve") return runResolve(rest);
+    if (command === "enforce") return runEnforce(rest);
     if (command === "index") return runIndex(rest);
-    throw new Error(`unknown upgrade command: ${command}`);
+    throw unknownUpgradeCommandError();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`agent-vigil upgrade: ${terminalSafe(message)}`);
-    return 2;
+    return reportCliError("agent-vigil upgrade", error);
   }
 }

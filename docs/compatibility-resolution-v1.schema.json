@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/compatibility-resolution-v1.schema.json",
+  "title": "Agent Vigil compatibility restoration v1",
+  "description": "A signed relation between a CHANGED baseline-to-broken entry and a SAFE same-baseline-to-fixed entry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "vigilVersion", "generatedAt", "component", "broken", "fixed", "relation", "limitations", "resolutionHash", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-compatibility-resolution/v1" },
+    "vigilVersion": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "generatedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ecosystem", "name"],
+      "properties": {
+        "ecosystem": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+    "broken": { "$ref": "#/$defs/broken" },
+    "fixed": { "$ref": "#/$defs/fixed" },
+    "relation": { "const": "RESTORED_RECORDED_COMPATIBILITY" },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+    },
+    "resolutionHash": { "$ref": "#/$defs/sha256" },
+    "signature": { "$ref": "#/$defs/signature" }
+  },
+  "$comment": "Runtime creation additionally requires the same component, exact baseline, publisher, runner, config, and canary harness; broken must be CHANGED and fixed SAFE. External URL locators are excluded because every URL component, including an opaque path, can carry private credentials or share tokens.",
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "broken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entryHash", "baselineVersion", "brokenVersion", "brokenArtifactSha256"],
+      "properties": {
+        "entryHash": { "$ref": "#/$defs/sha256" },
+        "baselineVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "brokenVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "brokenArtifactSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "fixed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entryHash", "baselineVersion", "fixedVersion", "fixedArtifactSha256"],
+      "properties": {
+        "entryHash": { "$ref": "#/$defs/sha256" },
+        "baselineVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "fixedVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "fixedArtifactSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "publicKey", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "$ref": "#/$defs/sha256" },
+        "publicKey": { "type": "string", "minLength": 1, "maxLength": 512, "contentEncoding": "base64" },
+        "value": { "type": "string", "minLength": 1, "maxLength": 512, "contentEncoding": "base64" }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "version": 3,
+  "skills": {
+    "deploy": {
+      "source": "example/skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/example/skills.git",
+      "ref": "main",
+      "skillPath": "skills/deploy/SKILL.md",
+      "skillFolderHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "installedAt": "2026-08-01T00:00:00.000Z",
+      "updatedAt": "2026-08-01T00:00:00.000Z",
+      "pluginName": "deploy-tools"
+    }
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/update-plan-v1.schema.json",
+  "title": "Agent Vigil updater-native plan v1",
+  "description": "Private normalized changes between two bounded APM, skills, or Agent Plugins manager states. This is not a safety verdict.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "manager", "source", "changes", "summary", "limitations", "planHash"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-update-plan/v1" },
+    "generatedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "manager": { "enum": ["apm", "skills", "agent-plugin"] },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentSha256", "candidateSha256"],
+      "properties": {
+        "currentSha256": { "$ref": "#/$defs/sha256" },
+        "candidateSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "changes": {
+      "type": "array",
+      "maxItems": 4097,
+      "items": { "$ref": "#/$defs/change" }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "updated", "added", "removed", "eligiblePairs"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0, "maximum": 4097 },
+        "updated": { "type": "integer", "minimum": 0, "maximum": 4097 },
+        "added": { "type": "integer", "minimum": 0, "maximum": 4097 },
+        "removed": { "type": "integer", "minimum": 0, "maximum": 4097 },
+        "eligiblePairs": { "type": "integer", "minimum": 0, "maximum": 4097 }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+    },
+    "planHash": { "$ref": "#/$defs/sha256" }
+  },
+  "$comment": "Runtime creation also requires summary arithmetic to agree with changes, planHash to commit to the complete canonical payload, and REQUIRED endpoints to have distinct exact artifact identities. Standard JSON Schema cannot compare current and candidate values.",
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "integrityKind", "integrity"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "integrityKind": { "enum": ["git-commit", "sha256", "git-tree", "artifact-tree", "unbound"] },
+        "integrity": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "integrityKind": { "enum": ["git-commit", "git-tree"] } } },
+          "then": { "properties": { "integrity": { "pattern": "^[0-9a-f]{40}$" } } }
+        },
+        {
+          "if": { "properties": { "integrityKind": { "enum": ["sha256", "artifact-tree"] } } },
+          "then": { "properties": { "integrity": { "$ref": "#/$defs/sha256" } } }
+        },
+        {
+          "if": { "properties": { "integrityKind": { "const": "unbound" } } },
+          "then": { "properties": { "integrity": { "const": "unavailable" } } }
+        }
+      ]
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["componentType", "identity", "displayName", "change", "behavioralPreflight", "reasons"],
+      "properties": {
+        "componentType": { "enum": ["apm-package", "apm-workspace", "skill", "skills-workspace", "agent-plugin"] },
+        "identity": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "change": { "enum": ["UPDATED", "ADDED", "REMOVED"] },
+        "current": { "$ref": "#/$defs/endpoint" },
+        "candidate": { "$ref": "#/$defs/endpoint" },
+        "behavioralPreflight": { "enum": ["REQUIRED", "UNAVAILABLE"] },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "change": { "const": "UPDATED" } } },
+          "then": { "required": ["current", "candidate"] }
+        },
+        {
+          "if": { "properties": { "change": { "const": "ADDED" } } },
+          "then": {
+            "required": ["candidate"],
+            "not": { "required": ["current"] },
+            "properties": { "behavioralPreflight": { "const": "UNAVAILABLE" } }
+          }
+        },
+        {
+          "if": { "properties": { "change": { "const": "REMOVED" } } },
+          "then": {
+            "required": ["current"],
+            "not": { "required": ["candidate"] },
+            "properties": { "behavioralPreflight": { "const": "UNAVAILABLE" } }
+          }
+        },
+        {
+          "if": { "properties": { "behavioralPreflight": { "const": "REQUIRED" } } },
+          "then": {
+            "required": ["current", "candidate"],
+            "properties": {
+              "current": { "allOf": [{ "$ref": "#/$defs/endpoint" }, { "properties": { "integrityKind": { "not": { "const": "unbound" } } } }] },
+              "candidate": { "allOf": [{ "$ref": "#/$defs/endpoint" }, { "properties": { "integrityKind": { "not": { "const": "unbound" } } } }] }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
