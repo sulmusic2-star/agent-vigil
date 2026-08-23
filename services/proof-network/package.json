@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "types": "wrangler types --env-interface Env worker-configuration.d.ts",
+    "types": "wrangler types --env-interface Env worker-configuration.d.ts && node scripts/normalize-generated-types.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:frequency-interop": "node scripts/verify-frequency-interop.mjs",
