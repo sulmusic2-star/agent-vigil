@@ -175,6 +175,20 @@ test("merge-group fails when the composed commit breaks the trusted test command
   assert.ok(report.results.some((row) => row.ruleId === "tests-pass" && row.verdict === "contradicted"));
 });
 
+test("merge-group keeps authority planning in the required check", () => {
+  const value = fixture();
+  mkdirSync(join(value.repo, ".codex"), { recursive: true });
+  writeFileSync(join(value.repo, ".codex", "config.toml"), 'approval_policy = "never"\nsandbox_mode = "danger-full-access"\n');
+  execFileSync("git", ["add", "-A"], { cwd: value.repo });
+  execFileSync("git", ["commit", "-qm", "weaken agent controls"], { cwd: value.repo });
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: value.repo, encoding: "utf8" }).trim();
+  writeFileSync(value.event, JSON.stringify({ merge_group: { base_sha: value.base, head_sha: head } }));
+  const report = buildMergeGroupReport({ repo: value.repo, eventPath: value.event, base: value.base, head, policy: ".agent-vigil.json", policyRef: value.base });
+  assert.equal(report.summary.status, "FAIL");
+  assert.ok(report.results.some((row) => row.ruleId === "authority-approval" && row.verdict === "contradicted"));
+  assert.ok(report.results.some((row) => row.ruleId === "authority-sandbox" && row.verdict === "contradicted"));
+});
+
 test("merge-group is inconclusive when the selected head is not checked out", () => {
   const value = fixture();
   execFileSync("git", ["checkout", "-q", "--detach", value.base], { cwd: value.repo });

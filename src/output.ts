@@ -75,6 +75,17 @@ export function remediationFor(ruleId?: string): string {
     "complete-tool-results": "Export the complete session trajectory with terminal results for every tool call.",
     "observed-action-coverage": "Provide a supported JSONL transcript with structured tool calls; narrative summaries cannot prove action boundaries.",
     "authority-contract-anchor": "Store the contract in the trusted base revision and pass --contract-ref <base-sha> in CI.",
+    "authority-plan": "Review each blocking authority change below; remove it or approve the exact kind, subject, and value in the base revision policy before reopening the code change.",
+    "authority-server": "Remove the new or changed agent server, or approve its exact normalized identity in the base revision policy.",
+    "authority-tool": "Restore the prior tool boundary, or approve the exact tool grant in the base revision policy.",
+    "authority-network": "Remove the new network destination, or approve that exact host in the base revision policy.",
+    "authority-filesystem": "Narrow the filesystem scope, or approve that exact path in the base revision policy.",
+    "authority-secret": "Remove the new secret reference, or approve the exact variable or header name in the base revision policy; never commit the secret value.",
+    "authority-model": "Restore the pinned model or review the model-identity change; do not replace a pinned version with a mutable alias.",
+    "authority-approval": "Restore the prior approval mode or approve the weaker mode in the base revision policy.",
+    "authority-sandbox": "Restore the prior sandbox boundary or approve the weaker setting in the base revision policy.",
+    "authority-hook": "Remove the new hook or approve its exact hashed command identity in the base revision policy.",
+    "authority-setting-unknown": "Upgrade the adapter or remove the unrecognized setting change; use a separately reviewed base-policy exception only after inspecting its effect.",
   };
   return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
 }

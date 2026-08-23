@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Add `vigil plan`, an exact-base/exact-head authority diff for repository MCP,
+  Cursor, VS Code, Claude Code, and Codex settings.
+- Block new servers, hosts, tool grants, secret references, writable paths,
+  hooks, weaker approval or sandbox settings, and pinned-to-mutable model
+  changes. Changed settings the installed adapter does not understand return
+  `INCONCLUSIVE`.
+- Read exception policy only from the base revision and bind each exception to
+  the normalized kind, subject, and resulting value.
+- Include Authority Plan in the maintainer and merge-queue receipts installed
+  by `vigil protect`.
+- Keep secret and header values, URL query strings, and full hook commands
+  out of reports.
+
 ## 0.13.0 - 2026-08-23
 
 - Add `vigil protect` to discover common repository checks and install the

@@ -53,6 +53,7 @@ import {
   writeAttestationPredicate,
 } from "./attestation.ts";
 import { runUpgradeCommand } from "./upgrade/cli.ts";
+import { authorityPlanChecks, buildAuthorityPlan, renderAuthorityPlan } from "./authority-plan.ts";
 
 type Options = {
   transcript?: string;
@@ -82,6 +83,7 @@ Usage:
   vigil init --profile maintainer [--repo <path>] [--force] [--attest]
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
+  vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
@@ -137,6 +139,37 @@ Value options:
   --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS · 1 FAIL · 2 INCONCLUSIVE or usage error`;
+}
+
+function runPlan(args: string[]): number {
+  try {
+    const allowed = new Set(["plan", "--repo", "--base", "--head", "--policy", "--format", "--output", "--json"]);
+    const takesValue = new Set(["--repo", "--base", "--head", "--policy", "--format", "--output"]);
+    for (let index = 1; index < args.length; index++) {
+      const arg = args[index];
+      if (!allowed.has(arg)) throw new Error(`unknown plan argument: ${arg}`);
+      if (takesValue.has(arg)) {
+        if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${arg} requires a value`);
+        index += 1;
+      }
+    }
+    const repo = resolve(optionValue(args, "--repo") ?? ".");
+    const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_BASE_SHA ?? "HEAD~1";
+    const headRef = optionValue(args, "--head") ?? process.env.GITHUB_HEAD_SHA ?? "HEAD";
+    if (!existsSync(repo)) throw new Error(`repository not found: ${repo}`);
+    if (!gitRefExists(repo, baseRef) || !gitRefExists(repo, headRef)) throw new Error(`invalid git range ${baseRef}..${headRef}`);
+    const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
+    if (!new Set(["text", "json"]).has(format)) throw new Error("plan --format must be text or json");
+    const policyPath = optionValue(args, "--policy");
+    if (policyPath && (isAbsolute(policyPath) || policyPath === ".." || policyPath.startsWith("../") || policyPath.includes("\\"))) {
+      throw new Error("plan --policy must be a repository-relative POSIX path");
+    }
+    const report = buildAuthorityPlan(repo, baseRef, headRef, VERSION, policyPath);
+    const output = optionValue(args, "--output");
+    if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
+    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderAuthorityPlan(report));
+    return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
 function parseArgs(args: string[]): Options {
@@ -266,6 +299,9 @@ function runMaintainer(args: string[]): number {
     const results: CheckResult[] = [...checkWorkspaceBinding(repo, head, inputs)];
     const advisories: CheckResult[] = [];
     results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer));
+    const authorityPlan = authorityPlanChecks(buildAuthorityPlan(repo, base, head, VERSION));
+    results.push(...authorityPlan.results);
+    advisories.push(...authorityPlan.advisories);
     if (policy.value.testCommand) {
       results.push(...checkTestsPass([{ kind: "tests_pass", quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" }], repo, policy.value.testCommand));
       results.push(...checkWorkspaceMutation(repo, inputs, head));
@@ -895,6 +931,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
+  if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);
   if (argv[0] === "init") return runInit(argv);
   if (argv[0] === "doctor") return runDoctor(argv);

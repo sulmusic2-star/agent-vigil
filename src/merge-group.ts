@@ -12,7 +12,8 @@ import {
   resolveGitRef,
 } from "./detectors/reality.ts";
 import { routeIntegrity } from "./integrity-policy.ts";
-import { buildReport, type CheckResult, type Claim, type TrustReport } from "./report.ts";
+import { buildReport, VERSION, type CheckResult, type Claim, type TrustReport } from "./report.ts";
+import { authorityPlanChecks, buildAuthorityPlan } from "./authority-plan.ts";
 
 type MergeGroupPayload = {
   action?: string;
@@ -101,6 +102,9 @@ export function buildMergeGroupReport(options: MergeGroupOptions): TrustReport {
     "merge-group-range",
   ));
   results.push(...checkWorkspaceBinding(repo, head, inputs));
+  const authorityPlan = authorityPlanChecks(buildAuthorityPlan(repo, base, head, VERSION));
+  results.push(...authorityPlan.results);
+  advisories.push(...authorityPlan.advisories);
   const testClaim: Claim = {
     kind: "tests_pass",
     quote: "trusted base policy verification passes on the composed merge-group commit",

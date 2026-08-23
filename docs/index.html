@@ -119,7 +119,7 @@
   <div class="wrap">
     <nav aria-label="Primary">
       <a class="brand" href="#top">AGENT VIGIL</a>
-        <div><a href="#protect">Protection</a><a href="#proof">Failures caught</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
+        <div><a href="#protect">Protection</a><a href="#authority">Authority changes</a><a href="#proof">Failures caught</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
     </nav>
     <main id="top">
       <div class="hero">
@@ -163,6 +163,32 @@
           <article class="card"><span class="number">01</span><h3>Protect the policy</h3><p>A pull request cannot relax the policy that judges that same pull request. Workflow and policy changes can be placed behind protected-path rules.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/THREAT_MODEL.md">Trust boundary →</a></article>
           <article class="card"><span class="number">02</span><h3>Check the tests</h3><p>New skips, bypasses, zeroed coverage, lost tests, empty tests, and constant assertions block. Lower-confidence patterns remain visible for review.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/TEST_INTEGRITY_GUARD.md">Integrity rules →</a></article>
           <article class="card"><span class="number">03</span><h3>Keep the outcome</h3><p>The retained Value Card keeps verification, review disposition, Actions runtime, merge state, and later linked failures separate and traceable.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/OUTCOME_OBSERVER.md">Outcome record →</a></article>
+        </div>
+      </section>
+
+      <section id="authority">
+        <p class="eyebrow">Agent Authority Plan</p>
+        <h2>See new agent permissions before the change merges.</h2>
+        <p class="section-lead"><code>vigil plan</code> compares the exact base and head commits. It blocks unapproved MCP servers, network hosts, tool grants, secret references, writable paths, hooks, weaker approval or sandbox settings, and mutable model aliases. A setting this version cannot understand returns INCONCLUSIVE.</p>
+        <div class="terminal" aria-label="Example blocked authority plan">
+          <header>vigil plan --base origin/main --head HEAD</header>
+          <pre><span class="fail">Agent authority plan: BLOCK</span>
+
+<span class="fail">! approval</span>   codex-approval-policy
+  on-request → never
+
+<span class="fail">! sandbox</span>    codex-sandbox-mode
+  workspace-write → danger-full-access
+
+<span class="fail">! network</span>    api.stripe.com
+  new MCP destination
+
+3 authority changes, 3 blocking, 0 uncertain</pre>
+        </div>
+        <p class="section-lead">Exceptions must already exist in the base commit and name the exact setting and resulting value. Editing the exception file in the same pull request cannot approve that pull request.</p>
+        <div class="actions">
+          <a class="button" href="AUTHORITY_PLAN.md">Read the command and policy</a>
+          <a class="button secondary" href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/research/2026-08-23-user-pain-ledger.md">Inspect the 50-source pain ledger</a>
         </div>
       </section>
 

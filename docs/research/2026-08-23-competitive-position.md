@@ -15,7 +15,12 @@ Agent Vigil should not become another general reviewer. Those products already h
 
 ### Agent evaluation and observability
 
-- [AgentAssay](https://github.com/qualixar/agentassay) runs repeated agent trials, confidence tests, behavioral fingerprints, mutation operators and framework adapters.
+- [AgentAssay](https://github.com/qualixar/agentassay) runs repeated agent trials,
+  confidence tests, behavioral fingerprints, mutation operators and framework
+  adapters. Its README claims the same statistical confidence at 83% lower
+  cost through calibration, adaptive trial budgets and trace-first analysis.
+  The repository had 5 stars and 1 fork when checked on 2026-08-23; those
+  counts describe current public reach, not technical quality.
 - [LangSmith](https://www.langchain.com/pricing) sells traces, evaluation, deployment and enterprise hosting for agents built as applications.
 
 Agent Vigil should accept their evidence formats when practical. Reimplementing a general trace store or statistical laboratory would dilute the product.
@@ -88,7 +93,14 @@ Source, prompts and transcripts stay local unless the operator intentionally exp
 
 Agent Vigil is the independent release gate for agent-authored changes. It does not need to write code, review style, host an agent or replace existing tests. Its job is to prevent an agent, workflow or vendor from declaring its own work safe without evidence.
 
-The next product test is a protected [Agent Authority Plan](2026-08-23-ai-native-product-decision.md). It would show how a candidate changes tool, network, filesystem, secret, model, sandbox and approval authority before merge. Snyk Agent Scan already performs broad cross-agent discovery, so discovery alone is not a viable moat. The differentiator must be a base-owned semantic authority diff joined to contained execution and the exact change receipt.
+The current candidate implements the first protected
+[Agent Authority Plan](../AUTHORITY_PLAN.md). It shows how a candidate changes
+MCP server, tool, network, filesystem, secret-reference, hook, model, sandbox
+and approval authority before merge. Snyk Agent Scan already performs broad
+cross-agent discovery, so discovery alone is not a viable moat. AgentAssay
+already covers stochastic regression. The narrower differentiator is a
+base-owned semantic authority diff joined to observed action contracts,
+exact-change evidence and downstream outcome.
 
 ## Evidence required before stronger market claims
 

@@ -59,7 +59,7 @@ public predicate contains hashes, commit SHAs, evidence counts, and the
 decision. It does not contain source code, prompts, transcript text, file paths,
 or test output. See [GitHub-attested receipts](docs/ATTESTED_RECEIPTS.md).
 
-The unreleased v0.13 candidate adds **Agent Upgrade Guard**, a local behavioral
+Version 0.13 adds **Agent Upgrade Guard**, a local behavioral
 preflight for already-materialized coding-agent plugin, skill, MCP, hook, or
 configuration bundle updates. It compares exact current and candidate artifact
 trees with repeated private canaries inside a digest-pinned, network-disabled,
@@ -108,6 +108,21 @@ gates, reduced test counts, empty tests, and constant/self-equal assertions.
 Browser-side runtime patching, new coverage exclusions, relaxed assertions,
 self-fulfilling mocks, and other lower-confidence patterns remain reviewable
 advisories unless a repository deliberately chooses full blocking mode.
+
+The next candidate also adds **Agent Authority Plan**:
+
+```bash
+vigil plan --base origin/main --head HEAD
+```
+
+It compares repository-owned MCP, Cursor, VS Code, Claude Code, and Codex configuration at the
+exact base and head commits. New servers, hosts, tool grants, secret references,
+writable paths, hooks, weaker approval or sandbox settings, and mutable model
+aliases block by default. Unknown changed settings return `INCONCLUSIVE`.
+Exceptions are exact and must already exist in the base revision, so a
+candidate cannot approve its own new authority. The `protect` workflow includes
+the same check in pull-request and merge-queue evidence. See
+[Agent Authority Plan](docs/AUTHORITY_PLAN.md).
 
 The design is tied to a dated ledger of
 [50 primary user reports](docs/research/2026-08-23-user-pain-ledger.md) covering
@@ -238,6 +253,9 @@ kept separate from external-adoption totals.
 - Base-anchored task authority: exact changed-path allow/deny rules, short-lived
   validity, observed action classification, and terminal tool-result
   evidence across supported transcript adapters.
+- Exact-base/exact-head authority planning for repository-owned MCP, Claude
+  Code, and Codex settings, with value-bound base-policy exceptions and
+  fail-closed handling for unknown changed fields.
 
 Every run can emit a compact JSON receipt, Markdown, SARIF 2.1.0, and a GitHub
 Step Summary. The receipt has a deterministic SHA-256 content identifier. It is

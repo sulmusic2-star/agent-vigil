@@ -52,6 +52,7 @@ type ContainerCleanup = {
 };
 
 const DOCKER_CONTROL_TIMEOUT_MS = 10_000;
+const CONTAINMENT_PROBE_TIMEOUT_MS = 15_000;
 const DOCKER_ENDPOINT_ENV = new Set([
   "DOCKER_CERT_PATH",
   "DOCKER_CONFIG",
@@ -393,7 +394,7 @@ export function probeContainment(
   try {
     result = spawnSync(client.executable, dockerArgs(client, args), {
       encoding: "utf8",
-      timeout: 5_000,
+      timeout: CONTAINMENT_PROBE_TIMEOUT_MS,
       killSignal: "SIGKILL",
       maxBuffer: 64 * 1024,
       env: dockerEnvironment(client, { VIGIL_UPGRADE_PROBE_SECRET: secret }),
