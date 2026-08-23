@@ -4,6 +4,10 @@
 
 ## 0.16.0 - 2026-08-23
 
+- Add an open signed challenge-proof format, pinned Ed25519 signer identities,
+  V2 control certificates, and mixed V1/V2 certification corpora.
+- Add `vigil certify sign` for control providers and `record-signed` for
+  organization-side verification against a separately obtained public key.
 - Add exact APM, Vercel Skills v3, and Agent Plugins 1.0 update plans that
   require behavioral preflight whenever manager-controlled state changes.
 - Add `vigil upgrade preflight`, one fail-closed automatic APM path from exact

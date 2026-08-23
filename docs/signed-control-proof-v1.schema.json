@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/signed-control-proof-v1.schema.json",
+  "title": "Signed control proof",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "payload", "payloadHash", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "control-proof/signed-challenge-v1" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control", "sourceCommit", "generatedAt", "status", "challenges", "summary", "limits"],
+      "properties": {
+        "control": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["vendor", "product", "version"],
+          "properties": {
+            "vendor": { "$ref": "#/$defs/name" },
+            "product": { "$ref": "#/$defs/name" },
+            "version": { "type": "string", "minLength": 1, "maxLength": 160 }
+          }
+        },
+        "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "generatedAt": { "type": "string", "format": "date-time", "pattern": "Z$" },
+        "status": { "enum": ["PASS", "HOLD"] },
+        "challenges": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "expected", "actual", "passed", "evidenceHash"],
+            "properties": {
+              "id": { "$ref": "#/$defs/name" },
+              "expected": { "enum": ["PASS", "BLOCK", "HOLD"] },
+              "actual": { "enum": ["PASS", "BLOCK", "HOLD", "ERROR"] },
+              "passed": { "type": "boolean" },
+              "evidenceHash": { "$ref": "#/$defs/hash" }
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["passed", "total"],
+          "properties": {
+            "passed": { "type": "integer", "minimum": 0 },
+            "total": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "limits": { "type": "array", "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 1000 } }
+      }
+    },
+    "payloadHash": { "$ref": "#/$defs/hash" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "publicKey", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "$ref": "#/$defs/hash" },
+        "publicKey": { "type": "string", "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" },
+        "value": { "type": "string", "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" }
+      }
+    }
+  },
+  "$defs": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[A-Za-z0-9_.-]+$" },
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

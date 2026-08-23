@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash23 } from "node:crypto";
+import { createHash as createHash24 } from "node:crypto";
 import { execFileSync as execFileSync13 } from "node:child_process";
-import { existsSync as existsSync9, mkdirSync as mkdirSync7, readFileSync as readFileSync23, realpathSync as realpathSync12, statSync as statSync10, writeFileSync as writeFileSync7 } from "node:fs";
+import { existsSync as existsSync9, mkdirSync as mkdirSync7, readFileSync as readFileSync24, realpathSync as realpathSync12, statSync as statSync10, writeFileSync as writeFileSync7 } from "node:fs";
 import { dirname as dirname11, isAbsolute as isAbsolute10, relative as relative14, resolve as resolve20 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -93,9 +93,9 @@ function readBounded(path) {
   }
   return readFileSync(path, "utf8");
 }
-function safeJson(text6) {
+function safeJson(text7) {
   try {
-    return JSON.parse(text6);
+    return JSON.parse(text7);
   } catch {
     return void 0;
   }
@@ -313,14 +313,14 @@ function parseCursor(rows, transcriptSha256) {
     if (row?.type !== "tool_call" || !row.tool_call || typeof row.tool_call !== "object") continue;
     const entry = Object.entries(row.tool_call)[0];
     if (!entry) continue;
-    const [name, payloadValue] = entry;
+    const [name2, payloadValue] = entry;
     const payload = payloadValue && typeof payloadValue === "object" ? payloadValue : {};
     const explicitId = row.call_id ?? payload.toolCallId;
     const id = explicitId === void 0 || explicitId === null ? void 0 : String(explicitId);
     if (row.subtype === "started") {
       const call = {
         id: id ?? `cursor-${sequence}`,
-        name: name.replace(/ToolCall$/, ""),
+        name: name2.replace(/ToolCall$/, ""),
         input: serialiseToolValue(payload.args ?? {}),
         timestamp: row.timestamp,
         sequence: sequence++
@@ -328,7 +328,7 @@ function parseCursor(rows, transcriptSha256) {
       toolCalls.push(call);
       byId.set(call.id, call);
     } else if (row.subtype === "completed") {
-      const expectedName = name.replace(/ToolCall$/, "");
+      const expectedName = name2.replace(/ToolCall$/, "");
       const call = id !== void 0 ? byId.get(id) : [...toolCalls].reverse().find((candidate) => candidate.name === expectedName && candidate.output === void 0);
       if (!call) continue;
       call.output = serialiseToolValue(payload.result ?? "");
@@ -544,8 +544,8 @@ function toolCallFingerprint(call) {
   const normalized = parsed === void 0 ? call.input.trim().replace(/\s+/g, " ") : canonicalJson(parsed);
   return `${call.name.toLowerCase()}:${createHash("sha256").update(normalized).digest("hex")}`;
 }
-function snippet(text6, at) {
-  return text6.slice(Math.max(0, at - 45), at + 100).replace(/\s+/g, " ").trim();
+function snippet(text7, at) {
+  return text7.slice(Math.max(0, at - 45), at + 100).replace(/\s+/g, " ").trim();
 }
 
 // src/detectors/reality.ts
@@ -772,9 +772,9 @@ function parseTestSummary(output) {
     try {
       const row = JSON.parse(line);
       const action = row.Action;
-      const name = row.Test;
-      if ((action === "pass" || action === "fail" || action === "skip") && typeof name === "string" && !name.includes("/")) {
-        goTests.set(`${String(row.Package ?? "")}:${name}`, action);
+      const name2 = row.Test;
+      if ((action === "pass" || action === "fail" || action === "skip") && typeof name2 === "string" && !name2.includes("/")) {
+        goTests.set(`${String(row.Package ?? "")}:${name2}`, action);
       }
     } catch {
     }
@@ -2828,19 +2828,19 @@ function classesForCommand(raw) {
   return [...classes];
 }
 function classifyToolCall(call) {
-  const name = call.name.toLowerCase();
+  const name2 = call.name.toLowerCase();
   const classes = /* @__PURE__ */ new Set();
   const add = (...items) => items.forEach((item2) => classes.add(item2));
   const command = commandText(call);
   if (command !== void 0) {
     for (const segment of splitShellCommands(command)) for (const item2 of classesForCommand(segment)) classes.add(item2);
-  } else if (/create_thread|spawn_agent|delegate/.test(name)) add("task_create");
-  else if (/apply[_-]?patch|write|edit|create_file|delete_file/.test(name)) add("repository_write");
-  else if (/read|glob|grep|search_files|list_files|view_image/.test(name)) add("repository_read");
-  else if (/web|fetch|search_query|open_url|browser/.test(name)) add("network_read");
-  else if (/send|email|message|comment|post|submit/.test(name)) add("external_write");
+  } else if (/create_thread|spawn_agent|delegate/.test(name2)) add("task_create");
+  else if (/apply[_-]?patch|write|edit|create_file|delete_file/.test(name2)) add("repository_write");
+  else if (/read|glob|grep|search_files|list_files|view_image/.test(name2)) add("repository_read");
+  else if (/web|fetch|search_query|open_url|browser/.test(name2)) add("network_read");
+  else if (/send|email|message|comment|post|submit/.test(name2)) add("external_write");
   else add("unknown_effect");
-  if (/credential|secret|keychain|token/.test(name)) add("credential_access");
+  if (/credential|secret|keychain|token/.test(name2)) add("credential_access");
   const identityInput = command ?? call.input;
   return {
     toolCallId: call.id,
@@ -3193,8 +3193,8 @@ function inferProtectCommands(root, testCommand) {
   if (existsSync4(packagePath)) {
     try {
       const scripts = JSON.parse(readFileSync7(packagePath, "utf8"))?.scripts ?? {};
-      for (const name of ["typecheck", "lint", "build"]) {
-        if (typeof scripts[name] === "string" && scripts[name].trim()) commands.push(`npm run ${name}`);
+      for (const name2 of ["typecheck", "lint", "build"]) {
+        if (typeof scripts[name2] === "string" && scripts[name2].trim()) commands.push(`npm run ${name2}`);
       }
     } catch {
     }
@@ -3334,57 +3334,57 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     detail: existsSync4(workflow2) ? "workflow installed; configure Agent Vigil evidence as a required status check after its first run" : "workflow not installed; run vigil init"
   });
   if (existsSync4(workflow2)) {
-    const text6 = installedWorkflow;
-    const attestationEnabled = /^\s*attest:\s*true\s*$/m.test(text6);
+    const text7 = installedWorkflow;
+    const attestationEnabled = /^\s*attest:\s*true\s*$/m.test(text7);
     if (attestationEnabled) {
-      const permissionsPresent = /^\s*id-token:\s*write\s*$/m.test(text6) && /^\s*attestations:\s*write\s*$/m.test(text6) && /^\s*artifact-metadata:\s*write\s*$/m.test(text6);
-      const repositoryWrite = /^\s*contents:\s*write\s*$/m.test(text6);
+      const permissionsPresent = /^\s*id-token:\s*write\s*$/m.test(text7) && /^\s*attestations:\s*write\s*$/m.test(text7) && /^\s*artifact-metadata:\s*write\s*$/m.test(text7);
+      const repositoryWrite = /^\s*contents:\s*write\s*$/m.test(text7);
       checks.push({
         status: !permissionsPresent ? "FAIL" : repositoryWrite ? "WARN" : "PASS",
         label: "GitHub attestation",
         detail: !permissionsPresent ? "attest: true requires id-token, attestations, and artifact-metadata write permissions" : repositoryWrite ? "receipt signing is configured, but this workflow can also write repository contents; remove that permission unless another reviewed step requires it" : "receipt attestation is enabled with the required GitHub permissions"
       });
     }
-    const exactRange = /pull_request\.base\.sha/.test(text6) && /pull_request\.head\.sha/.test(text6);
+    const exactRange = /pull_request\.base\.sha/.test(text7) && /pull_request\.head\.sha/.test(text7);
     checks.push({
       status: exactRange ? "PASS" : "WARN",
       label: "Git range",
       detail: exactRange ? "workflow pins the pull request base and head SHAs" : "workflow does not visibly pin both pull request SHAs"
     });
-    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.event\.merge_group\.head_sha\s*\}\}/.test(text6);
+    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.event\.merge_group\.head_sha\s*\}\}/.test(text7);
     checks.push({
       status: exactCheckout ? "PASS" : "WARN",
       label: "Checkout identity",
       detail: exactCheckout ? "workflow checks out the exact pull request head SHA" : "workflow may verify GitHub's synthetic merge commit instead of the selected head"
     });
-    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}/.test(text6);
+    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}/.test(text7);
     checks.push({
       status: anchoredPolicy ? "PASS" : "WARN",
       label: "Policy trust",
       detail: anchoredPolicy ? "workflow loads policy from the pull request base commit" : "workflow policy may be controlled by the candidate change"
     });
-    const mergeQueue = /merge_group:\s*\n\s*types:\s*\[checks_requested\]/.test(text6) && /merge_group\.base_sha/.test(text6) && /merge_group\.head_sha/.test(text6);
+    const mergeQueue = /merge_group:\s*\n\s*types:\s*\[checks_requested\]/.test(text7) && /merge_group\.base_sha/.test(text7) && /merge_group\.head_sha/.test(text7);
     checks.push({
       status: mergeQueue ? "PASS" : "WARN",
       label: "Merge queue",
       detail: mergeQueue ? "workflow re-verifies the composed merge-group commit" : "required check will not report for GitHub merge queues"
     });
     if (maintainer) {
-      const modeInstalled = /mode:\s*maintainer/.test(text6);
-      const artifactInstalled = /name:\s*agent-vigil-receipt/.test(text6);
+      const modeInstalled = /mode:\s*maintainer/.test(text7);
+      const artifactInstalled = /name:\s*agent-vigil-receipt/.test(text7);
       checks.push({
         status: modeInstalled && artifactInstalled ? "PASS" : "FAIL",
         label: "Maintainer workflow",
         detail: modeInstalled && artifactInstalled ? "maintainer mode and receipt artifact retention are installed" : "workflow must enable maintainer mode and retain agent-vigil-receipt"
       });
     }
-    const authorityMatch = text6.match(/^\s*authority-contract:\s*(\S+)\s*$/m);
+    const authorityMatch = text7.match(/^\s*authority-contract:\s*(\S+)\s*$/m);
     if (authorityMatch) {
       try {
         const contract = loadAuthorityContract(root, authorityMatch[1]);
         const placeholder = contract.value.taskId === "REPLACE_WITH_TASK_OR_TICKET_ID";
         const expired = Boolean(contract.value.expiresAt && Date.now() > new Date(contract.value.expiresAt).getTime());
-        const anchored = /^\s*authority-contract-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}\s*$/m.test(text6);
+        const anchored = /^\s*authority-contract-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}\s*$/m.test(text7);
         checks.push({
           status: placeholder || expired || !anchored ? "FAIL" : "PASS",
           label: "Task authority",
@@ -4880,8 +4880,8 @@ function addPermissionAtoms(out, platform, path, rules, decision, locator) {
 function addEnvironmentAtoms(out, platform, path, subject, values, locator) {
   const env = record(values);
   if (!env) return;
-  for (const name of Object.keys(env).sort()) {
-    const semanticKey = `${platform}\0${path}\0credential\0${subject}\0${name}`;
+  for (const name2 of Object.keys(env).sort()) {
+    const semanticKey = `${platform}\0${path}\0credential\0${subject}\0${name2}`;
     out.push(atom({
       semanticKey,
       platform,
@@ -4889,12 +4889,12 @@ function addEnvironmentAtoms(out, platform, path, subject, values, locator) {
       kind: "credential",
       subject,
       action: "credential.expose",
-      resource: `env:${name}`,
+      resource: `env:${name2}`,
       effect: "credential",
       decision: "ALLOW",
       constraints: ["value=redacted"],
-      locator: `${locator}.${name}`,
-      comparisonValue: env[name],
+      locator: `${locator}.${name2}`,
+      comparisonValue: env[name2],
       added: expansion("AVP008", "a new environment value can be exposed to agent-controlled code", "critical"),
       removed: ALLOW_RESTRICTION,
       compare: () => "incomparable"
@@ -4950,25 +4950,25 @@ function addMcpEnvironmentReferences(out, platform, path, subject, values, locat
   if (!Array.isArray(values)) return;
   for (const [index, raw] of values.entries()) {
     const config = record(raw);
-    const name = stringValue(raw) ?? stringValue(config?.name);
-    if (!name) {
+    const name2 = stringValue(raw) ?? stringValue(config?.name);
+    if (!name2) {
       addOpaqueAuthoritySection(out, platform, path, `${locator}[${index}]`, raw, "an MCP environment reference has an unsupported shape");
       continue;
     }
     const source = stringValue(config?.source) ?? "local";
     out.push(atom({
-      semanticKey: `${platform}\0${path}\0${subject}\0env-ref\0${name}`,
+      semanticKey: `${platform}\0${path}\0${subject}\0env-ref\0${name2}`,
       platform,
       sourcePath: path,
       kind: "credential",
       subject,
       action: "environment.inherit",
-      resource: `env:${name}`,
+      resource: `env:${name2}`,
       effect: "credential",
       decision: "ALLOW",
       constraints: [`source=${source}`],
       locator,
-      comparisonValue: { name, source },
+      comparisonValue: { name: name2, source },
       added: expansion("AVP008", "an MCP process can inherit an additional environment value", "critical"),
       removed: ALLOW_RESTRICTION,
       compare: (before, after) => before.comparisonToken === after.comparisonToken ? "equal" : "incomparable"
@@ -4978,10 +4978,10 @@ function addMcpEnvironmentReferences(out, platform, path, subject, values, locat
 function addMcpServerAtoms(out, platform, path, values, locator) {
   const servers = record(values);
   if (!servers) return;
-  for (const [name, rawServer] of Object.entries(servers).sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name2, rawServer] of Object.entries(servers).sort(([a], [b]) => a.localeCompare(b))) {
     const server = record(rawServer);
     if (!server) {
-      addOpaqueAuthoritySection(out, platform, path, `${locator}.${name}`, rawServer, "an MCP server entry has an unsupported shape");
+      addOpaqueAuthoritySection(out, platform, path, `${locator}.${name2}`, rawServer, "an MCP server entry has an unsupported shape");
       continue;
     }
     const enabled = boolValue(server.enabled) ?? !boolValue(server.disabled);
@@ -4989,7 +4989,7 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
     const url = stringValue(server.url) ?? stringValue(server.serverUrl);
     const transport = url ? "http" : command ? "stdio" : stringValue(server.type) ?? "unknown";
     const identity = url ? safeOrigin(url) : command ? safeExecutable(command) : "unknown-server";
-    const baseKey = `${platform}\0${path}\0mcp\0${name}`;
+    const baseKey = `${platform}\0${path}\0mcp\0${name2}`;
     out.push(atom({
       semanticKey: `${baseKey}\0enabled`,
       platform,
@@ -4997,11 +4997,11 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
       kind: "capability",
       subject: "agent",
       action: "mcp.connect",
-      resource: `${name}:${identity}`,
+      resource: `${name2}:${identity}`,
       effect: transport === "stdio" ? "execute" : transport === "http" ? "network" : "unknown",
       decision: enabled ? "ALLOW" : "DENY",
       constraints: [`enabled=${enabled}`, `transport=${transport}`],
-      locator: `${locator}.${name}.enabled`,
+      locator: `${locator}.${name2}.enabled`,
       comparisonValue: enabled,
       added: enabled ? expansion("AVP002", "a newly declared MCP server adds an unbounded tool surface", "critical") : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
       removed: enabled ? ALLOW_RESTRICTION : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
@@ -5012,25 +5012,25 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
       platform,
       sourcePath: path,
       kind: "control",
-      subject: name,
+      subject: name2,
       action: "mcp.launch",
       resource: identity,
       effect: transport === "stdio" ? "execute" : transport === "http" ? "network" : "unknown",
       decision: enabled ? "ALLOW" : "DENY",
       constraints: [`transport=${transport}`, ...command ? [`executable=${safeExecutable(command)}`] : [], ...url ? [`origin=${safeOrigin(url)}`] : []],
-      locator: `${locator}.${name}`,
+      locator: `${locator}.${name2}`,
       comparisonValue: { command, args: server.args, cwd: server.cwd, url },
       added: enabled ? expansion("AVP002", "a new MCP launch identity can execute code or contact an external service", "critical") : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
       removed: ALLOW_RESTRICTION,
       compare: () => "expansion"
     }));
-    addEnvironmentAtoms(out, platform, path, `mcp:${name}`, server.env, `${locator}.${name}.env`);
-    addEnvironmentAtoms(out, platform, path, `mcp:${name}`, server.http_headers, `${locator}.${name}.http_headers`);
-    addEnvironmentAtoms(out, platform, path, `mcp:${name}`, server.env_http_headers, `${locator}.${name}.env_http_headers`);
-    addEnvironmentAtoms(out, platform, path, `mcp:${name}`, server.headers, `${locator}.${name}.headers`);
-    addMcpEnvironmentReferences(out, platform, path, `mcp:${name}`, server.env_vars, `${locator}.${name}.env_vars`);
+    addEnvironmentAtoms(out, platform, path, `mcp:${name2}`, server.env, `${locator}.${name2}.env`);
+    addEnvironmentAtoms(out, platform, path, `mcp:${name2}`, server.http_headers, `${locator}.${name2}.http_headers`);
+    addEnvironmentAtoms(out, platform, path, `mcp:${name2}`, server.env_http_headers, `${locator}.${name2}.env_http_headers`);
+    addEnvironmentAtoms(out, platform, path, `mcp:${name2}`, server.headers, `${locator}.${name2}.headers`);
+    addMcpEnvironmentReferences(out, platform, path, `mcp:${name2}`, server.env_vars, `${locator}.${name2}.env_vars`);
     const bearer = stringValue(server.bearer_token_env_var);
-    if (bearer) addEnvironmentAtoms(out, platform, path, `mcp:${name}`, { [bearer]: "environment-reference" }, `${locator}.${name}.bearer_token_env_var`);
+    if (bearer) addEnvironmentAtoms(out, platform, path, `mcp:${name2}`, { [bearer]: "environment-reference" }, `${locator}.${name2}.bearer_token_env_var`);
     const auth = stringValue(server.auth);
     if (auth) {
       out.push(atom({
@@ -5038,13 +5038,13 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
         platform,
         sourcePath: path,
         kind: "credential",
-        subject: `mcp:${name}`,
+        subject: `mcp:${name2}`,
         action: "mcp.authenticate",
         resource: "credential-source",
         effect: "credential",
         decision: auth === "oauth" || auth === "chatgpt" ? "ALLOW" : "UNKNOWN",
         constraints: [`mode=${auth}`],
-        locator: `${locator}.${name}.auth`,
+        locator: `${locator}.${name2}.auth`,
         comparisonValue: auth,
         added: auth === "oauth" || auth === "chatgpt" ? expansion("AVP008", "an MCP server can use an additional authenticated credential source", "critical") : hold("AVP014", `unsupported MCP authentication mode ${auth}`),
         removed: HOLD_UNKNOWN,
@@ -5058,13 +5058,13 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
         platform,
         sourcePath: path,
         kind: "capability",
-        subject: `mcp:${name}`,
+        subject: `mcp:${name2}`,
         action: "process.execute",
         resource: executionEnvironment,
         effect: "execute",
         decision: executionEnvironment === "remote" ? "ALLOW" : executionEnvironment === "local" ? "ASK" : "UNKNOWN",
         constraints: [`environment=${executionEnvironment}`],
-        locator: `${locator}.${name}.experimental_environment`,
+        locator: `${locator}.${name2}.experimental_environment`,
         comparisonValue: executionEnvironment,
         added: executionEnvironment === "remote" ? expansion("AVP009", "an MCP stdio process can execute in a remote environment", "critical") : executionEnvironment === "local" ? { ...ALLOW_RESTRICTION, direction: "NEUTRAL" } : HOLD_UNKNOWN,
         removed: HOLD_UNKNOWN,
@@ -5078,13 +5078,13 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
         platform,
         sourcePath: path,
         kind: "credential",
-        subject: `mcp:${name}`,
+        subject: `mcp:${name2}`,
         action: "oauth.resource",
         resource: safeOrigin(oauthResource),
         effect: "credential",
         decision: "ALLOW",
         constraints: [],
-        locator: `${locator}.${name}.oauth_resource`,
+        locator: `${locator}.${name2}.oauth_resource`,
         comparisonValue: oauthResource,
         added: expansion("AVP008", "an MCP connection requests credentials for an additional OAuth resource", "critical"),
         removed: ALLOW_RESTRICTION,
@@ -5097,13 +5097,13 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
         platform,
         sourcePath: path,
         kind: "permission",
-        subject: `mcp:${name}`,
+        subject: `mcp:${name2}`,
         action: "oauth.scope",
         resource: scope,
         effect: "external",
         decision: "ALLOW",
         constraints: [],
-        locator: `${locator}.${name}.scopes`,
+        locator: `${locator}.${name2}.scopes`,
         comparisonValue: scope,
         added: expansion("AVP008", "an MCP connection requests an additional OAuth scope", "critical"),
         removed: ALLOW_RESTRICTION
@@ -5117,13 +5117,13 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
         platform,
         sourcePath: path,
         kind: "capability",
-        subject: `mcp:${name}`,
+        subject: `mcp:${name2}`,
         action: "mcp.tool",
         resource: tool,
         effect: "unknown",
         decision: "ALLOW",
         constraints: ["selection=enabled"],
-        locator: `${locator}.${name}.enabled_tools`,
+        locator: `${locator}.${name2}.enabled_tools`,
         comparisonValue: true,
         added: expansion("AVP013", "an additional MCP tool is exposed to the agent", "critical"),
         removed: ALLOW_RESTRICTION
@@ -5135,13 +5135,13 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
         platform,
         sourcePath: path,
         kind: "capability",
-        subject: `mcp:${name}`,
+        subject: `mcp:${name2}`,
         action: "mcp.tool",
         resource: tool,
         effect: "unknown",
         decision: "DENY",
         constraints: ["selection=disabled"],
-        locator: `${locator}.${name}.disabled_tools`,
+        locator: `${locator}.${name2}.disabled_tools`,
         comparisonValue: false,
         added: ALLOW_RESTRICTION,
         removed: expansion("AVP013", "an MCP tool was removed from the explicit deny list", "critical"),
@@ -5149,14 +5149,14 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
       }));
     }
     const approvalMode = stringValue(server.default_tools_approval_mode ?? server.defaultToolsApprovalMode);
-    if (approvalMode) addMcpApprovalAtom(out, platform, path, `${baseKey}\0approval`, name, approvalMode, `${locator}.${name}.default_tools_approval_mode`);
+    if (approvalMode) addMcpApprovalAtom(out, platform, path, `${baseKey}\0approval`, name2, approvalMode, `${locator}.${name2}.default_tools_approval_mode`);
     const tools = record(server.tools);
     if (tools) {
       for (const [tool, rawTool] of Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))) {
         const config = record(rawTool);
         if (!config) continue;
         const mode = stringValue(config.approval_mode ?? config.approvalMode);
-        if (mode) addMcpApprovalAtom(out, platform, path, `${baseKey}\0tool-approval\0${tool}`, `${name}/${tool}`, mode, `${locator}.${name}.tools.${tool}.approval_mode`);
+        if (mode) addMcpApprovalAtom(out, platform, path, `${baseKey}\0tool-approval\0${tool}`, `${name2}/${tool}`, mode, `${locator}.${name2}.tools.${tool}.approval_mode`);
       }
     }
     const recognized = /* @__PURE__ */ new Set([
@@ -5192,7 +5192,7 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
     ]);
     const unsupported = Object.fromEntries(Object.entries(server).filter(([key]) => !recognized.has(key)));
     if (Object.keys(unsupported).length) {
-      addOpaqueAuthoritySection(out, platform, path, `${locator}.${name}.*`, unsupported, "an MCP server contains authority-bearing fields that are not yet normalized");
+      addOpaqueAuthoritySection(out, platform, path, `${locator}.${name2}.*`, unsupported, "an MCP server contains authority-bearing fields that are not yet normalized");
     }
   }
 }
@@ -5513,15 +5513,15 @@ function extractClaude(path, parsed) {
       compare: (before, after) => decisionRelation(before.decision, after.decision)
     }));
   }
-  for (const name of stringList(parsed.enabledMcpjsonServers)) {
+  for (const name2 of stringList(parsed.enabledMcpjsonServers)) {
     out.push(atom({
-      semanticKey: `claude-code\0${path}\0mcp-server\0${name}`,
+      semanticKey: `claude-code\0${path}\0mcp-server\0${name2}`,
       platform: "claude-code",
       sourcePath: path,
       kind: "capability",
       subject: "agent",
       action: "mcp.enable",
-      resource: name,
+      resource: name2,
       effect: "unknown",
       decision: "ALLOW",
       constraints: [],
@@ -5531,15 +5531,15 @@ function extractClaude(path, parsed) {
       removed: ALLOW_RESTRICTION
     }));
   }
-  for (const name of stringList(parsed.disabledMcpjsonServers)) {
+  for (const name2 of stringList(parsed.disabledMcpjsonServers)) {
     out.push(atom({
-      semanticKey: `claude-code\0${path}\0mcp-server\0${name}`,
+      semanticKey: `claude-code\0${path}\0mcp-server\0${name2}`,
       platform: "claude-code",
       sourcePath: path,
       kind: "capability",
       subject: "agent",
       action: "mcp.enable",
-      resource: name,
+      resource: name2,
       effect: "unknown",
       decision: "DENY",
       constraints: [],
@@ -5552,21 +5552,21 @@ function extractClaude(path, parsed) {
   }
   const plugins = record(parsed.enabledPlugins);
   if (plugins) {
-    for (const [name, rawEnabled] of Object.entries(plugins).sort(([a], [b]) => a.localeCompare(b))) {
+    for (const [name2, rawEnabled] of Object.entries(plugins).sort(([a], [b]) => a.localeCompare(b))) {
       const enabled = boolValue(rawEnabled);
       if (enabled === void 0) continue;
       out.push(atom({
-        semanticKey: `claude-code\0${path}\0plugin\0${name}`,
+        semanticKey: `claude-code\0${path}\0plugin\0${name2}`,
         platform: "claude-code",
         sourcePath: path,
         kind: "capability",
         subject: "agent",
         action: "plugin.enable",
-        resource: name,
+        resource: name2,
         effect: "unknown",
         decision: enabled ? "ALLOW" : "DENY",
         constraints: [`enabled=${enabled}`],
-        locator: `enabledPlugins.${name}`,
+        locator: `enabledPlugins.${name2}`,
         comparisonValue: enabled,
         added: enabled ? expansion("AVP015", "a plugin can add skills, agents, hooks, MCP servers, or executables", "critical") : ALLOW_RESTRICTION,
         removed: enabled ? ALLOW_RESTRICTION : expansion("AVP015", "an explicit plugin disable was removed", "critical"),
@@ -6136,8 +6136,8 @@ function receiptSubject(delta, kind) {
   const atom2 = delta.after ?? delta.before;
   if (!atom2) return delta.summary;
   if (kind === "server") {
-    const name = atom2.action === "mcp.connect" ? atom2.resource.split(":", 1)[0] : atom2.subject;
-    return `server: mcp:${name}`;
+    const name2 = atom2.action === "mcp.connect" ? atom2.resource.split(":", 1)[0] : atom2.subject;
+    return `server: mcp:${name2}`;
   }
   return `${kind}: ${atom2.resource}`;
 }
@@ -6314,8 +6314,8 @@ function buildMergeGroupReport(options) {
 
 // src/value.ts
 import { createHash as createHash10 } from "node:crypto";
-function nonNegative(value, name) {
-  if (value !== void 0 && (!Number.isFinite(value) || value < 0)) throw new Error(`${name} must be a non-negative number`);
+function nonNegative(value, name2) {
+  if (value !== void 0 && (!Number.isFinite(value) || value < 0)) throw new Error(`${name2} must be a non-negative number`);
 }
 function validAsOf(value) {
   if (value === void 0) return;
@@ -6946,9 +6946,9 @@ function statementsFromGh(value) {
   const statements = [];
   for (const root of roots) {
     if (!root || typeof root !== "object") continue;
-    const record7 = root;
-    const verification2 = record7.verificationResult;
-    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record7.statement ?? record7;
+    const record8 = root;
+    const verification2 = record8.verificationResult;
+    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record8.statement ?? record8;
     if (statement && typeof statement === "object") statements.push(statement);
   }
   return statements;
@@ -6958,9 +6958,9 @@ function subjectMatches(statement, expectedName, expectedDigest) {
   return subjects.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const subject = entry;
-    const digest5 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
-    const name = String(subject.name ?? "");
-    return (name === expectedName || name.endsWith(`/${expectedName}`)) && digest5.sha256 === expectedDigest;
+    const digest6 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const name2 = String(subject.name ?? "");
+    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && digest6.sha256 === expectedDigest;
   });
 }
 function predicateMatches(predicate, report, fileSha256) {
@@ -7308,8 +7308,8 @@ var Directives = class _Directives {
       this.atNextDocument = false;
     }
     const parts = line.trim().split(/[ \t]+/);
-    const name = parts.shift();
-    switch (name) {
+    const name2 = parts.shift();
+    switch (name2) {
       case "%TAG": {
         if (parts.length !== 2) {
           onError(0, "%TAG directive should contain exactly two parts");
@@ -7337,7 +7337,7 @@ var Directives = class _Directives {
         }
       }
       default:
-        onError(0, `Unknown directive ${name}`, true);
+        onError(0, `Unknown directive ${name2}`, true);
         return false;
     }
   }
@@ -7438,9 +7438,9 @@ function anchorNames(root) {
 }
 function findNewAnchor(prefix, exclude) {
   for (let i = 1; true; ++i) {
-    const name = `${prefix}${i}`;
-    if (!exclude.has(name))
-      return name;
+    const name2 = `${prefix}${i}`;
+    if (!exclude.has(name2))
+      return name2;
   }
 }
 function createNodeAnchors(doc, prefix) {
@@ -7911,14 +7911,14 @@ var lineComment = (str, indent, comment) => str.endsWith("\n") ? indentComment(c
 var FOLD_FLOW = "flow";
 var FOLD_BLOCK = "block";
 var FOLD_QUOTED = "quoted";
-function foldFlowLines(text6, indent, mode = "flow", { indentAtStart, lineWidth = 80, minContentWidth = 20, onFold, onOverflow } = {}) {
+function foldFlowLines(text7, indent, mode = "flow", { indentAtStart, lineWidth = 80, minContentWidth = 20, onFold, onOverflow } = {}) {
   if (!lineWidth || lineWidth < 0)
-    return text6;
+    return text7;
   if (lineWidth < minContentWidth)
     minContentWidth = 0;
   const endStep = Math.max(1 + minContentWidth, 1 + lineWidth - indent.length);
-  if (text6.length <= endStep)
-    return text6;
+  if (text7.length <= endStep)
+    return text7;
   const folds = [];
   const escapedFolds = {};
   let end = lineWidth - indent.length;
@@ -7935,14 +7935,14 @@ function foldFlowLines(text6, indent, mode = "flow", { indentAtStart, lineWidth 
   let escStart = -1;
   let escEnd = -1;
   if (mode === FOLD_BLOCK) {
-    i = consumeMoreIndentedLines(text6, i, indent.length);
+    i = consumeMoreIndentedLines(text7, i, indent.length);
     if (i !== -1)
       end = i + endStep;
   }
-  for (let ch; ch = text6[i += 1]; ) {
+  for (let ch; ch = text7[i += 1]; ) {
     if (mode === FOLD_QUOTED && ch === "\\") {
       escStart = i;
-      switch (text6[i + 1]) {
+      switch (text7[i + 1]) {
         case "x":
           i += 3;
           break;
@@ -7959,12 +7959,12 @@ function foldFlowLines(text6, indent, mode = "flow", { indentAtStart, lineWidth 
     }
     if (ch === "\n") {
       if (mode === FOLD_BLOCK)
-        i = consumeMoreIndentedLines(text6, i, indent.length);
+        i = consumeMoreIndentedLines(text7, i, indent.length);
       end = i + indent.length + endStep;
       split = void 0;
     } else {
       if (ch === " " && prev && prev !== " " && prev !== "\n" && prev !== "	") {
-        const next = text6[i + 1];
+        const next = text7[i + 1];
         if (next && next !== " " && next !== "\n" && next !== "	")
           split = i;
       }
@@ -7976,12 +7976,12 @@ function foldFlowLines(text6, indent, mode = "flow", { indentAtStart, lineWidth 
         } else if (mode === FOLD_QUOTED) {
           while (prev === " " || prev === "	") {
             prev = ch;
-            ch = text6[i += 1];
+            ch = text7[i += 1];
             overflow = true;
           }
           const j = i > escEnd + 1 ? i - 2 : escStart - 1;
           if (escapedFolds[j])
-            return text6;
+            return text7;
           folds.push(j);
           escapedFolds[j] = true;
           end = j + endStep;
@@ -7996,39 +7996,39 @@ function foldFlowLines(text6, indent, mode = "flow", { indentAtStart, lineWidth 
   if (overflow && onOverflow)
     onOverflow();
   if (folds.length === 0)
-    return text6;
+    return text7;
   if (onFold)
     onFold();
-  let res = text6.slice(0, folds[0]);
+  let res = text7.slice(0, folds[0]);
   for (let i2 = 0; i2 < folds.length; ++i2) {
     const fold = folds[i2];
-    const end2 = folds[i2 + 1] || text6.length;
+    const end2 = folds[i2 + 1] || text7.length;
     if (fold === 0)
       res = `
-${indent}${text6.slice(0, end2)}`;
+${indent}${text7.slice(0, end2)}`;
     else {
       if (mode === FOLD_QUOTED && escapedFolds[fold])
-        res += `${text6[fold]}\\`;
+        res += `${text7[fold]}\\`;
       res += `
-${indent}${text6.slice(fold + 1, end2)}`;
+${indent}${text7.slice(fold + 1, end2)}`;
     }
   }
   return res;
 }
-function consumeMoreIndentedLines(text6, i, indent) {
+function consumeMoreIndentedLines(text7, i, indent) {
   let end = i;
   let start = i + 1;
-  let ch = text6[start];
+  let ch = text7[start];
   while (ch === " " || ch === "	") {
     if (i < start + indent) {
-      ch = text6[++i];
+      ch = text7[++i];
     } else {
       do {
-        ch = text6[++i];
+        ch = text7[++i];
       } while (ch && ch !== "\n");
       end = i;
       start = i + 1;
-      ch = text6[start];
+      ch = text7[start];
     }
   }
   return end;
@@ -8374,8 +8374,8 @@ function getTagObject(tags, item2) {
     tagObj = tags.find((t) => t.nodeClass && obj instanceof t.nodeClass);
   }
   if (!tagObj) {
-    const name = obj?.constructor?.name ?? (obj === null ? "null" : typeof obj);
-    throw new Error(`Tag not resolved for ${name} value`);
+    const name2 = obj?.constructor?.name ?? (obj === null ? "null" : typeof obj);
+    throw new Error(`Tag not resolved for ${name2} value`);
   }
   return tagObj;
 }
@@ -9546,8 +9546,8 @@ var float2 = {
 // node_modules/yaml/browser/dist/schema/yaml-1.1/int.js
 var intIdentify3 = (value) => typeof value === "bigint" || Number.isInteger(value);
 function intResolve2(str, offset, radix, { intAsBigInt }) {
-  const sign5 = str[0];
-  if (sign5 === "-" || sign5 === "+")
+  const sign6 = str[0];
+  if (sign6 === "-" || sign6 === "+")
     offset += 1;
   str = str.substring(offset).replace(/_/g, "");
   if (intAsBigInt) {
@@ -9563,10 +9563,10 @@ function intResolve2(str, offset, radix, { intAsBigInt }) {
         break;
     }
     const n2 = BigInt(str);
-    return sign5 === "-" ? BigInt(-1) * n2 : n2;
+    return sign6 === "-" ? BigInt(-1) * n2 : n2;
   }
   const n = parseInt(str, radix);
-  return sign5 === "-" ? -1 * n : n;
+  return sign6 === "-" ? -1 * n : n;
 }
 function intStringify2(node, radix, prefix) {
   const { value } = node;
@@ -9693,11 +9693,11 @@ var set = {
 
 // node_modules/yaml/browser/dist/schema/yaml-1.1/timestamp.js
 function parseSexagesimal(str, asBigInt) {
-  const sign5 = str[0];
-  const parts = sign5 === "-" || sign5 === "+" ? str.substring(1) : str;
+  const sign6 = str[0];
+  const parts = sign6 === "-" || sign6 === "+" ? str.substring(1) : str;
   const num = (n) => asBigInt ? BigInt(n) : Number(n);
   const res = parts.replace(/_/g, "").split(":").reduce((res2, p) => res2 * num(60) + num(p), num(0));
-  return sign5 === "-" ? num(-1) * res : res;
+  return sign6 === "-" ? num(-1) * res : res;
 }
 function stringifySexagesimal(node) {
   let { value } = node;
@@ -9706,9 +9706,9 @@ function stringifySexagesimal(node) {
     num = (n) => BigInt(n);
   else if (isNaN(value) || !isFinite(value))
     return stringifyNumber(node);
-  let sign5 = "";
+  let sign6 = "";
   if (value < 0) {
-    sign5 = "-";
+    sign6 = "-";
     value *= num(-1);
   }
   const _60 = num(60);
@@ -9723,7 +9723,7 @@ function stringifySexagesimal(node) {
       parts.unshift(value);
     }
   }
-  return sign5 + parts.map((n) => String(n).padStart(2, "0")).join(":").replace(/000000\d*$/, "");
+  return sign6 + parts.map((n) => String(n).padStart(2, "0")).join(":").replace(/000000\d*$/, "");
 }
 var intTime = {
   identify: (value) => typeof value === "bigint" || Number.isInteger(value),
@@ -10035,11 +10035,11 @@ var Document = class _Document {
    * `name` will be used as a prefix for a new unique anchor.
    * If `name` is undefined, the generated anchor will use 'a' as a prefix.
    */
-  createAlias(node, name) {
+  createAlias(node, name2) {
     if (!node.anchor) {
       const prev = anchorNames(this);
       node.anchor = // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-      !name || prev.has(name) ? findNewAnchor(name || "a", prev) : name;
+      !name2 || prev.has(name2) ? findNewAnchor(name2 || "a", prev) : name2;
     }
     return new Alias(node.anchor);
   }
@@ -10252,9 +10252,9 @@ function assertCollection(contents) {
 
 // node_modules/yaml/browser/dist/errors.js
 var YAMLError = class extends Error {
-  constructor(name, pos, code2, message) {
+  constructor(name2, pos, code2, message) {
     super();
-    this.name = name;
+    this.name = name2;
     this.code = code2;
     this.message = message;
     this.pos = pos;
@@ -10824,8 +10824,8 @@ function resolveFlowCollection({ composeNode: composeNode2, composeEmptyNode: co
   if (ce?.source === expectedEnd)
     cePos = ce.offset + ce.source.length;
   else {
-    const name = fcName[0].toUpperCase() + fcName.substring(1);
-    const msg = atRoot ? `${name} must end with a ${expectedEnd}` : `${name} in block collection must be sufficiently indented and end with a ${expectedEnd}`;
+    const name2 = fcName[0].toUpperCase() + fcName.substring(1);
+    const msg = atRoot ? `${name2} must end with a ${expectedEnd}` : `${name2} in block collection must be sufficiently indented and end with a ${expectedEnd}`;
     onError(offset, atRoot ? "MISSING_CHAR" : "BAD_INDENT", msg);
     if (ce && ce.source.length !== 1)
       ee.unshift(ce);
@@ -13610,7 +13610,7 @@ function hashRegularFile(path, expected, maximumFileBytes, maximumRemainingBytes
     }
     if (before.size > BigInt(maximumFileBytes)) throw new Error(`target file exceeds ${maximumFileBytes} bytes`);
     if (before.size > BigInt(maximumRemainingBytes)) throw new Error(`target exceeds ${MAX_TOTAL_BYTES} total bytes`);
-    const digest5 = createHash13("sha256");
+    const digest6 = createHash13("sha256");
     const buffer = Buffer.allocUnsafe(1024 * 1024);
     let total = 0n;
     while (true) {
@@ -13619,7 +13619,7 @@ function hashRegularFile(path, expected, maximumFileBytes, maximumRemainingBytes
       total += BigInt(read);
       if (total > BigInt(maximumFileBytes)) throw new Error(`target file exceeds ${maximumFileBytes} bytes`);
       if (total > BigInt(maximumRemainingBytes)) throw new Error(`target exceeds ${MAX_TOTAL_BYTES} total bytes`);
-      digest5.update(buffer.subarray(0, read));
+      digest6.update(buffer.subarray(0, read));
     }
     const after = fstatSync2(descriptor, { bigint: true });
     const afterPath = lstatSync4(path, { bigint: true });
@@ -13629,7 +13629,7 @@ function hashRegularFile(path, expected, maximumFileBytes, maximumRemainingBytes
     return {
       bytes: Number(total),
       mode: Number(before.mode & 0o777n),
-      sha256: `sha256:${digest5.digest("hex")}`
+      sha256: `sha256:${digest6.digest("hex")}`
     };
   } finally {
     closeSync2(descriptor);
@@ -13720,10 +13720,10 @@ function targetSnapshotFromManifestBytes(manifestBytes, component, artifact) {
   } catch {
     throw new Error(`${basename4(component.manifestPath)} is not valid JSON`);
   }
-  const name = lookup(manifest, component.identityField);
+  const name2 = lookup(manifest, component.identityField);
   const version = lookup(manifest, component.versionField);
-  if (typeof name !== "string" || !name.length || name.length > 160) throw new Error("manifest identity is missing or unbounded");
-  if (name !== component.name) throw new Error(`manifest identity ${name} does not match configured component ${component.name}`);
+  if (typeof name2 !== "string" || !name2.length || name2.length > 160) throw new Error("manifest identity is missing or unbounded");
+  if (name2 !== component.name) throw new Error(`manifest identity ${name2} does not match configured component ${component.name}`);
   if (typeof version !== "string" || !version.length || version.length > 128) throw new Error("manifest version is missing or unbounded");
   const capabilities = component.capabilityFields.map((field) => {
     const value = lookup(manifest, field);
@@ -13735,7 +13735,7 @@ function targetSnapshotFromManifestBytes(manifestBytes, component, artifact) {
   });
   return {
     ecosystem: component.ecosystem,
-    name,
+    name: name2,
     version,
     ...artifact,
     manifestSha256: hash(manifestBytes),
@@ -13865,8 +13865,8 @@ var DOCKER_ENDPOINT_ENV = /* @__PURE__ */ new Set([
   "DOCKER_TLS",
   "DOCKER_TLS_VERIFY"
 ]);
-function isDockerEndpointEnvironment(name) {
-  return DOCKER_ENDPOINT_ENV.has(name.toUpperCase());
+function isDockerEndpointEnvironment(name2) {
+  return DOCKER_ENDPOINT_ENV.has(name2.toUpperCase());
 }
 function trustedDockerLocations() {
   if (process.platform === "win32") {
@@ -13897,8 +13897,8 @@ function canonicalExecutable(path) {
 }
 function sanitizedDockerEnvironment(source) {
   const environment = {};
-  for (const [name, value] of Object.entries(source)) {
-    if (!isDockerEndpointEnvironment(name) && value !== void 0) environment[name] = value;
+  for (const [name2, value] of Object.entries(source)) {
+    if (!isDockerEndpointEnvironment(name2) && value !== void 0) environment[name2] = value;
   }
   return Object.freeze(environment);
 }
@@ -13991,8 +13991,8 @@ function dockerArgs(client, args) {
 }
 function dockerEnvironment(client, additions = {}) {
   const environment = { ...client.env, ...additions };
-  for (const name of Object.keys(environment)) {
-    if (isDockerEndpointEnvironment(name)) delete environment[name];
+  for (const name2 of Object.keys(environment)) {
+    if (isDockerEndpointEnvironment(name2)) delete environment[name2];
   }
   return environment;
 }
@@ -14033,7 +14033,7 @@ function dockerBaseArgs(config, targetDirectory, canaryDirectory, containerName2
     "--mount",
     `type=bind,src=${canaries},dst=/canaries,readonly`
   ];
-  for (const name of PROXY_NAMES) args.push("--env", `${name}=`);
+  for (const name2 of PROXY_NAMES) args.push("--env", `${name2}=`);
   return args;
 }
 function imageDigest2(config) {
@@ -14042,10 +14042,10 @@ function imageDigest2(config) {
 function containerName() {
   return `agent-vigil-upgrade-${randomBytes2(12).toString("hex")}`;
 }
-function forceRemoveAndVerify(client, name) {
+function forceRemoveAndVerify(client, name2) {
   const removed = spawnSync3(client.executable, dockerArgs(
     client,
-    ["container", "rm", "--force", "--volumes", name]
+    ["container", "rm", "--force", "--volumes", name2]
   ), {
     encoding: "utf8",
     timeout: DOCKER_CONTROL_TIMEOUT_MS,
@@ -14058,7 +14058,7 @@ function forceRemoveAndVerify(client, name) {
   }
   const listed = spawnSync3(
     client.executable,
-    dockerArgs(client, ["container", "ls", "--all", "--filter", `name=^/${name}$`, "--format", "{{.ID}}"]),
+    dockerArgs(client, ["container", "ls", "--all", "--filter", `name=^/${name2}$`, "--format", "{{.ID}}"]),
     {
       encoding: "utf8",
       timeout: DOCKER_CONTROL_TIMEOUT_MS,
@@ -14096,9 +14096,9 @@ function dockerImagePresent(config, selection = "docker") {
     const value = JSON.parse(inspected.stdout);
     const descriptor = value.Descriptor && typeof value.Descriptor === "object" && !Array.isArray(value.Descriptor) ? value.Descriptor : void 0;
     const repoDigests = value.RepoDigests;
-    const digest5 = imageDigest2(config);
-    const singlePlatformManifest = descriptor?.digest === digest5 && (descriptor.mediaType === "application/vnd.oci.image.manifest.v1+json" || descriptor.mediaType === "application/vnd.docker.distribution.manifest.v2+json");
-    return singlePlatformManifest && value.Os === "linux" && value.Architecture === "amd64" && (value.Variant === void 0 || value.Variant === "") && Array.isArray(repoDigests) && repoDigests.some((item2) => typeof item2 === "string" && item2.endsWith(`@${digest5}`));
+    const digest6 = imageDigest2(config);
+    const singlePlatformManifest = descriptor?.digest === digest6 && (descriptor.mediaType === "application/vnd.oci.image.manifest.v1+json" || descriptor.mediaType === "application/vnd.docker.distribution.manifest.v2+json");
+    return singlePlatformManifest && value.Os === "linux" && value.Architecture === "amd64" && (value.Variant === void 0 || value.Variant === "") && Array.isArray(repoDigests) && repoDigests.some((item2) => typeof item2 === "string" && item2.endsWith(`@${digest6}`));
   } catch {
     return false;
   }
@@ -14144,10 +14144,10 @@ function probeContainment(config, targetDirectory, canaryDirectory, selection = 
       reason: "the exact Linux/amd64 single-platform runner manifest is not present locally; Upgrade Guard never pulls during a check"
     };
   }
-  const name = containerName();
+  const name2 = containerName();
   let args;
   try {
-    args = dockerBaseArgs(config, targetDirectory, canaryDirectory, name);
+    args = dockerBaseArgs(config, targetDirectory, canaryDirectory, name2);
   } catch (error) {
     return {
       status: "HOLD",
@@ -14174,7 +14174,7 @@ function probeContainment(config, targetDirectory, canaryDirectory, selection = 
       env: dockerEnvironment(client, { VIGIL_UPGRADE_PROBE_SECRET: secret })
     });
   } finally {
-    cleanup = forceRemoveAndVerify(client, name);
+    cleanup = forceRemoveAndVerify(client, name2);
   }
   if (!cleanup.absent) {
     return {
@@ -14242,10 +14242,10 @@ function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, select
   } catch (error) {
     return { state: "HOLD", reason: error.message };
   }
-  const name = containerName();
+  const name2 = containerName();
   let args;
   try {
-    args = dockerBaseArgs(config, targetDirectory, canaryDirectory, name);
+    args = dockerBaseArgs(config, targetDirectory, canaryDirectory, name2);
   } catch (error) {
     return { state: "HOLD", reason: error.message };
   }
@@ -14265,7 +14265,7 @@ function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, select
       env: dockerEnvironment(client)
     });
   } finally {
-    cleanup = forceRemoveAndVerify(client, name);
+    cleanup = forceRemoveAndVerify(client, name2);
   }
   if (!cleanup.absent) return { state: "HOLD", reason: cleanup.reason };
   if (result5.error) {
@@ -15384,19 +15384,19 @@ function skillsWorkspaceRecord(rootEntries) {
     }
   };
 }
-function skillsEndpoint(name, item2, sourceType, ref) {
+function skillsEndpoint(name2, item2, sourceType, ref) {
   if (typeof item2.skillFolderHash !== "string" || item2.skillFolderHash.length > 128 || item2.skillFolderHash.includes("\0")) {
-    throw new Error(`skills.${name}.skillFolderHash must be a bounded string`);
+    throw new Error(`skills.${name2}.skillFolderHash must be a bounded string`);
   }
   const folderHash = item2.skillFolderHash;
-  const digestText = optionalText(item2.wellKnownDigest, `skills.${name}.wellKnownDigest`, 80);
+  const digestText = optionalText(item2.wellKnownDigest, `skills.${name2}.wellKnownDigest`, 80);
   const wellKnownDigest = digestText && /^sha256:[0-9a-f]{64}$/.test(digestText) ? digestText : void 0;
-  if (digestText && !wellKnownDigest) throw new Error(`skills.${name}.wellKnownDigest is not an exact sha256 identity`);
+  if (digestText && !wellKnownDigest) throw new Error(`skills.${name2}.wellKnownDigest is not an exact sha256 identity`);
   if (sourceType === "well-known") {
-    if (folderHash !== "") throw new Error(`skills.${name}.skillFolderHash must be empty for a well-known source`);
-    if (!wellKnownDigest) throw new Error(`skills.${name}.wellKnownDigest is required for a well-known source`);
-    exactHttpsUrl(item2.sourceUrl, `skills.${name}.sourceUrl`);
-    exactHttpsUrl(item2.sourceBaseUrl, `skills.${name}.sourceBaseUrl`);
+    if (folderHash !== "") throw new Error(`skills.${name2}.skillFolderHash must be empty for a well-known source`);
+    if (!wellKnownDigest) throw new Error(`skills.${name2}.wellKnownDigest is required for a well-known source`);
+    exactHttpsUrl(item2.sourceUrl, `skills.${name2}.sourceUrl`);
+    exactHttpsUrl(item2.sourceBaseUrl, `skills.${name2}.sourceBaseUrl`);
     return {
       version: ref ?? `digest:${wellKnownDigest.slice(7, 19)}`,
       integrityKind: "sha256",
@@ -15404,17 +15404,17 @@ function skillsEndpoint(name, item2, sourceType, ref) {
     };
   }
   if (Object.prototype.hasOwnProperty.call(item2, "wellKnownDigest")) {
-    throw new Error(`skills.${name}.wellKnownDigest is supported only for a well-known source`);
+    throw new Error(`skills.${name2}.wellKnownDigest is supported only for a well-known source`);
   }
   if (Object.prototype.hasOwnProperty.call(item2, "sourceBaseUrl")) {
-    throw new Error(`skills.${name}.sourceBaseUrl is supported only for a well-known source`);
+    throw new Error(`skills.${name2}.sourceBaseUrl is supported only for a well-known source`);
   }
   if (sourceType === "local") {
     return { version: ref ?? "local", integrityKind: "unbound", integrity: "unavailable" };
   }
   if (/^[0-9a-f]{40}$/.test(folderHash)) {
     if (!SKILLS_TREE_SOURCE_TYPES.has(sourceType)) {
-      throw new Error(`skills.${name}.skillFolderHash Git tree identity is unsupported for sourceType ${sourceType}`);
+      throw new Error(`skills.${name2}.skillFolderHash Git tree identity is unsupported for sourceType ${sourceType}`);
     }
     return {
       version: ref ?? `tree:${folderHash.slice(0, 12)}`,
@@ -15423,14 +15423,14 @@ function skillsEndpoint(name, item2, sourceType, ref) {
     };
   }
   if (/^[0-9a-f]{64}$/.test(folderHash)) {
-    const digest5 = `sha256:${folderHash}`;
+    const digest6 = `sha256:${folderHash}`;
     return {
       version: ref ?? `digest:${folderHash.slice(0, 12)}`,
       integrityKind: "sha256",
-      integrity: digest5
+      integrity: digest6
     };
   }
-  throw new Error(`skills.${name}.skillFolderHash is not an exact 40-character Git tree or 64-character SHA-256 identity`);
+  throw new Error(`skills.${name2}.skillFolderHash is not an exact 40-character Git tree or 64-character SHA-256 identity`);
 }
 function exactUtcTimestamp(value, label) {
   const result5 = text3(value, label, 64);
@@ -15467,8 +15467,8 @@ function skillsSourceUrl(value, label, sourceType) {
   }
   return result5;
 }
-function skillsPath(item2, name, sourceType) {
-  const label = `skills.${name}.skillPath`;
+function skillsPath(item2, name2, sourceType) {
+  const label = `skills.${name2}.skillPath`;
   const result5 = optionalSkillsText(item2, "skillPath", label, 1024);
   if (sourceType !== "well-known" && result5 === void 0) {
     throw new Error(`${label} is required for a materializable ${sourceType} source`);
@@ -15498,25 +15498,25 @@ function parseSkills(bytes) {
   const output = /* @__PURE__ */ new Map();
   const workspace = skillsWorkspaceRecord(rootEntries);
   output.set(workspace.identity, workspace);
-  for (const [name, raw] of Object.entries(skills)) {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name.length > 64) {
-      throw new Error(`skills lockfile contains unsupported skill name: ${name}`);
+  for (const [name2, raw] of Object.entries(skills)) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name2) || name2.length > 64) {
+      throw new Error(`skills lockfile contains unsupported skill name: ${name2}`);
     }
-    const item2 = record4(raw, `skills.${name}`);
-    const source = text3(item2.source, `skills.${name}.source`);
-    const sourceType = text3(item2.sourceType, `skills.${name}.sourceType`, 80);
-    if (!SKILLS_SOURCE_TYPES.has(sourceType)) throw new Error(`skills.${name}.sourceType is unsupported`);
-    const sourceUrl = skillsSourceUrl(item2.sourceUrl, `skills.${name}.sourceUrl`, sourceType);
-    const ref = optionalSkillsText(item2, "ref", `skills.${name}.ref`, 128);
-    const skillPath = skillsPath(item2, name, sourceType);
-    const sourceBaseUrl = optionalSkillsText(item2, "sourceBaseUrl", `skills.${name}.sourceBaseUrl`, 2048);
-    const pluginName = optionalSkillsText(item2, "pluginName", `skills.${name}.pluginName`, 160);
-    exactUtcTimestamp(item2.installedAt, `skills.${name}.installedAt`);
-    exactUtcTimestamp(item2.updatedAt, `skills.${name}.updatedAt`);
-    const endpoint = skillsEndpoint(name, item2, sourceType, ref);
-    const node = skillNodes.get(name);
-    if (!node) throw new Error(`skills lockfile is missing the exact JSON node for ${name}`);
-    const entryRows = jsonMapEntries(node, `skills.${name}`);
+    const item2 = record4(raw, `skills.${name2}`);
+    const source = text3(item2.source, `skills.${name2}.source`);
+    const sourceType = text3(item2.sourceType, `skills.${name2}.sourceType`, 80);
+    if (!SKILLS_SOURCE_TYPES.has(sourceType)) throw new Error(`skills.${name2}.sourceType is unsupported`);
+    const sourceUrl = skillsSourceUrl(item2.sourceUrl, `skills.${name2}.sourceUrl`, sourceType);
+    const ref = optionalSkillsText(item2, "ref", `skills.${name2}.ref`, 128);
+    const skillPath = skillsPath(item2, name2, sourceType);
+    const sourceBaseUrl = optionalSkillsText(item2, "sourceBaseUrl", `skills.${name2}.sourceBaseUrl`, 2048);
+    const pluginName = optionalSkillsText(item2, "pluginName", `skills.${name2}.pluginName`, 160);
+    exactUtcTimestamp(item2.installedAt, `skills.${name2}.installedAt`);
+    exactUtcTimestamp(item2.updatedAt, `skills.${name2}.updatedAt`);
+    const endpoint = skillsEndpoint(name2, item2, sourceType, ref);
+    const node = skillNodes.get(name2);
+    if (!node) throw new Error(`skills lockfile is missing the exact JSON node for ${name2}`);
+    const entryRows = jsonMapEntries(node, `skills.${name2}`);
     const boundRows = entryRows.filter(([field]) => !SKILLS_DIAGNOSTIC_ENTRY_FIELDS.has(field));
     const boundByName = new Map(boundRows);
     const groupedFields = new Set(Object.values(SKILLS_ENTRY_REASON_GROUPS).flat());
@@ -15531,10 +15531,10 @@ function parseSkills(bytes) {
       ]
     ]);
     const lineage = hash4(canonical({ source, sourceType, sourceUrl, skillPath, sourceBaseUrl, pluginName }));
-    const identity = `skill:${name}:${lineage.slice(7)}`;
+    const identity = `skill:${name2}:${lineage.slice(7)}`;
     output.set(identity, {
       identity,
-      displayName: name,
+      displayName: name2,
       componentType: "skill",
       endpoint,
       fingerprint: hash4(jsonEntriesCommitment(boundRows)),
@@ -15569,9 +15569,9 @@ function pluginMcpServers(root) {
     const value = record4(strictJson(regularBytes(path, 512 * 1024, "agent plugin mcp.json"), "agent plugin mcp.json"), "agent plugin mcp.json");
     const servers = record4(value.mcpServers, "agent plugin mcpServers");
     if (Object.keys(servers).length > 256) throw new Error("agent plugin has more than 256 MCP servers");
-    return Object.entries(servers).map(([name, raw]) => ({
-      name: text3(name, "MCP server name", 160),
-      type: text3(record4(raw, `mcpServers.${name}`).type, `mcpServers.${name}.type`, 40)
+    return Object.entries(servers).map(([name2, raw]) => ({
+      name: text3(name2, "MCP server name", 160),
+      type: text3(record4(raw, `mcpServers.${name2}`).type, `mcpServers.${name2}.type`, 40)
     })).sort((left, right) => left.name.localeCompare(right.name));
   } catch (error) {
     const code2 = error.code;
@@ -15589,14 +15589,14 @@ function parsePlugin(path) {
   if (manifest.$schema !== "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json") {
     throw new Error("agent plugin manifest must target Agent Plugins 1.0.0");
   }
-  const name = text3(manifest.name, "agent plugin name", 64);
-  if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(name) || name.includes("--") || name.includes("..")) {
+  const name2 = text3(manifest.name, "agent plugin name", 64);
+  if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(name2) || name2.includes("--") || name2.includes("..")) {
     throw new Error("agent plugin name is invalid");
   }
   const version = optionalText(manifest.version, "agent plugin version", 128) ?? `tree:${inventoryBefore.treeSha256.slice(7, 19)}`;
   const skills = pluginSkills(root);
   const mcpServers = pluginMcpServers(root);
-  const identity = `agent-plugin:${name}`;
+  const identity = `agent-plugin:${name2}`;
   const endpoint = {
     version,
     integrityKind: "artifact-tree",
@@ -15604,7 +15604,7 @@ function parsePlugin(path) {
   };
   const records = /* @__PURE__ */ new Map([[identity, {
     identity,
-    displayName: name,
+    displayName: name2,
     componentType: "agent-plugin",
     endpoint,
     fingerprint: inventoryBefore.treeSha256,
@@ -15807,17 +15807,17 @@ function apmPortablePath(value) {
 function githubRepository(value) {
   const route = text3(value, "APM repo_url", 512);
   const match = /^(?:github\.com\/)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?)\/([A-Za-z0-9_.-]{1,100})$/.exec(route);
-  const name = match?.[2].endsWith(".git") ? match[2].slice(0, -4) : match?.[2];
-  if (!match || !name || name === "." || name === "..") {
+  const name2 = match?.[2].endsWith(".git") ? match[2].slice(0, -4) : match?.[2];
+  if (!match || !name2 || name2 === "." || name2 === "..") {
     throw new ApmMaterializationHold("SOURCE_ROUTE_UNSUPPORTED");
   }
-  return { owner: match[1], name };
+  return { owner: match[1], name: name2 };
 }
 function sameRepository(left, right) {
   return left.owner.toLowerCase() === right.owner.toLowerCase() && left.name.toLowerCase() === right.name.toLowerCase();
 }
-function materializationEndpoint(record7) {
-  const row = record7.apmRow;
+function materializationEndpoint(record8) {
+  const row = record8.apmRow;
   if (!row || Object.keys(row).some((field) => !APM_KNOWN_DEPENDENCY_FIELDS.has(field))) {
     throw new ApmMaterializationHold("SOURCE_SHAPE_UNSUPPORTED");
   }
@@ -15852,7 +15852,7 @@ function materializationEndpoint(record7) {
     commit: commit2,
     expectedTreeSha256,
     routeSha256,
-    rowSha256: record7.fingerprint
+    rowSha256: record8.fingerprint
   };
 }
 function selectApmMaterialization(input) {
@@ -16657,22 +16657,22 @@ function canonicalTreeSha256FromCommitments(files) {
     });
     const entries = [];
     for (const file of byDirectory.get(directory) ?? []) {
-      const name = basename6(file.path);
+      const name2 = basename6(file.path);
       entries.push({
-        name,
-        line: `${file.mode === 493 ? "100755" : "100644"} ${name} ${file.sha256.slice(7)}
+        name: name2,
+        line: `${file.mode === 493 ? "100755" : "100644"} ${name2} ${file.sha256.slice(7)}
 `
       });
     }
     for (const child of directDirectories) {
-      const name = child.slice(prefix.length);
-      entries.push({ name, line: `040000 ${name} ${digestDirectory(child)}
+      const name2 = child.slice(prefix.length);
+      entries.push({ name: name2, line: `040000 ${name2} ${digestDirectory(child)}
 ` });
     }
     entries.sort((left, right) => Buffer.compare(Buffer.from(left.name, "utf8"), Buffer.from(right.name, "utf8")));
-    const digest5 = createHash18("sha256").update(entries.map((entry) => entry.line).join(""), "utf8").digest("hex");
-    memo.set(directory, digest5);
-    return digest5;
+    const digest6 = createHash18("sha256").update(entries.map((entry) => entry.line).join(""), "utf8").digest("hex");
+    memo.set(directory, digest6);
+    return digest6;
   };
   return `sha256:${digestDirectory("")}`;
 }
@@ -16717,9 +16717,9 @@ function parseApmGitHubArchive(compressed) {
     if (!validTarChecksum(block)) throw new PreflightHold("ARCHIVE_INVALID");
     const magic = block.subarray(257, 263).toString("binary");
     if (magic !== "ustar\0" && magic !== "ustar ") throw new PreflightHold("ARCHIVE_INVALID");
-    const name = tarText(block, 0, 100, "ARCHIVE_INVALID");
+    const name2 = tarText(block, 0, 100, "ARCHIVE_INVALID");
     const prefix = tarText(block, 345, 155, "ARCHIVE_INVALID");
-    const path = prefix ? `${prefix}/${name}` : name;
+    const path = prefix ? `${prefix}/${name2}` : name2;
     const size = tarOctal(block, 124, 12, "ARCHIVE_INVALID");
     const mode = tarOctal(block, 100, 8, "ARCHIVE_INVALID");
     const type = block[156];
@@ -16728,7 +16728,7 @@ function parseApmGitHubArchive(compressed) {
     const paddedEnd = dataStart + Math.ceil(size / 512) * 512;
     if (dataEnd > tar.length || paddedEnd > tar.length) throw new PreflightHold("ARCHIVE_INVALID");
     if (type === 103) {
-      if (archiveRoot !== void 0 || paxCommit !== void 0 || prefix || name !== "pax_global_header") {
+      if (archiveRoot !== void 0 || paxCommit !== void 0 || prefix || name2 !== "pax_global_header") {
         throw new PreflightHold("ARCHIVE_ENTRY_UNSUPPORTED");
       }
       paxCommit = codeloadPaxCommit(Buffer.from(tar.subarray(dataStart, dataEnd)));
@@ -17773,15 +17773,15 @@ function lifecycleReceipt(input, eventId) {
 async function uploadLifecycleEvent(input) {
   const event = validateLifecycleEventForUpload(input.event, input.credential);
   const eventId = event.event_id;
-  const timestamp5 = input.timestamp ?? (/* @__PURE__ */ new Date()).toISOString();
-  exactTimestamp2(timestamp5, "lifecycle request timestamp");
+  const timestamp6 = input.timestamp ?? (/* @__PURE__ */ new Date()).toISOString();
+  exactTimestamp2(timestamp6, "lifecycle request timestamp");
   const body = JSON.stringify(event);
   const bodyHash = `sha256:${createHash20("sha256").update(body).digest("hex")}`;
   const message = `agent-vigil-lifecycle-request/v1
 POST
 /v1/lifecycle
 ${eventId}
-${timestamp5}
+${timestamp6}
 ${bodyHash}`;
   const key = Buffer.from(input.credential.installationSecret, "base64url");
   if (key.length !== 32 || key.toString("base64url") !== input.credential.installationSecret) {
@@ -17796,7 +17796,7 @@ ${bodyHash}`;
       "X-Agent-Vigil-Lifecycle-Consent": "v1",
       "X-Agent-Vigil-Installation": input.credential.installationId,
       "X-Agent-Vigil-Request-Id": eventId,
-      "X-Agent-Vigil-Timestamp": timestamp5,
+      "X-Agent-Vigil-Timestamp": timestamp6,
       "X-Agent-Vigil-Signature": signature
     },
     acceptedStatuses: /* @__PURE__ */ new Set([200, 202]),
@@ -18005,12 +18005,12 @@ Usage:
 
 Exit codes: 0 SAFE/verified \xB7 1 CHANGED/invalid signature \xB7 2 HOLD or usage error`;
 }
-function option(args, name) {
-  const indexes = args.flatMap((arg, index) => arg === name ? [index] : []);
-  if (indexes.length > 1) throw optionOnlyOnceError(name);
+function option(args, name2) {
+  const indexes = args.flatMap((arg, index) => arg === name2 ? [index] : []);
+  if (indexes.length > 1) throw optionOnlyOnceError(name2);
   if (!indexes.length) return void 0;
   const value = args[indexes[0] + 1];
-  if (!value || value.startsWith("--")) throw optionRequiresValueError(name);
+  if (!value || value.startsWith("--")) throw optionRequiresValueError(name2);
   return value;
 }
 function assertKnown(args, values, flags = [], allowPositionals = false) {
@@ -18038,11 +18038,11 @@ function insideRepository(repositoryPath, value, label) {
 function outputIdentity(path) {
   const parent = realpathSync10(dirname9(resolve18(path)));
   const status = statSync9(parent, { bigint: true });
-  const name = basename7(path);
-  if (!/^[A-Za-z0-9._-]+$/.test(name) || name.endsWith(".") || name.endsWith(" ") || name.includes("~")) {
-    throw new Error(`output basename is not portable and collision-safe: ${name}`);
+  const name2 = basename7(path);
+  if (!/^[A-Za-z0-9._-]+$/.test(name2) || name2.endsWith(".") || name2.endsWith(" ") || name2.includes("~")) {
+    throw new Error(`output basename is not portable and collision-safe: ${name2}`);
   }
-  return `${status.dev}:${status.ino}:${name.toUpperCase()}`;
+  return `${status.dev}:${status.ino}:${name2.toUpperCase()}`;
 }
 function assertDistinctOutputs(paths) {
   const identities = paths.map(outputIdentity);
@@ -18492,17 +18492,17 @@ async function runHostedPublish(args) {
   }
   const raw = readBoundedJson(resolve18(inputs[0]), 512 * 1024, "hosted compatibility record");
   const schema4 = raw && typeof raw === "object" && !Array.isArray(raw) ? raw.schemaVersion : void 0;
-  let record7;
+  let record8;
   if (schema4 === COMPATIBILITY_RESOLUTION_SCHEMA) {
-    record7 = validateCompatibilityResolution(raw);
-    const checked2 = verifyCompatibilityResolution(record7, resolve18(publicKey));
+    record8 = validateCompatibilityResolution(raw);
+    const checked2 = verifyCompatibilityResolution(record8, resolve18(publicKey));
     if (!checked2.hashValid || checked2.signatureValid !== true) throw new Error("hosted resolution failed pinned-key verification");
   } else {
-    record7 = validatePublicCompatibilityEntry(raw);
-    const checked2 = verifyPublicCompatibilityEntry(record7, resolve18(publicKey));
+    record8 = validatePublicCompatibilityEntry(raw);
+    const checked2 = verifyPublicCompatibilityEntry(record8, resolve18(publicKey));
     if (!checked2.hashValid || checked2.signatureValid !== true) throw new Error("hosted entry failed pinned-key verification");
   }
-  const receipt = await publishCompatibilityRecord({ endpoint, record: record7 });
+  const receipt = await publishCompatibilityRecord({ endpoint, record: record8 });
   console.log(`Published verified ${receipt.recordType === "ENTRY" ? "compatibility entry" : "compatibility resolution"} ${receipt.recordHash}.`);
   return 0;
 }
@@ -18919,24 +18919,19 @@ function renderControlProof(report) {
 }
 
 // src/certification.ts
-import { createHash as createHash22 } from "node:crypto";
-import { existsSync as existsSync8, lstatSync as lstatSync11, readFileSync as readFileSync22 } from "node:fs";
-var CERTIFICATE_SCHEMA = "agent-vigil-control-certificate/v1";
-var CORPUS_ENTRY_SCHEMA = "agent-vigil-control-corpus-entry/v1";
-var POLICY_SCHEMA = "agent-vigil-control-policy/v1";
-var REPORT_SCHEMA = "agent-vigil-control-status/v1";
-var CONTROL_POLICY_PACKS = {
-  baseline: ["clean-control", "skipped-test", "disposable-cleanup"],
-  authority: [
-    "clean-control",
-    "unapproved-mcp-server",
-    "candidate-self-approval",
-    "unreadable-authority-config",
-    "sandbox-weakening",
-    "skipped-test",
-    "disposable-cleanup"
-  ]
-};
+import { createHash as createHash23 } from "node:crypto";
+import { existsSync as existsSync8, lstatSync as lstatSync11, readFileSync as readFileSync23 } from "node:fs";
+
+// src/signed-control-proof.ts
+import {
+  createHash as createHash22,
+  createPrivateKey as createPrivateKey5,
+  createPublicKey as createPublicKey5,
+  sign as sign5,
+  verify as verify5
+} from "node:crypto";
+import { readFileSync as readFileSync22 } from "node:fs";
+var SIGNED_CONTROL_PROOF_SCHEMA = "control-proof/signed-challenge-v1";
 function digest4(value) {
   return `sha256:${createHash22("sha256").update(canonical(value)).digest("hex")}`;
 }
@@ -18946,21 +18941,17 @@ function record6(value, label) {
 }
 function exactKeys5(value, keys, label) {
   const expected = [...keys].sort();
-  const actual = Object.keys(value).sort();
-  if (canonical(actual) !== canonical(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
+  if (canonical(Object.keys(value).sort()) !== canonical(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
 }
 function text5(value, label, maximum = 200) {
   if (typeof value !== "string" || !value.trim() || value.length > maximum || /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value)) {
     throw new Error(`${label} must be plain text between 1 and ${maximum} characters`);
   }
-  return value;
+  return value.trim();
 }
-function identifier(value, label) {
-  return text5(value, label, 160).replace(/^\s+|\s+$/g, "");
-}
-function repositoryName(value, label = "repository") {
-  const parsed = identifier(value, label);
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed)) throw new Error(`${label} must be owner/name`);
+function name(value, label) {
+  const parsed = text5(value, label, 80);
+  if (!/^[A-Za-z0-9_.-]+$/.test(parsed)) throw new Error(`${label} must contain only letters, numbers, dot, underscore, or hyphen`);
   return parsed;
 }
 function timestamp4(value, label) {
@@ -18980,9 +18971,185 @@ function commitSha(value, label) {
   if (!/^[a-f0-9]{40}$/.test(parsed)) throw new Error(`${label} must be a full lowercase Git commit SHA`);
   return parsed;
 }
+function base64(value, label, expectedBytes) {
+  const parsed = text5(value, label, 8192);
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(parsed)) throw new Error(`${label} must be canonical base64`);
+  const decoded = Buffer.from(parsed, "base64");
+  if (decoded.toString("base64") !== parsed || expectedBytes !== void 0 && decoded.length !== expectedBytes) throw new Error(`${label} has an invalid length or encoding`);
+  return decoded;
+}
+function parsePayload(input) {
+  const payload = record6(input, "signed proof payload");
+  exactKeys5(payload, ["control", "sourceCommit", "generatedAt", "status", "challenges", "summary", "limits"], "signed proof payload");
+  const control = record6(payload.control, "signed proof payload.control");
+  exactKeys5(control, ["vendor", "product", "version"], "signed proof payload.control");
+  if (payload.status !== "PASS" && payload.status !== "HOLD") throw new Error("signed proof payload.status must be PASS or HOLD");
+  if (!Array.isArray(payload.challenges) || payload.challenges.length === 0 || payload.challenges.length > 100) throw new Error("signed proof payload.challenges must contain 1 to 100 items");
+  const ids = /* @__PURE__ */ new Set();
+  const challenges = payload.challenges.map((value, index) => {
+    const item2 = record6(value, `signed proof payload.challenges[${index}]`);
+    exactKeys5(item2, ["id", "expected", "actual", "passed", "evidenceHash"], `signed proof payload.challenges[${index}]`);
+    if (!(/* @__PURE__ */ new Set(["PASS", "BLOCK", "HOLD"])).has(String(item2.expected))) throw new Error(`signed proof payload.challenges[${index}].expected is invalid`);
+    if (!(/* @__PURE__ */ new Set(["PASS", "BLOCK", "HOLD", "ERROR"])).has(String(item2.actual))) throw new Error(`signed proof payload.challenges[${index}].actual is invalid`);
+    if (typeof item2.passed !== "boolean" || item2.passed !== (item2.actual === item2.expected)) throw new Error(`signed proof payload.challenges[${index}] has inconsistent decision fields`);
+    const id = name(item2.id, `signed proof payload.challenges[${index}].id`);
+    if (ids.has(id)) throw new Error(`duplicate signed proof challenge: ${id}`);
+    ids.add(id);
+    return {
+      id,
+      expected: item2.expected,
+      actual: item2.actual,
+      passed: item2.passed,
+      evidenceHash: sha2565(item2.evidenceHash, `signed proof payload.challenges[${index}].evidenceHash`)
+    };
+  });
+  const summary = record6(payload.summary, "signed proof payload.summary");
+  exactKeys5(summary, ["passed", "total"], "signed proof payload.summary");
+  const passed = challenges.filter((item2) => item2.passed).length;
+  if (summary.passed !== passed || summary.total !== challenges.length) throw new Error("signed proof payload.summary does not match its challenges");
+  if (payload.status !== (passed === challenges.length ? "PASS" : "HOLD")) throw new Error("signed proof payload.status does not match its challenges");
+  if (!Array.isArray(payload.limits) || payload.limits.length > 100) throw new Error("signed proof payload.limits must be an array with at most 100 items");
+  return {
+    control: {
+      vendor: name(control.vendor, "signed proof payload.control.vendor"),
+      product: name(control.product, "signed proof payload.control.product"),
+      version: text5(control.version, "signed proof payload.control.version", 160)
+    },
+    sourceCommit: commitSha(payload.sourceCommit, "signed proof payload.sourceCommit"),
+    generatedAt: timestamp4(payload.generatedAt, "signed proof payload.generatedAt"),
+    status: payload.status,
+    challenges,
+    summary: { passed, total: challenges.length },
+    limits: payload.limits.map((item2, index) => text5(item2, `signed proof payload.limits[${index}]`, 1e3))
+  };
+}
+function ed25519PublicKey(der, label) {
+  let key;
+  try {
+    key = createPublicKey5({ key: der, type: "spki", format: "der" });
+  } catch {
+    throw new Error(`${label} is not a valid public key`);
+  }
+  if (key.asymmetricKeyType !== "ed25519") throw new Error(`${label} must be Ed25519`);
+  return key;
+}
+function signControlProof(payloadInput, privateKeyPath) {
+  const payload = parsePayload(payloadInput);
+  const privateKey = createPrivateKey5(readFileSync22(privateKeyPath));
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signed proof private key must be Ed25519");
+  const der = publicKeyDer(createPublicKey5(privateKey));
+  const payloadHash = digest4(payload);
+  return {
+    schemaVersion: SIGNED_CONTROL_PROOF_SCHEMA,
+    payload,
+    payloadHash,
+    signature: {
+      algorithm: "Ed25519",
+      keyId: signingKeyId(der),
+      publicKey: der.toString("base64"),
+      value: sign5(null, Buffer.from(payloadHash), privateKey).toString("base64")
+    }
+  };
+}
+function verifySignedControlProof(input, pinnedPublicKeyPath) {
+  const root = record6(input, "signed control proof");
+  exactKeys5(root, ["schemaVersion", "payload", "payloadHash", "signature"], "signed control proof");
+  if (root.schemaVersion !== SIGNED_CONTROL_PROOF_SCHEMA) throw new Error(`signed control proof schemaVersion must be ${SIGNED_CONTROL_PROOF_SCHEMA}`);
+  const payload = parsePayload(root.payload);
+  const payloadHash = sha2565(root.payloadHash, "signed control proof payloadHash");
+  if (digest4(payload) !== payloadHash) throw new Error("signed control proof payload hash is invalid");
+  const signature = record6(root.signature, "signed control proof signature");
+  exactKeys5(signature, ["algorithm", "keyId", "publicKey", "value"], "signed control proof signature");
+  if (signature.algorithm !== "Ed25519") throw new Error("signed control proof signature algorithm must be Ed25519");
+  const embeddedDer = base64(signature.publicKey, "signed control proof signature.publicKey");
+  const embedded = ed25519PublicKey(embeddedDer, "signed control proof embedded key");
+  const embeddedId = signingKeyId(publicKeyDer(embedded));
+  const keyId = sha2565(signature.keyId, "signed control proof signature.keyId");
+  if (embeddedId !== keyId) throw new Error("signed control proof key ID does not match its embedded key");
+  let selected = embedded;
+  if (pinnedPublicKeyPath) {
+    selected = createPublicKey5(readFileSync22(pinnedPublicKeyPath));
+    if (selected.asymmetricKeyType !== "ed25519") throw new Error("pinned signed proof public key must be Ed25519");
+    if (signingKeyId(publicKeyDer(selected)) !== keyId) throw new Error("signed control proof signer does not match the pinned public key");
+  }
+  const value = base64(signature.value, "signed control proof signature.value", 64);
+  if (!verify5(null, Buffer.from(payloadHash), selected, value)) throw new Error("signed control proof signature is invalid");
+  return {
+    schemaVersion: SIGNED_CONTROL_PROOF_SCHEMA,
+    payload,
+    payloadHash,
+    signature: { algorithm: "Ed25519", keyId, publicKey: embeddedDer.toString("base64"), value: value.toString("base64") }
+  };
+}
+function signedControlIdentity(proof) {
+  return `${proof.payload.control.vendor}/${proof.payload.control.product}@${proof.signature.keyId}`;
+}
+
+// src/certification.ts
+var CERTIFICATE_SCHEMA = "agent-vigil-control-certificate/v1";
+var CORPUS_ENTRY_SCHEMA = "agent-vigil-control-corpus-entry/v1";
+var SIGNED_CERTIFICATE_SCHEMA = "agent-vigil-control-certificate/v2";
+var SIGNED_CORPUS_ENTRY_SCHEMA = "agent-vigil-control-corpus-entry/v2";
+var POLICY_SCHEMA = "agent-vigil-control-policy/v1";
+var REPORT_SCHEMA = "agent-vigil-control-status/v1";
+var CONTROL_POLICY_PACKS = {
+  baseline: ["clean-control", "skipped-test", "disposable-cleanup"],
+  authority: [
+    "clean-control",
+    "unapproved-mcp-server",
+    "candidate-self-approval",
+    "unreadable-authority-config",
+    "sandbox-weakening",
+    "skipped-test",
+    "disposable-cleanup"
+  ]
+};
+function digest5(value) {
+  return `sha256:${createHash23("sha256").update(canonical(value)).digest("hex")}`;
+}
+function record7(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value;
+}
+function exactKeys6(value, keys, label) {
+  const expected = [...keys].sort();
+  const actual = Object.keys(value).sort();
+  if (canonical(actual) !== canonical(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
+}
+function text6(value, label, maximum = 200) {
+  if (typeof value !== "string" || !value.trim() || value.length > maximum || /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value)) {
+    throw new Error(`${label} must be plain text between 1 and ${maximum} characters`);
+  }
+  return value;
+}
+function identifier(value, label) {
+  return text6(value, label, 160).replace(/^\s+|\s+$/g, "");
+}
+function repositoryName(value, label = "repository") {
+  const parsed = identifier(value, label);
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed)) throw new Error(`${label} must be owner/name`);
+  return parsed;
+}
+function timestamp5(value, label) {
+  const parsed = text6(value, label, 80);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(parsed) || !Number.isFinite(Date.parse(parsed))) {
+    throw new Error(`${label} must be an RFC3339 UTC timestamp`);
+  }
+  return parsed;
+}
+function sha2566(value, label) {
+  const parsed = text6(value, label, 80);
+  if (!/^sha256:[a-f0-9]{64}$/.test(parsed)) throw new Error(`${label} must be sha256:<64 lowercase hex characters>`);
+  return parsed;
+}
+function commitSha2(value, label) {
+  const parsed = text6(value, label, 64);
+  if (!/^[a-f0-9]{40}$/.test(parsed)) throw new Error(`${label} must be a full lowercase Git commit SHA`);
+  return parsed;
+}
 function challenge(value, index) {
-  const item2 = record6(value, `proof.challenges[${index}]`);
-  exactKeys5(item2, ["id", "expected", "actual", "passed"], `proof.challenges[${index}]`);
+  const item2 = record7(value, `proof.challenges[${index}]`);
+  exactKeys6(item2, ["id", "expected", "actual", "passed"], `proof.challenges[${index}]`);
   const expected = item2.expected;
   const actual = item2.actual;
   if (!(/* @__PURE__ */ new Set(["PASS", "BLOCK", "HOLD"])).has(String(expected))) throw new Error(`proof.challenges[${index}].expected is invalid`);
@@ -18997,40 +19164,40 @@ function challenge(value, index) {
   };
 }
 function verifyControlProof(input) {
-  const proof = record6(input, "control proof");
-  exactKeys5(proof, ["schemaVersion", "vigilVersion", "status", "sourceCommit", "generatedAt", "receiptHash", "challenges", "summary", "reproduction", "limits"], "control proof");
+  const proof = record7(input, "control proof");
+  exactKeys6(proof, ["schemaVersion", "vigilVersion", "status", "sourceCommit", "generatedAt", "receiptHash", "challenges", "summary", "reproduction", "limits"], "control proof");
   if (proof.schemaVersion !== "agent-vigil-control-proof/v1") throw new Error("only the verified Agent Vigil control-proof/v1 adapter is currently supported");
-  const receiptHash = sha2565(proof.receiptHash, "control proof receiptHash");
+  const receiptHash = sha2566(proof.receiptHash, "control proof receiptHash");
   const { receiptHash: _receiptHash, ...payload } = proof;
-  if (digest4(payload) !== receiptHash) throw new Error("control proof receipt hash is invalid");
-  const generatedAt = timestamp4(proof.generatedAt, "control proof generatedAt");
-  const sourceCommit = commitSha(proof.sourceCommit, "control proof sourceCommit");
+  if (digest5(payload) !== receiptHash) throw new Error("control proof receipt hash is invalid");
+  const generatedAt = timestamp5(proof.generatedAt, "control proof generatedAt");
+  const sourceCommit = commitSha2(proof.sourceCommit, "control proof sourceCommit");
   const vigilVersion = identifier(proof.vigilVersion, "control proof vigilVersion");
-  const reproduction = text5(proof.reproduction, "control proof reproduction", 1e3);
+  const reproduction = text6(proof.reproduction, "control proof reproduction", 1e3);
   if (!Array.isArray(proof.limits) || proof.limits.length > 100) throw new Error("control proof limits must be an array with at most 100 items");
-  const limits = proof.limits.map((item2, index) => text5(item2, `control proof limits[${index}]`, 1e3));
+  const limits = proof.limits.map((item2, index) => text6(item2, `control proof limits[${index}]`, 1e3));
   if (proof.status !== "PASS" && proof.status !== "HOLD") throw new Error("control proof status must be PASS or HOLD");
   if (!Array.isArray(proof.challenges) || proof.challenges.length === 0 || proof.challenges.length > 100) throw new Error("control proof challenges must contain 1 to 100 items");
   const ids = /* @__PURE__ */ new Set();
   const parsedChallenges = [];
   for (const [index, raw] of proof.challenges.entries()) {
-    const full = record6(raw, `control proof challenges[${index}]`);
-    exactKeys5(full, ["id", "claim", "expected", "actual", "passed", "base", "head", "evidence"], `control proof challenges[${index}]`);
+    const full = record7(raw, `control proof challenges[${index}]`);
+    exactKeys6(full, ["id", "claim", "expected", "actual", "passed", "base", "head", "evidence"], `control proof challenges[${index}]`);
     const parsed = challenge({ id: full.id, expected: full.expected, actual: full.actual, passed: full.passed }, index);
     if (ids.has(parsed.id)) throw new Error(`duplicate control proof challenge: ${parsed.id}`);
     if (parsed.passed !== (parsed.actual === parsed.expected)) throw new Error(`control proof challenge ${parsed.id} has inconsistent decision fields`);
     const enriched = {
       ...parsed,
-      claim: text5(full.claim, `control proof challenges[${index}].claim`, 500),
-      base: commitSha(full.base, `control proof challenges[${index}].base`),
-      head: commitSha(full.head, `control proof challenges[${index}].head`),
-      evidence: text5(full.evidence, `control proof challenges[${index}].evidence`, 1e3)
+      claim: text6(full.claim, `control proof challenges[${index}].claim`, 500),
+      base: commitSha2(full.base, `control proof challenges[${index}].base`),
+      head: commitSha2(full.head, `control proof challenges[${index}].head`),
+      evidence: text6(full.evidence, `control proof challenges[${index}].evidence`, 1e3)
     };
     ids.add(parsed.id);
     parsedChallenges.push(enriched);
   }
-  const summary = record6(proof.summary, "control proof summary");
-  exactKeys5(summary, ["passed", "total"], "control proof summary");
+  const summary = record7(proof.summary, "control proof summary");
+  exactKeys6(summary, ["passed", "total"], "control proof summary");
   const passed = parsedChallenges.filter((item2) => item2.passed).length;
   if (summary.passed !== passed || summary.total !== parsedChallenges.length) throw new Error("control proof summary does not match its challenges");
   if (proof.status !== decideControlProof(parsedChallenges)) throw new Error("control proof status does not match its challenge decisions");
@@ -19062,14 +19229,14 @@ function createCertificate(input) {
     },
     proof
   };
-  return { ...payload, certificateHash: digest4(payload) };
+  return { ...payload, certificateHash: digest5(payload) };
 }
 function validateCertificate(input) {
-  const root = record6(input, "certificate");
-  exactKeys5(root, ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"], "certificate");
+  const root = record7(input, "certificate");
+  exactKeys6(root, ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"], "certificate");
   if (root.schemaVersion !== CERTIFICATE_SCHEMA) throw new Error(`certificate schemaVersion must be ${CERTIFICATE_SCHEMA}`);
-  const control = record6(root.control, "certificate.control");
-  exactKeys5(control, ["vendor", "product", "adapter", "version"], "certificate.control");
+  const control = record7(root.control, "certificate.control");
+  exactKeys6(control, ["vendor", "product", "adapter", "version"], "certificate.control");
   const proof = verifyControlProof(root.proof);
   if (control.adapter !== "agent-vigil/control-proof-v1") throw new Error("certificate adapter and proof schema are not supported");
   if (control.vendor !== "sulmusic2-star" || control.product !== "agent-vigil") throw new Error("certificate control identity does not match its verified adapter");
@@ -19087,9 +19254,62 @@ function validateCertificate(input) {
     proof
   };
   if (parsed.control.version !== proof.vigilVersion) throw new Error("certificate control version does not match its proof");
-  const certificateHash = sha2565(root.certificateHash, "certificate.certificateHash");
-  if (digest4(parsed) !== certificateHash) throw new Error("certificate hash is invalid");
+  const certificateHash = sha2566(root.certificateHash, "certificate.certificateHash");
+  if (digest5(parsed) !== certificateHash) throw new Error("certificate hash is invalid");
   return { ...parsed, certificateHash };
+}
+function createSignedCertificate(input) {
+  const proof = verifySignedControlProof(input.proof, input.publicKeyPath);
+  const payload = {
+    schemaVersion: SIGNED_CERTIFICATE_SCHEMA,
+    organization: identifier(input.organization, "organization"),
+    repository: repositoryName(input.repository),
+    requiredCheck: identifier(input.requiredCheck, "requiredCheck"),
+    control: {
+      vendor: proof.payload.control.vendor,
+      product: proof.payload.control.product,
+      adapter: "signed-control-proof/v1",
+      version: proof.payload.control.version,
+      keyId: proof.signature.keyId
+    },
+    proof
+  };
+  return { ...payload, certificateHash: digest5(payload) };
+}
+function validateSignedCertificate(input) {
+  const root = record7(input, "signed certificate");
+  exactKeys6(root, ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"], "signed certificate");
+  if (root.schemaVersion !== SIGNED_CERTIFICATE_SCHEMA) throw new Error(`signed certificate schemaVersion must be ${SIGNED_CERTIFICATE_SCHEMA}`);
+  const control = record7(root.control, "signed certificate.control");
+  exactKeys6(control, ["vendor", "product", "adapter", "version", "keyId"], "signed certificate.control");
+  const proof = verifySignedControlProof(root.proof);
+  if (control.adapter !== "signed-control-proof/v1") throw new Error("signed certificate adapter is not supported");
+  const parsed = {
+    schemaVersion: SIGNED_CERTIFICATE_SCHEMA,
+    organization: identifier(root.organization, "signed certificate.organization"),
+    repository: repositoryName(root.repository, "signed certificate.repository"),
+    requiredCheck: identifier(root.requiredCheck, "signed certificate.requiredCheck"),
+    control: {
+      vendor: identifier(control.vendor, "signed certificate.control.vendor"),
+      product: identifier(control.product, "signed certificate.control.product"),
+      adapter: identifier(control.adapter, "signed certificate.control.adapter"),
+      version: identifier(control.version, "signed certificate.control.version"),
+      keyId: sha2566(control.keyId, "signed certificate.control.keyId")
+    },
+    proof
+  };
+  if (parsed.control.vendor !== proof.payload.control.vendor || parsed.control.product !== proof.payload.control.product || parsed.control.version !== proof.payload.control.version || parsed.control.keyId !== proof.signature.keyId) {
+    throw new Error("signed certificate control identity does not match its verified proof");
+  }
+  const certificateHash = sha2566(root.certificateHash, "signed certificate.certificateHash");
+  if (digest5(parsed) !== certificateHash) throw new Error("signed certificate hash is invalid");
+  return { ...parsed, certificateHash };
+}
+function validateAnyCertificate(input) {
+  const root = record7(input, "certificate");
+  if (root.schemaVersion === CERTIFICATE_SCHEMA) return validateCertificate(root);
+  if (root.schemaVersion === SIGNED_CERTIFICATE_SCHEMA) return validateSignedCertificate(root);
+  throw new Error(`certificate schemaVersion must be ${CERTIFICATE_SCHEMA} or ${SIGNED_CERTIFICATE_SCHEMA}`);
 }
 function parseCorpus(content) {
   if (Buffer.byteLength(content) > 64 * 1024 * 1024) throw new Error("certification corpus exceeds 64 MiB");
@@ -19099,14 +19319,15 @@ function parseCorpus(content) {
   const certificates = /* @__PURE__ */ new Set();
   for (const [index, line] of lines.entries()) {
     if (Buffer.byteLength(line) > 2 * 1024 * 1024) throw new Error(`corpus line ${index + 1} exceeds 2 MiB`);
-    const root = record6(JSON.parse(line), `corpus line ${index + 1}`);
-    exactKeys5(root, ["schemaVersion", "sequence", "previousEntryHash", "certificate", "entryHash"], `corpus line ${index + 1}`);
-    if (root.schemaVersion !== CORPUS_ENTRY_SCHEMA || root.sequence !== index + 1 || root.previousEntryHash !== previous) throw new Error(`corpus chain is invalid at line ${index + 1}`);
-    const certificate = validateCertificate(root.certificate);
+    const root = record7(JSON.parse(line), `corpus line ${index + 1}`);
+    exactKeys6(root, ["schemaVersion", "sequence", "previousEntryHash", "certificate", "entryHash"], `corpus line ${index + 1}`);
+    if (root.schemaVersion !== CORPUS_ENTRY_SCHEMA && root.schemaVersion !== SIGNED_CORPUS_ENTRY_SCHEMA || root.sequence !== index + 1 || root.previousEntryHash !== previous) throw new Error(`corpus chain is invalid at line ${index + 1}`);
+    const certificate = validateAnyCertificate(root.certificate);
+    if (root.schemaVersion === CORPUS_ENTRY_SCHEMA !== (certificate.schemaVersion === CERTIFICATE_SCHEMA)) throw new Error(`corpus entry and certificate versions do not match at line ${index + 1}`);
     if (certificates.has(certificate.certificateHash)) throw new Error(`duplicate certificate at corpus line ${index + 1}`);
-    const payload = { schemaVersion: CORPUS_ENTRY_SCHEMA, sequence: index + 1, previousEntryHash: previous, certificate };
-    const entryHash = sha2565(root.entryHash, `corpus line ${index + 1} entryHash`);
-    if (digest4(payload) !== entryHash) throw new Error(`corpus entry hash is invalid at line ${index + 1}`);
+    const payload = { schemaVersion: root.schemaVersion, sequence: index + 1, previousEntryHash: previous, certificate };
+    const entryHash = sha2566(root.entryHash, `corpus line ${index + 1} entryHash`);
+    if (digest5(payload) !== entryHash) throw new Error(`corpus entry hash is invalid at line ${index + 1}`);
     entries.push({ ...payload, entryHash });
     certificates.add(certificate.certificateHash);
     previous = entryHash;
@@ -19115,15 +19336,15 @@ function parseCorpus(content) {
 }
 function appendCorpusEntry(content, certificateInput) {
   const entries = parseCorpus(content);
-  const certificate = validateCertificate(certificateInput);
+  const certificate = validateAnyCertificate(certificateInput);
   if (entries.some((item2) => item2.certificate.certificateHash === certificate.certificateHash)) throw new Error("certificate already exists in corpus");
   const payload = {
-    schemaVersion: CORPUS_ENTRY_SCHEMA,
+    schemaVersion: certificate.schemaVersion === CERTIFICATE_SCHEMA ? CORPUS_ENTRY_SCHEMA : SIGNED_CORPUS_ENTRY_SCHEMA,
     sequence: entries.length + 1,
     previousEntryHash: entries.at(-1)?.entryHash ?? null,
     certificate
   };
-  const entry = { ...payload, entryHash: digest4(payload) };
+  const entry = { ...payload, entryHash: digest5(payload) };
   return { entry, line: `${JSON.stringify(entry)}
 ` };
 }
@@ -19132,18 +19353,18 @@ function loadCorpus(path) {
   const status = lstatSync11(path);
   if (status.isSymbolicLink() || !status.isFile()) throw new Error("certification corpus must be a regular non-symbolic-link file");
   if (status.size > 64 * 1024 * 1024) throw new Error("certification corpus exceeds 64 MiB");
-  return parseCorpus(readFileSync22(path, "utf8"));
+  return parseCorpus(readFileSync23(path, "utf8"));
 }
 function validatePolicy3(input) {
-  const root = record6(input, "certification policy");
-  exactKeys5(root, ["schemaVersion", "policyId", "organization", "maxAgeHours", "repositories"], "certification policy");
+  const root = record7(input, "certification policy");
+  exactKeys6(root, ["schemaVersion", "policyId", "organization", "maxAgeHours", "repositories"], "certification policy");
   if (root.schemaVersion !== POLICY_SCHEMA) throw new Error(`certification policy schemaVersion must be ${POLICY_SCHEMA}`);
   if (!Number.isInteger(root.maxAgeHours) || Number(root.maxAgeHours) < 1 || Number(root.maxAgeHours) > 8760) throw new Error("maxAgeHours must be an integer from 1 to 8760");
   if (!Array.isArray(root.repositories) || root.repositories.length === 0 || root.repositories.length > 1e4) throw new Error("repositories must contain 1 to 10000 entries");
   const seen = /* @__PURE__ */ new Set();
   const repositories = root.repositories.map((value, index) => {
-    const item2 = record6(value, `repositories[${index}]`);
-    exactKeys5(item2, ["repository", "requiredCheck", "allowedControls", "requiredChallenges"], `repositories[${index}]`);
+    const item2 = record7(value, `repositories[${index}]`);
+    exactKeys6(item2, ["repository", "requiredCheck", "allowedControls", "requiredChallenges"], `repositories[${index}]`);
     const repository2 = repositoryName(item2.repository, `repositories[${index}].repository`);
     const requiredCheck = identifier(item2.requiredCheck, `repositories[${index}].requiredCheck`);
     if (seen.has(repository2)) throw new Error(`duplicate policy repository: ${repository2}`);
@@ -19182,21 +19403,28 @@ function createSingleRepositoryPolicy(input) {
     }]
   });
 }
+function certificateControlIdentity(certificate) {
+  return certificate.schemaVersion === CERTIFICATE_SCHEMA ? `${certificate.control.vendor}/${certificate.control.product}` : signedControlIdentity(certificate.proof);
+}
+function certificateProof(certificate) {
+  return certificate.schemaVersion === CERTIFICATE_SCHEMA ? certificate.proof : certificate.proof.payload;
+}
 function buildStatusReport(policyInput, entries, asOfInput) {
   const policy = validatePolicy3(policyInput);
-  const asOf = timestamp4(asOfInput, "asOf");
+  const asOf = timestamp5(asOfInput, "asOf");
   const asOfMs = Date.parse(asOf);
   const repositories = policy.repositories.map((requirement) => {
-    const matches = entries.map((entry) => entry.certificate).filter((certificate) => certificate.organization === policy.organization && certificate.repository === requirement.repository && certificate.requiredCheck === requirement.requiredCheck).sort((left, right) => Date.parse(right.proof.generatedAt) - Date.parse(left.proof.generatedAt));
+    const matches = entries.map((entry) => entry.certificate).filter((certificate) => certificate.organization === policy.organization && certificate.repository === requirement.repository && certificate.requiredCheck === requirement.requiredCheck).sort((left, right) => Date.parse(certificateProof(right).generatedAt) - Date.parse(certificateProof(left).generatedAt));
     const latest = matches[0];
     if (!latest) return { repository: requirement.repository, requiredCheck: requirement.requiredCheck, state: "MISSING", reason: "no matching control certificate is present" };
-    const control = `${latest.control.vendor}/${latest.control.product}`;
-    const common = { repository: requirement.repository, requiredCheck: requirement.requiredCheck, proofGeneratedAt: latest.proof.generatedAt, certificateHash: latest.certificateHash, control };
+    const proof = certificateProof(latest);
+    const control = certificateControlIdentity(latest);
+    const common = { repository: requirement.repository, requiredCheck: requirement.requiredCheck, proofGeneratedAt: proof.generatedAt, certificateHash: latest.certificateHash, control };
     if (!requirement.allowedControls.includes(control)) return { ...common, state: "HOLD", reason: `control ${control} is not allowed by policy` };
-    const ageHours = (asOfMs - Date.parse(latest.proof.generatedAt)) / 36e5;
+    const ageHours = (asOfMs - Date.parse(proof.generatedAt)) / 36e5;
     if (ageHours < 0) return { ...common, ageHours, state: "HOLD", reason: "latest proof is dated after the report time" };
-    if (latest.proof.status !== "PASS") return { ...common, ageHours, state: "HOLD", reason: "latest control proof did not pass" };
-    const challengeMap = new Map(latest.proof.challenges.map((item2) => [item2.id, item2]));
+    if (proof.status !== "PASS") return { ...common, ageHours, state: "HOLD", reason: "latest control proof did not pass" };
+    const challengeMap = new Map(proof.challenges.map((item2) => [item2.id, item2]));
     const missing = requirement.requiredChallenges.filter((id) => !challengeMap.get(id)?.passed);
     if (missing.length) return { ...common, ageHours, state: "HOLD", reason: `required challenge evidence is absent or unexpected: ${missing.join(", ")}` };
     if (ageHours > policy.maxAgeHours) return { ...common, ageHours, state: "STALE", reason: `latest passing proof is ${ageHours.toFixed(1)} hours old; policy allows ${policy.maxAgeHours}` };
@@ -19210,7 +19438,7 @@ function buildStatusReport(policyInput, entries, asOfInput) {
     total: repositories.length
   };
   const payload = { schemaVersion: REPORT_SCHEMA, policyId: policy.policyId, organization: policy.organization, asOf, maxAgeHours: policy.maxAgeHours, status: summary.fresh === summary.total ? "PASS" : "HOLD", summary, repositories };
-  return { ...payload, reportHash: digest4(payload) };
+  return { ...payload, reportHash: digest5(payload) };
 }
 function renderStatusReport(report) {
   const lines = [
@@ -19236,6 +19464,8 @@ Usage:
   vigil protect [--repo <path>] [--force] [--attest]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil certify record <control-proof.json> --organization <name> --repository <owner/name> --required-check <name> --output <path>
+  vigil certify sign <proof-payload.json> --private-key <pem> --output <path>
+  vigil certify record-signed <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>
   vigil certify add <certificate.json> --corpus <corpus.jsonl>
   vigil certify status --corpus <corpus.jsonl> --policy <policy.json> [--as-of <time>] [--format text|json] [--output <path>]
   vigil certify policy --organization <name> --repository <owner/name> --required-check <name> --pack baseline|authority --output <path>
@@ -19345,11 +19575,44 @@ function runCertify(args) {
       console.log(`Control certificate: ${certificate.proof.status} \xB7 ${certificate.certificateHash}`);
       return certificate.proof.status === "PASS" ? 0 : 2;
     }
+    if (command === "sign") {
+      const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--private-key", "--output"]));
+      const privateKey = parsed.values.get("--private-key");
+      const output = parsed.values.get("--output");
+      if (parsed.positional.length !== 1 || !privateKey || !output) throw new Error("certify sign requires <proof-payload.json> --private-key <pem> --output <path>");
+      const proof = signControlProof(readBoundedJson(resolve20(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve20(privateKey));
+      writePrivateFileAtomic(resolve20(output), `${JSON.stringify(proof, null, 2)}
+`);
+      console.log(`Signed control proof: ${proof.payload.status}`);
+      console.log(`Control identity: ${signedControlIdentity(proof)}`);
+      return proof.payload.status === "PASS" ? 0 : 2;
+    }
+    if (command === "record-signed") {
+      const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--public-key", "--organization", "--repository", "--required-check", "--output"]));
+      const publicKeyPath = parsed.values.get("--public-key");
+      const organization = parsed.values.get("--organization");
+      const repository2 = parsed.values.get("--repository");
+      const requiredCheck = parsed.values.get("--required-check");
+      const output = parsed.values.get("--output");
+      if (parsed.positional.length !== 1 || !publicKeyPath || !organization || !repository2 || !requiredCheck || !output) throw new Error("certify record-signed requires <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>");
+      const certificate = createSignedCertificate({
+        proof: readBoundedJson(resolve20(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
+        publicKeyPath: resolve20(publicKeyPath),
+        organization,
+        repository: repository2,
+        requiredCheck
+      });
+      writePrivateFileAtomic(resolve20(output), `${JSON.stringify(certificate, null, 2)}
+`);
+      console.log(`Signed control certificate: ${certificate.proof.payload.status} \xB7 ${certificate.certificateHash}`);
+      console.log(`Control identity: ${signedControlIdentity(certificate.proof)}`);
+      return certificate.proof.payload.status === "PASS" ? 0 : 2;
+    }
     if (command === "add") {
       const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--corpus"]));
       const corpus = parsed.values.get("--corpus");
       if (parsed.positional.length !== 1 || !corpus) throw new Error("certify add requires <certificate.json> --corpus <corpus.jsonl>");
-      const certificate = validateCertificate(readBoundedJson(resolve20(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
+      const certificate = validateAnyCertificate(readBoundedJson(resolve20(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
       const corpusPath = resolve20(corpus);
       const current = loadCorpus(corpusPath).map((entry2) => JSON.stringify(entry2)).join("\n");
       const { entry, line } = appendCorpusEntry(current, certificate);
@@ -19391,7 +19654,7 @@ function runCertify(args) {
       console.log(`Created ${pack} control policy with a ${generated.maxAgeHours}-hour proof window.`);
       return 0;
     }
-    throw new Error("certify requires record, add, status, or policy");
+    throw new Error("certify requires record, sign, record-signed, add, status, or policy");
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -19513,10 +19776,10 @@ function parseArgs(args) {
   }
   return options;
 }
-function optionValue(args, name) {
-  const index = args.indexOf(name);
+function optionValue(args, name2) {
+  const index = args.indexOf(name2);
   if (index === -1) return void 0;
-  if (!args[index + 1] || args[index + 1].startsWith("--")) throw optionRequiresValueError(name);
+  if (!args[index + 1] || args[index + 1].startsWith("--")) throw optionRequiresValueError(name2);
   return args[index + 1];
 }
 function runInit2(args) {
@@ -19568,10 +19831,10 @@ ${renderDoctor(checks)}
     return reportCliError("agent-vigil", error);
   }
 }
-function withoutOption(args, name) {
+function withoutOption(args, name2) {
   const output = [];
   for (let index = 0; index < args.length; index++) {
-    if (args[index] === name) {
+    if (args[index] === name2) {
       index += 1;
       continue;
     }
@@ -19608,8 +19871,8 @@ function runMaintainer(args) {
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
-    const rawEvent = readFileSync23(eventPath);
-    const eventHash = `sha256:${createHash23("sha256").update(rawEvent).digest("hex")}`;
+    const rawEvent = readFileSync24(eventPath);
+    const eventHash = `sha256:${createHash24("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative14(repo, policy.path) : void 0;
     const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git9(repo, ["rev-parse", `${head}^{tree}`]);
@@ -19702,7 +19965,7 @@ function runGate(args) {
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
     const absoluteReceipt = resolve20(options.repo, receiptPath);
-    const receipt = JSON.parse(readFileSync23(absoluteReceipt, "utf8"));
+    const receipt = JSON.parse(readFileSync24(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
       repo: resolve20(options.repo),
       receiptPath: absoluteReceipt,
@@ -19722,7 +19985,7 @@ function runVerify2(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync23(resolve20(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync24(resolve20(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
     const result5 = verifyReport(report, publicKey ? resolve20(publicKey) : void 0);
@@ -19832,8 +20095,8 @@ function runCompare(args) {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync23(resolve20(values[0]), "utf8"));
-    const after = JSON.parse(readFileSync23(resolve20(values[1]), "utf8"));
+    const before = JSON.parse(readFileSync24(resolve20(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync24(resolve20(values[1]), "utf8"));
     if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
@@ -19847,10 +20110,10 @@ function runCompare(args) {
     return reportCliError("agent-vigil", error);
   }
 }
-function valueNumber(value, name) {
-  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value)) throw new Error(`${name} must be a non-negative decimal number`);
+function valueNumber(value, name2) {
+  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value)) throw new Error(`${name2} must be a non-negative decimal number`);
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a non-negative decimal number`);
+  if (!Number.isFinite(parsed)) throw new Error(`${name2} must be a non-negative decimal number`);
   return parsed;
 }
 function parseValueArgs(args) {
@@ -19926,7 +20189,7 @@ function parseValueArgs(args) {
 function readBoundedFile(path, maximumBytes, label) {
   const size = statSync10(path).size;
   if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
-  return readFileSync23(path);
+  return readFileSync24(path);
 }
 function runValue(args) {
   try {
@@ -19957,7 +20220,7 @@ function runValue(args) {
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
       const evidence = readBoundedFile(resolve20(path), 64 * 1024 * 1024, label);
-      return `sha256:${createHash23("sha256").update(evidence).digest("hex")}`;
+      return `sha256:${createHash24("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
     const github = options.githubEvidence ? loadGitHubEvidence(resolve20(options.githubEvidence)) : void 0;
@@ -20085,10 +20348,10 @@ function runAudit(args) {
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
     const absolute = resolve20(diffPath);
-    const raw = readFileSync23(absolute);
+    const raw = readFileSync24(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest5 = `sha256:${createHash23("sha256").update(raw).digest("hex")}`;
+    const digest6 = `sha256:${createHash24("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -20100,14 +20363,14 @@ function runAudit(args) {
     }
     const report = buildReport({
       transcript: relative14(process.cwd(), absolute) || absolute,
-      transcriptSha256: digest5,
+      transcriptSha256: digest6,
       transcriptFormat: "unified-git-diff",
       repo: "static-diff-audit",
       base: "unavailable",
-      head: digest5,
+      head: digest6,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash23("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash24("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -20133,11 +20396,11 @@ function runTestIntegrity(args) {
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
     const diff = execFileSync13("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    const digest5 = `sha256:${createHash23("sha256").update(diff).digest("hex")}`;
+    const digest6 = `sha256:${createHash24("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
       transcript: `${base}..${head}`,
-      transcriptSha256: digest5,
+      transcriptSha256: digest6,
       transcriptFormat: "test-integrity-diff",
       repo,
       base,
@@ -20148,7 +20411,7 @@ function runTestIntegrity(args) {
         minVerified: 1,
         strict: true,
         source: policyName,
-        sha256: `sha256:${createHash23("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
+        sha256: `sha256:${createHash24("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
       },
       repository: {
         ...git9(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git9(repo, ["config", "--get", "remote.origin.url"]) } : {},

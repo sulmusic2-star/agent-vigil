@@ -196,10 +196,22 @@ vigil certify policy --organization acme --repository acme/api --required-check 
 vigil certify status --corpus control-corpus.jsonl --policy control-policy.json
 ```
 
-The corpus schema can carry more control adapters over time. This release only
-accepts the Agent Vigil Control Proof adapter because it is the only adapter it
-can verify. A policy entry declares that a check is required; it does not prove
-that GitHub branch protection currently enforces that requirement.
+Controls that can produce the public signed challenge format can join the same
+corpus without an Agent Vigil-specific adapter:
+
+```bash
+vigil certify sign proof-payload.json --private-key provider-private.pem --output signed-proof.json
+vigil certify record-signed signed-proof.json --public-key provider-public.pem --organization acme --repository acme/api --required-check "Required AI control" --output signed-certificate.json
+vigil certify add signed-certificate.json --corpus control-corpus.jsonl
+```
+
+The V2 control identity includes the exact Ed25519 key ID. Put that full value,
+`vendor/product@sha256:...`, in the policy's `allowedControls` list. Replacing a
+self-asserted key therefore produces a different identity and a `HOLD`. The
+signature proves file integrity and signer possession; it does not establish
+that a proprietary detector's underlying evidence is true. A policy entry
+declares that a check is required; it does not prove that GitHub branch
+protection currently enforces that requirement.
 
 The design is tied to a dated ledger of
 [50 primary user reports](docs/research/2026-08-23-user-pain-ledger.md) covering

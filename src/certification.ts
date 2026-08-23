@@ -2,11 +2,18 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { canonical } from "./report.ts";
 import { decideControlProof, type ControlProofChallenge, type ControlProofReport } from "./control-proof.ts";
+import {
+  signedControlIdentity,
+  verifySignedControlProof,
+  type SignedControlProof,
+} from "./signed-control-proof.ts";
 import { readBoundedJson } from "./upgrade/contracts.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
 
 export const CERTIFICATE_SCHEMA = "agent-vigil-control-certificate/v1" as const;
 export const CORPUS_ENTRY_SCHEMA = "agent-vigil-control-corpus-entry/v1" as const;
+export const SIGNED_CERTIFICATE_SCHEMA = "agent-vigil-control-certificate/v2" as const;
+export const SIGNED_CORPUS_ENTRY_SCHEMA = "agent-vigil-control-corpus-entry/v2" as const;
 export const POLICY_SCHEMA = "agent-vigil-control-policy/v1" as const;
 export const REPORT_SCHEMA = "agent-vigil-control-status/v1" as const;
 
@@ -34,6 +41,27 @@ export type CorpusEntry = {
   certificate: ControlCertificate;
   entryHash: string;
 };
+
+export type SignedControlCertificate = {
+  schemaVersion: typeof SIGNED_CERTIFICATE_SCHEMA;
+  organization: string;
+  repository: string;
+  requiredCheck: string;
+  control: ControlIdentity & { keyId: string };
+  proof: SignedControlProof;
+  certificateHash: string;
+};
+
+export type SignedCorpusEntry = {
+  schemaVersion: typeof SIGNED_CORPUS_ENTRY_SCHEMA;
+  sequence: number;
+  previousEntryHash: string | null;
+  certificate: SignedControlCertificate;
+  entryHash: string;
+};
+
+export type AnyControlCertificate = ControlCertificate | SignedControlCertificate;
+export type AnyCorpusEntry = CorpusEntry | SignedCorpusEntry;
 
 export type CertificationPolicy = {
   schemaVersion: typeof POLICY_SCHEMA;
@@ -254,44 +282,107 @@ export function validateCertificate(input: unknown): ControlCertificate {
   return { ...parsed, certificateHash };
 }
 
-export function parseCorpus(content: string): CorpusEntry[] {
+export function createSignedCertificate(input: {
+  proof: unknown;
+  publicKeyPath: string;
+  organization: string;
+  repository: string;
+  requiredCheck: string;
+}): SignedControlCertificate {
+  const proof = verifySignedControlProof(input.proof, input.publicKeyPath);
+  const payload = {
+    schemaVersion: SIGNED_CERTIFICATE_SCHEMA,
+    organization: identifier(input.organization, "organization"),
+    repository: repositoryName(input.repository),
+    requiredCheck: identifier(input.requiredCheck, "requiredCheck"),
+    control: {
+      vendor: proof.payload.control.vendor,
+      product: proof.payload.control.product,
+      adapter: "signed-control-proof/v1",
+      version: proof.payload.control.version,
+      keyId: proof.signature.keyId,
+    },
+    proof,
+  };
+  return { ...payload, certificateHash: digest(payload) };
+}
+
+export function validateSignedCertificate(input: unknown): SignedControlCertificate {
+  const root = record(input, "signed certificate");
+  exactKeys(root, ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"], "signed certificate");
+  if (root.schemaVersion !== SIGNED_CERTIFICATE_SCHEMA) throw new Error(`signed certificate schemaVersion must be ${SIGNED_CERTIFICATE_SCHEMA}`);
+  const control = record(root.control, "signed certificate.control");
+  exactKeys(control, ["vendor", "product", "adapter", "version", "keyId"], "signed certificate.control");
+  const proof = verifySignedControlProof(root.proof);
+  if (control.adapter !== "signed-control-proof/v1") throw new Error("signed certificate adapter is not supported");
+  const parsed = {
+    schemaVersion: SIGNED_CERTIFICATE_SCHEMA,
+    organization: identifier(root.organization, "signed certificate.organization"),
+    repository: repositoryName(root.repository, "signed certificate.repository"),
+    requiredCheck: identifier(root.requiredCheck, "signed certificate.requiredCheck"),
+    control: {
+      vendor: identifier(control.vendor, "signed certificate.control.vendor"),
+      product: identifier(control.product, "signed certificate.control.product"),
+      adapter: identifier(control.adapter, "signed certificate.control.adapter"),
+      version: identifier(control.version, "signed certificate.control.version"),
+      keyId: sha256(control.keyId, "signed certificate.control.keyId"),
+    },
+    proof,
+  };
+  if (parsed.control.vendor !== proof.payload.control.vendor || parsed.control.product !== proof.payload.control.product || parsed.control.version !== proof.payload.control.version || parsed.control.keyId !== proof.signature.keyId) {
+    throw new Error("signed certificate control identity does not match its verified proof");
+  }
+  const certificateHash = sha256(root.certificateHash, "signed certificate.certificateHash");
+  if (digest(parsed) !== certificateHash) throw new Error("signed certificate hash is invalid");
+  return { ...parsed, certificateHash };
+}
+
+export function validateAnyCertificate(input: unknown): AnyControlCertificate {
+  const root = record(input, "certificate");
+  if (root.schemaVersion === CERTIFICATE_SCHEMA) return validateCertificate(root);
+  if (root.schemaVersion === SIGNED_CERTIFICATE_SCHEMA) return validateSignedCertificate(root);
+  throw new Error(`certificate schemaVersion must be ${CERTIFICATE_SCHEMA} or ${SIGNED_CERTIFICATE_SCHEMA}`);
+}
+
+export function parseCorpus(content: string): AnyCorpusEntry[] {
   if (Buffer.byteLength(content) > 64 * 1024 * 1024) throw new Error("certification corpus exceeds 64 MiB");
   const lines = content.split(/\r?\n/).filter((line) => line.trim());
-  const entries: CorpusEntry[] = [];
+  const entries: AnyCorpusEntry[] = [];
   let previous: string | null = null;
   const certificates = new Set<string>();
   for (const [index, line] of lines.entries()) {
     if (Buffer.byteLength(line) > 2 * 1024 * 1024) throw new Error(`corpus line ${index + 1} exceeds 2 MiB`);
     const root = record(JSON.parse(line), `corpus line ${index + 1}`);
     exactKeys(root, ["schemaVersion", "sequence", "previousEntryHash", "certificate", "entryHash"], `corpus line ${index + 1}`);
-    if (root.schemaVersion !== CORPUS_ENTRY_SCHEMA || root.sequence !== index + 1 || root.previousEntryHash !== previous) throw new Error(`corpus chain is invalid at line ${index + 1}`);
-    const certificate = validateCertificate(root.certificate);
+    if ((root.schemaVersion !== CORPUS_ENTRY_SCHEMA && root.schemaVersion !== SIGNED_CORPUS_ENTRY_SCHEMA) || root.sequence !== index + 1 || root.previousEntryHash !== previous) throw new Error(`corpus chain is invalid at line ${index + 1}`);
+    const certificate = validateAnyCertificate(root.certificate);
+    if ((root.schemaVersion === CORPUS_ENTRY_SCHEMA) !== (certificate.schemaVersion === CERTIFICATE_SCHEMA)) throw new Error(`corpus entry and certificate versions do not match at line ${index + 1}`);
     if (certificates.has(certificate.certificateHash)) throw new Error(`duplicate certificate at corpus line ${index + 1}`);
-    const payload = { schemaVersion: CORPUS_ENTRY_SCHEMA, sequence: index + 1, previousEntryHash: previous, certificate };
+    const payload = { schemaVersion: root.schemaVersion, sequence: index + 1, previousEntryHash: previous, certificate };
     const entryHash = sha256(root.entryHash, `corpus line ${index + 1} entryHash`);
     if (digest(payload) !== entryHash) throw new Error(`corpus entry hash is invalid at line ${index + 1}`);
-    entries.push({ ...payload, entryHash });
+    entries.push({ ...payload, entryHash } as AnyCorpusEntry);
     certificates.add(certificate.certificateHash);
     previous = entryHash;
   }
   return entries;
 }
 
-export function appendCorpusEntry(content: string, certificateInput: unknown): { entry: CorpusEntry; line: string } {
+export function appendCorpusEntry(content: string, certificateInput: unknown): { entry: AnyCorpusEntry; line: string } {
   const entries = parseCorpus(content);
-  const certificate = validateCertificate(certificateInput);
+  const certificate = validateAnyCertificate(certificateInput);
   if (entries.some((item) => item.certificate.certificateHash === certificate.certificateHash)) throw new Error("certificate already exists in corpus");
   const payload = {
-    schemaVersion: CORPUS_ENTRY_SCHEMA,
+    schemaVersion: certificate.schemaVersion === CERTIFICATE_SCHEMA ? CORPUS_ENTRY_SCHEMA : SIGNED_CORPUS_ENTRY_SCHEMA,
     sequence: entries.length + 1,
     previousEntryHash: entries.at(-1)?.entryHash ?? null,
     certificate,
   };
-  const entry = { ...payload, entryHash: digest(payload) };
+  const entry = { ...payload, entryHash: digest(payload) } as AnyCorpusEntry;
   return { entry, line: `${JSON.stringify(entry)}\n` };
 }
 
-export function loadCorpus(path: string): CorpusEntry[] {
+export function loadCorpus(path: string): AnyCorpusEntry[] {
   if (!existsSync(path)) return [];
   const status = lstatSync(path);
   if (status.isSymbolicLink() || !status.isFile()) throw new Error("certification corpus must be a regular non-symbolic-link file");
@@ -356,7 +447,21 @@ export function createSingleRepositoryPolicy(input: {
   });
 }
 
-export function buildStatusReport(policyInput: unknown, entries: CorpusEntry[], asOfInput: string): ControlStatusReport {
+function certificateControlIdentity(certificate: AnyControlCertificate): string {
+  return certificate.schemaVersion === CERTIFICATE_SCHEMA
+    ? `${certificate.control.vendor}/${certificate.control.product}`
+    : signedControlIdentity(certificate.proof);
+}
+
+function certificateProof(certificate: AnyControlCertificate): {
+  generatedAt: string;
+  status: "PASS" | "HOLD";
+  challenges: { id: string; passed: boolean }[];
+} {
+  return certificate.schemaVersion === CERTIFICATE_SCHEMA ? certificate.proof : certificate.proof.payload;
+}
+
+export function buildStatusReport(policyInput: unknown, entries: AnyCorpusEntry[], asOfInput: string): ControlStatusReport {
   const policy = validatePolicy(policyInput);
   const asOf = timestamp(asOfInput, "asOf");
   const asOfMs = Date.parse(asOf);
@@ -364,16 +469,17 @@ export function buildStatusReport(policyInput: unknown, entries: CorpusEntry[], 
     const matches = entries
       .map((entry) => entry.certificate)
       .filter((certificate) => certificate.organization === policy.organization && certificate.repository === requirement.repository && certificate.requiredCheck === requirement.requiredCheck)
-      .sort((left, right) => Date.parse(right.proof.generatedAt) - Date.parse(left.proof.generatedAt));
+      .sort((left, right) => Date.parse(certificateProof(right).generatedAt) - Date.parse(certificateProof(left).generatedAt));
     const latest = matches[0];
     if (!latest) return { repository: requirement.repository, requiredCheck: requirement.requiredCheck, state: "MISSING" as const, reason: "no matching control certificate is present" };
-    const control = `${latest.control.vendor}/${latest.control.product}`;
-    const common = { repository: requirement.repository, requiredCheck: requirement.requiredCheck, proofGeneratedAt: latest.proof.generatedAt, certificateHash: latest.certificateHash, control };
+    const proof = certificateProof(latest);
+    const control = certificateControlIdentity(latest);
+    const common = { repository: requirement.repository, requiredCheck: requirement.requiredCheck, proofGeneratedAt: proof.generatedAt, certificateHash: latest.certificateHash, control };
     if (!requirement.allowedControls.includes(control)) return { ...common, state: "HOLD" as const, reason: `control ${control} is not allowed by policy` };
-    const ageHours = (asOfMs - Date.parse(latest.proof.generatedAt)) / 3_600_000;
+    const ageHours = (asOfMs - Date.parse(proof.generatedAt)) / 3_600_000;
     if (ageHours < 0) return { ...common, ageHours, state: "HOLD" as const, reason: "latest proof is dated after the report time" };
-    if (latest.proof.status !== "PASS") return { ...common, ageHours, state: "HOLD" as const, reason: "latest control proof did not pass" };
-    const challengeMap = new Map(latest.proof.challenges.map((item) => [item.id, item]));
+    if (proof.status !== "PASS") return { ...common, ageHours, state: "HOLD" as const, reason: "latest control proof did not pass" };
+    const challengeMap = new Map(proof.challenges.map((item) => [item.id, item]));
     const missing = requirement.requiredChallenges.filter((id) => !challengeMap.get(id)?.passed);
     if (missing.length) return { ...common, ageHours, state: "HOLD" as const, reason: `required challenge evidence is absent or unexpected: ${missing.join(", ")}` };
     if (ageHours > policy.maxAgeHours) return { ...common, ageHours, state: "STALE" as const, reason: `latest passing proof is ${ageHours.toFixed(1)} hours old; policy allows ${policy.maxAgeHours}` };
