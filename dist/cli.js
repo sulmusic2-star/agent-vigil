@@ -4518,6 +4518,9 @@ function stringValue(value) {
 function stringList(value) {
   return Array.isArray(value) ? [...new Set(value.filter((item2) => typeof item2 === "string" && Boolean(item2.trim())).map((item2) => item2.trim()))].sort() : [];
 }
+function invalidStringList(value) {
+  return value !== void 0 && (!Array.isArray(value) || value.some((item2) => typeof item2 !== "string" || !item2.trim()));
+}
 function boolValue(value) {
   return typeof value === "boolean" ? value : void 0;
 }
@@ -4534,6 +4537,9 @@ function safeExecutable(raw) {
   const clean = raw.trim().split(/\s+/)[0] || "unknown";
   if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(clean)) return "environment-assignment";
   return clean.split(/[\\/]/).at(-1) || "unknown";
+}
+function safeUnixSocket(raw) {
+  return SENSITIVE_TEXT.test(raw) ? "redacted-unix-socket" : raw.slice(0, 240);
 }
 function stableId(semanticKey) {
   return `avp:${createHash8("sha256").update(semanticKey).digest("hex").slice(0, 20)}`;
@@ -4561,11 +4567,20 @@ function atom(input) {
     comparisonToken: sha256(canonical(input.comparisonValue)),
     added: input.added,
     removed: input.removed,
+    ...input.conditionalOn ? { conditionalOn: input.conditionalOn } : {},
     ...input.compare ? { compare: input.compare } : {}
   };
 }
 function publicAtom(value) {
-  const { semanticKey: _key, comparisonToken: _token, added: _added, removed: _removed, compare: _compare, ...safe } = value;
+  const {
+    semanticKey: _key,
+    comparisonToken: _token,
+    added: _added,
+    removed: _removed,
+    conditionalOn: _conditionalOn,
+    compare: _compare,
+    ...safe
+  } = value;
   return safe;
 }
 function decisionRelation(before, after) {
@@ -4831,6 +4846,30 @@ function addOpaqueAuthoritySection(out, platform, path, locator, value, reason) 
     compare: (before, after) => before.comparisonToken === after.comparisonToken ? "equal" : "incomparable"
   }));
 }
+function addBooleanExpansionControl(out, path, semanticName, rawValue, defaultValue, action, resource, locator, ruleId, reason) {
+  if (rawValue !== void 0 && boolValue(rawValue) === void 0) {
+    addOpaqueAuthoritySection(out, "claude-code", path, locator, rawValue, `${locator} must be a boolean authority control`);
+  }
+  const enabled = boolValue(rawValue) ?? defaultValue;
+  out.push(atom({
+    semanticKey: `claude-code\0${path}\0${semanticName}`,
+    platform: "claude-code",
+    sourcePath: path,
+    kind: "control",
+    subject: "bash",
+    action,
+    resource,
+    effect: "control",
+    decision: enabled ? "ALLOW" : "DENY",
+    constraints: [`enabled=${enabled}`],
+    locator,
+    comparisonValue: enabled,
+    added: enabled ? expansion(ruleId, reason, "critical") : ALLOW_RESTRICTION,
+    removed: ALLOW_RESTRICTION,
+    conditionalOn: `claude-code\0${path}\0sandbox-enabled`,
+    compare: (before, after) => decisionRelation(before.decision, after.decision)
+  }));
+}
 function addMcpEnvironmentReferences(out, platform, path, subject, values, locator) {
   if (!Array.isArray(values)) return;
   for (const [index, raw] of values.entries()) {
@@ -4865,7 +4904,10 @@ function addMcpServerAtoms(out, platform, path, values, locator) {
   if (!servers) return;
   for (const [name, rawServer] of Object.entries(servers).sort(([a], [b]) => a.localeCompare(b))) {
     const server = record(rawServer);
-    if (!server) continue;
+    if (!server) {
+      addOpaqueAuthoritySection(out, platform, path, `${locator}.${name}`, rawServer, "an MCP server entry has an unsupported shape");
+      continue;
+    }
     const enabled = boolValue(server.enabled) ?? !boolValue(server.disabled);
     const command = stringValue(server.command);
     const url = stringValue(server.url) ?? stringValue(server.serverUrl);
@@ -5101,7 +5143,24 @@ function addMcpApprovalAtom(out, platform, path, semanticKey, subject, mode, loc
 }
 function extractMcp(path, parsed) {
   const out = [];
-  addMcpServerAtoms(out, "mcp", path, parsed.mcpServers ?? parsed.servers, parsed.mcpServers ? "mcpServers" : "servers");
+  const declaredContainers = ["mcpServers", "servers"].filter((locator) => parsed[locator] !== void 0);
+  const containersToNormalize = declaredContainers.length > 1 ? declaredContainers.slice(0, 1) : declaredContainers;
+  if (declaredContainers.length > 1) {
+    addOpaqueAuthoritySection(out, "mcp", path, declaredContainers[1], parsed[declaredContainers[1]], "the MCP document declares multiple server containers with ambiguous precedence");
+  }
+  for (const locator of containersToNormalize) {
+    const value = parsed[locator];
+    if (value === void 0) continue;
+    if (!record(value)) {
+      addOpaqueAuthoritySection(out, "mcp", path, locator, value, `the MCP ${locator} container has an unsupported shape`);
+      continue;
+    }
+    addMcpServerAtoms(out, "mcp", path, value, locator);
+  }
+  for (const [locator, value] of Object.entries(parsed).sort(([a], [b]) => a.localeCompare(b))) {
+    if (locator === "$schema" || locator === "mcpServers" || locator === "servers") continue;
+    addOpaqueAuthoritySection(out, "mcp", path, locator, value, "the MCP document contains an authority-bearing root field that is not yet normalized");
+  }
   return out;
 }
 function extractClaude(path, parsed) {
@@ -5208,6 +5267,64 @@ function extractClaude(path, parsed) {
         compare: (before, after) => before.decision === after.decision ? "equal" : after.decision === "DENY" ? "expansion" : "contraction"
       }));
     }
+    addBooleanExpansionControl(
+      out,
+      path,
+      "sandbox-auto-allow-bash",
+      sandbox.autoAllowBashIfSandboxed,
+      true,
+      "approval.sandbox-auto",
+      "bash",
+      "sandbox.autoAllowBashIfSandboxed",
+      "AVP004",
+      "sandboxed Bash commands can run without an unconditional human prompt"
+    );
+    addBooleanExpansionControl(
+      out,
+      path,
+      "sandbox-allow-unsandboxed",
+      sandbox.allowUnsandboxedCommands,
+      true,
+      "sandbox.escape",
+      "dangerouslyDisableSandbox",
+      "sandbox.allowUnsandboxedCommands",
+      "AVP005",
+      "commands can retry outside the declared sandbox"
+    );
+    addBooleanExpansionControl(
+      out,
+      path,
+      "sandbox-weaker-nested",
+      sandbox.enableWeakerNestedSandbox,
+      false,
+      "sandbox.weaker-nested",
+      "process-isolation",
+      "sandbox.enableWeakerNestedSandbox",
+      "AVP005",
+      "the nested sandbox uses a weaker process-isolation boundary"
+    );
+    for (const command of stringList(sandbox.excludedCommands)) {
+      out.push(atom({
+        semanticKey: `claude-code\0${path}\0sandbox-excluded-command\0${command}`,
+        platform: "claude-code",
+        sourcePath: path,
+        kind: "permission",
+        subject: "bash",
+        action: "sandbox.exclude",
+        resource: safeExecutable(command),
+        effect: "execute",
+        decision: "ALLOW",
+        constraints: ["isolation=disabled"],
+        locator: "sandbox.excludedCommands",
+        comparisonValue: command,
+        added: expansion("AVP005", "an additional command can run outside the declared sandbox", "critical"),
+        removed: ALLOW_RESTRICTION,
+        conditionalOn: `claude-code\0${path}\0sandbox-enabled`
+      }));
+    }
+    if (invalidStringList(sandbox.excludedCommands)) {
+      addOpaqueAuthoritySection(out, "claude-code", path, "sandbox.excludedCommands", sandbox.excludedCommands, "sandbox.excludedCommands has an unsupported shape");
+    }
     const network = record(sandbox.network);
     for (const host of stringList(network?.allowedDomains)) {
       out.push(atom({
@@ -5224,9 +5341,81 @@ function extractClaude(path, parsed) {
         locator: "sandbox.network.allowedDomains",
         comparisonValue: host,
         added: expansion("AVP006", "sandboxed commands can reach an additional network destination", "critical"),
-        removed: ALLOW_RESTRICTION
+        removed: ALLOW_RESTRICTION,
+        conditionalOn: `claude-code\0${path}\0sandbox-enabled`
       }));
     }
+    if (invalidStringList(network?.allowedDomains)) {
+      addOpaqueAuthoritySection(out, "claude-code", path, "sandbox.network.allowedDomains", network?.allowedDomains, "sandbox.network.allowedDomains has an unsupported shape");
+    }
+    for (const socket of stringList(network?.allowUnixSockets)) {
+      out.push(atom({
+        semanticKey: `claude-code\0${path}\0unix-socket\0${socket}`,
+        platform: "claude-code",
+        sourcePath: path,
+        kind: "permission",
+        subject: "bash",
+        action: "network.unix-socket",
+        resource: safeUnixSocket(socket),
+        effect: "control",
+        decision: "ALLOW",
+        constraints: ["scope=allowed-socket"],
+        locator: "sandbox.network.allowUnixSockets",
+        comparisonValue: socket,
+        added: expansion("AVP005", "sandboxed commands can access an additional host Unix socket", "critical"),
+        removed: ALLOW_RESTRICTION,
+        conditionalOn: `claude-code\0${path}\0sandbox-enabled`
+      }));
+    }
+    if (invalidStringList(network?.allowUnixSockets)) {
+      addOpaqueAuthoritySection(out, "claude-code", path, "sandbox.network.allowUnixSockets", network?.allowUnixSockets, "sandbox.network.allowUnixSockets has an unsupported shape");
+    }
+    addBooleanExpansionControl(
+      out,
+      path,
+      "sandbox-allow-all-unix-sockets",
+      network?.allowAllUnixSockets,
+      false,
+      "network.unix-socket-all",
+      "host-sockets:*",
+      "sandbox.network.allowAllUnixSockets",
+      "AVP005",
+      "sandboxed commands can access every host Unix socket"
+    );
+    addBooleanExpansionControl(
+      out,
+      path,
+      "sandbox-allow-local-binding",
+      network?.allowLocalBinding,
+      false,
+      "network.bind-local",
+      "localhost:*",
+      "sandbox.network.allowLocalBinding",
+      "AVP006",
+      "sandboxed commands can bind to local network ports"
+    );
+    if (network) {
+      for (const [locator, value] of Object.entries(network).sort(([a], [b]) => a.localeCompare(b))) {
+        if (["allowedDomains", "allowUnixSockets", "allowAllUnixSockets", "allowLocalBinding"].includes(locator)) continue;
+        addOpaqueAuthoritySection(out, "claude-code", path, `sandbox.network.${locator}`, value, `Claude Code sandbox.network.${locator} is not yet ordered by the authority lattice`);
+      }
+    } else if (sandbox.network !== void 0) {
+      addOpaqueAuthoritySection(out, "claude-code", path, "sandbox.network", sandbox.network, "sandbox.network has an unsupported shape");
+    }
+    for (const [locator, value] of Object.entries(sandbox).sort(([a], [b]) => a.localeCompare(b))) {
+      if ([
+        "allowUnsandboxedCommands",
+        "autoAllowBashIfSandboxed",
+        "enabled",
+        "enableWeakerNestedSandbox",
+        "excludedCommands",
+        "failIfUnavailable",
+        "network"
+      ].includes(locator)) continue;
+      addOpaqueAuthoritySection(out, "claude-code", path, `sandbox.${locator}`, value, `Claude Code sandbox.${locator} is not yet ordered by the authority lattice`);
+    }
+  } else if (parsed.sandbox !== void 0) {
+    addOpaqueAuthoritySection(out, "claude-code", path, "sandbox", parsed.sandbox, "the Claude Code sandbox container has an unsupported shape");
   }
   const allMcp = boolValue(parsed.enableAllProjectMcpServers);
   if (allMcp !== void 0) {
@@ -5457,7 +5646,13 @@ function extractCodex(path, parsed) {
     comparisonValue: approval,
     added: approvalMode === "never" ? expansion("AVP004", "approval_policy=never suppresses interactive escalation", "critical") : approvalMode === "unknown" ? HOLD_UNKNOWN : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
     removed: HOLD_UNKNOWN,
-    compare: (before, after) => before.comparisonToken === after.comparisonToken ? "equal" : "incomparable"
+    compare: (before, after) => {
+      if (before.comparisonToken === after.comparisonToken) return "equal";
+      if (before.decision === "UNKNOWN" || after.decision === "UNKNOWN") return "incomparable";
+      if (before.decision === "ASK" && after.decision === "DENY") return "expansion";
+      if (before.decision === "DENY" && after.decision === "ASK") return "contraction";
+      return "incomparable";
+    }
   }));
   const reviewer = stringValue(parsed.approvals_reviewer) ?? "user";
   out.push(atom({
@@ -5608,6 +5803,8 @@ function dispositionForRelation(relation, before, after) {
     if (after.action === "hook.execute") return expansion("AVP011", "the repository-controlled hook changed authority or execution scope", "critical");
     if (after.action === "approval.mode" || after.action.startsWith("approval.")) return expansion("AVP004", "the approval boundary became less restrictive", "critical");
     if (after.action.startsWith("sandbox.")) return expansion("AVP005", "the sandbox boundary became less restrictive", "critical");
+    if (after.action === "network.unix-socket-all") return expansion("AVP005", "the sandbox can access every host Unix socket", "critical");
+    if (after.action === "network.bind-local") return expansion("AVP006", "the network boundary became less restrictive", "critical");
     if (after.effect === "network") return expansion("AVP006", "the network boundary became less restrictive", "critical");
     if (after.effect === "credential") return expansion("AVP008", "the credential boundary became less restrictive", "critical");
     if (after.action === "filesystem.access" || after.action === "filesystem.write") return expansion("AVP007", "the filesystem boundary became less restrictive", "critical");
@@ -5616,6 +5813,14 @@ function dispositionForRelation(relation, before, after) {
   if (relation === "contraction") return ALLOW_RESTRICTION;
   if (relation === "incomparable") return hold("AVP014", `the change from ${before.locator} to ${after.locator} is not ordered by the supported authority lattice`);
   return { ...ALLOW_RESTRICTION, direction: "NEUTRAL", reason: "the semantic authority is unchanged" };
+}
+function recognizedExpansionFromUnknown(before, after) {
+  if (before.decision !== "UNKNOWN" || after.decision === "UNKNOWN") return void 0;
+  if (after.added.disposition === "BLOCK") return after.added;
+  if ((after.action === "approval.mode" || after.action === "approval.default") && after.decision === "ALLOW") {
+    return dispositionForRelation("expansion", before, after);
+  }
+  return void 0;
 }
 function deltaSummary(change, atomValue) {
   const prefix = change === "ADDED" ? "added" : change === "REMOVED" ? "removed" : "changed";
@@ -5643,7 +5848,13 @@ function makeDelta(change, disposition, before, after) {
 }
 function applyAuthorityPlanPolicy(delta, policy) {
   const exactApproval = policy.approvedAdditions.includes(delta.approvalKey);
-  const unknownApproval = delta.disposition === "HOLD" && policy.allowUnknownChanges;
+  const values = [delta.before, delta.after];
+  const explicitUnknown = values.some(
+    (value) => value?.action === "authority.opaque" || value?.decision === "UNKNOWN" && value.kind !== "model"
+  );
+  const incidentalUnknown = delta.ruleId === "AVP001" && delta.change !== "CHANGED" && values.every((value) => !value || value.kind !== "model");
+  const unknownSetting = explicitUnknown || incidentalUnknown;
+  const unknownApproval = delta.disposition === "HOLD" && policy.allowUnknownChanges && unknownSetting;
   if (delta.disposition === "ALLOW" || !exactApproval && !unknownApproval) return delta;
   return {
     ...delta,
@@ -5665,16 +5876,54 @@ function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
     [...beforeByKey.entries()].filter(([key, item2]) => key.endsWith("\0enabled") && item2.action === "mcp.connect" && item2.decision === "ALLOW" && !afterByKey.has(key)).map(([key]) => key.slice(0, -"\0enabled".length))
   );
   const rawDeltas = [];
+  const conditionActivity = (before2, after2) => {
+    const representative = after2 ?? before2;
+    const inferredSandboxParent = representative?.platform === "claude-code" && representative.locator !== "sandbox.enabled" && representative.locator.startsWith("sandbox.") ? `claude-code\0${representative.sourcePath}\0sandbox-enabled` : void 0;
+    const conditionalOn = after2?.conditionalOn ?? before2?.conditionalOn ?? inferredSandboxParent;
+    if (!conditionalOn) return { conditional: false, activeBefore: true, activeAfter: true };
+    return {
+      conditional: true,
+      activeBefore: beforeByKey.get(conditionalOn)?.decision === "ALLOW",
+      activeAfter: afterByKey.get(conditionalOn)?.decision === "ALLOW"
+    };
+  };
+  const conditionActiveAcrossRevision = (before2, after2) => {
+    const representative = after2 ?? before2;
+    const { activeBefore, activeAfter } = conditionActivity(before2, after2);
+    return activeBefore && activeAfter || activeAfter && representative?.action === "authority.opaque";
+  };
   for (const key of keys) {
     const oldAtom = beforeByKey.get(key);
     const newAtom = afterByKey.get(key);
-    if (!oldAtom && newAtom) rawDeltas.push(makeDelta("ADDED", newAtom.added, void 0, newAtom));
-    else if (oldAtom && !newAtom) {
+    if (!oldAtom && newAtom) {
+      rawDeltas.push(makeDelta(
+        "ADDED",
+        conditionActiveAcrossRevision(void 0, newAtom) ? newAtom.added : ALLOW_RESTRICTION,
+        void 0,
+        newAtom
+      ));
+    } else if (oldAtom && !newAtom) {
       const removedWithServer = [...removedMcpServers].some((prefix) => key.startsWith(`${prefix}\0`));
-      rawDeltas.push(makeDelta("REMOVED", removedWithServer ? ALLOW_RESTRICTION : oldAtom.removed, oldAtom));
+      rawDeltas.push(makeDelta(
+        "REMOVED",
+        removedWithServer || !conditionActiveAcrossRevision(oldAtom) ? ALLOW_RESTRICTION : oldAtom.removed,
+        oldAtom
+      ));
     } else if (oldAtom && newAtom && oldAtom.comparisonToken !== newAtom.comparisonToken) {
       const relation = oldAtom.compare ? oldAtom.compare(oldAtom, newAtom) : newAtom.compare ? newAtom.compare(oldAtom, newAtom) : "incomparable";
-      rawDeltas.push(makeDelta("CHANGED", dispositionForRelation(relation, oldAtom, newAtom), oldAtom, newAtom));
+      const recognizedExpansion = relation === "incomparable" ? recognizedExpansionFromUnknown(oldAtom, newAtom) : void 0;
+      const disposition = recognizedExpansion ? recognizedExpansion : dispositionForRelation(relation, oldAtom, newAtom);
+      rawDeltas.push(makeDelta(
+        "CHANGED",
+        conditionActiveAcrossRevision(oldAtom, newAtom) ? disposition : ALLOW_RESTRICTION,
+        oldAtom,
+        newAtom
+      ));
+    } else if (oldAtom && newAtom && newAtom.action === "authority.opaque") {
+      const activity = conditionActivity(oldAtom, newAtom);
+      if (activity.conditional && !activity.activeBefore && activity.activeAfter) {
+        rawDeltas.push(makeDelta("CHANGED", newAtom.added, oldAtom, newAtom));
+      }
     }
   }
   const deltas = rawDeltas.map((delta) => applyAuthorityPlanPolicy(delta, policy.value));
