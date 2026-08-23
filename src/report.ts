@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const VERSION = "0.16.0-dev.0";
+export const VERSION = "0.16.0";
 
 export type ClaimKind =
   | "tests_pass"

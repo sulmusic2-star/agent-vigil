@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.0 - 2026-08-23
+
 - Add an open signed challenge-proof format, pinned Ed25519 signer identities,
   V2 control certificates, and mixed V1/V2 certification corpora.
 - Add `vigil certify sign` for control providers and `record-signed` for
