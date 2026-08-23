@@ -1,0 +1,1 @@
+{"schemaVersion":"agent-vigil-corpus-check/v1","checks":[{"key":"oauth.callback.guard","kind":"anyContains","needle":"invalidateMismatchedClientRegistration"},{"key":"redirect.match.check","kind":"anyContains","needle":"clientInfo.redirect_uris.includes(redirectUrl)"}]}

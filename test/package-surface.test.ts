@@ -50,6 +50,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/fleet-decision-v1.schema.json",
     "proof/README.md",
     "proof/cases",
+    "proof/update-pair-corpus",
     "scripts/materialize-trusted-upgrade-inputs.mjs",
   ]) {
     assert.ok(files.includes(publicPath), `${publicPath} must ship with the npm package`);

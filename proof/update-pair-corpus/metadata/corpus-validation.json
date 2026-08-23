@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "agent-vigil-corpus-validation/v1",
+  "asOf": "2026-08-23",
+  "status": "PASS",
+  "candidateCommit": "c279c5e77f69f0898787daf4aeb0eea76f80accf",
+  "checks": {
+    "exactPairs": 15,
+    "exactTarballsRegistryHashVerified": 30,
+    "localTarballsRehashedSha1Sha256Sha512": 30,
+    "currentDirectoryAdapterAcceptedPairs": 12,
+    "currentDirectoryAdapterBlockedPairs": 3,
+    "containmentPassReceipts": 12,
+    "changedReceipts": 12,
+    "safeReceipts": 0,
+    "materialRegressionRows": 4,
+    "independentlyReproducedMaterialRegressions": 3,
+    "newHashLockedSemanticProofs": 2,
+    "receiptCanonicalHashesVerified": 12,
+    "mutationHashControlsPassed": 4
+  },
+  "reproducedPairIds": [
+    "claude-code-2.1.94-to-2.1.96",
+    "mcp-inspector-2.1.0-to-2.2.0",
+    "supergateway-3.3.0-to-3.4.0"
+  ],
+  "unreproducedMaterialPairIds": [
+    "codex-0.117.0-to-0.118.0"
+  ],
+  "durableFileSha256": {
+    "pairs.json": "33b9f8f47f3e8b596582415720649b7552a91711c1c1d8ebb04cb13feaf26b4c",
+    "MANIFEST.md": "0f668d3b79feda479ac6e9100f192cc1c7ce87392e4171a238c736607871b088",
+    "regressions/README.md": "aec3ba7013243494015582798e0605b86e40d2788228e1a2f4fa359c56684871",
+    "regressions/reproduce-static-regressions.mjs": "ec63e949cb2d150537723b5c5be339218988135157724499c4b14f12965dc4b8",
+    "regressions/validate-corpus.mjs": "76a1f8ca2957024a7dfa538071d2301edd28561671cd819e676e38abfe7a99a7",
+    "metadata/download-verification.tsv": "a1e66c9982852f5aacb9d60462dcd66b7123ae30917d4cb730339a275a7f673b",
+    "metadata/adapter-inventory.tsv": "1e0a00b062bb44786464dc9c98b4647ffd6e1a3c9ef57c15f932b052f0e75936",
+    "metadata/run-results.tsv": "b2750791e4965b860f9bcfa6607cb62624fe0ef632c840d5e0efaa0706296fa4",
+    "metadata/regression-results.tsv": "ca2316c70a4ed710e04730db20166f6207c159c947911b8957853eda18704d8c",
+    "metadata/regression-proof.json": "fe7496e860a23e93182a68053771dd9cb599c72002271c22d75bcf61cd8cd424"
+  },
+  "boundary": "PASS validates local corpus integrity and the three stated bounded regression proofs; it does not prove live provider behavior, end-to-end gateway behavior, adoption, payment, or revenue."
+}

@@ -1,0 +1,1 @@
+{"schemaVersion":"agent-vigil-corpus-check/v1","checks":[{"key":"catalog.search.name","kind":"contains","path":"dist/index.js","needle":"search_sentry_tools"},{"key":"catalog.execute.name","kind":"contains","path":"dist/index.js","needle":"execute_sentry_tool"},{"key":"node.engine.contract","kind":"jsonFieldHash","path":"package.json","field":"engines.node"}]}

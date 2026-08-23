@@ -1,0 +1,1 @@
+{"schemaVersion":"agent-vigil-corpus-check/v1","checks":[{"key":"apps.sandbox.proxy","kind":"exists","path":"clients/web/static/sandbox_proxy.html"},{"key":"published.file.contract","kind":"jsonFieldHash","path":"package.json","field":"files"}]}

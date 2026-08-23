@@ -1,0 +1,247 @@
+{
+  "schemaVersion": "agent-vigil-static-regression-proof/v1",
+  "asOf": "2026-08-23",
+  "executionPolicy": {
+    "artifactHandling": "read-only gzip/tar parsing and hashing",
+    "vendorCodeExecuted": false,
+    "installScriptsExecuted": false,
+    "childCommandsExecuted": false,
+    "socketsOrServersOpened": false,
+    "accountsOrCredentialsUsed": false
+  },
+  "locks": {
+    "claudeOld": {
+      "package": "@anthropic-ai/claude-code",
+      "version": "2.1.94",
+      "tarSha256": "14a2aa53b5227d165f629bcad120c13fc09728168445c95e95641d62c4b00382",
+      "files": {
+        "package/package.json": {
+          "bytes": 1370,
+          "sha256": "9fe686f624114c3837e0b8d65f132dd202b584e8742796365e5e4d3fc40b1736"
+        },
+        "package/cli.js": {
+          "bytes": 13308322,
+          "sha256": "11fa0f142edee45aa24ad60b071345847da6c8b2372d338037fe8c4fd4469564"
+        }
+      }
+    },
+    "claudeNew": {
+      "package": "@anthropic-ai/claude-code",
+      "version": "2.1.96",
+      "tarSha256": "46d70278ea9ac6a8f9c0b772a562c7b90be00a11caa9ba006bc99fbc3a88de58",
+      "files": {
+        "package/package.json": {
+          "bytes": 1370,
+          "sha256": "90277b47ea9397b5d57917ec9a2036d3cc7168e8be911eead46de951e44a119b"
+        },
+        "package/cli.js": {
+          "bytes": 13308470,
+          "sha256": "62ad81e3eb00df80ac019b607cd4bad36607f665bffc7b4e9e3db7ade492d66e"
+        }
+      }
+    },
+    "supergatewayOld": {
+      "package": "supergateway",
+      "version": "3.3.0",
+      "tarSha256": "d5f56809d24dd39d4f7e7a60cc057943adfc6e312771576698870b730c684fcf",
+      "files": {
+        "package/package.json": {
+          "bytes": 1570,
+          "sha256": "386cd0cf2a9aa0411c2a78882452f69e51c7aeea033d97bc7ad8806ba9bf4a88"
+        },
+        "package/dist/index.js": {
+          "bytes": 10431,
+          "sha256": "8242023e1a86afbdd1fce55418485d9858029996b99c9fe42c7e112e575f67b4"
+        },
+        "package/dist/gateways/stdioToSse.js": {
+          "bytes": 5719,
+          "sha256": "9715b00c9fe1030a5125c5f3a068b86fd9f175d37836878ac18d9e842bb50e41"
+        },
+        "package/dist/lib/stdioProcessPool.js": {
+          "bytes": 2877,
+          "sha256": "73b84f7c0de5707aab61e46b2db05990015fa529c60724deb27771842928450a"
+        }
+      }
+    },
+    "supergatewayNew": {
+      "package": "supergateway",
+      "version": "3.4.0",
+      "tarSha256": "380005d495afba26c2fc68a51fc315503d73cf8c3f5a709b5fd0cddde8fb5d3b",
+      "files": {
+        "package/package.json": {
+          "bytes": 1570,
+          "sha256": "d1d6973fe578d3561564ea1fa083c2ee0febe0c64a5835480ea2f509a36fbe8c"
+        },
+        "package/dist/index.js": {
+          "bytes": 9959,
+          "sha256": "cebd02836f72bd5b632ed345ed7ce8a4b39e96d464e69a22aef91688e7a68646"
+        },
+        "package/dist/gateways/stdioToSse.js": {
+          "bytes": 5223,
+          "sha256": "9732171ff2f8e759d5355486c9e6908d57827cfb18dd3e3f58afbf6c3cb81b8c"
+        }
+      }
+    }
+  },
+  "proofs": {
+    "claudeBedrockAuthorization": {
+      "verdict": "REPRODUCED_REQUEST_SHAPE_REGRESSION",
+      "oldVersion": "2.1.94",
+      "newVersion": "2.1.96",
+      "oldBuilder": {
+        "style": "old",
+        "builderSha256": "a2acdc5facba5e690e50688dfdbdf1cdbd268fad83689db7944a8cdc81b7feee",
+        "builderBytes": 583,
+        "sdkDeletesAuthorizationOnSkip": true,
+        "sdkPreservesAuthorizationWithAuthToken": true,
+        "awsBearerTokenMarkerPresent": true
+      },
+      "newBuilder": {
+        "style": "new",
+        "builderSha256": "4fcd3b18f66f2a8aa27d2893ca7a4e636edc347eb516dde4dfb8f0461d6131d4",
+        "builderBytes": 691,
+        "sdkDeletesAuthorizationOnSkip": true,
+        "sdkPreservesAuthorizationWithAuthToken": true,
+        "awsBearerTokenMarkerPresent": true
+      },
+      "scenarios": [
+        {
+          "id": "aws-bearer-token",
+          "old": {
+            "skipAuth": true,
+            "apiKeyPresent": false,
+            "authorizationAtTransport": null,
+            "signal": "NO_AUTHORIZATION_AFTER_SKIP"
+          },
+          "new": {
+            "skipAuth": false,
+            "apiKeyPresent": true,
+            "authorizationAtTransport": "Bearer inert-token",
+            "signal": "AUTHORIZED_BEARER_SHAPE"
+          }
+        },
+        {
+          "id": "skip-auth-with-custom-authorization",
+          "old": {
+            "skipAuth": true,
+            "apiKeyPresent": false,
+            "authorizationAtTransport": null,
+            "signal": "NO_AUTHORIZATION_AFTER_SKIP"
+          },
+          "new": {
+            "skipAuth": false,
+            "apiKeyPresent": true,
+            "authorizationAtTransport": "Bearer inert-custom-token",
+            "signal": "AUTHORIZED_BEARER_SHAPE"
+          }
+        }
+      ],
+      "controls": {
+        "sharedMarkerCannotDistinguishVersions": {
+          "old": true,
+          "new": true
+        },
+        "oldCredentialChainDoesNotFalsePositive": {
+          "skipAuth": false,
+          "apiKeyPresent": false,
+          "authorizationAtTransport": null,
+          "signal": "SIGV4_CREDENTIAL_PATH"
+        },
+        "newExplicitNoAuthRemainsNoAuth": {
+          "skipAuth": true,
+          "apiKeyPresent": false,
+          "authorizationAtTransport": null,
+          "signal": "NO_AUTHORIZATION_AFTER_SKIP"
+        }
+      },
+      "boundary": "Exact bundled builder and embedded SDK semantics reproduced with inert inputs; no Bedrock request was sent and the remote HTTP 403 response itself was not replayed."
+    },
+    "supergatewayConcurrencyRollback": {
+      "verdict": "REPRODUCED_CAUSAL_QUEUE_HANG_STATE",
+      "oldVersion": "3.3.0",
+      "newVersion": "3.4.0",
+      "oldTopology": {
+        "topology": "per-session-bounded-pool",
+        "defaultMaxConcurrency": 1,
+        "acquireBeforeTransport": true,
+        "releaseOnlyAfterConnectionClose": true,
+        "queuedAcquireTimeout": false,
+        "queuedAcquireReject": false
+      },
+      "newTopology": {
+        "topology": "shared-child-no-acquire-barrier",
+        "acquireBeforeTransport": false,
+        "perSessionLease": false
+      },
+      "scenario": {
+        "events": [
+          {
+            "type": "open",
+            "session": "idle-preflight"
+          },
+          {
+            "type": "open",
+            "session": "real-client"
+          }
+        ],
+        "old": {
+          "states": {
+            "idle-preflight": "holds-lease-reaches-transport",
+            "real-client": "queued-before-transport-without-timeout"
+          },
+          "activeLeases": 1,
+          "queueDepth": 1
+        },
+        "new": {
+          "states": {
+            "idle-preflight": "reaches-transport-without-pool-barrier",
+            "real-client": "reaches-transport-without-pool-barrier"
+          },
+          "activeLeases": 0,
+          "queueDepth": 0
+        }
+      },
+      "controls": {
+        "oneConnection": {
+          "states": {
+            "only-client": "holds-lease-reaches-transport"
+          },
+          "activeLeases": 1,
+          "queueDepth": 0
+        },
+        "closeBeforeSecond": {
+          "states": {
+            "first-client": "closed",
+            "second-client": "holds-lease-reaches-transport"
+          },
+          "activeLeases": 1,
+          "queueDepth": 0
+        },
+        "capacityTwo": {
+          "states": {
+            "idle-preflight": "holds-lease-reaches-transport",
+            "real-client": "holds-lease-reaches-transport"
+          },
+          "activeLeases": 2,
+          "queueDepth": 0
+        }
+      },
+      "boundary": "Exact published runtime topology plus a trusted deterministic scheduler reproduced the default-one queued-before-transport-without-timeout state; 3.4 was only shown to remove that pool barrier. No gateway, child process, socket, server, browser, or MCP client was executed."
+    }
+  },
+  "negativeControls": {
+    "claudeOldMutation": {
+      "byteMutationRejectedByHashLock": true
+    },
+    "claudeNewMutation": {
+      "byteMutationRejectedByHashLock": true
+    },
+    "supergatewayOldMutation": {
+      "byteMutationRejectedByHashLock": true
+    },
+    "supergatewayNewMutation": {
+      "byteMutationRejectedByHashLock": true
+    }
+  },
+  "reproducedMaterialRegressionCountInThisProof": 2
+}

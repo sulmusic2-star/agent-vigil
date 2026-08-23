@@ -1,0 +1,1 @@
+{"schemaVersion":"agent-vigil-corpus-check/v1","checks":[{"key":"settle.timeout.option","kind":"contains","path":"README.md","needle":"--timeout-settle"},{"key":"webp.screenshot.option","kind":"contains","path":"README.md","needle":"png|jpeg|webp"},{"key":"legacy.output.mode","kind":"contains","path":"README.md","needle":"--output-mode"}]}

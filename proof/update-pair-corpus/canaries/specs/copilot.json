@@ -1,0 +1,1 @@
+{"schemaVersion":"agent-vigil-corpus-check/v1","checks":[{"key":"platform.bundle.refs","kind":"jsonFieldHash","path":"package.json","field":"optionalDependencies"},{"key":"build.commit","kind":"jsonFieldHash","path":"package.json","field":"buildMetadata.gitCommit"}]}

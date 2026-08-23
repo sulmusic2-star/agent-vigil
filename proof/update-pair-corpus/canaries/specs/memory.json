@@ -1,0 +1,1 @@
+{"schemaVersion":"agent-vigil-corpus-check/v1","checks":[{"key":"knowledge.graph.resource","kind":"contains","path":"dist/index.js","needle":"memory://knowledge-graph"},{"key":"connected.relations","kind":"contains","path":"dist/index.js","needle":"filteredEntityNames.has(r.from) ||"}]}

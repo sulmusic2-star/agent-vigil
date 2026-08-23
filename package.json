@@ -23,6 +23,7 @@
     "test:package": "python3 scripts/package_smoke.py",
     "proof:historical": "node scripts/historical_proof.mjs",
     "proof:failure-corpus": "tsx scripts/verify_failure_corpus.ts",
+    "proof:update-pair-corpus": "node proof/update-pair-corpus/verify-durable-corpus.mjs",
     "demo:60s": "node scripts/demo_60s.mjs",
     "demo:value-comparison": "tsx scripts/value_comparison_demo.ts",
     "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
@@ -118,6 +119,7 @@
     "proof/cases",
     "proof/failure-patterns",
     "proof/first-100",
+    "proof/update-pair-corpus",
     "scripts/materialize-trusted-upgrade-inputs.mjs",
     "scripts/public_adoption_census.py",
     "scripts/verify_failure_corpus.ts"

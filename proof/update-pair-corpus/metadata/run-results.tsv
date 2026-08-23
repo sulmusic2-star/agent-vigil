@@ -1,0 +1,13 @@
+receipt	package	old_version	new_version	verdict	containment	changed_capabilities	changed_canaries	receipt_hash
+receipts/codex.json	@openai/codex	0.117.0	0.118.0	CHANGED	PASS	1	1	f57e4ca04a42e26a087498f174166e04d79d4f7907c478e4b6c817b0c6c59636
+receipts/copilot.json	@github/copilot	1.0.79	1.0.80-0	CHANGED	PASS	2	1	13b22cf9417c1e38d6d0d6286261d73ce03393a31e86161e897b38b95bb3b72a
+receipts/filesystem.json	@modelcontextprotocol/server-filesystem	2026.7.4	2026.7.10	CHANGED	PASS	0	1	daf97a3963d0215f38821a200e0465d019020c9b1e76d7ff3b6c7a18c13f6912
+receipts/inspector.json	@modelcontextprotocol/inspector	2.1.0	2.2.0	CHANGED	PASS	2	1	d78466e5d5f364fb5129e77c2cee5177af435f050bd698df9ddc6b49a25d5063
+receipts/mcp-remote.json	mcp-remote	0.1.41	0.1.42	CHANGED	PASS	0	1	0210ed690c338fec201dc391253e08ec46242189fd2cb6f2894c2e15ae783fc8
+receipts/mcp-sdk.json	@modelcontextprotocol/sdk	1.29.0	1.30.0	CHANGED	PASS	1	1	5e192c018ad7b0b616025ac0e00e34725454b413f854c5066e14a63a409df2e0
+receipts/memory.json	@modelcontextprotocol/server-memory	2026.1.26	2026.7.4	CHANGED	PASS	1	1	1d0376316ae32a76930da0088f06535b8dbc776137615a13236587367426b83a
+receipts/notion.json	@notionhq/notion-mcp-server	1.9.1	2.0.0	CHANGED	PASS	1	1	61f4de08f93c3abf616cc9aaecace216a8caa44e75e9c71621c27039e2c6624f
+receipts/opencode.json	opencode-ai	1.18.20	1.18.21	CHANGED	PASS	1	1	fdc273cedeec05399f93fb017f7c90a32f460d511547b9146b845903208b26ce
+receipts/playwright.json	@playwright/mcp	0.0.78	0.0.79	CHANGED	PASS	1	1	e539c38117245debd5eb80b5a8c10ca2c5a8198b05412e8dcf754bf5dcadd91a
+receipts/sentry.json	@sentry/mcp-server	0.36.0	0.37.0	CHANGED	PASS	2	1	1b64ef268a6103f91cf0538ae5c73f245b40429f6321d826aba7f2423a1eb665
+receipts/supergateway.json	supergateway	3.3.0	3.4.0	CHANGED	PASS	0	1	a5ea79265ce60de587eb4e5a563aea943565af4eca067953ace7481bc58e1fcb
