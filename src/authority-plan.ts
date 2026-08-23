@@ -1548,6 +1548,8 @@ function dispositionForRelation(relation: Relation, before: InternalAtom, after:
     if (after.action === "hook.execute") return expansion("AVP011", "the repository-controlled hook changed authority or execution scope", "critical");
     if (after.action === "approval.mode" || after.action.startsWith("approval.")) return expansion("AVP004", "the approval boundary became less restrictive", "critical");
     if (after.action.startsWith("sandbox.")) return expansion("AVP005", "the sandbox boundary became less restrictive", "critical");
+    if (after.action === "network.unix-socket-all") return expansion("AVP005", "the sandbox can access every host Unix socket", "critical");
+    if (after.action === "network.bind-local") return expansion("AVP006", "the network boundary became less restrictive", "critical");
     if (after.effect === "network") return expansion("AVP006", "the network boundary became less restrictive", "critical");
     if (after.effect === "credential") return expansion("AVP008", "the credential boundary became less restrictive", "critical");
     if (after.action === "filesystem.access" || after.action === "filesystem.write") return expansion("AVP007", "the filesystem boundary became less restrictive", "critical");

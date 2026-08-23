@@ -446,16 +446,19 @@ test("Claude sandbox escape controls block while unmodeled nested controls hold"
   const expanded = buildAuthorityPlan(value.repo, base, expandedHead);
 
   assert.equal(expanded.status, "BLOCK");
-  for (const action of [
-    "approval.sandbox-auto",
-    "sandbox.escape",
-    "sandbox.exclude",
-    "sandbox.weaker-nested",
-    "network.unix-socket",
-    "network.unix-socket-all",
-    "network.bind-local",
-  ]) {
-    assert.ok(expanded.deltas.some((delta) => delta.disposition === "BLOCK" && delta.after?.action === action), `missing ${action}`);
+  const expectedRules = new Map([
+    ["approval.sandbox-auto", "AVP004"],
+    ["sandbox.escape", "AVP005"],
+    ["sandbox.exclude", "AVP005"],
+    ["sandbox.weaker-nested", "AVP005"],
+    ["network.unix-socket", "AVP005"],
+    ["network.unix-socket-all", "AVP005"],
+    ["network.bind-local", "AVP006"],
+  ]);
+  for (const [action, ruleId] of expectedRules) {
+    assert.ok(expanded.deltas.some((delta) =>
+      delta.disposition === "BLOCK" && delta.ruleId === ruleId && delta.after?.action === action
+    ), `missing ${ruleId} ${action}`);
   }
 
   json(value.repo, ".claude/settings.json", {
