@@ -242,7 +242,10 @@ test("Action accepts exactly one evidence mode", () => {
   assert.match(action, /materialize-trusted-upgrade-inputs\.mjs" materialize/);
   assert.doesNotMatch(action, /worktree add|git checkout/);
   assert.doesNotMatch(action, /git -C "\$VIGIL_REPO" show/);
-  assert.match(action, /r\.summary\.verdict/);
+  assert.match(action, /process\.stdout\.write\(r\.verdict\)/);
+  assert.match(action, /SAFE\) expected_preflight_code=0/);
+  assert.match(action, /CHANGED\) expected_preflight_code=1/);
+  assert.match(action, /HOLD\) expected_preflight_code=2/);
   assert.match(action, /receipt mode requires a base-anchored policy/);
   assert.match(action, /args=\(authority "\$VIGIL_TRANSCRIPT"/);
   assert.match(action, /authority-contract-ref must equal GitHub event base/);
