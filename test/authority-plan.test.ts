@@ -487,6 +487,38 @@ test("removing an empty Claude network container preserves default-false control
   assert.equal(plan.deltas.length, 0);
 });
 
+test("removing a disabled Claude sandbox does not expand synthetic defaults", () => {
+  const value = fixture();
+  json(value.repo, ".claude/settings.json", { sandbox: { enabled: false } });
+  const base = commit(value.repo, "disabled sandbox");
+  json(value.repo, ".claude/settings.json", {});
+  const head = commit(value.repo, "remove disabled sandbox");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+
+  assert.equal(plan.status, "PASS");
+  assert.ok(plan.deltas.every((delta) => delta.disposition === "ALLOW"));
+});
+
+test("Claude Unix-socket authority redacts secret-looking paths from every output", () => {
+  const value = fixture();
+  json(value.repo, ".claude/settings.json", {
+    sandbox: { enabled: true, network: { allowUnixSockets: [] } },
+  });
+  const base = commit(value.repo, "sandbox without sockets");
+  const secret = "ghp_should_not_escape";
+  json(value.repo, ".claude/settings.json", {
+    sandbox: { enabled: true, network: { allowUnixSockets: [`/tmp/${secret}.sock`] } },
+  });
+  const head = commit(value.repo, "add sensitive socket path");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+
+  assert.equal(plan.status, "BLOCK");
+  assert.ok(plan.deltas.some((delta) => delta.after?.resource === "redacted-unix-socket"));
+  assert.doesNotMatch(JSON.stringify(plan), new RegExp(secret));
+  assert.doesNotMatch(renderAuthorityPlanText(plan), new RegExp(secret));
+  assert.doesNotMatch(renderAuthorityPlanMarkdown(plan), new RegExp(secret));
+});
+
 test("a pure Codex on-request to never transition is an approval expansion", () => {
   const value = fixture();
   write(value.repo, ".codex/config.toml", 'approval_policy = "on-request"\n');

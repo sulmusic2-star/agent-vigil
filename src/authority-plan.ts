@@ -209,6 +209,10 @@ function safeExecutable(raw: string): string {
   return clean.split(/[\\/]/).at(-1) || "unknown";
 }
 
+function safeUnixSocket(raw: string): string {
+  return SENSITIVE_TEXT.test(raw) ? "redacted-unix-socket" : raw.slice(0, 240);
+}
+
 function stableId(semanticKey: string): string {
   return `avp:${createHash("sha256").update(semanticKey).digest("hex").slice(0, 20)}`;
 }
@@ -573,7 +577,9 @@ function addBooleanExpansionControl(
     locator,
     comparisonValue: enabled,
     added: enabled ? expansion(ruleId, reason, "critical") : ALLOW_RESTRICTION,
-    removed: enabled ? ALLOW_RESTRICTION : expansion(ruleId, `${locator}=false was removed`, "critical"),
+    // Removing the containing sandbox disables these conditional controls.
+    // Property-level removal is still compared against the declared default.
+    removed: ALLOW_RESTRICTION,
     compare: (before, after) => decisionRelation(before.decision, after.decision),
   }));
 }
@@ -1069,7 +1075,7 @@ function extractClaude(path: string, parsed: RecordValue): InternalAtom[] {
         kind: "permission",
         subject: "bash",
         action: "network.unix-socket",
-        resource: socket.slice(0, 240),
+        resource: safeUnixSocket(socket),
         effect: "control",
         decision: "ALLOW",
         constraints: ["scope=allowed-socket"],
