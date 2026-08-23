@@ -1,19 +1,6 @@
 import { hmacHex } from "./crypto.ts";
 import { ApiError } from "./http.ts";
-
-const INDIVIDUAL_SECRET_NAMES = [
-  "R0_MEASUREMENT_CONTROL_HMAC_SECRET",
-  "R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET",
-  "R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET",
-  "R0_MEASUREMENT_IDENTITY_HMAC_SECRET",
-  "R0_INDIVIDUAL_IDENTITY_HMAC_SECRET",
-  "INDIVIDUAL_SESSION_HMAC_SECRET",
-  "GITHUB_RECONCILIATION_HMAC_SECRET",
-  "GITHUB_WEBHOOK_SECRET",
-  "TEAM_SESSION_HMAC_SECRET"
-] as const;
-
-type IndividualSecretName = (typeof INDIVIDUAL_SECRET_NAMES)[number];
+import { assertMeasurementDutySecretSeparation } from "./measurement-security.ts";
 
 export interface IndividualFeatureConfig {
   sessionIssuer: string;
@@ -39,7 +26,16 @@ export function individualMeasurementEnabled(env: Env): boolean {
 export function requireIndividualFeatureConfiguration(
   env: Pick<
     Env,
-    | IndividualSecretName
+    | "R0_MEASUREMENT_CONTROL_HMAC_SECRET"
+    | "R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET"
+    | "R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET"
+    | "R0_MEASUREMENT_IDENTITY_HMAC_SECRET"
+    | "R0_INDIVIDUAL_IDENTITY_HMAC_SECRET"
+    | "INDIVIDUAL_SESSION_HMAC_SECRET"
+    | "GITHUB_RECONCILIATION_HMAC_SECRET"
+    | "GITHUB_WEBHOOK_SECRET"
+    | "TEAM_SESSION_HMAC_SECRET"
+    | "R0_MEASUREMENT_ENABLED"
     | "R0_INDIVIDUAL_MEASUREMENT_ENABLED"
     | "INDIVIDUAL_SESSION_ISSUER"
     | "INDIVIDUAL_SESSION_KEY_ID"
@@ -50,18 +46,7 @@ export function requireIndividualFeatureConfiguration(
   if (enabled !== "true") {
     throw new ApiError(503, "individual_measurement_disabled", "Individual R0 measurement is disabled.");
   }
-  const encoder = new TextEncoder();
-  const secrets = INDIVIDUAL_SECRET_NAMES.map((name) => env[name]);
-  if (
-    secrets.some((secret) => typeof secret !== "string" || encoder.encode(secret).byteLength < 32) ||
-    new Set(secrets).size !== secrets.length
-  ) {
-    throw new ApiError(
-      503,
-      "individual_measurement_secret_configuration_invalid",
-      "Individual measurement secret configuration is invalid."
-    );
-  }
+  assertMeasurementDutySecretSeparation(env);
   let issuer: URL;
   try {
     issuer = new URL(env.INDIVIDUAL_SESSION_ISSUER);

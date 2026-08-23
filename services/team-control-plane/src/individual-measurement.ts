@@ -915,11 +915,13 @@ async function aggregateIndividualMetrics(db: D1Database, at: string): Promise<I
             AND i.reconciled_at IS NOT NULL
        ),
        canonical_events AS (
-         SELECT identity.canonical_subject_token AS subject_token, e.event_day, e.occurred_at
+         SELECT identity.canonical_subject_token AS subject_token, e.event_day,
+                MIN(e.occurred_at) AS occurred_at
            FROM individual_measurement_events e
            JOIN individual_identities identity ON identity.subject_token = e.subject_token
            JOIN eligible x ON x.subject_token = identity.canonical_subject_token
           GROUP BY identity.canonical_subject_token, e.event_day
+          ORDER BY identity.canonical_subject_token, e.event_day
        ),
        first_activation AS (
          SELECT subject_token, MIN(occurred_at) AS first_at

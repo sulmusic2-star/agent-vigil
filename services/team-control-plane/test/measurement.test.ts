@@ -2,26 +2,50 @@ import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { base64UrlEncode, hmacBase64Url, hmacHex } from "../src/crypto.ts";
+import { handleMeasurementBridge, handleMeasurementReport } from "../src/measurement.ts";
 import {
-  assertMeasurementSecretConfiguration,
-  handleMeasurementBridge
-} from "../src/measurement.ts";
+  assertMeasurementDutySecretSeparation,
+  MEASUREMENT_DUTY_SECRET_NAMES
+} from "../src/measurement-security.ts";
 
 const ORIGIN = "https://team.example.test";
 const SESSION_SECRET = "test-only-team-session-secret-32-bytes-minimum";
 const CONTROL_SECRET = "test-only-r0-measurement-control-secret-32-bytes";
 const IDENTITY_BRIDGE_SECRET = "test-only-r0-identity-bridge-secret-32-bytes";
 const ACTIVITY_BRIDGE_SECRET = "test-only-r0-activity-bridge-secret-32-bytes";
+const GITHUB_WEBHOOK_SECRET = "test-only-github-webhook-secret-32-bytes-minimum";
+const GITHUB_RECONCILIATION_SECRET = "test-only-github-reconciliation-secret-32-bytes";
+const INDIVIDUAL_IDENTITY_SECRET = "test-only-r0-individual-identity-secret-32-bytes";
+const INDIVIDUAL_SESSION_SECRET = "test-only-individual-session-secret-32-bytes-minimum";
 const APP_ID = 12_345;
 const INSTALLATION_ID = 71_234;
 const ACCOUNT_NODE_ID = "ACCT_MEASUREMENT_123";
 const RELEASE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
-const MEASUREMENT_SECRETS = {
+const MEASUREMENT_DUTY_SECRETS = {
+  TEAM_SESSION_HMAC_SECRET: SESSION_SECRET,
+  GITHUB_WEBHOOK_SECRET,
+  GITHUB_RECONCILIATION_HMAC_SECRET: GITHUB_RECONCILIATION_SECRET,
   R0_MEASUREMENT_CONTROL_HMAC_SECRET: CONTROL_SECRET,
   R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET: IDENTITY_BRIDGE_SECRET,
   R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET: ACTIVITY_BRIDGE_SECRET,
-  R0_MEASUREMENT_IDENTITY_HMAC_SECRET: "test-only-r0-measurement-identity-secret-32-bytes"
+  R0_MEASUREMENT_IDENTITY_HMAC_SECRET: "test-only-r0-measurement-identity-secret-32-bytes",
+  R0_INDIVIDUAL_IDENTITY_HMAC_SECRET: INDIVIDUAL_IDENTITY_SECRET,
+  INDIVIDUAL_SESSION_HMAC_SECRET: INDIVIDUAL_SESSION_SECRET
 } as const;
+
+async function signedRequest(body: Record<string, unknown>, secret: string): Promise<Request> {
+  const raw = JSON.stringify(body);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = await hmacHex(secret, `${timestamp}.${raw}`);
+  return new Request(`${ORIGIN}/v1/measurement/bridge`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Agent-Vigil-Measurement-Signature": `t=${timestamp},v1=${signature}`
+    },
+    body: raw
+  });
+}
 
 async function clearDatabase(): Promise<void> {
   await env.TEAM_CONTROL_DB.exec(`
@@ -307,35 +331,59 @@ describe("R0 organization measurement plane", () => {
   });
 
   it("requires every measurement HMAC duty to use a distinct secret before request handling", async () => {
-    const names = Object.keys(MEASUREMENT_SECRETS) as Array<keyof typeof MEASUREMENT_SECRETS>;
+    const configured = {
+      R0_MEASUREMENT_ENABLED: "true",
+      R0_INDIVIDUAL_MEASUREMENT_ENABLED: "true",
+      ...MEASUREMENT_DUTY_SECRETS
+    } as const;
+    const names = MEASUREMENT_DUTY_SECRET_NAMES;
     let collisionsChecked = 0;
     for (let left = 0; left < names.length; left += 1) {
       for (let right = left + 1; right < names.length; right += 1) {
         const leftName = names[left];
         const rightName = names[right];
         if (!leftName || !rightName) throw new Error("test secret matrix is incomplete");
-        const collided = { ...MEASUREMENT_SECRETS, [rightName]: MEASUREMENT_SECRETS[leftName] };
+        const collided = { ...configured, [rightName]: configured[leftName] };
         let error: unknown;
         try {
-          assertMeasurementSecretConfiguration(collided);
+          assertMeasurementDutySecretSeparation(collided);
         } catch (caught) {
           error = caught;
         }
         expect(error).toMatchObject({
           status: 503,
           code: "r0_measurement_secret_configuration_invalid",
-          message: "R0 measurement secret configuration is invalid."
+          message: "R0 measurement duty-secret configuration is invalid."
         });
         collisionsChecked += 1;
       }
     }
-    expect(collisionsChecked).toBe(6);
+    expect(collisionsChecked).toBe(36);
 
-    const invalidEnv = {
-      R0_MEASUREMENT_ENABLED: "true",
-      ...MEASUREMENT_SECRETS,
-      R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET: IDENTITY_BRIDGE_SECRET
-    } as unknown as Env;
+    const organizationOnly = { ...configured, R0_INDIVIDUAL_MEASUREMENT_ENABLED: "false" } as const;
+    let organizationCollisionsChecked = 0;
+    for (let left = 0; left < 7; left += 1) {
+      for (let right = left + 1; right < 7; right += 1) {
+        const leftName = names[left];
+        const rightName = names[right];
+        if (!leftName || !rightName) throw new Error("organization secret matrix is incomplete");
+        expect(() =>
+          assertMeasurementDutySecretSeparation({
+            ...organizationOnly,
+            [rightName]: organizationOnly[leftName]
+          })
+        ).toThrowError(/duty-secret configuration is invalid/u);
+        organizationCollisionsChecked += 1;
+      }
+    }
+    expect(organizationCollisionsChecked).toBe(21);
+
+    const invalidEnv = new Proxy(env as Env, {
+      get(target, property, receiver) {
+        if (property === "R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET") return IDENTITY_BRIDGE_SECRET;
+        return Reflect.get(target, property, receiver);
+      }
+    });
     await expect(
       handleMeasurementBridge(
         new Request(`${ORIGIN}/v1/measurement/bridge`, { method: "POST", body: "not-read" }),
@@ -344,7 +392,60 @@ describe("R0 organization measurement plane", () => {
     ).rejects.toMatchObject({
       status: 503,
       code: "r0_measurement_secret_configuration_invalid",
-      message: "R0 measurement secret configuration is invalid."
+      message: "R0 measurement duty-secret configuration is invalid."
+    });
+  });
+
+  it("rejects cross-role taint before persistence and keeps corrected reports empty", async () => {
+    expect((await signedPost("/v1/measurement/bridge", boundary("boundary_cross_role"))).status).toBe(201);
+    expect((await optIn()).status).toBe(200);
+
+    const collidedEnv = new Proxy(env as Env, {
+      get(target, property, receiver) {
+        if (property === "TEAM_SESSION_HMAC_SECRET") return IDENTITY_BRIDGE_SECRET;
+        return Reflect.get(target, property, receiver);
+      }
+    });
+    const classification = attestation("external", "cross_role_attestation");
+    await expect(
+      handleMeasurementBridge(await signedRequest(classification, IDENTITY_BRIDGE_SECRET), collidedEnv)
+    ).rejects.toMatchObject({ status: 503, code: "r0_measurement_secret_configuration_invalid" });
+
+    const activation = event("organization_activation_v1", "cross_role_activation");
+    await expect(
+      handleMeasurementBridge(await signedRequest(activation, ACTIVITY_BRIDGE_SECRET), collidedEnv)
+    ).rejects.toMatchObject({ status: 503, code: "r0_measurement_secret_configuration_invalid" });
+
+    const reportRequest = {
+      schema_version: "r0-measurement-report-request-v1",
+      query_id: "cross_role_collided_report",
+      observed_at: new Date().toISOString()
+    };
+    await expect(
+      handleMeasurementReport(await signedRequest(reportRequest, CONTROL_SECRET), collidedEnv)
+    ).rejects.toMatchObject({ status: 503, code: "r0_measurement_secret_configuration_invalid" });
+
+    const residuals = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM measurement_subjects WHERE org_id = 'org_measure') AS subjects,
+        (SELECT COUNT(*) FROM measurement_subject_attestations
+          WHERE message_id = 'cross_role_attestation') AS attestations,
+        (SELECT COUNT(*) FROM measurement_bridge_messages
+          WHERE message_id IN ('cross_role_attestation', 'cross_role_activation')) AS messages,
+        (SELECT COUNT(*) FROM measurement_events
+          WHERE event_id = 'cross_role_activation') AS events,
+        (SELECT COUNT(*) FROM audit_events
+          WHERE resource_id IN ('cross_role_attestation', 'cross_role_activation')) AS audits`
+    ).first<Record<string, number>>();
+    expect(residuals).toEqual({ subjects: 0, attestations: 0, messages: 0, events: 0, audits: 0 });
+
+    const corrected = await signedPost("/v1/measurement/report", {
+      ...reportRequest,
+      query_id: "cross_role_corrected_report"
+    });
+    expect(corrected.status).toBe(200);
+    expect(await corrected.json()).toMatchObject({
+      organizations: { eligible_installations: 0, activated_organizations: 0 }
     });
   });
 

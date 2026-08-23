@@ -242,6 +242,99 @@ async function initializeEligibleIndividual(token: string): Promise<void> {
   expect((await signedMeasurement("/v1/measurement/bridge", attestation())).status).toBe(201);
 }
 
+async function seedMergedCanonicalCohort(
+  insertionOrder: "source-first" | "target-first"
+): Promise<{ firstTrue: string; outsideTrueWindow: string }> {
+  const target = `mind_${"1".repeat(64)}`;
+  const source = `mind_${"2".repeat(64)}`;
+  const targetInstallation = 990_001;
+  const sourceInstallation = 990_002;
+  const firstTrue = "2026-01-01T00:01:00.000Z";
+  const sameDayLater = "2026-01-01T23:59:00.000Z";
+  const outsideTrueWindow = "2026-03-02T12:00:00.000Z";
+  const seedAt = "2025-12-31T00:00:00.000Z";
+  const mergeAt = "2026-01-02T00:00:00.000Z";
+  await env.TEAM_CONTROL_DB.batch([
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO individual_identities
+        (subject_token, canonical_subject_token, github_account_node_id, auth_subject_sha256,
+         token_key_id, classification, classification_basis, first_authenticated_at,
+         classification_attested_at, eligible_at, status, merged_at, updated_at)
+       VALUES (?1, ?1, 'USER_TARGET_METRIC', ?2, 'individual-identity-key-v1', 'external',
+         'provider_session_and_non_operator_registry', ?3, ?3, ?3, 'active', NULL, ?3)`
+    ).bind(target, "3".repeat(64), seedAt),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO individual_identities
+        (subject_token, canonical_subject_token, github_account_node_id, auth_subject_sha256,
+         token_key_id, classification, classification_basis, first_authenticated_at,
+         classification_attested_at, eligible_at, status, merged_at, updated_at)
+       VALUES (?1, ?2, 'USER_SOURCE_METRIC', ?3, 'individual-identity-key-v1', 'external',
+         'provider_session_and_non_operator_registry', ?4, ?4, NULL, 'merged', ?5, ?5)`
+    ).bind(source, target, "4".repeat(64), seedAt, mergeAt),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO individual_consents
+        (subject_token, opted_in, updated_session_sha256, opted_in_at, opted_out_at, updated_at)
+       VALUES (?1, 1, ?2, ?3, NULL, ?3)`
+    ).bind(target, "5".repeat(64), seedAt),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO github_personal_installation_claims
+        (installation_id, github_account_node_id, subject_token, account_type, status,
+         claimed_session_sha256, claimed_at, updated_at)
+       VALUES (?1, 'USER_TARGET_METRIC', ?2, 'User', 'bound', ?3, ?4, ?4)`
+    ).bind(targetInstallation, target, "6".repeat(64), seedAt),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO github_personal_installation_claims
+        (installation_id, github_account_node_id, subject_token, account_type, status,
+         claimed_session_sha256, claimed_at, updated_at)
+       VALUES (?1, 'USER_SOURCE_METRIC', ?2, 'User', 'revoked', ?3, ?4, ?4)`
+    ).bind(sourceInstallation, source, "7".repeat(64), seedAt),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO github_personal_installations
+        (installation_id, app_id, github_account_node_id, subject_token, account_type, state,
+         repository_selection, last_event_created_at, last_delivery_id, last_reconciliation_id,
+         installed_at, reconciled_at, updated_at)
+       VALUES (?1, ?2, 'USER_TARGET_METRIC', ?3, 'User', 'active', 'all', 1,
+         'metric_target_delivery', 'metric_target_recon', ?4, ?4, ?4)`
+    ).bind(targetInstallation, APP_ID, target, seedAt),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO github_personal_installations
+        (installation_id, app_id, github_account_node_id, subject_token, account_type, state,
+         repository_selection, last_event_created_at, last_delivery_id, last_reconciliation_id,
+         installed_at, deleted_at, reconciled_at, updated_at)
+       VALUES (?1, ?2, 'USER_SOURCE_METRIC', ?3, 'User', 'deleted', 'all', 1,
+         'metric_source_delivery', NULL, ?4, ?5, NULL, ?5)`
+    ).bind(sourceInstallation, APP_ID, source, seedAt, mergeAt)
+  ]);
+
+  const sameDayRows = [
+    ["metric_source_early", source, sourceInstallation, firstTrue] as const,
+    ["metric_target_late", target, targetInstallation, sameDayLater] as const
+  ];
+  if (insertionOrder === "target-first") sameDayRows.reverse();
+  const eventRows = [
+    ...sameDayRows,
+    ["metric_target_second", target, targetInstallation, outsideTrueWindow] as const
+  ];
+  for (const [id, subject, installation, occurredAt] of eventRows) {
+    await env.TEAM_CONTROL_DB.batch([
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO individual_measurement_bridge_messages
+          (message_id, payload_sha256, message_kind, subject_token, installation_id,
+           observed_at, result, received_at)
+         VALUES (?1, ?2, 'individual_activation_v1', ?3, ?4, ?5, 'applied', ?5)`
+      ).bind(id, "9".repeat(64), subject, installation, occurredAt),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO individual_measurement_events
+          (event_id, subject_token, installation_id, event_name, event_day, occurred_at,
+           release_version, release_commit_sha, release_channel, verdict, receipt_sha256)
+         VALUES (?1, ?2, ?3, 'individual_activation_v1', substr(?4, 1, 10), ?4,
+           '0.16.0', ?5, 'github_app', 'SAFE', ?6)`
+      ).bind(id, subject, installation, occurredAt, RELEASE_COMMIT, RECEIPT_SHA256)
+    ]);
+  }
+  return { firstTrue, outsideTrueWindow };
+}
+
 describe("R0 individual measurement lane", () => {
   beforeEach(clearDatabase);
 
@@ -376,6 +469,39 @@ describe("R0 individual measurement lane", () => {
       .first<{ status: string; canonical_subject_token: string }>();
     expect(merged?.status).toBe("merged");
     expect(merged?.canonical_subject_token).toMatch(/^mind_[a-f0-9]{64}$/u);
+  });
+
+  it("uses the earliest canonical alias event deterministically for the 60-day cohort", async () => {
+    for (const insertionOrder of ["target-first", "source-first"] as const) {
+      await clearDatabase();
+      expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+      const { firstTrue, outsideTrueWindow } = await seedMergedCanonicalCohort(insertionOrder);
+      const canonicalDay = await env.TEAM_CONTROL_DB.prepare(
+        `SELECT MIN(e.occurred_at) AS first_at
+           FROM individual_measurement_events e
+           JOIN individual_identities i ON i.subject_token = e.subject_token
+          WHERE i.canonical_subject_token = ?1 AND e.event_day = '2026-01-01'`
+      )
+        .bind(`mind_${"1".repeat(64)}`)
+        .first<{ first_at: string }>();
+      expect(canonicalDay?.first_at).toBe(firstTrue);
+      expect(Date.parse(outsideTrueWindow)).toBeGreaterThan(Date.parse(firstTrue) + 60 * 86_400_000);
+
+      const report = await signedMeasurement("/v1/measurement/report", {
+        schema_version: "r0-measurement-report-request-v1",
+        query_id: `merged_alias_report_${insertionOrder}`,
+        observed_at: new Date().toISOString()
+      });
+      expect(report.status).toBe(200);
+      expect(await report.json()).toMatchObject({
+        individuals: {
+          activated_individuals: 1,
+          matured_activated_individuals: 1,
+          repeated_individuals_within_60_days: 0,
+          matured_repeat_rate: 0
+        }
+      });
+    }
   });
 
   it("exports the authenticated lane then erases every raw personal identifier and installation ID", async () => {

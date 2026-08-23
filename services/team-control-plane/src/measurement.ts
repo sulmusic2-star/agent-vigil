@@ -8,6 +8,7 @@ import {
   handleIndividualMeasurementBridge,
   individualReportProjection
 } from "./individual-measurement.ts";
+import { assertMeasurementDutySecretSeparation } from "./measurement-security.ts";
 import {
   assertExactKeys,
   requireBoolean,
@@ -98,38 +99,12 @@ interface BridgeBase {
   observedAt: string;
 }
 
-const MEASUREMENT_SECRET_NAMES = [
-  "R0_MEASUREMENT_CONTROL_HMAC_SECRET",
-  "R0_MEASUREMENT_IDENTITY_BRIDGE_HMAC_SECRET",
-  "R0_MEASUREMENT_ACTIVITY_BRIDGE_HMAC_SECRET",
-  "R0_MEASUREMENT_IDENTITY_HMAC_SECRET"
-] as const;
-
-type MeasurementSecretName = (typeof MEASUREMENT_SECRET_NAMES)[number];
-
-export function assertMeasurementSecretConfiguration(
-  env: Pick<Env, MeasurementSecretName>
-): void {
-  const encoder = new TextEncoder();
-  const secrets = MEASUREMENT_SECRET_NAMES.map((name) => env[name]);
-  if (
-    secrets.some((secret) => typeof secret !== "string" || encoder.encode(secret).byteLength < 32) ||
-    new Set(secrets).size !== secrets.length
-  ) {
-    throw new ApiError(
-      503,
-      "r0_measurement_secret_configuration_invalid",
-      "R0 measurement secret configuration is invalid."
-    );
-  }
-}
-
 function requireEnabled(env: Env): void {
   const enabled: string = env.R0_MEASUREMENT_ENABLED;
   if (enabled !== "true") {
     throw new ApiError(503, "r0_measurement_disabled", "R0 measurement ingestion is disabled.");
   }
-  assertMeasurementSecretConfiguration(env);
+  assertMeasurementDutySecretSeparation(env);
 }
 
 function parseConfiguredAppId(value: string): number {
@@ -826,6 +801,7 @@ export async function putMeasurementConsent(request: Request, env: Env, auth: Au
 }
 
 export async function getOrganizationMeasurement(env: Env, auth: AuthContext): Promise<Response> {
+  requireEnabled(env);
   requireRole(auth, ["owner", "admin"]);
   const [consent, subject, events] = await Promise.all([
     env.TEAM_CONTROL_DB.prepare(

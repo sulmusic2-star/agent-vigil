@@ -10,6 +10,7 @@ import {
   type PersonalGitHubSummary,
   type PersonalReconciliationSnapshot
 } from "./individual-github.ts";
+import { assertMeasurementDutySecretSeparation } from "./measurement-security.ts";
 import {
   assertExactKeys,
   requireEnum,
@@ -414,6 +415,7 @@ async function recordUnclaimedDelivery(
 }
 
 export async function claimGitHubInstallation(request: Request, env: Env, auth: AuthContext): Promise<Response> {
+  assertMeasurementDutySecretSeparation(env);
   requireRole(auth, ["owner"]);
   if (auth.identityKind !== "human") {
     throw new ApiError(403, "human_owner_required", "Only a human organization owner can claim an installation.");
@@ -508,6 +510,7 @@ export async function getGitHubInstallation(env: Env, auth: AuthContext): Promis
 }
 
 export async function handleGitHubWebhook(request: Request, env: Env): Promise<Response> {
+  assertMeasurementDutySecretSeparation(env);
   const rawBody = await readBoundedText(request, GITHUB_WEBHOOK_BODY_LIMIT);
   await verifyGitHubWebhookSignature(request.headers.get("X-Hub-Signature-256"), rawBody, env.GITHUB_WEBHOOK_SECRET);
 
@@ -850,6 +853,7 @@ function parseReconciliation(body: Record<string, unknown>): ReconciliationSnaps
 }
 
 export async function handleGitHubReconciliation(request: Request, env: Env): Promise<Response> {
+  assertMeasurementDutySecretSeparation(env);
   const rawBody = await readBoundedText(request, GITHUB_RECONCILIATION_BODY_LIMIT);
   await verifyReconciliationSignature(
     request.headers.get("Agent-Vigil-GitHub-Reconciliation-Signature"),
