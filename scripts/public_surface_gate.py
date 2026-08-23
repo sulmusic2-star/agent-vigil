@@ -83,9 +83,13 @@ def version_failures() -> list[str]:
             failures.append("src/setup.ts does not declare the public Action version used by development builds")
             return failures
         public_version = published.group(1)
+    package_specs = (
+        f"@sulmusic/agent-vigil@{public_version}",
+        f"releases/download/v{public_version}/sulmusic-agent-vigil-{public_version}.tgz",
+    )
     for path in [ROOT / "README.md", ROOT / "docs/index.html", ROOT / "docs/ATTESTED_RECEIPTS.md"]:
-        if f"@sulmusic/agent-vigil@{public_version}" not in path.read_text():
-            failures.append(f"{relative(path)} does not show the public Action version {public_version}")
+        if not any(spec in path.read_text() for spec in package_specs):
+            failures.append(f"{relative(path)} does not show a runnable public package for {public_version}")
     return failures
 
 
@@ -202,6 +206,7 @@ def self_test() -> None:
     assert resolve_local_link(ROOT / "docs/index.html", "ATTESTED_RECEIPTS.md") == (ROOT / "docs/ATTESTED_RECEIPTS.md").resolve()
     assert "product hypothesis" in INTERNAL_TERMS
     assert "learn more" in GENERIC_ACTIONS
+    assert not version_failures()
     assert claim_consistency_failures() == []
     print("public surface gate self-test: PASS")
 
