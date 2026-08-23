@@ -20,6 +20,8 @@ import {
 } from "../src/upgrade/sandbox.ts";
 
 const IMAGE = `example.invalid/upgrade-runner@sha256:${"a".repeat(64)}`;
+const POSIX_FAKE_DOCKER = process.platform !== "win32";
+const POSIX_FAKE_DOCKER_REASON = "the fake Docker executable harness uses POSIX shebang execution";
 
 function config(image = IMAGE): UpgradeConfig {
   return validateUpgradeConfig({
@@ -136,10 +138,10 @@ test("Docker daemon endpoint parsing accepts only local transports", () => {
     "unix:///var/run/docker.sock?remote=1",
     "not-an-endpoint",
     "unix:///var/run/docker.sock\nssh://builder.example",
-  ]) assert.equal(isLocalDockerEndpoint(endpoint), false, endpoint);
+  ]) assert.equal(isLocalDockerEndpoint(endpoint, "linux"), false, endpoint);
 });
 
-test("daemon inspection rejects a remote context endpoint", () => {
+test("daemon inspection rejects a remote context endpoint", { skip: POSIX_FAKE_DOCKER ? false : POSIX_FAKE_DOCKER_REASON }, () => {
   const { root } = fixture();
   const fake = fakeDocker(root);
   const previous = process.env.VIGIL_FAKE_DOCKER_ENDPOINT;
@@ -155,7 +157,7 @@ test("daemon inspection rejects a remote context endpoint", () => {
   }
 });
 
-test("context inspection errors and malformed output force containment HOLD", () => {
+test("context inspection errors and malformed output force containment HOLD", { skip: POSIX_FAKE_DOCKER ? false : POSIX_FAKE_DOCKER_REASON }, () => {
   for (const failure of ["VIGIL_FAKE_DOCKER_CONTEXT_ERROR", "VIGIL_FAKE_DOCKER_CONTEXT_MALFORMED"] as const) {
     const { root, target, canaries } = fixture();
     const fake = fakeDocker(root);
@@ -194,7 +196,7 @@ test("a bare repository PATH executable is not accepted as the Docker client", (
   }
 });
 
-test("containment uses a random named container and verifies exact cleanup", () => {
+test("containment uses a random named container and verifies exact cleanup", { skip: POSIX_FAKE_DOCKER ? false : POSIX_FAKE_DOCKER_REASON }, () => {
   const { root, target, canaries } = fixture();
   const fake = fakeDocker(root);
   try {
@@ -219,7 +221,7 @@ test("containment uses a random named container and verifies exact cleanup", () 
   }
 });
 
-test("a SIGTERM-ignoring Docker client is killed on deadline and its exact container is cleaned", () => {
+test("a SIGTERM-ignoring Docker client is killed on deadline and its exact container is cleaned", { skip: POSIX_FAKE_DOCKER ? false : POSIX_FAKE_DOCKER_REASON }, () => {
   const { root, target, canaries } = fixture();
   const fake = fakeDocker(root);
   const canary: UpgradeCanaryConfig = {
@@ -253,7 +255,7 @@ test("a SIGTERM-ignoring Docker client is killed on deadline and its exact conta
   }
 });
 
-test("one resolved client pins every Docker call despite hostile endpoint and TLS environment changes", () => {
+test("one resolved client pins every Docker call despite hostile endpoint and TLS environment changes", { skip: POSIX_FAKE_DOCKER ? false : POSIX_FAKE_DOCKER_REASON }, () => {
   const { root, target, canaries } = fixture();
   const fake = fakeDocker(root);
   const controlledNames = [
@@ -316,7 +318,7 @@ test("one resolved client pins every Docker call despite hostile endpoint and TL
   }
 });
 
-test("cleanup and absence-list command errors force HOLD", () => {
+test("cleanup and absence-list command errors force HOLD", { skip: POSIX_FAKE_DOCKER ? false : POSIX_FAKE_DOCKER_REASON }, () => {
   for (const failure of ["VIGIL_FAKE_DOCKER_RM_ERROR", "VIGIL_FAKE_DOCKER_LS_ERROR"] as const) {
     const { root, target, canaries } = fixture();
     const fake = fakeDocker(root);

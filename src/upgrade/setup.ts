@@ -50,7 +50,10 @@ function ensureRepository(path: string): string {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    if (realpathSync(root) !== repository) throw new Error("nested");
+    // Git may spell the same Windows path with different case or separators.
+    // path.relative applies the host platform's path comparison rules without
+    // weakening the requirement that --repo itself is the repository root.
+    if (relative(realpathSync(root), repository) !== "") throw new Error("nested");
   } catch {
     throw new Error("--repo must be the root of a Git repository");
   }

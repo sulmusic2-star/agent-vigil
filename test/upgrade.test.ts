@@ -311,7 +311,9 @@ test("evaluation refuses overlapping current, candidate, and canary roots", () =
   assert.match(receipt.summary.reasons[0], /separate, non-overlapping directories/);
 });
 
-test("evaluation becomes HOLD when an artifact or canary harness changes during trials", () => {
+test("evaluation becomes HOLD when an artifact or canary harness changes during trials", {
+  skip: process.platform === "win32" ? "the mutation harness uses POSIX shebang execution" : false,
+}, () => {
   const repository = temp("vigil-upgrade-moving-input-");
   const current = join(repository, "current");
   const candidate = join(repository, "candidate");

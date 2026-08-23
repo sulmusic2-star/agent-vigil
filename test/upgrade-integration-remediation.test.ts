@@ -14,6 +14,7 @@ import { renderUpgradeDoctor, type UpgradeDoctorResult } from "../src/upgrade/se
 
 const IMAGE = `example.invalid/upgrade-runner@sha256:${"a".repeat(64)}`;
 const UNSAFE_TERMINAL = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/u;
+const POSIX_FAKE_DOCKER = process.platform !== "win32";
 
 function configDocument(canaryDirectory: string): Record<string, unknown> {
   return {
@@ -136,7 +137,9 @@ test("evaluation rejects a valid on-disk config that differs from the supplied s
 });
 
 for (const mutation of ["changed", "malformed", "missing", "moved"] as const) {
-  test(`evaluation becomes HOLD when its config is ${mutation} after entry validation`, () => {
+  test(`evaluation becomes HOLD when its config is ${mutation} after entry validation`, {
+    skip: POSIX_FAKE_DOCKER ? false : "the mutation harness uses POSIX shebang execution",
+  }, () => {
     const fixture = evaluationFixture();
     const loaded = loadUpgradeConfig(fixture.configPath);
     const receipt = runUpgradeEvaluation({
@@ -197,7 +200,9 @@ test("doctor presentation escapes dynamic paths, labels, details, and invisible 
   assert.match(output, /value\\u\{001B\}\[2J\\u\{000D\}\\u\{000A\}\\u\{202E\}\\u\{200B\}\\u\{FE0F\}end/);
 });
 
-test("init success output escapes a repository path containing terminal controls", () => {
+test("init success output escapes a repository path containing terminal controls", {
+  skip: process.platform === "win32" ? "Windows rejects control characters in path components" : false,
+}, () => {
   const parent = mkdtempSync(join(tmpdir(), "vigil-terminal-init-"));
   const repository = join(parent, "repo\u001b[2J\r\u202E\u200B");
   mkdirSync(repository);
