@@ -935,8 +935,8 @@ function parseFilePatches(diff) {
   let currentPath = "";
   for (const line of diff.split("\n")) {
     if (line.startsWith("+++ ")) {
-      const marker = line.slice(4).trim();
-      currentPath = marker === "/dev/null" ? "" : marker.replace(/^b\//, "");
+      const marker2 = line.slice(4).trim();
+      currentPath = marker2 === "/dev/null" ? "" : marker2.replace(/^b\//, "");
       current = void 0;
       continue;
     }
@@ -2733,39 +2733,39 @@ function splitShellCommands(command) {
 function classesForCommand(raw) {
   const command = raw.trim().replace(/^(?:sudo\s+|env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)+)+/, "");
   const classes = /* @__PURE__ */ new Set();
-  const add2 = (...items) => items.forEach((item2) => classes.add(item2));
-  if (/^(?:ls|pwd|cat|head|tail|grep|rg|find|stat|wc|diff|jq|sed\s+(?!.*(?:-i|--in-place))|git\s+(?:status|diff|log|show|rev-parse|ls-files|remote\s+-v)\b)/i.test(command)) add2("repository_read");
-  if (/^(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|check|lint|typecheck|smoke|verify)|exec\s+.*test)|^(?:pytest|python\s+-m\s+pytest|go\s+test|cargo\s+test|dotnet\s+test|mvn\s+test|gradle\s+test|make\s+(?:test|check|verify))\b/i.test(command)) add2("test_execute");
-  if (/^(?:npm|pnpm|yarn|bun)\s+(?:run\s+build|build)|^(?:cargo|go|dotnet|mvn|gradle|make)\s+build\b/i.test(command)) add2("build_execute");
-  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:i|install|add|ci)\b|pipx?\s+install\b|python\s+-m\s+pip\s+install\b|uv\s+(?:add|sync|pip\s+install)\b|brew\s+install\b|apt(?:-get)?\s+install\b|dnf\s+install\b|gem\s+install\b)/i.test(command)) add2("dependency_install");
-  if (/^(?:rm|rmdir|del|erase|trash)\b|\bgit\s+(?:clean|reset\s+--hard)\b/i.test(command)) add2("destructive_filesystem");
-  if (/^git\s+commit\b/i.test(command)) add2("git_commit");
-  if (/^git\s+push\b/i.test(command)) add2("git_push");
-  if (/^gh\s+pr\s+(?:create|merge|close|comment|edit|review)\b/i.test(command)) add2("pull_request_write");
-  if (/^(?:gh\s+release\s+(?:create|upload|edit|delete)|npm\s+publish|cargo\s+publish|twine\s+upload)\b/i.test(command)) add2("release_publish");
-  if (/^(?:vercel|netlify|wrangler\s+deploy|flyctl\s+deploy|gcloud\s+(?:run\s+deploy|app\s+deploy)|aws\s+.*deploy|kubectl\s+(?:apply|delete|rollout)|helm\s+(?:install|upgrade|uninstall)|terraform\s+apply)\b/i.test(command)) add2("deploy");
-  if (/^(?:curl|wget)\b/i.test(command)) add2(/(?:\s-X\s*(?:POST|PUT|PATCH|DELETE)\b|--request\s+(?:POST|PUT|PATCH|DELETE)\b|--data(?:-\w+)?\b|-d\s)/i.test(command) ? "external_write" : "network_read");
-  if (/^(?:gh\s+(?:issue|api)\s+.*(?:comment|create|edit|delete)|mail|sendmail|osascript\s+.*mail)\b/i.test(command)) add2("external_write");
-  if (/(?:\.env\b|\.ssh\/|credentials?|api[_-]?key|token|secret|keychain|security\s+find-generic-password)/i.test(command)) add2("credential_access");
-  if (/^(?:git\s+(?:add|checkout|switch|restore|mv|rm)|mkdir|touch|cp|mv|sed\s+.*(?:-i|--in-place)|tee\b|printf\b.*>|echo\b.*>)\b/i.test(command)) add2("repository_write");
-  if (/^(?:sh|bash|zsh|cmd|powershell|pwsh)\s+(?:-c|\/c)\b|\beval\b/i.test(command)) add2("unknown_effect");
-  if (!classes.size) add2("unknown_effect");
+  const add = (...items) => items.forEach((item2) => classes.add(item2));
+  if (/^(?:ls|pwd|cat|head|tail|grep|rg|find|stat|wc|diff|jq|sed\s+(?!.*(?:-i|--in-place))|git\s+(?:status|diff|log|show|rev-parse|ls-files|remote\s+-v)\b)/i.test(command)) add("repository_read");
+  if (/^(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|check|lint|typecheck|smoke|verify)|exec\s+.*test)|^(?:pytest|python\s+-m\s+pytest|go\s+test|cargo\s+test|dotnet\s+test|mvn\s+test|gradle\s+test|make\s+(?:test|check|verify))\b/i.test(command)) add("test_execute");
+  if (/^(?:npm|pnpm|yarn|bun)\s+(?:run\s+build|build)|^(?:cargo|go|dotnet|mvn|gradle|make)\s+build\b/i.test(command)) add("build_execute");
+  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:i|install|add|ci)\b|pipx?\s+install\b|python\s+-m\s+pip\s+install\b|uv\s+(?:add|sync|pip\s+install)\b|brew\s+install\b|apt(?:-get)?\s+install\b|dnf\s+install\b|gem\s+install\b)/i.test(command)) add("dependency_install");
+  if (/^(?:rm|rmdir|del|erase|trash)\b|\bgit\s+(?:clean|reset\s+--hard)\b/i.test(command)) add("destructive_filesystem");
+  if (/^git\s+commit\b/i.test(command)) add("git_commit");
+  if (/^git\s+push\b/i.test(command)) add("git_push");
+  if (/^gh\s+pr\s+(?:create|merge|close|comment|edit|review)\b/i.test(command)) add("pull_request_write");
+  if (/^(?:gh\s+release\s+(?:create|upload|edit|delete)|npm\s+publish|cargo\s+publish|twine\s+upload)\b/i.test(command)) add("release_publish");
+  if (/^(?:vercel|netlify|wrangler\s+deploy|flyctl\s+deploy|gcloud\s+(?:run\s+deploy|app\s+deploy)|aws\s+.*deploy|kubectl\s+(?:apply|delete|rollout)|helm\s+(?:install|upgrade|uninstall)|terraform\s+apply)\b/i.test(command)) add("deploy");
+  if (/^(?:curl|wget)\b/i.test(command)) add(/(?:\s-X\s*(?:POST|PUT|PATCH|DELETE)\b|--request\s+(?:POST|PUT|PATCH|DELETE)\b|--data(?:-\w+)?\b|-d\s)/i.test(command) ? "external_write" : "network_read");
+  if (/^(?:gh\s+(?:issue|api)\s+.*(?:comment|create|edit|delete)|mail|sendmail|osascript\s+.*mail)\b/i.test(command)) add("external_write");
+  if (/(?:\.env\b|\.ssh\/|credentials?|api[_-]?key|token|secret|keychain|security\s+find-generic-password)/i.test(command)) add("credential_access");
+  if (/^(?:git\s+(?:add|checkout|switch|restore|mv|rm)|mkdir|touch|cp|mv|sed\s+.*(?:-i|--in-place)|tee\b|printf\b.*>|echo\b.*>)\b/i.test(command)) add("repository_write");
+  if (/^(?:sh|bash|zsh|cmd|powershell|pwsh)\s+(?:-c|\/c)\b|\beval\b/i.test(command)) add("unknown_effect");
+  if (!classes.size) add("unknown_effect");
   return [...classes];
 }
 function classifyToolCall(call) {
   const name = call.name.toLowerCase();
   const classes = /* @__PURE__ */ new Set();
-  const add2 = (...items) => items.forEach((item2) => classes.add(item2));
+  const add = (...items) => items.forEach((item2) => classes.add(item2));
   const command = commandText(call);
   if (command !== void 0) {
     for (const segment of splitShellCommands(command)) for (const item2 of classesForCommand(segment)) classes.add(item2);
-  } else if (/create_thread|spawn_agent|delegate/.test(name)) add2("task_create");
-  else if (/apply[_-]?patch|write|edit|create_file|delete_file/.test(name)) add2("repository_write");
-  else if (/read|glob|grep|search_files|list_files|view_image/.test(name)) add2("repository_read");
-  else if (/web|fetch|search_query|open_url|browser/.test(name)) add2("network_read");
-  else if (/send|email|message|comment|post|submit/.test(name)) add2("external_write");
-  else add2("unknown_effect");
-  if (/credential|secret|keychain|token/.test(name)) add2("credential_access");
+  } else if (/create_thread|spawn_agent|delegate/.test(name)) add("task_create");
+  else if (/apply[_-]?patch|write|edit|create_file|delete_file/.test(name)) add("repository_write");
+  else if (/read|glob|grep|search_files|list_files|view_image/.test(name)) add("repository_read");
+  else if (/web|fetch|search_query|open_url|browser/.test(name)) add("network_read");
+  else if (/send|email|message|comment|post|submit/.test(name)) add("external_write");
+  else add("unknown_effect");
+  if (/credential|secret|keychain|token/.test(name)) add("credential_access");
   const identityInput = command ?? call.input;
   return {
     toolCallId: call.id,
@@ -3827,7 +3827,7 @@ import { relative as relative6, resolve as resolve8 } from "node:path";
 // src/authority-plan.ts
 import { createHash as createHash8 } from "node:crypto";
 import { execFileSync as execFileSync8 } from "node:child_process";
-import { basename as basename2, posix } from "node:path";
+import { posix } from "node:path";
 
 // node_modules/smol-toml/dist/date.js
 var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
@@ -4474,395 +4474,220 @@ function parse2(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
   return res;
 }
 
-// src/upgrade/presentation.ts
-var TERMINAL_UNSAFE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu;
-function terminalSafe(value) {
-  return value.replace(TERMINAL_UNSAFE, (character) => {
-    const codePoint = character.codePointAt(0);
-    return `\\u{${(codePoint ?? 0).toString(16).toUpperCase().padStart(4, "0")}}`;
-  });
-}
-
 // src/authority-plan.ts
+var MAX_CONFIG_BYTES = 1024 * 1024;
+var MAX_CONFIG_DEPTH = 32;
+var MAX_CONFIG_NODES = 25e3;
+var SENSITIVE_TEXT = /(?:token|secret|password|passphrase|api[_-]?key|authorization|bearer|private[_-]?key|gh[pousr]_|sk_(?:live|test)_|AKIA[0-9A-Z]{16}|-----BEGIN)/i;
 var AUTHORITY_CONFIG_PATHS = [
   ".mcp.json",
-  ".cursor/mcp.json",
+  "mcp.json",
   ".vscode/mcp.json",
+  ".cursor/mcp.json",
+  ".github/mcp.json",
+  ".github/copilot/mcp.json",
   ".claude/settings.json",
   ".claude/settings.local.json",
   ".codex/config.toml"
 ];
-var MAX_CONFIG_BYTES = 1024 * 1024;
+var RELEVANT_PATHS = new Set(AUTHORITY_CONFIG_PATHS);
 var DEFAULT_POLICY = { schemaVersion: 1, approvedAdditions: [], allowUnknownChanges: false };
-function git6(repo, args, maxBuffer = MAX_CONFIG_BYTES + 1) {
-  return execFileSync8("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer });
-}
-function gitOptional2(repo, args, maxBuffer = MAX_CONFIG_BYTES + 1) {
-  try {
-    return git6(repo, args, maxBuffer);
-  } catch {
-    return void 0;
-  }
-}
+var ALLOW_RESTRICTION = {
+  disposition: "ALLOW",
+  direction: "CONTRACTION",
+  severity: "low",
+  ruleId: "AVP000",
+  reason: "the declared authority surface became narrower"
+};
+var HOLD_UNKNOWN = {
+  disposition: "HOLD",
+  direction: "INCOMPARABLE",
+  severity: "medium",
+  ruleId: "AVP001",
+  reason: "the authority relationship cannot be proven from the declared configuration"
+};
 function sha256(value) {
   return `sha256:${createHash8("sha256").update(value).digest("hex")}`;
 }
-function object(value) {
+function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
-function strings(value) {
-  if (typeof value === "string") return [value];
-  return Array.isArray(value) ? value.filter((item2) => typeof item2 === "string") : [];
+function stringValue(value) {
+  return typeof value === "string" && value.trim() ? value : void 0;
 }
-function scalar(value) {
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
-  return void 0;
+function stringList(value) {
+  return Array.isArray(value) ? [...new Set(value.filter((item2) => typeof item2 === "string" && Boolean(item2.trim())).map((item2) => item2.trim()))].sort() : [];
 }
-function safeExecutable(command) {
-  if (typeof command !== "string" || !command.trim()) return "unresolved-command";
-  return basename2(command.trim().split(/\s+/)[0]).slice(0, 100);
+function boolValue(value) {
+  return typeof value === "boolean" ? value : void 0;
 }
-function redactLikelySecret(value) {
-  if (/(?:token|secret|password|passwd|api[_-]?key|authorization|bearer)[=:]/i.test(value)) return "<redacted-secret>";
-  if (/^[A-Fa-f0-9]{32,}$/.test(value) || /^[A-Za-z0-9+/_-]{40,}={0,2}$/.test(value)) return "<redacted-secret>";
-  return value.slice(0, 300);
-}
-function safeUrlIdentity(value) {
-  if (typeof value !== "string") return void 0;
+function safeOrigin(raw) {
   try {
-    const parsed = new URL(value);
-    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+    const url = new URL(raw);
+    return `${url.protocol}//${url.host}`;
   } catch {
-    return void 0;
+    return "non-url-endpoint";
   }
 }
-function safeEnvironmentIdentity(value) {
-  const result5 = {};
-  for (const [key, raw] of Object.entries(object(value) ?? {})) {
-    const text2 = scalar(raw) ?? canonical(raw);
-    result5[key] = /(?:token|secret|password|passwd|api[_-]?key|authorization|credential)/i.test(key) ? "<secret-value>" : redactLikelySecret(text2);
-  }
-  return result5;
+function safeExecutable(raw) {
+  if (SENSITIVE_TEXT.test(raw)) return "redacted-executable";
+  const clean = raw.trim().split(/\s+/)[0] || "unknown";
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(clean)) return "environment-assignment";
+  return clean.split(/[\\/]/).at(-1) || "unknown";
 }
-function serverFingerprint(server) {
-  return canonical({
-    type: scalar(server.type),
-    command: redactLikelySecret(scalar(server.command) ?? ""),
-    args: strings(server.args).map(redactLikelySecret),
-    url: safeUrlIdentity(server.url),
-    cwd: scalar(server.cwd),
-    enabled: scalar(server.enabled),
-    required: scalar(server.required),
-    env: safeEnvironmentIdentity(server.env),
-    headerKeys: Object.keys(object(server.headers) ?? object(server.http_headers) ?? {}).sort(),
-    envHeaderKeys: Object.keys(object(server.env_http_headers) ?? {}).sort(),
-    bearerTokenEnv: scalar(server.bearer_token_env_var),
-    enabledTools: strings(server.enabled_tools).sort(),
-    disabledTools: strings(server.disabled_tools).sort()
-  });
+function stableId(semanticKey) {
+  return `avp:${createHash8("sha256").update(semanticKey).digest("hex").slice(0, 20)}`;
 }
-function host(value) {
-  if (typeof value !== "string") return void 0;
-  try {
-    const parsed = new URL(value);
-    return parsed.hostname.toLowerCase() || void 0;
-  } catch {
-    return void 0;
-  }
+function safeField(value, maximum = 240) {
+  return value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "?").slice(0, maximum);
 }
-function add(entries, kind, subject, value, source, fingerprint = value) {
-  const cleanSubject = subject.trim().replace(/\s+/g, " ").slice(0, 300);
-  if (!cleanSubject) return;
-  entries.set(`${kind}\0${cleanSubject}`, { kind, subject: cleanSubject, value: value.slice(0, 500), fingerprint: sha256(fingerprint), source });
-}
-function flatten(value, prefix = "", out = /* @__PURE__ */ new Map()) {
-  if (Array.isArray(value)) {
-    value.forEach((item2, index) => flatten(item2, `${prefix}[${index}]`, out));
-  } else if (value && typeof value === "object") {
-    for (const [key, item2] of Object.entries(value)) {
-      flatten(item2, prefix ? `${prefix}.${key}` : key, out);
-    }
-  } else {
-    out.set(prefix || "$", sha256(canonical(value)));
-  }
-  return out;
-}
-function removeKnown(flat, patterns) {
-  for (const key of flat.keys()) if (patterns.some((pattern) => pattern.test(key))) flat.delete(key);
-}
-function parseMcp(raw, source) {
-  const parsed = JSON.parse(raw);
-  const root = object(parsed);
-  if (!root) throw new Error("top level must be an object");
-  const rootKey = object(root.mcpServers) ? "mcpServers" : object(root.servers) ? "servers" : void 0;
-  const servers = rootKey ? object(root[rootKey]) : void 0;
-  if (!servers || !rootKey) throw new Error("mcpServers or servers must be an object");
-  const entries = /* @__PURE__ */ new Map();
-  for (const [name, rawServer] of Object.entries(servers)) {
-    const server = object(rawServer);
-    if (!server) continue;
-    const command = safeExecutable(server.command);
-    const urlHost = host(server.url);
-    const transport = scalar(server.type) ?? (urlHost ? "remote" : "stdio");
-    add(entries, "server", `mcp:${name}`, `${transport}:${urlHost ?? command}`, source, serverFingerprint(server));
-    if (urlHost) add(entries, "network", urlHost, "mcp-server", source);
-    for (const key of Object.keys(object(server.env) ?? {})) add(entries, "secret", `env:${key}`, "referenced", source);
-    for (const key of Object.keys(object(server.headers) ?? {})) add(entries, "secret", `header:${key}`, "referenced", source);
-    const cwd = scalar(server.cwd);
-    if (cwd) add(entries, "filesystem", cwd, "mcp-cwd", source);
-  }
-  const unknown = flatten(parsed);
-  removeKnown(unknown, [
-    /^(?:mcpServers|servers)\.[^.]+\.(command|args(?:\[\d+\])?|env\.[^.]+|headers\.[^.]+|url|type|cwd|disabled|enabled|timeout|startup_timeout_sec|tool_timeout_sec)$/
-  ]);
-  return { entries, unknown };
-}
-function parseClaude2(raw, source) {
-  const parsed = JSON.parse(raw);
-  const root = object(parsed);
-  if (!root) throw new Error("top level must be an object");
-  const entries = /* @__PURE__ */ new Map();
-  const permissions = object(root.permissions);
-  for (const tool of strings(permissions?.allow)) add(entries, "tool", `allow:${tool}`, "allowed", source);
-  for (const tool of strings(permissions?.deny)) add(entries, "tool", `deny:${tool}`, "denied", source);
-  for (const tool of strings(permissions?.ask)) add(entries, "tool", `ask:${tool}`, "approval-required", source);
-  const defaultMode = scalar(permissions?.defaultMode);
-  if (defaultMode) add(entries, "approval", "claude-default-mode", defaultMode, source);
-  const disableBypass = scalar(permissions?.disableBypassPermissionsMode);
-  if (disableBypass === "disable") add(entries, "approval", "claude-disable-bypass-permissions", disableBypass, source);
-  for (const key of ["allowManagedPermissionRulesOnly", "allowManagedHooksOnly"]) {
-    const value = scalar(root[key]);
-    if (value === "true") add(entries, "approval", `claude-${key}`, value, source);
-  }
-  const model = scalar(root.model);
-  if (model) add(entries, "model", "claude-model", model, source);
-  for (const key of Object.keys(object(root.env) ?? {})) add(entries, "secret", `env:${key}`, "referenced", source);
-  const sandbox = object(root.sandbox);
-  const sandboxEnabled = scalar(sandbox?.enabled);
-  if (sandboxEnabled !== void 0) add(entries, "sandbox", "claude-enabled", sandboxEnabled, source);
-  for (const key of ["autoAllowBashIfSandboxed", "allowUnsandboxedCommands", "enableWeakerNestedSandbox"]) {
-    if (scalar(sandbox?.[key]) === "true") add(entries, "sandbox", `claude-${key}`, "true", source);
-  }
-  for (const item2 of strings(sandbox?.excludedCommands)) add(entries, "tool", `sandbox-exclusion:${item2}`, "excluded", source);
-  const network = object(sandbox?.network);
-  for (const domain of strings(network?.allowedDomains)) add(entries, "network", domain.toLowerCase(), "allowed", source);
-  for (const domain of strings(network?.allowUnixSockets)) add(entries, "filesystem", domain, "unix-socket", source);
-  for (const key of ["allowAllUnixSockets", "allowLocalBinding"]) {
-    const value = scalar(network?.[key]);
-    if (value === "true") add(entries, "sandbox", `claude-network-${key}`, value, source);
-  }
-  for (const key of ["httpProxyPort", "socksProxyPort"]) {
-    const value = scalar(network?.[key]);
-    if (value !== void 0) add(entries, "network", `localhost:${value}`, key, source);
-  }
-  for (const [event, rows] of Object.entries(object(root.hooks) ?? {})) {
-    if (!Array.isArray(rows)) continue;
-    for (const row of rows) {
-      const group = object(row);
-      const hooks = Array.isArray(group?.hooks) ? group.hooks : [];
-      for (const hook of hooks) {
-        const item2 = object(hook);
-        if (item2?.type === "command" && typeof item2.command === "string") {
-          add(entries, "hook", `${event}:${safeExecutable(item2.command)}`, "command configured", source, item2.command.split(/\s+/).map(redactLikelySecret).join(" "));
-        }
-      }
-    }
-  }
-  const unknown = flatten(parsed);
-  removeKnown(unknown, [
-    /^permissions\.(allow|deny|ask)\[\d+\]$/,
-    /^permissions\.(defaultMode|disableBypassPermissionsMode)$/,
-    /^(allowManagedPermissionRulesOnly|allowManagedHooksOnly)$/,
-    /^model$/,
-    /^env\.[^.]+$/,
-    /^sandbox\.(enabled|autoAllowBashIfSandboxed|allowUnsandboxedCommands|enableWeakerNestedSandbox|excludedCommands\[\d+\])$/,
-    /^sandbox\.network\.(allowedDomains|allowUnixSockets)\[\d+\]$/,
-    /^sandbox\.network\.(allowAllUnixSockets|allowLocalBinding|httpProxyPort|socksProxyPort)$/,
-    /^hooks\.[^.]+\[\d+\]\.(matcher|hooks\[\d+\]\.(type|command|timeout|async))$/,
-    /^(enabledMcpjsonServers|disabledMcpjsonServers)\[\d+\]$/,
-    /^enableAllProjectMcpServers$/,
-    /^(cleanupPeriodDays|companyAnnouncements|statusLine|outputStyle|language|respectGitignore|plansDirectory|alwaysThinkingEnabled|autoUpdatesChannel|spinnerTipsEnabled|showTurnDuration|prefersReducedMotion|spinnerVerbs\[\d+\])$/
-  ]);
-  return { entries, unknown };
-}
-function parseCodex2(raw, source) {
-  const parsed = parse2(raw);
-  const root = object(parsed);
-  if (!root) throw new Error("top level must be a table");
-  const entries = /* @__PURE__ */ new Map();
-  const model = scalar(root.model);
-  if (model) add(entries, "model", "codex-model", model, source);
-  const approval = scalar(root.approval_policy);
-  if (approval) add(entries, "approval", "codex-approval-policy", approval, source);
-  const sandboxMode = scalar(root.sandbox_mode);
-  if (sandboxMode) add(entries, "sandbox", "codex-sandbox-mode", sandboxMode, source);
-  const workspaceWrite = object(root.sandbox_workspace_write);
-  if (scalar(workspaceWrite?.network_access) === "true") add(entries, "network", "*", "workspace-write-network", source);
-  for (const path of strings(workspaceWrite?.writable_roots)) add(entries, "filesystem", path, "writable-root", source);
-  const servers = object(root.mcp_servers);
-  for (const [name, rawServer] of Object.entries(servers ?? {})) {
-    const server = object(rawServer);
-    if (!server || server.enabled === false) continue;
-    const urlHost = host(server.url);
-    add(entries, "server", `mcp:${name}`, `${urlHost ? "remote" : "stdio"}:${urlHost ?? safeExecutable(server.command)}`, source, serverFingerprint(server));
-    if (urlHost) add(entries, "network", urlHost, "mcp-server", source);
-    for (const key of Object.keys(object(server.env) ?? {})) add(entries, "secret", `env:${key}`, "referenced", source);
-    const bearerToken = scalar(server.bearer_token_env_var);
-    if (bearerToken) add(entries, "secret", `env:${bearerToken}`, "bearer-token", source);
-    for (const key of Object.keys(object(server.http_headers) ?? {})) add(entries, "secret", `header:${key}`, "referenced", source);
-    for (const key of Object.keys(object(server.env_http_headers) ?? {})) add(entries, "secret", `env-header:${key}`, "referenced", source);
-    for (const tool of strings(server.enabled_tools)) add(entries, "tool", `allow:${name}:${tool}`, "allowed", source);
-    for (const tool of strings(server.disabled_tools)) add(entries, "tool", `deny:${name}:${tool}`, "denied", source);
-  }
-  const unknown = flatten(parsed);
-  removeKnown(unknown, [
-    /^(model|model_provider|model_reasoning_effort|model_reasoning_summary|model_verbosity|approval_policy|sandbox_mode|web_search|disable_response_storage|show_raw_agent_reasoning|hide_agent_reasoning)$/,
-    /^sandbox_workspace_write\.(network_access|writable_roots\[\d+\])$/,
-    /^mcp_servers\.[^.]+\.(command|args\[\d+\]|env\.[^.]+|url|enabled|required|startup_timeout_sec|tool_timeout_sec|bearer_token_env_var|http_headers\.[^.]+|env_http_headers\.[^.]+|enabled_tools\[\d+\]|disabled_tools\[\d+\]|cwd)$/,
-    /^features\.[^.]+$/
-  ]);
-  return { entries, unknown };
-}
-function parseConfig(raw, source) {
-  if (Buffer.byteLength(raw) > MAX_CONFIG_BYTES) throw new Error(`file exceeds ${MAX_CONFIG_BYTES} bytes`);
-  if (source.endsWith("mcp.json")) return parseMcp(raw, source);
-  if (source.startsWith(".claude/")) return parseClaude2(raw, source);
-  if (source === ".codex/config.toml") return parseCodex2(raw, source);
-  throw new Error("unsupported authority configuration path");
-}
-function readAt(repo, ref, path) {
-  return gitOptional2(repo, ["show", `${ref}:${path}`]);
-}
-function snapshot(repo, ref) {
-  const entries = /* @__PURE__ */ new Map();
-  const unknown = /* @__PURE__ */ new Map();
-  const inspected = [];
-  for (const path of AUTHORITY_CONFIG_PATHS) {
-    const raw = readAt(repo, ref, path);
-    if (raw === void 0) continue;
-    inspected.push(path);
-    try {
-      const parsed = parseConfig(raw, path);
-      for (const [key, value] of parsed.entries) entries.set(`${path}\0${key}`, value);
-      for (const [key, value] of parsed.unknown) unknown.set(`${path}:${key}`, value);
-    } catch (error) {
-      unknown.set(`${path}:$parse`, sha256(`${error.message}\0${raw}`));
-    }
-  }
-  return { entries, unknown, inspected };
-}
-function isMutableModel(value) {
-  return /(?:^|[-_.])(latest|current|preview|nightly|dev|beta)(?:$|[-_.])/i.test(value) || !/\d/.test(value);
-}
-function approvalStrength(value) {
-  const normalized = value.toLowerCase();
-  if (/^(untrusted|default|ask|plan)$/.test(normalized)) return 4;
-  if (/^(on-request|on_request|acceptedits)$/.test(normalized)) return 3;
-  if (/^(on-failure|on_failure|dontask)$/.test(normalized)) return 2;
-  if (/^(never|bypasspermissions|bypass)$/.test(normalized)) return 0;
-  return 1;
-}
-function sandboxStrength(value) {
-  const normalized = value.toLowerCase();
-  if (/^(true|read-only|read_only)$/.test(normalized)) return 3;
-  if (/^(workspace-write|workspace_write)$/.test(normalized)) return 2;
-  if (/^(false|danger-full-access|danger_full_access|disabled)$/.test(normalized)) return 0;
-  return 1;
-}
-function permissiveBooleanStrength(value) {
-  const normalized = value.toLowerCase();
-  if (normalized === "false") return 3;
-  if (normalized === "true") return 0;
-  return 1;
-}
-function restrictiveBooleanStrength(value) {
-  const normalized = value.toLowerCase();
-  if (normalized === "true" || normalized === "disable") return 3;
-  if (normalized === "false" || normalized === "enable") return 0;
-  return 1;
-}
-function classify(before, after, policy) {
-  const item2 = after ?? before;
-  let effect = before && after ? "changed" : after ? "expanded" : "reduced";
-  let blocking = effect === "expanded";
-  let reason = effect === "expanded" ? "new authority requires review" : effect === "reduced" ? "authority was removed" : "authority changed";
-  if (item2.kind === "tool" && item2.subject.startsWith("deny:")) {
-    effect = after ? before ? "changed" : "reduced" : "expanded";
-    blocking = !after;
-    reason = after ? "a tool is now denied" : "a tool denial was removed";
-  } else if (item2.kind === "approval" && (item2.subject === "claude-disable-bypass-permissions" || item2.subject === "claude-allowManagedPermissionRulesOnly" || item2.subject === "claude-allowManagedHooksOnly")) {
-    const delta = (after ? restrictiveBooleanStrength(after.value) : 0) - (before ? restrictiveBooleanStrength(before.value) : 0);
-    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
-    blocking = delta <= 0;
-    reason = delta < 0 ? "an administrative restriction was weakened" : delta > 0 ? "an administrative restriction was strengthened" : "administrative restriction changed with no proven safer ordering";
-  } else if (item2.kind === "approval" && before && after) {
-    const delta = approvalStrength(after.value) - approvalStrength(before.value);
-    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
-    blocking = delta <= 0;
-    reason = delta < 0 ? "approval was weakened" : delta > 0 ? "approval was strengthened" : "approval mode changed with no proven safer ordering";
-  } else if (item2.kind === "sandbox" && item2.subject === "claude-enabled") {
-    const delta = (after ? sandboxStrength(after.value) : 0) - (before ? sandboxStrength(before.value) : 0);
-    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
-    blocking = delta < 0;
-    reason = delta < 0 ? "sandbox protection was weakened" : delta > 0 ? "sandbox protection was strengthened" : "sandbox setting did not change effective protection";
-  } else if (item2.kind === "sandbox" && item2.subject !== "codex-sandbox-mode") {
-    const delta = (after ? permissiveBooleanStrength(after.value) : 3) - (before ? permissiveBooleanStrength(before.value) : 3);
-    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
-    blocking = delta <= 0;
-    reason = delta < 0 ? "sandbox protection was weakened" : delta > 0 ? "sandbox protection was strengthened" : "sandbox setting changed with no proven safer ordering";
-  } else if (item2.kind === "sandbox" && before && after) {
-    const delta = sandboxStrength(after.value) - sandboxStrength(before.value);
-    effect = delta < 0 ? "expanded" : delta > 0 ? "reduced" : "changed";
-    blocking = delta <= 0;
-    reason = delta < 0 ? "sandbox protection was weakened" : delta > 0 ? "sandbox protection was strengthened" : "sandbox setting changed with no proven safer ordering";
-  } else if (item2.kind === "model" && before && after) {
-    const becameMutable = !isMutableModel(before.value) && isMutableModel(after.value);
-    effect = becameMutable ? "expanded" : "changed";
-    blocking = becameMutable;
-    reason = becameMutable ? "a pinned model became a mutable alias" : "model identity changed";
-  } else if (before && after) {
-    blocking = true;
-    reason = "effective authority changed";
-  }
-  const target = after ?? before;
-  const publicKey = `${item2.kind}:${item2.subject}=${after?.value ?? "removed"}`;
-  const approvalKey = target.fingerprint === sha256(target.value) ? publicKey : `${publicKey}@${target.fingerprint}`;
-  if (blocking && policy.approvedAdditions.includes(approvalKey)) {
-    blocking = false;
-    reason = `${reason}; approved by the base revision policy`;
-  }
+function atom(input) {
+  const publicAtom2 = {
+    id: stableId(input.semanticKey),
+    platform: input.platform,
+    sourcePath: safeField(input.sourcePath),
+    kind: input.kind,
+    subject: safeField(input.subject),
+    action: safeField(input.action),
+    resource: safeField(input.resource),
+    effect: input.effect,
+    decision: input.decision,
+    constraints: input.constraints.map((value) => safeField(value)).sort(),
+    locator: safeField(input.locator)
+  };
   return {
-    kind: item2.kind,
-    subject: item2.subject,
-    ...before ? { before: before.value } : {},
-    ...after ? { after: after.value } : {},
-    effect,
-    blocking,
-    reason,
-    source: item2.source,
-    approvalKey
+    ...publicAtom2,
+    semanticKey: input.semanticKey,
+    comparisonToken: sha256(canonical(input.comparisonValue)),
+    added: input.added,
+    removed: input.removed,
+    ...input.compare ? { compare: input.compare } : {}
   };
 }
+function publicAtom(value) {
+  const { semanticKey: _key, comparisonToken: _token, added: _added, removed: _removed, compare: _compare, ...safe } = value;
+  return safe;
+}
+function decisionRelation(before, after) {
+  if (before === after) return "equal";
+  if (before === "UNKNOWN" || after === "UNKNOWN") return "incomparable";
+  const rank = { DENY: 0, ASK: 1, ALLOW: 2 };
+  return rank[after] > rank[before] ? "expansion" : "contraction";
+}
+function orderedRelation(order) {
+  return (before, after) => {
+    const a = order.indexOf(before.constraints.find((item2) => item2.startsWith("mode="))?.slice(5) ?? "");
+    const b = order.indexOf(after.constraints.find((item2) => item2.startsWith("mode="))?.slice(5) ?? "");
+    if (a < 0 || b < 0) return "incomparable";
+    return b === a ? "equal" : b > a ? "expansion" : "contraction";
+  };
+}
+function partialRelation(edges) {
+  const reachable = /* @__PURE__ */ new Map();
+  for (const [less, more] of edges) {
+    if (!reachable.has(less)) reachable.set(less, /* @__PURE__ */ new Set());
+    reachable.get(less).add(more);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [from, targets] of reachable) {
+      for (const target of [...targets]) {
+        for (const next of reachable.get(target) ?? []) {
+          if (!targets.has(next)) {
+            targets.add(next);
+            changed = true;
+          }
+        }
+      }
+      reachable.set(from, targets);
+    }
+  }
+  return (before, after) => {
+    const a = before.constraints.find((item2) => item2.startsWith("mode="))?.slice(5) ?? "";
+    const b = after.constraints.find((item2) => item2.startsWith("mode="))?.slice(5) ?? "";
+    if (!a || !b) return "incomparable";
+    if (a === b) return "equal";
+    if (reachable.get(a)?.has(b)) return "expansion";
+    if (reachable.get(b)?.has(a)) return "contraction";
+    return "incomparable";
+  };
+}
+var MCP_APPROVAL_RELATION = partialRelation([
+  ["prompt", "auto"],
+  ["prompt", "writes"],
+  ["auto", "approve"],
+  ["writes", "approve"]
+]);
+var CLAUDE_MODE_RELATION = partialRelation([
+  ["plan", "default"],
+  ["dontAsk", "default"],
+  ["default", "acceptEdits"],
+  ["default", "auto"],
+  ["acceptEdits", "bypassPermissions"],
+  ["auto", "bypassPermissions"]
+]);
+function expansion(ruleId, reason, severity = "high") {
+  return { disposition: "BLOCK", direction: "EXPANSION", severity, ruleId, reason };
+}
+function hold(ruleId, reason, severity = "medium") {
+  return { disposition: "HOLD", direction: "INCOMPARABLE", severity, ruleId, reason };
+}
+function git6(repo, args, maxBuffer = 64 * 1024 * 1024) {
+  return execFileSync8("git", args, {
+    cwd: repo,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer
+  });
+}
+function relevantFiles(repo, ref) {
+  return git6(repo, ["ls-tree", "--name-only", "-z", ref, "--", ...RELEVANT_PATHS]).split("\0").filter((path) => RELEVANT_PATHS.has(path)).sort();
+}
+function readGitFile(repo, ref, path) {
+  const raw = git6(repo, ["show", `${ref}:${path}`], MAX_CONFIG_BYTES + 1);
+  if (Buffer.byteLength(raw) > MAX_CONFIG_BYTES) throw new Error(`${path}@${ref} exceeds ${MAX_CONFIG_BYTES} bytes`);
+  return raw;
+}
+function readGitFileOptional(repo, ref, path) {
+  try {
+    git6(repo, ["cat-file", "-e", `${ref}:${path}`]);
+  } catch {
+    return void 0;
+  }
+  return readGitFile(repo, ref, path);
+}
 function validatePolicy2(input) {
-  const root = object(input);
+  const root = record(input);
   if (!root || root.schemaVersion !== 1) throw new Error("policy schemaVersion must be 1");
   const allowed = /* @__PURE__ */ new Set(["schemaVersion", "approvedAdditions", "allowUnknownChanges"]);
   const extras = Object.keys(root).filter((key) => !allowed.has(key));
   if (extras.length) throw new Error(`policy contains unknown field(s): ${extras.join(", ")}`);
-  if (!Array.isArray(root.approvedAdditions) || root.approvedAdditions.some((item2) => typeof item2 !== "string" || !item2.trim())) throw new Error("policy approvedAdditions must be an array of non-empty strings");
-  if (root.approvedAdditions.length > 1e3 || root.approvedAdditions.some((item2) => item2.length > 1e3)) throw new Error("policy approvedAdditions must contain at most 1000 entries of at most 1000 characters");
-  if (new Set(root.approvedAdditions).size !== root.approvedAdditions.length) throw new Error("policy approvedAdditions must not contain duplicates");
+  if (!Array.isArray(root.approvedAdditions) || root.approvedAdditions.some((item2) => typeof item2 !== "string" || !item2.trim())) {
+    throw new Error("policy approvedAdditions must be an array of non-empty strings");
+  }
+  if (root.approvedAdditions.length > 1e3 || root.approvedAdditions.some((item2) => item2.length > 1e3)) {
+    throw new Error("policy approvedAdditions must contain at most 1000 entries of at most 1000 characters");
+  }
+  if (new Set(root.approvedAdditions).size !== root.approvedAdditions.length) {
+    throw new Error("policy approvedAdditions must not contain duplicates");
+  }
   if (typeof root.allowUnknownChanges !== "boolean") throw new Error("policy allowUnknownChanges must be boolean");
-  return { schemaVersion: 1, approvedAdditions: [...new Set(root.approvedAdditions)], allowUnknownChanges: root.allowUnknownChanges };
+  return {
+    schemaVersion: 1,
+    approvedAdditions: [...root.approvedAdditions],
+    allowUnknownChanges: root.allowUnknownChanges
+  };
 }
-function loadPolicy2(repo, base, path = ".agent-vigil-authority-plan.json") {
+function loadAuthorityPlanPolicy(repo, base, path = ".agent-vigil-authority-plan.json") {
   const clean = posix.normalize(path.replace(/^\.\//, ""));
   if (!clean || clean === ".." || clean.startsWith("../") || clean.startsWith("/") || path.includes("\\") || path.includes(":")) {
     throw new Error("authority plan policy path must stay inside the repository");
   }
-  const raw = readAt(repo, base, clean);
-  if (raw === void 0) return { value: DEFAULT_POLICY, source: "built-in default", sha256: sha256(canonical(DEFAULT_POLICY)) };
-  if (Buffer.byteLength(raw) > MAX_CONFIG_BYTES) throw new Error("authority plan policy is too large");
+  const raw = readGitFileOptional(repo, base, clean);
+  if (raw === void 0) {
+    return { value: DEFAULT_POLICY, source: "built-in default", sha256: sha256(canonical(DEFAULT_POLICY)) };
+  }
   let parsed;
   try {
     parsed = JSON.parse(raw);
@@ -4872,95 +4697,1160 @@ function loadPolicy2(repo, base, path = ".agent-vigil-authority-plan.json") {
   const value = validatePolicy2(parsed);
   return { value, source: `${clean}@${base}`, sha256: sha256(canonical(value)) };
 }
-function buildAuthorityPlan(repo, base, head, vigilVersion, policyPath) {
-  const baseSha = git6(repo, ["rev-parse", "--verify", `${base}^{commit}`]).trim();
-  const headSha = git6(repo, ["rev-parse", "--verify", `${head}^{commit}`]).trim();
-  const policy = loadPolicy2(repo, baseSha, policyPath);
-  const before = snapshot(repo, baseSha);
-  const after = snapshot(repo, headSha);
-  const keys = /* @__PURE__ */ new Set([...before.entries.keys(), ...after.entries.keys()]);
-  const changes = [];
-  for (const key of keys) {
-    const left = before.entries.get(key);
-    const right = after.entries.get(key);
-    if (left?.fingerprint === right?.fingerprint) continue;
-    changes.push(classify(left, right, policy.value));
+function parseConfig(raw, format) {
+  const source = raw.charCodeAt(0) === 65279 ? raw.slice(1) : raw;
+  const parsed = format === "toml" ? parse2(source) : JSON.parse(source);
+  assertBoundedConfig(parsed);
+  return parsed;
+}
+function assertBoundedConfig(value) {
+  let nodes = 0;
+  const visit = (current, depth) => {
+    nodes += 1;
+    if (nodes > MAX_CONFIG_NODES) throw new Error(`configuration exceeds ${MAX_CONFIG_NODES} structured values`);
+    if (depth > MAX_CONFIG_DEPTH) throw new Error(`configuration exceeds maximum depth ${MAX_CONFIG_DEPTH}`);
+    if (Array.isArray(current)) {
+      for (const item2 of current) visit(item2, depth + 1);
+      return;
+    }
+    const object2 = record(current);
+    if (object2) for (const item2 of Object.values(object2)) visit(item2, depth + 1);
+  };
+  visit(value, 0);
+}
+function sourcePlatform(path) {
+  if (path.startsWith(".claude/")) return "claude-code";
+  if (path.startsWith(".codex/")) return "codex";
+  return "mcp";
+}
+function permissionEffect(rule) {
+  const tool = rule.split("(", 1)[0].toLowerCase();
+  if (/read|grep|glob|search/.test(tool)) return "read";
+  if (/edit|write|notebook/.test(tool)) return "write";
+  if (/web|fetch/.test(tool)) return "network";
+  if (/bash|shell|exec/.test(tool)) return "execute";
+  if (/mcp__|send|post|comment|create|delete|update/.test(tool)) return "external";
+  return "unknown";
+}
+function permissionResource(rule) {
+  const open = rule.indexOf("(");
+  if (open < 0 || !rule.endsWith(")")) return "*";
+  const value = rule.slice(open + 1, -1).trim();
+  if (SENSITIVE_TEXT.test(value)) return "redacted-rule-scope";
+  return value.slice(0, 200) || "*";
+}
+function safePermissionRule(rule) {
+  if (SENSITIVE_TEXT.test(rule)) {
+    return `${permissionAction(rule)}(redacted-rule-scope)`;
   }
-  changes.sort((a, b) => Number(b.blocking) - Number(a.blocking) || a.kind.localeCompare(b.kind) || a.subject.localeCompare(b.subject));
-  const unknownKeys = /* @__PURE__ */ new Set([...before.unknown.keys(), ...after.unknown.keys()]);
-  const uncertainties = [...unknownKeys].filter((key) => before.unknown.get(key) !== after.unknown.get(key)).map((key) => {
-    const separator = key.indexOf(":");
-    return {
-      source: key.slice(0, separator),
-      setting: key.slice(separator + 1),
-      reason: key.endsWith(":$parse") ? "the changed configuration could not be parsed" : "the changed setting is not normalized by this Agent Vigil version"
-    };
-  });
-  const changedConfigPaths = git6(repo, ["diff", "--name-only", "-z", baseSha, headSha]).split("\0").filter(Boolean).filter((path) => AUTHORITY_CONFIG_PATHS.includes(posix.normalize(path)));
-  const inspected = [.../* @__PURE__ */ new Set([...before.inspected, ...after.inspected, ...changedConfigPaths])].sort();
-  const blocking = changes.filter((change) => change.blocking).length;
-  const relevantUncertainty = policy.value.allowUnknownChanges ? 0 : uncertainties.length;
-  const status = blocking ? "FAIL" : relevantUncertainty ? "INCONCLUSIVE" : "PASS";
-  const reproduction = `vigil plan --repo . --base ${baseSha} --head ${headSha}`;
-  const payload = { schemaVersion: "1", vigilVersion, status, base: baseSha, head: headSha, policy: { source: policy.source, sha256: policy.sha256 }, inspected, changes, uncertainties, reproduction };
+  return rule.slice(0, 240);
+}
+function permissionAction(rule) {
+  return rule.split("(", 1)[0].trim() || "unknown-tool";
+}
+function permissionDisposition(decision) {
+  if (decision === "ALLOW") return {
+    added: expansion("AVP009", "a tool or resource became pre-authorized"),
+    removed: ALLOW_RESTRICTION
+  };
+  if (decision === "DENY") return {
+    added: ALLOW_RESTRICTION,
+    removed: expansion("AVP010", "an explicit deny rule was removed")
+  };
+  if (decision === "ASK") return {
+    added: { ...ALLOW_RESTRICTION, direction: "NEUTRAL", reason: "an explicit approval boundary was added" },
+    removed: hold("AVP014", "removing an ask rule delegates the result to another rule or the default mode")
+  };
+  return { added: HOLD_UNKNOWN, removed: HOLD_UNKNOWN };
+}
+function addPermissionAtoms(out, platform, path, rules, decision, locator) {
+  const disposition = permissionDisposition(decision);
+  for (const rule of stringList(rules)) {
+    const semanticKey = `${platform}\0${path}\0permission\0${rule}`;
+    out.push(atom({
+      semanticKey,
+      platform,
+      sourcePath: path,
+      kind: "permission",
+      subject: "agent",
+      action: permissionAction(rule),
+      resource: permissionResource(rule),
+      effect: permissionEffect(rule),
+      decision,
+      constraints: [`rule=${safePermissionRule(rule)}`],
+      locator: `${locator}.${decision.toLowerCase()}`,
+      comparisonValue: decision,
+      added: disposition.added,
+      removed: disposition.removed,
+      compare: (before, after) => decisionRelation(before.decision, after.decision)
+    }));
+  }
+}
+function addEnvironmentAtoms(out, platform, path, subject, values, locator) {
+  const env = record(values);
+  if (!env) return;
+  for (const name of Object.keys(env).sort()) {
+    const semanticKey = `${platform}\0${path}\0credential\0${subject}\0${name}`;
+    out.push(atom({
+      semanticKey,
+      platform,
+      sourcePath: path,
+      kind: "credential",
+      subject,
+      action: "credential.expose",
+      resource: `env:${name}`,
+      effect: "credential",
+      decision: "ALLOW",
+      constraints: ["value=redacted"],
+      locator: `${locator}.${name}`,
+      comparisonValue: env[name],
+      added: expansion("AVP008", "a new environment value can be exposed to agent-controlled code", "critical"),
+      removed: ALLOW_RESTRICTION,
+      compare: () => "incomparable"
+    }));
+  }
+}
+function addOpaqueAuthoritySection(out, platform, path, locator, value, reason) {
+  if (value === void 0) return;
+  const disposition = hold("AVP014", reason, "high");
+  out.push(atom({
+    semanticKey: `${platform}\0${path}\0opaque-authority\0${locator}`,
+    platform,
+    sourcePath: path,
+    kind: "control",
+    subject: "agent",
+    action: "authority.opaque",
+    resource: locator,
+    effect: "unknown",
+    decision: "UNKNOWN",
+    constraints: ["normalization=opaque"],
+    locator,
+    comparisonValue: value,
+    added: disposition,
+    removed: disposition,
+    compare: (before, after) => before.comparisonToken === after.comparisonToken ? "equal" : "incomparable"
+  }));
+}
+function addMcpEnvironmentReferences(out, platform, path, subject, values, locator) {
+  if (!Array.isArray(values)) return;
+  for (const [index, raw] of values.entries()) {
+    const config = record(raw);
+    const name = stringValue(raw) ?? stringValue(config?.name);
+    if (!name) {
+      addOpaqueAuthoritySection(out, platform, path, `${locator}[${index}]`, raw, "an MCP environment reference has an unsupported shape");
+      continue;
+    }
+    const source = stringValue(config?.source) ?? "local";
+    out.push(atom({
+      semanticKey: `${platform}\0${path}\0${subject}\0env-ref\0${name}`,
+      platform,
+      sourcePath: path,
+      kind: "credential",
+      subject,
+      action: "environment.inherit",
+      resource: `env:${name}`,
+      effect: "credential",
+      decision: "ALLOW",
+      constraints: [`source=${source}`],
+      locator,
+      comparisonValue: { name, source },
+      added: expansion("AVP008", "an MCP process can inherit an additional environment value", "critical"),
+      removed: ALLOW_RESTRICTION,
+      compare: (before, after) => before.comparisonToken === after.comparisonToken ? "equal" : "incomparable"
+    }));
+  }
+}
+function addMcpServerAtoms(out, platform, path, values, locator) {
+  const servers = record(values);
+  if (!servers) return;
+  for (const [name, rawServer] of Object.entries(servers).sort(([a], [b]) => a.localeCompare(b))) {
+    const server = record(rawServer);
+    if (!server) continue;
+    const enabled = boolValue(server.enabled) ?? !boolValue(server.disabled);
+    const command = stringValue(server.command);
+    const url = stringValue(server.url) ?? stringValue(server.serverUrl);
+    const transport = url ? "http" : command ? "stdio" : stringValue(server.type) ?? "unknown";
+    const identity = url ? safeOrigin(url) : command ? safeExecutable(command) : "unknown-server";
+    const baseKey = `${platform}\0${path}\0mcp\0${name}`;
+    out.push(atom({
+      semanticKey: `${baseKey}\0enabled`,
+      platform,
+      sourcePath: path,
+      kind: "capability",
+      subject: "agent",
+      action: "mcp.connect",
+      resource: `${name}:${identity}`,
+      effect: transport === "stdio" ? "execute" : transport === "http" ? "network" : "unknown",
+      decision: enabled ? "ALLOW" : "DENY",
+      constraints: [`enabled=${enabled}`, `transport=${transport}`],
+      locator: `${locator}.${name}.enabled`,
+      comparisonValue: enabled,
+      added: enabled ? expansion("AVP002", "a newly declared MCP server adds an unbounded tool surface", "critical") : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
+      removed: enabled ? ALLOW_RESTRICTION : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
+      compare: (before, after) => decisionRelation(before.decision, after.decision)
+    }));
+    out.push(atom({
+      semanticKey: `${baseKey}\0identity`,
+      platform,
+      sourcePath: path,
+      kind: "control",
+      subject: name,
+      action: "mcp.launch",
+      resource: identity,
+      effect: transport === "stdio" ? "execute" : transport === "http" ? "network" : "unknown",
+      decision: enabled ? "ALLOW" : "DENY",
+      constraints: [`transport=${transport}`, ...command ? [`executable=${safeExecutable(command)}`] : [], ...url ? [`origin=${safeOrigin(url)}`] : []],
+      locator: `${locator}.${name}`,
+      comparisonValue: { command, args: server.args, cwd: server.cwd, url },
+      added: enabled ? expansion("AVP002", "a new MCP launch identity can execute code or contact an external service", "critical") : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
+      removed: ALLOW_RESTRICTION,
+      compare: () => "expansion"
+    }));
+    addEnvironmentAtoms(out, platform, path, `mcp:${name}`, server.env, `${locator}.${name}.env`);
+    addEnvironmentAtoms(out, platform, path, `mcp:${name}`, server.http_headers, `${locator}.${name}.http_headers`);
+    addEnvironmentAtoms(out, platform, path, `mcp:${name}`, server.env_http_headers, `${locator}.${name}.env_http_headers`);
+    addEnvironmentAtoms(out, platform, path, `mcp:${name}`, server.headers, `${locator}.${name}.headers`);
+    addMcpEnvironmentReferences(out, platform, path, `mcp:${name}`, server.env_vars, `${locator}.${name}.env_vars`);
+    const bearer = stringValue(server.bearer_token_env_var);
+    if (bearer) addEnvironmentAtoms(out, platform, path, `mcp:${name}`, { [bearer]: "environment-reference" }, `${locator}.${name}.bearer_token_env_var`);
+    const auth = stringValue(server.auth);
+    if (auth) {
+      out.push(atom({
+        semanticKey: `${baseKey}\0auth-mode`,
+        platform,
+        sourcePath: path,
+        kind: "credential",
+        subject: `mcp:${name}`,
+        action: "mcp.authenticate",
+        resource: "credential-source",
+        effect: "credential",
+        decision: auth === "oauth" || auth === "chatgpt" ? "ALLOW" : "UNKNOWN",
+        constraints: [`mode=${auth}`],
+        locator: `${locator}.${name}.auth`,
+        comparisonValue: auth,
+        added: auth === "oauth" || auth === "chatgpt" ? expansion("AVP008", "an MCP server can use an additional authenticated credential source", "critical") : hold("AVP014", `unsupported MCP authentication mode ${auth}`),
+        removed: HOLD_UNKNOWN,
+        compare: (before, after) => before.comparisonToken === after.comparisonToken ? "equal" : "incomparable"
+      }));
+    }
+    const executionEnvironment = stringValue(server.experimental_environment);
+    if (executionEnvironment) {
+      out.push(atom({
+        semanticKey: `${baseKey}\0execution-environment`,
+        platform,
+        sourcePath: path,
+        kind: "capability",
+        subject: `mcp:${name}`,
+        action: "process.execute",
+        resource: executionEnvironment,
+        effect: "execute",
+        decision: executionEnvironment === "remote" ? "ALLOW" : executionEnvironment === "local" ? "ASK" : "UNKNOWN",
+        constraints: [`environment=${executionEnvironment}`],
+        locator: `${locator}.${name}.experimental_environment`,
+        comparisonValue: executionEnvironment,
+        added: executionEnvironment === "remote" ? expansion("AVP009", "an MCP stdio process can execute in a remote environment", "critical") : executionEnvironment === "local" ? { ...ALLOW_RESTRICTION, direction: "NEUTRAL" } : HOLD_UNKNOWN,
+        removed: HOLD_UNKNOWN,
+        compare: orderedRelation(["local", "remote"])
+      }));
+    }
+    const oauthResource = stringValue(server.oauth_resource);
+    if (oauthResource) {
+      out.push(atom({
+        semanticKey: `${baseKey}\0oauth-resource`,
+        platform,
+        sourcePath: path,
+        kind: "credential",
+        subject: `mcp:${name}`,
+        action: "oauth.resource",
+        resource: safeOrigin(oauthResource),
+        effect: "credential",
+        decision: "ALLOW",
+        constraints: [],
+        locator: `${locator}.${name}.oauth_resource`,
+        comparisonValue: oauthResource,
+        added: expansion("AVP008", "an MCP connection requests credentials for an additional OAuth resource", "critical"),
+        removed: ALLOW_RESTRICTION,
+        compare: () => "incomparable"
+      }));
+    }
+    for (const scope of stringList(server.scopes)) {
+      out.push(atom({
+        semanticKey: `${baseKey}\0oauth-scope\0${scope}`,
+        platform,
+        sourcePath: path,
+        kind: "permission",
+        subject: `mcp:${name}`,
+        action: "oauth.scope",
+        resource: scope,
+        effect: "external",
+        decision: "ALLOW",
+        constraints: [],
+        locator: `${locator}.${name}.scopes`,
+        comparisonValue: scope,
+        added: expansion("AVP008", "an MCP connection requests an additional OAuth scope", "critical"),
+        removed: ALLOW_RESTRICTION
+      }));
+    }
+    const enabledTools = stringList(server.enabled_tools ?? server.enabledTools);
+    const disabledTools = stringList(server.disabled_tools ?? server.disabledTools);
+    for (const tool of enabledTools) {
+      out.push(atom({
+        semanticKey: `${baseKey}\0tool\0${tool}`,
+        platform,
+        sourcePath: path,
+        kind: "capability",
+        subject: `mcp:${name}`,
+        action: "mcp.tool",
+        resource: tool,
+        effect: "unknown",
+        decision: "ALLOW",
+        constraints: ["selection=enabled"],
+        locator: `${locator}.${name}.enabled_tools`,
+        comparisonValue: true,
+        added: expansion("AVP013", "an additional MCP tool is exposed to the agent", "critical"),
+        removed: ALLOW_RESTRICTION
+      }));
+    }
+    for (const tool of disabledTools) {
+      out.push(atom({
+        semanticKey: `${baseKey}\0tool\0${tool}`,
+        platform,
+        sourcePath: path,
+        kind: "capability",
+        subject: `mcp:${name}`,
+        action: "mcp.tool",
+        resource: tool,
+        effect: "unknown",
+        decision: "DENY",
+        constraints: ["selection=disabled"],
+        locator: `${locator}.${name}.disabled_tools`,
+        comparisonValue: false,
+        added: ALLOW_RESTRICTION,
+        removed: expansion("AVP013", "an MCP tool was removed from the explicit deny list", "critical"),
+        compare: (before, after) => decisionRelation(before.decision, after.decision)
+      }));
+    }
+    const approvalMode = stringValue(server.default_tools_approval_mode ?? server.defaultToolsApprovalMode);
+    if (approvalMode) addMcpApprovalAtom(out, platform, path, `${baseKey}\0approval`, name, approvalMode, `${locator}.${name}.default_tools_approval_mode`);
+    const tools = record(server.tools);
+    if (tools) {
+      for (const [tool, rawTool] of Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))) {
+        const config = record(rawTool);
+        if (!config) continue;
+        const mode = stringValue(config.approval_mode ?? config.approvalMode);
+        if (mode) addMcpApprovalAtom(out, platform, path, `${baseKey}\0tool-approval\0${tool}`, `${name}/${tool}`, mode, `${locator}.${name}.tools.${tool}.approval_mode`);
+      }
+    }
+    const recognized = /* @__PURE__ */ new Set([
+      "args",
+      "auth",
+      "bearer_token_env_var",
+      "command",
+      "cwd",
+      "defaultToolsApprovalMode",
+      "default_tools_approval_mode",
+      "disabled",
+      "disabledTools",
+      "disabled_tools",
+      "enabled",
+      "enabledTools",
+      "enabled_tools",
+      "env",
+      "env_http_headers",
+      "env_vars",
+      "experimental_environment",
+      "headers",
+      "http_headers",
+      "oauth_resource",
+      "required",
+      "scopes",
+      "serverUrl",
+      "startup_timeout_ms",
+      "startup_timeout_sec",
+      "tool_timeout_sec",
+      "tools",
+      "type",
+      "url"
+    ]);
+    const unsupported = Object.fromEntries(Object.entries(server).filter(([key]) => !recognized.has(key)));
+    if (Object.keys(unsupported).length) {
+      addOpaqueAuthoritySection(out, platform, path, `${locator}.${name}.*`, unsupported, "an MCP server contains authority-bearing fields that are not yet normalized");
+    }
+  }
+}
+function addMcpApprovalAtom(out, platform, path, semanticKey, subject, mode, locator) {
+  const supported = /* @__PURE__ */ new Set(["auto", "prompt", "writes", "approve"]);
+  const known = supported.has(mode);
+  out.push(atom({
+    semanticKey,
+    platform,
+    sourcePath: path,
+    kind: "control",
+    subject: `mcp:${subject}`,
+    action: "approval.mode",
+    resource: "tool-call",
+    effect: "control",
+    decision: mode === "prompt" ? "ASK" : known ? "ALLOW" : "UNKNOWN",
+    constraints: [`mode=${mode}`],
+    locator,
+    comparisonValue: mode,
+    added: mode === "prompt" ? { ...ALLOW_RESTRICTION, direction: "NEUTRAL", reason: "MCP tools require explicit approval" } : known ? expansion("AVP004", "MCP tools can run without an unconditional human prompt", "critical") : hold("AVP014", `unsupported MCP approval mode ${mode}`),
+    removed: HOLD_UNKNOWN,
+    compare: MCP_APPROVAL_RELATION
+  }));
+}
+function extractMcp(path, parsed) {
+  const out = [];
+  addMcpServerAtoms(out, "mcp", path, parsed.mcpServers ?? parsed.servers, parsed.mcpServers ? "mcpServers" : "servers");
+  return out;
+}
+function extractClaude(path, parsed) {
+  const out = [];
+  const permissions = record(parsed.permissions) ?? {};
+  addPermissionAtoms(out, "claude-code", path, permissions.allow, "ALLOW", "permissions");
+  addPermissionAtoms(out, "claude-code", path, permissions.ask, "ASK", "permissions");
+  addPermissionAtoms(out, "claude-code", path, permissions.deny, "DENY", "permissions");
+  const mode = stringValue(permissions.defaultMode) ?? "default";
+  const supportedModes = /* @__PURE__ */ new Set(["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"]);
+  out.push(atom({
+    semanticKey: `claude-code\0${path}\0default-mode`,
+    platform: "claude-code",
+    sourcePath: path,
+    kind: "control",
+    subject: "agent",
+    action: "approval.default",
+    resource: "unmatched-tool-calls",
+    effect: "control",
+    decision: mode === "dontAsk" || mode === "plan" ? "DENY" : mode === "default" ? "ASK" : supportedModes.has(mode) ? "ALLOW" : "UNKNOWN",
+    constraints: [`mode=${mode}`],
+    locator: "permissions.defaultMode",
+    comparisonValue: mode,
+    added: mode === "bypassPermissions" ? expansion("AVP004", "Claude Code bypassPermissions removes ordinary approval prompts", "critical") : supportedModes.has(mode) ? HOLD_UNKNOWN : hold("AVP014", `unsupported Claude Code permission mode ${mode}`),
+    removed: HOLD_UNKNOWN,
+    compare: CLAUDE_MODE_RELATION
+  }));
+  const disableBypass = permissions.disableBypassPermissionsMode;
+  if (disableBypass !== void 0) {
+    const disabled = disableBypass === "disable" || disableBypass === true;
+    out.push(atom({
+      semanticKey: `claude-code\0${path}\0disable-bypass`,
+      platform: "claude-code",
+      sourcePath: path,
+      kind: "control",
+      subject: "agent",
+      action: "approval.bypass",
+      resource: "all-tools",
+      effect: "control",
+      decision: disabled ? "DENY" : "ALLOW",
+      constraints: [`disabled=${disabled}`],
+      locator: "permissions.disableBypassPermissionsMode",
+      comparisonValue: disableBypass,
+      added: disabled ? ALLOW_RESTRICTION : expansion("AVP004", "permission bypass remains available", "critical"),
+      removed: disabled ? expansion("AVP004", "the control that disables permission bypass was removed", "critical") : ALLOW_RESTRICTION,
+      compare: (before, after) => decisionRelation(before.decision, after.decision)
+    }));
+  }
+  for (const directory of [.../* @__PURE__ */ new Set([...stringList(permissions.additionalDirectories), ...stringList(parsed.additionalDirectories)])]) {
+    out.push(atom({
+      semanticKey: `claude-code\0${path}\0additional-directory\0${directory}`,
+      platform: "claude-code",
+      sourcePath: path,
+      kind: "permission",
+      subject: "agent",
+      action: "filesystem.access",
+      resource: directory.slice(0, 240),
+      effect: "write",
+      decision: "ALLOW",
+      constraints: ["scope=additional-directory"],
+      locator: "permissions.additionalDirectories",
+      comparisonValue: directory,
+      added: expansion("AVP007", "Claude Code can access an additional filesystem root", "critical"),
+      removed: ALLOW_RESTRICTION
+    }));
+  }
+  const sandbox = record(parsed.sandbox);
+  if (sandbox) {
+    const enabled = boolValue(sandbox.enabled) ?? false;
+    out.push(atom({
+      semanticKey: `claude-code\0${path}\0sandbox-enabled`,
+      platform: "claude-code",
+      sourcePath: path,
+      kind: "control",
+      subject: "bash",
+      action: "sandbox.enforce",
+      resource: "process",
+      effect: "control",
+      decision: enabled ? "ALLOW" : "DENY",
+      constraints: [`enabled=${enabled}`],
+      locator: "sandbox.enabled",
+      comparisonValue: enabled,
+      added: enabled ? ALLOW_RESTRICTION : expansion("AVP005", "the declared Bash sandbox is disabled", "critical"),
+      removed: enabled ? expansion("AVP005", "the declared Bash sandbox control was removed", "critical") : ALLOW_RESTRICTION,
+      compare: (before, after) => before.decision === after.decision ? "equal" : after.decision === "DENY" ? "expansion" : "contraction"
+    }));
+    const failClosed = boolValue(sandbox.failIfUnavailable);
+    if (failClosed !== void 0) {
+      out.push(atom({
+        semanticKey: `claude-code\0${path}\0sandbox-fail-closed`,
+        platform: "claude-code",
+        sourcePath: path,
+        kind: "control",
+        subject: "bash",
+        action: "sandbox.fail-closed",
+        resource: "startup",
+        effect: "control",
+        decision: failClosed ? "ALLOW" : "DENY",
+        constraints: [`enabled=${failClosed}`],
+        locator: "sandbox.failIfUnavailable",
+        comparisonValue: failClosed,
+        added: failClosed ? ALLOW_RESTRICTION : expansion("AVP005", "sandbox startup failure can fall back to unsandboxed execution", "critical"),
+        removed: failClosed ? expansion("AVP005", "the sandbox fail-closed requirement was removed", "critical") : ALLOW_RESTRICTION,
+        compare: (before, after) => before.decision === after.decision ? "equal" : after.decision === "DENY" ? "expansion" : "contraction"
+      }));
+    }
+    const network = record(sandbox.network);
+    for (const host of stringList(network?.allowedDomains)) {
+      out.push(atom({
+        semanticKey: `claude-code\0${path}\0network\0${host}`,
+        platform: "claude-code",
+        sourcePath: path,
+        kind: "permission",
+        subject: "bash",
+        action: "network.connect",
+        resource: host,
+        effect: "network",
+        decision: "ALLOW",
+        constraints: ["scope=allowed-domain"],
+        locator: "sandbox.network.allowedDomains",
+        comparisonValue: host,
+        added: expansion("AVP006", "sandboxed commands can reach an additional network destination", "critical"),
+        removed: ALLOW_RESTRICTION
+      }));
+    }
+  }
+  const allMcp = boolValue(parsed.enableAllProjectMcpServers);
+  if (allMcp !== void 0) {
+    out.push(atom({
+      semanticKey: `claude-code\0${path}\0all-project-mcp`,
+      platform: "claude-code",
+      sourcePath: path,
+      kind: "control",
+      subject: "agent",
+      action: "mcp.auto-enable",
+      resource: "project-servers:*",
+      effect: "execute",
+      decision: allMcp ? "ALLOW" : "DENY",
+      constraints: [`enabled=${allMcp}`],
+      locator: "enableAllProjectMcpServers",
+      comparisonValue: allMcp,
+      added: allMcp ? expansion("AVP003", "all project MCP servers are automatically approved", "critical") : ALLOW_RESTRICTION,
+      removed: allMcp ? ALLOW_RESTRICTION : expansion("AVP003", "the explicit block on automatic project MCP approval was removed", "critical"),
+      compare: (before, after) => decisionRelation(before.decision, after.decision)
+    }));
+  }
+  for (const name of stringList(parsed.enabledMcpjsonServers)) {
+    out.push(atom({
+      semanticKey: `claude-code\0${path}\0mcp-server\0${name}`,
+      platform: "claude-code",
+      sourcePath: path,
+      kind: "capability",
+      subject: "agent",
+      action: "mcp.enable",
+      resource: name,
+      effect: "unknown",
+      decision: "ALLOW",
+      constraints: [],
+      locator: "enabledMcpjsonServers",
+      comparisonValue: true,
+      added: expansion("AVP003", "an MCP server is newly approved for Claude Code", "critical"),
+      removed: ALLOW_RESTRICTION
+    }));
+  }
+  for (const name of stringList(parsed.disabledMcpjsonServers)) {
+    out.push(atom({
+      semanticKey: `claude-code\0${path}\0mcp-server\0${name}`,
+      platform: "claude-code",
+      sourcePath: path,
+      kind: "capability",
+      subject: "agent",
+      action: "mcp.enable",
+      resource: name,
+      effect: "unknown",
+      decision: "DENY",
+      constraints: [],
+      locator: "disabledMcpjsonServers",
+      comparisonValue: false,
+      added: ALLOW_RESTRICTION,
+      removed: expansion("AVP003", "an MCP server was removed from Claude Code's deny list", "critical"),
+      compare: (before, after) => decisionRelation(before.decision, after.decision)
+    }));
+  }
+  const plugins = record(parsed.enabledPlugins);
+  if (plugins) {
+    for (const [name, rawEnabled] of Object.entries(plugins).sort(([a], [b]) => a.localeCompare(b))) {
+      const enabled = boolValue(rawEnabled);
+      if (enabled === void 0) continue;
+      out.push(atom({
+        semanticKey: `claude-code\0${path}\0plugin\0${name}`,
+        platform: "claude-code",
+        sourcePath: path,
+        kind: "capability",
+        subject: "agent",
+        action: "plugin.enable",
+        resource: name,
+        effect: "unknown",
+        decision: enabled ? "ALLOW" : "DENY",
+        constraints: [`enabled=${enabled}`],
+        locator: `enabledPlugins.${name}`,
+        comparisonValue: enabled,
+        added: enabled ? expansion("AVP015", "a plugin can add skills, agents, hooks, MCP servers, or executables", "critical") : ALLOW_RESTRICTION,
+        removed: enabled ? ALLOW_RESTRICTION : expansion("AVP015", "an explicit plugin disable was removed", "critical"),
+        compare: (before, after) => decisionRelation(before.decision, after.decision)
+      }));
+    }
+  }
+  addEnvironmentAtoms(out, "claude-code", path, "session", parsed.env, "env");
+  addMcpServerAtoms(out, "claude-code", path, parsed.mcpServers, "mcpServers");
+  addClaudeHooks(out, path, parsed.hooks);
+  addModelAtom(out, "claude-code", path, parsed.model, "model");
+  for (const locator of ["extraKnownMarketplaces", "allowManagedPermissionRulesOnly", "allowManagedHooksOnly", "apiKeyHelper"]) {
+    addOpaqueAuthoritySection(out, "claude-code", path, locator, parsed[locator], `Claude Code ${locator} can alter executable or managed authority and is not yet fully normalized`);
+  }
+  return out;
+}
+function addClaudeHooks(out, path, rawHooks) {
+  const hooks = record(rawHooks);
+  if (!hooks) return;
+  for (const [event, rawEntries] of Object.entries(hooks).sort(([a], [b]) => a.localeCompare(b))) {
+    if (!Array.isArray(rawEntries)) continue;
+    rawEntries.forEach((rawEntry, index) => {
+      const entry = record(rawEntry);
+      if (!entry) return;
+      const handlers = Array.isArray(entry.hooks) ? entry.hooks : [entry];
+      handlers.forEach((rawHandler, handlerIndex) => {
+        const handler = record(rawHandler);
+        if (!handler) return;
+        const type = stringValue(handler.type) ?? "command";
+        const command = stringValue(handler.command);
+        const semanticKey = `claude-code\0${path}\0hook\0${event}\0${index}\0${handlerIndex}`;
+        const securityControl = event === "PreToolUse" || event === "PermissionRequest";
+        out.push(atom({
+          semanticKey,
+          platform: "claude-code",
+          sourcePath: path,
+          kind: "control",
+          subject: event,
+          action: "hook.execute",
+          resource: command ? safeExecutable(command) : type,
+          effect: command ? "execute" : "control",
+          decision: "ALLOW",
+          constraints: [`type=${type}`, ...stringValue(entry.matcher) ? ["matcher=configured"] : []],
+          locator: `hooks.${event}[${index}].hooks[${handlerIndex}]`,
+          comparisonValue: { matcher: entry.matcher, handler },
+          added: expansion("AVP011", "a repository-controlled hook can execute or alter tool authorization", securityControl ? "critical" : "high"),
+          removed: securityControl ? expansion("AVP011", "a pre-execution authorization hook was removed", "critical") : ALLOW_RESTRICTION,
+          compare: () => "incomparable"
+        }));
+      });
+    });
+  }
+}
+function addModelAtom(out, platform, path, rawModel, locator) {
+  const model = stringValue(rawModel);
+  if (!model) return;
+  const mutable = /(?:^|[-_/.:])(latest|default|auto|current)(?:$|[-_/.:])/i.test(model);
+  out.push(atom({
+    semanticKey: `${platform}\0${path}\0model`,
+    platform,
+    sourcePath: path,
+    kind: "model",
+    subject: "agent",
+    action: "model.select",
+    resource: model.slice(0, 200),
+    effect: "control",
+    decision: mutable ? "UNKNOWN" : "ALLOW",
+    constraints: [`mutable=${mutable}`],
+    locator,
+    comparisonValue: model,
+    added: mutable ? hold("AVP012", "the model identifier appears mutable and cannot be bound to one implementation") : { ...ALLOW_RESTRICTION, direction: "NEUTRAL", reason: "a model identifier was declared" },
+    removed: HOLD_UNKNOWN,
+    compare: (before, after) => {
+      const oldMutable = before.constraints.includes("mutable=true");
+      const newMutable = after.constraints.includes("mutable=true");
+      if (!oldMutable && newMutable) return "expansion";
+      if (oldMutable && !newMutable) return "contraction";
+      return "incomparable";
+    }
+  }));
+}
+function extractCodex(path, parsed) {
+  const out = [];
+  const sandboxMode = stringValue(parsed.sandbox_mode) ?? "read-only";
+  out.push(atom({
+    semanticKey: `codex\0${path}\0sandbox-mode`,
+    platform: "codex",
+    sourcePath: path,
+    kind: "control",
+    subject: "agent",
+    action: "sandbox.mode",
+    resource: "host-filesystem",
+    effect: "write",
+    decision: sandboxMode === "read-only" ? "DENY" : sandboxMode === "workspace-write" || sandboxMode === "danger-full-access" ? "ALLOW" : "UNKNOWN",
+    constraints: [`mode=${sandboxMode}`],
+    locator: "sandbox_mode",
+    comparisonValue: sandboxMode,
+    added: sandboxMode === "read-only" ? ALLOW_RESTRICTION : sandboxMode === "workspace-write" ? expansion("AVP005", "Codex can write inside the repository") : sandboxMode === "danger-full-access" ? expansion("AVP005", "Codex can write outside the repository without OS sandbox enforcement", "critical") : hold("AVP014", `unsupported Codex sandbox mode ${sandboxMode}`),
+    removed: HOLD_UNKNOWN,
+    compare: orderedRelation(["read-only", "workspace-write", "danger-full-access"])
+  }));
+  const workspace = record(parsed.sandbox_workspace_write) ?? {};
+  const network = boolValue(workspace.network_access) ?? false;
+  out.push(atom({
+    semanticKey: `codex\0${path}\0network-access`,
+    platform: "codex",
+    sourcePath: path,
+    kind: "permission",
+    subject: "agent",
+    action: "network.connect",
+    resource: "*",
+    effect: "network",
+    decision: network ? "ALLOW" : "DENY",
+    constraints: [`enabled=${network}`],
+    locator: "sandbox_workspace_write.network_access",
+    comparisonValue: network,
+    added: network ? expansion("AVP006", "Codex can make outbound network connections", "critical") : ALLOW_RESTRICTION,
+    removed: network ? ALLOW_RESTRICTION : expansion("AVP006", "the explicit network restriction was removed", "critical"),
+    compare: (before, after) => decisionRelation(before.decision, after.decision)
+  }));
+  for (const root of stringList(workspace.writable_roots)) {
+    out.push(atom({
+      semanticKey: `codex\0${path}\0writable-root\0${root}`,
+      platform: "codex",
+      sourcePath: path,
+      kind: "permission",
+      subject: "agent",
+      action: "filesystem.write",
+      resource: root.slice(0, 240),
+      effect: "write",
+      decision: "ALLOW",
+      constraints: ["scope=additional-root"],
+      locator: "sandbox_workspace_write.writable_roots",
+      comparisonValue: root,
+      added: expansion("AVP007", "Codex can write to an additional filesystem root", "critical"),
+      removed: ALLOW_RESTRICTION
+    }));
+  }
+  const approval = parsed.approval_policy;
+  const approvalMode = typeof approval === "string" ? approval : record(approval)?.granular ? "granular" : "unknown";
+  out.push(atom({
+    semanticKey: `codex\0${path}\0approval-policy`,
+    platform: "codex",
+    sourcePath: path,
+    kind: "control",
+    subject: "agent",
+    action: "approval.policy",
+    resource: "tool-escalation",
+    effect: "control",
+    decision: approvalMode === "untrusted" || approvalMode === "on-request" || approvalMode === "granular" ? "ASK" : approvalMode === "never" ? "DENY" : "UNKNOWN",
+    constraints: [`mode=${approvalMode}`],
+    locator: "approval_policy",
+    comparisonValue: approval,
+    added: approvalMode === "never" ? hold("AVP004", "approval_policy=never suppresses interactive escalation; safety depends on the sandbox and policy rules", "high") : approvalMode === "unknown" ? HOLD_UNKNOWN : { ...ALLOW_RESTRICTION, direction: "NEUTRAL" },
+    removed: HOLD_UNKNOWN,
+    compare: (before, after) => before.comparisonToken === after.comparisonToken ? "equal" : "incomparable"
+  }));
+  const reviewer = stringValue(parsed.approvals_reviewer) ?? "user";
+  out.push(atom({
+    semanticKey: `codex\0${path}\0approval-reviewer`,
+    platform: "codex",
+    sourcePath: path,
+    kind: "control",
+    subject: "agent",
+    action: "approval.review",
+    resource: "tool-escalation",
+    effect: "control",
+    decision: reviewer === "user" ? "ASK" : reviewer === "auto_review" || reviewer === "guardian_subagent" ? "ALLOW" : "UNKNOWN",
+    constraints: [`mode=${reviewer}`],
+    locator: "approvals_reviewer",
+    comparisonValue: reviewer,
+    added: reviewer === "user" ? { ...ALLOW_RESTRICTION, direction: "NEUTRAL" } : reviewer === "auto_review" || reviewer === "guardian_subagent" ? expansion("AVP004", "eligible approval prompts are delegated to an automated reviewer", "critical") : HOLD_UNKNOWN,
+    removed: HOLD_UNKNOWN,
+    compare: (before, after) => decisionRelation(before.decision, after.decision)
+  }));
+  const environment = record(parsed.shell_environment_policy);
+  if (environment) {
+    const inherit = stringValue(environment.inherit) ?? "core";
+    out.push(atom({
+      semanticKey: `codex\0${path}\0environment-inherit`,
+      platform: "codex",
+      sourcePath: path,
+      kind: "credential",
+      subject: "shell",
+      action: "environment.inherit",
+      resource: "process-environment",
+      effect: "credential",
+      decision: inherit === "none" ? "DENY" : inherit === "core" || inherit === "all" ? "ALLOW" : "UNKNOWN",
+      constraints: [`mode=${inherit}`],
+      locator: "shell_environment_policy.inherit",
+      comparisonValue: inherit,
+      added: inherit === "all" ? expansion("AVP008", "Codex inherits the full parent process environment", "critical") : inherit === "core" ? hold("AVP008", "Codex inherits a core environment set") : ALLOW_RESTRICTION,
+      removed: HOLD_UNKNOWN,
+      compare: orderedRelation(["none", "core", "all"])
+    }));
+    const keepSecrets = boolValue(environment.ignore_default_excludes);
+    if (keepSecrets !== void 0) {
+      out.push(atom({
+        semanticKey: `codex\0${path}\0environment-secret-excludes`,
+        platform: "codex",
+        sourcePath: path,
+        kind: "credential",
+        subject: "shell",
+        action: "environment.keep-secret-names",
+        resource: "*KEY,*SECRET,*TOKEN",
+        effect: "credential",
+        decision: keepSecrets ? "ALLOW" : "DENY",
+        constraints: [`enabled=${keepSecrets}`],
+        locator: "shell_environment_policy.ignore_default_excludes",
+        comparisonValue: keepSecrets,
+        added: keepSecrets ? expansion("AVP008", "automatic secret-name exclusions are disabled", "critical") : ALLOW_RESTRICTION,
+        removed: keepSecrets ? ALLOW_RESTRICTION : expansion("AVP008", "automatic secret-name exclusions are no longer enforced", "critical"),
+        compare: (before, after) => decisionRelation(before.decision, after.decision)
+      }));
+    }
+    addEnvironmentAtoms(out, "codex", path, "shell", environment.set, "shell_environment_policy.set");
+  }
+  addMcpServerAtoms(out, "codex", path, parsed.mcp_servers, "mcp_servers");
+  addModelAtom(out, "codex", path, parsed.model, "model");
+  for (const locator of ["agents", "apps", "auto_review", "computer_use", "features", "plugins", "skills", "tools", "web_search"]) {
+    addOpaqueAuthoritySection(out, "codex", path, locator, parsed[locator], `Codex ${locator} can alter agent or tool authority and is not yet fully normalized`);
+  }
+  return out;
+}
+function profileDigest(profile) {
+  return sha256(canonical(profile));
+}
+function discoverAuthorityProfile(repo, ref) {
+  const internal = {
+    schemaVersion: "agent-vigil-authority-profile/v1",
+    scope: "repository-declared",
+    ref,
+    sources: [],
+    atoms: [],
+    gaps: []
+  };
+  for (const path of relevantFiles(repo, ref)) {
+    const platform = sourcePlatform(path);
+    let raw;
+    try {
+      raw = readGitFile(repo, ref, path);
+    } catch (error) {
+      internal.gaps.push({ platform, sourcePath: path, locator: path, reason: error.message });
+      continue;
+    }
+    const format = path.endsWith(".toml") ? "toml" : "json";
+    internal.sources.push({ platform, path, format, sha256: sha256(raw) });
+    let parsed;
+    try {
+      parsed = parseConfig(raw, format);
+    } catch {
+      internal.gaps.push({ platform, sourcePath: path, locator: path, reason: `${format.toUpperCase()} parse failed; inspect the committed source locally` });
+      continue;
+    }
+    const value = record(parsed);
+    if (!value) {
+      internal.gaps.push({ platform, sourcePath: path, locator: path, reason: "configuration root is not an object" });
+      continue;
+    }
+    try {
+      internal.atoms.push(...platform === "claude-code" ? extractClaude(path, value) : platform === "codex" ? extractCodex(path, value) : extractMcp(path, value));
+    } catch {
+      internal.gaps.push({ platform, sourcePath: path, locator: path, reason: "authority extraction failed; inspect the committed source locally" });
+    }
+  }
+  internal.sources.sort((a, b) => a.path.localeCompare(b.path));
+  internal.atoms.sort((a, b) => a.semanticKey.localeCompare(b.semanticKey));
+  internal.gaps.sort((a, b) => `${a.sourcePath}:${a.locator}`.localeCompare(`${b.sourcePath}:${b.locator}`));
+  const safe = {
+    ...internal,
+    atoms: internal.atoms.map(publicAtom)
+  };
+  return { ...safe, sha256: profileDigest(safe) };
+}
+function discoverInternal(repo, ref) {
+  const safe = discoverAuthorityProfile(repo, ref);
+  const internal = {
+    schemaVersion: safe.schemaVersion,
+    scope: safe.scope,
+    ref: safe.ref,
+    sources: [...safe.sources],
+    atoms: [],
+    gaps: [...safe.gaps]
+  };
+  for (const source of safe.sources) {
+    try {
+      const raw = readGitFile(repo, ref, source.path);
+      const value = record(parseConfig(raw, source.format));
+      if (!value) continue;
+      internal.atoms.push(...source.platform === "claude-code" ? extractClaude(source.path, value) : source.platform === "codex" ? extractCodex(source.path, value) : extractMcp(source.path, value));
+    } catch {
+    }
+  }
+  internal.atoms.sort((a, b) => a.semanticKey.localeCompare(b.semanticKey));
+  return internal;
+}
+function dispositionForRelation(relation, before, after) {
+  if (relation === "expansion") {
+    if (after.kind === "model") return hold("AVP012", "the model binding became less deterministic");
+    if (after.action === "mcp.connect" || after.action === "mcp.launch") return expansion("AVP002", "the MCP connection or launch identity became more permissive", "critical");
+    if (after.action === "mcp.auto-enable" || after.action === "mcp.enable") return expansion("AVP003", "the MCP enablement boundary became more permissive", "critical");
+    if (after.action === "mcp.tool") return expansion("AVP013", "the MCP tool selection became more permissive", "critical");
+    if (after.action === "plugin.enable") return expansion("AVP015", "the plugin enablement boundary became more permissive", "critical");
+    if (after.action === "hook.execute") return expansion("AVP011", "the repository-controlled hook changed authority or execution scope", "critical");
+    if (after.action === "approval.mode" || after.action.startsWith("approval.")) return expansion("AVP004", "the approval boundary became less restrictive", "critical");
+    if (after.action.startsWith("sandbox.")) return expansion("AVP005", "the sandbox boundary became less restrictive", "critical");
+    if (after.effect === "network") return expansion("AVP006", "the network boundary became less restrictive", "critical");
+    if (after.effect === "credential") return expansion("AVP008", "the credential boundary became less restrictive", "critical");
+    if (after.action === "filesystem.access" || after.action === "filesystem.write") return expansion("AVP007", "the filesystem boundary became less restrictive", "critical");
+    return expansion("AVP009", "the declared authority became more permissive");
+  }
+  if (relation === "contraction") return ALLOW_RESTRICTION;
+  if (relation === "incomparable") return hold("AVP014", `the change from ${before.locator} to ${after.locator} is not ordered by the supported authority lattice`);
+  return { ...ALLOW_RESTRICTION, direction: "NEUTRAL", reason: "the semantic authority is unchanged" };
+}
+function deltaSummary(change, atomValue) {
+  const prefix = change === "ADDED" ? "added" : change === "REMOVED" ? "removed" : "changed";
+  return `${prefix} ${atomValue.platform} ${atomValue.action} for ${atomValue.resource}`;
+}
+function makeDelta(change, disposition, before, after) {
+  const representative = after ?? before;
+  const beforeSafe = before ? publicAtom(before) : void 0;
+  const afterSafe = after ? publicAtom(after) : void 0;
+  const identity = canonical({ change, key: representative.semanticKey, before: beforeSafe, after: afterSafe, ruleId: disposition.ruleId });
+  const identitySha256 = sha256(identity);
   return {
-    ...payload,
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    receiptHash: sha256(canonical(payload)),
-    summary: { changes: changes.length, blocking, reduced: changes.filter((change) => change.effect === "reduced").length, uncertain: uncertainties.length }
+    id: `delta:${createHash8("sha256").update(identity).digest("hex").slice(0, 20)}`,
+    ruleId: disposition.ruleId,
+    change,
+    direction: disposition.direction,
+    disposition: disposition.disposition,
+    severity: disposition.severity,
+    summary: deltaSummary(change, representative),
+    reason: disposition.reason,
+    approvalKey: `authority:${disposition.ruleId}:${representative.platform}:${representative.action}:${representative.resource}@${identitySha256}`,
+    ...beforeSafe ? { before: beforeSafe } : {},
+    ...afterSafe ? { after: afterSafe } : {}
   };
 }
-function renderAuthorityPlan(report) {
-  const title = report.status === "PASS" ? "PASS" : report.status === "FAIL" ? "BLOCK" : "INCONCLUSIVE";
-  const lines = [`Agent authority plan: ${title}`, `Change: ${report.base.slice(0, 12)} -> ${report.head.slice(0, 12)}`, terminalSafe(`Policy: ${report.policy.source} (${report.policy.sha256})`), ""];
-  if (!report.changes.length && !report.uncertainties.length) lines.push("No effective authority changes found.");
-  for (const change of report.changes) {
-    const marker = change.blocking ? "!" : change.effect === "reduced" ? "-" : "~";
-    const values = change.before !== void 0 && change.after !== void 0 ? `  ${change.before} -> ${change.after}` : change.after !== void 0 ? `  + ${change.after}` : `  - ${change.before}`;
-    lines.push(terminalSafe(`${marker} ${change.kind.padEnd(10)} ${change.subject}${values}`));
-    if (change.blocking) lines.push(terminalSafe(`  review: ${change.reason}`));
+function applyAuthorityPlanPolicy(delta, policy) {
+  const exactApproval = policy.approvedAdditions.includes(delta.approvalKey);
+  const unknownApproval = delta.disposition === "HOLD" && policy.allowUnknownChanges;
+  if (delta.disposition === "ALLOW" || !exactApproval && !unknownApproval) return delta;
+  return {
+    ...delta,
+    disposition: "ALLOW",
+    approvedByPolicy: true,
+    reason: `${delta.reason}; approved by the trusted base revision policy`
+  };
+}
+function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
+  const baseSha = git6(repo, ["rev-parse", "--verify", `${base}^{commit}`]).trim();
+  const headSha = git6(repo, ["rev-parse", "--verify", `${head}^{commit}`]).trim();
+  const policy = loadAuthorityPlanPolicy(repo, baseSha, policyPath);
+  const before = discoverInternal(repo, baseSha);
+  const after = discoverInternal(repo, headSha);
+  const beforeByKey = new Map(before.atoms.map((item2) => [item2.semanticKey, item2]));
+  const afterByKey = new Map(after.atoms.map((item2) => [item2.semanticKey, item2]));
+  const keys = [.../* @__PURE__ */ new Set([...beforeByKey.keys(), ...afterByKey.keys()])].sort();
+  const removedMcpServers = new Set(
+    [...beforeByKey.entries()].filter(([key, item2]) => key.endsWith("\0enabled") && item2.action === "mcp.connect" && item2.decision === "ALLOW" && !afterByKey.has(key)).map(([key]) => key.slice(0, -"\0enabled".length))
+  );
+  const rawDeltas = [];
+  for (const key of keys) {
+    const oldAtom = beforeByKey.get(key);
+    const newAtom = afterByKey.get(key);
+    if (!oldAtom && newAtom) rawDeltas.push(makeDelta("ADDED", newAtom.added, void 0, newAtom));
+    else if (oldAtom && !newAtom) {
+      const removedWithServer = [...removedMcpServers].some((prefix) => key.startsWith(`${prefix}\0`));
+      rawDeltas.push(makeDelta("REMOVED", removedWithServer ? ALLOW_RESTRICTION : oldAtom.removed, oldAtom));
+    } else if (oldAtom && newAtom && oldAtom.comparisonToken !== newAtom.comparisonToken) {
+      const relation = oldAtom.compare ? oldAtom.compare(oldAtom, newAtom) : newAtom.compare ? newAtom.compare(oldAtom, newAtom) : "incomparable";
+      rawDeltas.push(makeDelta("CHANGED", dispositionForRelation(relation, oldAtom, newAtom), oldAtom, newAtom));
+    }
   }
-  for (const item2 of report.uncertainties) {
-    lines.push(terminalSafe(`? setting    ${item2.source}:${item2.setting}`));
-    lines.push(terminalSafe(`  review: ${item2.reason}`));
+  const deltas = rawDeltas.map((delta) => applyAuthorityPlanPolicy(delta, policy.value));
+  const gaps = [...before.gaps, ...after.gaps].filter((gap, index, all) => all.findIndex((item2) => canonical(item2) === canonical(gap)) === index).sort((a, b) => `${a.sourcePath}:${a.locator}`.localeCompare(`${b.sourcePath}:${b.locator}`));
+  const blocking = deltas.filter((item2) => item2.disposition === "BLOCK").length;
+  const uncertainties = rawDeltas.filter((item2) => item2.disposition === "HOLD").length + gaps.length;
+  const holds = deltas.filter((item2) => item2.disposition === "HOLD").length + (policy.value.allowUnknownChanges ? 0 : gaps.length);
+  const status = blocking ? "BLOCK" : holds ? "HOLD" : "PASS";
+  const baseProfile = {
+    schemaVersion: before.schemaVersion,
+    scope: before.scope,
+    ref: before.ref,
+    sources: before.sources,
+    atoms: before.atoms.map(publicAtom),
+    gaps: before.gaps
+  };
+  const headProfile = {
+    schemaVersion: after.schemaVersion,
+    scope: after.scope,
+    ref: after.ref,
+    sources: after.sources,
+    atoms: after.atoms.map(publicAtom),
+    gaps: after.gaps
+  };
+  const payload = {
+    schemaVersion: "agent-vigil-authority-plan/v1",
+    scope: "repository-declared",
+    base: baseSha,
+    head: headSha,
+    status,
+    policy: {
+      source: policy.source,
+      sha256: policy.sha256,
+      allowUnknownChanges: policy.value.allowUnknownChanges
+    },
+    summary: {
+      sources: new Set([...before.sources, ...after.sources].map((source) => source.path)).size,
+      atomsBefore: before.atoms.length,
+      atomsAfter: after.atoms.length,
+      changes: deltas.length,
+      expansions: deltas.filter((item2) => item2.direction === "EXPANSION").length,
+      contractions: deltas.filter((item2) => item2.direction === "CONTRACTION").length,
+      incomparable: deltas.filter((item2) => item2.direction === "INCOMPARABLE").length,
+      blocking,
+      holds,
+      uncertainties,
+      approved: deltas.filter((item2) => item2.approvedByPolicy).length
+    },
+    deltas,
+    gaps,
+    baseProfileSha256: profileDigest(baseProfile),
+    headProfileSha256: profileDigest(headProfile),
+    limitations: [
+      "This plan covers authority declared in supported files committed to the selected Git revisions.",
+      "Machine, user, managed, runtime, credential-provider, and live MCP tool state are not claimed unless separately captured.",
+      "MCP server additions block because static launch configuration does not prove the server's complete live tool surface or behavior.",
+      "Recognized secret-bearing values and sensitive permission scopes are omitted; repository-controlled names and labels can still be sensitive."
+    ]
+  };
+  return { ...payload, planSha256: sha256(canonical(payload)) };
+}
+function marker(delta) {
+  if (delta.change === "ADDED") return "+";
+  if (delta.change === "REMOVED") return "-";
+  return "~";
+}
+function renderAuthorityPlanText(plan) {
+  const lines = [
+    `Agent authority plan: ${plan.status}`,
+    `Scope: ${plan.scope}`,
+    `Range: ${plan.base}..${plan.head}`,
+    `Policy: ${plan.policy.source} (${plan.policy.sha256})`,
+    `Digest: ${plan.planSha256}`,
+    ""
+  ];
+  if (!plan.deltas.length) lines.push("  No semantic authority changes detected in supported repository configuration.", "");
+  for (const delta of plan.deltas) {
+    lines.push(`  ${marker(delta)} [${delta.disposition}] ${delta.summary}`);
+    lines.push(`      ${delta.ruleId}: ${delta.reason}`);
   }
-  lines.push("", `${report.summary.changes} authority change(s), ${report.summary.blocking} blocking, ${report.summary.uncertain} uncertain`);
-  lines.push(`${report.status} \xB7 ${report.receiptHash}`, `Reproduce: ${report.reproduction}`);
+  for (const gap of plan.gaps) {
+    lines.push(`  ? [HOLD] ${gap.platform} ${gap.sourcePath}:${gap.locator}`);
+    lines.push(`      AVP001: ${gap.reason}`);
+  }
+  lines.push(
+    "",
+    `  ${plan.summary.changes} change(s) | ${plan.summary.expansions} expansion(s) | ${plan.summary.blocking} blocking | ${plan.summary.holds} hold(s) | ${plan.summary.approved} approved`,
+    "  Boundary: repository-declared authority only; recognized secret-bearing values are omitted."
+  );
   return lines.join("\n");
 }
-function authorityPlanChecks(report) {
-  const results = [];
-  const advisories = [];
-  results.push({
-    claim: { kind: "authority_scope", subject: "agent authority configuration", quote: "the exact change does not expand unapproved agent authority" },
-    verdict: report.summary.blocking ? "contradicted" : report.status === "INCONCLUSIVE" ? "unverifiable" : "verified",
-    evidence: `${report.summary.changes} effective change(s), ${report.summary.blocking} blocking, ${report.summary.uncertain} uncertain; plan ${report.receiptHash}`,
+function renderAuthorityPlanMarkdown(plan) {
+  const rows = plan.deltas.map(
+    (delta) => `| ${delta.disposition} | \`${delta.ruleId}\` | ${delta.change} | ${delta.direction} | ${delta.summary.replace(/\|/g, "\\|")} | ${delta.reason.replace(/\|/g, "\\|")} |`
+  );
+  const gaps = plan.gaps.map(
+    (gap) => `| HOLD | \`AVP001\` | GAP | INCOMPARABLE | ${gap.platform} ${gap.sourcePath}:${gap.locator} | ${gap.reason.replace(/\|/g, "\\|")} |`
+  );
+  return [
+    `# Agent authority plan: ${plan.status}`,
+    "",
+    `**Scope:** \`${plan.scope}\`  `,
+    `**Range:** \`${plan.base}..${plan.head}\`  `,
+    `**Policy:** \`${plan.policy.source}\` (\`${plan.policy.sha256}\`)  `,
+    `**Digest:** \`${plan.planSha256}\``,
+    "",
+    "| Decision | Rule | Change | Direction | Authority | Reason |",
+    "|---|---|---|---|---|---|",
+    ...rows.length || gaps.length ? [...rows, ...gaps] : ["| PASS | `AVP000` | NONE | NEUTRAL | No supported semantic authority change | Supported repository configuration is unchanged |"],
+    "",
+    `${plan.summary.changes} change(s) | ${plan.summary.expansions} expansion(s) | ${plan.summary.blocking} blocking | ${plan.summary.holds} hold(s) | ${plan.summary.approved} approved`,
+    "",
+    "> This result covers repository-declared authority only. It does not claim machine, managed-policy, credential-provider, or live MCP state. Recognized secret-bearing values are omitted.",
+    ""
+  ].join("\n");
+}
+var renderAuthorityPlan = renderAuthorityPlanText;
+function receiptRuleKind(delta) {
+  const atom2 = delta.after ?? delta.before;
+  if (!atom2) return "change";
+  if (atom2.action === "mcp.connect" || atom2.action === "mcp.launch") return "server";
+  if (atom2.action === "mcp.tool" || atom2.action.startsWith("permission.")) return "tool";
+  if (atom2.action.startsWith("approval.")) return "approval";
+  if (atom2.action.startsWith("sandbox.")) return "sandbox";
+  if (atom2.action === "hook.execute") return "hook";
+  if (atom2.kind === "model") return "model";
+  if (atom2.effect === "network") return "network";
+  if (atom2.effect === "credential") return "secret";
+  if (atom2.action.startsWith("filesystem.") || atom2.resource.startsWith("unix:")) return "filesystem";
+  return atom2.kind;
+}
+function authorityPlanChecks(plan) {
+  const results = [{
+    claim: {
+      kind: "authority_scope",
+      subject: "agent authority configuration",
+      quote: "the exact change does not expand unapproved agent authority"
+    },
+    verdict: plan.status === "BLOCK" ? "contradicted" : plan.status === "HOLD" ? "unverifiable" : "verified",
+    evidence: `${plan.summary.changes} semantic change(s), ${plan.summary.blocking} blocking, ${plan.summary.holds} held, ${plan.summary.approved} approved; plan ${plan.planSha256}`,
     ruleId: "authority-plan",
     contributesToPass: false,
-    ...report.status === "INCONCLUSIVE" ? { blocksPass: true } : {}
-  });
-  for (const change of report.changes) {
+    ...plan.status === "HOLD" ? { blocksPass: true } : {}
+  }];
+  const advisories = [];
+  for (const delta of plan.deltas) {
     const check = {
-      claim: { kind: "authority_scope", subject: `${change.kind}: ${change.subject}`, quote: "agent authority delta" },
-      verdict: change.blocking ? "contradicted" : "verified",
-      evidence: `${change.reason}; ${change.before ?? "absent"} -> ${change.after ?? "absent"} in ${change.source}`,
-      ruleId: `authority-${change.kind}`,
-      contributesToPass: false
-    };
-    if (change.blocking) results.push(check);
-    else advisories.push(check);
-  }
-  for (const item2 of report.uncertainties) {
-    const check = {
-      claim: { kind: "authority_scope", subject: `unrecognized setting: ${item2.source}:${item2.setting}`, quote: "changed authority configuration is fully understood" },
-      verdict: "unverifiable",
-      evidence: item2.reason,
-      ruleId: "authority-setting-unknown",
+      claim: {
+        kind: "authority_scope",
+        subject: delta.summary,
+        quote: "semantic agent authority delta"
+      },
+      verdict: delta.disposition === "BLOCK" ? "contradicted" : delta.disposition === "HOLD" ? "unverifiable" : "verified",
+      evidence: `${delta.ruleId}: ${delta.reason}; ${delta.approvalKey}`,
+      ruleId: `authority-${receiptRuleKind(delta)}`,
       contributesToPass: false,
-      ...report.status === "INCONCLUSIVE" ? { blocksPass: true } : {}
+      ...delta.disposition === "HOLD" ? { blocksPass: true } : {}
     };
-    if (report.status === "INCONCLUSIVE") results.push(check);
-    else advisories.push(check);
+    if (delta.disposition === "ALLOW") advisories.push(check);
+    else results.push(check);
+  }
+  for (const gap of plan.gaps) {
+    const check = {
+      claim: {
+        kind: "authority_scope",
+        subject: `unrecognized setting: ${gap.sourcePath}:${gap.locator}`,
+        quote: "changed authority configuration is fully understood"
+      },
+      verdict: "unverifiable",
+      evidence: gap.reason,
+      ruleId: "avp001",
+      contributesToPass: false,
+      ...!plan.policy.allowUnknownChanges ? { blocksPass: true } : {}
+    };
+    if (plan.policy.allowUnknownChanges) advisories.push(check);
+    else results.push(check);
   }
   return { results, advisories };
 }
@@ -5283,7 +6173,7 @@ function renderValueCardHtml(card) {
 // src/github-evidence.ts
 import { createHash as createHash11 } from "node:crypto";
 import { readFileSync as readFileSync11, statSync as statSync4 } from "node:fs";
-import { basename as basename3, resolve as resolve9 } from "node:path";
+import { basename as basename2, resolve as resolve9 } from "node:path";
 var MAX_SOURCE_BYTES = 32 * 1024 * 1024;
 function timestamp(value) {
   if (typeof value !== "string" || !value.trim()) return void 0;
@@ -5313,7 +6203,7 @@ function readSource(path, kind) {
   }
   return {
     value,
-    source: { kind, file: basename3(path), bytes, sha256: `sha256:${createHash11("sha256").update(raw).digest("hex")}` }
+    source: { kind, file: basename2(path), bytes, sha256: `sha256:${createHash11("sha256").update(raw).digest("hex")}` }
   };
 }
 function pullObject(value) {
@@ -5640,7 +6530,7 @@ function renderValueComparisonHtml(comparison) {
 import { createHash as createHash12, createHmac, timingSafeEqual } from "node:crypto";
 import { execFileSync as execFileSync10 } from "node:child_process";
 import { readFileSync as readFileSync13, statSync as statSync6 } from "node:fs";
-import { basename as basename4, resolve as resolve11 } from "node:path";
+import { basename as basename3, resolve as resolve11 } from "node:path";
 var ATTESTATION_PREDICATE_TYPE = "https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json";
 function sha2562(buffer) {
   return createHash12("sha256").update(buffer).digest("hex");
@@ -5710,9 +6600,9 @@ function statementsFromGh(value) {
   const statements = [];
   for (const root of roots) {
     if (!root || typeof root !== "object") continue;
-    const record2 = root;
-    const verification2 = record2.verificationResult;
-    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record2.statement ?? record2;
+    const record3 = root;
+    const verification2 = record3.verificationResult;
+    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record3.statement ?? record3;
     if (statement && typeof statement === "object") statements.push(statement);
   }
   return statements;
@@ -5742,7 +6632,7 @@ function verifyGhAttestationOutput(reportPath, ghOutput) {
   let matched;
   for (const statement of statements) {
     if (statement.predicateType !== ATTESTATION_PREDICATE_TYPE) continue;
-    const subjectOk = subjectMatches(statement, basename4(reportPath), fileSha256);
+    const subjectOk = subjectMatches(statement, basename3(reportPath), fileSha256);
     const predicateOk = predicateMatches(statement.predicate, report, fileSha256);
     subjectDigestValid ||= subjectOk;
     predicateValid ||= predicateOk;
@@ -5825,7 +6715,7 @@ function buildNotaryCheck(reportPath, verification2, expectedHead, expectedPolic
 
 // src/upgrade/cli.ts
 import { realpathSync as realpathSync8, statSync as statSync8 } from "node:fs";
-import { basename as basename6, dirname as dirname8, isAbsolute as isAbsolute7, relative as relative11, resolve as resolve16, sep as sep9 } from "node:path";
+import { basename as basename5, dirname as dirname8, isAbsolute as isAbsolute7, relative as relative11, resolve as resolve16, sep as sep9 } from "node:path";
 
 // src/upgrade/contracts.ts
 import { lstatSync as lstatSync3, readFileSync as readFileSync14, realpathSync as realpathSync3 } from "node:fs";
@@ -5834,7 +6724,7 @@ var UPGRADE_CONFIG_SCHEMA = "agent-vigil-upgrade-config/v1";
 var CANARY_SCHEMA = "agent-vigil-upgrade-canary/v1";
 var PRIVATE_RECEIPT_SCHEMA = "agent-vigil-upgrade-receipt/v1";
 var PUBLIC_ENTRY_SCHEMA = "agent-vigil-compatibility-entry/v1";
-function object2(value, label) {
+function object(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
   }
@@ -5886,12 +6776,12 @@ function imageDigest(value) {
   );
 }
 function validateUpgradeConfig(input) {
-  const root = object2(input, "upgrade config");
+  const root = object(input, "upgrade config");
   exactKeys2(root, ["schemaVersion", "component", "runner", "canaryDirectory", "canaries"], "upgrade config");
   if (root.schemaVersion !== UPGRADE_CONFIG_SCHEMA) {
     throw new Error(`upgrade config schemaVersion must be ${UPGRADE_CONFIG_SCHEMA}`);
   }
-  const component = object2(root.component, "component");
+  const component = object(root.component, "component");
   exactKeys2(component, ["ecosystem", "name", "manifestPath", "identityField", "versionField", "capabilityFields"], "component");
   const capabilityFields = component.capabilityFields;
   if (!Array.isArray(capabilityFields) || capabilityFields.length > 32) {
@@ -5901,14 +6791,14 @@ function validateUpgradeConfig(input) {
   if (new Set(parsedCapabilities).size !== parsedCapabilities.length) {
     throw new Error("component.capabilityFields must not contain duplicates");
   }
-  const runner = object2(root.runner, "runner");
+  const runner = object(root.runner, "runner");
   exactKeys2(runner, ["engine", "image", "trials", "memoryMiB", "cpus", "pids"], "runner");
   if (runner.engine !== "docker") throw new Error("runner.engine must be docker");
   if (!Array.isArray(root.canaries) || root.canaries.length < 1 || root.canaries.length > 32) {
     throw new Error("canaries must contain from 1 to 32 entries");
   }
   const canaries = root.canaries.map((item2, index) => {
-    const canary = object2(item2, `canaries[${index}]`);
+    const canary = object(item2, `canaries[${index}]`);
     exactKeys2(canary, ["id", "publicId", "command", "timeoutSeconds"], `canaries[${index}]`);
     const id = boundedString(canary.id, `canaries[${index}].id`, 80, /^[a-z0-9][a-z0-9._-]*$/);
     const publicId = canary.publicId === void 0 ? void 0 : boundedString(canary.publicId, `canaries[${index}].publicId`, 80, /^[a-z0-9][a-z0-9._-]*$/);
@@ -6015,11 +6905,11 @@ function loadUpgradeConfig(path) {
   return validateUpgradeConfig(readBoundedJson(path, 256 * 1024, "upgrade config"));
 }
 function validateCanaryDocument(input) {
-  const root = object2(input, "canary output");
+  const root = object(input, "canary output");
   exactKeys2(root, ["schemaVersion", "outcome", "observations"], "canary output");
   if (root.schemaVersion !== CANARY_SCHEMA) throw new Error(`canary output schemaVersion must be ${CANARY_SCHEMA}`);
   if (root.outcome !== "PASS" && root.outcome !== "FAIL") throw new Error("canary output outcome must be PASS or FAIL");
-  const observations = object2(root.observations, "canary observations");
+  const observations = object(root.observations, "canary observations");
   if (Object.keys(observations).length < 1) throw new Error("canary observations must contain at least one field");
   if (Object.keys(observations).length > 64) throw new Error("canary observations contain more than 64 fields");
   const parsed = {};
@@ -6045,10 +6935,19 @@ import {
 import { lstatSync as lstatSync5, readFileSync as readFileSync16, realpathSync as realpathSync6 } from "node:fs";
 import { dirname as dirname6, isAbsolute as isAbsolute6, relative as relative9, resolve as resolve14, sep as sep7 } from "node:path";
 
+// src/upgrade/presentation.ts
+var TERMINAL_UNSAFE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu;
+function terminalSafe(value) {
+  return value.replace(TERMINAL_UNSAFE, (character) => {
+    const codePoint = character.codePointAt(0);
+    return `\\u{${(codePoint ?? 0).toString(16).toUpperCase().padStart(4, "0")}}`;
+  });
+}
+
 // src/upgrade/decision.ts
 import { createHash as createHash13 } from "node:crypto";
 import { lstatSync as lstatSync4, readdirSync, readFileSync as readFileSync15, realpathSync as realpathSync4 } from "node:fs";
-import { basename as basename5, dirname as dirname5, join as join5, relative as relative8, resolve as resolve13, sep as sep6 } from "node:path";
+import { basename as basename4, dirname as dirname5, join as join5, relative as relative8, resolve as resolve13, sep as sep6 } from "node:path";
 var MAX_FILES = 4096;
 var MAX_FILE_BYTES = 4 * 1024 * 1024;
 var MAX_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -6129,7 +7028,7 @@ function inspectTarget(directory, component) {
   try {
     manifest = JSON.parse(manifestBytes.toString("utf8"));
   } catch {
-    throw new Error(`${basename5(component.manifestPath)} is not valid JSON`);
+    throw new Error(`${basename4(component.manifestPath)} is not valid JSON`);
   }
   const name = lookup(manifest, component.identityField);
   const version = lookup(manifest, component.versionField);
@@ -7035,7 +7934,7 @@ function verifyPublicCompatibilityEntry(entry, publicKeyPath) {
     return { hashValid, signatureValid: false, keyPinned: Boolean(publicKeyPath) };
   }
 }
-function record(value, label) {
+function record2(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value;
 }
@@ -7058,13 +7957,13 @@ function sha256Text(value, label) {
   return patternedText(value, label, /^sha256:[0-9a-f]{64}$/, 71);
 }
 function validatePublicCompatibilityEntry(input) {
-  const root = record(input, "public compatibility entry");
+  const root = record2(input, "public compatibility entry");
   exact(root, ["schemaVersion", "vigilVersion", "generatedAt", "component", "runner", "verdict", "changedCapabilities", "canaries", "privateReceiptCommitment", "limitations", "entryHash", "signature"], "public compatibility entry");
   if (root.schemaVersion !== PUBLIC_ENTRY_SCHEMA) throw new Error(`public entry schemaVersion must be ${PUBLIC_ENTRY_SCHEMA}`);
   if (!(/* @__PURE__ */ new Set(["SAFE", "CHANGED", "HOLD"])).has(String(root.verdict))) throw new Error("public entry verdict is invalid");
-  const component = record(root.component, "public entry component");
+  const component = record2(root.component, "public entry component");
   exact(component, ["ecosystem", "name", "currentVersion", "candidateVersion", "currentArtifactSha256", "candidateArtifactSha256"], "public entry component");
-  const runner = record(root.runner, "public entry runner");
+  const runner = record2(root.runner, "public entry runner");
   exact(runner, ["imageDigest", "trials", "localEndpoint", "networkBlocked", "readOnly", "environmentIsolated", "configSha256", "canaryHarnessSha256"], "public entry runner");
   if (!Number.isInteger(runner.trials) || Number(runner.trials) < 2 || Number(runner.trials) > 5) throw new Error("public entry trials are invalid");
   for (const field of ["localEndpoint", "networkBlocked", "readOnly", "environmentIsolated"]) {
@@ -7076,7 +7975,7 @@ function validatePublicCompatibilityEntry(input) {
   if (new Set(root.changedCapabilities).size !== root.changedCapabilities.length) throw new Error("public entry changedCapabilities contain duplicates");
   if (!Array.isArray(root.canaries) || root.canaries.length > 32) throw new Error("public entry canaries are invalid");
   const canaries = root.canaries.map((item2, index) => {
-    const canary = record(item2, `public entry canaries[${index}]`);
+    const canary = record2(item2, `public entry canaries[${index}]`);
     exact(canary, ["publicId", "idSha256", "current", "candidate", "matched"], `public entry canaries[${index}]`);
     if (!(/* @__PURE__ */ new Set(["PASS", "FAIL", "HOLD"])).has(String(canary.current)) || !(/* @__PURE__ */ new Set(["PASS", "FAIL", "HOLD"])).has(String(canary.candidate))) {
       throw new Error(`public entry canaries[${index}] has an invalid state`);
@@ -7090,7 +7989,7 @@ function validatePublicCompatibilityEntry(input) {
       matched: canary.matched
     };
   });
-  const signature = record(root.signature, "public entry signature");
+  const signature = record2(root.signature, "public entry signature");
   exact(signature, ["algorithm", "keyId", "publicKey", "value"], "public entry signature");
   if (signature.algorithm !== "Ed25519") throw new Error("public entry signature algorithm must be Ed25519");
   if (!Array.isArray(root.limitations) || root.limitations.length > 16 || root.limitations.some((item2) => typeof item2 !== "string" || item2.length > 1024)) {
@@ -7179,7 +8078,7 @@ function renderBreakageIndex(entries) {
   </tr>`).join("\n");
   const safe = ordered.filter((entry) => entry.verdict === "SAFE").length;
   const changed = ordered.filter((entry) => entry.verdict === "CHANGED").length;
-  const hold = ordered.filter((entry) => entry.verdict === "HOLD").length;
+  const hold2 = ordered.filter((entry) => entry.verdict === "HOLD").length;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
@@ -7187,7 +8086,7 @@ function renderBreakageIndex(entries) {
 :root{color-scheme:light dark;font-family:ui-sans-serif,system-ui,sans-serif}body{max-width:1120px;margin:0 auto;padding:48px 24px;background:#07111f;color:#e7eef8}h1{font-size:clamp(2rem,5vw,4rem);margin:0 0 12px}.lede{max-width:760px;color:#a9b8ca;font-size:1.1rem;line-height:1.6}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:32px 0}.card{padding:20px;border:1px solid #2a3a50;border-radius:16px;background:#0d1a2b}.card strong{display:block;font-size:2rem}.table{overflow:auto;border:1px solid #2a3a50;border-radius:16px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:15px;border-bottom:1px solid #213147}th{color:#93a7bf;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em}td small{display:block;color:#7f94ac;margin-top:4px}.status{font-weight:800}.safe{color:#69e6a6}.changed{color:#ffcb6b}.hold{color:#ff8e9b}code{color:#b8c7db}footer{margin-top:28px;color:#8598ae;font-size:.9rem}@media(max-width:640px){body{padding:28px 16px}.cards{grid-template-columns:1fr}}
 </style></head><body><main><h1>Agent compatibility evidence</h1>
 <p class="lede">Signed, privacy-minimized results for exact coding-agent dependency version pairs. SAFE means no material change was detected by the recorded canaries under the recorded contained runner\u2014not that an update is universally safe.</p>
-<section class="cards" aria-label="Verdict counts"><div class="card"><strong>${safe}</strong>SAFE</div><div class="card"><strong>${changed}</strong>CHANGED</div><div class="card"><strong>${hold}</strong>HOLD</div></section>
+<section class="cards" aria-label="Verdict counts"><div class="card"><strong>${safe}</strong>SAFE</div><div class="card"><strong>${changed}</strong>CHANGED</div><div class="card"><strong>${hold2}</strong>HOLD</div></section>
 <section class="table"><table><thead><tr><th>Component</th><th>Version pair</th><th>Verdict</th><th>Matched canaries</th><th>Changed surfaces</th><th>Entry commitment</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No signed entries were supplied.</td></tr>'}</tbody></table></section>
 <footer>Generated by Agent Vigil Upgrade Guard. Raw repositories, commands, outputs, prompts, paths, and secrets are excluded from public entries.</footer></main></body></html>`;
 }
@@ -7416,7 +8315,7 @@ function insideRepository(repositoryPath, value, label) {
 function outputIdentity(path) {
   const parent = realpathSync8(dirname8(resolve16(path)));
   const status = statSync8(parent, { bigint: true });
-  const name = basename6(path);
+  const name = basename5(path);
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.endsWith(".") || name.endsWith(" ") || name.includes("~")) {
     throw new Error(`output basename is not portable and collision-safe: ${name}`);
   }
@@ -7447,7 +8346,7 @@ function assertOutputsOutsideRoots(outputs, roots) {
     const root = realpathSync8(rootPath);
     for (const output of outputs) {
       const parent = realpathSync8(dirname8(resolve16(output)));
-      const target = resolve16(parent, basename6(output));
+      const target = resolve16(parent, basename5(output));
       const rel = relative11(root, target);
       if (rel === "" || !isAbsolute7(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`)) {
         throw new Error("requested output path must remain outside current, candidate, and canary input trees");
@@ -7670,7 +8569,7 @@ Exit codes: 0 PASS \xB7 1 FAIL \xB7 2 INCONCLUSIVE or usage error`;
 }
 function runPlan(args) {
   try {
-    const allowed = /* @__PURE__ */ new Set(["plan", "--repo", "--base", "--head", "--policy", "--format", "--output", "--json"]);
+    const allowed = /* @__PURE__ */ new Set(["plan", "--repo", "--base", "--head", "--policy", "--format", "--output", "--json", "--github-summary"]);
     const takesValue = /* @__PURE__ */ new Set(["--repo", "--base", "--head", "--policy", "--format", "--output"]);
     for (let index = 1; index < args.length; index++) {
       const arg = args[index];
@@ -7686,17 +8585,25 @@ function runPlan(args) {
     if (!existsSync6(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef) || !gitRefExists(repo, headRef)) throw new Error(`invalid git range ${baseRef}..${headRef}`);
     const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
-    if (!(/* @__PURE__ */ new Set(["text", "json"])).has(format)) throw new Error("plan --format must be text or json");
+    if (!(/* @__PURE__ */ new Set(["text", "json", "markdown"])).has(format)) throw new Error("plan --format must be text, json, or markdown");
     const policyPath = optionValue(args, "--policy");
     if (policyPath && (isAbsolute8(policyPath) || policyPath === ".." || policyPath.startsWith("../") || policyPath.includes("\\"))) {
       throw new Error("plan --policy must be a repository-relative POSIX path");
     }
     const report = buildAuthorityPlan(repo, baseRef, headRef, VERSION, policyPath);
+    const rendered = format === "json" ? `${JSON.stringify(report, null, 2)}
+` : format === "markdown" ? renderAuthorityPlanMarkdown(report) : `${renderAuthorityPlan(report)}
+`;
     const output = optionValue(args, "--output");
     if (output) writePrivateFileAtomic(resolve17(output), `${JSON.stringify(report, null, 2)}
 `);
-    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderAuthorityPlan(report));
-    return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
+    else process.stdout.write(rendered);
+    if (args.includes("--github-summary")) {
+      const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+      if (!summaryPath) throw new Error("--github-summary requires GITHUB_STEP_SUMMARY");
+      appendPrivateFileAtomic(resolve17(summaryPath), renderAuthorityPlanMarkdown(report));
+    }
+    return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;

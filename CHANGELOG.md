@@ -25,6 +25,19 @@
 
 ## 0.13.0 - 2026-08-23
 
+- Add the local-alpha `vigil plan` command. It compares exact Git revisions and
+  normalizes repository-declared MCP, Claude Code, and Codex authority into a
+  deterministic partial-order change plan. New authority blocks; unsupported
+  and incomparable relationships hold; contractions remain visible.
+- Add secret-redacted JSON, text, and Markdown plan output, a versioned JSON
+  Schema, private atomic output, control-character neutralization, and
+  fail-closed parsing. This does not claim live effective authority, external
+  adoption, payment, or revenue.
+- Add `mode: plan` to the composite GitHub Action. It binds pull-request runs to
+  event base/head SHAs and exposes `PASS`, `BLOCK`, or `HOLD` without passing
+  the plan through incompatible receipt, value-card, SARIF, or attestation
+  processors.
+
 - Add `vigil protect` to discover common repository checks and install the
   exact-commit pull-request gate, merge-queue support, protected base policy,
   retained receipts, and outcome workflow in one command.

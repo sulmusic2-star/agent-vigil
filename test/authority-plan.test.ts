@@ -1,242 +1,540 @@
-import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { buildAuthorityPlan, renderAuthorityPlan } from "../src/authority-plan.ts";
+import { test } from "node:test";
+import { buildAuthorityPlan, discoverAuthorityProfile, renderAuthorityPlanMarkdown, renderAuthorityPlanText } from "../src/authority-plan.ts";
 import { run } from "../src/cli.ts";
 
-function git(repo: string, args: string[]): string {
+type Fixture = { repo: string; base: string };
+
+function git(repo: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function write(repo: string, path: string, content: string): void {
+function fixture(): Fixture {
+  const repo = mkdtempSync(join(tmpdir(), "vigil-authority-plan-"));
+  git(repo, "init", "-q");
+  git(repo, "config", "user.email", "vigil@example.test");
+  git(repo, "config", "user.name", "Vigil Test");
+  write(repo, "README.md", "base\n");
+  return { repo, base: commit(repo, "base") };
+}
+
+function write(repo: string, path: string, value: string): void {
   mkdirSync(dirname(join(repo, path)), { recursive: true });
-  writeFileSync(join(repo, path), content);
+  writeFileSync(join(repo, path), value);
 }
 
-function fixture(baseFiles: Record<string, string>, headFiles: Record<string, string>) {
-  const repo = mkdtempSync(join(tmpdir(), "vigil-plan-"));
-  git(repo, ["init", "-q"]);
-  git(repo, ["config", "user.email", "vigil@example.test"]);
-  git(repo, ["config", "user.name", "Vigil Test"]);
-  write(repo, "README.md", "fixture\n");
-  for (const [path, content] of Object.entries(baseFiles)) write(repo, path, content);
-  git(repo, ["add", "."]);
-  git(repo, ["commit", "-qm", "base"]);
-  const base = git(repo, ["rev-parse", "HEAD"]);
-  for (const [path, content] of Object.entries(headFiles)) write(repo, path, content);
-  git(repo, ["add", "."]);
-  git(repo, ["commit", "-qm", "head"]);
-  const head = git(repo, ["rev-parse", "HEAD"]);
-  return { repo, base, head };
+function json(repo: string, path: string, value: unknown): void {
+  write(repo, path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-test("new MCP server, host, and secret reference block without exposing secret values", () => {
-  const fx = fixture({}, {
-    ".mcp.json": JSON.stringify({ mcpServers: { payments: {
-      type: "http", url: "https://api.stripe.com/mcp?token=do-not-print", headers: { Authorization: "Bearer secret-value" },
-    } } }, null, 2),
-  });
-  const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
-  assert.equal(plan.status, "FAIL");
-  assert.ok(plan.changes.some((item) => item.kind === "server" && item.subject === "mcp:payments" && item.blocking));
-  assert.ok(plan.changes.some((item) => item.kind === "network" && item.subject === "api.stripe.com" && item.blocking));
-  assert.ok(plan.changes.some((item) => item.kind === "secret" && item.subject === "header:Authorization" && item.blocking));
-  assert.doesNotMatch(JSON.stringify(plan), /do-not-print|secret-value/);
-  assert.match(renderAuthorityPlan(plan), /^Agent authority plan: BLOCK/);
+function commit(repo: string, message: string): string {
+  git(repo, "add", "-A");
+  git(repo, "commit", "-qm", message);
+  return git(repo, "rev-parse", "HEAD");
+}
+
+function commitFile(repo: string, path: string, value: string, message = "change"): string {
+  write(repo, path, value);
+  return commit(repo, message);
+}
+
+test("unchanged and unrelated revisions pass with exact profile digests", () => {
+  const value = fixture();
+  const same = buildAuthorityPlan(value.repo, value.base, value.base);
+  assert.equal(same.status, "PASS");
+  assert.equal(same.summary.changes, 0);
+  assert.match(same.baseProfileSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(same.baseProfileSha256, same.headProfileSha256);
+
+  const head = commitFile(value.repo, "README.md", "unrelated\n");
+  const unrelated = buildAuthorityPlan(value.repo, value.base, head);
+  assert.equal(unrelated.status, "PASS");
+  assert.equal(unrelated.summary.sources, 0);
 });
 
-test("human plan output escapes terminal controls from configuration names", () => {
-  const fx = fixture({}, { ".mcp.json": JSON.stringify({ mcpServers: { ["writer\u001b[2J\u202e"]: { command: "node" } } }) });
-  const rendered = renderAuthorityPlan(buildAuthorityPlan(fx.repo, fx.base, fx.head, "test"));
-  assert.doesNotMatch(rendered, /\u001b|\u202e/u);
-  assert.match(rendered, /\\u\{001B\}|\\u\{202E\}/);
-});
-
-test("removing an MCP server is a non-blocking authority reduction", () => {
-  const existing = JSON.stringify({ mcpServers: { deployer: { command: "npx", args: ["deploy-mcp"] } } });
-  const fx = fixture({ ".mcp.json": existing }, { ".mcp.json": JSON.stringify({ mcpServers: {} }) });
-  const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
-  assert.equal(plan.status, "PASS");
-  assert.equal(plan.summary.blocking, 0);
-  assert.equal(plan.changes.find((item) => item.subject === "mcp:deployer")?.effect, "reduced");
-});
-
-test("changing MCP command arguments blocks even when the executable name is unchanged", () => {
-  const fx = fixture(
-    { ".mcp.json": JSON.stringify({ mcpServers: { runner: { command: "npx", args: ["safe-package"] } } }) },
-    { ".mcp.json": JSON.stringify({ mcpServers: { runner: { command: "npx", args: ["different-package"] } } }) },
-  );
-  const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
-  const server = plan.changes.find((item) => item.subject === "mcp:runner");
-  assert.equal(server?.blocking, true);
-  assert.equal(server?.before, "stdio:npx");
-  assert.equal(server?.after, "stdio:npx");
-  assert.match(server?.approvalKey ?? "", /@sha256:[a-f0-9]{64}$/);
-});
-
-test("Cursor and VS Code MCP repository formats are normalized", () => {
-  const fx = fixture({}, {
-    ".cursor/mcp.json": JSON.stringify({ mcpServers: { cursor: { command: "node", args: ["cursor-server.js"] } } }),
-    ".vscode/mcp.json": JSON.stringify({ servers: { editor: { type: "http", url: "https://editor.example.com/mcp" } } }),
-  });
-  const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
-  assert.equal(plan.status, "FAIL");
-  assert.ok(plan.changes.some((item) => item.source === ".cursor/mcp.json" && item.subject === "mcp:cursor"));
-  assert.ok(plan.changes.some((item) => item.source === ".vscode/mcp.json" && item.subject === "mcp:editor"));
-  assert.ok(plan.changes.some((item) => item.subject === "editor.example.com"));
-});
-
-test("Claude approval bypass, sandbox weakening, network growth, tools, and hooks block", () => {
-  const base = JSON.stringify({
-    permissions: { defaultMode: "default", allow: ["Read"] },
-    sandbox: { enabled: true, network: { allowedDomains: ["docs.example.com"] } },
-    model: "claude-opus-5-20260801",
-  });
-  const head = JSON.stringify({
-    permissions: { defaultMode: "bypassPermissions", allow: ["Read", "Bash(npm publish:*)"] },
-    sandbox: { enabled: false, network: { allowedDomains: ["docs.example.com", "api.stripe.com"] } },
-    model: "claude-opus-latest",
-    hooks: { PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "./scripts/post.sh --token hidden" }] }] },
-  });
-  const fx = fixture({ ".claude/settings.json": base }, { ".claude/settings.json": head });
-  const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
-  assert.equal(plan.status, "FAIL");
-  for (const subject of ["claude-default-mode", "claude-enabled", "api.stripe.com", "allow:Bash(npm publish:*)", "claude-model"]) {
-    assert.equal(plan.changes.find((item) => item.subject === subject)?.blocking, true, subject);
-  }
-  assert.ok(plan.changes.some((item) => item.kind === "hook" && item.blocking));
-  assert.doesNotMatch(JSON.stringify(plan), /--token hidden/);
-});
-
-test("Codex sandbox and approval weakening block while secret values remain private", () => {
-  const fx = fixture({ ".codex/config.toml": `
-model = "gpt-5.6-2026-08-01"
-approval_policy = "untrusted"
-sandbox_mode = "read-only"
-` }, { ".codex/config.toml": `
-model = "gpt-5.6-latest"
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
-[sandbox_workspace_write]
-network_access = true
-writable_roots = ["/Users"]
-[mcp_servers.deploy]
-url = "https://deploy.example.com/api"
-[mcp_servers.deploy.env]
-DEPLOY_TOKEN = "super-secret"
-` });
-  const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
-  assert.equal(plan.status, "FAIL");
-  assert.ok(plan.changes.filter((item) => item.blocking).length >= 6);
-  assert.ok(plan.changes.some((item) => item.subject === "deploy.example.com"));
-  assert.ok(plan.changes.some((item) => item.subject === "env:DEPLOY_TOKEN"));
-  assert.doesNotMatch(JSON.stringify(plan), /super-secret/);
-});
-
-test("changed unknown settings fail closed as INCONCLUSIVE", () => {
-  const fx = fixture(
-    { ".claude/settings.json": JSON.stringify({ futureAuthorityMode: "safe" }) },
-    { ".claude/settings.json": JSON.stringify({ futureAuthorityMode: "wide" }) },
-  );
-  const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
-  assert.equal(plan.status, "INCONCLUSIVE");
-  assert.equal(plan.summary.uncertain, 1);
-  assert.equal(plan.uncertainties[0].setting, "futureAuthorityMode");
-});
-
-test("official Claude administrative restrictions are understood as authority reductions", () => {
-  const fx = fixture({}, { ".claude/settings.json": JSON.stringify({
-    permissions: { disableBypassPermissionsMode: "disable" },
-    allowManagedPermissionRulesOnly: true,
-    allowManagedHooksOnly: true,
-    sandbox: {
-      autoAllowBashIfSandboxed: false,
-      allowUnsandboxedCommands: false,
-      enableWeakerNestedSandbox: false,
-      network: { allowAllUnixSockets: false, allowLocalBinding: false, allowedDomains: [], allowUnixSockets: [], httpProxyPort: null, socksProxyPort: null },
+test("a new MCP server blocks and omits secrets and control characters", () => {
+  const value = fixture();
+  const secret = "ghp_1234567890abcdefghijklmnopqrstuv";
+  json(value.repo, ".mcp.json", {
+    mcpServers: {
+      payments: {
+        command: "/usr/local/bin/npx",
+        args: ["-y", "server", `--token=${secret}`],
+        env: { API_TOKEN: secret },
+      },
     },
-  }) });
-  const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
+  });
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default", allow: [`Bash(curl -H 'Authorization: Bearer ${secret}'\nFAKE: PASS)`] },
+  });
+  const head = commit(value.repo, "add authority");
+  const plan = buildAuthorityPlan(value.repo, value.base, head);
+  const serialized = JSON.stringify(plan);
+  const rendered = renderAuthorityPlanText(plan);
+
+  assert.equal(plan.status, "BLOCK");
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP002"));
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP008"));
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP009"));
+  assert.doesNotMatch(serialized, new RegExp(secret));
+  assert.doesNotMatch(serialized, /FAKE: PASS/);
+  assert.doesNotMatch(rendered, new RegExp(secret));
+});
+
+test("malformed supported configuration holds without echoing its contents", () => {
+  const value = fixture();
+  const secret = "sk_live_should_not_escape";
+  const head = commitFile(value.repo, ".codex/config.toml", `sandbox_mode = \"${secret}\n`, "malformed config");
+  const plan = buildAuthorityPlan(value.repo, value.base, head);
+  assert.equal(plan.status, "HOLD");
+  assert.equal(plan.gaps.length, 1);
+  assert.match(plan.gaps[0].reason, /TOML parse failed/);
+  assert.doesNotMatch(JSON.stringify(plan), new RegExp(secret));
+});
+
+test("deep configuration holds before extraction and executable labels omit environment assignments", () => {
+  const deep: Record<string, unknown> = {};
+  let cursor = deep;
+  for (let index = 0; index < 40; index += 1) {
+    const next: Record<string, unknown> = {};
+    cursor.nested = next;
+    cursor = next;
+  }
+  const value = fixture();
+  json(value.repo, ".claude/settings.json", deep);
+  const deepHead = commit(value.repo, "deep config");
+  const held = buildAuthorityPlan(value.repo, value.base, deepHead);
+  assert.equal(held.status, "HOLD");
+  assert.match(held.gaps[0].reason, /parse failed/);
+
+  json(value.repo, ".mcp.json", { mcpServers: { assigned: { command: "FOO=bar node server.js" } } });
+  const commandHead = commit(value.repo, "assignment command");
+  const plan = buildAuthorityPlan(value.repo, deepHead, commandHead);
+  assert.equal(plan.status, "BLOCK");
+  assert.match(JSON.stringify(plan), /environment-assignment/);
+  assert.doesNotMatch(JSON.stringify(plan), /FOO=bar/);
+});
+
+test("Codex sandbox, network, and writable-root expansion blocks", () => {
+  const value = fixture();
+  write(value.repo, ".codex/config.toml", [
+    'sandbox_mode = "read-only"',
+    'approval_policy = "on-request"',
+    'approvals_reviewer = "user"',
+    "[sandbox_workspace_write]",
+    "network_access = false",
+    "writable_roots = []",
+    "",
+  ].join("\n"));
+  const base = commit(value.repo, "codex base");
+  const head = commitFile(value.repo, ".codex/config.toml", [
+    'sandbox_mode = "danger-full-access"',
+    'approval_policy = "on-request"',
+    'approvals_reviewer = "user"',
+    "[sandbox_workspace_write]",
+    "network_access = true",
+    'writable_roots = ["/tmp/outside"]',
+    "",
+  ].join("\n"), "expand codex authority");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+
+  assert.equal(plan.status, "BLOCK");
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP005" && delta.direction === "EXPANSION"));
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP006" && delta.direction === "EXPANSION"));
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP007" && delta.direction === "EXPANSION"));
+});
+
+test("Claude permission contractions pass while removed denies and bypass expansion block", () => {
+  const value = fixture();
+  json(value.repo, ".claude/settings.json", { permissions: { defaultMode: "default", deny: [] } });
+  const base = commit(value.repo, "claude base");
+
+  json(value.repo, ".claude/settings.json", { permissions: { defaultMode: "default", deny: ["Bash(rm:*)"] } });
+  const denied = commit(value.repo, "add deny");
+  const contraction = buildAuthorityPlan(value.repo, base, denied);
+  assert.equal(contraction.status, "PASS");
+  assert.ok(contraction.deltas.some((delta) => delta.ruleId === "AVP000" && delta.direction === "CONTRACTION"));
+
+  json(value.repo, ".claude/settings.json", { permissions: { defaultMode: "bypassPermissions", deny: [] } });
+  const bypass = commit(value.repo, "remove deny and bypass");
+  const expansion = buildAuthorityPlan(value.repo, denied, bypass);
+  assert.equal(expansion.status, "BLOCK");
+  assert.ok(expansion.deltas.some((delta) => delta.ruleId === "AVP010"));
+  assert.ok(expansion.deltas.some((delta) => delta.ruleId === "AVP004"));
+});
+
+test("Claude plugin enablement blocks and hook matcher changes cannot pass silently", () => {
+  const value = fixture();
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    hooks: { PreToolUse: [{ matcher: "Edit|Write", hooks: [{ type: "command", command: "node guard.js" }] }] },
+  });
+  const base = commit(value.repo, "hook base");
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "default" },
+    enabledPlugins: { "deployer@example": true },
+    hooks: { PreToolUse: [{ matcher: "Edit|Write|NotebookEdit", hooks: [{ type: "command", command: "node guard.js" }] }] },
+  });
+  const head = commit(value.repo, "expand plugin and hook matcher");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+  assert.equal(plan.status, "BLOCK");
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP015" && delta.disposition === "BLOCK"));
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP014" && delta.disposition === "HOLD" && delta.after?.action === "hook.execute"));
+});
+
+test("removing an enabled MCP server contracts its child deny-list rules", () => {
+  const value = fixture();
+  json(value.repo, ".mcp.json", {
+    mcpServers: {
+      github: {
+        url: "https://example.test/mcp",
+        disabled_tools: ["delete_file", "push_files"],
+        env: { GITHUB_TOKEN: "environment-reference" },
+      },
+    },
+  });
+  const base = commit(value.repo, "mcp base");
+  json(value.repo, ".mcp.json", { mcpServers: {} });
+  const head = commit(value.repo, "remove mcp server");
+  const plan = buildAuthorityPlan(value.repo, base, head);
   assert.equal(plan.status, "PASS");
   assert.equal(plan.summary.blocking, 0);
-  assert.equal(plan.summary.uncertain, 0);
-  assert.ok(plan.changes.some((item) => item.subject === "claude-allowManagedHooksOnly" && item.effect === "reduced"));
+  assert.ok(plan.deltas.every((delta) => delta.direction === "CONTRACTION"));
 });
 
-test("malformed changed configuration is INCONCLUSIVE", () => {
-  const fx = fixture({}, { ".mcp.json": "{not-json\n" });
-  const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
-  assert.equal(plan.status, "INCONCLUSIVE");
-  assert.equal(plan.uncertainties[0].setting, "$parse");
+test("UTF-8 BOM JSON is parsed before authority extraction", () => {
+  const value = fixture();
+  const head = commitFile(value.repo, ".cursor/mcp.json", `\ufeff${JSON.stringify({ mcpServers: { supabase: { url: "https://mcp.supabase.com/mcp" } } })}\n`);
+  const plan = buildAuthorityPlan(value.repo, value.base, head);
+  assert.equal(plan.status, "BLOCK");
+  assert.equal(plan.gaps.length, 0);
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP002"));
 });
 
-test("base policy can approve one addition and candidate cannot approve itself", () => {
-  const policy = JSON.stringify({ schemaVersion: 1, approvedAdditions: ["network:api.example.com=mcp-server"], allowUnknownChanges: false });
-  const config = JSON.stringify({ mcpServers: { remote: { url: "https://api.example.com" } } });
-  const approved = fixture({ ".agent-vigil-authority-plan.json": policy }, { ".mcp.json": config });
-  const approvedPlan = buildAuthorityPlan(approved.repo, approved.base, approved.head, "test");
-  assert.equal(approvedPlan.changes.find((item) => item.subject === "api.example.com")?.blocking, false);
-  assert.equal(approvedPlan.status, "FAIL", "the new MCP server remains separately unapproved");
+test("MCP approval modes use a partial order instead of a fake scalar score", () => {
+  const value = fixture();
+  const config = (mode: string) => ({ mcpServers: { docs: { command: "node", args: ["server.js"], default_tools_approval_mode: mode } } });
+  json(value.repo, ".mcp.json", config("prompt"));
+  const prompt = commit(value.repo, "prompt");
+  json(value.repo, ".mcp.json", config("auto"));
+  const auto = commit(value.repo, "auto");
+  json(value.repo, ".mcp.json", config("writes"));
+  const writes = commit(value.repo, "writes");
+  json(value.repo, ".mcp.json", config("approve"));
+  const approve = commit(value.repo, "approve");
 
-  const selfApproved = fixture({}, {
-    ".mcp.json": config,
-    ".agent-vigil-authority-plan.json": JSON.stringify({ schemaVersion: 1, approvedAdditions: ["server:mcp:remote", "network:api.example.com"], allowUnknownChanges: true }),
-  });
-  const selfPlan = buildAuthorityPlan(selfApproved.repo, selfApproved.base, selfApproved.head, "test");
-  assert.equal(selfPlan.status, "FAIL");
-  assert.equal(selfPlan.policy.source, "built-in default");
+  assert.equal(buildAuthorityPlan(value.repo, prompt, auto).status, "BLOCK");
+  const incomparable = buildAuthorityPlan(value.repo, auto, writes);
+  assert.equal(incomparable.status, "HOLD");
+  assert.ok(incomparable.deltas.some((delta) => delta.direction === "INCOMPARABLE"));
+  assert.equal(buildAuthorityPlan(value.repo, approve, prompt).status, "PASS");
 });
 
-test("CLI writes an exact-commit JSON receipt and returns tri-state exit codes", () => {
-  const fx = fixture({}, { ".mcp.json": JSON.stringify({ mcpServers: { writer: { command: "node" } } }) });
-  const receipt = join(fx.repo, "receipt.json");
-  assert.equal(run(["plan", "--repo", fx.repo, "--base", fx.base, "--head", fx.head, "--format", "json", "--output", receipt]), 1);
-  const raw = JSON.parse(execFileSync("cat", [receipt], { encoding: "utf8" }));
-  assert.equal(raw.base, fx.base);
-  assert.equal(raw.head, fx.head);
-  assert.match(raw.receiptHash, /^sha256:[a-f0-9]{64}$/);
-  assert.equal(run(["plan", "--repo", fx.repo, "--base", fx.head, "--head", fx.head]), 0);
-  assert.equal(run(["plan", "--repo", fx.repo, "--base", "missing", "--head", fx.head]), 2);
-});
-
-test("48 varied repository scenarios preserve fail-closed authority verdicts", () => {
-  const observed: Record<string, number> = { PASS: 0, FAIL: 0, INCONCLUSIVE: 0 };
-  for (let index = 0; index < 48; index += 1) {
-    const family = index % 6;
-    let baseFiles: Record<string, string> = {};
-    let headFiles: Record<string, string> = {};
-    let expected: "PASS" | "FAIL" | "INCONCLUSIVE";
-    if (family === 0) {
-      headFiles = { ".mcp.json": JSON.stringify({ mcpServers: { [`remote-${index}`]: { url: `https://host-${index}.example/mcp?token=secret-${index}` } } }) };
-      expected = "FAIL";
-    } else if (family === 1) {
-      baseFiles = { ".claude/settings.json": JSON.stringify({ permissions: { defaultMode: "default" }, sandbox: { enabled: true } }) };
-      headFiles = { ".claude/settings.json": JSON.stringify({ permissions: { defaultMode: "bypassPermissions" }, sandbox: { enabled: false } }) };
-      expected = "FAIL";
-    } else if (family === 2) {
-      baseFiles = { ".codex/config.toml": 'approval_policy = "on-request"\nsandbox_mode = "workspace-write"\n' };
-      headFiles = { ".codex/config.toml": 'approval_policy = "never"\nsandbox_mode = "danger-full-access"\n' };
-      expected = "FAIL";
-    } else if (family === 3) {
-      baseFiles = { ".claude/settings.json": JSON.stringify({ [`futureSetting${index}`]: "narrow" }) };
-      headFiles = { ".claude/settings.json": JSON.stringify({ [`futureSetting${index}`]: "wide" }) };
-      expected = "INCONCLUSIVE";
-    } else if (family === 4) {
-      baseFiles = { ".mcp.json": JSON.stringify({ mcpServers: { [`old-${index}`]: { command: "node", args: ["server.js"] } } }) };
-      headFiles = { ".mcp.json": JSON.stringify({ mcpServers: {} }) };
-      expected = "PASS";
-    } else {
-      headFiles = { ".claude/settings.json": JSON.stringify({ permissions: { disableBypassPermissionsMode: "disable" }, allowManagedHooksOnly: true }) };
-      expected = "PASS";
-    }
-    const fx = fixture(baseFiles, headFiles);
-    const plan = buildAuthorityPlan(fx.repo, fx.base, fx.head, "test");
-    assert.equal(plan.status, expected, `scenario ${index}`);
-    assert.doesNotMatch(JSON.stringify(plan), new RegExp(`secret-${index}`));
-    observed[plan.status] += 1;
+test("MCP discovery covers transport, headers, scopes, tool selection, and per-tool approval", () => {
+  const value = fixture();
+  json(value.repo, ".mcp.json", { servers: { service: {
+    disabled: true,
+    serverUrl: "https://example.test/old/path?secret=omitted",
+    disabledTools: ["delete"],
+    defaultToolsApprovalMode: "prompt",
+    tools: { read: { approvalMode: "prompt" } },
+  } } });
+  const base = commit(value.repo, "restricted mcp");
+  json(value.repo, ".mcp.json", { servers: { service: {
+    enabled: true,
+    url: "https://api.example.test/mcp?credential=omitted",
+    http_headers: { AUTHORIZATION: "environment-reference" },
+    headers: { "X-TENANT": "environment-reference" },
+    bearer_token_env_var: "SERVICE_TOKEN",
+    scopes: ["repository:write"],
+    enabled_tools: ["write"],
+    default_tools_approval_mode: "approve",
+    tools: { read: { approval_mode: "auto" } },
+  } } });
+  const head = commit(value.repo, "expand mcp");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+  const serialized = JSON.stringify(plan);
+  assert.equal(plan.status, "BLOCK");
+  for (const ruleId of ["AVP002", "AVP004", "AVP008", "AVP013"]) {
+    assert.ok(plan.deltas.some((delta) => delta.ruleId === ruleId), `missing ${ruleId}`);
   }
-  assert.deepEqual(observed, { PASS: 16, FAIL: 24, INCONCLUSIVE: 8 });
+  assert.doesNotMatch(serialized, /environment-reference|credential=omitted|secret=omitted/);
+  assert.match(renderAuthorityPlanMarkdown(plan), /\| BLOCK \|/);
+});
+
+test("Claude discovery covers sandbox, MCP approvals, environment, plugin, hook, and model changes", () => {
+  const value = fixture();
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "plan", ask: ["WebFetch(domain:example.test)"], disableBypassPermissionsMode: "disable" },
+    sandbox: { enabled: true, failIfUnavailable: true, network: { allowedDomains: [] } },
+    enableAllProjectMcpServers: false,
+    disabledMcpjsonServers: ["deploy"],
+    enabledPlugins: { "deploy@example": false },
+    hooks: { PostToolUse: [{ hooks: [{ type: "prompt" }] }] },
+    model: "claude-pinned-1",
+  });
+  const base = commit(value.repo, "claude restricted");
+  json(value.repo, ".claude/settings.json", {
+    permissions: { defaultMode: "acceptEdits", disableBypassPermissionsMode: false },
+    additionalDirectories: ["/tmp/external"],
+    sandbox: { enabled: false, failIfUnavailable: false, network: { allowedDomains: ["api.example.test"] } },
+    enableAllProjectMcpServers: true,
+    enabledMcpjsonServers: ["deploy"],
+    enabledPlugins: { "deploy@example": true },
+    env: { DEPLOY_TOKEN: "environment-reference" },
+    hooks: { PostToolUse: [{ hooks: [{ type: "command", command: "/usr/bin/node hook.js" }] }] },
+    model: "claude-latest",
+  });
+  const head = commit(value.repo, "claude expanded");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+  assert.equal(plan.status, "BLOCK");
+  for (const ruleId of ["AVP003", "AVP004", "AVP005", "AVP006", "AVP007", "AVP008", "AVP012", "AVP015"]) {
+    assert.ok(plan.deltas.some((delta) => delta.ruleId === ruleId), `missing ${ruleId}`);
+  }
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP014" && delta.after?.action === "hook.execute"));
+});
+
+test("Codex discovery covers reviewer, environment inheritance, secret exclusions, and explicit values", () => {
+  const value = fixture();
+  write(value.repo, ".codex/config.toml", [
+    'sandbox_mode = "read-only"',
+    'approval_policy = "on-request"',
+    'approvals_reviewer = "user"',
+    "[shell_environment_policy]",
+    'inherit = "none"',
+    "ignore_default_excludes = false",
+    "set = {}",
+    "",
+  ].join("\n"));
+  const base = commit(value.repo, "codex restricted");
+  write(value.repo, ".codex/config.toml", [
+    'sandbox_mode = "workspace-write"',
+    'approval_policy = "never"',
+    'approvals_reviewer = "auto_review"',
+    'model = "codex-default"',
+    "[shell_environment_policy]",
+    'inherit = "all"',
+    "ignore_default_excludes = true",
+    'set = { DEPLOY_TOKEN = "environment-reference" }',
+    "",
+  ].join("\n"));
+  const head = commit(value.repo, "codex expanded");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+  assert.equal(plan.status, "BLOCK");
+  for (const ruleId of ["AVP004", "AVP005", "AVP008", "AVP012"]) {
+    assert.ok(plan.deltas.some((delta) => delta.ruleId === ruleId), `missing ${ruleId}`);
+  }
+  assert.doesNotMatch(JSON.stringify(plan), /environment-reference/);
+});
+
+test("current Claude extra-root location and evolving Codex authority sections cannot pass silently", () => {
+  const claude = fixture();
+  json(claude.repo, ".claude/settings.json", { permissions: { defaultMode: "default", additionalDirectories: [] } });
+  const claudeBase = commit(claude.repo, "claude restricted");
+  json(claude.repo, ".claude/settings.json", { permissions: { defaultMode: "default", additionalDirectories: ["/tmp/external"] } });
+  const claudeHead = commit(claude.repo, "claude extra root");
+  const claudePlan = buildAuthorityPlan(claude.repo, claudeBase, claudeHead);
+  assert.equal(claudePlan.status, "BLOCK");
+  assert.ok(claudePlan.deltas.some((delta) => delta.ruleId === "AVP007" && delta.after?.locator === "permissions.additionalDirectories"));
+
+  const codex = fixture();
+  write(codex.repo, ".codex/config.toml", 'sandbox_mode = "read-only"\n');
+  const codexBase = commit(codex.repo, "codex restricted");
+  write(codex.repo, ".codex/config.toml", [
+    'sandbox_mode = "read-only"',
+    "[agents]",
+    "enabled = true",
+    "[tools]",
+    "web_search = true",
+    "",
+  ].join("\n"));
+  const codexHead = commit(codex.repo, "enable agents and web search");
+  const codexPlan = buildAuthorityPlan(codex.repo, codexBase, codexHead);
+  assert.equal(codexPlan.status, "HOLD");
+  assert.equal(codexPlan.summary.holds, 2);
+  assert.ok(codexPlan.deltas.every((delta) => delta.ruleId === "AVP014"));
+});
+
+test("current MCP credential and remote-execution fields are normalized or held", () => {
+  const value = fixture();
+  json(value.repo, ".mcp.json", { mcpServers: { service: { url: "https://example.test/mcp" } } });
+  const base = commit(value.repo, "mcp base");
+  json(value.repo, ".mcp.json", { mcpServers: { service: {
+    url: "https://example.test/mcp",
+    auth: "chatgpt",
+    env_http_headers: { Authorization: "environment-reference" },
+    env_vars: [{ name: "DEPLOY_TOKEN", source: "remote" }],
+    experimental_environment: "remote",
+    oauth_resource: "https://api.example.test/resource?secret=omitted",
+    vendorAuthorityMode: "automatic",
+  } } });
+  const head = commit(value.repo, "expand current mcp fields");
+  const plan = buildAuthorityPlan(value.repo, base, head);
+  assert.equal(plan.status, "BLOCK");
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP008"));
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP009"));
+  assert.ok(plan.deltas.some((delta) => delta.ruleId === "AVP014" && delta.after?.action === "authority.opaque"));
+  assert.doesNotMatch(JSON.stringify(plan), /environment-reference|secret=omitted|automatic/);
+});
+
+test("discovery reads the selected Git object rather than dirty worktree files", () => {
+  const value = fixture();
+  json(value.repo, ".mcp.json", { mcpServers: { risky: { command: "node", args: ["server.js"] } } });
+  const head = commit(value.repo, "add mcp");
+  json(value.repo, ".mcp.json", { mcpServers: {} });
+
+  const profile = discoverAuthorityProfile(value.repo, head);
+  const plan = buildAuthorityPlan(value.repo, value.base, head);
+  assert.ok(profile.atoms.some((item) => item.action === "mcp.connect"));
+  assert.equal(plan.status, "BLOCK");
+});
+
+test("unsupported configuration paths are outside the claimed scope", () => {
+  const value = fixture();
+  const head = commitFile(value.repo, "other/mcp.json", JSON.stringify({ mcpServers: { risky: { command: "node" } } }));
+  const plan = buildAuthorityPlan(value.repo, value.base, head);
+  assert.equal(plan.status, "PASS");
+  assert.equal(plan.summary.sources, 0);
+  assert.match(plan.limitations[0], /supported files/);
+});
+
+test("only the trusted base policy can approve exact semantic authority deltas", () => {
+  const config = { mcpServers: { deploy: { command: "node", args: ["server.js"] } } };
+  const seed = fixture();
+  json(seed.repo, ".mcp.json", config);
+  const seedHead = commit(seed.repo, "seed authority");
+  const approvalKeys = buildAuthorityPlan(seed.repo, seed.base, seedHead).deltas
+    .filter((delta) => delta.disposition === "BLOCK")
+    .map((delta) => delta.approvalKey);
+  assert.equal(approvalKeys.length, 2);
+
+  const approved = fixture();
+  json(approved.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: approvalKeys,
+    allowUnknownChanges: false,
+  });
+  const approvedBase = commit(approved.repo, "trusted policy");
+  json(approved.repo, ".mcp.json", config);
+  const approvedHead = commit(approved.repo, "approved authority");
+  const approvedPlan = buildAuthorityPlan(approved.repo, approvedBase, approvedHead);
+  assert.equal(approvedPlan.status, "PASS");
+  assert.equal(approvedPlan.summary.approved, 2);
+  assert.equal(approvedPlan.policy.source, `.agent-vigil-authority-plan.json@${approvedBase}`);
+
+  const selfApproved = fixture();
+  json(selfApproved.repo, ".mcp.json", config);
+  json(selfApproved.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: approvalKeys,
+    allowUnknownChanges: true,
+  });
+  const selfApprovedHead = commit(selfApproved.repo, "candidate self approval");
+  const selfApprovedPlan = buildAuthorityPlan(selfApproved.repo, selfApproved.base, selfApprovedHead);
+  assert.equal(selfApprovedPlan.status, "BLOCK");
+  assert.equal(selfApprovedPlan.summary.approved, 0);
+  assert.equal(selfApprovedPlan.policy.source, "built-in default");
+});
+
+test("unknown authority can be overridden only by the trusted base policy", () => {
+  const approved = fixture();
+  json(approved.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: [],
+    allowUnknownChanges: true,
+  });
+  const approvedBase = commit(approved.repo, "trusted unknown policy");
+  write(approved.repo, ".codex/config.toml", "[tools]\nfuture_control = true\n");
+  const approvedHead = commit(approved.repo, "future authority");
+  const approvedPlan = buildAuthorityPlan(approved.repo, approvedBase, approvedHead);
+  assert.equal(approvedPlan.status, "PASS");
+  assert.ok(approvedPlan.summary.uncertainties > 0);
+  assert.equal(approvedPlan.summary.holds, 0);
+  assert.ok(approvedPlan.summary.approved > 0);
+
+  const selfApproved = fixture();
+  write(selfApproved.repo, ".codex/config.toml", "[tools]\nfuture_control = true\n");
+  json(selfApproved.repo, ".agent-vigil-authority-plan.json", {
+    schemaVersion: 1,
+    approvedAdditions: [],
+    allowUnknownChanges: true,
+  });
+  const selfApprovedHead = commit(selfApproved.repo, "candidate unknown override");
+  const selfApprovedPlan = buildAuthorityPlan(selfApproved.repo, selfApproved.base, selfApprovedHead);
+  assert.equal(selfApprovedPlan.status, "HOLD");
+  assert.equal(selfApprovedPlan.policy.source, "built-in default");
+});
+
+test("plan CLI writes private deterministic output and returns fail-closed exit codes", () => {
+  const value = fixture();
+  json(value.repo, ".mcp.json", { mcpServers: { risky: { command: "node" } } });
+  const head = commit(value.repo, "add mcp");
+  const output = join(value.repo, "plan.json");
+
+  assert.equal(run(["plan", "--repo", value.repo, "--base", value.base, "--head", head, "--json", "--output", output]), 1);
+  const plan = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(plan.status, "BLOCK");
+  if (process.platform !== "win32") assert.equal(statSync(output).mode & 0o777, 0o600);
+  assert.equal(run(["plan", "--repo", value.repo, "--base", "missing", "--head", head]), 2);
+});
+
+test("composite Action enforces an exact-SHA authority plan as a required check", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
+  const value = fixture();
+  json(value.repo, ".mcp.json", { mcpServers: { deploy: { command: "node", args: ["server.js"] } } });
+  const head = commit(value.repo, "add deploy server");
+  const auxiliary = mkdtempSync(join(tmpdir(), "vigil-plan-action-"));
+  const event = join(auxiliary, "event.json");
+  const output = join(auxiliary, "output");
+  const summary = join(auxiliary, "summary");
+  const runner = join(auxiliary, "runner");
+  writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: value.base }, head: { sha: head } } }));
+  writeFileSync(output, "");
+  writeFileSync(summary, "");
+  mkdirSync(runner);
+
+  const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
+  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+  assert.ok(block);
+  const script = join(auxiliary, "run.sh");
+  writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GITHUB_ACTION_PATH: process.cwd(), GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output,
+    GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: runner, VIGIL_MODE: "plan", VIGIL_ATTEST: "false",
+    VIGIL_TRANSCRIPT: "", VIGIL_RECEIPT: "", VIGIL_AUTHORITY_CONTRACT: "", VIGIL_AUTHORITY_CONTRACT_REF: "",
+    VIGIL_OUTCOME_RECEIPT: "", VIGIL_ACTIONS_RUN_ID: "", VIGIL_REPO: value.repo,
+    VIGIL_BASE: value.base, VIGIL_HEAD: head, VIGIL_TEST_CMD: "", VIGIL_POLICY: "", VIGIL_POLICY_REF: "",
+    VIGIL_STRICT: "true", VIGIL_MIN_VERIFIED: "1", VIGIL_GITHUB_TOKEN: "",
+    VIGIL_VALUE_TASK_CLASS: "", VIGIL_VALUE_BUDGET_USD: "", VIGIL_VALUE_COST_USD: "",
+    VIGIL_VALUE_COST_SOURCE: "", VIGIL_VALUE_COST_EVIDENCE: "", VIGIL_VALUE_REVIEW_MINUTES: "",
+    VIGIL_REVERT_EVIDENCE: "", VIGIL_HOTFIX_EVIDENCE: "", VIGIL_INCIDENT_EVIDENCE: "",
+  };
+  delete env.NODE_V8_COVERAGE;
+  delete env.NODE_TEST_CONTEXT;
+  const completed = spawnSync("bash", [script], { cwd: value.repo, encoding: "utf8", env });
+  assert.equal(completed.status, 1, `${completed.stdout}\n${completed.stderr}`);
+  assert.match(readFileSync(output, "utf8"), /^status=BLOCK$/m);
+  assert.match(readFileSync(output, "utf8"), /^receipt_hash=sha256:[a-f0-9]{64}$/m);
+  assert.match(readFileSync(output, "utf8"), /^sarif=$/m);
+  assert.match(readFileSync(output, "utf8"), /^value_card=$/m);
+  const report = JSON.parse(readFileSync(join(value.repo, "agent-vigil-report.json"), "utf8"));
+  assert.equal(report.status, "BLOCK");
+  assert.equal(report.base, value.base);
+  assert.equal(report.head, head);
+
+  const attested = spawnSync("bash", [script], { cwd: value.repo, encoding: "utf8", env: { ...env, VIGIL_ATTEST: "true" } });
+  assert.equal(attested.status, 2);
+  assert.match(attested.stderr, /plan mode does not yet support attestation/);
+});
+
+test("the published plan schema is parseable and names the implemented contract", () => {
+  const schema = JSON.parse(readFileSync(new URL("../docs/authority-plan-v1.schema.json", import.meta.url), "utf8"));
+  assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
+  assert.equal(schema.properties.schemaVersion.const, "agent-vigil-authority-plan/v1");
+  assert.deepEqual(schema.properties.status.enum, ["PASS", "BLOCK", "HOLD"]);
+  assert.equal(schema.additionalProperties, false);
 });

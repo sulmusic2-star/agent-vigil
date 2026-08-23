@@ -86,6 +86,7 @@
     "docs/UPGRADE_GUARD.md",
     "docs/VALUE_COMPARISONS.md",
     "docs/authority-contract-v1.schema.json",
+    "docs/authority-plan-v1.schema.json",
     "docs/authority-plan-policy-v1.schema.json",
     "docs/ai-change-receipt-predicate-v1.schema.json",
     "docs/compatibility-entry-v1.schema.json",

@@ -1,0 +1,3061 @@
+{
+  "schemaVersion": "agent-vigil-authority-corpus/v1",
+  "observedAt": "2026-08-23T14:25:13.204Z",
+  "status": "COMPLETE_UNREVIEWED_NATURAL_WITH_PLANTED_PASS",
+  "target": 100,
+  "counts": {
+    "cases": 100,
+    "repositories": 70,
+    "candidates": 497,
+    "byPlatform": {
+      "mcp": 33,
+      "claude-code": 33,
+      "codex": 34
+    },
+    "byStatus": {
+      "PASS": 15,
+      "BLOCK": 75,
+      "HOLD": 10
+    },
+    "planted": {
+      "cases": 100,
+      "expectedBlocks": 100,
+      "observedBlocks": 100,
+      "misses": 0
+    },
+    "exclusions": {
+      "missingHead": 1,
+      "noParent": 12,
+      "identical": 0,
+      "credential": 1,
+      "request": 1
+    }
+  },
+  "selection": {
+    "source": "GitHub public code search and immutable commit identifiers",
+    "searches": [
+      "mcpServers filename:.mcp.json",
+      "servers filename:mcp.json",
+      "permissions filename:settings.json path:.claude",
+      "sandbox_mode filename:config.toml path:.codex",
+      "approval_policy filename:config.toml path:.codex"
+    ],
+    "platformTargets": {
+      "mcp": 33,
+      "claude-code": 33,
+      "codex": 34
+    },
+    "maximumPairsPerRepository": 2,
+    "contentHandling": "Configuration bytes were processed in temporary repositories and were not retained in this ledger.",
+    "credentialHandling": "Secret-looking samples were excluded before replay; absence from this ledger is not proof that public sources contain no secrets."
+  },
+  "cases": [
+    {
+      "id": "natural:1cab6d02fb74b4322a22",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "11neeja/medihub",
+      "path": ".claude/settings.json",
+      "base": "76cb01ef579167a1484b2d3b92ba37ba4cf30cfa",
+      "head": "88cf13cced277e1f6270dd86e91dcb14761ccc96",
+      "sourceUrl": "https://github.com/11neeja/medihub/compare/76cb01ef579167a1484b2d3b92ba37ba4cf30cfa...88cf13cced277e1f6270dd86e91dcb14761ccc96",
+      "baseBlobSha256": "sha256:249af6eac8505c8684dcc721251d633ed223347cd1915b27a84a6935f8dc3b77",
+      "headBlobSha256": "sha256:3da053db170df425606360b1b144a3eadf38d1e9ba71e2148e29259f235cd9eb",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:8d8e8f0a8766e9518007",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "11neeja/medihub",
+      "path": ".claude/settings.json",
+      "base": "f9420a5021ac06fea89e775fd262bde2188c8b40",
+      "head": "76cb01ef579167a1484b2d3b92ba37ba4cf30cfa",
+      "sourceUrl": "https://github.com/11neeja/medihub/compare/f9420a5021ac06fea89e775fd262bde2188c8b40...76cb01ef579167a1484b2d3b92ba37ba4cf30cfa",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:249af6eac8505c8684dcc721251d633ed223347cd1915b27a84a6935f8dc3b77",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 2,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:dad7af35379e34290486",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "33cn/chain33",
+      "path": ".claude/settings.json",
+      "base": "a7f6d384875dc628a7692db91bbe3ca0b796e643",
+      "head": "08a207012bd2fe073f1980c0831a1d79d4f2ceb9",
+      "sourceUrl": "https://github.com/33cn/chain33/compare/a7f6d384875dc628a7692db91bbe3ca0b796e643...08a207012bd2fe073f1980c0831a1d79d4f2ceb9",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:3fd7e459b5e68bd5bd69bc69c7d4649b7c750dc6e9b3ed2668037ba1fbe5bb3e",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 46,
+        "expansions": 45,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 45,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:1199cd2c1ed345ded130",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "abap2UI5/abap2UI5",
+      "path": ".claude/settings.json",
+      "base": "a4d0a05714dab03a6e129689d8bb631df7c86b5f",
+      "head": "1272425181b5f9a119b08a792a10bd47aa3f9bf1",
+      "sourceUrl": "https://github.com/abap2UI5/abap2UI5/compare/a4d0a05714dab03a6e129689d8bb631df7c86b5f...1272425181b5f9a119b08a792a10bd47aa3f9bf1",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:c159ca2a8b7708bcf002ddc21ee08ea4a55caaabe39f7b21c9322f43a6431ff5",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 29,
+        "expansions": 22,
+        "contractions": 6,
+        "incomparable": 1,
+        "blocking": 22,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:849f90b2ebb418781ab9",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "Agents-in-Interactions/Agents-in-Interactions.github.io",
+      "path": ".claude/settings.json",
+      "base": "f9c79cf228c0de503915fce667c686048c8011f3",
+      "head": "9a455c67df49ca50dd5d0e19ad86772e3af5e1e4",
+      "sourceUrl": "https://github.com/Agents-in-Interactions/Agents-in-Interactions.github.io/compare/f9c79cf228c0de503915fce667c686048c8011f3...9a455c67df49ca50dd5d0e19ad86772e3af5e1e4",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:ec16350283c2d974f4fcbf344ddee63705aa94de8d33533d59f75aff0e7967ca",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 1,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:00e322367345217ebf0d",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "alexfazio/plankton",
+      "path": ".claude/settings.json",
+      "base": "421af5456d4c9e794ff5039f28e46f50d65c0460",
+      "head": "cd2090991cfe92f12ab51aa14e6706616062561c",
+      "sourceUrl": "https://github.com/alexfazio/plankton/compare/421af5456d4c9e794ff5039f28e46f50d65c0460...cd2090991cfe92f12ab51aa14e6706616062561c",
+      "baseBlobSha256": "sha256:04dd90c71d0608986191b2b053a757ec8739705b909bae1fe4ceaba9dc2e2d50",
+      "headBlobSha256": "sha256:7fd2f981c1cfae7af52f08814fff4bc5fce657d9b74b040d69cf444c5c917f0b",
+      "observed": {
+        "status": "HOLD",
+        "changes": 2,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 2,
+        "blocking": 0,
+        "holds": 2
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:419df70255d6d5568ecc",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "alexfazio/plankton",
+      "path": ".claude/settings.json",
+      "base": "9292d9fe6e6245c0076bb86ae1e6c2e719cf4434",
+      "head": "0b91d3778ab6928e9d4f9c8ad69f1588368e885f",
+      "sourceUrl": "https://github.com/alexfazio/plankton/compare/9292d9fe6e6245c0076bb86ae1e6c2e719cf4434...0b91d3778ab6928e9d4f9c8ad69f1588368e885f",
+      "baseBlobSha256": "sha256:f34f1572984c9357760614ca7e4e4567df667f0d9e10ee7ba4e3a92f9408cd28",
+      "headBlobSha256": "sha256:04dd90c71d0608986191b2b053a757ec8739705b909bae1fe4ceaba9dc2e2d50",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:18b36d1e1dc130e434a7",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "allansolutions/notetaker",
+      "path": ".claude/settings.json",
+      "base": "9d61618cee3a963184dcba2634356ef2273ce7b5",
+      "head": "097fca1ec71ac48a4363d77ffa2c4c64ea0f2f25",
+      "sourceUrl": "https://github.com/allansolutions/notetaker/compare/9d61618cee3a963184dcba2634356ef2273ce7b5...097fca1ec71ac48a4363d77ffa2c4c64ea0f2f25",
+      "baseBlobSha256": "sha256:a83eed836ad7be19e465c0369570e9cc30918c537a3fafc09aa19ddedc024d38",
+      "headBlobSha256": "sha256:e3d34d2d5c29b07dbb98f7061dceab15cb186d76b8c5fece984a7a14c8b02188",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 11,
+        "expansions": 11,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 11,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:018f572a6c9004d25797",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "allansolutions/notetaker",
+      "path": ".claude/settings.json",
+      "base": "96a737da6e015e4ee65779c36c8092d49db39625",
+      "head": "67c2b9dd9cadfe5b73c906618d8f70ac9bfe393f",
+      "sourceUrl": "https://github.com/allansolutions/notetaker/compare/96a737da6e015e4ee65779c36c8092d49db39625...67c2b9dd9cadfe5b73c906618d8f70ac9bfe393f",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:a83eed836ad7be19e465c0369570e9cc30918c537a3fafc09aa19ddedc024d38",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 1,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:80a19f61cf613dea3659",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "allisonbit/cosmic-oracle-charts",
+      "path": ".claude/settings.json",
+      "base": "7affa6557413c74e3c56d23dc47157b6bdff3ac2",
+      "head": "243ac0f658788834d9edef60c9164486b0e59824",
+      "sourceUrl": "https://github.com/allisonbit/cosmic-oracle-charts/compare/7affa6557413c74e3c56d23dc47157b6bdff3ac2...243ac0f658788834d9edef60c9164486b0e59824",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:0f65fe75151323d3f70169025ee97806f21922ebca7523dfc701f6e7b4fa61c2",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 18,
+        "expansions": 17,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 17,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:df167fe5fc57e7a37241",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "alvarosamp/TCC",
+      "path": ".claude/settings.json",
+      "base": "0e6e64a0eef0e7893d3deffe789e1320336c58ea",
+      "head": "11e4169c89403f46801865094a5d3081b2b2d9b7",
+      "sourceUrl": "https://github.com/alvarosamp/TCC/compare/0e6e64a0eef0e7893d3deffe789e1320336c58ea...11e4169c89403f46801865094a5d3081b2b2d9b7",
+      "baseBlobSha256": "sha256:d0c909d5b05866d9f90ff89387b6daf9d4b703744e810e6bfd652dff7482d6e0",
+      "headBlobSha256": "sha256:a5314558a4fdb22ec9c6596aa62b76e3a686efbe75611dcd89f8c9671e1e32ca",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:5a588909ea1740d49aeb",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "alvarosamp/TCC",
+      "path": ".claude/settings.json",
+      "base": "a9a138c4034b4aaa5d9d4c00daa0f5e759c1fb4e",
+      "head": "7ef8c4ce6e7fab3a40d97eb3a6a4f57a34200afb",
+      "sourceUrl": "https://github.com/alvarosamp/TCC/compare/a9a138c4034b4aaa5d9d4c00daa0f5e759c1fb4e...7ef8c4ce6e7fab3a40d97eb3a6a4f57a34200afb",
+      "baseBlobSha256": "sha256:0cafeee650d4ad708cb073e9580658f4563ef6155c3072fe8bc5bf34e60fad11",
+      "headBlobSha256": "sha256:d0c909d5b05866d9f90ff89387b6daf9d4b703744e810e6bfd652dff7482d6e0",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:7adddc3366d10b2b77f2",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "an-X550/zhiji",
+      "path": ".claude/settings.json",
+      "base": "1df8b564383db8622792c824f3559aefa8dd357a",
+      "head": "3e0ae764e69570c1eb6371eb16d64a4ba00a72a2",
+      "sourceUrl": "https://github.com/an-X550/zhiji/compare/1df8b564383db8622792c824f3559aefa8dd357a...3e0ae764e69570c1eb6371eb16d64a4ba00a72a2",
+      "baseBlobSha256": "sha256:66e51ed21a4f16190857b9f872c0d58cd8450a2c34480709f463c518e78806c6",
+      "headBlobSha256": "sha256:49b9e8b1e8778b9dfc801a56b9f2c46774e41412675eb8c7ba8f7a4e9aa0ee79",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:b8b4acdf6c9c453419d3",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "an-X550/zhiji",
+      "path": ".claude/settings.json",
+      "base": "d2280a39bf1d0f0792a3f908c3b6991a7fbdcfec",
+      "head": "13e350cee2f2aaf52e6e830d3cfa63573d4653ba",
+      "sourceUrl": "https://github.com/an-X550/zhiji/compare/d2280a39bf1d0f0792a3f908c3b6991a7fbdcfec...13e350cee2f2aaf52e6e830d3cfa63573d4653ba",
+      "baseBlobSha256": "sha256:a7a02cc9d7d1fa6c0ac67456fe67bca038b8183795ad83dcfbc014c1243da24c",
+      "headBlobSha256": "sha256:66e51ed21a4f16190857b9f872c0d58cd8450a2c34480709f463c518e78806c6",
+      "observed": {
+        "status": "HOLD",
+        "changes": 1,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 0,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:c2a471339dc57b0148db",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "ankit1x01/null-backend",
+      "path": ".claude/settings.json",
+      "base": "fcda738810ab1f3e0ad44d5ca6ff48e2ba41bec1",
+      "head": "581ce7ad25c025655661238ab9b10b9fc01d047c",
+      "sourceUrl": "https://github.com/ankit1x01/null-backend/compare/fcda738810ab1f3e0ad44d5ca6ff48e2ba41bec1...581ce7ad25c025655661238ab9b10b9fc01d047c",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:76808a8982650c9f27b27983c8b096f2e7d246b17ad16d79bcb4c34d4706bfa1",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 62,
+        "expansions": 47,
+        "contractions": 13,
+        "incomparable": 1,
+        "blocking": 47,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:88bbe5b55e0bb58592f3",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "Apra-Labs/ApraPipes",
+      "path": ".claude/settings.json",
+      "base": "b9db9d8243d5e0638a3207c6ebdc46547fc3ed76",
+      "head": "1ade0e5be9795c2f8d2c3b60a0834e8715e48e6a",
+      "sourceUrl": "https://github.com/Apra-Labs/ApraPipes/compare/b9db9d8243d5e0638a3207c6ebdc46547fc3ed76...1ade0e5be9795c2f8d2c3b60a0834e8715e48e6a",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:bca0a7d5f626addeea51c778620f2c3a306761f1114530eb48fdb4522cc3b9b8",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 30,
+        "expansions": 25,
+        "contractions": 4,
+        "incomparable": 1,
+        "blocking": 25,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:d118c9c9c66cb5b2657c",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "Apra-Labs/ApraPipes",
+      "path": ".claude/settings.json",
+      "base": "22a3163958f854b3ade0a529fcfff688e0177964",
+      "head": "d0af068aaf50fc846271a387834606f22e9bc5c8",
+      "sourceUrl": "https://github.com/Apra-Labs/ApraPipes/compare/22a3163958f854b3ade0a529fcfff688e0177964...d0af068aaf50fc846271a387834606f22e9bc5c8",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:f690517f986500643251d0578a533112fff0e2e263a3997a46f4af048b9c9191",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 4,
+        "expansions": 3,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 3,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:c165e8083a19852692e0",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "AratKruglik/claude-laravel",
+      "path": ".claude/settings.json",
+      "base": "dc034caf3f491308e4a58f50ff6aa95ec5d3dec7",
+      "head": "74c8cc2c2a66ed8eb25df4207aa6e5a2a639b322",
+      "sourceUrl": "https://github.com/AratKruglik/claude-laravel/compare/dc034caf3f491308e4a58f50ff6aa95ec5d3dec7...74c8cc2c2a66ed8eb25df4207aa6e5a2a639b322",
+      "baseBlobSha256": "sha256:7d97dcecb93d8c204cfed1117605f5793a19636779746e0117b2a3b8ab552082",
+      "headBlobSha256": "sha256:21378fef1fb3b75f4c3c0058b6c5613a0d5720b891a1d254c6fcd74d69f88514",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:215f70c71e1e130cb1d9",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "AratKruglik/claude-laravel",
+      "path": ".claude/settings.json",
+      "base": "246a5bec2bd8051557ecfb44e65af3aecdbdc3ed",
+      "head": "be0102d87d7f392e0a65120e7ad2f16813fd07f0",
+      "sourceUrl": "https://github.com/AratKruglik/claude-laravel/compare/246a5bec2bd8051557ecfb44e65af3aecdbdc3ed...be0102d87d7f392e0a65120e7ad2f16813fd07f0",
+      "baseBlobSha256": "sha256:ac52b618420b981bee1d8e672d0d160b2dd617e4bb81616d982a6c1e511bce9e",
+      "headBlobSha256": "sha256:7d97dcecb93d8c204cfed1117605f5793a19636779746e0117b2a3b8ab552082",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:3f1c9c7693783696afa4",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "arthurseredaa/toolkit",
+      "path": ".claude/settings.json",
+      "base": "bc6f2fe2f2388c20fe627fc821ce9fac727dc4bf",
+      "head": "9f97ca25f48f93e39ac289d4611144df494895ca",
+      "sourceUrl": "https://github.com/arthurseredaa/toolkit/compare/bc6f2fe2f2388c20fe627fc821ce9fac727dc4bf...9f97ca25f48f93e39ac289d4611144df494895ca",
+      "baseBlobSha256": "sha256:bb823ea5e096f305247414ac4833bcb9a50a448755a49567aa8e9032c0c1687c",
+      "headBlobSha256": "sha256:9b8e9b990378c03a0df448faafb489fe8cfbb624632053c48dabee74776bc275",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:29aa675b56ba8eeab4e7",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "ashar-builds/ashar-builds.github.io",
+      "path": ".claude/settings.json",
+      "base": "951677e0221c7b7e138c37c5f77a2c3d37fa2eff",
+      "head": "0c283bfab015b54539626e0f6ba40ef3fc040ccb",
+      "sourceUrl": "https://github.com/ashar-builds/ashar-builds.github.io/compare/951677e0221c7b7e138c37c5f77a2c3d37fa2eff...0c283bfab015b54539626e0f6ba40ef3fc040ccb",
+      "baseBlobSha256": "sha256:d6df8314ff5ed216a649f5c1cfd3fc7f1a64abb5c36594649b2342470c1cd846",
+      "headBlobSha256": "sha256:fa619145d0a5435c9ab41e1b3265806808f3e3bcd10f015047e7db39dd4f2136",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 7,
+        "expansions": 7,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 7,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:6cbf333eb0783ab55050",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "ashar-builds/ashar-builds.github.io",
+      "path": ".claude/settings.json",
+      "base": "eb9504e634e59100cd9d802569f8c51318a88b44",
+      "head": "642c63361c453e213a8c8417aec9b59a5212da4d",
+      "sourceUrl": "https://github.com/ashar-builds/ashar-builds.github.io/compare/eb9504e634e59100cd9d802569f8c51318a88b44...642c63361c453e213a8c8417aec9b59a5212da4d",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:d6df8314ff5ed216a649f5c1cfd3fc7f1a64abb5c36594649b2342470c1cd846",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 30,
+        "expansions": 29,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 29,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:36d3366be8f81c00005b",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "aslogor/aslogor.github.io",
+      "path": ".claude/settings.json",
+      "base": "195508e01cfa0eb0ecdd71de803e9f383a582ab3",
+      "head": "24112727e745bad56c48601d17dd7f8222195fa2",
+      "sourceUrl": "https://github.com/aslogor/aslogor.github.io/compare/195508e01cfa0eb0ecdd71de803e9f383a582ab3...24112727e745bad56c48601d17dd7f8222195fa2",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:c6b530c2518a52a71e7aabf4b8f82892fd887caf6e6dc31a6d3ec2bf92811fbf",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 13,
+        "expansions": 12,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 12,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:99afe7c6484b3b1d25cc",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "Baebeca-Solutions/lexware-php-api",
+      "path": ".claude/settings.json",
+      "base": "d15740efd299b6ac121342c8617531fbdc3708b3",
+      "head": "64bb069185ea9837018c2c33f1ef70fb23389290",
+      "sourceUrl": "https://github.com/Baebeca-Solutions/lexware-php-api/compare/d15740efd299b6ac121342c8617531fbdc3708b3...64bb069185ea9837018c2c33f1ef70fb23389290",
+      "baseBlobSha256": "sha256:3a744d567d2401c179d049642e0320cf7ee7488309b625641fd27ddcd3945825",
+      "headBlobSha256": "sha256:73a038e33462631cb44359330646005c6104176b7c83700b90a9984b60cbb8ea",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:d97d6dedee62daad3a2d",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "Baebeca-Solutions/lexware-php-api",
+      "path": ".claude/settings.json",
+      "base": "589000a91d334e210150c7727c064a2ec95e73d3",
+      "head": "d15740efd299b6ac121342c8617531fbdc3708b3",
+      "sourceUrl": "https://github.com/Baebeca-Solutions/lexware-php-api/compare/589000a91d334e210150c7727c064a2ec95e73d3...d15740efd299b6ac121342c8617531fbdc3708b3",
+      "baseBlobSha256": "sha256:7fbe2a28f65a0d9014739c10148fc9c93f33086279382af4148dd0672a9d16a9",
+      "headBlobSha256": "sha256:3a744d567d2401c179d049642e0320cf7ee7488309b625641fd27ddcd3945825",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:dd17a341cf8a2b2bf55f",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "barbalex/apf2",
+      "path": ".claude/settings.json",
+      "base": "d313757bca96678141a570862d3ad18693e29ab9",
+      "head": "3f7cbbd7807f318b051658198a3da2602b664ad5",
+      "sourceUrl": "https://github.com/barbalex/apf2/compare/d313757bca96678141a570862d3ad18693e29ab9...3f7cbbd7807f318b051658198a3da2602b664ad5",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:3f55975d102257c4e4734dda57de46bbbab74207175c190571eb1a19eab3fef1",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 5,
+        "expansions": 4,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 4,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:321c1548c3eb30b4c247",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "Bear-Prince/count-spatula",
+      "path": ".claude/settings.json",
+      "base": "977deb173b46f66ea68fc1fff3371aeed116d8d4",
+      "head": "386c77634cfd83812d10b419d59fbac272f88842",
+      "sourceUrl": "https://github.com/Bear-Prince/count-spatula/compare/977deb173b46f66ea68fc1fff3371aeed116d8d4...386c77634cfd83812d10b419d59fbac272f88842",
+      "baseBlobSha256": "sha256:89db9bff0d77a5a7c5d6cb9bc42a153d2363020a31d8f398a825b600399c9ac7",
+      "headBlobSha256": "sha256:99a473aa804240fb8e20e4aee7ab5fc59ad5733409e9d7bfa657b9fd3a3276dc",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:e861025dcc9eac2323ed",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "Bear-Prince/count-spatula",
+      "path": ".claude/settings.json",
+      "base": "b8bd1df6ee08a6508ff90040c47116e8c4c17ebf",
+      "head": "6e43758aea8010e068c03b1f9a80c605b5a53da4",
+      "sourceUrl": "https://github.com/Bear-Prince/count-spatula/compare/b8bd1df6ee08a6508ff90040c47116e8c4c17ebf...6e43758aea8010e068c03b1f9a80c605b5a53da4",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:89db9bff0d77a5a7c5d6cb9bc42a153d2363020a31d8f398a825b600399c9ac7",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 1,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:4370c3635773229ec2d0",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "benjr70/Smart-Smoker-V2",
+      "path": ".claude/settings.json",
+      "base": "22d6433a6b65aeef6f23094bf497393d7d7d09a0",
+      "head": "6ab7e0232226362492a51e7c9849372b0590f269",
+      "sourceUrl": "https://github.com/benjr70/Smart-Smoker-V2/compare/22d6433a6b65aeef6f23094bf497393d7d7d09a0...6ab7e0232226362492a51e7c9849372b0590f269",
+      "baseBlobSha256": "sha256:90cb179c88d65c295ae7cb9039d2bcbdaffc3262dbaf9f27e15493c53c6a1f5f",
+      "headBlobSha256": "sha256:fc1bb8741d0ee8d9e33626021bf7bb8645fe5884870a2b31236dd524b5e92640",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 4,
+        "expansions": 2,
+        "contractions": 2,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:3b9e78b887db1d4f5803",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "benjr70/Smart-Smoker-V2",
+      "path": ".claude/settings.json",
+      "base": "d6848701bc67dc87bcebbd03c9b8fb8f8611e45c",
+      "head": "f7458eae06e592f64f8c410dabf70e824d329caa",
+      "sourceUrl": "https://github.com/benjr70/Smart-Smoker-V2/compare/d6848701bc67dc87bcebbd03c9b8fb8f8611e45c...f7458eae06e592f64f8c410dabf70e824d329caa",
+      "baseBlobSha256": "sha256:35ae281f1a658720b3a89db76bc0808f9dd6abb50168a23130565163f8185442",
+      "headBlobSha256": "sha256:90cb179c88d65c295ae7cb9039d2bcbdaffc3262dbaf9f27e15493c53c6a1f5f",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 10,
+        "expansions": 5,
+        "contractions": 5,
+        "incomparable": 0,
+        "blocking": 5,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:a0e9952bb78d627b83c9",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "bloXroute-Labs/relay-grpc",
+      "path": ".claude/settings.json",
+      "base": "f5519ac20a92fda284753d3a493962d92406977a",
+      "head": "935429b028e5a0501def378773d1dbba4be6c9a8",
+      "sourceUrl": "https://github.com/bloXroute-Labs/relay-grpc/compare/f5519ac20a92fda284753d3a493962d92406977a...935429b028e5a0501def378773d1dbba4be6c9a8",
+      "baseBlobSha256": "sha256:62167f3b551bfd5acb4c438b6e9c4db1a4336a38a253db6d62a0c033e507c7e1",
+      "headBlobSha256": "sha256:d17a6a9d98b6da5bb921788be8483aa2cd015605da9eb5fe67b9adead645cd7c",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 1,
+        "contractions": 2,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:3440dbaab3c6d6807f64",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "bloXroute-Labs/relay-grpc",
+      "path": ".claude/settings.json",
+      "base": "c9ed86a5384a872d3d83255a6fa7f95834edd803",
+      "head": "f5519ac20a92fda284753d3a493962d92406977a",
+      "sourceUrl": "https://github.com/bloXroute-Labs/relay-grpc/compare/c9ed86a5384a872d3d83255a6fa7f95834edd803...f5519ac20a92fda284753d3a493962d92406977a",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:62167f3b551bfd5acb4c438b6e9c4db1a4336a38a253db6d62a0c033e507c7e1",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 2,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "claude-code:add-preauthorized-command",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP009"
+        ]
+      }
+    },
+    {
+      "id": "natural:dd75cebd7bf6cff85bcc",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "claude-code",
+      "repository": "braintrustdata/braintrust-sdk-javascript",
+      "path": ".claude/settings.json",
+      "base": "1ec7d11f39c97471973de7e5eb0b0784025bc851",
+      "head": "3e66598088a3d8bc72335175dbe096d2c480626c",
+      "sourceUrl": "https://github.com/braintrustdata/braintrust-sdk-javascript/compare/1ec7d11f39c97471973de7e5eb0b0784025bc851...3e66598088a3d8bc72335175dbe096d2c480626c",
+      "baseBlobSha256": "sha256:3f6117ca7d3a96019846a1ec3bdf2ad46141cca43c9f7450f6b61b52a5ee89dd",
+      "headBlobSha256": "sha256:8b20814cb496c6de3afffad6ee93403c795093375b35ece040977af17a394f3c",
+      "observed": {
+        "status": "PASS",
+        "changes": 11,
+        "expansions": 0,
+        "contractions": 11,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "claude-code:enable-plugin",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP015"
+        ]
+      }
+    },
+    {
+      "id": "natural:b3a8b635d586c5460bb4",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "0xGosu/herdr-auto-pilot",
+      "path": ".codex/config.toml",
+      "base": "e2d892a41efb2f3e0441c45f570b3b3769377957",
+      "head": "360bd459c9f1594f6650f21448597a5703f1392b",
+      "sourceUrl": "https://github.com/0xGosu/herdr-auto-pilot/compare/e2d892a41efb2f3e0441c45f570b3b3769377957...360bd459c9f1594f6650f21448597a5703f1392b",
+      "baseBlobSha256": "sha256:bd2fa3b2542b5bc372de6fcada6b1afd611d5e82dcc3e904fb8073bffc65d081",
+      "headBlobSha256": "sha256:bd6158a028f7b15747e85a62e29498822ac75bc72ee4039b6072574d4831e898",
+      "observed": {
+        "status": "HOLD",
+        "changes": 22,
+        "expansions": 0,
+        "contractions": 20,
+        "incomparable": 2,
+        "blocking": 0,
+        "holds": 2
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:291bb61f70e11ed9501c",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "77777R7/slap-my-codex",
+      "path": ".codex/config.toml",
+      "base": "f425c21a1e16161561150715016986df1be6771d",
+      "head": "876b9e96c19b6f749c1a5993e9dacf0e117e0504",
+      "sourceUrl": "https://github.com/77777R7/slap-my-codex/compare/f425c21a1e16161561150715016986df1be6771d...876b9e96c19b6f749c1a5993e9dacf0e117e0504",
+      "baseBlobSha256": "sha256:1b5c917eb8a773ada6be388d2673a3683483acee7e44e339711649e6c543c209",
+      "headBlobSha256": "sha256:bc2058708abe3e5dcb24b4d8cec926b9eaab78d58691c977b4045f131bf9244a",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:10cd8eeec628cf3aa9e1",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "869123771/art-supabase-pro",
+      "path": ".codex/config.toml",
+      "base": "02bc63fa333960a02cc0ffbf646498079ed188ad",
+      "head": "963a6c0ae2e9b2c1fcbd9bb60e9147edf2fb0552",
+      "sourceUrl": "https://github.com/869123771/art-supabase-pro/compare/02bc63fa333960a02cc0ffbf646498079ed188ad...963a6c0ae2e9b2c1fcbd9bb60e9147edf2fb0552",
+      "baseBlobSha256": "sha256:38813be5ba1c0187dd233bd3df59e3a57219ab270a83c4cd349546ccddab4ebd",
+      "headBlobSha256": "sha256:93f5913e34a842f015216a1fc393dac02a8f6f45423db0b53d1c16c5d1dbf614",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 2,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:add-mcp-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:2690da63a89368b6d0d0",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "869123771/art-supabase-pro",
+      "path": ".codex/config.toml",
+      "base": "9792c919ac519248745648b4bb1e16186b02c6bd",
+      "head": "c9822348401f01357107c66c491ac42ae3da2ee3",
+      "sourceUrl": "https://github.com/869123771/art-supabase-pro/compare/9792c919ac519248745648b4bb1e16186b02c6bd...c9822348401f01357107c66c491ac42ae3da2ee3",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:38813be5ba1c0187dd233bd3df59e3a57219ab270a83c4cd349546ccddab4ebd",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 6,
+        "expansions": 2,
+        "contractions": 2,
+        "incomparable": 1,
+        "blocking": 2,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:8e8f8a55e75efa7a01b7",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "aaione/everything-claude-code-zh",
+      "path": ".codex/config.toml",
+      "base": "1137a6fd9104f3bd27faa5e8582befc5c359ce35",
+      "head": "1b5df7b2bc6e01b9d799d72e870a4b4d77ca3396",
+      "sourceUrl": "https://github.com/aaione/everything-claude-code-zh/compare/1137a6fd9104f3bd27faa5e8582befc5c359ce35...1b5df7b2bc6e01b9d799d72e870a4b4d77ca3396",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:e06712d12ddb8803acf07cfb35a874d0bfe3714f0b0504c584269bfb9c9b419a",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 19,
+        "expansions": 13,
+        "contractions": 1,
+        "incomparable": 3,
+        "blocking": 13,
+        "holds": 3
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:0df89174252e05edec3d",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "ABilenduke/final-cut",
+      "path": ".codex/config.toml",
+      "base": "b5693c7154549775492aea9ad986b4e945e51cc9",
+      "head": "aafb42e8352a2f53b10cdd9b23d7f96c666adabd",
+      "sourceUrl": "https://github.com/ABilenduke/final-cut/compare/b5693c7154549775492aea9ad986b4e945e51cc9...aafb42e8352a2f53b10cdd9b23d7f96c666adabd",
+      "baseBlobSha256": "sha256:8af8cf104ea40379060c7d7114ce9e3b5927e920c3f609800339b61efa19c081",
+      "headBlobSha256": "sha256:ec2c689e6098608bab4f857ab296e75eee0dda51f9a13398ff2d8f5b209dfa83",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:63bedc471171cafbb9c1",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "ABilenduke/final-cut",
+      "path": ".codex/config.toml",
+      "base": "8c3656cbf41023a5626dc1dd7769a828ed5f44d8",
+      "head": "b5693c7154549775492aea9ad986b4e945e51cc9",
+      "sourceUrl": "https://github.com/ABilenduke/final-cut/compare/8c3656cbf41023a5626dc1dd7769a828ed5f44d8...b5693c7154549775492aea9ad986b4e945e51cc9",
+      "baseBlobSha256": "sha256:de154a7f7f26467439c3c20bf67dda91436011d6642a6e8960d0c15568177d02",
+      "headBlobSha256": "sha256:8af8cf104ea40379060c7d7114ce9e3b5927e920c3f609800339b61efa19c081",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:046fd171155c8e3fe05e",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "Altinn/altinn-studio",
+      "path": ".codex/config.toml",
+      "base": "e8fb4011b3d2d919ca42de0ca5e426eeb9270ae2",
+      "head": "2137da159c8546e55434d493f02a31cedaa6501e",
+      "sourceUrl": "https://github.com/Altinn/altinn-studio/compare/e8fb4011b3d2d919ca42de0ca5e426eeb9270ae2...2137da159c8546e55434d493f02a31cedaa6501e",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:64abac51756456bdb42e6d484e5616ebbbf8e519cf8889152f0d55d2201fd600",
+      "observed": {
+        "status": "PASS",
+        "changes": 4,
+        "expansions": 0,
+        "contractions": 2,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:13f49291696275615ab5",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "Altinn/app-frontend-react",
+      "path": ".codex/config.toml",
+      "base": "a106c18a907c3f503c39c9675df777a3fb87709d",
+      "head": "9f7d69c0c06b31a63e9b342ebed98715e353fe2d",
+      "sourceUrl": "https://github.com/Altinn/app-frontend-react/compare/a106c18a907c3f503c39c9675df777a3fb87709d...9f7d69c0c06b31a63e9b342ebed98715e353fe2d",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:64abac51756456bdb42e6d484e5616ebbbf8e519cf8889152f0d55d2201fd600",
+      "observed": {
+        "status": "PASS",
+        "changes": 4,
+        "expansions": 0,
+        "contractions": 2,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:7d8ac6cca30b531914ed",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "Altinn/app-lib-dotnet",
+      "path": ".codex/config.toml",
+      "base": "83e2d8f1b7b75b6dc7c5e7d8777e1fad10adadba",
+      "head": "1e0c04a1718811bdf2ee21a092a4316e5dc428dd",
+      "sourceUrl": "https://github.com/Altinn/app-lib-dotnet/compare/83e2d8f1b7b75b6dc7c5e7d8777e1fad10adadba...1e0c04a1718811bdf2ee21a092a4316e5dc428dd",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:64abac51756456bdb42e6d484e5616ebbbf8e519cf8889152f0d55d2201fd600",
+      "observed": {
+        "status": "PASS",
+        "changes": 4,
+        "expansions": 0,
+        "contractions": 2,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:6a3317cf1ad1f355201f",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "anmonteiro/dotfiles",
+      "path": ".codex/config.toml",
+      "base": "a6daee98884d3d5cc450fc28295a59df9cca7f5f",
+      "head": "c0dd3489067a482c36be9f4415521a343852f7c9",
+      "sourceUrl": "https://github.com/anmonteiro/dotfiles/compare/a6daee98884d3d5cc450fc28295a59df9cca7f5f...c0dd3489067a482c36be9f4415521a343852f7c9",
+      "baseBlobSha256": "sha256:6af43b574208114e668e2f04d0ae77e7576a0d39982a5f25524e687c00fd4c73",
+      "headBlobSha256": "sha256:158e99b3260a5b73313ac3673ef09d565b5a4a4606b2bad08cfb5d8fde1adcaf",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:add-mcp-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:b16b3d9f503e9dfb31a3",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "anmonteiro/dotfiles",
+      "path": ".codex/config.toml",
+      "base": "4a1304f73b7b7d08bf4856ae4d6cfb24f9f7e283",
+      "head": "204f97bcfa1634975d9a21754ee046b7c5094be7",
+      "sourceUrl": "https://github.com/anmonteiro/dotfiles/compare/4a1304f73b7b7d08bf4856ae4d6cfb24f9f7e283...204f97bcfa1634975d9a21754ee046b7c5094be7",
+      "baseBlobSha256": "sha256:bff4a4a4b2f2728bb1001a8da44af5a959149206fa0f9070b05425631f7f0263",
+      "headBlobSha256": "sha256:6af43b574208114e668e2f04d0ae77e7576a0d39982a5f25524e687c00fd4c73",
+      "observed": {
+        "status": "HOLD",
+        "changes": 2,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 2,
+        "blocking": 0,
+        "holds": 2
+      },
+      "planted": {
+        "mutation": "codex:add-mcp-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:d25bea88cc79495e8ffe",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "arspesk/sur9e",
+      "path": ".codex/config.toml",
+      "base": "fe5c798d2b69e681035c1600fa5a21f8663b8ca4",
+      "head": "64bcf1ab2c53fa93923db030074491303223bf94",
+      "sourceUrl": "https://github.com/arspesk/sur9e/compare/fe5c798d2b69e681035c1600fa5a21f8663b8ca4...64bcf1ab2c53fa93923db030074491303223bf94",
+      "baseBlobSha256": "sha256:350f6bb676406594e6a9e62bd93daef34bd338e543efaa0ddbac6f5b02805165",
+      "headBlobSha256": "sha256:a7e46cf47061f4bffb1cf1b9f334fc7fdf5a134a033aa6ea8e360b464e021043",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 1,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:add-mcp-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:426b5bc6b8e2cc97e8b8",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "arspesk/sur9e",
+      "path": ".codex/config.toml",
+      "base": "cb9c8c40161934b07351d32cf5758c02617314af",
+      "head": "50fa1fc3f76ea6f0f78450df7eb232dc6cab3f84",
+      "sourceUrl": "https://github.com/arspesk/sur9e/compare/cb9c8c40161934b07351d32cf5758c02617314af...50fa1fc3f76ea6f0f78450df7eb232dc6cab3f84",
+      "baseBlobSha256": "sha256:8c829fb5683c493ed5b3df7ae2eedb2cb630794e0c697b9a4197b8709c94ac62",
+      "headBlobSha256": "sha256:350f6bb676406594e6a9e62bd93daef34bd338e543efaa0ddbac6f5b02805165",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 3,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 3,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:eeb4124e61285c7ef7de",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "ashutoshrathi0909-oss/everything-claude-code",
+      "path": ".codex/config.toml",
+      "base": "7c82aebc76d66240c41be1449c682966924e0f3e",
+      "head": "77f38955b3bf01cdab61ee2a6347fd4b976b8f48",
+      "sourceUrl": "https://github.com/ashutoshrathi0909-oss/everything-claude-code/compare/7c82aebc76d66240c41be1449c682966924e0f3e...77f38955b3bf01cdab61ee2a6347fd4b976b8f48",
+      "baseBlobSha256": "sha256:6256d4bb69b86b2132c80b817bd741eb5847d8f8464e8b21056f4df43dc7637d",
+      "headBlobSha256": "sha256:05ec93e827883e912ec3209c54014f608daac2dee400361aaa3bb1987a8e6e82",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 4,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 3,
+        "blocking": 1,
+        "holds": 3
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:903cb3f31df7b1060166",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "ashutoshrathi0909-oss/everything-claude-code",
+      "path": ".codex/config.toml",
+      "base": "a9b104fc2352a816f56d302bbc7d02479483fe7e",
+      "head": "d70bab85e33af7a03b78c70dba7a7ce3b01d1b17",
+      "sourceUrl": "https://github.com/ashutoshrathi0909-oss/everything-claude-code/compare/a9b104fc2352a816f56d302bbc7d02479483fe7e...d70bab85e33af7a03b78c70dba7a7ce3b01d1b17",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:6256d4bb69b86b2132c80b817bd741eb5847d8f8464e8b21056f4df43dc7637d",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 14,
+        "expansions": 8,
+        "contractions": 2,
+        "incomparable": 2,
+        "blocking": 8,
+        "holds": 2
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:a35b611b165c6263ab02",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "backbay-labs/clawdstrike",
+      "path": ".codex/config.toml",
+      "base": "23c530039772aa0cfe4bcf976006482225641f87",
+      "head": "c7a46de5d565e82f56298cebb82bf619f27f08b3",
+      "sourceUrl": "https://github.com/backbay-labs/clawdstrike/compare/23c530039772aa0cfe4bcf976006482225641f87...c7a46de5d565e82f56298cebb82bf619f27f08b3",
+      "baseBlobSha256": "sha256:ce005d19f138c32d92f0c866bf34bd15db6b7b181fd558c808550ae202a95759",
+      "headBlobSha256": "sha256:24f6620c569258832487f655b26e2007e8731d798c9a6ef0b08bc9e6ef56d991",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:f906da746eb0a3062608",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "backbay-labs/clawdstrike",
+      "path": ".codex/config.toml",
+      "base": "eb5a75552620c466ade859ba9490bb4d4d9336cf",
+      "head": "2ed7e663e2b668807ab1ab936f5f972ae9fad95c",
+      "sourceUrl": "https://github.com/backbay-labs/clawdstrike/compare/eb5a75552620c466ade859ba9490bb4d4d9336cf...2ed7e663e2b668807ab1ab936f5f972ae9fad95c",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:ce005d19f138c32d92f0c866bf34bd15db6b7b181fd558c808550ae202a95759",
+      "observed": {
+        "status": "HOLD",
+        "changes": 6,
+        "expansions": 0,
+        "contractions": 2,
+        "incomparable": 3,
+        "blocking": 0,
+        "holds": 3
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:288e921bdbda3500fd68",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "bareboat-necessities/ocean-imu",
+      "path": ".codex/config.toml",
+      "base": "bd58dbdc2dda262eed627986e8e3b2bb01f3f004",
+      "head": "b800cd1d1df3550d1fa49a80ef9ce117cbbc719c",
+      "sourceUrl": "https://github.com/bareboat-necessities/ocean-imu/compare/bd58dbdc2dda262eed627986e8e3b2bb01f3f004...b800cd1d1df3550d1fa49a80ef9ce117cbbc719c",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:50f1262099d260b326949f918b6dbeaeb4d12a8a6195bf5526d9d3d2fe3fd6fa",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 4,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:035d965bd181737f3790",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "beep-effect/beep-effect",
+      "path": ".codex/config.toml",
+      "base": "a6ffc516e177aa35ef8408a981082a83a9e168a1",
+      "head": "180c8a2bc002deeba60d22e60ef0088fefbe2531",
+      "sourceUrl": "https://github.com/beep-effect/beep-effect/compare/a6ffc516e177aa35ef8408a981082a83a9e168a1...180c8a2bc002deeba60d22e60ef0088fefbe2531",
+      "baseBlobSha256": "sha256:171ae86c583340e29779c2184efffa554336c8d2839a19d73564b7ef6e72d041",
+      "headBlobSha256": "sha256:5a15e79296e57e0486722447169de1297ea28c2e4e1dd3706164b57a12442716",
+      "observed": {
+        "status": "HOLD",
+        "changes": 2,
+        "expansions": 0,
+        "contractions": 1,
+        "incomparable": 1,
+        "blocking": 0,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:4e642bbd66c3c84254d9",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "beep-effect/beep-effect",
+      "path": ".codex/config.toml",
+      "base": "3938e581fcadf6cb29a2e9e25dfae3c56dafc54d",
+      "head": "49b70014b17888e6e4fb6b63a86c4f70ff1c13cd",
+      "sourceUrl": "https://github.com/beep-effect/beep-effect/compare/3938e581fcadf6cb29a2e9e25dfae3c56dafc54d...49b70014b17888e6e4fb6b63a86c4f70ff1c13cd",
+      "baseBlobSha256": "sha256:137f2ec89215a8a0fdc9ac6fc75c4aff3e759b6de79d4d172c5a22656373cb32",
+      "headBlobSha256": "sha256:171ae86c583340e29779c2184efffa554336c8d2839a19d73564b7ef6e72d041",
+      "observed": {
+        "status": "HOLD",
+        "changes": 1,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 0,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:add-mcp-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:1c87149c01108f0e8151",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "bengous/wireframer",
+      "path": ".codex/config.toml",
+      "base": "4f37f1647be26e08440c3891f05981a1c6b0610c",
+      "head": "67e553b29c36c351e166702a36396c0ca71cea80",
+      "sourceUrl": "https://github.com/bengous/wireframer/compare/4f37f1647be26e08440c3891f05981a1c6b0610c...67e553b29c36c351e166702a36396c0ca71cea80",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:5882223c54acd5f95fc4b4fcd714596fcaeb0e03438043e26e66b36dfaac6ac5",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 5,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:c22b84f6b455c6324166",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "BiFangKNT/mtga",
+      "path": ".codex/config.toml",
+      "base": "b7d66af45738bf7dd3431d5c5ab8016aea64cfe8",
+      "head": "d4e3bf4969b4880ac1c1025eaac78c81c99b15c8",
+      "sourceUrl": "https://github.com/BiFangKNT/mtga/compare/b7d66af45738bf7dd3431d5c5ab8016aea64cfe8...d4e3bf4969b4880ac1c1025eaac78c81c99b15c8",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:291f1474bca89519c67ea69b3baad8cf8ea7ddafc3d70a418738beadbe762fbd",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 7,
+        "expansions": 5,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 5,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:fac0d50cc249f556372d",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "blacknon/go-sshlib",
+      "path": ".codex/config.toml",
+      "base": "771abcaab3eed0d9b0d797138e32230661dd4307",
+      "head": "1471431c75f7932f876b422ba1359f5c655edbc4",
+      "sourceUrl": "https://github.com/blacknon/go-sshlib/compare/771abcaab3eed0d9b0d797138e32230661dd4307...1471431c75f7932f876b422ba1359f5c655edbc4",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:97796fe2d36286af294bd455ed0c3f947bb113ec077e31c1f02ebf6e3320d556",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 7,
+        "expansions": 2,
+        "contractions": 1,
+        "incomparable": 2,
+        "blocking": 2,
+        "holds": 2
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:da42d09fc36279fa3dda",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "blacknon/hwatch",
+      "path": ".codex/config.toml",
+      "base": "2e81fc449342aa77de3d6b2c09d2368bb06ae8c4",
+      "head": "d61838db700c0490b42edd26008f2556c3a0678e",
+      "sourceUrl": "https://github.com/blacknon/hwatch/compare/2e81fc449342aa77de3d6b2c09d2368bb06ae8c4...d61838db700c0490b42edd26008f2556c3a0678e",
+      "baseBlobSha256": "sha256:e338c921dd61f59d68f08c176958684205131fe22e9e8b92159b6fd6f7fa0e82",
+      "headBlobSha256": "sha256:97796fe2d36286af294bd455ed0c3f947bb113ec077e31c1f02ebf6e3320d556",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:c63096aed4e438d1ea8b",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "blacknon/hwatch",
+      "path": ".codex/config.toml",
+      "base": "3a474971fcb5836e4966d62bfa9fb875ebde0f18",
+      "head": "769267570e98b103581cc0b424d25999126b5890",
+      "sourceUrl": "https://github.com/blacknon/hwatch/compare/3a474971fcb5836e4966d62bfa9fb875ebde0f18...769267570e98b103581cc0b424d25999126b5890",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:e338c921dd61f59d68f08c176958684205131fe22e9e8b92159b6fd6f7fa0e82",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 7,
+        "expansions": 2,
+        "contractions": 1,
+        "incomparable": 2,
+        "blocking": 2,
+        "holds": 2
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:10e36808921e0dfc56b2",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "Borda/AI-Rig",
+      "path": ".codex/config.toml",
+      "base": "d86c7357e645f854602a5563586ea7d08513d753",
+      "head": "a2a97b0fc0355d64662a182c143ed8df855c74c9",
+      "sourceUrl": "https://github.com/Borda/AI-Rig/compare/d86c7357e645f854602a5563586ea7d08513d753...a2a97b0fc0355d64662a182c143ed8df855c74c9",
+      "baseBlobSha256": "sha256:9f8ac5348c8f18ffeec68c459b0d2daa72103133f709b47304aa7a90b3ed24d6",
+      "headBlobSha256": "sha256:791a210f3128fa5a57e79e3de0bb726fc2907f856fc7805954c996a60006d2f6",
+      "observed": {
+        "status": "HOLD",
+        "changes": 2,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 2,
+        "blocking": 0,
+        "holds": 2
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:052690dc2d8caa7cbbd8",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "Borda/AI-Rig",
+      "path": ".codex/config.toml",
+      "base": "ecaa33ca3f279e05399aad09a9bd53301c237a00",
+      "head": "0376c5ff336e5fcc8f858bc58e0be56932af72d4",
+      "sourceUrl": "https://github.com/Borda/AI-Rig/compare/ecaa33ca3f279e05399aad09a9bd53301c237a00...0376c5ff336e5fcc8f858bc58e0be56932af72d4",
+      "baseBlobSha256": "sha256:cdaadf5b4ad8a3a498185cdcfa6527f59b112f84d4ad4bddb54e500fc0f3b832",
+      "headBlobSha256": "sha256:9f8ac5348c8f18ffeec68c459b0d2daa72103133f709b47304aa7a90b3ed24d6",
+      "observed": {
+        "status": "HOLD",
+        "changes": 1,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 0,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:2266e72ab38dbc05c144",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "bovinphang/frontend-craft",
+      "path": ".codex/config.toml",
+      "base": "318df2cfe2ef1e333a4943cbd1b1e19cfdd25c6e",
+      "head": "8fa69959b54acc63d926272e592afc8e04738a71",
+      "sourceUrl": "https://github.com/bovinphang/frontend-craft/compare/318df2cfe2ef1e333a4943cbd1b1e19cfdd25c6e...8fa69959b54acc63d926272e592afc8e04738a71",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:1f392495d6a558ab5646c8573d3de9bff8cb0e56cb0cae33246db9b59b88a4f5",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 18,
+        "expansions": 16,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 16,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:2cd87172c46488e49b42",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "burgebj/everything-claude",
+      "path": ".codex/config.toml",
+      "base": "d3f4fd50613710c8ddf81941db4350b55f8fbae9",
+      "head": "4d4ba25d112ac6a67451b669764b4464a81c05af",
+      "sourceUrl": "https://github.com/burgebj/everything-claude/compare/d3f4fd50613710c8ddf81941db4350b55f8fbae9...4d4ba25d112ac6a67451b669764b4464a81c05af",
+      "baseBlobSha256": "sha256:c9a9ccb1adb61e456b0dbb32909eb7da7f2cd55d20615294f88689de0bc53ea9",
+      "headBlobSha256": "sha256:65117d26a59cda183c700b531592506bf01088e00e2047c5ca10fc75e5eb8cf8",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 5,
+        "expansions": 4,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 4,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:e257e0245553f266ff5e",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "burgebj/everything-claude",
+      "path": ".codex/config.toml",
+      "base": "cb43402d7d2e95873a31bb67350158a09b38739f",
+      "head": "bfc73866c92b4c2dde4b3639c736b80483b4c195",
+      "sourceUrl": "https://github.com/burgebj/everything-claude/compare/cb43402d7d2e95873a31bb67350158a09b38739f...bfc73866c92b4c2dde4b3639c736b80483b4c195",
+      "baseBlobSha256": "sha256:65117d26a59cda183c700b531592506bf01088e00e2047c5ca10fc75e5eb8cf8",
+      "headBlobSha256": "sha256:c9a9ccb1adb61e456b0dbb32909eb7da7f2cd55d20615294f88689de0bc53ea9",
+      "observed": {
+        "status": "HOLD",
+        "changes": 5,
+        "expansions": 0,
+        "contractions": 4,
+        "incomparable": 1,
+        "blocking": 0,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:bd26336954689ee197df",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "BurntSushi/dotfiles",
+      "path": ".codex/config.toml",
+      "base": "15b7302a48e21139d8d92e1b4aafb3f170564741",
+      "head": "1dab3ffec0570fdb2d82ea8411ab07c8ae7f6d95",
+      "sourceUrl": "https://github.com/BurntSushi/dotfiles/compare/15b7302a48e21139d8d92e1b4aafb3f170564741...1dab3ffec0570fdb2d82ea8411ab07c8ae7f6d95",
+      "baseBlobSha256": "sha256:4d2aa872b69783be5a0e465b8ca357fe666093dc4f9a585b156d2b0277a3faea",
+      "headBlobSha256": "sha256:f3b37f7d45fc229dbcc2663e883b42d7c6e629ca8487f5a89f94cb5973095938",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:d657336914b781981c25",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "BurntSushi/dotfiles",
+      "path": ".codex/config.toml",
+      "base": "c805be975fa85eca390fbb2e8f1b179f5d0d8662",
+      "head": "5ddee287fe52b6da328e8c76b53f36241c8c1f8e",
+      "sourceUrl": "https://github.com/BurntSushi/dotfiles/compare/c805be975fa85eca390fbb2e8f1b179f5d0d8662...5ddee287fe52b6da328e8c76b53f36241c8c1f8e",
+      "baseBlobSha256": "sha256:fa789037a10628bcf08a9ae47794ec4b072a73089f3b37a40fbe0b5607c97a88",
+      "headBlobSha256": "sha256:4d2aa872b69783be5a0e465b8ca357fe666093dc4f9a585b156d2b0277a3faea",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:fe26b147b6dbf7d1bcee",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "codex",
+      "repository": "bybren-llc/safe-agentic-workflow",
+      "path": ".codex/config.toml",
+      "base": "a2143f6325736d43135a09c8d5d9989663c013de",
+      "head": "c19c1e89c2e1df6f8a7f5ca2b5079527683296ba",
+      "sourceUrl": "https://github.com/bybren-llc/safe-agentic-workflow/compare/a2143f6325736d43135a09c8d5d9989663c013de...c19c1e89c2e1df6f8a7f5ca2b5079527683296ba",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:9aca33aa394d27273a0fc3b2aed447f3a9079c68e66f4e4737c82305a24c8343",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 8,
+        "expansions": 1,
+        "contractions": 1,
+        "incomparable": 3,
+        "blocking": 1,
+        "holds": 3
+      },
+      "planted": {
+        "mutation": "codex:sandbox-mode-danger-full-access",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP005"
+        ]
+      }
+    },
+    {
+      "id": "natural:a00f8a11b83700927834",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "00PrabalK00/OpenRosWarehouse",
+      "path": ".mcp.json",
+      "base": "ff2a3962e807fb8eda625df4358833ed9accfd2b",
+      "head": "33ca44edaf31106b248f516a859d931828b6f071",
+      "sourceUrl": "https://github.com/00PrabalK00/OpenRosWarehouse/compare/ff2a3962e807fb8eda625df4358833ed9accfd2b...33ca44edaf31106b248f516a859d931828b6f071",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:96fa2997ace5b4284eab748fc24426860654d9792bd6fa691b1a8ee66fe83fef",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:b1a5f41e8c813779f859",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "AgentOrchestrator/AgentBase",
+      "path": ".mcp.json",
+      "base": "7f7bc111a8a4f38ee4513c286025d73e30c0cce9",
+      "head": "23a22c3c67feee70538607f8cbb9cc633c139130",
+      "sourceUrl": "https://github.com/AgentOrchestrator/AgentBase/compare/7f7bc111a8a4f38ee4513c286025d73e30c0cce9...23a22c3c67feee70538607f8cbb9cc633c139130",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:d3425120a02e591660d218eec9ca47fcf1eb04b4253367775016aed85c879930",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:ed099ac5cbfa38b2f9d8",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "agustincf/Arcade1v1",
+      "path": ".mcp.json",
+      "base": "b80dccb59f3093f11596d30d348b1451c5cef50e",
+      "head": "09f220def3c067c53892b2b40168520bc5bac02a",
+      "sourceUrl": "https://github.com/agustincf/Arcade1v1/compare/b80dccb59f3093f11596d30d348b1451c5cef50e...09f220def3c067c53892b2b40168520bc5bac02a",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:7c19a49c589b25b711f5699a1c9b23a7029e3457a6483c9412f17cea5888eaa0",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 3,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 3,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:47deaf70b7dd7f2fd075",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "antonio59/AAFairShare",
+      "path": ".mcp.json",
+      "base": "fa440acb8f08f5abc5f0af3df9d9b6f374d022a9",
+      "head": "410b30a0f6c4739ca7fc8a21d0057bd542c8582b",
+      "sourceUrl": "https://github.com/antonio59/AAFairShare/compare/fa440acb8f08f5abc5f0af3df9d9b6f374d022a9...410b30a0f6c4739ca7fc8a21d0057bd542c8582b",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:2744adfd617979011985653e78a0d7c4f043ae72392f4eb0e002adc3e4a5dfa2",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 3,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 3,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:03047c5acc24b20718a5",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "AssafWoo/homebrew-pandafilter",
+      "path": ".mcp.json",
+      "base": "0e838e6ae96ee100a7e63b17d79c1d83a6a6b42a",
+      "head": "7374799d4fe7cb0e209c6f9c9168097fc2b8ecd8",
+      "sourceUrl": "https://github.com/AssafWoo/homebrew-pandafilter/compare/0e838e6ae96ee100a7e63b17d79c1d83a6a6b42a...7374799d4fe7cb0e209c6f9c9168097fc2b8ecd8",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:2433b58c3351d6c9ae1afa460bbecc62d1edd5ede99859d0fd7e1444aeb07ac2",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:5cdfaa945d8bb56ebe66",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "Automattic/wp-calypso",
+      "path": ".mcp.json",
+      "base": "f769755423a42d5f37ff07a4a20cdf018271de9d",
+      "head": "5123279871719ecf71798574a8bbcaa07ca1db7d",
+      "sourceUrl": "https://github.com/Automattic/wp-calypso/compare/f769755423a42d5f37ff07a4a20cdf018271de9d...5123279871719ecf71798574a8bbcaa07ca1db7d",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:e9432b2a1cab1497ddf59ca130d2d47144472823cfe9344f977d0d3683574542",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:f8c6ac24f5fa29ea34f8",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "axpolik/claude-code-d365fo-mcp",
+      "path": ".mcp.json",
+      "base": "1e85aec9c0e63f38df054b586f3a3196c67a965b",
+      "head": "d5117ae7667f96ad95aa30209d22a5a3c2c8f5aa",
+      "sourceUrl": "https://github.com/axpolik/claude-code-d365fo-mcp/compare/1e85aec9c0e63f38df054b586f3a3196c67a965b...d5117ae7667f96ad95aa30209d22a5a3c2c8f5aa",
+      "baseBlobSha256": "sha256:efcabaa9e8e330dd5b6191bf62a04ee39ed9d7c496c73ed06cc222dd3124ec2e",
+      "headBlobSha256": "sha256:238a5e8eae0c371c5490da099bc0689303079ac04460919819745c8ff2e0d90b",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 4,
+        "expansions": 3,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 3,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:8a1951820b06c7b82922",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "axpolik/claude-code-d365fo-mcp",
+      "path": ".mcp.json",
+      "base": "2791e3d39abaf52f6b19f7e58840b2825e2f4791",
+      "head": "7d8ceea74da11d30bb6cb8e264fe858cbe0b4796",
+      "sourceUrl": "https://github.com/axpolik/claude-code-d365fo-mcp/compare/2791e3d39abaf52f6b19f7e58840b2825e2f4791...7d8ceea74da11d30bb6cb8e264fe858cbe0b4796",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:efcabaa9e8e330dd5b6191bf62a04ee39ed9d7c496c73ed06cc222dd3124ec2e",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 3,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 3,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:9e9a68b6113560c5b997",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "banamine/Liberty-Express-",
+      "path": ".vscode/mcp.json",
+      "base": "7feef01aa637e20c8a16cdd815a87202f14eb431",
+      "head": "bc0c3e7090776f8ccee32a29af5fd6e3351d5b6d",
+      "sourceUrl": "https://github.com/banamine/Liberty-Express-/compare/7feef01aa637e20c8a16cdd815a87202f14eb431...bc0c3e7090776f8ccee32a29af5fd6e3351d5b6d",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:358ceecb3c7982484f7810e9742dae05dfa6b1111f604cada73697032bd52cba",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 4,
+        "expansions": 3,
+        "contractions": 0,
+        "incomparable": 1,
+        "blocking": 3,
+        "holds": 1
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:93e5ab8c4d4a71f5d082",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "Bato21/KimunKo",
+      "path": ".mcp.json",
+      "base": "861201fa5c97f3edab9d67a2c1e9fd13cafe2617",
+      "head": "9d14e75cc3dd5488cb866fd0d3bdf11a219100b0",
+      "sourceUrl": "https://github.com/Bato21/KimunKo/compare/861201fa5c97f3edab9d67a2c1e9fd13cafe2617...9d14e75cc3dd5488cb866fd0d3bdf11a219100b0",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:95d3dcf20585106b2997eb2595609b3b2d612e7a989144daceb503e8064b14c1",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:afb944ab7d275420f38b",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "bitrise-io/bitrise-workflow-editor",
+      "path": ".mcp.json",
+      "base": "1c5fa086b192a17b3655eea2b8ff0cc0351a5c6f",
+      "head": "ca0ba9d36f94e7185be0b5b4becb4c41dfe07212",
+      "sourceUrl": "https://github.com/bitrise-io/bitrise-workflow-editor/compare/1c5fa086b192a17b3655eea2b8ff0cc0351a5c6f...ca0ba9d36f94e7185be0b5b4becb4c41dfe07212",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:28cfe9c53b59fe73267d8dd7a66ab00831bdc4e1ea21780d0aed5d19f4e8919e",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 4,
+        "expansions": 4,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 4,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:b8abbb254cca541c36ab",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "BoomRepublic/SocialMotive",
+      "path": ".mcp.json",
+      "base": "9d57362d8e673a53d63c32491f651b48277fcd45",
+      "head": "b8359e094280a04395ae1b41e2ef73b12bbddcd2",
+      "sourceUrl": "https://github.com/BoomRepublic/SocialMotive/compare/9d57362d8e673a53d63c32491f651b48277fcd45...b8359e094280a04395ae1b41e2ef73b12bbddcd2",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:7aee7b2a17ae72d71f5520b98cd0ed4f527fb45d71ce37499b4740cde71b0324",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 3,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 3,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:c8a09aed5549a9b7b4d0",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "brandon-fryslie/oscilla-animator-v2",
+      "path": ".mcp.json",
+      "base": "31d73dc5c1f12931a20ba1fe66a1fcbf14ce1cc2",
+      "head": "b7bf9d18f8cbdd9c0806c4ccd30f8e55c6930268",
+      "sourceUrl": "https://github.com/brandon-fryslie/oscilla-animator-v2/compare/31d73dc5c1f12931a20ba1fe66a1fcbf14ce1cc2...b7bf9d18f8cbdd9c0806c4ccd30f8e55c6930268",
+      "baseBlobSha256": "sha256:c1fa42eb7d311a0b77b4f5f82d61266532b51516d06a0e1ab091019ee71ed7c3",
+      "headBlobSha256": "sha256:b1c3365f65f906633346becf6ccc8b31e2b7089759a7f4c827e7eb830261653a",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:4c94d4a7911a7e527061",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "brandon-fryslie/oscilla-animator-v2",
+      "path": ".mcp.json",
+      "base": "e18a02b78bed0c2654fdac0481f7eac3918b0688",
+      "head": "bea0a6a18922d60cab69f785ec02e5dff0d9376e",
+      "sourceUrl": "https://github.com/brandon-fryslie/oscilla-animator-v2/compare/e18a02b78bed0c2654fdac0481f7eac3918b0688...bea0a6a18922d60cab69f785ec02e5dff0d9376e",
+      "baseBlobSha256": "sha256:6be5eaf13c540017a0c6fc407ad39245fc8f201d1b059e8c4bc97efc96f55366",
+      "headBlobSha256": "sha256:c1fa42eb7d311a0b77b4f5f82d61266532b51516d06a0e1ab091019ee71ed7c3",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:6b51eddc8e58783f24bd",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "charovatzbassar/bi-agent",
+      "path": ".mcp.json",
+      "base": "8ae10f667db7df9c7bc3bd681ead0d46d95561c7",
+      "head": "ab68b2a912128b84c19933d95071dfceac035b2f",
+      "sourceUrl": "https://github.com/charovatzbassar/bi-agent/compare/8ae10f667db7df9c7bc3bd681ead0d46d95561c7...ab68b2a912128b84c19933d95071dfceac035b2f",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:9042cc75181bb017b015a46a5002c03528850860c57187f1a5bf44ea8da7c7ea",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:27ff7f9dc206405a0da8",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "clssck/Dataiku_MCP",
+      "path": ".mcp.json",
+      "base": "a53726f56225f43c480786304aa3ab68fc6e28fc",
+      "head": "dc3068de4abdc52fc44cf3378930f6560cdf90eb",
+      "sourceUrl": "https://github.com/clssck/Dataiku_MCP/compare/a53726f56225f43c480786304aa3ab68fc6e28fc...dc3068de4abdc52fc44cf3378930f6560cdf90eb",
+      "baseBlobSha256": "sha256:dc6c98788f5902ffc175da9d7b0a25c5beb2d8a1243b586007596a31df137f5a",
+      "headBlobSha256": "sha256:2c1a49e4f0f0d364505f9c69770b29847a1e39f264ce5d2d62e60325b1535fa2",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:8b6946ae3e05a3844350",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "clssck/Dataiku_MCP",
+      "path": ".mcp.json",
+      "base": "bd5b64e6bcae09df5fdaeb9ade34fe416a425dbf",
+      "head": "1e148de50ed0711a0db985fcd13d4d20f534fb7e",
+      "sourceUrl": "https://github.com/clssck/Dataiku_MCP/compare/bd5b64e6bcae09df5fdaeb9ade34fe416a425dbf...1e148de50ed0711a0db985fcd13d4d20f534fb7e",
+      "baseBlobSha256": "sha256:4949db9907d3fdb7ddb1969812ea96b90bcfedc520af4a6b70805a6a887bed2e",
+      "headBlobSha256": "sha256:dc6c98788f5902ffc175da9d7b0a25c5beb2d8a1243b586007596a31df137f5a",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:a6229910525cc7e3b45f",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "coley-angel/tines_mcp",
+      "path": ".vscode/mcp.json",
+      "base": "a089c0513eec0092135d2f465641a3bd2ef2dd3a",
+      "head": "54ee1b7fab4cb9d79fec8667f9fef5b91a95c205",
+      "sourceUrl": "https://github.com/coley-angel/tines_mcp/compare/a089c0513eec0092135d2f465641a3bd2ef2dd3a...54ee1b7fab4cb9d79fec8667f9fef5b91a95c205",
+      "baseBlobSha256": "sha256:c4774861e296ba0611fe0c424b65ad3e3144858447f8b67b78cd1ebcab26a981",
+      "headBlobSha256": "sha256:cf127e404bbc3afbbf6380f58646822ee203cd2ec98df8e0202ad6ecc6e3cdec",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 1,
+        "contractions": 1,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:adb2072609288728c935",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "coley-angel/tines_mcp",
+      "path": ".vscode/mcp.json",
+      "base": "8fd1166ee0d81052acab094b81df346da9bd5074",
+      "head": "a089c0513eec0092135d2f465641a3bd2ef2dd3a",
+      "sourceUrl": "https://github.com/coley-angel/tines_mcp/compare/8fd1166ee0d81052acab094b81df346da9bd5074...a089c0513eec0092135d2f465641a3bd2ef2dd3a",
+      "baseBlobSha256": "sha256:090b6f22e8b412c15fdebab386d81d2d099e3585f32eb639427da0538acfbdbd",
+      "headBlobSha256": "sha256:c4774861e296ba0611fe0c424b65ad3e3144858447f8b67b78cd1ebcab26a981",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:f7eaaaad171f536705ef",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "cuesto/ApiTMFPOC-MCP",
+      "path": ".vscode/mcp.json",
+      "base": "a9a7378cf94bce5b5944e3cbc9bfbd7d220cce0a",
+      "head": "fccdd3d534cf6b34d0efb3aed439cf1077833fa6",
+      "sourceUrl": "https://github.com/cuesto/ApiTMFPOC-MCP/compare/a9a7378cf94bce5b5944e3cbc9bfbd7d220cce0a...fccdd3d534cf6b34d0efb3aed439cf1077833fa6",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:820eb926ec6931421ccd2518632aae31d7434b7ceddeb243d3d4a78f69886849",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 3,
+        "expansions": 3,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 3,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:4976efc65116f1c41032",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "davmarek/school-test-generator",
+      "path": ".mcp.json",
+      "base": "93bb782d5e187354fa853391866011775f302f78",
+      "head": "be341dfe4a6da3c5c7359037fbfbd0720fec8255",
+      "sourceUrl": "https://github.com/davmarek/school-test-generator/compare/93bb782d5e187354fa853391866011775f302f78...be341dfe4a6da3c5c7359037fbfbd0720fec8255",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:2a885e64b60e30a317e65155fd129b4bc9121124e8bcfc84e97d984870fe0caa",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 5,
+        "expansions": 5,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 5,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:0f5b3ca9fd9d59434215",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "debanjanpaul10/ai-agents-laboratory",
+      "path": ".vscode/mcp.json",
+      "base": "f04f48c488cac55a1e689e2b75be090788a9249e",
+      "head": "353313c97a85aaea758bb1b1d6b51153fca3709f",
+      "sourceUrl": "https://github.com/debanjanpaul10/ai-agents-laboratory/compare/f04f48c488cac55a1e689e2b75be090788a9249e...353313c97a85aaea758bb1b1d6b51153fca3709f",
+      "baseBlobSha256": "sha256:26630fe4fbba3d5fdc71d060555dcfccef2773635ab20dd23a8003c37b66dc80",
+      "headBlobSha256": "sha256:f6288311ee1840159fb55c84937d83dbce71cec136bd1a79cff55f91f5c31b26",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 4,
+        "expansions": 2,
+        "contractions": 2,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:3a089eca4f8c69157ec4",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "debanjanpaul10/ai-agents-laboratory",
+      "path": ".vscode/mcp.json",
+      "base": "d915d38a254bceaf6efa113d24f172ae55d87f33",
+      "head": "32a48c61974a869f6f7dd881ac33c42c90f487f4",
+      "sourceUrl": "https://github.com/debanjanpaul10/ai-agents-laboratory/compare/d915d38a254bceaf6efa113d24f172ae55d87f33...32a48c61974a869f6f7dd881ac33c42c90f487f4",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:26630fe4fbba3d5fdc71d060555dcfccef2773635ab20dd23a8003c37b66dc80",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:e5d72574e62eb9c2cbf0",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "deepklarity/harness-kit",
+      "path": ".mcp.json",
+      "base": "51625ebef122b3ee8a36b6fe5efacf19eb404d77",
+      "head": "5008674dc6cbc2c723d48bfe4bbd86d95e61fdff",
+      "sourceUrl": "https://github.com/deepklarity/harness-kit/compare/51625ebef122b3ee8a36b6fe5efacf19eb404d77...5008674dc6cbc2c723d48bfe4bbd86d95e61fdff",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:36b00f3164d65ccccdaf634da565fad817a0aca29966ea47646073c7ab9f9ef7",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 7,
+        "expansions": 7,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 7,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:7d0205a2b11c310b725b",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "dismine/valentina",
+      "path": ".mcp.json",
+      "base": "5ff5df0a84ef7a0c70dfc0126358257f92b7e9bb",
+      "head": "fff4c8e8b66407104199bea4e0e6f54a8fa6ae36",
+      "sourceUrl": "https://github.com/dismine/valentina/compare/5ff5df0a84ef7a0c70dfc0126358257f92b7e9bb...fff4c8e8b66407104199bea4e0e6f54a8fa6ae36",
+      "baseBlobSha256": "sha256:05b17f49388cada8d81c7d82e5c8e8ed8d57f56d81867d03e9b2d8ccd9af7223",
+      "headBlobSha256": "sha256:05fc143b9f143410e8f60d0bd41aedba9bdc7a4911a21c2530551e62076e6a6e",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:6b404002443b99bea865",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "dismine/valentina",
+      "path": ".mcp.json",
+      "base": "ae3d9b460231ac4a5f47208713e6231ed69c9bd3",
+      "head": "0fd95f89b3c06ba843b7e8166fce6bb8554f1894",
+      "sourceUrl": "https://github.com/dismine/valentina/compare/ae3d9b460231ac4a5f47208713e6231ed69c9bd3...0fd95f89b3c06ba843b7e8166fce6bb8554f1894",
+      "baseBlobSha256": "sha256:05fc143b9f143410e8f60d0bd41aedba9bdc7a4911a21c2530551e62076e6a6e",
+      "headBlobSha256": "sha256:05b17f49388cada8d81c7d82e5c8e8ed8d57f56d81867d03e9b2d8ccd9af7223",
+      "observed": {
+        "status": "PASS",
+        "changes": 0,
+        "expansions": 0,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:3b227261a7bb90387504",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "Divyanshi018572/AI_Job_Application_Agent",
+      "path": ".cursor/mcp.json",
+      "base": "00e5c5052266372534cf27a2271224f3f6ba7645",
+      "head": "fe1cb69ffbb4d5e0cfb2eedab209ba8278bc0280",
+      "sourceUrl": "https://github.com/Divyanshi018572/AI_Job_Application_Agent/compare/00e5c5052266372534cf27a2271224f3f6ba7645...fe1cb69ffbb4d5e0cfb2eedab209ba8278bc0280",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:5c189dd556f86c2676f49ab47e62a8170781819d03732f238e6ff715ae45a83a",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:a450e6273b3480c002cb",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "Doist/todoist-mcp",
+      "path": ".mcp.json",
+      "base": "f9beda6d35ec46c9f6024e580d15ee487a0ae35f",
+      "head": "304c97246e302d7874dd752c92dd5344be7605e3",
+      "sourceUrl": "https://github.com/Doist/todoist-mcp/compare/f9beda6d35ec46c9f6024e580d15ee487a0ae35f...304c97246e302d7874dd752c92dd5344be7605e3",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:3387c561fa469b79ac91cd101531108c8d81538e90d4b19ed6c8a574a4232715",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:23b9a87304a3b93eb473",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "donlothario/stash_mcp_server",
+      "path": "mcp.json",
+      "base": "f3e39ef18f76c7d4121a8d0b4e68ee8846ab42f7",
+      "head": "1b0a2b4e8ae41face97ae33c975f6a700b26df58",
+      "sourceUrl": "https://github.com/donlothario/stash_mcp_server/compare/f3e39ef18f76c7d4121a8d0b4e68ee8846ab42f7...1b0a2b4e8ae41face97ae33c975f6a700b26df58",
+      "baseBlobSha256": "sha256:53e731731337f546dad19edc9b3543197e67a4d0ff720ed56f8a4c41e0d2a3e5",
+      "headBlobSha256": "sha256:80066e5ecf9a36ffdc54e3d1055cf44bae72acd99082f5f192fd71e18658f91b",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 1,
+        "expansions": 1,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 1,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:61c74208a49ceaee2782",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "dudtkd4567/cond-search-nlp",
+      "path": ".vscode/mcp.json",
+      "base": "208442fe58588a656ae43ee6ff25a0511b1b1196",
+      "head": "5e76e437b2ffb304bb31c4be719e456dd821bd68",
+      "sourceUrl": "https://github.com/dudtkd4567/cond-search-nlp/compare/208442fe58588a656ae43ee6ff25a0511b1b1196...5e76e437b2ffb304bb31c4be719e456dd821bd68",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:253a7f99a568fc4de5cda694ed83c27e13a249de619c8fa3df0625b8f1265c00",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:18f742520419f91a2633",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "edbizarro/dotfiles",
+      "path": ".mcp.json",
+      "base": "5621edd67ba142f61510bc75710dc06c78e8c680",
+      "head": "e14a6029b4ee72a51f227429d9e75fe932a7f9e2",
+      "sourceUrl": "https://github.com/edbizarro/dotfiles/compare/5621edd67ba142f61510bc75710dc06c78e8c680...e14a6029b4ee72a51f227429d9e75fe932a7f9e2",
+      "baseBlobSha256": "sha256:44d064d204f34acd3d0377ff892bfcecf0ee57a447b9a618e48ca65cc749a45a",
+      "headBlobSha256": "sha256:2a0166813c8df3bb066fcb34b6c5f1b7928999c83f9d6c55ec31f4da1f75572a",
+      "observed": {
+        "status": "PASS",
+        "changes": 4,
+        "expansions": 0,
+        "contractions": 4,
+        "incomparable": 0,
+        "blocking": 0,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:cdd5d3a984c97da17e20",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "edbizarro/dotfiles",
+      "path": ".mcp.json",
+      "base": "6e9a288fe01d832481fe39c6309ac0a2087fc474",
+      "head": "fd7c9fc4558792c5866a3e867171399b39c469ca",
+      "sourceUrl": "https://github.com/edbizarro/dotfiles/compare/6e9a288fe01d832481fe39c6309ac0a2087fc474...fd7c9fc4558792c5866a3e867171399b39c469ca",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:44d064d204f34acd3d0377ff892bfcecf0ee57a447b9a618e48ca65cc749a45a",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 6,
+        "expansions": 6,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 6,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    },
+    {
+      "id": "natural:226a699b42ac0bb18caf",
+      "labelStatus": "UNREVIEWED_NATURAL_CHANGE",
+      "platform": "mcp",
+      "repository": "emrecolak-23/nodejs-langchain-rag-mcp-langraph",
+      "path": ".cursor/mcp.json",
+      "base": "a80c7f2b55ba932a57dd39870963aff25bf87a5d",
+      "head": "7dda84347fbb00b46273bc060f105818e413a029",
+      "sourceUrl": "https://github.com/emrecolak-23/nodejs-langchain-rag-mcp-langraph/compare/a80c7f2b55ba932a57dd39870963aff25bf87a5d...7dda84347fbb00b46273bc060f105818e413a029",
+      "baseBlobSha256": null,
+      "headBlobSha256": "sha256:a15b48c381cb9f8b301419e3f3a32b83ac7cf9bb234729326c68841daba597e7",
+      "observed": {
+        "status": "BLOCK",
+        "changes": 2,
+        "expansions": 2,
+        "contractions": 0,
+        "incomparable": 0,
+        "blocking": 2,
+        "holds": 0
+      },
+      "planted": {
+        "mutation": "mcp:add-server",
+        "expected": "BLOCK",
+        "observed": "BLOCK",
+        "matched": true,
+        "blockingRuleIds": [
+          "AVP002"
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "Cases are natural public revisions but labels remain UNREVIEWED_NATURAL_CHANGE.",
+    "Natural decisions prove parser and deterministic execution coverage, not detection accuracy or maintainer usefulness.",
+    "Planted cases test known synthetic authority expansions applied to pinned real configurations; they do not estimate the natural miss rate.",
+    "Config-only replay excludes unrelated files, user settings, managed policy, runtime tools, credentials, and provider-side grants.",
+    "GitHub search ranking is not a representative sample of all agent configurations."
+  ]
+}

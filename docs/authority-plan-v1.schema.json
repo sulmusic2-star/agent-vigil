@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/authority-plan-v1.schema.json",
+  "title": "Agent Vigil repository-declared authority plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "scope", "base", "head", "status", "policy", "summary", "deltas",
+    "gaps", "baseProfileSha256", "headProfileSha256", "planSha256", "limitations"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-authority-plan/v1" },
+    "scope": { "const": "repository-declared" },
+    "base": { "type": "string", "minLength": 40, "maxLength": 64 },
+    "head": { "type": "string", "minLength": 40, "maxLength": 64 },
+    "status": { "enum": ["PASS", "BLOCK", "HOLD"] },
+    "policy": { "$ref": "#/$defs/policy" },
+    "summary": { "$ref": "#/$defs/summary" },
+    "deltas": { "type": "array", "items": { "$ref": "#/$defs/delta" } },
+    "gaps": { "type": "array", "items": { "$ref": "#/$defs/gap" } },
+    "baseProfileSha256": { "$ref": "#/$defs/digest" },
+    "headProfileSha256": { "$ref": "#/$defs/digest" },
+    "planSha256": { "$ref": "#/$defs/digest" },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "count": { "type": "integer", "minimum": 0 },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sha256", "allowUnknownChanges"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1, "maxLength": 400 },
+        "sha256": { "$ref": "#/$defs/digest" },
+        "allowUnknownChanges": { "type": "boolean" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sources", "atomsBefore", "atomsAfter", "changes", "expansions",
+        "contractions", "incomparable", "blocking", "holds", "uncertainties", "approved"
+      ],
+      "properties": {
+        "sources": { "$ref": "#/$defs/count" },
+        "atomsBefore": { "$ref": "#/$defs/count" },
+        "atomsAfter": { "$ref": "#/$defs/count" },
+        "changes": { "$ref": "#/$defs/count" },
+        "expansions": { "$ref": "#/$defs/count" },
+        "contractions": { "$ref": "#/$defs/count" },
+        "incomparable": { "$ref": "#/$defs/count" },
+        "blocking": { "$ref": "#/$defs/count" },
+        "holds": { "$ref": "#/$defs/count" },
+        "uncertainties": { "$ref": "#/$defs/count" },
+        "approved": { "$ref": "#/$defs/count" }
+      }
+    },
+    "platform": { "enum": ["mcp", "claude-code", "codex"] },
+    "effect": {
+      "enum": ["read", "write", "execute", "network", "external", "credential", "financial", "control", "unknown"]
+    },
+    "atom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "platform", "sourcePath", "kind", "subject", "action", "resource",
+        "effect", "decision", "constraints", "locator"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^avp:[a-f0-9]{20}$" },
+        "platform": { "$ref": "#/$defs/platform" },
+        "sourcePath": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "kind": { "enum": ["capability", "permission", "control", "credential", "model"] },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "resource": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "effect": { "$ref": "#/$defs/effect" },
+        "decision": { "enum": ["ALLOW", "ASK", "DENY", "UNKNOWN"] },
+        "constraints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 240 }
+        },
+        "locator": { "type": "string", "minLength": 1, "maxLength": 240 }
+      }
+    },
+    "delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "ruleId", "change", "direction", "disposition", "severity", "summary", "reason", "approvalKey"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^delta:[a-f0-9]{20}$" },
+        "ruleId": { "type": "string", "pattern": "^AVP[0-9]{3}$" },
+        "change": { "enum": ["ADDED", "REMOVED", "CHANGED"] },
+        "direction": { "enum": ["EXPANSION", "CONTRACTION", "INCOMPARABLE", "NEUTRAL"] },
+        "disposition": { "enum": ["BLOCK", "HOLD", "ALLOW"] },
+        "severity": { "enum": ["critical", "high", "medium", "low"] },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 800 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 800 },
+        "approvalKey": { "type": "string", "pattern": "^authority:AVP[0-9]{3}:", "maxLength": 1000 },
+        "approvedByPolicy": { "type": "boolean" },
+        "before": { "$ref": "#/$defs/atom" },
+        "after": { "$ref": "#/$defs/atom" }
+      },
+      "anyOf": [{ "required": ["before"] }, { "required": ["after"] }]
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "sourcePath", "locator", "reason"],
+      "properties": {
+        "platform": { "$ref": "#/$defs/platform" },
+        "sourcePath": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "locator": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 800 }
+      }
+    }
+  }
+}
