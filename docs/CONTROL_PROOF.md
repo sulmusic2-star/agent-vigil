@@ -54,7 +54,7 @@ The Action can run the same proof on demand or on a schedule:
 
 ```yaml
 - id: control-proof
-  uses: sulmusic2-star/agent-vigil@v0.16.0
+  uses: sulmusic2-star/agent-vigil@v0.17.0
   with:
     mode: prove
     repo: .

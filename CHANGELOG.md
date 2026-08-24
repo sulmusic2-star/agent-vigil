@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.17.0 - 2026-08-24
+
 - Add the offline `vigil continuity` Phase 0: exact-receipt roots, typed append-only
   successor events, optional Ed25519 event signatures, base-revision policy loading,
   and deterministic `CURRENT`, `HOLD`, `EXPIRED`, or `REVOKED` status.
