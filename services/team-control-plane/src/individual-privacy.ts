@@ -301,8 +301,20 @@ export async function confirmIndividualDeletion(
             SELECT reconciliation_id FROM github_installation_release_reconciliations
              WHERE lane = 'personal' AND owner_ref IN (
                SELECT subject_token FROM individual_identities
-                WHERE subject_token = ?1 OR canonical_subject_token = ?1
+               WHERE subject_token = ?1 OR canonical_subject_token = ?1
              )
+          )
+        ) OR (
+          workflow_type IN (
+            'individual_eligibility_after_consent',
+            'individual_eligibility_after_attestation',
+            'individual_eligibility_after_github_reconciliation',
+            'individual_eligibility_migration_backfill'
+          ) AND EXISTS (
+            SELECT 1 FROM individual_identities identity
+             WHERE (identity.subject_token = ?1 OR identity.canonical_subject_token = ?1)
+               AND substr(workflow_integrity_receipts.source_ref, 1, length(identity.subject_token) + 1) =
+                   identity.subject_token || ':'
           )
         )`
     ).bind(identity.canonical_subject_token),

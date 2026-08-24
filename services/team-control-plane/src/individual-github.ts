@@ -2,9 +2,10 @@ import { newId, nowIso } from "./db.ts";
 import type { IndividualAuthContext } from "./individual-auth.ts";
 import { requireIndividualFeatureConfiguration } from "./individual-config.ts";
 import {
+  individualEligibilityReceiptStatement,
+  individualEligibilityUpdateStatement,
   individualAuditStatement,
   loadIndividualIdentity,
-  refreshIndividualEligibility,
   requestMutationHash,
   sessionMutationReplay
 } from "./individual-measurement.ts";
@@ -875,6 +876,7 @@ export async function reconcilePersonalInstallation(
     throw new ApiError(409, "github_personal_reconciliation_mismatch", "Snapshot does not match current pending personal installation state.");
   }
   const at = nowIso();
+  const auditId = newId("individual_audit");
   const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_personal_installations SET state = 'active', last_reconciliation_id = ?1,
@@ -909,22 +911,39 @@ export async function reconcilePersonalInstallation(
           )`
     ).bind(snapshot.sourceDeliveryId, snapshot.installationId, snapshot.reconciliationId, installation.incarnation),
     individualAuditStatement(env.TEAM_CONTROL_DB, {
+      id: auditId,
       subjectToken: installation.subject_token,
       actorType: "github_app",
       action: "github.personal_installation.reconciled",
       resourceType: "github_personal_installation",
       metadata: { account_type: "User", repository_selection: snapshot.repositorySelection },
       at
+    }),
+    individualEligibilityUpdateStatement(env.TEAM_CONTROL_DB, installation.subject_token, at),
+    individualEligibilityReceiptStatement(env.TEAM_CONTROL_DB, {
+      id: `integrity_individual_eligibility_reconciliation_${snapshot.reconciliationId}`,
+      workflowType: "individual_eligibility_after_github_reconciliation",
+      sourceRef: snapshot.reconciliationId,
+      subjectToken: installation.subject_token,
+      at,
+      observedAt: snapshot.observedAt,
+      installationId: snapshot.installationId,
+      incarnation: installation.incarnation,
+      sourceDeliveryId: snapshot.sourceDeliveryId,
+      auditId
     })
   ]);
   if (
+    results.length !== 6 ||
     (results[0]?.meta.changes ?? 0) !== 1 ||
     (results[1]?.meta.changes ?? 0) !== 1 ||
-    (results[2]?.meta.changes ?? 0) !== 1
+    (results[2]?.meta.changes ?? 0) !== 1 ||
+    (results[3]?.meta.changes ?? 0) !== 1 ||
+    ![0, 1].includes(results[4]?.meta.changes ?? -1) ||
+    (results[5]?.meta.changes ?? 0) !== 1
   ) {
     throw new ApiError(409, "github_personal_reconciliation_concurrent_conflict", "Personal installation changed before reconciliation could apply.");
   }
-  await refreshIndividualEligibility(env.TEAM_CONTROL_DB, installation.subject_token, at);
   return jsonResponse({ reconciled: true, account_type: "User", state: "active" });
 }
 

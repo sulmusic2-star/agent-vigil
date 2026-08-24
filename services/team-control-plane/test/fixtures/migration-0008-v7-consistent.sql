@@ -1,5 +1,14 @@
 PRAGMA foreign_keys = ON;
 
+INSERT INTO measurement_boundaries
+  (boundary_id, schema_version, release_version, release_commit_sha, release_channel,
+   deployment_environment, release_published_at, r0_started_at, github_app_id,
+   initialized_message_id, initialized_at)
+VALUES ('r0', 'r0-measurement-boundary-v1', '0.16.0',
+        '0123456789abcdef0123456789abcdef01234567', 'github_app', 'production',
+        '2026-08-19T00:00:00.000Z', '2026-08-19T00:00:00.000Z', 12345,
+        'boundary_legacy_exact', '2026-08-19T00:00:00.000Z');
+
 INSERT INTO organizations (id, slug, display_name, status, created_at) VALUES
   ('org_live', 'org-live', 'Live legacy org', 'active', '2026-08-20T00:00:00.000Z'),
   ('org_successor', 'org-successor', 'Successor legacy org', 'active', '2026-08-20T00:00:00.000Z'),
@@ -143,7 +152,37 @@ VALUES ('mind_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         'USER_NODE_LEGACY', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         'legacy-key', 'external', 'provider_session_and_non_operator_registry',
         '2026-08-20T00:17:00.000Z', '2026-08-20T00:17:01.000Z',
-        '2026-08-20T00:17:03.000Z', 'active', '2026-08-20T00:17:03.000Z');
+        NULL, 'active', '2026-08-20T00:17:01.001Z');
+
+INSERT INTO individual_consents
+  (subject_token, opted_in, updated_session_sha256, opted_in_at, opted_out_at, updated_at)
+VALUES ('mind_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 1,
+        'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+        '2026-08-20T00:17:00.500Z', NULL, '2026-08-20T00:17:00.500Z');
+
+INSERT INTO individual_session_mutations
+  (session_sha256, action, request_sha256, subject_token, result, applied_at)
+VALUES ('dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+        'measurement_consent',
+        'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        'mind_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'applied', '2026-08-20T00:17:00.500Z');
+
+INSERT INTO individual_measurement_bridge_messages
+  (message_id, payload_sha256, message_kind, subject_token, installation_id,
+   observed_at, result, received_at)
+VALUES ('individual_attestation_legacy_exact',
+        'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        'individual_subject_attestation_v1',
+        'mind_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        NULL, '2026-08-20T00:17:01.000Z', 'applied', '2026-08-20T00:17:01.001Z');
+
+INSERT INTO individual_subject_attestations
+  (message_id, subject_token, classification, classification_basis, observed_at)
+VALUES ('individual_attestation_legacy_exact',
+        'mind_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'external', 'provider_session_and_non_operator_registry',
+        '2026-08-20T00:17:01.000Z');
 
 INSERT INTO github_personal_deliveries
   (delivery_id, payload_sha256, event_name, action, installation_id, subject_token,

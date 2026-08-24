@@ -43,7 +43,7 @@ CREATE TABLE billing_generation_events (
     event_type IN (
       'reserved', 'bound', 'terminal_verified', 'retired', 'abandoned',
       'late_provider_event_ignored', 'unexpected_subscription_reserved',
-      'unexpected_subscription_compensated'
+      'unexpected_subscription_compensated', 'historical_refund_applied'
     )
   ),
   source_ref TEXT NOT NULL,
@@ -67,6 +67,74 @@ CREATE TRIGGER billing_generation_event_delete_guard
 BEFORE DELETE ON billing_generation_events
 BEGIN
   SELECT RAISE(ABORT, 'billing generation history is append only');
+END;
+
+-- Provider refund deliveries may arrive out of order. Preserve every exact
+-- refund while requiring the locally booked total to fit both the source
+-- payment and the greatest provider cumulative observation seen so far.
+DROP TRIGGER provider_refund_cumulative_guard;
+
+CREATE TRIGGER provider_refund_cumulative_guard
+BEFORE INSERT ON provider_refund_applications
+FOR EACH ROW
+WHEN (NEW.billing_command_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1
+         FROM billing_commands
+        WHERE id = NEW.billing_command_id
+          AND org_id = NEW.org_id
+          AND command_type = 'request_refund'
+          AND status = 'provider_accepted'
+          AND json_extract(command_json, '$.provider_result.refund_id') = NEW.provider_refund_id
+          AND json_extract(command_json, '$.provider_result.charge_id') = NEW.provider_charge_id
+          AND json_extract(command_json, '$.provider_result.payment_intent_id') = NEW.provider_payment_intent_id
+          AND json_extract(command_json, '$.provider_result.source_payment_event_id') = NEW.source_payment_event_id
+          AND json_extract(command_json, '$.provider_result.amount_cents') = NEW.amount_cents
+     ))
+  OR (NEW.billing_command_id IS NULL AND NOT EXISTS (
+       SELECT 1
+         FROM billing_commands
+        WHERE org_id = NEW.org_id
+          AND command_type = 'request_refund'
+          AND status IN ('provider_accepted', 'confirmed')
+          AND json_extract(command_json, '$.provider_result.charge_id') = NEW.provider_charge_id
+          AND json_extract(command_json, '$.provider_result.payment_intent_id') = NEW.provider_payment_intent_id
+          AND json_extract(command_json, '$.provider_result.source_payment_event_id') = NEW.source_payment_event_id
+     ))
+  OR NEW.cumulative_amount_cents > COALESCE((
+       SELECT amount_cents
+         FROM cash_ledger
+        WHERE org_id = NEW.org_id
+          AND source_event_id = NEW.source_payment_event_id
+          AND entry_type = 'payment'
+     ), 0)
+  OR (COALESCE((
+        SELECT SUM(amount_cents)
+          FROM provider_refund_applications
+         WHERE org_id = NEW.org_id
+           AND source_payment_event_id = NEW.source_payment_event_id
+      ), 0) + NEW.amount_cents) > COALESCE((
+       SELECT amount_cents
+         FROM cash_ledger
+        WHERE org_id = NEW.org_id
+          AND source_event_id = NEW.source_payment_event_id
+          AND entry_type = 'payment'
+     ), 0)
+  OR (COALESCE((
+        SELECT SUM(amount_cents)
+          FROM provider_refund_applications
+         WHERE org_id = NEW.org_id
+           AND source_payment_event_id = NEW.source_payment_event_id
+      ), 0) + NEW.amount_cents) > MAX(
+       NEW.cumulative_amount_cents,
+       COALESCE((
+         SELECT MAX(cumulative_amount_cents)
+           FROM provider_refund_applications
+          WHERE org_id = NEW.org_id
+            AND source_payment_event_id = NEW.source_payment_event_id
+       ), 0)
+     )
+BEGIN
+  SELECT RAISE(ABORT, 'provider refund cumulative amount conflict');
 END;
 
 CREATE TRIGGER billing_generation_identity_guard
@@ -438,7 +506,22 @@ CREATE TABLE workflow_integrity_receipts (
 INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
 SELECT 'integrity_legacy_billing_generation_bridge_eligible_' || org_id || '_' || generation,
        'legacy_billing_generation_bridge_eligible', org_id || ':' || generation, 1, reserved_at
-  FROM billing_generations;
+  FROM billing_generations
+ WHERE provider_checkout_session_id IS NOT NULL
+   AND (
+     (status IN ('bound', 'terminal_verified', 'retired')
+       AND provider_customer_id IS NOT NULL AND provider_subscription_id IS NOT NULL)
+     OR (
+       status = 'reserved' AND provider_customer_id IS NULL AND provider_subscription_id IS NULL
+       AND EXISTS (
+         SELECT 1 FROM checkout_intents ci
+          WHERE ci.org_id = billing_generations.org_id
+            AND ci.id = billing_generations.checkout_intent_id
+            AND ci.status = 'provider_created'
+            AND ci.provider_session_id = billing_generations.provider_checkout_session_id
+       )
+     )
+   );
 
 -- Normalize already-stored v7 provider summaries when and only when their full
 -- immutable provider identity resolves to exactly one migrated generation. The
@@ -814,6 +897,12 @@ WITH legacy_deliveries AS (
 SELECT CASE WHEN
   NOT EXISTS (SELECT 1 FROM ranked WHERE same_rank_count > 1)
   AND NOT EXISTS (
+    SELECT installation_id, account_type FROM legacy_deliveries
+     WHERE action = 'created'
+     GROUP BY installation_id, account_type
+    HAVING COUNT(*) > 1
+  )
+  AND NOT EXISTS (
     SELECT installation_id FROM github_installation_provider_proofs
      GROUP BY installation_id
     HAVING COUNT(DISTINCT github_account_node_id || ':' || account_type) > 1
@@ -844,25 +933,34 @@ THEN 1 ELSE 0 END;
 
 DROP TABLE migration_0008_github_lifecycle_guard;
 
--- Correct v7's legacy bound-claim placeholder to the exact latest provider
--- creation delivery and preserve it as consumed historical proof.
+-- Correct only a v7 legacy bound-claim placeholder to the single exact provider
+-- creation. The guard above refuses multiple creations, so an existing exact
+-- materialized binding is never moved to a later inferred incarnation.
 UPDATE github_installation_claims
    SET provider_proof_delivery_id = (
      SELECT d.delivery_id FROM github_deliveries d
       WHERE d.installation_id = github_installation_claims.installation_id
         AND d.org_id = github_installation_claims.org_id AND d.action = 'created'
-      ORDER BY d.event_created_at DESC LIMIT 1
    )
- WHERE status = 'bound';
+ WHERE status = 'bound'
+   AND provider_proof_delivery_id IS NOT (
+     SELECT d.delivery_id FROM github_deliveries d
+      WHERE d.installation_id = github_installation_claims.installation_id
+        AND d.org_id = github_installation_claims.org_id AND d.action = 'created'
+   );
 
 UPDATE github_personal_installation_claims
    SET provider_proof_delivery_id = (
      SELECT d.delivery_id FROM github_personal_deliveries d
       WHERE d.installation_id = github_personal_installation_claims.installation_id
         AND d.subject_token = github_personal_installation_claims.subject_token AND d.action = 'created'
-      ORDER BY d.event_created_at DESC LIMIT 1
    )
- WHERE status = 'bound';
+ WHERE status = 'bound'
+   AND provider_proof_delivery_id IS NOT (
+     SELECT d.delivery_id FROM github_personal_deliveries d
+      WHERE d.installation_id = github_personal_installation_claims.installation_id
+        AND d.subject_token = github_personal_installation_claims.subject_token AND d.action = 'created'
+   );
 
 INSERT OR IGNORE INTO github_installation_provider_proofs
   (delivery_id, installation_id, github_account_node_id, account_type,
@@ -1031,3 +1129,234 @@ WHEN NEW.status = 'claimed'
 BEGIN
   SELECT RAISE(ABORT, 'personal claim lacks latest nonterminal provider proof');
 END;
+
+-- v7 derived eligibility after three separate commits. Reconstruct it only
+-- when every current prerequisite has an exact historical source artifact.
+-- Any pre-existing active eligibility that predates or lacks those sources is
+-- an explicit migration HOLD instead of silently preserving a false cohort.
+CREATE TABLE migration_0008_individual_eligibility_guard (
+  valid INTEGER NOT NULL CHECK (valid = 1)
+);
+
+WITH exact_legacy AS (
+  SELECT identity.subject_token,
+         MAX(
+           consent.updated_at,
+           attestation.observed_at,
+           message.received_at,
+           reconciliation.applied_at,
+           boundary.r0_started_at
+         ) AS derived_eligible_at
+    FROM individual_identities identity
+    JOIN individual_consents consent
+      ON consent.subject_token = identity.subject_token AND consent.opted_in = 1
+    JOIN individual_session_mutations mutation
+      ON mutation.session_sha256 = consent.updated_session_sha256
+     AND mutation.action = 'measurement_consent'
+     AND mutation.subject_token = identity.subject_token
+     AND mutation.result = 'applied'
+     AND mutation.applied_at = consent.updated_at
+    JOIN individual_subject_attestations attestation
+      ON attestation.subject_token = identity.subject_token
+     AND attestation.classification = identity.classification
+     AND attestation.classification_basis = identity.classification_basis
+     AND attestation.observed_at = identity.classification_attested_at
+    JOIN individual_measurement_bridge_messages message
+      ON message.message_id = attestation.message_id
+     AND message.message_kind = 'individual_subject_attestation_v1'
+     AND message.subject_token = identity.subject_token
+     AND message.observed_at = attestation.observed_at
+     AND message.result = 'applied'
+    JOIN github_personal_installations installation
+      ON installation.subject_token = identity.subject_token
+     AND installation.account_type = 'User'
+     AND installation.state = 'active'
+     AND installation.reconciled_at IS NOT NULL
+    JOIN github_personal_installation_reconciliations reconciliation
+      ON reconciliation.reconciliation_id = installation.last_reconciliation_id
+     AND reconciliation.source_delivery_id = installation.last_delivery_id
+     AND reconciliation.installation_id = installation.installation_id
+     AND reconciliation.incarnation = installation.incarnation
+     AND reconciliation.subject_token = identity.subject_token
+     AND reconciliation.account_type = 'User'
+     AND reconciliation.result = 'applied'
+     AND reconciliation.applied_at = installation.reconciled_at
+    JOIN github_personal_deliveries delivery
+      ON delivery.delivery_id = reconciliation.source_delivery_id
+     AND delivery.installation_id = installation.installation_id
+     AND delivery.incarnation = installation.incarnation
+     AND delivery.subject_token = identity.subject_token
+     AND delivery.account_type = 'User'
+     AND delivery.result = 'applied'
+    JOIN measurement_boundaries boundary
+      ON boundary.boundary_id = 'r0' AND boundary.github_app_id = installation.app_id
+   WHERE identity.canonical_subject_token = identity.subject_token
+     AND identity.status = 'active'
+     AND identity.classification = 'external'
+     AND identity.classification_basis = 'provider_session_and_non_operator_registry'
+     AND installation.installed_at >= boundary.r0_started_at
+     AND installation.installed_at <= installation.reconciled_at
+     AND boundary.r0_started_at <= installation.reconciled_at
+)
+INSERT INTO migration_0008_individual_eligibility_guard (valid)
+SELECT CASE WHEN NOT EXISTS (
+  SELECT 1 FROM individual_identities identity
+   WHERE identity.canonical_subject_token = identity.subject_token
+     AND identity.status = 'active'
+     AND identity.eligible_at IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM exact_legacy exact
+        WHERE exact.subject_token = identity.subject_token
+          AND identity.eligible_at >= exact.derived_eligible_at
+          AND identity.eligible_at <= identity.updated_at
+     )
+) THEN 1 ELSE 0 END;
+
+DROP TABLE migration_0008_individual_eligibility_guard;
+
+WITH exact_legacy AS (
+  SELECT identity.subject_token,
+         MAX(
+           consent.updated_at,
+           attestation.observed_at,
+           message.received_at,
+           reconciliation.applied_at,
+           boundary.r0_started_at
+         ) AS derived_eligible_at
+    FROM individual_identities identity
+    JOIN individual_consents consent
+      ON consent.subject_token = identity.subject_token AND consent.opted_in = 1
+    JOIN individual_session_mutations mutation
+      ON mutation.session_sha256 = consent.updated_session_sha256
+     AND mutation.action = 'measurement_consent'
+     AND mutation.subject_token = identity.subject_token
+     AND mutation.result = 'applied'
+     AND mutation.applied_at = consent.updated_at
+    JOIN individual_subject_attestations attestation
+      ON attestation.subject_token = identity.subject_token
+     AND attestation.classification = identity.classification
+     AND attestation.classification_basis = identity.classification_basis
+     AND attestation.observed_at = identity.classification_attested_at
+    JOIN individual_measurement_bridge_messages message
+      ON message.message_id = attestation.message_id
+     AND message.message_kind = 'individual_subject_attestation_v1'
+     AND message.subject_token = identity.subject_token
+     AND message.observed_at = attestation.observed_at
+     AND message.result = 'applied'
+    JOIN github_personal_installations installation
+      ON installation.subject_token = identity.subject_token
+     AND installation.account_type = 'User'
+     AND installation.state = 'active'
+     AND installation.reconciled_at IS NOT NULL
+    JOIN github_personal_installation_reconciliations reconciliation
+      ON reconciliation.reconciliation_id = installation.last_reconciliation_id
+     AND reconciliation.source_delivery_id = installation.last_delivery_id
+     AND reconciliation.installation_id = installation.installation_id
+     AND reconciliation.incarnation = installation.incarnation
+     AND reconciliation.subject_token = identity.subject_token
+     AND reconciliation.account_type = 'User'
+     AND reconciliation.result = 'applied'
+     AND reconciliation.applied_at = installation.reconciled_at
+    JOIN github_personal_deliveries delivery
+      ON delivery.delivery_id = reconciliation.source_delivery_id
+     AND delivery.installation_id = installation.installation_id
+     AND delivery.incarnation = installation.incarnation
+     AND delivery.subject_token = identity.subject_token
+     AND delivery.account_type = 'User'
+     AND delivery.result = 'applied'
+    JOIN measurement_boundaries boundary
+      ON boundary.boundary_id = 'r0' AND boundary.github_app_id = installation.app_id
+   WHERE identity.canonical_subject_token = identity.subject_token
+     AND identity.status = 'active'
+     AND identity.classification = 'external'
+     AND identity.classification_basis = 'provider_session_and_non_operator_registry'
+     AND installation.installed_at >= boundary.r0_started_at
+     AND installation.installed_at <= installation.reconciled_at
+     AND boundary.r0_started_at <= installation.reconciled_at
+)
+UPDATE individual_identities
+   SET eligible_at = (
+         SELECT derived_eligible_at FROM exact_legacy exact
+          WHERE exact.subject_token = individual_identities.subject_token
+       ),
+       updated_at = MAX(updated_at, (
+         SELECT derived_eligible_at FROM exact_legacy exact
+          WHERE exact.subject_token = individual_identities.subject_token
+       ))
+ WHERE eligible_at IS NULL
+   AND EXISTS (
+     SELECT 1 FROM exact_legacy exact
+      WHERE exact.subject_token = individual_identities.subject_token
+   );
+
+WITH exact_legacy AS (
+  SELECT identity.subject_token,
+         MAX(
+           consent.updated_at,
+           attestation.observed_at,
+           message.received_at,
+           reconciliation.applied_at,
+           boundary.r0_started_at
+         ) AS derived_eligible_at
+    FROM individual_identities identity
+    JOIN individual_consents consent
+      ON consent.subject_token = identity.subject_token AND consent.opted_in = 1
+    JOIN individual_session_mutations mutation
+      ON mutation.session_sha256 = consent.updated_session_sha256
+     AND mutation.action = 'measurement_consent'
+     AND mutation.subject_token = identity.subject_token
+     AND mutation.result = 'applied'
+     AND mutation.applied_at = consent.updated_at
+    JOIN individual_subject_attestations attestation
+      ON attestation.subject_token = identity.subject_token
+     AND attestation.classification = identity.classification
+     AND attestation.classification_basis = identity.classification_basis
+     AND attestation.observed_at = identity.classification_attested_at
+    JOIN individual_measurement_bridge_messages message
+      ON message.message_id = attestation.message_id
+     AND message.message_kind = 'individual_subject_attestation_v1'
+     AND message.subject_token = identity.subject_token
+     AND message.observed_at = attestation.observed_at
+     AND message.result = 'applied'
+    JOIN github_personal_installations installation
+      ON installation.subject_token = identity.subject_token
+     AND installation.account_type = 'User'
+     AND installation.state = 'active'
+     AND installation.reconciled_at IS NOT NULL
+    JOIN github_personal_installation_reconciliations reconciliation
+      ON reconciliation.reconciliation_id = installation.last_reconciliation_id
+     AND reconciliation.source_delivery_id = installation.last_delivery_id
+     AND reconciliation.installation_id = installation.installation_id
+     AND reconciliation.incarnation = installation.incarnation
+     AND reconciliation.subject_token = identity.subject_token
+     AND reconciliation.account_type = 'User'
+     AND reconciliation.result = 'applied'
+     AND reconciliation.applied_at = installation.reconciled_at
+    JOIN github_personal_deliveries delivery
+      ON delivery.delivery_id = reconciliation.source_delivery_id
+     AND delivery.installation_id = installation.installation_id
+     AND delivery.incarnation = installation.incarnation
+     AND delivery.subject_token = identity.subject_token
+     AND delivery.account_type = 'User'
+     AND delivery.result = 'applied'
+    JOIN measurement_boundaries boundary
+      ON boundary.boundary_id = 'r0' AND boundary.github_app_id = installation.app_id
+   WHERE identity.canonical_subject_token = identity.subject_token
+     AND identity.status = 'active'
+     AND identity.classification = 'external'
+     AND identity.classification_basis = 'provider_session_and_non_operator_registry'
+     AND installation.installed_at >= boundary.r0_started_at
+     AND installation.installed_at <= installation.reconciled_at
+     AND boundary.r0_started_at <= installation.reconciled_at
+)
+INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+SELECT 'integrity_individual_eligibility_migration_' || exact.subject_token,
+       'individual_eligibility_migration_backfill',
+       exact.subject_token || ':migration_0008',
+       CASE WHEN identity.eligible_at IS NOT NULL
+                   AND identity.eligible_at >= exact.derived_eligible_at
+                   AND identity.eligible_at <= identity.updated_at
+              THEN 1 ELSE 0 END,
+       exact.derived_eligible_at
+  FROM exact_legacy exact
+  JOIN individual_identities identity ON identity.subject_token = exact.subject_token;

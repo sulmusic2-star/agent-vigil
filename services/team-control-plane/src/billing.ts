@@ -2339,6 +2339,335 @@ async function rejectLateBillingGeneration(
   }
 }
 
+async function applyHistoricalRefund(
+  env: Env,
+  snapshot: ReconciliationSnapshot,
+  event: ProviderEventRow,
+  payloadHash: string
+): Promise<void> {
+  if (
+    !snapshot.providerRefundId ||
+    !snapshot.providerChargeId ||
+    !snapshot.providerPaymentIntentId ||
+    !snapshot.sourcePaymentEventId
+  ) {
+    throw new ApiError(400, "invalid_refund_snapshot", "Historical refund reconciliation lacks its exact provider binding.");
+  }
+  const [sourcePayment, bookedRefunds, currentAccount, currentEntitlement, currentCursor] = await Promise.all([
+    env.TEAM_CONTROL_DB.prepare(
+      `SELECT c.amount_cents, pe.summary_json
+         FROM cash_ledger c
+         JOIN provider_events pe ON pe.event_id = c.source_event_id
+        WHERE c.org_id = ?1 AND c.source_event_id = ?2 AND c.entry_type = 'payment'
+          AND pe.org_id = ?1 AND pe.event_type = 'invoice.paid' AND pe.status = 'reconciled'`
+    )
+      .bind(snapshot.orgId, snapshot.sourcePaymentEventId)
+      .first<{ amount_cents: number; summary_json: string }>(),
+    env.TEAM_CONTROL_DB.prepare(
+      `SELECT COALESCE(SUM(amount_cents), 0) AS total,
+              COALESCE(MAX(cumulative_amount_cents), 0) AS max_cumulative
+         FROM provider_refund_applications
+        WHERE org_id = ?1 AND source_payment_event_id = ?2`
+    )
+      .bind(snapshot.orgId, snapshot.sourcePaymentEventId)
+      .first<{ total: number; max_cumulative: number }>(),
+    billingAccount(env.TEAM_CONTROL_DB, snapshot.orgId),
+    getEntitlement(env.TEAM_CONTROL_DB, snapshot.orgId),
+    env.TEAM_CONTROL_DB.prepare(
+      `SELECT event_created, event_id, reconciliation_id, status
+         FROM provider_state_cursors WHERE org_id = ?1`
+    )
+      .bind(snapshot.orgId)
+      .first<{ event_created: number; event_id: string; reconciliation_id: string; status: "claimed" | "applied" }>()
+  ]);
+  let sourceSummary: StripeSummary | null = null;
+  try {
+    sourceSummary = sourcePayment ? (JSON.parse(sourcePayment.summary_json) as StripeSummary) : null;
+  } catch {
+    sourceSummary = null;
+  }
+  const nextBookedTotal = (bookedRefunds?.total ?? 0) + snapshot.refundAmountCents;
+  const greatestCumulative = Math.max(bookedRefunds?.max_cumulative ?? 0, snapshot.cumulativeRefundAmountCents);
+  if (
+    !sourcePayment ||
+    !sourceSummary ||
+    sourceSummary.orgId !== snapshot.orgId ||
+    sourceSummary.customerId !== snapshot.providerCustomerId ||
+    sourceSummary.subscriptionId !== snapshot.providerSubscriptionId ||
+    sourceSummary.internalPriceId !== snapshot.internalPriceId ||
+    sourceSummary.billingGeneration !== snapshot.billingGeneration ||
+    snapshot.cumulativeRefundAmountCents > sourcePayment.amount_cents ||
+    nextBookedTotal > sourcePayment.amount_cents ||
+    nextBookedTotal > greatestCumulative
+  ) {
+    await rejectSnapshot(env, snapshot, event, payloadHash, "rejected");
+    throw new ApiError(
+      409,
+      "historical_refund_binding_conflict",
+      "Historical refund does not fit its exact retired generation and source payment."
+    );
+  }
+
+  const adjustment = recognizedMrrMicros(snapshot.netRecurringAmountCents, snapshot.internalPriceId);
+  const at = nowIso();
+  const cashId = `cash_historical_refund_${event.event_id}`;
+  const revenueId = `revenue_historical_refund_${event.event_id}`;
+  const generationEventId = `billing_generation_historical_refund_${event.event_id}`;
+  const lifecycleId = `life_historical_refund_${event.event_id}`;
+  const auditId = `audit_historical_refund_${event.event_id}`;
+  const receiptId = `integrity_historical_refund_${event.event_id}`;
+  const results = await env.TEAM_CONTROL_DB.batch([
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO provider_reconciliation_snapshots
+        (reconciliation_id, source_event_id, org_id, snapshot_kind, payload_sha256, observed_at, applied_at, result)
+       VALUES (?1, ?2, ?3, 'refund', ?4, ?5, ?6, 'applied')`
+    ).bind(
+      snapshot.reconciliationId,
+      event.event_id,
+      snapshot.orgId,
+      payloadHash,
+      snapshot.observedAt,
+      at
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE provider_events SET status = 'reconciled', reconciled_at = ?1
+        WHERE event_id = ?2 AND org_id = ?3 AND status = 'awaiting_reconciliation'`
+    ).bind(at, event.event_id, snapshot.orgId),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO provider_refund_applications
+        (provider_refund_id, org_id, billing_command_id, source_payment_event_id,
+         source_refund_event_id, provider_charge_id, provider_payment_intent_id,
+         amount_cents, cumulative_amount_cents, applied_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+    ).bind(
+      snapshot.providerRefundId,
+      snapshot.orgId,
+      snapshot.billingCommandId,
+      snapshot.sourcePaymentEventId,
+      event.event_id,
+      snapshot.providerChargeId,
+      snapshot.providerPaymentIntentId,
+      snapshot.refundAmountCents,
+      snapshot.cumulativeRefundAmountCents,
+      at
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE billing_commands SET status = 'confirmed'
+        WHERE id = ?1 AND org_id = ?2 AND command_type = 'request_refund' AND status = 'provider_accepted'
+          AND json_extract(command_json, '$.provider_result.refund_id') = ?3
+          AND json_extract(command_json, '$.provider_result.charge_id') = ?4
+          AND json_extract(command_json, '$.provider_result.payment_intent_id') = ?5
+          AND json_extract(command_json, '$.provider_result.source_payment_event_id') = ?6
+          AND json_extract(command_json, '$.provider_result.amount_cents') = ?7`
+    ).bind(
+      snapshot.billingCommandId,
+      snapshot.orgId,
+      snapshot.providerRefundId,
+      snapshot.providerChargeId,
+      snapshot.providerPaymentIntentId,
+      snapshot.sourcePaymentEventId,
+      snapshot.refundAmountCents
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO cash_ledger
+        (id, org_id, source_event_id, entry_type, amount_cents, currency, occurred_at)
+       VALUES (?1, ?2, ?3, 'refund', ?4, 'usd', ?5)`
+    ).bind(cashId, snapshot.orgId, event.event_id, -snapshot.refundAmountCents, at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO revenue_ledger
+        (id, org_id, source_event_id, entry_type, recognized_mrr_delta_micros, currency,
+         recognized_period_start, recognized_period_end, occurred_at)
+       VALUES (?1, ?2, ?3, 'mrr_refund_adjustment', ?4, 'usd', ?5, ?6, ?7)`
+    ).bind(revenueId, snapshot.orgId, event.event_id, -adjustment, snapshot.periodStart, snapshot.periodEnd, at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO billing_generation_events
+        (id, org_id, generation, event_type, source_ref, occurred_at)
+       SELECT ?1, ?2, ?3, 'historical_refund_applied', ?4, ?5
+        WHERE EXISTS (
+          SELECT 1 FROM billing_generations
+           WHERE org_id = ?2 AND generation = ?3 AND status IN ('terminal_verified', 'retired')
+             AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+             AND internal_price_id = ?8
+        )`
+    ).bind(
+      generationEventId,
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      event.event_id,
+      at,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId,
+      snapshot.internalPriceId
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO lifecycle_events
+        (event_id, org_id, event_name, source_ref, event_day, created_at)
+       VALUES (?1, ?2, 'refund_issued_v1', ?3, ?4, ?5)`
+    ).bind(lifecycleId, snapshot.orgId, event.event_id, at.slice(0, 10), at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO audit_events
+        (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+       VALUES (?1, ?2, 'reconciler', 'stripe-readonly-adapter', 'billing.refund.historical_confirmed',
+               'provider_event', ?3, ?4, ?5)`
+    ).bind(
+      auditId,
+      snapshot.orgId,
+      event.event_id,
+      JSON.stringify({ amount_cents: snapshot.refundAmountCents, billing_generation: snapshot.billingGeneration }),
+      at
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'historical_billing_refund_reconciled', ?2,
+         CASE WHEN
+           EXISTS (
+             SELECT 1 FROM provider_reconciliation_snapshots
+              WHERE reconciliation_id = ?3 AND source_event_id = ?2 AND org_id = ?4
+                AND snapshot_kind = 'refund' AND result = 'applied'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_events
+              WHERE event_id = ?2 AND org_id = ?4 AND status = 'reconciled'
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_generations
+              WHERE org_id = ?4 AND generation = ?5 AND status IN ('terminal_verified', 'retired')
+                AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+                AND internal_price_id = ?8
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_refund_applications
+              WHERE provider_refund_id = ?9 AND org_id = ?4 AND billing_command_id IS ?15
+                AND source_payment_event_id = ?10 AND source_refund_event_id = ?2
+                AND provider_charge_id = ?11 AND provider_payment_intent_id = ?12
+                AND amount_cents = ?13 AND cumulative_amount_cents = ?14
+           )
+           AND (
+             (?15 IS NULL AND EXISTS (
+               SELECT 1 FROM billing_commands
+                WHERE org_id = ?4 AND command_type = 'request_refund'
+                  AND status IN ('provider_accepted', 'confirmed')
+                  AND json_extract(command_json, '$.provider_result.charge_id') = ?11
+                  AND json_extract(command_json, '$.provider_result.payment_intent_id') = ?12
+                  AND json_extract(command_json, '$.provider_result.source_payment_event_id') = ?10
+             )) OR EXISTS (
+               SELECT 1 FROM billing_commands
+                WHERE id = ?15 AND org_id = ?4 AND status = 'confirmed'
+             )
+           )
+           AND EXISTS (
+             SELECT 1 FROM cash_ledger payment
+             JOIN provider_events source ON source.event_id = payment.source_event_id
+              WHERE payment.org_id = ?4 AND payment.source_event_id = ?10
+                AND payment.entry_type = 'payment' AND payment.amount_cents = ?16
+                AND source.status = 'reconciled'
+                AND CAST(json_extract(source.summary_json, '$.billingGeneration') AS INTEGER) = ?5
+                AND json_extract(source.summary_json, '$.customerId') = ?6
+                AND json_extract(source.summary_json, '$.subscriptionId') = ?7
+                AND json_extract(source.summary_json, '$.internalPriceId') = ?8
+           )
+           AND EXISTS (
+             SELECT 1 FROM cash_ledger
+              WHERE id = ?17 AND org_id = ?4 AND source_event_id = ?2
+                AND entry_type = 'refund' AND amount_cents = -?13
+           )
+           AND EXISTS (
+             SELECT 1 FROM revenue_ledger
+              WHERE id = ?18 AND org_id = ?4 AND source_event_id = ?2
+                AND entry_type = 'mrr_refund_adjustment'
+                AND recognized_mrr_delta_micros = ?19
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_generation_events
+              WHERE id = ?20 AND org_id = ?4 AND generation = ?5
+                AND event_type = 'historical_refund_applied' AND source_ref = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM lifecycle_events
+              WHERE event_id = ?21 AND org_id = ?4 AND event_name = 'refund_issued_v1' AND source_ref = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM audit_events
+              WHERE id = ?22 AND org_id = ?4 AND action = 'billing.refund.historical_confirmed'
+                AND resource_id = ?2
+           )
+           AND (
+             (?23 = 0 AND NOT EXISTS (SELECT 1 FROM billing_accounts WHERE org_id = ?4)) OR
+             (?23 = 1 AND EXISTS (
+               SELECT 1 FROM billing_accounts
+                WHERE org_id = ?4 AND billing_generation = ?24
+                  AND provider_customer_id IS ?25 AND provider_subscription_id IS ?26
+                  AND commercial_state = ?27 AND current_recognized_mrr_micros = ?28
+                  AND last_reconciled_event_id IS ?29
+             ))
+           )
+           AND (
+             (?30 = 0 AND NOT EXISTS (SELECT 1 FROM entitlements WHERE org_id = ?4)) OR
+             (?30 = 1 AND EXISTS (
+               SELECT 1 FROM entitlements
+                WHERE org_id = ?4 AND status = ?31 AND source_event_id = ?32
+             ))
+           )
+           AND (
+             (?33 = 0 AND NOT EXISTS (SELECT 1 FROM provider_state_cursors WHERE org_id = ?4)) OR
+             (?33 = 1 AND EXISTS (
+               SELECT 1 FROM provider_state_cursors
+                WHERE org_id = ?4 AND event_created = ?34 AND event_id = ?35
+                  AND reconciliation_id = ?36 AND status = ?37
+             ))
+           )
+         THEN 1 ELSE 0 END, ?38)`
+    ).bind(
+      receiptId,
+      event.event_id,
+      snapshot.reconciliationId,
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId,
+      snapshot.internalPriceId,
+      snapshot.providerRefundId,
+      snapshot.sourcePaymentEventId,
+      snapshot.providerChargeId,
+      snapshot.providerPaymentIntentId,
+      snapshot.refundAmountCents,
+      snapshot.cumulativeRefundAmountCents,
+      snapshot.billingCommandId,
+      sourcePayment.amount_cents,
+      cashId,
+      revenueId,
+      -adjustment,
+      generationEventId,
+      lifecycleId,
+      auditId,
+      currentAccount ? 1 : 0,
+      currentAccount?.billing_generation ?? null,
+      currentAccount?.provider_customer_id ?? null,
+      currentAccount?.provider_subscription_id ?? null,
+      currentAccount?.commercial_state ?? null,
+      currentAccount?.current_recognized_mrr_micros ?? null,
+      currentAccount?.last_reconciled_event_id ?? null,
+      currentEntitlement ? 1 : 0,
+      currentEntitlement?.status ?? null,
+      currentEntitlement?.source_event_id ?? null,
+      currentCursor ? 1 : 0,
+      currentCursor?.event_created ?? null,
+      currentCursor?.event_id ?? null,
+      currentCursor?.reconciliation_id ?? null,
+      currentCursor?.status ?? null,
+      at
+    )
+  ]);
+  const expectedCommandChanges = snapshot.billingCommandId === null ? 0 : 1;
+  if (results.some((result, index) => (result.meta.changes ?? 0) !== (index === 3 ? expectedCommandChanges : 1))) {
+    throw new ApiError(
+      409,
+      "historical_refund_binding_conflict",
+      "Historical refund lost its exact immutable generation or projection binding."
+    );
+  }
+}
+
 async function claimProviderState(
   env: Env,
   snapshot: ReconciliationSnapshot,
@@ -2452,6 +2781,16 @@ export async function handleProviderReconciliation(request: Request, env: Env): 
     await rejectSnapshot(env, snapshot, event, payloadHash, "rejected");
     throw new ApiError(409, "billing_generation_mismatch", "Reconciliation does not match an immutable billing generation.");
   }
+  await rejectProviderTenantCollision(
+    env.TEAM_CONTROL_DB,
+    snapshot.orgId,
+    snapshot.providerCustomerId,
+    snapshot.providerSubscriptionId
+  );
+  if (snapshot.kind === "refund" && (generation.status === "terminal_verified" || generation.status === "retired")) {
+    await applyHistoricalRefund(env, snapshot, event, payloadHash);
+    return jsonResponse({ reconciled: true, source_event_id: event.event_id, historical_generation: true });
+  }
   if (
     !account ||
     account.billing_generation !== snapshot.billingGeneration ||
@@ -2470,12 +2809,6 @@ export async function handleProviderReconciliation(request: Request, env: Env): 
     await rejectSnapshot(env, snapshot, event, payloadHash, "rejected");
     throw new ApiError(409, "provider_binding_mismatch", "Provider identifiers do not match the tenant billing account.");
   }
-  await rejectProviderTenantCollision(
-    env.TEAM_CONTROL_DB,
-    snapshot.orgId,
-    snapshot.providerCustomerId,
-    snapshot.providerSubscriptionId
-  );
   if (
     snapshot.kind !== "refund" &&
     account?.last_reconciled_event_created !== null &&
@@ -2691,6 +3024,10 @@ async function applyPayment(
            AND EXISTS (
              SELECT 1 FROM provider_events
               WHERE event_id = ?2 AND org_id = ?4 AND status = 'reconciled'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_state_cursors
+              WHERE org_id = ?4 AND event_id = ?2 AND reconciliation_id = ?3 AND status = 'applied'
            )
            AND EXISTS (
              SELECT 1 FROM billing_accounts
@@ -3371,6 +3708,10 @@ async function applySubscription(
            )
            AND EXISTS (
              SELECT 1 FROM provider_events WHERE event_id = ?2 AND status = 'reconciled'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_state_cursors
+              WHERE org_id = ?4 AND event_id = ?2 AND reconciliation_id = ?3 AND status = 'applied'
            )
            AND EXISTS (
              SELECT 1 FROM billing_accounts

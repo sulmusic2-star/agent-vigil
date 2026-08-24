@@ -413,6 +413,101 @@ describe.sequential("billing-generation independent review regressions", () => {
     });
   });
 
+  it("compensates a missing-generation Session created after migration for an unmarked prepared successor", async () => {
+    const now = Date.now();
+    const at = new Date(now).toISOString();
+    const checkoutIntentId = "checkout_review_unmarked_successor";
+    const commandId = "billing_command_review_unmarked_successor";
+    const command = {
+      schema_version: "checkout-command-v1",
+      command_id: commandId,
+      provider: "stripe",
+      operation: "create_checkout_session",
+      idempotency_key: "checkout_review_unmarked_successor_idem",
+      parameters: {
+        mode: "subscription",
+        quantity: 1,
+        provider_price_id: "price_team_monthly_test",
+        internal_price_id: "team_monthly_usd_v1",
+        client_reference_id: "org_main",
+        metadata: checkoutMetadata(checkoutIntentId, 2)
+      },
+      expires_at: new Date(now + 30 * 60_000).toISOString(),
+      provider_result: { session_id: "cs_review_unmarked_successor" }
+    };
+    await env.TEAM_CONTROL_DB.batch([
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_generations
+          (org_id, generation, internal_price_id, status, provider_customer_id,
+           provider_subscription_id, reserved_at, bound_at, terminal_verified_at,
+           terminal_source_event_id, retired_at)
+         VALUES ('org_main', 1, 'team_monthly_usd_v1', 'retired', 'cus_review_legacy_old',
+                 'sub_review_legacy_old', ?1, ?1, ?1, 'evt_review_legacy_old_terminal', ?1)`
+      ).bind(at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_generations
+          (org_id, generation, checkout_intent_id, internal_price_id, status,
+           provider_checkout_session_id, reserved_at)
+         VALUES ('org_main', 2, ?1, 'team_monthly_usd_v1', 'reserved',
+                 'cs_review_unmarked_successor', ?2)`
+      ).bind(checkoutIntentId, at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO checkout_intents
+          (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
+           contributor_limit, status, provider_session_id, created_by, created_at, expires_at, billing_generation)
+         VALUES (?1, 'org_main', 'checkout_review_unmarked_successor_idem', 'team_monthly_usd_v1',
+                 'month', 29900, 15, 'provider_created', 'cs_review_unmarked_successor',
+                 'userp_review', ?2, ?3, 2)`
+      ).bind(checkoutIntentId, at, command.expires_at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_commands
+          (id, org_id, command_type, idempotency_key, command_json, status, created_by, created_at)
+         VALUES (?1, 'org_main', 'create_checkout_session', 'checkout_review_unmarked_successor_idem',
+                 ?2, 'provider_accepted', 'userp_review', ?3)`
+      ).bind(commandId, JSON.stringify(command), at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO workflow_integrity_receipts
+          (id, workflow_type, source_ref, valid, created_at)
+         VALUES ('integrity_review_old_generation_eligible',
+                 'legacy_billing_generation_bridge_eligible', 'org_main:1', 1, ?1)`
+      ).bind(at)
+    ]);
+
+    await expect(
+      webhook("evt_review_unmarked_successor", "checkout.session.completed", {
+        id: "cs_review_unmarked_successor",
+        mode: "subscription",
+        customer: "cus_review_unmarked_successor",
+        subscription: "sub_review_unmarked_successor",
+        metadata: checkoutMetadata(checkoutIntentId, null)
+      })
+    ).rejects.toMatchObject({ status: 409, code: "checkout_completion_requires_compensation" });
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT g.status, g.provider_customer_id, g.provider_subscription_id,
+              pe.status AS provider_event_status,
+              x.status AS compensation_status, x.reason,
+              x.provider_session_id, x.provider_subscription_id AS compensation_subscription,
+              (SELECT COUNT(*) FROM workflow_integrity_receipts
+                WHERE workflow_type = 'legacy_billing_generation_bridge_eligible'
+                  AND source_ref = 'org_main:2') AS successor_markers
+         FROM billing_generations g
+         JOIN provider_events pe ON pe.event_id = 'evt_review_unmarked_successor'
+         JOIN checkout_subscription_compensations x ON x.provider_event_id = pe.event_id
+        WHERE g.org_id = 'org_main' AND g.generation = 2`
+    ).first<Record<string, unknown>>();
+    expect(state).toEqual({
+      status: "reserved",
+      provider_customer_id: null,
+      provider_subscription_id: null,
+      provider_event_status: "rejected",
+      compensation_status: "prepared",
+      reason: "unexpected_generation_binding",
+      provider_session_id: "cs_review_unmarked_successor",
+      compensation_subscription: "sub_review_unmarked_successor",
+      successor_markers: 0
+    });
+  });
+
   it("prepares and executes cancellation for a fully refunded but still-bound current generation", async () => {
     const now = Date.now();
     const at = new Date(now).toISOString();

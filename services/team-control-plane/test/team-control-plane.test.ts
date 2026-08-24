@@ -1,8 +1,10 @@
 import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { handleProviderReconciliation } from "../src/billing.ts";
+import type { AuthContext } from "../src/auth.ts";
+import { handleProviderReconciliation, prepareCheckout } from "../src/billing.ts";
 import { base64UrlEncode, hmacBase64Url, hmacHex } from "../src/crypto.ts";
+import { confirmOrganizationDeletion, requestOrganizationDeletion } from "../src/privacy.ts";
 
 const ORIGIN = "https://team.example.test";
 const SESSION_SECRET = "test-only-team-session-secret-32-bytes-minimum";
@@ -14,6 +16,13 @@ const GITHUB_APP_ID = 12_345;
 const GITHUB_INSTALLATION_ID = 98_765;
 const GITHUB_ACCOUNT_NODE_ID = "ACCT_NODE_MAIN_123";
 const GITHUB_REPOSITORY_NODE_ID = "REPO_NODE_MAIN_123";
+const OWNER_AUTH: AuthContext = {
+  userId: "user_owner",
+  orgId: "org_main",
+  role: "owner",
+  identityKind: "human",
+  sessionId: "session_privacy_interleaving"
+};
 
 async function clearDatabase(): Promise<void> {
   await env.TEAM_CONTROL_DB.prepare(`DROP TRIGGER billing_generation_event_delete_guard`).run();
@@ -261,6 +270,35 @@ async function signedReconciliationRequest(body: Record<string, unknown>): Promi
 
 async function reconcile(body: Record<string, unknown>): Promise<Response> {
   return exports.default.fetch(await signedReconciliationRequest(body));
+}
+
+function envWithReconciliationBeforeNextBatch(newerRequest: Request): {
+  interleavingEnv: Env;
+  didInterleave: () => boolean;
+} {
+  let interleaved = false;
+  const interleavingDb = new Proxy(env.TEAM_CONTROL_DB, {
+    get(target, property, receiver) {
+      if (property === "batch") {
+        return async (statements: D1PreparedStatement[]): Promise<D1Result[]> => {
+          if (!interleaved) {
+            interleaved = true;
+            const response = await handleProviderReconciliation(newerRequest, env);
+            if (!response.ok) throw new Error(`newer reconciliation failed with ${response.status}`);
+          }
+          return target.batch(statements);
+        };
+      }
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+  const interleavingEnv = new Proxy(env, {
+    get(target, property, receiver) {
+      return property === "TEAM_CONTROL_DB" ? interleavingDb : Reflect.get(target, property, receiver);
+    }
+  }) as unknown as Env;
+  return { interleavingEnv, didInterleave: () => interleaved };
 }
 
 interface GitHubWebhookInput {
@@ -825,6 +863,86 @@ describe.sequential("Team control plane", () => {
     ).first<Record<string, unknown>>();
     expect(state).toMatchObject({ org_status: "deletion_pending", pending_requests: 1, request_audits: 1 });
     expect(state?.actor).toMatch(/^userp_[a-f0-9]{64}$/u);
+  });
+
+  it("returns a usable deletion confirmation when a safe checkout wins immediately before the freeze batch", async () => {
+    let interleaved = false;
+    const interleavingDb = new Proxy(env.TEAM_CONTROL_DB, {
+      get(target, property, receiver) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]): Promise<D1Result[]> => {
+            if (!interleaved) {
+              interleaved = true;
+              const prepared = await prepareCheckout(
+                new Request(`${ORIGIN}/v1/orgs/org_main/billing/checkout`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Idempotency-Key": "checkout_privacy_interleaving"
+                  },
+                  body: JSON.stringify({ internal_price_id: "team_monthly_usd_v1" })
+                }),
+                env,
+                OWNER_AUTH
+              );
+              if (prepared.status !== 202) throw new Error(`concurrent checkout failed with ${prepared.status}`);
+            }
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    const interleavingEnv = new Proxy(env, {
+      get(target, property, receiver) {
+        return property === "TEAM_CONTROL_DB" ? interleavingDb : Reflect.get(target, property, receiver);
+      }
+    }) as unknown as Env;
+
+    const deletion = await requestOrganizationDeletion(interleavingEnv, OWNER_AUTH);
+    expect(interleaved).toBe(true);
+    expect(deletion.status).toBe(202);
+    const deletionBody = await deletion.json<{ confirmation: string; request_id: string }>();
+    const frozen = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT o.status AS org_status, r.status AS request_status,
+              ci.status AS checkout_status, bc.status AS command_status,
+              bg.status AS generation_status,
+              (SELECT COUNT(*) FROM billing_generation_events
+                WHERE org_id = 'org_main' AND event_type = 'abandoned'
+                  AND source_ref = ?1) AS abandonment_events,
+              (SELECT COUNT(*) FROM workflow_integrity_receipts
+                WHERE workflow_type = 'privacy_prepared_generations_abandoned'
+                  AND source_ref = ?1 AND valid = 1) AS receipts
+         FROM organizations o
+         JOIN privacy_deletion_requests r ON r.org_id = o.id
+         JOIN checkout_intents ci ON ci.org_id = o.id
+         JOIN billing_commands bc ON bc.org_id = o.id
+         JOIN billing_generations bg ON bg.org_id = o.id
+        WHERE o.id = 'org_main' AND r.id = ?1`
+    )
+      .bind(deletionBody.request_id)
+      .first<Record<string, unknown>>();
+    expect(frozen).toEqual({
+      org_status: "deletion_pending",
+      request_status: "pending",
+      checkout_status: "canceled",
+      command_status: "canceled",
+      generation_status: "abandoned",
+      abandonment_events: 1,
+      receipts: 1
+    });
+
+    const confirmed = await confirmOrganizationDeletion(
+      new Request(`${ORIGIN}/v1/orgs/org_main/privacy/data`, {
+        method: "DELETE",
+        headers: { "X-Deletion-Confirmation": deletionBody.confirmation }
+      }),
+      env,
+      OWNER_AUTH
+    );
+    expect(confirmed.status).toBe(202);
+    expect(await confirmed.json()).toMatchObject({ deleted: true, access_revoked: true });
   });
 
   it("keeps checkout and webhook state separate from paid entitlement and recognized MRR", async () => {
@@ -1645,31 +1763,31 @@ describe.sequential("Team control plane", () => {
       }
     });
     expect(lateRefund.status).toBe(200);
-    expect(
-      (
-        await reconcile(
-          reconciliation({
-            reconciliation_id: "recon_late_refund_generation_1",
-            source_event_id: "evt_late_refund_generation_1",
-            kind: "refund",
-            provider_customer_id: "cus_main",
-            provider_subscription_id: "sub_main",
-            provider_object_id: "re_late_generation_1",
-            billing_generation: 1,
-            provider_status: "refunded",
-            cash_amount_cents: 0,
-            net_recurring_amount_cents: 1,
-            refund_amount_cents: 1,
-            provider_refund_id: "re_late_generation_1",
-            provider_charge_id: "ch_generation_1",
-            provider_payment_intent_id: "pi_generation_1",
-            source_payment_event_id: "evt_invoice_paid",
-            billing_command_id: null,
-            cumulative_refund_amount_cents: 29_901
-          })
-        )
-      ).status
-    ).toBe(409);
+    const impossibleLateRefund = await reconcile(
+      reconciliation({
+        reconciliation_id: "recon_late_refund_generation_1",
+        source_event_id: "evt_late_refund_generation_1",
+        kind: "refund",
+        provider_customer_id: "cus_main",
+        provider_subscription_id: "sub_main",
+        provider_object_id: "re_late_generation_1",
+        billing_generation: 1,
+        provider_status: "refunded",
+        cash_amount_cents: 0,
+        net_recurring_amount_cents: 1,
+        refund_amount_cents: 1,
+        provider_refund_id: "re_late_generation_1",
+        provider_charge_id: "ch_generation_1",
+        provider_payment_intent_id: "pi_generation_1",
+        source_payment_event_id: "evt_invoice_paid",
+        billing_command_id: null,
+        cumulative_refund_amount_cents: 29_901
+      })
+    );
+    expect(impossibleLateRefund.status).toBe(409);
+    expect(await impossibleLateRefund.json()).toMatchObject({
+      error: { code: "historical_refund_binding_conflict" }
+    });
 
     const generation2State = await env.TEAM_CONTROL_DB.prepare(
       `SELECT a.billing_generation, a.provider_customer_id, a.provider_subscription_id,
@@ -1677,7 +1795,9 @@ describe.sequential("Team control plane", () => {
               e.source_event_id,
               (SELECT COUNT(*) FROM billing_generation_events
                 WHERE org_id = 'org_main' AND generation = 1
-                  AND event_type = 'late_provider_event_ignored') AS late_generation_1_events
+                  AND event_type = 'late_provider_event_ignored') AS late_generation_1_events,
+              (SELECT status FROM provider_events
+                WHERE event_id = 'evt_late_refund_generation_1') AS impossible_refund_status
          FROM billing_accounts a JOIN entitlements e ON e.org_id = a.org_id
         WHERE a.org_id = 'org_main'`
     ).first<Record<string, unknown>>();
@@ -1688,7 +1808,8 @@ describe.sequential("Team control plane", () => {
       current_recognized_mrr_micros: 29_900_000_000,
       entitlement_status: "active",
       source_event_id: "evt_invoice_generation_2",
-      late_generation_1_events: 4
+      late_generation_1_events: 3,
+      impossible_refund_status: "rejected"
     });
 
     await terminalize(2, "cus_main", "sub_generation_2", "generation_2", 8);
@@ -1719,6 +1840,256 @@ describe.sequential("Team control plane", () => {
       billing_state: "entitled",
       entitlement: { status: "active", source_event_id: "evt_invoice_generation_3" },
       recognized_mrr: { minor_unit_micros: 29_900_000_000 }
+    });
+  });
+
+  it("books out-of-order retired-generation refunds without changing the current generation", async () => {
+    const created = Math.floor(Date.now() / 1000);
+    const owner = await session();
+    await activateMonthlyTeam(created);
+
+    const preparedRefund = await api("/v1/orgs/org_main/billing/refund", {
+      method: "POST",
+      token: owner,
+      headers: { "Idempotency-Key": "refund_historical_generation_1" },
+      body: {
+        reason: "first_subscription_14_day_unused",
+        amount_cents: 10_000,
+        paid_features_materially_used: false,
+        source_payment_event_id: "evt_invoice_paid"
+      }
+    });
+    expect(preparedRefund.status).toBe(202);
+    const { command_id: refundCommandId } = await preparedRefund.json<{ command_id: string }>();
+    const command = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT command_json FROM billing_commands WHERE id = ?1 AND status = 'prepared'`
+    )
+      .bind(refundCommandId)
+      .first<{ command_json: string }>();
+    expect(command).not.toBeNull();
+    expect(
+      (
+        await env.TEAM_CONTROL_DB.prepare(
+          `UPDATE billing_commands SET status = 'provider_accepted', command_json = ?1
+            WHERE id = ?2 AND status = 'prepared'`
+        )
+          .bind(
+            JSON.stringify({
+              ...JSON.parse(command!.command_json),
+              provider_result: {
+                refund_id: "re_historical_first",
+                payment_intent_id: "pi_historical",
+                charge_id: "ch_historical",
+                amount_cents: 10_000,
+                source_payment_event_id: "evt_invoice_paid"
+              }
+            }),
+            refundCommandId
+          )
+          .run()
+      ).meta.changes
+    ).toBe(1);
+
+    for (const refund of [
+      { eventId: "evt_historical_refund_first", refundId: "re_historical_first", amount: 10_000, command: refundCommandId },
+      { eventId: "evt_historical_refund_second", refundId: "re_historical_second", amount: 19_900, command: null }
+    ]) {
+      const ingested = await stripeWebhook({
+        id: refund.eventId,
+        type: "refund.created",
+        created: created + (refund.command ? 1 : 2),
+        object: {
+          id: refund.refundId,
+          object: "refund",
+          charge: "ch_historical",
+          payment_intent: "pi_historical",
+          amount: refund.amount,
+          currency: "usd",
+          status: "succeeded",
+          metadata: refund.command
+            ? {
+                team_org_id: "org_main",
+                source_payment_event_id: "evt_invoice_paid",
+                billing_command_id: refund.command
+              }
+            : {}
+        }
+      });
+      expect(ingested.status).toBe(200);
+    }
+
+    expect(
+      (
+        await stripeWebhook({
+          id: "evt_historical_subscription_deleted",
+          type: "customer.subscription.deleted",
+          created: created + 3,
+          object: { id: "sub_main", customer: "cus_main", metadata: metadata("org_main") }
+        })
+      ).status
+    ).toBe(200);
+    expect(
+      (
+        await reconcile(
+          reconciliation({
+            reconciliation_id: "recon_historical_subscription_deleted",
+            source_event_id: "evt_historical_subscription_deleted",
+            kind: "subscription",
+            provider_object_id: "sub_main",
+            provider_status: "canceled",
+            cash_amount_cents: 0,
+            net_recurring_amount_cents: 0
+          })
+        )
+      ).status
+    ).toBe(200);
+
+    const checkout = await api("/v1/orgs/org_main/billing/checkout", {
+      method: "POST",
+      token: owner,
+      headers: { "Idempotency-Key": "checkout_after_historical_refund" },
+      body: { internal_price_id: "team_monthly_usd_v1" }
+    });
+    expect(checkout.status).toBe(202);
+    const checkoutBody = await checkout.json<{
+      checkout_intent_id: string;
+      command: { parameters: { metadata: Record<string, string> } };
+    }>();
+    expect(await acceptPreparedCheckout(checkoutBody.checkout_intent_id, "cs_historical_s2")).toBe(2);
+    expect(
+      (
+        await stripeWebhook({
+          id: "evt_checkout_historical_s2",
+          type: "checkout.session.completed",
+          created: created + 4,
+          object: {
+            id: "cs_historical_s2",
+            mode: "subscription",
+            customer: "cus_historical_s2",
+            subscription: "sub_historical_s2",
+            metadata: checkoutBody.command.parameters.metadata
+          }
+        })
+      ).status
+    ).toBe(200);
+    expect(
+      (
+        await stripeWebhook({
+          id: "evt_invoice_historical_s2",
+          type: "invoice.paid",
+          created: created + 5,
+          object: {
+            id: "in_historical_s2",
+            customer: "cus_historical_s2",
+            subscription: "sub_historical_s2",
+            metadata: metadata("org_main", null, 2)
+          }
+        })
+      ).status
+    ).toBe(200);
+    expect(
+      (
+        await reconcile(
+          reconciliation({
+            reconciliation_id: "recon_invoice_historical_s2",
+            source_event_id: "evt_invoice_historical_s2",
+            provider_customer_id: "cus_historical_s2",
+            provider_subscription_id: "sub_historical_s2",
+            provider_object_id: "in_historical_s2",
+            billing_generation: 2
+          })
+        )
+      ).status
+    ).toBe(200);
+
+    const historicalSnapshot = (
+      eventId: string,
+      refundId: string,
+      amount: number,
+      cumulative: number,
+      commandId: string | null
+    ) =>
+      reconciliation({
+        reconciliation_id: `recon_${eventId}`,
+        source_event_id: eventId,
+        kind: "refund",
+        provider_customer_id: "cus_main",
+        provider_subscription_id: "sub_main",
+        provider_object_id: refundId,
+        billing_generation: 1,
+        provider_status: "refunded",
+        cash_amount_cents: 0,
+        net_recurring_amount_cents: amount,
+        refund_amount_cents: amount,
+        provider_refund_id: refundId,
+        provider_charge_id: "ch_historical",
+        provider_payment_intent_id: "pi_historical",
+        source_payment_event_id: "evt_invoice_paid",
+        billing_command_id: commandId,
+        cumulative_refund_amount_cents: cumulative
+      });
+    const laterCumulative = historicalSnapshot(
+      "evt_historical_refund_second",
+      "re_historical_second",
+      19_900,
+      29_900,
+      null
+    );
+    const earlierCumulative = historicalSnapshot(
+      "evt_historical_refund_first",
+      "re_historical_first",
+      10_000,
+      10_000,
+      refundCommandId
+    );
+    for (const snapshot of [laterCumulative, earlierCumulative]) {
+      const applied = await handleProviderReconciliation(await signedReconciliationRequest(snapshot), env);
+      expect(applied.status).toBe(200);
+      expect(await applied.json()).toMatchObject({ reconciled: true, historical_generation: true });
+      const replay = await handleProviderReconciliation(await signedReconciliationRequest(snapshot), env);
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toMatchObject({ duplicate: true, reconciled: true });
+    }
+
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT a.billing_generation, a.provider_customer_id, a.provider_subscription_id,
+              a.current_recognized_mrr_micros, a.last_reconciled_event_id,
+              e.status AS entitlement_status, e.source_event_id,
+              c.event_id AS cursor_event_id, c.status AS cursor_status,
+              (SELECT COUNT(*) FROM provider_refund_applications
+                WHERE source_payment_event_id = 'evt_invoice_paid') AS refund_applications,
+              (SELECT SUM(amount_cents) FROM provider_refund_applications
+                WHERE source_payment_event_id = 'evt_invoice_paid') AS refunded_cents,
+              (SELECT SUM(amount_cents) FROM cash_ledger
+                WHERE source_event_id IN ('evt_historical_refund_first', 'evt_historical_refund_second')) AS refund_cash,
+              (SELECT SUM(recognized_mrr_delta_micros) FROM revenue_ledger
+                WHERE source_event_id IN ('evt_historical_refund_first', 'evt_historical_refund_second')) AS refund_revenue,
+              (SELECT COUNT(*) FROM billing_generation_events
+                WHERE org_id = 'org_main' AND generation = 1
+                  AND event_type = 'historical_refund_applied') AS historical_events,
+              (SELECT COUNT(*) FROM workflow_integrity_receipts
+                WHERE workflow_type = 'historical_billing_refund_reconciled') AS historical_receipts
+         FROM billing_accounts a
+         JOIN entitlements e ON e.org_id = a.org_id
+         JOIN provider_state_cursors c ON c.org_id = a.org_id
+        WHERE a.org_id = 'org_main'`
+    ).first<Record<string, unknown>>();
+    expect(state).toEqual({
+      billing_generation: 2,
+      provider_customer_id: "cus_historical_s2",
+      provider_subscription_id: "sub_historical_s2",
+      current_recognized_mrr_micros: 29_900_000_000,
+      last_reconciled_event_id: "evt_invoice_historical_s2",
+      entitlement_status: "active",
+      source_event_id: "evt_invoice_historical_s2",
+      cursor_event_id: "evt_invoice_historical_s2",
+      cursor_status: "applied",
+      refund_applications: 2,
+      refunded_cents: 29_900,
+      refund_cash: -29_900,
+      refund_revenue: -29_900_000_000,
+      historical_events: 2,
+      historical_receipts: 2
     });
   });
 
@@ -1862,6 +2233,185 @@ describe.sequential("Team control plane", () => {
       lifecycle: 0,
       audits: 0,
       receipts: 0
+    });
+  });
+
+  it("rolls back an older payment batch when a newer same-generation event wins the cursor", async () => {
+    const created = Math.floor(Date.now() / 1000);
+    await activateMonthlyTeam(created);
+    for (const [eventId, eventCreated] of [
+      ["evt_payment_cursor_old", created + 1],
+      ["evt_payment_cursor_new", created + 2]
+    ] as const) {
+      expect(
+        (
+          await stripeWebhook({
+            id: eventId,
+            type: "invoice.paid",
+            created: eventCreated,
+            object: {
+              id: `in_${eventId}`,
+              customer: "cus_main",
+              subscription: "sub_main",
+              metadata: metadata("org_main")
+            }
+          })
+        ).status
+      ).toBe(200);
+    }
+    const newerBody = reconciliation({
+      reconciliation_id: "recon_payment_cursor_new",
+      source_event_id: "evt_payment_cursor_new",
+      provider_object_id: "in_evt_payment_cursor_new",
+      cash_amount_cents: 31_100,
+      net_recurring_amount_cents: 31_100
+    });
+    const { interleavingEnv, didInterleave } = envWithReconciliationBeforeNextBatch(
+      await signedReconciliationRequest(newerBody)
+    );
+    const olderBody = reconciliation({
+      reconciliation_id: "recon_payment_cursor_old",
+      source_event_id: "evt_payment_cursor_old",
+      provider_object_id: "in_evt_payment_cursor_old",
+      cash_amount_cents: 30_100,
+      net_recurring_amount_cents: 30_100
+    });
+    await expect(
+      handleProviderReconciliation(await signedReconciliationRequest(olderBody), interleavingEnv)
+    ).rejects.toThrow();
+    expect(didInterleave()).toBe(true);
+
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT a.commercial_state, a.current_recognized_mrr_micros,
+              a.last_reconciled_event_id, e.status AS entitlement_status,
+              e.source_event_id, c.event_id AS cursor_event_id, c.status AS cursor_status,
+              (SELECT status FROM provider_events WHERE event_id = 'evt_payment_cursor_old') AS old_event_status,
+              (SELECT COUNT(*) FROM provider_reconciliation_snapshots
+                WHERE reconciliation_id = 'recon_payment_cursor_old') AS old_snapshots,
+              (SELECT COUNT(*) FROM cash_ledger
+                WHERE source_event_id = 'evt_payment_cursor_old') AS old_cash,
+              (SELECT COUNT(*) FROM revenue_ledger
+                WHERE source_event_id = 'evt_payment_cursor_old') AS old_revenue,
+              (SELECT COUNT(*) FROM workflow_integrity_receipts
+                WHERE source_ref = 'evt_payment_cursor_old') AS old_receipts,
+              (SELECT COUNT(*) FROM cash_ledger
+                WHERE source_event_id = 'evt_payment_cursor_new' AND amount_cents = 31100) AS new_cash,
+              (SELECT COUNT(*) FROM workflow_integrity_receipts
+                WHERE workflow_type = 'billing_payment_reconciled'
+                  AND source_ref = 'evt_payment_cursor_new') AS new_receipts
+         FROM billing_accounts a
+         JOIN entitlements e ON e.org_id = a.org_id
+         JOIN provider_state_cursors c ON c.org_id = a.org_id
+        WHERE a.org_id = 'org_main'`
+    ).first<Record<string, unknown>>();
+    expect(state).toEqual({
+      commercial_state: "renewed",
+      current_recognized_mrr_micros: 31_100_000_000,
+      last_reconciled_event_id: "evt_payment_cursor_new",
+      entitlement_status: "active",
+      source_event_id: "evt_payment_cursor_new",
+      cursor_event_id: "evt_payment_cursor_new",
+      cursor_status: "applied",
+      old_event_status: "awaiting_reconciliation",
+      old_snapshots: 0,
+      old_cash: 0,
+      old_revenue: 0,
+      old_receipts: 0,
+      new_cash: 1,
+      new_receipts: 1
+    });
+  });
+
+  it("rolls back an older subscription batch when a newer same-generation event wins the cursor", async () => {
+    const created = Math.floor(Date.now() / 1000);
+    await activateMonthlyTeam(created);
+    for (const [eventId, eventCreated] of [
+      ["evt_subscription_cursor_old", created + 1],
+      ["evt_subscription_cursor_new", created + 2]
+    ] as const) {
+      expect(
+        (
+          await stripeWebhook({
+            id: eventId,
+            type: "customer.subscription.updated",
+            created: eventCreated,
+            object: {
+              id: "sub_main",
+              customer: "cus_main",
+              metadata: metadata("org_main")
+            }
+          })
+        ).status
+      ).toBe(200);
+    }
+    const newerPeriodEnd = new Date(Date.now() + 45 * 86_400_000).toISOString();
+    const newerBody = reconciliation({
+      reconciliation_id: "recon_subscription_cursor_new",
+      source_event_id: "evt_subscription_cursor_new",
+      kind: "subscription",
+      provider_object_id: "sub_main",
+      provider_status: "active",
+      cash_amount_cents: 0,
+      net_recurring_amount_cents: 0,
+      period_end: newerPeriodEnd
+    });
+    const { interleavingEnv, didInterleave } = envWithReconciliationBeforeNextBatch(
+      await signedReconciliationRequest(newerBody)
+    );
+    const olderBody = reconciliation({
+      reconciliation_id: "recon_subscription_cursor_old",
+      source_event_id: "evt_subscription_cursor_old",
+      kind: "subscription",
+      provider_object_id: "sub_main",
+      provider_status: "past_due",
+      cash_amount_cents: 0,
+      net_recurring_amount_cents: 0,
+      period_end: new Date(Date.now() + 15 * 86_400_000).toISOString()
+    });
+    await expect(
+      handleProviderReconciliation(await signedReconciliationRequest(olderBody), interleavingEnv)
+    ).rejects.toThrow();
+    expect(didInterleave()).toBe(true);
+
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT a.commercial_state, a.current_period_end, a.last_reconciled_event_id,
+              e.status AS entitlement_status, e.source_event_id,
+              c.event_id AS cursor_event_id, c.status AS cursor_status,
+              (SELECT status FROM provider_events WHERE event_id = 'evt_subscription_cursor_old') AS old_event_status,
+              (SELECT COUNT(*) FROM provider_reconciliation_snapshots
+                WHERE reconciliation_id = 'recon_subscription_cursor_old') AS old_snapshots,
+              (SELECT COUNT(*) FROM commercial_transitions
+                WHERE source_ref = 'evt_subscription_cursor_old') AS old_transitions,
+              (SELECT COUNT(*) FROM lifecycle_events
+                WHERE source_ref = 'evt_subscription_cursor_old') AS old_lifecycle,
+              (SELECT COUNT(*) FROM audit_events
+                WHERE resource_id = 'evt_subscription_cursor_old'
+                  AND action = 'billing.subscription.past_due') AS old_audits,
+              (SELECT COUNT(*) FROM workflow_integrity_receipts
+                WHERE source_ref = 'evt_subscription_cursor_old') AS old_receipts,
+              (SELECT COUNT(*) FROM workflow_integrity_receipts
+                WHERE workflow_type = 'billing_subscription_reconciled'
+                  AND source_ref = 'evt_subscription_cursor_new') AS new_receipts
+         FROM billing_accounts a
+         JOIN entitlements e ON e.org_id = a.org_id
+         JOIN provider_state_cursors c ON c.org_id = a.org_id
+        WHERE a.org_id = 'org_main'`
+    ).first<Record<string, unknown>>();
+    expect(state).toEqual({
+      commercial_state: "entitled",
+      current_period_end: newerPeriodEnd,
+      last_reconciled_event_id: "evt_subscription_cursor_new",
+      entitlement_status: "active",
+      source_event_id: "evt_subscription_cursor_new",
+      cursor_event_id: "evt_subscription_cursor_new",
+      cursor_status: "applied",
+      old_event_status: "awaiting_reconciliation",
+      old_snapshots: 0,
+      old_transitions: 0,
+      old_lifecycle: 0,
+      old_audits: 0,
+      old_receipts: 0,
+      new_receipts: 1
     });
   });
 

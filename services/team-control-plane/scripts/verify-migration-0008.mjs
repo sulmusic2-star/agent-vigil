@@ -250,15 +250,41 @@ function populatedUpgrade() {
            (SELECT incarnation FROM github_personal_installation_reconciliations
              WHERE reconciliation_id = 'recon_personal_created') AS personal_incarnation,
            (SELECT COUNT(*) FROM workflow_integrity_receipts
-             WHERE workflow_type = 'legacy_billing_generation_bridge_eligible') AS eligible_receipts`
+             WHERE workflow_type = 'legacy_billing_generation_bridge_eligible') AS eligible_receipts,
+           (SELECT COUNT(*) FROM workflow_integrity_receipts
+             WHERE workflow_type = 'legacy_billing_generation_bridge_eligible'
+               AND source_ref = 'org_successor:2') AS providerless_successor_eligible,
+           (SELECT eligible_at FROM individual_identities
+             WHERE subject_token = 'mind_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') AS individual_eligible_at,
+           (SELECT COUNT(*) FROM workflow_integrity_receipts
+             WHERE workflow_type = 'individual_eligibility_migration_backfill'
+               AND source_ref = 'mind_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:migration_0008'
+               AND valid = 1) AS individual_backfill_receipts`
       ),
-      [{ org_incarnation: 1, personal_incarnation: 1, eligible_receipts: 3 }]
+      [{
+        org_incarnation: 1,
+        personal_incarnation: 1,
+        eligible_receipts: 2,
+        providerless_successor_eligible: 0,
+        individual_eligible_at: "2026-08-20T00:17:02.000Z",
+        individual_backfill_receipts: 1
+      }]
     );
 
     apply(root, configPath, persist);
     assert.deepEqual(
       query(root, configPath, persist, "SELECT COUNT(*) AS count FROM billing_generations"),
       [{ count: 3 }]
+    );
+    assert.deepEqual(
+      query(
+        root,
+        configPath,
+        persist,
+        `SELECT COUNT(*) AS count FROM workflow_integrity_receipts
+          WHERE workflow_type = 'individual_eligibility_migration_backfill'`
+      ),
+      [{ count: 1 }]
     );
   } finally {
     if (process.env.KEEP_MIGRATION_0008_TMP !== "1") rmSync(root, { recursive: true, force: true });
@@ -306,6 +332,75 @@ function ambiguousUpgradeHolds() {
   }
 }
 
+function ambiguousGithubCreationUpgradeHolds({ label, fixtureName, bindingSql, expectedBinding }) {
+  const root = mkdtempSync(join(tmpdir(), `team-migration-0008-${label}-`));
+  const persist = join(root, "persist");
+  const configPath = config(root);
+  try {
+    copyMigrations(root, false);
+    apply(root, configPath, persist);
+    fixture(root, configPath, persist, "migration-0008-v7-consistent.sql");
+    fixture(root, configPath, persist, fixtureName);
+    copyMigrations(root, true);
+    const output = run(
+      root,
+      [
+        "d1",
+        "migrations",
+        "apply",
+        "TEAM_CONTROL_DB",
+        "--config",
+        configPath,
+        "--local",
+        "--persist-to",
+        persist
+      ],
+      { expectFailure: true }
+    );
+    assert.match(output, /CHECK constraint failed/u);
+    assert.deepEqual(
+      query(root, configPath, persist, "SELECT COUNT(*) AS count FROM d1_migrations WHERE name LIKE '0008%'"),
+      [{ count: 0 }]
+    );
+    assert.deepEqual(query(root, configPath, persist, bindingSql), [expectedBinding]);
+  } finally {
+    if (process.env.KEEP_MIGRATION_0008_TMP !== "1") rmSync(root, { recursive: true, force: true });
+    else console.log(`Preserved ${label} migration fixture at ${root}`);
+  }
+}
+
 populatedUpgrade();
 ambiguousUpgradeHolds();
-console.log("migration 0008 populated, idempotent, and ambiguous-HOLD fixtures passed");
+ambiguousGithubCreationUpgradeHolds({
+  label: "org-multiple-created",
+  fixtureName: "migration-0008-v7-org-multiple-created.sql",
+  bindingSql: `SELECT c.provider_proof_delivery_id AS claim_proof,
+                      i.last_delivery_id AS materialized_delivery,
+                      (SELECT COUNT(*) FROM github_installation_provider_proofs
+                        WHERE installation_id = 7001) AS proof_count
+                 FROM github_installation_claims c
+                 JOIN github_installations i ON i.installation_id = c.installation_id
+                WHERE c.installation_id = 7001`,
+  expectedBinding: {
+    claim_proof: "delivery_org_created",
+    materialized_delivery: "delivery_org_created",
+    proof_count: 2
+  }
+});
+ambiguousGithubCreationUpgradeHolds({
+  label: "personal-multiple-created",
+  fixtureName: "migration-0008-v7-personal-multiple-created.sql",
+  bindingSql: `SELECT c.provider_proof_delivery_id AS claim_proof,
+                      i.last_delivery_id AS materialized_delivery,
+                      (SELECT COUNT(*) FROM github_installation_provider_proofs
+                        WHERE installation_id = 7002) AS proof_count
+                 FROM github_personal_installation_claims c
+                 JOIN github_personal_installations i ON i.installation_id = c.installation_id
+                WHERE c.installation_id = 7002`,
+  expectedBinding: {
+    claim_proof: "delivery_personal_created",
+    materialized_delivery: "delivery_personal_created",
+    proof_count: 2
+  }
+});
+console.log("migration 0008 populated, idempotent, billing-ambiguous, and multi-created GitHub HOLD fixtures passed");

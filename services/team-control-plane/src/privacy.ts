@@ -342,14 +342,12 @@ export async function requestOrganizationDeletion(env: Env, auth: AuthContext): 
         WHERE ci.org_id = ?1 AND ci.status = 'prepared'
           AND ci.provider_session_id IS NULL AND bg.status = 'reserved'
           AND bg.provider_checkout_session_id IS NULL
-          AND bg.provider_customer_id IS NULL AND bg.provider_subscription_id IS NULL) AS safe_checkout_count,
-       (SELECT COUNT(*) FROM billing_commands WHERE org_id = ?1 AND status = 'prepared') AS command_count`
+          AND bg.provider_customer_id IS NULL AND bg.provider_subscription_id IS NULL) AS safe_checkout_count`
   )
     .bind(auth.orgId)
     .first<{
       checkout_count: number;
       safe_checkout_count: number;
-      command_count: number;
     }>();
   if (!preparedState || preparedState.checkout_count !== preparedState.safe_checkout_count) {
     throw new ApiError(409, "provider_cleanup_incomplete", "Prepared checkout generation is not safe to abandon.");
@@ -458,7 +456,20 @@ export async function requestOrganizationDeletion(env: Env, auth: AuthContext): 
         `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
        VALUES (?1, 'privacy_prepared_generations_abandoned', ?2,
          CASE WHEN
-           NOT EXISTS (
+           EXISTS (
+             SELECT 1 FROM privacy_deletion_requests
+              WHERE id = ?2 AND org_id = ?3 AND status = 'pending'
+           )
+           AND EXISTS (
+             SELECT 1 FROM organizations WHERE id = ?3 AND status = 'deletion_pending'
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM checkout_intents WHERE org_id = ?3 AND status = 'prepared'
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM billing_commands WHERE org_id = ?3 AND status = 'prepared'
+           )
+           AND NOT EXISTS (
              SELECT 1 FROM checkout_intents ci
              JOIN billing_generations bg ON bg.org_id = ci.org_id
               AND bg.generation = ci.billing_generation AND bg.checkout_intent_id = ci.id
@@ -494,10 +505,6 @@ export async function requestOrganizationDeletion(env: Env, auth: AuthContext): 
   if (
     (results[0]?.meta.changes ?? 0) !== 1 ||
     (results[1]?.meta.changes ?? 0) !== 1 ||
-    (results[2]?.meta.changes ?? 0) !== preparedState.checkout_count ||
-    (results[3]?.meta.changes ?? 0) !== preparedState.checkout_count ||
-    (results[4]?.meta.changes ?? 0) !== preparedState.checkout_count ||
-    (results[5]?.meta.changes ?? 0) !== preparedState.command_count ||
     (results[6]?.meta.changes ?? 0) !== 1 ||
     (results[7]?.meta.changes ?? 0) !== 1
   ) {
