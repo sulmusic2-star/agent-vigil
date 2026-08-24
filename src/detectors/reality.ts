@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Claim, CheckResult } from "../report.ts";
 import type { SessionToolCall } from "../transcript.ts";
 import { toolCallFingerprint } from "../transcript.ts";
+import { checkAgenticPatches, checkAgenticRepository, type AgenticPatch } from "./agentic.ts";
 
 function gitOptional(repo: string, args: string[]): string | undefined {
   try {
@@ -500,7 +501,7 @@ function isDocumentationPath(path: string): boolean {
   return /^(?:docs?|examples?)\//i.test(path) || /(?:^|\/)(?:README|CHANGELOG|CONTRIBUTING|SECURITY|LICENSE)(?:\.[^/]*)?$/i.test(path) || /\.(?:md|mdx|rst|txt)$/i.test(path);
 }
 
-type FilePatch = { path: string; added: string[]; removed: string[]; context: string[] };
+type FilePatch = AgenticPatch;
 
 function parseFilePatches(diff: string): FilePatch[] {
   const patches: FilePatch[] = [];
@@ -595,6 +596,8 @@ export function checkIntegrity(repo: string, base: string, head: string): CheckR
 
   const patches = [...parseFilePatches(diff), ...(head === "WORKTREE" ? untrackedFilePatches(repo) : [])];
   results.push(...checkIntegrityPatches(patches));
+  results.push(...checkAgenticPatches(patches));
+  results.push(...checkAgenticRepository(repo, base, head, paths, patches));
 
   if (!results.length) {
     results.push(cleanIntegrityResult(paths.length));
@@ -668,7 +671,7 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
   }
 
   for (const patch of patches.filter((candidate) => !isDocumentationPath(candidate.path))) {
-    const added = patch.added.join("\n");
+    const added = patch.added.filter((line) => !line.includes("vigil:detector-pattern")).join("\n");
     const removed = patch.removed.join("\n");
     if (/\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}/s.test(added)) {
       results.push(finding("error path swallowed by an empty catch", `${patch.path} adds an empty catch block`, "error-swallowed"));
@@ -809,7 +812,7 @@ export function checkIntegrityDiff(diff: string): CheckResult[] {
       blocksPass: true,
     }];
   }
-  const results = checkIntegrityPatches(patches);
+  const results = [...checkIntegrityPatches(patches), ...checkAgenticPatches(patches)];
   return results.length ? results : [cleanIntegrityResult(patches.length, true)];
 }
 

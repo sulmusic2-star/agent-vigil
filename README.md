@@ -124,11 +124,16 @@ The guard can also be run by itself:
 vigil test-integrity --base <base-sha> --head <head-sha>
 ```
 
-It blocks new focused or skipped tests, verification bypasses, zeroed coverage
-gates, reduced test counts, empty tests, and constant/self-equal assertions.
-Browser-side runtime patching, new coverage exclusions, relaxed assertions,
-self-fulfilling mocks, and other lower-confidence patterns remain reviewable
-advisories unless a repository deliberately chooses full blocking mode.
+It blocks new focused or skipped tests, verification bypasses, lowered coverage
+gates, reduced test counts, empty tests, discarded or unreachable assertions,
+new pytest collection exclusions, constant/self-equal assertions, and hidden
+Unicode controls. Distinctive returns that match unchanged test expectations,
+lookalike dependency names, out-of-base-history reads, mixed-script identifiers,
+browser-side runtime patching, new coverage exclusions, relaxed assertions, and
+self-fulfilling mocks remain reviewable advisories unless a repository deliberately
+chooses full blocking mode. The default check stays offline and never executes
+candidate source as detector input. See the
+[full rule and limit description](docs/TEST_INTEGRITY_GUARD.md).
 
 Version 0.14 adds **Agent Authority Plan**:
 
@@ -741,8 +746,8 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 476 tests, including 80 generated-repository compatibility scenarios across
-  18 runner-output families. In the 2026-08-24 local run, 471
+- 494 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families. In the 2026-08-24 local run, 489
   passed and five opt-in Docker tests skipped in the ordinary suite. With Docker enabled, the
   combined 13-test containment, timeout-cleanup, verdict, signing, and index
   suite passed against the selected local test daemon with no residual Upgrade

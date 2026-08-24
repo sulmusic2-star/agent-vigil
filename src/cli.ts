@@ -30,6 +30,7 @@ import { createPortableReceipt, type PortableReceipt } from "./portable.ts";
 import { buildPortableGateReport } from "./gate.ts";
 import { buildMaintainerChecks, loadPullRequestEvidence } from "./maintainer.ts";
 import { routeIntegrity } from "./integrity-policy.ts";
+import { checkOutOfDagReads } from "./detectors/agentic.ts";
 import { compareReceipts, renderReceiptDelta } from "./receipt-diff.ts";
 import { buildMergeGroupReport } from "./merge-group.ts";
 import { appendPrivateFileAtomic, writePrivateFileAtomic } from "./safe-output.ts";
@@ -986,6 +987,15 @@ function runTestIntegrity(args: string[]): number {
     const head = resolveGitRef(repo, options.head);
     const checks = checkIntegrity(repo, base, head);
     const integrity = routeIntegrity(checks, options.strict ? "blocking" : "calibrated");
+    if (!integrity.results.length && integrity.advisories.length) {
+      integrity.results.push({
+        claim: { kind: "integrity", quote: "calibrated test-integrity scan", subject: "selected diff scanned" },
+        verdict: "verified",
+        evidence: `${integrity.advisories.length} lower-confidence finding(s) recorded for review without blocking this calibrated run`,
+        ruleId: "integrity-scan",
+        contributesToPass: true,
+      });
+    }
     for (const check of integrity.results) {
       if (check.ruleId === "integrity-scan" && check.verdict === "verified") check.contributesToPass = true;
     }
@@ -1172,7 +1182,10 @@ export function run(argv = process.argv.slice(2)): number {
     results.push(...checkPathsExist(claims.filter((claim) => !changedClaims.has(claim.subject)), repo));
     results.push(...checkRunClaims(runClaims, loaded.toolCalls));
     results.push(...checkStepRepetition(loaded.toolCalls));
-    const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+    const integrity = routeIntegrity([
+      ...checkIntegrity(repo, base, head),
+      ...checkOutOfDagReads(repo, base, head, loaded.toolCalls),
+    ], policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     results.push(...checkCompletion(claims, repo, base, head, results));

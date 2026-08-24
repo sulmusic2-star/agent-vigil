@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Extend Test Integrity Guard with eight reconciled agent-change checks for
+  hidden Unicode, falsified assertions, pytest collection filtering, disabled
+  harness steps, new suppressions, distinctive test-oracle matches, lookalike
+  dependency names, and out-of-base-history reads.
+- Keep inference-heavy findings advisory, omit matched oracle values from
+  receipts, and keep the default scan offline without executing candidate code
+  or requiring a public package registry.
+
 ## 0.17.0 - 2026-08-24
 
 - Add the offline `vigil continuity` Phase 0: exact-receipt roots, typed append-only
