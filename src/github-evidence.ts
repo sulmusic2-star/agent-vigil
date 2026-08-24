@@ -72,6 +72,40 @@ export type GitHubEvidenceInputs = Partial<Record<GitHubEvidenceSourceKind, stri
 
 const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
 
+export function buildGitHubWebhookEvidence(raw: Buffer, generatedAt = new Date()): GitHubEvidenceBundle {
+  if (raw.length > MAX_SOURCE_BYTES) throw new Error(`GitHub event evidence exceeds the ${MAX_SOURCE_BYTES} byte limit`);
+  let event: any;
+  try { event = JSON.parse(raw.toString("utf8")); }
+  catch { throw new Error("GitHub event evidence is not valid JSON"); }
+  if (!event || typeof event !== "object" || Array.isArray(event)) throw new Error("GitHub event evidence must be an object");
+  const repository = typeof event.repository?.full_name === "string" ? event.repository.full_name : undefined;
+  const pull = parsePull(event, event);
+  const source: GitHubEvidenceBundle["sources"][number] = {
+    kind: "event",
+    file: "webhook-event.json",
+    bytes: raw.length,
+    sha256: `sha256:${createHash("sha256").update(raw).digest("hex")}`,
+  };
+  const withoutHash: Omit<GitHubEvidenceBundle, "evidenceHash"> = {
+    schemaVersion: "agent-vigil-github-evidence/v1",
+    generatedAt: generatedAt.toISOString(),
+    ...(repository ? { repository } : {}),
+    ...(pull ? { pullRequest: pull } : {}),
+    markers: { revert: false, hotfix: false, incident: false },
+    inference: {
+      disposition: pull?.merged ? "accepted" : "unreviewed",
+      outcome: pull?.merged ? "merged" : pull?.state === "closed" ? "closed" : "unknown",
+      ...(pull?.mergedAt || pull?.closedAt ? { outcomeAsOf: pull.mergedAt ?? pull.closedAt } : {}),
+      reviewEvidence: pull?.merged ? "EVIDENCE_HASHED" : "UNAVAILABLE",
+      outcomeEvidence: pull?.merged ? "EVIDENCE_HASHED" : "UNAVAILABLE",
+    },
+    sources: [source],
+  };
+  const bundle: GitHubEvidenceBundle = { ...withoutHash, evidenceHash: "" };
+  bundle.evidenceHash = recomputeGitHubEvidenceHash(bundle);
+  return bundle;
+}
+
 function timestamp(value: unknown): string | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
   const parsed = new Date(value);

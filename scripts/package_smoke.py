@@ -25,6 +25,14 @@ def main() -> int:
     (consumer / "package.json").write_text('{"private":true}\n')
     run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", str(tarball)], consumer)
     vigil = consumer / "node_modules" / ".bin" / "vigil"
+    continuity_help = run([str(vigil), "continuity", "--help"], consumer)
+    required_continuity_help = ["continuity init", "continuity import-github", "continuity status", "continuity demo", "continuity install-action"]
+    if any(item not in continuity_help.stdout for item in required_continuity_help):
+        raise RuntimeError(f"packed continuity CLI help is incomplete: {continuity_help.stdout}\n{continuity_help.stderr}")
+    continuity_demo = run([str(vigil), "continuity", "demo", "--format", "json"], consumer)
+    demo_value = json.loads(continuity_demo.stdout)
+    if [step.get("result") for step in demo_value.get("steps", [])] != ["PASS", "CURRENT", "REVOKED", "REVOKED", "CURRENT"]:
+        raise RuntimeError(f"packed continuity demonstration is incorrect: {continuity_demo.stdout}\n{continuity_demo.stderr}")
     private_key = lab / "operator.pem"
     public_key = lab / "operator.pub"
     run([str(vigil), "keygen", "--private", str(private_key), "--public", str(public_key)], consumer)
@@ -134,6 +142,8 @@ def main() -> int:
         "repositories": len(results),
         "setupFlows": len(results) * 3,
         "controlProof": control_proof_result,
+        "continuityHelpExit": continuity_help.returncode,
+        "continuityDemoExit": continuity_demo.returncode,
         "passed": len(results),
         "results": results,
     }, indent=2))

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Add the offline `vigil continuity` Phase 0: exact-receipt roots, typed append-only
+  successor events, optional Ed25519 event signatures, base-revision policy loading,
+  and deterministic `CURRENT`, `HOLD`, `EXPIRED`, or `REVOKED` status.
+- Keep every state except `CURRENT` from allowing a protected action, retain the
+  original historical verdict, and reject subject changes, broken chains,
+  duplicate deliveries, clock rollback, untrusted signers, stale sources, and
+  privacy-unsafe receipt-tier fields.
+- Add authenticated GitHub webhook import for exact merges, reverts, labeled
+  hotfixes, and explicitly linked incidents. Store only fixed facts and hashes,
+  make repeated deliveries safe, and turn recorder outages into `HOLD`.
+- Add a five-step continuity demonstration and an optional exact-commit GitHub
+  Action gate. The generated workflow allows only `CURRENT`, reads policy from
+  the exact base commit, and contains no deployment command.
+- Add a signed GitHub Actions event importer, a manual fork-and-run Continuity
+  Lab, and `install-action --self-serve`. The lab uses synthetic evidence and
+  no secrets; the production policy still starts with empty trusted-key lists.
+- Extend the public census so exact-commit Action use, continuity gates, repeat
+  workflow runs, and Continuity Lab runs remain separate observable counts.
+
 ## 0.16.0 - 2026-08-23
 
 - Add an open signed challenge-proof format, pinned Ed25519 signer identities,

@@ -10,8 +10,15 @@ inputs:
     required: false
     default: "false"
   mode:
-    description: "Set to plan, prove, maintainer, or outcome for the corresponding evidence mode"
+    description: "Set to plan, prove, maintainer, outcome, or continuity for the corresponding check"
     required: false
+  continuity-chain:
+    description: "Downloaded continuity history directory; required in continuity mode"
+    required: false
+  continuity-environment:
+    description: "Protected environment named by the continuity policy"
+    required: false
+    default: "production"
   outcome-receipt:
     description: "Full receipt from the prior Agent Vigil run; required in outcome mode"
     required: false
@@ -91,7 +98,7 @@ inputs:
     required: false
 outputs:
   status:
-    description: "PASS, FAIL, INCONCLUSIVE, BLOCK, or HOLD"
+    description: "PASS, FAIL, INCONCLUSIVE, BLOCK, HOLD, CURRENT, EXPIRED, or REVOKED"
     value: ${{ steps.vigil.outputs.status }}
   receipt-hash:
     description: "Deterministic SHA-256 receipt or authority-plan identifier"
@@ -132,6 +139,8 @@ runs:
         VIGIL_AUTHORITY_CONTRACT: ${{ inputs.authority-contract }}
         VIGIL_AUTHORITY_CONTRACT_REF: ${{ inputs.authority-contract-ref }}
         VIGIL_MODE: ${{ inputs.mode }}
+        VIGIL_CONTINUITY_CHAIN: ${{ inputs.continuity-chain }}
+        VIGIL_CONTINUITY_ENVIRONMENT: ${{ inputs.continuity-environment }}
         VIGIL_OUTCOME_RECEIPT: ${{ inputs.outcome-receipt }}
         VIGIL_ACTIONS_RUN_ID: ${{ inputs.actions-run-id }}
         VIGIL_REPO: ${{ inputs.repo }}
@@ -153,8 +162,8 @@ runs:
         VIGIL_HOTFIX_EVIDENCE: ${{ inputs.hotfix-pr-evidence }}
         VIGIL_INCIDENT_EVIDENCE: ${{ inputs.incident-issue-evidence }}
       run: |
-        if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "maintainer" && "$VIGIL_MODE" != "outcome" ]]; then
-          echo "agent-vigil: mode must be plan, prove, maintainer, or outcome when provided" >&2
+        if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "maintainer" && "$VIGIL_MODE" != "outcome" && "$VIGIL_MODE" != "continuity" ]]; then
+          echo "agent-vigil: mode must be plan, prove, maintainer, outcome, or continuity when provided" >&2
           exit 2
         fi
         if [[ "$VIGIL_MODE" == "plan" && "$VIGIL_ATTEST" == "true" ]]; then
@@ -165,8 +174,38 @@ runs:
           echo "agent-vigil: prove mode does not yet support attestation" >&2
           exit 2
         fi
+        if [[ "$VIGIL_MODE" == "continuity" && "$VIGIL_ATTEST" == "true" ]]; then
+          echo "agent-vigil: continuity mode does not create a new attestation" >&2
+          exit 2
+        fi
         selected=0
-        if [[ "$VIGIL_MODE" == "outcome" ]]; then
+        if [[ "$VIGIL_MODE" == "continuity" ]]; then
+          if [[ -n "$VIGIL_TRANSCRIPT" || -n "$VIGIL_RECEIPT" || -n "$VIGIL_AUTHORITY_CONTRACT" || -n "$VIGIL_OUTCOME_RECEIPT" ]]; then
+            echo "agent-vigil: continuity mode cannot be combined with another evidence input" >&2
+            exit 2
+          fi
+          if [[ -z "${GITHUB_REPOSITORY:-}" ]]; then
+            echo "agent-vigil: continuity mode requires the current GitHub repository identity" >&2
+            exit 2
+          fi
+          if [[ -z "$VIGIL_CONTINUITY_CHAIN" || ! -d "$VIGIL_CONTINUITY_CHAIN" ]]; then
+            echo "agent-vigil: continuity mode requires a readable continuity-chain directory" >&2
+            exit 2
+          fi
+          if [[ -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ]]; then
+            echo "agent-vigil: continuity mode requires a policy and its exact base commit" >&2
+            exit 2
+          fi
+          if [[ ! "$VIGIL_POLICY_REF" =~ ^[0-9a-f]{40}$ && ! "$VIGIL_POLICY_REF" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "agent-vigil: continuity policy-ref must be a full lowercase commit ID" >&2
+            exit 2
+          fi
+          if [[ ! "$VIGIL_HEAD" =~ ^[0-9a-f]{40}$ && ! "$VIGIL_HEAD" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "agent-vigil: continuity head must be a full lowercase commit ID" >&2
+            exit 2
+          fi
+          selected=$((selected + 1))
+        elif [[ "$VIGIL_MODE" == "outcome" ]]; then
           if [[ -z "$VIGIL_OUTCOME_RECEIPT" || ! -f "$VIGIL_OUTCOME_RECEIPT" ]]; then
             echo "agent-vigil: outcome mode requires a readable full outcome-receipt" >&2
             exit 2
@@ -191,7 +230,7 @@ runs:
         [[ "$VIGIL_MODE" == "plan" ]] && selected=$((selected + 1))
         [[ "$VIGIL_MODE" == "maintainer" ]] && selected=$((selected + 1))
         if [[ "$selected" -ne 1 ]]; then
-          echo "agent-vigil: choose exactly one of transcript, authority contract, receipt, plan mode, prove mode, maintainer mode, or outcome mode" >&2
+          echo "agent-vigil: choose exactly one check input or named mode" >&2
           exit 2
         fi
         if [[ -n "$VIGIL_RECEIPT" && ( -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ) ]]; then
@@ -218,7 +257,7 @@ runs:
             echo "agent-vigil: pull-request control proof must challenge the event head $event_head" >&2
             exit 2
           fi
-          if [[ -n "$event_base" && "$VIGIL_MODE" != "outcome" && "$VIGIL_MODE" != "prove" ]]; then
+          if [[ -n "$event_base" && "$VIGIL_MODE" != "outcome" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "continuity" ]]; then
             if [[ "$VIGIL_BASE" != "$event_base" || "$VIGIL_HEAD" != "$event_head" ]]; then
               echo "agent-vigil: GitHub event verification must use event base $event_base and head $event_head" >&2
               exit 2
@@ -245,7 +284,10 @@ runs:
         artifact_dir=$(node -e 'const {mkdtempSync}=require("node:fs"); const {join}=require("node:path"); process.stdout.write(mkdtempSync(join(process.env.RUNNER_TEMP || process.cwd(), "agent-vigil-")))')
         report_file="$artifact_dir/report.json"
         sarif_file="$artifact_dir/report.sarif"
-        if [[ "$VIGIL_MODE" == "outcome" ]]; then
+        if [[ "$VIGIL_MODE" == "continuity" ]]; then
+          report_file="$PWD/agent-vigil-continuity-decision.json"
+          args=(continuity status --chain "$VIGIL_CONTINUITY_CHAIN" --policy "$VIGIL_POLICY" --repo "$VIGIL_REPO" --policy-ref "$VIGIL_POLICY_REF" --environment "$VIGIL_CONTINUITY_ENVIRONMENT" --expected-head "$VIGIL_HEAD" --expected-github-repository "$GITHUB_REPOSITORY" --format json --output "$report_file")
+        elif [[ "$VIGIL_MODE" == "outcome" ]]; then
           report_file="$VIGIL_OUTCOME_RECEIPT"
           code=0
         elif [[ "$VIGIL_MODE" == "plan" ]]; then
@@ -273,7 +315,7 @@ runs:
           if [[ -n "$VIGIL_TEST_CMD" ]]; then args+=(--test-cmd "$VIGIL_TEST_CMD"); fi
           if [[ "$VIGIL_STRICT" == "true" ]]; then args+=(--strict); fi
         fi
-        if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" ]]; then
+        if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "continuity" ]]; then
           if [[ -n "$VIGIL_POLICY" ]]; then args+=(--policy "$VIGIL_POLICY"); fi
           if [[ -n "$VIGIL_POLICY_REF" ]]; then args+=(--policy-ref "$VIGIL_POLICY_REF"); fi
         fi
@@ -285,8 +327,11 @@ runs:
           set -e
         fi
 
-        if [[ -s "$report_file" ]]; then
-          if [[ "$VIGIL_MODE" == "plan" ]]; then
+        if [[ -s "$report_file" && ! -L "$report_file" ]]; then
+          if [[ "$VIGIL_MODE" == "continuity" ]]; then
+            status=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.continuity)' "$report_file")
+            receipt_hash=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.decisionHash)' "$report_file")
+          elif [[ "$VIGIL_MODE" == "plan" ]]; then
             status=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.status)' "$report_file")
             receipt_hash=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.planSha256)' "$report_file")
           elif [[ "$VIGIL_MODE" == "prove" ]]; then
@@ -296,10 +341,24 @@ runs:
             status=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.summary.status)' "$report_file")
             receipt_hash=$(node -e 'const r=require(require("node:path").resolve(process.argv[1])); process.stdout.write(r.receiptHash)' "$report_file")
           fi
-          cp "$report_file" agent-vigil-report.json
-          report_path="$PWD/agent-vigil-report.json"
+          if [[ "$VIGIL_MODE" == "continuity" ]]; then
+            report_path="$report_file"
+            node - "$report_file" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'NODE'
+        const d = require(process.argv[2]);
+        const messages = {
+          CURRENT: "Deployment check: allowed. Required records are present and current.",
+          HOLD: "Deployment check: stopped. Required records are missing or could not be checked.",
+          EXPIRED: "Deployment check: stopped. Required records are too old.",
+          REVOKED: "Deployment check: stopped. Later evidence contradicts the earlier approval.",
+        };
+        process.stdout.write(`\n### Agent Vigil: ${d.continuity}\n\n${messages[d.continuity] ?? messages.HOLD}\n`);
+        NODE
+          else
+            cp "$report_file" agent-vigil-report.json
+            report_path="$PWD/agent-vigil-report.json"
+          fi
           sarif_path=""
-          if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && -s "$sarif_file" ]]; then
+          if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "continuity" && -s "$sarif_file" ]]; then
             cp "$sarif_file" agent-vigil.sarif
             sarif_path="$PWD/agent-vigil.sarif"
           fi
@@ -307,12 +366,12 @@ runs:
           github_evidence_path=""
           value_card_path=""
           value_verdict=""
-          if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && -n "${GITHUB_EVENT_PATH:-}" && -f "$GITHUB_EVENT_PATH" ]]; then
+          if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "continuity" && -n "${GITHUB_EVENT_PATH:-}" && -f "$GITHUB_EVENT_PATH" ]]; then
             github_args=(github-evidence --event "$GITHUB_EVENT_PATH" --output "$artifact_dir/github-evidence.json")
           else
             github_args=()
           fi
-          if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && -n "$VIGIL_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_EVENT_PATH:-}" ]] && command -v gh >/dev/null 2>&1; then
+          if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "continuity" && -n "$VIGIL_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_EVENT_PATH:-}" ]] && command -v gh >/dev/null 2>&1; then
             pr_number=$(node -e 'const e=require(process.env.GITHUB_EVENT_PATH); process.stdout.write(String(e.pull_request?.number || e.number || e.workflow_run?.pull_requests?.[0]?.number || ""))')
             run_id="$VIGIL_ACTIONS_RUN_ID"
             if [[ -z "$run_id" && "${event_kind:-}" == "workflow_run" ]]; then
@@ -346,7 +405,7 @@ runs:
             fi
           fi
 
-          if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" ]]; then
+          if [[ "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "continuity" ]]; then
             value_args=(value "$report_file" --format json --output "$artifact_dir/value-card.json")
             [[ -n "$github_evidence_path" ]] && value_args+=(--github-evidence "$github_evidence_path")
             [[ -n "$VIGIL_VALUE_TASK_CLASS" ]] && value_args+=(--task-class "$VIGIL_VALUE_TASK_CLASS")
@@ -373,7 +432,7 @@ runs:
         else
           # Preserve the verifier's original diagnostic and exit code when
           # parsing or configuration fails before a receipt can be written.
-          status="INCONCLUSIVE"
+          status=$([[ "$VIGIL_MODE" == "continuity" ]] && echo "HOLD" || echo "INCONCLUSIVE")
           receipt_hash="unavailable"
           report_path=""
           sarif_path=""
@@ -393,7 +452,7 @@ runs:
         exit "$code"
     - id: prepare_attestation
       name: Prepare privacy-reduced AI Change Receipt predicate
-      if: ${{ always() && inputs.mode != 'plan' && inputs.mode != 'prove' && inputs.attest == 'true' && steps.vigil.outputs.report != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+      if: ${{ always() && inputs.mode != 'plan' && inputs.mode != 'prove' && inputs.mode != 'continuity' && inputs.attest == 'true' && steps.vigil.outputs.report != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
       shell: bash
       env:
         VIGIL_REPORT: ${{ steps.vigil.outputs.report }}

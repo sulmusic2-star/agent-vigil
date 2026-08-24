@@ -119,7 +119,7 @@
   <div class="wrap">
     <nav aria-label="Primary">
       <a class="brand" href="#top">AGENT VIGIL</a>
-        <div><a href="#protect">Protection</a><a href="#authority">Authority changes</a><a href="#proof">Failures caught</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
+        <div><a href="#protect">Protection</a><a href="#continuity">After merge</a><a href="#authority">Authority changes</a><a href="#proof">Failures caught</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
     </nav>
     <main id="top">
       <div class="hero">
@@ -144,7 +144,7 @@
   observed release_publish via gh release create
 
 <span class="ok">✓ tests-pass</span>
-  trusted command observed 386 passing; 5 skipped.
+  trusted command observed 471 passing; 5 skipped.
 
 <span class="fail">FAIL</span> · sha256:c3128a2c6abc…</pre>
         </div>
@@ -164,6 +164,22 @@
           <article class="card"><span class="number">02</span><h3>Check the tests</h3><p>New skips, bypasses, zeroed coverage, lost tests, empty tests, and constant assertions block. Lower-confidence patterns remain visible for review.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/TEST_INTEGRITY_GUARD.md">Integrity rules →</a></article>
           <article class="card"><span class="number">03</span><h3>Keep the outcome</h3><p>The retained Value Card keeps verification, review disposition, Actions runtime, merge state, and later linked failures separate and traceable.</p><a href="https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/OUTCOME_OBSERVER.md">Outcome record →</a></article>
         </div>
+      </section>
+
+      <section id="continuity">
+        <p class="eyebrow">After the first green check</p>
+        <h2>A passed change can lose permission to deploy.</h2>
+        <p class="section-lead">Agent Vigil keeps the original result and adds later evidence. A verified revert stops deployment. Another ordinary green check cannot erase that stop. Independent signed repair aimed at the exact revocation can restore permission.</p>
+        <div class="status" aria-label="Continuity demonstration states">
+          <div><b class="ok">CURRENT</b>Fresh verification and merge evidence allow the protected action.</div>
+          <div><b class="fail">REVOKED</b>A recorded revert stops the protected action and remains in the history.</div>
+          <div><b class="ok">CURRENT</b>Independent signed repair can restore permission without deleting the revocation.</div>
+        </div>
+        <div class="actions">
+          <a class="button" href="https://github.com/sulmusic2-star/agent-vigil/actions/workflows/agent-vigil-continuity-lab.yml">Run the harmless lab</a>
+          <a class="button secondary" href="CONTINUITY_LAB.md">Read the five steps</a>
+        </div>
+        <p class="fine">The lab uses synthetic evidence, reads no secrets, and deploys nothing. A successful lab run proves the mechanism, not production use or customer demand.</p>
       </section>
 
       <section id="authority">

@@ -70,6 +70,7 @@ import {
 } from "./certification.ts";
 import { signControlProof, signedControlIdentity } from "./signed-control-proof.ts";
 import { readBoundedJson } from "./upgrade/contracts.ts";
+import { runContinuityCommand } from "./continuity/cli.ts";
 
 type Options = {
   transcript?: string;
@@ -125,6 +126,7 @@ Usage:
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
+  vigil continuity <init|append|import-github|import-github-actions|verify|status|demo|install-action> [options]
   vigil upgrade <init|doctor|check|verify|index> [options]
 
 Options:
@@ -1096,6 +1098,7 @@ function shellQuote(value: string): string {
 
 export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "demo") return runDemo(run);
+  if (argv[0] === "continuity") return runContinuityCommand(argv.slice(1));
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
   if (argv[0] === "prove") return runProve(argv);

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "agent-vigil-continuity-event/v1",
+  "eventId": "urn:uuid:00000000-0000-4000-8000-000000000001",
+  "subject": {
+    "episodeReceiptHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "repositoryHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "baseSha": "0000000000000000000000000000000000000000",
+    "headSha": "0000000000000000000000000000000000000000"
+  },
+  "source": {
+    "kind": "verification",
+    "issuer": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "evidenceHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "deliveryIdHash": null
+  },
+  "event": {
+    "kind": "verification_refreshed",
+    "disposition": "affirm",
+    "reasonCode": "verification.completed",
+    "targetHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "freshUntil": "2099-01-01T00:00:00.000Z",
+    "supersedesEventId": null
+  },
+  "observedAt": "2026-08-23T00:00:00.000Z",
+  "effectiveAt": "2026-08-23T00:00:00.000Z",
+  "privacyTier": "receipt"
+}

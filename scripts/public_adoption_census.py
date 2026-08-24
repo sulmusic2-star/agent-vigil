@@ -21,6 +21,9 @@ from typing import Any
 from urllib.parse import quote
 
 ACTION_RE = re.compile(r"uses:\s*sulmusic2-star/agent-vigil@[^\s#]+", re.I)
+EXACT_ACTION_RE = re.compile(r"uses:\s*sulmusic2-star/agent-vigil@[0-9a-f]{40}(?:\s|#|$)", re.I)
+CONTINUITY_MODE_RE = re.compile(r"^\s*mode:\s*['\"]?continuity['\"]?\s*(?:#.*)?$", re.I | re.M)
+CONTINUITY_LAB_RE = re.compile(r"agent-vigil-continuity-lab/v1", re.I)
 WORKFLOW_RE = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$", re.I)
 EXCLUDED_OWNERS = {"sulmusic2-star"}
 
@@ -50,8 +53,10 @@ def live_input() -> dict[str, Any]:
             content = ""
         row: dict[str, Any] = {"repository": full_name, "path": path, "content": content}
         owner = full_name.split("/", 1)[0].lower()
-        if owner not in EXCLUDED_OWNERS and WORKFLOW_RE.match(path) and ACTION_RE.search(content):
-            repos.add(full_name)
+        external_workflow = owner not in EXCLUDED_OWNERS and WORKFLOW_RE.match(path)
+        if external_workflow and (ACTION_RE.search(content) or CONTINUITY_LAB_RE.search(content)):
+            if ACTION_RE.search(content):
+                repos.add(full_name)
             workflow_name = Path(path).name
             try:
                 runs = gh_json(f"repos/{full_name}/actions/workflows/{quote(workflow_name)}/runs", {"per_page": "1"})
@@ -72,6 +77,9 @@ def live_input() -> dict[str, Any]:
 def classify(source: dict[str, Any]) -> dict[str, Any]:
     references: list[dict[str, Any]] = []
     configured: dict[str, dict[str, Any]] = {}
+    continuity_gates: set[str] = set()
+    exact_action_repositories: set[str] = set()
+    lab_repositories: dict[str, dict[str, Any]] = {}
     for row in source.get("references", []):
         repository = str(row.get("repository", ""))
         path = str(row.get("path", ""))
@@ -80,13 +88,20 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
         external = owner not in EXCLUDED_OWNERS
         workflow = bool(WORKFLOW_RE.match(path))
         exact_action_use = bool(ACTION_RE.search(content))
-        state = "configured" if external and workflow and exact_action_use else "reference-only"
+        exact_commit_use = bool(EXACT_ACTION_RE.search(content))
+        continuity_gate = exact_action_use and bool(CONTINUITY_MODE_RE.search(content))
+        continuity_lab = bool(CONTINUITY_LAB_RE.search(content))
+        state = "configured" if external and workflow and exact_action_use else (
+            "continuity-lab" if external and workflow and continuity_lab else "reference-only"
+        )
         references.append({
             "repository": repository,
             "path": path,
             "external": external,
             "state": state,
             "workflow_runs": row.get("workflow_runs"),
+            "exact_commit_action": exact_commit_use,
+            "continuity_gate": continuity_gate,
         })
         if state == "configured":
             configured.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False})
@@ -96,6 +111,18 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
                 configured[repository]["workflow_runs_unknown"] = True
             else:
                 configured[repository]["workflow_runs_observed"] += int(runs)
+            if exact_commit_use:
+                exact_action_repositories.add(repository)
+            if continuity_gate:
+                continuity_gates.add(repository)
+        elif state == "continuity-lab":
+            lab_repositories.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False})
+            lab_repositories[repository]["paths"].append(path)
+            runs = row.get("workflow_runs")
+            if runs is None:
+                lab_repositories[repository]["workflow_runs_unknown"] = True
+            else:
+                lab_repositories[repository]["workflow_runs_observed"] += int(runs)
     artifact_source = source.get("receipt_artifacts", {})
     artifact_count = 0
     artifact_unknown: list[str] = []
@@ -107,6 +134,8 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
         else:
             artifact_count += int(count)
     run_observed = sum(1 for value in configured.values() if value["workflow_runs_observed"] > 0)
+    repeat_action = sum(1 for value in configured.values() if value["workflow_runs_observed"] >= 2)
+    lab_run_observed = sum(1 for value in lab_repositories.values() if value["workflow_runs_observed"] > 0)
     return {
         "schema_version": 1,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -115,14 +144,22 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
             "configured_requires_public_workflow_uses_step": True,
             "receipt_count_is_current_public_artifact_inventory_not_lifetime_telemetry": True,
             "required_check_detection": "not observable from the public code-search census",
+            "continuity_lab_is_product_exploration_not_production_adoption": True,
+            "repeat_use_means_two_or_more_current_workflow_runs_not_two_distinct_days": True,
         },
         "counts": {
             "external_repositories_configured": len(configured),
             "external_repositories_with_workflow_runs_observed": run_observed,
             "currently_listed_external_receipt_artifacts": artifact_count,
             "repositories_with_unknown_artifact_count": len(artifact_unknown),
+            "external_repositories_using_exact_commit_action": len(exact_action_repositories),
+            "external_repositories_with_continuity_gate": len(continuity_gates),
+            "external_repositories_with_repeat_workflow_runs": repeat_action,
+            "external_repositories_with_continuity_lab": len(lab_repositories),
+            "external_continuity_labs_with_runs_observed": lab_run_observed,
         },
         "configured_repositories": configured,
+        "continuity_lab_repositories": lab_repositories,
         "references": references,
     }
 
