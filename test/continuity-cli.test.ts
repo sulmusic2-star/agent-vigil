@@ -119,6 +119,8 @@ test("continuity CLI initializes, appends, verifies, and returns categorical sta
   append(value, event(value.continuityRoot, "verification", "verification_refreshed", "2026-08-23T12:00:00.000Z"));
   append(value, event(value.continuityRoot, "github-outcome", "merge_observed", "2026-08-23T12:01:00.000Z"));
   assert.equal(silent(() => runContinuityCommand(["verify", "--chain", value.chain, "--json", "--output", verifyPath])), 0);
+  assert.equal(silent(() => runContinuityCommand(["verify", "--chain", value.chain, "--expected-head", HEAD])), 0);
+  assert.equal(silent(() => runContinuityCommand(["verify", "--chain", value.chain, "--expected-head", "d".repeat(40)])), 1);
   assert.equal(silent(() => runContinuityCommand([
     "status", "--chain", value.chain, "--policy", value.policyPath,
     "--environment", "production", "--now", "2026-08-23T12:30:00.000Z", "--json", "--output", statusPath,
@@ -126,6 +128,10 @@ test("continuity CLI initializes, appends, verifies, and returns categorical sta
   const decision = JSON.parse(readFileSync(statusPath, "utf8")) as { continuity: string; allowsProtectedAction: boolean };
   assert.equal(decision.continuity, "CURRENT");
   assert.equal(decision.allowsProtectedAction, true);
+  assert.equal(silent(() => runContinuityCommand([
+    "status", "--chain", value.chain, "--policy", value.policyPath, "--expected-head", "d".repeat(40),
+    "--now", "2026-08-23T12:30:00.000Z",
+  ])), 1);
   for (const secret of ["private/customer", "secret command", "must-not-leak", "example.invalid", value.root]) {
     assert.equal(readFileSync(statusPath, "utf8").includes(secret), false);
     assert.equal(readFileSync(verifyPath, "utf8").includes(secret), false);
@@ -141,9 +147,8 @@ test("continuity CLI initializes, appends, verifies, and returns categorical sta
 });
 
 test("continuity status can load policy only from the named base revision", () => {
-  const value = fixture();
-  append(value, event(value.continuityRoot, "verification", "verification_refreshed", "2026-08-23T12:00:00.000Z"));
-  const repo = join(value.root, "policy-repository");
+  const root = mkdtempSync(join(tmpdir(), "vigil-continuity-policy-ref-"));
+  const repo = join(root, "policy-repository");
   execFileSync("git", ["init", "-q", repo]);
   execFileSync("git", ["-C", repo, "config", "user.email", "vigil@example.test"]);
   execFileSync("git", ["-C", repo, "config", "user.name", "Vigil Test"]);
@@ -154,11 +159,35 @@ test("continuity status can load policy only from the named base revision", () =
   const base = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
   writeFileSync(join(repo, relativePolicy), `${JSON.stringify(policy(["verification"]), null, 2)}\n`);
+  writeFileSync(join(repo, "README.md"), "candidate\n");
+  execFileSync("git", ["-C", repo, "add", relativePolicy, "README.md"]);
+  execFileSync("git", ["-C", repo, "commit", "-qm", "candidate"]);
+  const head = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const tree = execFileSync("git", ["-C", repo, "rev-parse", "HEAD^{tree}"], { encoding: "utf8" }).trim();
+  const report = buildReport({
+    transcript: "private/session.jsonl",
+    transcriptSha256: sha256("policy ref transcript"),
+    transcriptFormat: "codex",
+    repo,
+    base,
+    head,
+    results: [{ claim: { kind: "tests_pass", quote: "fixture", subject: "fixture" }, verdict: "verified", evidence: "fixture passed" }],
+    policy: { minVerified: 1, strict: true, source: ".agent-vigil.json", sha256: sha256("policy") },
+    repository: { remote: "https://github.com/example/policy-repository.git", tree },
+    reproduction: "private command",
+  });
+  const receiptPath = join(root, "receipt.json");
+  const chain = join(root, "chain");
+  writeFileSync(receiptPath, `${JSON.stringify(report, null, 2)}\n`);
+  assert.equal(silent(() => runContinuityCommand(["init", receiptPath, "--output", chain])), 0);
+  const continuityRoot = JSON.parse(readFileSync(join(chain, "root.json"), "utf8")) as ContinuityRoot;
+  const value = { root, chain, policyPath: join(repo, relativePolicy), continuityRoot };
+  append(value, event(continuityRoot, "verification", "verification_refreshed", "2026-08-23T12:00:00.000Z"));
   assert.equal(silent(() => runContinuityCommand([
-    "status", "--chain", value.chain, "--policy", join(repo, relativePolicy), "--now", "2026-08-23T12:30:00.000Z",
+    "status", "--chain", chain, "--policy", join(repo, relativePolicy), "--now", "2026-08-23T12:30:00.000Z",
   ])), 0, "the weaker worktree policy would allow CURRENT");
   assert.equal(silent(() => runContinuityCommand([
-    "status", "--chain", value.chain, "--policy", relativePolicy, "--repo", repo, "--policy-ref", base,
+    "status", "--chain", chain, "--policy", relativePolicy, "--repo", repo, "--policy-ref", base,
     "--now", "2026-08-23T12:30:00.000Z",
   ])), 3, "the named base policy still requires deployment evidence");
 });

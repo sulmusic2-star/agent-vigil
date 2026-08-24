@@ -592,29 +592,47 @@ merge state, and deliberately does not check out or execute candidate code.
 > `test-cmd` value from untrusted issue or pull-request text. Read
 > [SECURITY.md](SECURITY.md) before running on untrusted forks.
 
-## Offline continuity receipts
+## Continuity after the first green check
 
-`vigil continuity` extends one exact Agent Vigil receipt with typed successor
-evidence without changing its historical `PASS`, `FAIL`, or `INCONCLUSIVE`
-verdict. The deterministic policy fold returns `CURRENT`, `HOLD`, `EXPIRED`,
-or `REVOKED`; only `CURRENT` permits a protected action.
+`vigil continuity` keeps the original result and records what happens later.
+A verified merge can make the change `CURRENT`. A revert or explicitly linked
+incident can make it `REVOKED`. A later ordinary green check cannot erase that
+revocation; independent signed repair evidence can close it. Only `CURRENT`
+permits a protected action.
 
 ```bash
+vigil continuity demo
 vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
-vigil continuity append --chain .agent-vigil/continuity --event verification-refreshed.event.json
-vigil continuity verify --chain .agent-vigil/continuity --json
+vigil continuity import-github \
+  --chain .agent-vigil/continuity \
+  --event webhook-body.json \
+  --delivery-id <github-delivery-uuid> \
+  --webhook-signature <github-sha256-signature> \
+  --webhook-secret-file webhook-secret.txt
 vigil continuity status \
   --chain .agent-vigil/continuity \
   --policy .agent-vigil-continuity.json \
   --repo . \
   --policy-ref <base-commit-sha> \
+  --expected-head <reviewed-head-sha> \
   --environment production
 ```
 
-The Phase 0 implementation is local and offline. It does not include webhook
-ingestion, GitHub adapters, hosted storage, or a deployment integration. See
-[`docs/CONTINUITY.md`](docs/CONTINUITY.md) for schemas, signature trust,
-privacy constraints, remediation rules, and exit codes.
+The importer accepts authenticated GitHub webhook files for merges, exact
+reverts, labeled hotfixes, and explicitly linked incidents. It stores hashes
+and fixed categories instead of the webhook body or repository name. Repeated
+delivery IDs are safe to retry. An invalid signature, malformed event,
+repository mismatch, missing observation, or observer outage never becomes
+`CURRENT`.
+
+`vigil continuity install-action --repo . --action-ref <full-commit-sha>`
+creates a separate exact-commit deployment check. It starts with no trusted
+keys and contains no real deployment command. The repository owner must review
+the files, add approved key IDs, arrange upload of the continuity artifact, and
+replace the clearly marked deployment placeholder. There is no hosted
+collector, crawler, or GitHub App in this version. See
+[`docs/CONTINUITY.md`](docs/CONTINUITY.md) for the operator guide and
+security limits.
 
 ## CLI
 
@@ -657,6 +675,9 @@ vigil audit <change.diff> [--strict]
 vigil gate <portable-receipt.json> [--repo . --base <sha> --head <sha>]
 vigil maintainer --event <event.json> [--repo . --base <sha> --head <sha>]
 vigil merge-group --event <event.json> [--repo . --base <sha> --head <sha>]
+vigil continuity demo
+vigil continuity import-github --chain <directory> --event <webhook.json> [authenticated webhook options]
+vigil continuity install-action --repo . --action-ref <full-commit-sha>
 ```
 
 ## What it prevents
@@ -673,6 +694,7 @@ miss:
 7. **Compare receipt revisions and fail on evidence regression, not prose drift.**
 8. **Re-verify the composed commit before a GitHub merge queue reports green.**
 9. **Observe run and merge outcomes later without rerunning candidate code.**
+10. **Stop deployment when later evidence revokes an earlier green result.**
 
 Agent Vigil does not generate code-review opinions. It checks recorded claims,
 actions, Git identity, policy, and executable evidence.
@@ -708,8 +730,8 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 391 tests, including 80 generated-repository compatibility scenarios across
-  18 runner-output families. In the v0.13 release-candidate local run, 386
+- 476 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families. In the 2026-08-24 local run, 471
   passed and five opt-in Docker tests skipped in the ordinary suite. With Docker enabled, the
   combined 13-test containment, timeout-cleanup, verdict, signing, and index
   suite passed against the selected local test daemon with no residual Upgrade

@@ -59,6 +59,18 @@ do not match the GitHub event payload. The first setup pull request
 cannot use base anchoring because its base does not contain the policy; merge
 the installation under ordinary review, then make the check required.
 
+The continuity Action adds two bindings. It compares the downloaded history
+with the exact commit named by the selected evidence run, and it reads
+`.agent-vigil-continuity.json` from the base commit recorded in the signed
+receipt. The generated workflow runs Agent Vigil and its supporting Actions at
+full commit IDs. It does not execute repository commands before the continuity
+decision. Its second job is skipped unless the decision is `CURRENT`.
+
+The generated continuity policy has empty trusted-key lists. This is deliberate:
+installation alone cannot authorize deployment. A repository owner must obtain
+the public keys separately, add their IDs under normal review, and commit the
+policy before a signed history can become `CURRENT`.
+
 For merge queues, the event's composed head can differ from every individual
 pull-request head. Agent Vigil verifies that exact composition, requires the
 event base to be its ancestor, and reruns the base-policy test and integrity
@@ -209,6 +221,14 @@ can read or invoke the private key, it may be able to sign its own report. Keep
 operator keys outside the agent's scope when separation matters. The fresh CI
 test and integrity scan are independent of the local transcript verdict, but
 they do not reconstruct private claim evidence.
+
+The GitHub continuity importer verifies the webhook body with the configured
+HMAC secret before it writes a record. It then checks the repository, exact
+commits, event shape, and explicit link label. The stored record omits the body,
+repository name, path, secret, signature header, and issue text. A valid HMAC
+shows that the body matches the configured secret. It does not establish that
+GitHub sent the request if the secret or receiving machine was compromised.
+An incident link records association only and does not claim causation.
 
 ## Reporting
 

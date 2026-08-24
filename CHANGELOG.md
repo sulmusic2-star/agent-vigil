@@ -9,6 +9,12 @@
   original historical verdict, and reject subject changes, broken chains,
   duplicate deliveries, clock rollback, untrusted signers, stale sources, and
   privacy-unsafe receipt-tier fields.
+- Add authenticated GitHub webhook import for exact merges, reverts, labeled
+  hotfixes, and explicitly linked incidents. Store only fixed facts and hashes,
+  make repeated deliveries safe, and turn recorder outages into `HOLD`.
+- Add a five-step continuity demonstration and an optional exact-commit GitHub
+  Action gate. The generated workflow allows only `CURRENT`, reads policy from
+  the exact base commit, and contains no deployment command.
 
 ## 0.16.0 - 2026-08-23
 

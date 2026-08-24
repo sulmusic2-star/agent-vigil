@@ -126,7 +126,7 @@ Usage:
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
-  vigil continuity <init|append|verify|status> [options]
+  vigil continuity <init|append|import-github|verify|status|demo|install-action> [options]
   vigil upgrade <init|doctor|check|verify|index> [options]
 
 Options:

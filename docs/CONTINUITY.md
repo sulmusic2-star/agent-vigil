@@ -1,82 +1,198 @@
-# Agent Vigil Continuity v1
+# Agent Vigil continuity
 
-Agent Vigil Continuity is an offline append-only successor-evidence chain for one exact Agent Vigil receipt. It preserves the historical `PASS`, `FAIL`, or `INCONCLUSIVE` verdict and computes a separate current state:
+A change can pass every required check and still become unsafe to deploy later.
+Agent Vigil continuity keeps the original result and adds later facts such as a
+merge, revert, linked incident, expired check, or independently verified repair.
 
-- `CURRENT`: the chain is valid and every policy-required source is fresh;
-- `HOLD`: required evidence is missing, unsupported, ambiguous, or unsigned when signatures are required;
-- `EXPIRED`: required evidence is stale;
-- `REVOKED`: the chain, signature trust, original receipt, or a policy-denied fact is contradicted.
-
-Only `CURRENT` sets `allowsProtectedAction` to `true`. The other states deny. This is a deterministic policy result, not a trust score and not proof that code is correct or safe.
-
-## Offline workflow
+Run the built-in example first:
 
 ```bash
-vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
-vigil continuity append \
+vigil continuity demo
+```
+
+It shows one change moving through this exact sequence:
+
+1. The original check passes.
+2. Authenticated merge evidence and a fresh check allow deployment.
+3. An authenticated revert stops deployment.
+4. A later ordinary green check does not erase the revert.
+5. Independent signed repair evidence allows deployment again.
+
+The result lists all five recorded event types in order.
+
+## The four results
+
+| Result | Meaning | Deployment |
+|---|---|---|
+| `CURRENT` | Every required record is present, valid, and recent. | Allowed |
+| `HOLD` | A required record is missing or cannot be checked. | Stopped |
+| `EXPIRED` | A required record is too old. | Stopped |
+| `REVOKED` | Later evidence contradicts the earlier approval. | Stopped |
+
+Only `CURRENT` allows a protected action. This is a policy decision about the
+recorded evidence. It is not a claim that the code is free of defects.
+
+## Start a history
+
+```bash
+vigil continuity init agent-vigil-report.json \
+  --output .agent-vigil/continuity
+
+vigil continuity verify \
   --chain .agent-vigil/continuity \
-  --event verification-refreshed.event.json \
-  --signing-key operator.pem
-vigil continuity verify --chain .agent-vigil/continuity --json
+  --expected-head <exact-reviewed-commit>
+
 vigil continuity status \
   --chain .agent-vigil/continuity \
   --policy .agent-vigil-continuity.json \
   --repo . \
-  --policy-ref <trusted-base-sha> \
+  --policy-ref <exact-base-commit> \
+  --expected-head <exact-reviewed-commit> \
   --environment production
 ```
 
-`status --policy-ref` loads the policy from the named Git object rather than the candidate worktree. The ref must be a full 40- or 64-character lowercase Git object ID. `--policy-ref` and `--repo` must be provided together.
+The policy is read from the exact base commit. A proposed change therefore
+cannot weaken the policy used to judge itself. The expected head check also
+prevents a valid history for one commit from authorizing another commit.
 
-`verify --public-key` pins every stored event to that Ed25519 public key and rejects unsigned events. Policy evaluation separately controls trusted root and event key IDs.
+## Record GitHub outcomes
 
-## Chain layout
+The first GitHub importer accepts one saved webhook request. It does not scan
+repositories and it does not require a GitHub App.
+
+```bash
+vigil continuity import-github \
+  --chain .agent-vigil/continuity \
+  --event webhook-body.json \
+  --delivery-id <x-github-delivery-value> \
+  --webhook-signature <x-hub-signature-256-value> \
+  --webhook-secret-file webhook-secret.txt \
+  --signing-key outcome-recorder-private.pem
+```
+
+Before writing anything, the importer checks the webhook signature, repository,
+full commit IDs, event shape, and exact link to the original change. It accepts:
+
+- a merged pull request whose base and head match the original receipt;
+- a push containing an exact revert reference to the original head commit;
+- a merged pull request labeled `hotfix` or `emergency-fix` and
+  `agent-vigil:<original-full-head-commit>`;
+- an issue labeled `incident`, `outage`, or a severity such as `sev-1`, plus
+  `agent-vigil:<original-full-head-commit>`.
+
+An incident record means only that the incident was explicitly linked to the
+change. It does not claim that the change caused the incident.
+
+The saved event contains hashes and fixed categories. It does not contain the
+webhook body, repository name, file path, issue text, secret, or signature
+header. Repeating the same delivery returns the existing record. Reusing that
+delivery ID with different evidence is rejected.
+
+A valid webhook signature proves that the body matches the configured secret.
+It does not prove that the signing secret or the machine holding it was safe.
+
+If the outcome recorder is unavailable, record that gap with an accountable
+local signing key:
+
+```bash
+vigil continuity import-github \
+  --chain .agent-vigil/continuity \
+  --unavailable \
+  --delivery-id <new-uuid> \
+  --observed-at <UTC-time> \
+  --signing-key outcome-recorder-private.pem
+```
+
+An outage produces `HOLD`. It can never produce `CURRENT`.
+
+## Add the deployment check
+
+This command creates a conservative policy and a separate GitHub workflow:
+
+```bash
+vigil continuity install-action \
+  --repo . \
+  --action-ref <reviewed-full-Agent-Vigil-commit>
+```
+
+It creates:
+
+- `.agent-vigil-continuity.json`
+- `.github/workflows/agent-vigil-continuity.yml`
+
+The generated policy starts with empty trusted-key lists. It cannot allow a
+deployment until an operator adds the approved root and event signing key IDs,
+reviews the files, and commits them. Existing pull-request and merge-queue
+workflows are left unchanged.
+
+The workflow downloads an artifact named `agent-vigil-continuity`, checks that
+its recorded head equals the selected evidence run's exact head, reads policy
+from the recorded base commit, and runs the Action at the full commit supplied
+to `--action-ref`. The workflow pins the supporting GitHub Actions to full
+commits and does not retain checkout credentials.
+
+The second job runs only when the result is `CURRENT`. It contains a clearly
+marked placeholder and does not deploy anything. Replace that placeholder with
+a separately reviewed deployment step.
+
+The workflow expects another approved process to upload the continuity history
+as the `agent-vigil-continuity` artifact. This version does not host the history,
+collect webhooks as a service, or upload that artifact for you.
+
+## Signed records and repairs
+
+Use Ed25519 keys that the change author cannot access when separation matters.
+A production policy should require a signed original receipt and signed later
+records, then list the allowed key IDs in `trustedRootKeyIds` and
+`trustedIssuerKeyIds`.
+
+A revocation stays in the history. It becomes inactive only when the policy
+allows repair and a later `remediation_verified` record:
+
+- names the exact revoking event;
+- comes from the verification source;
+- is signed by an approved independent key;
+- contains fresh evidence and a target hash;
+- has not expired.
+
+An ordinary green check cannot clear a revocation.
+
+## What is stored
 
 ```text
 .agent-vigil/continuity/
-  receipt.json          exact original receipt bytes
-  root.json             receipt file hash, canonical root hash, exact subject
-  tip.json              expected sequence and chain tip (detects suffix loss)
+  receipt.json
+  root.json
+  tip.json
   events/
-    00000001.json       first successor event
-    00000002.json       second successor event
+    00000001.json
+    00000002.json
 ```
 
-The first event binds to the root hash. Each later event binds its sequence, predecessor, exact receipt subject, privacy-minimal observation, and optional Ed25519 signature. The separately maintained local tip makes an uncoordinated deletion of the last event fail closed. Files are owner-only; events are created without replacement.
+The original receipt remains local. Each later record includes the previous
+record's hash, so deletion, replacement, reordering, a reused delivery ID, or a
+changed subject makes verification fail. Files are owner-only and new history
+entries cannot replace existing entries.
 
-## Event privacy
-
-Receipt-tier events contain only fixed event kinds, machine reason codes, hashes, full Git object IDs, timestamps, UUIDs, privacy-safe source IDs, and signature material. They reject free-form prompts, paths, repository names, commands, tokens, emails, webhook bodies, issue prose, and source content.
-
-The chain keeps the original full receipt locally because it must verify the root. `verify` and `status` expose only the historical verdict, hashes, counts, categorical states, and fixed reasons.
-
-## Root trust
-
-Hash chaining and the local tip detect changes relative to the chain directory. They do not stop an attacker who can replace an unsigned receipt, root, tip, and entire event directory together. A protected policy should set `requireSignedRoot` and pin `trustedRootKeyIds`. Signed events should likewise use `requireSignedEvents` and `trustedIssuerKeyIds`; a production integration should externally retain the accepted tip.
-
-## Remediation
-
-A revocation remains historical. It can become inactive only when policy allows remediation and a later `remediation_verified` event:
-
-- references the exact revoking event;
-- comes from the `verification` source;
-- is signed by a trusted issuer;
-- uses a different issuer from the revoking observation;
-- binds fresh evidence and a target hash;
-- remains fresh at evaluation time.
-
-An ordinary affirmative event never erases a revocation.
+The local tip detects an uncoordinated deletion from the end of the history. An
+attacker who can replace the entire directory can also replace an unsigned
+history. Require trusted signatures and retain the accepted tip outside that
+directory when this risk matters.
 
 ## Exit codes
 
-| Command result | Exit |
+| Result | Exit code |
 |---|---:|
-| valid chain or `CURRENT` | `0` |
-| invalid chain or `REVOKED` | `1` |
-| usage or schema error | `2` |
+| valid history or `CURRENT` | `0` |
+| invalid history or `REVOKED` | `1` |
+| invalid command or input | `2` |
 | `HOLD` | `3` |
 | `EXPIRED` | `4` |
 
-## Boundaries
+## Limits
 
-Continuity proves only that recorded trusted inputs were folded under the recorded policy. It cannot prove that every incident was observed, that a linked incident was caused by the change, that a trusted issuer told the truth, or that a platform administrator cannot bypass an external protection. GitHub ingestion, webhooks, deployment gates, hosted storage, and cross-vendor adapters are not implemented in v1 Phase 0.
+The result covers only evidence that was recorded. It cannot prove that every
+incident was observed, that a linked incident was caused by the change, that an
+approved signer told the truth, or that a repository administrator cannot
+bypass GitHub protections. The current importer handles one authenticated
+webhook request at a time. There is no crawler, hosted collector, or GitHub App.

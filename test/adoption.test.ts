@@ -232,7 +232,11 @@ test("Action accepts exactly one evidence mode", () => {
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
   assert.match(action, /VIGIL_RECEIPT/);
   assert.match(action, /VIGIL_AUTHORITY_CONTRACT/);
-  assert.match(action, /choose exactly one of transcript, authority contract, receipt, plan mode, prove mode, maintainer mode, or outcome mode/);
+  assert.match(action, /choose exactly one check input or named mode/);
+  assert.match(action, /mode must be plan, prove, maintainer, outcome, or continuity/);
+  assert.match(action, /continuity mode requires a readable continuity-chain directory/);
+  assert.match(action, /args=\(continuity status --chain "\$VIGIL_CONTINUITY_CHAIN"/);
+  assert.match(action, /inputs\.mode != 'continuity'/);
   assert.match(action, /args=\(plan --repo "\$VIGIL_REPO" --base "\$VIGIL_BASE" --head "\$VIGIL_HEAD"/);
   assert.match(action, /prove mode cannot be combined with another evidence input/);
   assert.match(action, /args=\(prove --repo "\$VIGIL_REPO" --base "\$VIGIL_HEAD" --format json/);

@@ -6,6 +6,7 @@ import {
   readdirSync,
   realpathSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
 import { basename, join, parse, resolve, sep } from "node:path";
 import { canonical, recomputeReceiptHash, type TrustReport } from "../report.ts";
@@ -266,7 +267,14 @@ function readChainFiles(chainDirectory: string): { root: ContinuityRoot; report:
 
 export function verifyContinuityChain(
   chainDirectory: string,
-  options: { now?: Date; maxClockSkewSeconds?: number; pinnedEventKeyIds?: string[] } = {},
+  options: {
+    now?: Date;
+    maxClockSkewSeconds?: number;
+    pinnedEventKeyIds?: string[];
+    expectedBase?: string;
+    expectedHead?: string;
+    repo?: string;
+  } = {},
 ): ChainVerification {
   const errors: string[] = [];
   const now = options.now ?? new Date();
@@ -276,6 +284,31 @@ export function verifyContinuityChain(
   if (root.receiptHash !== report.receiptHash) errors.push("original receipt identity no longer matches the continuity root");
   if (root.rootHash !== rootHash(report)) errors.push("original receipt content no longer matches the continuity root hash");
   if (!sameSubject(root.subject, subjectFor(report))) errors.push("continuity root subject does not match the original receipt");
+  if (options.expectedBase) {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(options.expectedBase)) throw new Error("expected base must be a full lowercase Git object ID");
+    if (root.subject.baseSha !== options.expectedBase) errors.push("continuity root does not match the policy base commit");
+  }
+  if (options.expectedHead) {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(options.expectedHead)) throw new Error("expected head must be a full lowercase Git object ID");
+    if (root.subject.headSha !== options.expectedHead) errors.push("continuity root does not match the expected deployment commit");
+  }
+  if (options.repo) {
+    try {
+      const head = execFileSync("git", ["rev-parse", "--verify", `${root.subject.headSha}^{commit}`], {
+        cwd: resolve(options.repo), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+      const tree = execFileSync("git", ["rev-parse", "--verify", `${root.subject.headSha}^{tree}`], {
+        cwd: resolve(options.repo), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+      if (head !== root.subject.headSha) errors.push("repository resolved the recorded head to a different commit");
+      if (tree !== report.repository.tree) errors.push("repository head tree does not match the original receipt");
+      execFileSync("git", ["merge-base", "--is-ancestor", root.subject.baseSha, root.subject.headSha], {
+        cwd: resolve(options.repo), stdio: ["ignore", "ignore", "ignore"],
+      });
+    } catch {
+      errors.push("recorded base and head are not a verifiable ancestor range in this repository");
+    }
+  }
   if (root.historicalVerification !== report.summary.status) errors.push("historical verification verdict was changed");
   const receiptSignature = rootSignatureState(report);
   if (receiptSignature.present && !receiptSignature.valid) errors.push("original receipt signature is invalid");

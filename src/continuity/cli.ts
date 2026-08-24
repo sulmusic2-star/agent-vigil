@@ -4,14 +4,20 @@ import { publicKeyId } from "../signature.ts";
 import { terminalSafe } from "../upgrade/presentation.ts";
 import { appendContinuityEvent, initializeContinuityChain, verifyContinuityChain } from "./chain.ts";
 import { loadContinuityPolicy, loadEventDraft } from "./contracts.ts";
+import { renderContinuityDemo, runContinuityDemo } from "./demo.ts";
 import { evaluateContinuity } from "./decision.ts";
+import { githubRepositoryFromRemote, importGitHubOutcome } from "./github.ts";
 import { publicChainVerification, renderChainVerification, renderContinuityDecision } from "./presentation.ts";
+import { installContinuityAction } from "./workflow.ts";
 
 const VALUE_FLAGS = new Set([
   "--output", "--chain", "--event", "--signing-key", "--public-key", "--format",
-  "--policy", "--policy-ref", "--repo", "--now", "--environment",
+  "--policy", "--policy-ref", "--repo", "--now", "--environment", "--delivery-id",
+  "--webhook-signature", "--webhook-secret-file", "--observed-at", "--expected-head",
+  "--action-ref", "--source-workflow",
+  "--expected-github-repository",
 ]);
-const BOOLEAN_FLAGS = new Set(["--json"]);
+const BOOLEAN_FLAGS = new Set(["--json", "--unavailable", "--force"]);
 
 function usage(): string {
   return `Agent Vigil continuity — offline successor evidence for one exact receipt
@@ -19,12 +25,17 @@ function usage(): string {
 Usage:
   vigil continuity init <receipt.json> --output <chain-directory>
   vigil continuity append --chain <directory> --event <event.json> [--signing-key <private.pem>]
-  vigil continuity verify --chain <directory> [--public-key <public.pem>] [--format text|json] [--output <file>]
-  vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--now <RFC3339>] [--format text|json] [--output <file>]
+  vigil continuity import-github --chain <directory> --event <webhook.json> --delivery-id <uuid> --webhook-signature <sha256=...> --webhook-secret-file <file> [--signing-key <private.pem>]
+  vigil continuity import-github --chain <directory> --unavailable --delivery-id <uuid> --observed-at <RFC3339> --signing-key <private.pem>
+  vigil continuity demo [--format text|json] [--output <file>]
+  vigil continuity install-action --repo <path> --action-ref <full-commit-sha> [--source-workflow <name>] [--force] [--format text|json]
+  vigil continuity verify --chain <directory> [--expected-head <sha>] [--public-key <public.pem>] [--format text|json] [--output <file>]
+  vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
 
 Examples:
   vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
   vigil continuity append --chain .agent-vigil/continuity --event refreshed.json --signing-key operator.pem
+  vigil continuity import-github --chain .agent-vigil/continuity --event webhook.json --delivery-id <uuid> --webhook-signature <sha256=...> --webhook-secret-file webhook-secret.txt
   vigil continuity verify --chain .agent-vigil/continuity --json
   vigil continuity status --chain .agent-vigil/continuity --policy .agent-vigil-continuity.json --repo . --policy-ref <base-commit-sha> --environment production
 
@@ -143,21 +154,60 @@ function runAppend(args: string[]): number {
 
 function runVerify(args: string[]): number {
   const parsed = parse(args);
-  allowed(parsed, ["--chain", "--public-key", "--format", "--output"], ["--json"]);
+  allowed(parsed, ["--chain", "--expected-head", "--public-key", "--format", "--output"], ["--json"]);
   if (parsed.positional.length) throw new Error("continuity verify accepts only named options");
   const chain = required(parsed, "--chain");
   protectOutput(parsed, chain, [parsed.values.get("--public-key") ?? ""]);
   const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve(parsed.values.get("--public-key")!))] : undefined;
-  const verified = verifyContinuityChain(resolve(chain), { pinnedEventKeyIds: pinned });
+  const verified = verifyContinuityChain(resolve(chain), {
+    pinnedEventKeyIds: pinned,
+    ...(parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head")! } : {}),
+  });
   const publicValue = publicChainVerification(verified);
   outputJson(parsed.values.get("--output"), publicValue);
   process.stdout.write(selectedFormat(parsed) === "json" ? `${JSON.stringify(publicValue, null, 2)}\n` : `${renderChainVerification(verified)}\n`);
   return verified.valid ? 0 : 1;
 }
 
+function runImportGitHub(args: string[]): number {
+  const parsed = parse(args);
+  allowed(parsed, [
+    "--chain", "--event", "--delivery-id", "--webhook-signature", "--webhook-secret-file",
+    "--observed-at", "--signing-key", "--format", "--output",
+  ], ["--json", "--unavailable"]);
+  if (parsed.positional.length) throw new Error("continuity import-github accepts only named options");
+  const chain = required(parsed, "--chain");
+  const inputs = ["--event", "--webhook-secret-file", "--signing-key"].map((name) => parsed.values.get(name) ?? "");
+  protectOutput(parsed, chain, inputs);
+  const receipt = importGitHubOutcome({
+    chain: resolve(chain),
+    deliveryId: required(parsed, "--delivery-id"),
+    ...(parsed.values.get("--event") ? { eventPath: resolve(parsed.values.get("--event")!) } : {}),
+    ...(parsed.values.get("--webhook-signature") ? { webhookSignature: parsed.values.get("--webhook-signature")! } : {}),
+    ...(parsed.values.get("--webhook-secret-file") ? { webhookSecretPath: resolve(parsed.values.get("--webhook-secret-file")!) } : {}),
+    ...(parsed.values.get("--observed-at") ? { observedAt: parsed.values.get("--observed-at")! } : {}),
+    ...(parsed.values.get("--signing-key") ? { signingKeyPath: resolve(parsed.values.get("--signing-key")!) } : {}),
+    unavailable: parsed.flags.has("--unavailable"),
+  });
+  outputJson(parsed.values.get("--output"), receipt);
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
+  } else {
+    const label = receipt.kind.replaceAll("_", " ");
+    process.stdout.write([
+      receipt.appended ? `Recorded ${label}.` : `The ${label} delivery was already recorded; no duplicate was added.`,
+      `  history entries: ${receipt.sequence}`,
+      `  result: ${receipt.disposition}`,
+      `  record: ${receipt.eventHash}`,
+      "",
+    ].join("\n"));
+  }
+  return 0;
+}
+
 function runStatus(args: string[]): number {
   const parsed = parse(args);
-  allowed(parsed, ["--chain", "--policy", "--policy-ref", "--repo", "--now", "--environment", "--public-key", "--format", "--output"], ["--json"]);
+  allowed(parsed, ["--chain", "--policy", "--policy-ref", "--repo", "--now", "--environment", "--expected-head", "--expected-github-repository", "--public-key", "--format", "--output"], ["--json"]);
   if (parsed.positional.length) throw new Error("continuity status accepts only named options");
   const chain = required(parsed, "--chain");
   const policyPath = required(parsed, "--policy");
@@ -172,7 +222,22 @@ function runStatus(args: string[]): number {
     now,
     maxClockSkewSeconds: policy.value.maxClockSkewSeconds,
     pinnedEventKeyIds: pinned,
+    ...(repo ? { repo: resolve(repo) } : {}),
+    ...(policyRef ? { expectedBase: policyRef } : {}),
+    ...(parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head")! } : {}),
   });
+  const expectedRepository = parsed.values.get("--expected-github-repository");
+  if (expectedRepository) {
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(expectedRepository)) throw new Error("--expected-github-repository must be owner/name");
+    try {
+      if (githubRepositoryFromRemote(verified.report.repository.remote) !== expectedRepository.toLowerCase()) {
+        verified.errors.push("continuity receipt belongs to a different GitHub repository");
+      }
+    } catch {
+      verified.errors.push("continuity receipt does not contain a supported GitHub repository remote");
+    }
+    verified.valid = verified.errors.length === 0;
+  }
   const decision = evaluateContinuity(verified, policy, { now, environment: parsed.values.get("--environment") });
   outputJson(parsed.values.get("--output"), decision);
   process.stdout.write(selectedFormat(parsed) === "json" ? `${JSON.stringify(decision, null, 2)}\n` : `${renderContinuityDecision(decision)}\n`);
@@ -180,6 +245,41 @@ function runStatus(args: string[]): number {
   if (decision.continuity === "REVOKED") return 1;
   if (decision.continuity === "HOLD") return 3;
   return 4;
+}
+
+function runDemo(args: string[]): number {
+  const parsed = parse(args);
+  allowed(parsed, ["--format", "--output"], ["--json"]);
+  if (parsed.positional.length) throw new Error("continuity demo accepts only named options");
+  const result = runContinuityDemo();
+  outputJson(parsed.values.get("--output"), result);
+  process.stdout.write(selectedFormat(parsed) === "json" ? `${JSON.stringify(result, null, 2)}\n` : `${renderContinuityDemo(result)}\n`);
+  return 0;
+}
+
+function runInstallAction(args: string[]): number {
+  const parsed = parse(args);
+  allowed(parsed, ["--repo", "--action-ref", "--source-workflow", "--format"], ["--json", "--force"]);
+  if (parsed.positional.length) throw new Error("continuity install-action accepts only named options");
+  const result = installContinuityAction({
+    repo: resolve(required(parsed, "--repo")),
+    actionCommit: required(parsed, "--action-ref"),
+    ...(parsed.values.get("--source-workflow") ? { sourceWorkflow: parsed.values.get("--source-workflow")! } : {}),
+    force: parsed.flags.has("--force"),
+  });
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } else {
+    process.stdout.write([
+      "Continuity deployment check installed locally.",
+      ...result.created.map((path) => `  created: ${path}`),
+      ...result.replaced.map((path) => `  replaced: ${path}`),
+      "  next: add trusted signing key IDs to the policy, review both files, and commit them",
+      "  no deployment step was added",
+      "",
+    ].join("\n"));
+  }
+  return 0;
 }
 
 export function runContinuityCommand(args: string[]): number {
@@ -191,8 +291,11 @@ export function runContinuityCommand(args: string[]): number {
   try {
     if (command === "init") return runInit(rest);
     if (command === "append") return runAppend(rest);
+    if (command === "import-github") return runImportGitHub(rest);
     if (command === "verify") return runVerify(rest);
     if (command === "status") return runStatus(rest);
+    if (command === "demo") return runDemo(rest);
+    if (command === "install-action") return runInstallAction(rest);
     throw new Error(`unknown continuity command: ${command}`);
   } catch (error) {
     console.error(`agent-vigil: ${terminalSafe(error instanceof Error ? error.message : String(error))}`);
