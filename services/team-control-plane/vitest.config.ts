@@ -5,6 +5,7 @@ import { defineConfig } from "vitest/config";
 
 const TEST_SECRETS = {
   TEAM_SESSION_HMAC_SECRET: "test-only-team-session-secret-32-bytes-minimum",
+  COMMERCIAL_ACTOR_HMAC_SECRET: "test-only-commercial-actor-secret-32-bytes-minimum",
   STRIPE_WEBHOOK_SECRET: "test-only-stripe-webhook-secret-32-bytes-minimum",
   STRIPE_RECONCILIATION_HMAC_SECRET: "test-only-reconciliation-secret-32-bytes-minimum",
   GITHUB_WEBHOOK_SECRET: "test-only-github-webhook-secret-32-bytes-minimum",

@@ -31,6 +31,7 @@ async function clearDatabase(): Promise<void> {
     DELETE FROM github_personal_deliveries;
     DELETE FROM github_personal_installations;
     DELETE FROM github_personal_installation_claims;
+    DELETE FROM github_installation_provider_proofs;
     DELETE FROM individual_audit_events;
     DELETE FROM individual_session_mutations;
     DELETE FROM individual_consents;
@@ -195,9 +196,9 @@ function activation(overrides: Record<string, unknown> = {}): Record<string, unk
 
 async function sendPersonalWebhook(
   deliveryId: string,
-  accountType: "User" | "Organization" = "User"
+  accountType: "User" | "Organization" = "User",
+  eventTime = new Date().toISOString()
 ): Promise<Response> {
-  const at = new Date().toISOString();
   const raw = JSON.stringify({
     action: "created",
     installation: {
@@ -205,8 +206,8 @@ async function sendPersonalWebhook(
       app_id: APP_ID,
       account: { node_id: ACCOUNT_NODE_ID, type: accountType, login: "must-never-be-stored" },
       repository_selection: "selected",
-      created_at: at,
-      updated_at: at
+      created_at: eventTime,
+      updated_at: eventTime
     },
     repositories: [
       { node_id: REPOSITORY_NODE_ID, name: "must-never-be-stored", full_name: "private/must-never-be-stored" }
@@ -261,19 +262,35 @@ async function initializeEligibleIndividual(token: string): Promise<void> {
       })
     ).status
   ).toBe(200);
-  expect(
-    (
-      await individualApi("/v1/individual/github/installation-claim", token, {
-        method: "POST",
-        body: { schema_version: "github-personal-installation-claim-v1", installation_id: INSTALLATION_ID }
-      })
-    ).status
-  ).toBe(201);
+  const unprovedClaim = await individualApi("/v1/individual/github/installation-claim", token, {
+    method: "POST",
+    body: {
+      schema_version: "github-personal-installation-claim-v1",
+      installation_id: INSTALLATION_ID,
+      provider_delivery_id: crypto.randomUUID()
+    }
+  });
+  expect(unprovedClaim.status).toBe(409);
+  expect(await unprovedClaim.json()).toMatchObject({ error: { code: "github_provider_proof_required" } });
   const wrongType = await sendPersonalWebhook(crypto.randomUUID(), "Organization");
   expect(wrongType.status).toBe(409);
   expect(await wrongType.json()).toMatchObject({ error: { code: "github_installation_claim_required" } });
   const deliveryId = crypto.randomUUID();
-  expect((await sendPersonalWebhook(deliveryId)).status).toBe(202);
+  const eventTime = new Date().toISOString();
+  expect((await sendPersonalWebhook(deliveryId, "User", eventTime)).status).toBe(409);
+  expect(
+    (
+      await individualApi("/v1/individual/github/installation-claim", token, {
+        method: "POST",
+        body: {
+          schema_version: "github-personal-installation-claim-v1",
+          installation_id: INSTALLATION_ID,
+          provider_delivery_id: deliveryId
+        }
+      })
+    ).status
+  ).toBe(201);
+  expect((await sendPersonalWebhook(deliveryId, "User", eventTime)).status).toBe(202);
   expect((await reconcilePersonal(deliveryId)).status).toBe(200);
   expect((await signedMeasurement("/v1/measurement/bridge", attestation())).status).toBe(201);
 }
@@ -510,6 +527,225 @@ describe("R0 individual measurement lane", () => {
       .first<{ status: string; canonical_subject_token: string }>();
     expect(merged?.status).toBe("merged");
     expect(merged?.canonical_subject_token).toMatch(/^mind_[a-f0-9]{64}$/u);
+  });
+
+  it("flattens A-to-B-to-C merges and lets every alias export and erase the complete cohort", async () => {
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    const identities = [
+      { node: "USER_CHAIN_A_123", sub: "github_oidc_chain_a" },
+      { node: "USER_CHAIN_B_123", sub: "github_oidc_chain_b" },
+      { node: "USER_CHAIN_C_123", sub: "github_oidc_chain_c" }
+    ];
+    const tokens: string[] = [];
+    for (const identity of identities) {
+      const token = await individualSession({ sub: identity.sub, accountNodeId: identity.node });
+      expect(
+        (
+          await individualApi("/v1/individual/measurement-consent", token, {
+            method: "PUT",
+            body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+          })
+        ).status
+      ).toBe(200);
+      tokens.push(token);
+    }
+    const merge = (source: string, target: string, offset: number, fill: string) =>
+      signedMeasurement("/v1/measurement/bridge", {
+        schema_version: "r0-measurement-bridge-v1",
+        message_id: `individual_chain_merge_${offset}`,
+        message_kind: "individual_identity_merge_v1",
+        observed_at: new Date(Date.now() + offset).toISOString(),
+        source_github_account_node_id: source,
+        target_github_account_node_id: target,
+        provider_merge_reference_sha256: fill.repeat(64)
+      });
+    expect((await merge(identities[0]!.node, identities[1]!.node, 10_000, "a")).status).toBe(201);
+    expect((await merge(identities[1]!.node, identities[2]!.node, 20_000, "b")).status).toBe(201);
+
+    const rows = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT subject_token, canonical_subject_token, github_account_node_id, status
+         FROM individual_identities ORDER BY github_account_node_id`
+    ).all<{
+      subject_token: string;
+      canonical_subject_token: string;
+      github_account_node_id: string;
+      status: string;
+    }>();
+    const canonical = rows.results.find((row) => row.github_account_node_id === identities[2]!.node)!;
+    expect(rows.results).toHaveLength(3);
+    expect(rows.results.map((row) => row.canonical_subject_token)).toEqual([
+      canonical.subject_token,
+      canonical.subject_token,
+      canonical.subject_token
+    ]);
+    expect(rows.results.map((row) => row.status)).toEqual(["merged", "merged", "active"]);
+    const cycle = await merge(identities[2]!.node, identities[0]!.node, 30_000, "c");
+    expect(cycle.status).toBe(409);
+
+    const exported = await individualApi("/v1/individual/privacy/export", tokens[0]!);
+    expect(exported.status).toBe(200);
+    const exportBody = await exported.json<{
+      r0_measurement: { identities: unknown[]; identity_merges: unknown[] };
+    }>();
+    expect(exportBody.r0_measurement.identities).toHaveLength(3);
+    expect(exportBody.r0_measurement.identity_merges).toHaveLength(2);
+
+    const requested = await individualApi("/v1/individual/privacy/deletion-requests", tokens[0]!, {
+      method: "POST",
+      body: { schema_version: "individual-deletion-request-v1" }
+    });
+    expect(requested.status).toBe(202);
+    const { confirmation } = await requested.json<{ confirmation: string }>();
+    const deleted = await individualApi("/v1/individual/privacy/data", tokens[0]!, {
+      method: "DELETE",
+      headers: { "X-Deletion-Confirmation": confirmation },
+      body: { schema_version: "individual-deletion-confirmation-v1" }
+    });
+    expect(deleted.status).toBe(200);
+    const allRows = await allApplicationRowsText();
+    for (const identity of identities) expect(allRows).not.toContain(identity.node);
+    expect(allRows).not.toContain("mind_");
+  });
+
+  it("serializes competing identity merges with one canonical winner and no loser record", async () => {
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    const nodes = ["USER_CONCURRENT_X_123", "USER_CONCURRENT_Y_123", "USER_CONCURRENT_Z_123"];
+    for (let index = 0; index < nodes.length; index += 1) {
+      const token = await individualSession({
+        sub: `github_oidc_concurrent_${index}`,
+        accountNodeId: nodes[index]!
+      });
+      expect(
+        (
+          await individualApi("/v1/individual/measurement-consent", token, {
+            method: "PUT",
+            body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+          })
+        ).status
+      ).toBe(200);
+    }
+    const observedAt = new Date(Date.now() + 10_000).toISOString();
+    const competing = [nodes[1]!, nodes[2]!].map((target, index) =>
+      signedMeasurement("/v1/measurement/bridge", {
+        schema_version: "r0-measurement-bridge-v1",
+        message_id: `individual_concurrent_merge_${index}`,
+        message_kind: "individual_identity_merge_v1",
+        observed_at: observedAt,
+        source_github_account_node_id: nodes[0],
+        target_github_account_node_id: target,
+        provider_merge_reference_sha256: String(index + 4).repeat(64)
+      })
+    );
+    const responses = await Promise.all(competing);
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM individual_identity_merges) AS merges,
+         (SELECT COUNT(*) FROM individual_measurement_bridge_messages
+           WHERE message_kind = 'individual_identity_merge_v1') AS merge_messages,
+         source.canonical_subject_token AS canonical,
+         target.status AS target_status,
+         target.canonical_subject_token AS target_canonical,
+         target.github_account_node_id AS target_node
+       FROM individual_identities source
+       JOIN individual_identities target ON target.subject_token = source.canonical_subject_token
+      WHERE source.github_account_node_id = ?1`
+    )
+      .bind(nodes[0])
+      .first<Record<string, unknown>>();
+    expect(state).toMatchObject({ merges: 1, merge_messages: 1, target_status: "active" });
+    expect(state?.canonical).toBe(state?.target_canonical);
+    const targetNode = String(state?.target_node);
+    const loserNode = nodes[1] === targetNode ? nodes[2]! : nodes[1]!;
+    const stale = await signedMeasurement("/v1/measurement/bridge", {
+      schema_version: "r0-measurement-bridge-v1",
+      message_id: "individual_stale_merge",
+      message_kind: "individual_identity_merge_v1",
+      observed_at: new Date(Date.now() - 1_000).toISOString(),
+      source_github_account_node_id: loserNode,
+      target_github_account_node_id: targetNode,
+      provider_merge_reference_sha256: "6".repeat(64)
+    });
+    expect(stale.status).toBe(409);
+    const cycle = await signedMeasurement("/v1/measurement/bridge", {
+      schema_version: "r0-measurement-bridge-v1",
+      message_id: "individual_cycle_merge",
+      message_kind: "individual_identity_merge_v1",
+      observed_at: new Date(Date.now() + 20_000).toISOString(),
+      source_github_account_node_id: targetNode,
+      target_github_account_node_id: nodes[0],
+      provider_merge_reference_sha256: "7".repeat(64)
+    });
+    expect(cycle.status).toBe(409);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS count FROM individual_identity_merges`
+      ).first<{ count: number }>()
+    ).toMatchObject({ count: 1 });
+  });
+
+  it("serializes deletion requests and blocks a canonical merge while erasure is pending", async () => {
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    const sourceNode = "USER_DELETE_MERGE_SOURCE_123";
+    const targetNode = "USER_DELETE_MERGE_TARGET_123";
+    const sourceTokens = await Promise.all([
+      individualSession({ sub: "github_oidc_delete_merge_source", accountNodeId: sourceNode }),
+      individualSession({ sub: "github_oidc_delete_merge_source", accountNodeId: sourceNode })
+    ]);
+    const targetToken = await individualSession({
+      sub: "github_oidc_delete_merge_target",
+      accountNodeId: targetNode
+    });
+    for (const token of [sourceTokens[0]!, targetToken]) {
+      expect(
+        (
+          await individualApi("/v1/individual/measurement-consent", token, {
+            method: "PUT",
+            body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+          })
+        ).status
+      ).toBe(200);
+    }
+    const deletionResponses = await Promise.all(
+      sourceTokens.map((token) =>
+        individualApi("/v1/individual/privacy/deletion-requests", token, {
+          method: "POST",
+          body: { schema_version: "individual-deletion-request-v1" }
+        })
+      )
+    );
+    expect(deletionResponses.map((response) => response.status).sort()).toEqual([202, 409]);
+
+    const merge = await signedMeasurement("/v1/measurement/bridge", {
+      schema_version: "r0-measurement-bridge-v1",
+      message_id: "individual_delete_merge_blocked",
+      message_kind: "individual_identity_merge_v1",
+      observed_at: new Date(Date.now() + 10_000).toISOString(),
+      source_github_account_node_id: sourceNode,
+      target_github_account_node_id: targetNode,
+      provider_merge_reference_sha256: "8".repeat(64)
+    });
+    expect(merge.status).toBe(409);
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM individual_privacy_deletion_requests WHERE status = 'pending') AS pending,
+         (SELECT COUNT(*) FROM individual_identity_merges) AS merges,
+         (SELECT COUNT(*) FROM individual_measurement_bridge_messages
+           WHERE message_id = 'individual_delete_merge_blocked') AS merge_messages,
+         (SELECT status FROM individual_identities
+           WHERE github_account_node_id = ?1) AS source_status,
+         (SELECT COUNT(*) FROM individual_audit_events
+           WHERE action = 'privacy.individual_deletion.requested') AS request_audits`
+    )
+      .bind(sourceNode)
+      .first<Record<string, unknown>>();
+    expect(state).toMatchObject({
+      pending: 1,
+      merges: 0,
+      merge_messages: 0,
+      source_status: "active",
+      request_audits: 1
+    });
   });
 
   it("uses the earliest canonical alias event deterministically for the 60-day cohort", async () => {

@@ -15,6 +15,9 @@ const IDENTITY_BRIDGE_SECRET = "test-only-r0-identity-bridge-secret-32-bytes";
 const ACTIVITY_BRIDGE_SECRET = "test-only-r0-activity-bridge-secret-32-bytes";
 const GITHUB_WEBHOOK_SECRET = "test-only-github-webhook-secret-32-bytes-minimum";
 const GITHUB_RECONCILIATION_SECRET = "test-only-github-reconciliation-secret-32-bytes";
+const COMMERCIAL_ACTOR_SECRET = "test-only-commercial-actor-secret-32-bytes-minimum";
+const STRIPE_WEBHOOK_SECRET = "test-only-stripe-webhook-secret-32-bytes-minimum";
+const STRIPE_RECONCILIATION_SECRET = "test-only-reconciliation-secret-32-bytes-minimum";
 const INDIVIDUAL_IDENTITY_SECRET = "test-only-r0-individual-identity-secret-32-bytes";
 const INDIVIDUAL_SESSION_SECRET = "test-only-individual-session-secret-32-bytes-minimum";
 const APP_ID = 12_345;
@@ -23,6 +26,9 @@ const ACCOUNT_NODE_ID = "ACCT_MEASUREMENT_123";
 const RELEASE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const MEASUREMENT_DUTY_SECRETS = {
   TEAM_SESSION_HMAC_SECRET: SESSION_SECRET,
+  COMMERCIAL_ACTOR_HMAC_SECRET: COMMERCIAL_ACTOR_SECRET,
+  STRIPE_WEBHOOK_SECRET,
+  STRIPE_RECONCILIATION_HMAC_SECRET: STRIPE_RECONCILIATION_SECRET,
   GITHUB_WEBHOOK_SECRET,
   GITHUB_RECONCILIATION_HMAC_SECRET: GITHUB_RECONCILIATION_SECRET,
   R0_MEASUREMENT_CONTROL_HMAC_SECRET: CONTROL_SECRET,
@@ -358,12 +364,13 @@ describe("R0 organization measurement plane", () => {
         collisionsChecked += 1;
       }
     }
-    expect(collisionsChecked).toBe(36);
+    expect(collisionsChecked).toBe((names.length * (names.length - 1)) / 2);
 
     const organizationOnly = { ...configured, R0_INDIVIDUAL_MEASUREMENT_ENABLED: "false" } as const;
     let organizationCollisionsChecked = 0;
-    for (let left = 0; left < 7; left += 1) {
-      for (let right = left + 1; right < 7; right += 1) {
+    const organizationDutyCount = names.length - 2;
+    for (let left = 0; left < organizationDutyCount; left += 1) {
+      for (let right = left + 1; right < organizationDutyCount; right += 1) {
         const leftName = names[left];
         const rightName = names[right];
         if (!leftName || !rightName) throw new Error("organization secret matrix is incomplete");
@@ -376,7 +383,9 @@ describe("R0 organization measurement plane", () => {
         organizationCollisionsChecked += 1;
       }
     }
-    expect(organizationCollisionsChecked).toBe(21);
+    expect(organizationCollisionsChecked).toBe(
+      (organizationDutyCount * (organizationDutyCount - 1)) / 2
+    );
 
     const invalidEnv = new Proxy(env as Env, {
       get(target, property, receiver) {

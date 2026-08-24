@@ -50,7 +50,17 @@ export interface BillingCommandRow {
   command_type: BillingCommandType;
   idempotency_key: string;
   command_json: string;
-  status: "prepared" | "provider_accepted" | "provider_rejected" | "confirmed";
+  status:
+    | "prepared"
+    | "executing"
+    | "compensating"
+    | "provider_accepted"
+    | "provider_rejected"
+    | "confirmed"
+    | "canceled";
+  execution_lease_id: string | null;
+  execution_lease_expires_at: string | null;
+  organization_status: "active" | "deletion_pending" | "deleted";
 }
 
 export interface BillingAccountRow {
@@ -66,7 +76,7 @@ export interface ProviderEventRow {
   event_type:
     | "invoice.paid"
     | "invoice.payment_failed"
-    | "charge.refunded"
+    | "refund.created"
     | "customer.subscription.updated"
     | "customer.subscription.deleted";
   object_id: string;
@@ -84,6 +94,12 @@ export interface StripeSummary {
   internalPriceId: InternalPriceId;
   providerPriceId: string;
   checkoutIntentId: string | null;
+  refundId: string | null;
+  refundAmountCents: number | null;
+  refundChargeId: string | null;
+  refundPaymentIntentId: string | null;
+  refundSourcePaymentEventId: string | null;
+  refundBillingCommandId: string | null;
 }
 
 export interface ReconciliationSnapshot {
@@ -106,6 +122,12 @@ export interface ReconciliationSnapshot {
   period_start: string;
   period_end: string;
   cancel_at_period_end: boolean;
+  provider_refund_id: string | null;
+  provider_charge_id: string | null;
+  provider_payment_intent_id: string | null;
+  source_payment_event_id: string | null;
+  billing_command_id: string | null;
+  cumulative_refund_amount_cents: number;
 }
 
 export type StripeFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;

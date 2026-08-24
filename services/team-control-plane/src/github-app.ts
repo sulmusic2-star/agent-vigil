@@ -3,6 +3,7 @@ import { requireRole } from "./auth.ts";
 import { sha256Hex, verifyHmacHex } from "./crypto.ts";
 import { auditStatement, newId, nowIso } from "./db.ts";
 import { ApiError, jsonResponse, parseJsonObject, readBoundedText, readJsonObject } from "./http.ts";
+import { recordGitHubProviderProof } from "./github-provider-proof.ts";
 import {
   handlePersonalGitHubWebhook,
   loadPersonalDelivery,
@@ -51,6 +52,8 @@ interface ClaimRow {
   github_account_node_id: string;
   org_id: string;
   status: "claimed" | "bound" | "revoked";
+  provider_proof_delivery_id: string | null;
+  claim_expires_at: string | null;
   organization_status: "active" | "deletion_pending" | "deleted";
 }
 
@@ -270,6 +273,7 @@ async function claimForInstallation(db: D1Database, installationId: number): Pro
   return db
     .prepare(
       `SELECT c.installation_id, c.github_account_node_id, c.org_id, c.status,
+              c.provider_proof_delivery_id, c.claim_expires_at,
               o.status AS organization_status
          FROM github_installation_claims c
          JOIN organizations o ON o.id = c.org_id
@@ -421,12 +425,65 @@ export async function claimGitHubInstallation(request: Request, env: Env, auth: 
     throw new ApiError(403, "human_owner_required", "Only a human organization owner can claim an installation.");
   }
   const body = await readJsonObject(request);
-  assertExactKeys(body, ["schema_version", "installation_id", "account_node_id"]);
+  assertExactKeys(body, ["schema_version", "installation_id", "account_node_id", "provider_delivery_id"]);
   if (body.schema_version !== "github-installation-claim-v1") {
     throw new ApiError(400, "invalid_schema", "schema_version must be github-installation-claim-v1.");
   }
   const installationId = requireInteger(body.installation_id, "installation_id", { min: 1 });
   const accountNodeId = requireNodeId(body.account_node_id, "account_node_id");
+  const providerDeliveryId = requireDeliveryId(body.provider_delivery_id, "provider_delivery_id");
+  const at = nowIso();
+  await env.TEAM_CONTROL_DB.batch([
+    env.TEAM_CONTROL_DB.prepare(
+      `DELETE FROM github_installation_claims
+        WHERE status = 'claimed' AND claim_expires_at <= ?1
+          AND NOT EXISTS (
+            SELECT 1 FROM github_installations
+             WHERE installation_id = github_installation_claims.installation_id
+          )`
+    ).bind(at),
+    env.TEAM_CONTROL_DB.prepare(
+      `DELETE FROM github_personal_installation_claims
+        WHERE status = 'claimed' AND claim_expires_at <= ?1
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installations
+             WHERE installation_id = github_personal_installation_claims.installation_id
+          )`
+    ).bind(at),
+    env.TEAM_CONTROL_DB.prepare(
+      `DELETE FROM github_installation_provider_proofs
+        WHERE expires_at <= ?1
+          AND NOT EXISTS (
+            SELECT 1 FROM github_installation_claims
+             WHERE provider_proof_delivery_id = github_installation_provider_proofs.delivery_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installation_claims
+             WHERE provider_proof_delivery_id = github_installation_provider_proofs.delivery_id
+          )`
+    ).bind(at)
+  ]);
+  const proof = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT delivery_id, expires_at
+       FROM github_installation_provider_proofs
+      WHERE delivery_id = ?1 AND installation_id = ?2 AND github_account_node_id = ?3
+        AND account_type = 'Organization' AND consumed_at IS NULL AND expires_at > ?4`
+  )
+    .bind(providerDeliveryId, installationId, accountNodeId, at)
+    .first<{ delivery_id: string; expires_at: string }>();
+  if (!proof) {
+    const duplicate = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT 1 AS found FROM github_installation_claims
+        WHERE installation_id = ?1 AND github_account_node_id = ?2 AND org_id = ?3
+          AND provider_proof_delivery_id = ?4 AND status <> 'revoked'`
+    )
+      .bind(installationId, accountNodeId, auth.orgId, providerDeliveryId)
+      .first<{ found: number }>();
+    if (duplicate) {
+      return jsonResponse({ claimed: true, duplicate: true, installation_id: installationId });
+    }
+    throw new ApiError(409, "github_provider_proof_required", "A recent verified GitHub creation delivery is required.");
+  }
   const existing = await env.TEAM_CONTROL_DB.prepare(
     `SELECT installation_id, github_account_node_id, org_id, status, 'organization' AS lane
        FROM github_installation_claims
@@ -451,24 +508,60 @@ export async function claimGitHubInstallation(request: Request, env: Env, auth: 
     }
     throw new ApiError(409, "github_installation_claim_collision", "Installation, account, or organization is already bound.");
   }
-  const at = nowIso();
-  await env.TEAM_CONTROL_DB.batch([
+  const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO github_installation_claims
-        (installation_id, github_account_node_id, org_id, status, claimed_by, claimed_at, updated_at)
-       VALUES (?1, ?2, ?3, 'claimed', ?4, ?5, ?5)`
-    ).bind(installationId, accountNodeId, auth.orgId, auth.userId, at),
-    auditStatement(env.TEAM_CONTROL_DB, {
-      orgId: auth.orgId,
-      actorType: "user",
-      actorId: auth.userId,
-      action: "github.installation.claimed",
-      resourceType: "github_installation",
-      resourceId: String(installationId),
-      metadata: { account_node_id: accountNodeId },
-      at
-    })
+        (installation_id, github_account_node_id, org_id, status, claimed_by, claimed_at, updated_at,
+         provider_proof_delivery_id, claim_expires_at, bound_at)
+       SELECT ?1, ?2, ?3, 'claimed', ?4, ?5, ?5, ?6, ?7, NULL
+        WHERE EXISTS (
+          SELECT 1 FROM github_installation_provider_proofs
+           WHERE delivery_id = ?6 AND installation_id = ?1 AND github_account_node_id = ?2
+             AND account_type = 'Organization' AND consumed_at IS NULL AND expires_at > ?5
+        )`
+    ).bind(installationId, accountNodeId, auth.orgId, auth.userId, at, providerDeliveryId, proof.expires_at),
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE github_installation_provider_proofs
+          SET consumed_at = ?1, consumed_by_lane = 'organization'
+        WHERE delivery_id = ?2 AND installation_id = ?3 AND github_account_node_id = ?4
+          AND account_type = 'Organization' AND consumed_at IS NULL AND expires_at > ?1
+          AND EXISTS (
+            SELECT 1 FROM github_installation_claims
+             WHERE installation_id = ?3 AND github_account_node_id = ?4 AND org_id = ?5
+               AND status = 'claimed' AND provider_proof_delivery_id = ?2
+          )`
+    ).bind(at, providerDeliveryId, installationId, accountNodeId, auth.orgId),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO audit_events
+        (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+       SELECT ?1, ?2, 'user', ?3, 'github.installation.claimed',
+              'github_installation', ?4, ?5, ?6
+        WHERE EXISTS (
+          SELECT 1 FROM github_installation_claims c
+          JOIN github_installation_provider_proofs p
+            ON p.delivery_id = c.provider_proof_delivery_id
+         WHERE c.installation_id = ?7 AND c.github_account_node_id = ?8 AND c.org_id = ?2
+           AND c.status = 'claimed' AND p.consumed_at = ?6
+           AND p.consumed_by_lane = 'organization'
+        )`
+    ).bind(
+      newId("audit"),
+      auth.orgId,
+      auth.userId,
+      String(installationId),
+      JSON.stringify({ account_node_id: accountNodeId }),
+      at,
+      installationId,
+      accountNodeId
+    )
   ]);
+  if (
+    (results[0]?.meta.changes ?? 0) !== 1 ||
+    (results[1]?.meta.changes ?? 0) !== 1 ||
+    (results[2]?.meta.changes ?? 0) !== 1
+  ) {
+    throw new ApiError(409, "github_claim_concurrent_conflict", "Verified installation proof was claimed concurrently.");
+  }
   return jsonResponse({ claimed: true, installation_id: installationId }, 201);
 }
 
@@ -560,12 +653,23 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
       return jsonResponse({ received: true, duplicate: true, result: existingDelivery.result });
     }
   }
+  if (summary.action === "created") {
+    await recordGitHubProviderProof(env.TEAM_CONTROL_DB, {
+      deliveryId,
+      installationId: summary.installationId,
+      accountNodeId: summary.accountNodeId,
+      accountType: "Organization"
+    });
+  }
   const claim = await claimForInstallation(env.TEAM_CONTROL_DB, summary.installationId);
   if (
     !claim ||
     claim.organization_status !== "active" ||
     claim.status === "revoked" ||
-    claim.github_account_node_id !== summary.accountNodeId
+    claim.github_account_node_id !== summary.accountNodeId ||
+    (claim.status === "claimed" && (!claim.claim_expires_at || claim.claim_expires_at <= nowIso())) ||
+    (summary.action === "created" && claim.provider_proof_delivery_id !== deliveryId) ||
+    (summary.action !== "created" && claim.status !== "bound")
   ) {
     await recordUnclaimedDelivery(env, existingDelivery, deliveryId, payloadHash, summary);
     throw new ApiError(409, "github_installation_claim_required", "A matching active organization claim is required.");
@@ -622,7 +726,13 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
         `INSERT INTO github_installations
           (installation_id, app_id, github_account_node_id, org_id, state, repository_selection,
            last_event_created_at, last_delivery_id, installed_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 'pending_reconciliation', ?5, ?6, ?7, ?8, ?9)`
+         SELECT ?1, ?2, ?3, ?4, 'pending_reconciliation', ?5, ?6, ?7, ?8, ?9
+          WHERE EXISTS (
+            SELECT 1 FROM github_installation_claims
+             WHERE installation_id = ?1 AND github_account_node_id = ?3 AND org_id = ?4
+               AND status = 'claimed' AND provider_proof_delivery_id = ?7
+               AND claim_expires_at > ?9
+          )`
       ).bind(
         summary.installationId,
         summary.appId,
@@ -635,16 +745,24 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
         at
       ),
       env.TEAM_CONTROL_DB.prepare(
-        `UPDATE github_installation_claims SET status = 'bound', updated_at = ?1
-          WHERE installation_id = ?2 AND org_id = ?3 AND github_account_node_id = ?4`
-      ).bind(at, summary.installationId, claim.org_id, summary.accountNodeId),
+        `UPDATE github_installation_claims SET status = 'bound', bound_at = ?1,
+           claim_expires_at = '9999-12-31T23:59:59.999Z', updated_at = ?1
+          WHERE installation_id = ?2 AND org_id = ?3 AND github_account_node_id = ?4
+            AND status = 'claimed' AND provider_proof_delivery_id = ?5 AND claim_expires_at > ?1`
+      ).bind(at, summary.installationId, claim.org_id, summary.accountNodeId, deliveryId),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO organization_members
           (org_id, user_id, role, identity_kind, active, created_at, updated_at)
-         VALUES (?1, ?2, 'member', 'service', 0, ?3, ?3)
+         SELECT ?1, ?2, 'member', 'service', 0, ?3, ?3
+          WHERE EXISTS (
+            SELECT 1 FROM github_installations i
+            JOIN github_installation_claims c ON c.installation_id = i.installation_id
+             WHERE i.installation_id = ?4 AND i.org_id = ?1 AND i.last_delivery_id = ?5
+               AND c.status = 'bound' AND c.provider_proof_delivery_id = ?5
+          )
          ON CONFLICT(org_id, user_id) DO UPDATE SET active = 0, updated_at = excluded.updated_at
          WHERE organization_members.role = 'member' AND organization_members.identity_kind = 'service'`
-      ).bind(claim.org_id, serviceId, at),
+      ).bind(claim.org_id, serviceId, at, summary.installationId, deliveryId),
       repositoryUpsertStatement(
         env.TEAM_CONTROL_DB,
         summary.installationId,
@@ -664,18 +782,35 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
         at,
         true
       ),
-      auditStatement(env.TEAM_CONTROL_DB, {
-        orgId: claim.org_id,
-        actorType: "system",
-        actorId: "github-app:webhook",
-        action: "github.installation.created_pending_reconciliation",
-        resourceType: "github_installation",
-        resourceId: String(summary.installationId),
-        metadata: { repository_selection: summary.repositorySelection },
-        at
-      })
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO audit_events
+          (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+         SELECT ?1, ?2, 'system', 'github-app:webhook',
+                'github.installation.created_pending_reconciliation',
+                'github_installation', ?3, ?4, ?5
+          WHERE EXISTS (
+            SELECT 1 FROM github_installations i
+            JOIN github_installation_claims c ON c.installation_id = i.installation_id
+             WHERE i.installation_id = ?6 AND i.org_id = ?2 AND i.last_delivery_id = ?7
+               AND c.status = 'bound' AND c.provider_proof_delivery_id = ?7
+          )`
+      ).bind(
+        newId("audit"),
+        claim.org_id,
+        String(summary.installationId),
+        JSON.stringify({ repository_selection: summary.repositorySelection }),
+        at,
+        summary.installationId,
+        deliveryId
+      )
     ]);
-    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[2]?.meta.changes ?? 0) !== 1) {
+    if (
+      (results[0]?.meta.changes ?? 0) !== 1 ||
+      (results[1]?.meta.changes ?? 0) !== 1 ||
+      (results[2]?.meta.changes ?? 0) !== 1 ||
+      (results[4]?.meta.changes ?? 0) !== 1 ||
+      (results[5]?.meta.changes ?? 0) !== 1
+    ) {
       throw new ApiError(409, "github_installation_concurrent_conflict", "Installation could not be safely initialized.");
     }
     return jsonResponse({ received: true, state: "pending_reconciliation" }, 202);

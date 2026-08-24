@@ -46,6 +46,7 @@ function reconcilerEnv(controlPlane: Fetcher, overrides: Partial<ReconcilerEnv> 
 
 async function reset(): Promise<void> {
   await env.TEAM_CONTROL_DB.exec(`
+    DELETE FROM provider_refund_applications;
     DELETE FROM provider_reconciliation_snapshots;
     DELETE FROM provider_state_cursors;
     DELETE FROM lifecycle_events;
@@ -243,6 +244,129 @@ describe.sequential("separate Stripe executor and reconciler", () => {
     expect(stored).toEqual({ status: "provider_created", provider_session_id: "cs_test_main" });
   });
 
+  it("expires provider Checkout and records compensation when deletion wins during the network call", async () => {
+    const commandId = "billing_command_checkout_race";
+    const checkoutIntentId = "checkout_intent_race";
+    const metadata = {
+      team_org_id: "org_main",
+      internal_price_id: "team_monthly_usd_v1",
+      provider_price_id: "price_team_monthly_test",
+      checkout_intent_id: checkoutIntentId,
+      contributor_limit: "15"
+    };
+    const command = {
+      schema_version: "checkout-command-v1",
+      command_id: commandId,
+      provider: "stripe",
+      operation: "create_checkout_session",
+      idempotency_key: "checkout_race_idem",
+      parameters: {
+        mode: "subscription",
+        quantity: 1,
+        provider_price_id: "price_team_monthly_test",
+        internal_price_id: "team_monthly_usd_v1",
+        client_reference_id: "org_main",
+        metadata
+      },
+      expires_at: new Date(NOW + 30 * 60_000).toISOString()
+    };
+    await env.TEAM_CONTROL_DB.batch([
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO checkout_intents
+          (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
+           contributor_limit, status, created_by, created_at, expires_at)
+         VALUES (?1, 'org_main', 'checkout_race_idem', 'team_monthly_usd_v1', 'month', 29900,
+                 15, 'prepared', 'userp_test', ?2, ?3)`
+      ).bind(checkoutIntentId, new Date(NOW).toISOString(), command.expires_at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_commands
+          (id, org_id, command_type, idempotency_key, command_json, status, created_by, created_at)
+         VALUES (?1, 'org_main', 'create_checkout_session', 'checkout_race_idem', ?2,
+                 'prepared', 'userp_test', ?3)`
+      ).bind(commandId, JSON.stringify(command), new Date(NOW).toISOString())
+    ]);
+    const calls: string[] = [];
+    const fetchMock = vi.fn<StripeFetch>(async (input, init) => {
+      const path = new URL(input.toString()).pathname;
+      calls.push(path);
+      if (path === "/v1/checkout/sessions") {
+        await env.TEAM_CONTROL_DB.prepare(
+          `UPDATE organizations SET status = 'deletion_pending'
+            WHERE id = 'org_main' AND status = 'active'`
+        ).run();
+        return stripeJson({
+          id: "cs_test_race",
+          object: "checkout.session",
+          livemode: false,
+          mode: "subscription",
+          client_reference_id: "org_main",
+          success_url: "https://app.example.test/billing/success?session_id={CHECKOUT_SESSION_ID}",
+          cancel_url: "https://app.example.test/billing/canceled",
+          metadata,
+          status: "open",
+          url: "https://checkout.stripe.com/c/pay/cs_test_race",
+          line_items: { data: [{ quantity: 1, price: { id: "price_team_monthly_test" } }] }
+        });
+      }
+      expect(path).toBe("/v1/checkout/sessions/cs_test_race/expire");
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("Idempotency-Key")).toBe(
+        `avteam:org_main:${commandId}:expire`
+      );
+      return stripeJson({
+        id: "cs_test_race",
+        object: "checkout.session",
+        livemode: false,
+        status: "expired"
+      });
+    });
+    await expect(
+      handleExecution(
+        await signedRequest(
+          "/v1/execute",
+          {
+            schema_version: "stripe-command-execution-request-v1",
+            request_id: "request_checkout_race",
+            org_id: "org_main",
+            command_id: commandId,
+            return_target: "team_billing_v1"
+          },
+          EXECUTOR_SECRET
+        ),
+        executorEnv(),
+        { stripeFetch: fetchMock, sleep: async () => undefined, now: () => NOW }
+      )
+    ).rejects.toMatchObject({ status: 409, code: "checkout_compensated_for_deletion" });
+    expect(calls).toEqual([
+      "/v1/checkout/sessions",
+      "/v1/checkout/sessions/cs_test_race/expire"
+    ]);
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT i.status AS intent_status, i.provider_session_id, i.compensated_at,
+              c.status AS command_status, c.execution_lease_id
+         FROM checkout_intents i JOIN billing_commands c ON c.org_id = i.org_id
+        WHERE i.id = ?1 AND c.id = ?2`
+    )
+      .bind(checkoutIntentId, commandId)
+      .first<Record<string, unknown>>();
+    expect(state).toMatchObject({
+      intent_status: "canceled",
+      provider_session_id: "cs_test_race",
+      command_status: "canceled",
+      execution_lease_id: null
+    });
+    expect(String(state?.compensated_at)).toMatch(/^2026-08-23T20:00:00/u);
+    const deleted = await env.TEAM_CONTROL_DB.prepare(
+      `UPDATE organizations SET status = 'deleted'
+        WHERE id = 'org_main' AND status = 'deletion_pending'
+          AND NOT EXISTS (
+            SELECT 1 FROM checkout_intents WHERE org_id = 'org_main'
+              AND status IN ('executing', 'provider_created', 'compensating')
+          )`
+    ).run();
+    expect(deleted.meta.changes).toBe(1);
+  });
+
   it("executes cancellation only against the tenant-bound subscription", async () => {
     await seedAccount();
     const commandId = "billing_command_cancel";
@@ -296,7 +420,13 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       subscriptionId: "sub_main",
       internalPriceId: "team_monthly_usd_v1",
       providerPriceId: "price_team_monthly_test",
-      checkoutIntentId: null
+      checkoutIntentId: null,
+      refundId: null,
+      refundAmountCents: null,
+      refundChargeId: null,
+      refundPaymentIntentId: null,
+      refundSourcePaymentEventId: null,
+      refundBillingCommandId: null
     };
     const commandId = "billing_command_refund";
     const command = {
@@ -412,7 +542,13 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       subscriptionId: "sub_main",
       internalPriceId: "team_monthly_usd_v1",
       providerPriceId: "price_team_monthly_test",
-      checkoutIntentId: null
+      checkoutIntentId: null,
+      refundId: null,
+      refundAmountCents: null,
+      refundChargeId: null,
+      refundPaymentIntentId: null,
+      refundSourcePaymentEventId: null,
+      refundBillingCommandId: null
     };
     await env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO provider_events
@@ -510,12 +646,18 @@ describe.sequential("separate Stripe executor and reconciler", () => {
     await seedAccount();
     const summary = {
       orgId: "org_main",
-      objectId: "ch_main",
+      objectId: "re_main",
       customerId: "cus_main",
       subscriptionId: "sub_main",
       internalPriceId: "team_monthly_usd_v1",
       providerPriceId: "price_team_monthly_test",
-      checkoutIntentId: null
+      checkoutIntentId: null,
+      refundId: "re_main",
+      refundAmountCents: 29_900,
+      refundChargeId: "ch_main",
+      refundPaymentIntentId: "pi_main",
+      refundSourcePaymentEventId: "evt_paid",
+      refundBillingCommandId: "billing_command_refund"
     };
     const command = {
       schema_version: "billing-command-v1",
@@ -541,7 +683,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
         `INSERT INTO provider_events
           (event_id, provider, event_type, object_id, org_id, event_created, payload_sha256,
            summary_json, status, received_at)
-         VALUES ('evt_refund', 'stripe', 'charge.refunded', 'ch_main', 'org_main', ?1, ?2,
+         VALUES ('evt_refund', 'stripe', 'refund.created', 're_main', 'org_main', ?1, ?2,
                  ?3, 'awaiting_reconciliation', ?4)`
       ).bind(Math.floor(NOW / 1000), "c".repeat(64), JSON.stringify(summary), new Date(NOW).toISOString()),
       env.TEAM_CONTROL_DB.prepare(
@@ -561,32 +703,54 @@ describe.sequential("separate Stripe executor and reconciler", () => {
           api_version: STRIPE_API_VERSION,
           livemode: false,
           created: Math.floor(NOW / 1000),
-          type: "charge.refunded",
+          type: "refund.created",
           data: {
             object: {
-              id: "ch_main",
-              object: "charge",
+              id: "re_main",
+              object: "refund",
               livemode: false,
-              customer: "cus_main",
+              charge: "ch_main",
               payment_intent: "pi_main",
               currency: "usd",
               status: "succeeded",
-              amount_refunded: 29_900
+              amount: 29_900,
+              metadata: {
+                team_org_id: "org_main",
+                source_payment_event_id: "evt_paid",
+                billing_command_id: "billing_command_refund"
+              }
             }
           }
         });
       }
       if (url.pathname === "/v1/subscriptions/sub_main") return stripeJson(subscription());
-      expect(url.pathname).toBe("/v1/refunds/re_main");
+      if (url.pathname === "/v1/refunds/re_main") {
+        return stripeJson({
+          id: "re_main",
+          object: "refund",
+          livemode: false,
+          charge: "ch_main",
+          payment_intent: "pi_main",
+          amount: 29_900,
+          currency: "usd",
+          status: "succeeded",
+          metadata: {
+            team_org_id: "org_main",
+            source_payment_event_id: "evt_paid",
+            billing_command_id: "billing_command_refund"
+          }
+        });
+      }
+      expect(url.pathname).toBe("/v1/charges/ch_main");
       return stripeJson({
-        id: "re_main",
-        object: "refund",
+        id: "ch_main",
+        object: "charge",
         livemode: false,
-        charge: "ch_main",
+        customer: "cus_main",
         payment_intent: "pi_main",
-        amount: 29_900,
         currency: "usd",
-        status: "succeeded"
+        status: "succeeded",
+        amount_refunded: 29_900
       });
     });
     let submitted: Record<string, unknown> | null = null;
@@ -618,10 +782,183 @@ describe.sequential("separate Stripe executor and reconciler", () => {
     expect(submitted).toMatchObject({
       source_event_id: "evt_refund",
       kind: "refund",
-      provider_object_id: "ch_main",
+      provider_object_id: "re_main",
       provider_status: "refunded",
       refund_amount_cents: 29_900,
-      net_recurring_amount_cents: 29_900
+      net_recurring_amount_cents: 29_900,
+      provider_refund_id: "re_main",
+      provider_charge_id: "ch_main",
+      provider_payment_intent_id: "pi_main",
+      source_payment_event_id: "evt_paid",
+      billing_command_id: "billing_command_refund",
+      cumulative_refund_amount_cents: 29_900
+    });
+  });
+
+  it("reconciles an out-of-band partial Refund from its exact provider identity and amount", async () => {
+    await seedAccount();
+    const paidSummary = {
+      orgId: "org_main",
+      objectId: "in_main",
+      customerId: "cus_main",
+      subscriptionId: "sub_main",
+      internalPriceId: "team_monthly_usd_v1",
+      providerPriceId: "price_team_monthly_test",
+      checkoutIntentId: null,
+      refundId: null,
+      refundAmountCents: null,
+      refundChargeId: null,
+      refundPaymentIntentId: null,
+      refundSourcePaymentEventId: null,
+      refundBillingCommandId: null
+    };
+    const outOfBandSummary = {
+      ...paidSummary,
+      objectId: "re_out_of_band",
+      refundId: "re_out_of_band",
+      refundAmountCents: 19_900,
+      refundChargeId: "ch_main",
+      refundPaymentIntentId: "pi_main",
+      refundSourcePaymentEventId: "evt_paid",
+      refundBillingCommandId: null
+    };
+    const priorCommand = {
+      schema_version: "billing-command-v1",
+      command_id: "billing_command_prior_refund",
+      provider: "stripe",
+      operation: "request_refund",
+      idempotency_key: "refund_prior_idem",
+      amount_cents: 10_000,
+      currency: "usd",
+      source_payment_event_id: "evt_paid",
+      paid_features_materially_used: true,
+      reason: "case_by_case",
+      provider_result: {
+        refund_id: "re_prior_api",
+        payment_intent_id: "pi_main",
+        charge_id: "ch_main",
+        amount_cents: 10_000,
+        source_payment_event_id: "evt_paid"
+      }
+    };
+    await env.TEAM_CONTROL_DB.batch([
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO provider_events
+          (event_id, provider, event_type, object_id, org_id, event_created, payload_sha256,
+           summary_json, status, received_at, reconciled_at)
+         VALUES ('evt_paid', 'stripe', 'invoice.paid', 'in_main', 'org_main', ?1, ?2,
+                 ?3, 'reconciled', ?4, ?4)`
+      ).bind(Math.floor(NOW / 1000) - 10, "d".repeat(64), JSON.stringify(paidSummary), new Date(NOW).toISOString()),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO cash_ledger
+          (id, org_id, source_event_id, entry_type, amount_cents, currency, occurred_at)
+         VALUES ('cash_main', 'org_main', 'evt_paid', 'payment', 29900, 'usd', ?1)`
+      ).bind(new Date(NOW).toISOString()),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_commands
+          (id, org_id, command_type, idempotency_key, command_json, status, created_by, created_at)
+         VALUES ('billing_command_prior_refund', 'org_main', 'request_refund', 'refund_prior_idem', ?1,
+                 'provider_accepted', 'user_owner', ?2)`
+      ).bind(JSON.stringify(priorCommand), new Date(NOW).toISOString()),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO provider_events
+          (event_id, provider, event_type, object_id, org_id, event_created, payload_sha256,
+           summary_json, status, received_at)
+         VALUES ('evt_refund_out_of_band', 'stripe', 'refund.created', 're_out_of_band', 'org_main', ?1, ?2,
+                 ?3, 'awaiting_reconciliation', ?4)`
+      ).bind(Math.floor(NOW / 1000), "e".repeat(64), JSON.stringify(outOfBandSummary), new Date(NOW).toISOString())
+    ]);
+
+    const stripeFetch = vi.fn<StripeFetch>(async (input, init) => {
+      expect(init?.method).toBe("GET");
+      const url = new URL(input.toString());
+      if (url.pathname === "/v1/events/evt_refund_out_of_band") {
+        return stripeJson({
+          id: "evt_refund_out_of_band",
+          object: "event",
+          api_version: STRIPE_API_VERSION,
+          livemode: false,
+          created: Math.floor(NOW / 1000),
+          type: "refund.created",
+          data: {
+            object: {
+              id: "re_out_of_band",
+              object: "refund",
+              livemode: false,
+              charge: "ch_main",
+              payment_intent: "pi_main",
+              currency: "usd",
+              status: "succeeded",
+              amount: 19_900,
+              metadata: {}
+            }
+          }
+        });
+      }
+      if (url.pathname === "/v1/subscriptions/sub_main") return stripeJson(subscription());
+      if (url.pathname === "/v1/refunds/re_out_of_band") {
+        return stripeJson({
+          id: "re_out_of_band",
+          object: "refund",
+          livemode: false,
+          charge: "ch_main",
+          payment_intent: "pi_main",
+          amount: 19_900,
+          currency: "usd",
+          status: "succeeded",
+          metadata: {}
+        });
+      }
+      expect(url.pathname).toBe("/v1/charges/ch_main");
+      return stripeJson({
+        id: "ch_main",
+        object: "charge",
+        livemode: false,
+        customer: "cus_main",
+        payment_intent: "pi_main",
+        currency: "usd",
+        status: "succeeded",
+        amount_refunded: 29_900
+      });
+    });
+    let submitted: Record<string, unknown> | null = null;
+    const controlPlane = {
+      fetch: async (request: Request): Promise<Response> => {
+        submitted = await request.json<Record<string, unknown>>();
+        return stripeJson({ reconciled: true });
+      }
+    } as unknown as Fetcher;
+    const response = await handleReconciliation(
+      await signedRequest(
+        "/v1/reconcile",
+        {
+          schema_version: "stripe-reconciliation-request-v1",
+          request_id: "request_out_of_band_refund_reconcile",
+          source_event_id: "evt_refund_out_of_band"
+        },
+        RECONCILER_INVOKE_SECRET
+      ),
+      reconcilerEnv(controlPlane),
+      {
+        stripeFetch,
+        sleep: async () => undefined,
+        now: () => NOW,
+        randomUUID: () => "00000000-0000-4000-8000-000000000003"
+      }
+    );
+    expect(response.status).toBe(200);
+    expect(submitted).toMatchObject({
+      source_event_id: "evt_refund_out_of_band",
+      kind: "refund",
+      provider_object_id: "re_out_of_band",
+      refund_amount_cents: 19_900,
+      net_recurring_amount_cents: 19_900,
+      provider_refund_id: "re_out_of_band",
+      provider_charge_id: "ch_main",
+      provider_payment_intent_id: "pi_main",
+      source_payment_event_id: "evt_paid",
+      billing_command_id: null,
+      cumulative_refund_amount_cents: 29_900
     });
   });
 
@@ -643,6 +980,35 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       )
     ).rejects.toMatchObject({ code: "feature_disabled", status: 503 });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects every active Stripe adapter duty-secret collision before reading commands", async () => {
+    await expect(
+      handleExecution(
+        new Request("https://adapter.internal/v1/execute", { method: "POST", body: "{}" }),
+        executorEnv({ STRIPE_EXECUTOR_RESTRICTED_KEY: EXECUTOR_SECRET })
+      )
+    ).rejects.toMatchObject({ status: 503, code: "adapter_secret_configuration_invalid" });
+
+    const controlPlane = { fetch: vi.fn() } as unknown as Fetcher;
+    const base = reconcilerEnv(controlPlane);
+    const keys = [
+      "TEAM_STRIPE_RECONCILER_INVOKE_HMAC_SECRET",
+      "STRIPE_READONLY_SECRET_KEY",
+      "STRIPE_RECONCILIATION_HMAC_SECRET"
+    ] as const;
+    for (let left = 0; left < keys.length; left += 1) {
+      for (let right = left + 1; right < keys.length; right += 1) {
+        const leftKey = keys[left]!;
+        const rightKey = keys[right]!;
+        await expect(
+          handleReconciliation(
+            new Request("https://adapter.internal/v1/reconcile", { method: "POST", body: "{}" }),
+            { ...base, [rightKey]: base[leftKey] }
+          )
+        ).rejects.toMatchObject({ status: 503, code: "adapter_secret_configuration_invalid" });
+      }
+    }
   });
 
   it("retries a transient Stripe failure with identical idempotency and bounds network timeouts", async () => {

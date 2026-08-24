@@ -117,9 +117,13 @@ async function route(request: Request, env: Env): Promise<Response> {
     throw new ApiError(404, "not_found", "Route not found.");
   }
   const orgId = requireOrgId(segments[2]);
-  const auth = await authenticate(request, env, orgId);
   const resource = segments[3];
   const child = segments[4];
+  const auth = await authenticate(request, env, orgId, {
+    allowDeletionPending:
+      (resource === "privacy" && (child === "export" || child === "data")) ||
+      (resource === "billing" && child !== "checkout")
+  });
 
   if (!resource && request.method === "GET") {
     return getOrganization(env, auth);

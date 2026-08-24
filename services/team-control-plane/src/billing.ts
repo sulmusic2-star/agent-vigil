@@ -9,8 +9,10 @@ import {
   recognizedMrrMicros
 } from "./catalog.ts";
 import { sha256Hex, verifyHmacHex } from "./crypto.ts";
+import { commercialActorPseudonym } from "./commercial-privacy.ts";
 import { auditStatement, getEntitlement, lifecycleStatement, newId, nowIso, userAudit } from "./db.ts";
 import { ApiError, jsonResponse, parseJsonObject, readBoundedText, readJsonObject } from "./http.ts";
+import { assertBillingDutySecretSeparation } from "./measurement-security.ts";
 import {
   assertExactKeys,
   requireBoolean,
@@ -31,7 +33,7 @@ type SupportedStripeEventType =
   | "checkout.session.completed"
   | "invoice.paid"
   | "invoice.payment_failed"
-  | "charge.refunded"
+  | "refund.created"
   | "customer.subscription.updated"
   | "customer.subscription.deleted";
 
@@ -77,6 +79,12 @@ interface StripeSummary {
   internalPriceId: InternalPriceId;
   providerPriceId: string;
   checkoutIntentId: string | null;
+  refundId: string | null;
+  refundAmountCents: number | null;
+  refundChargeId: string | null;
+  refundPaymentIntentId: string | null;
+  refundSourcePaymentEventId: string | null;
+  refundBillingCommandId: string | null;
 }
 
 interface ReconciliationSnapshot {
@@ -98,6 +106,12 @@ interface ReconciliationSnapshot {
   periodStart: string;
   periodEnd: string;
   cancelAtPeriodEnd: boolean;
+  providerRefundId: string | null;
+  providerChargeId: string | null;
+  providerPaymentIntentId: string | null;
+  sourcePaymentEventId: string | null;
+  billingCommandId: string | null;
+  cumulativeRefundAmountCents: number;
 }
 
 function nullableProviderId(value: unknown, field: string): string | null {
@@ -165,59 +179,149 @@ function extractStripeSummary(eventType: SupportedStripeEventType, object: Recor
       throw new ApiError(400, "invalid_provider_event", "Checkout session is missing its checkout intent identifier.");
     }
   }
-  return { ...metadata, objectId, customerId, subscriptionId };
+  return {
+    ...metadata,
+    objectId,
+    customerId,
+    subscriptionId,
+    refundId: null,
+    refundAmountCents: null,
+    refundChargeId: null,
+    refundPaymentIntentId: null,
+    refundSourcePaymentEventId: null,
+    refundBillingCommandId: null
+  };
 }
 
 async function extractRefundStripeSummary(env: Env, object: Record<string, unknown>): Promise<StripeSummary> {
-  const chargeId = requireOpaqueId(object.id, "data.object.id", 255);
-  const customerId = requireOpaqueId(object.customer, "data.object.customer", 255);
+  if (object.object !== "refund" || object.currency !== "usd") {
+    throw new ApiError(400, "invalid_provider_event", "Refund event does not contain a canonical USD Refund object.");
+  }
+  const refundId = requireOpaqueId(object.id, "data.object.id", 255);
+  const chargeId = requireOpaqueId(object.charge, "data.object.charge", 255);
   const paymentIntentId = requireOpaqueId(object.payment_intent, "data.object.payment_intent", 255);
+  const amountCents = requireInteger(object.amount, "data.object.amount", { min: 1, max: 10_000_000 });
+  const status = requireString(object.status, "data.object.status", { max: 32 });
+  if (!["pending", "requires_action", "succeeded"].includes(status)) {
+    throw new ApiError(400, "invalid_provider_event", "Refund event has an unsupported status.");
+  }
+  const metadata = requireObject(object.metadata, "data.object.metadata");
   const bindings = await env.TEAM_CONTROL_DB.prepare(
-    `SELECT bc.org_id, bc.command_json, ba.provider_customer_id, ba.provider_subscription_id,
+    `SELECT bc.id, bc.org_id, bc.command_json, ba.provider_customer_id, ba.provider_subscription_id,
             ba.internal_price_id
        FROM billing_commands bc
        JOIN billing_accounts ba ON ba.org_id = bc.org_id
       WHERE bc.command_type = 'request_refund'
         AND bc.status IN ('provider_accepted', 'confirmed')
-        AND json_extract(bc.command_json, '$.provider_result.charge_id') = ?1
-        AND ba.provider_customer_id = ?2
+        AND json_extract(bc.command_json, '$.provider_result.refund_id') = ?1
       LIMIT 2`
   )
-    .bind(chargeId, customerId)
+    .bind(refundId)
     .all<{
+      id: string;
       org_id: string;
       command_json: string;
       provider_customer_id: string;
       provider_subscription_id: string;
       internal_price_id: string;
     }>();
-  if (bindings.results.length !== 1) {
-    throw new ApiError(409, "refund_command_binding_missing", "Refund event is not bound to one accepted command.");
+  let binding = bindings.results[0];
+  let sourcePaymentEventId: string;
+  let billingCommandId: string | null;
+  if (bindings.results.length === 1 && binding) {
+    const metadataOrgId = requireOrgId(requireString(metadata.team_org_id, "metadata.team_org_id", { max: 64 }));
+    sourcePaymentEventId = requireOpaqueId(
+      metadata.source_payment_event_id,
+      "metadata.source_payment_event_id",
+      255
+    );
+    billingCommandId = requireOpaqueId(metadata.billing_command_id, "metadata.billing_command_id", 255);
+    let command: unknown;
+    try {
+      command = JSON.parse(binding.command_json);
+    } catch {
+      throw new ApiError(500, "billing_command_corrupt", "Stored refund command could not be verified.");
+    }
+    const commandObject = requireObject(command, "refund command");
+    const providerResult = requireObject(commandObject.provider_result, "refund command provider_result");
+    if (
+      binding.id !== billingCommandId ||
+      binding.org_id !== metadataOrgId ||
+      providerResult.charge_id !== chargeId ||
+      providerResult.payment_intent_id !== paymentIntentId ||
+      providerResult.refund_id !== refundId ||
+      providerResult.amount_cents !== amountCents ||
+      providerResult.source_payment_event_id !== sourcePaymentEventId
+    ) {
+      throw new ApiError(409, "refund_command_binding_mismatch", "Refund event does not match its accepted command.");
+    }
+  } else if (bindings.results.length === 0) {
+    const sourceBindings = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT DISTINCT bc.org_id,
+              json_extract(bc.command_json, '$.provider_result.source_payment_event_id') AS source_payment_event_id,
+              ba.provider_customer_id, ba.provider_subscription_id, ba.internal_price_id
+         FROM billing_commands bc
+         JOIN billing_accounts ba ON ba.org_id = bc.org_id
+        WHERE bc.command_type = 'request_refund'
+          AND bc.status IN ('provider_accepted', 'confirmed')
+          AND json_extract(bc.command_json, '$.provider_result.charge_id') = ?1
+          AND json_extract(bc.command_json, '$.provider_result.payment_intent_id') = ?2
+        LIMIT 2`
+    )
+      .bind(chargeId, paymentIntentId)
+      .all<{
+        org_id: string;
+        source_payment_event_id: string;
+        provider_customer_id: string;
+        provider_subscription_id: string;
+        internal_price_id: string;
+      }>();
+    if (sourceBindings.results.length !== 1) {
+      throw new ApiError(409, "refund_source_binding_missing", "Out-of-band Refund has no unique confirmed source payment binding.");
+    }
+    const sourceBinding = sourceBindings.results[0]!;
+    if (
+      (metadata.team_org_id !== undefined && metadata.team_org_id !== sourceBinding.org_id) ||
+      (metadata.source_payment_event_id !== undefined &&
+        metadata.source_payment_event_id !== sourceBinding.source_payment_event_id) ||
+      metadata.billing_command_id !== undefined
+    ) {
+      throw new ApiError(409, "refund_source_binding_mismatch", "Out-of-band Refund metadata conflicts with provider-bound payment state.");
+    }
+    binding = {
+      id: "",
+      org_id: sourceBinding.org_id,
+      command_json: "{}",
+      provider_customer_id: sourceBinding.provider_customer_id,
+      provider_subscription_id: sourceBinding.provider_subscription_id,
+      internal_price_id: sourceBinding.internal_price_id
+    };
+    sourcePaymentEventId = requireOpaqueId(
+      sourceBinding.source_payment_event_id,
+      "source_payment_event_id",
+      255
+    );
+    billingCommandId = null;
+  } else {
+    throw new ApiError(409, "refund_command_binding_ambiguous", "Refund identifier is bound to multiple commands.");
   }
-  const binding = bindings.results[0]!;
-  let command: unknown;
-  try {
-    command = JSON.parse(binding.command_json);
-  } catch {
-    throw new ApiError(500, "billing_command_corrupt", "Stored refund command could not be verified.");
-  }
-  const commandObject = requireObject(command, "refund command");
-  const providerResult = requireObject(commandObject.provider_result, "refund command provider_result");
-  if (
-    providerResult.charge_id !== chargeId ||
-    providerResult.payment_intent_id !== paymentIntentId ||
-    !isInternalPriceId(binding.internal_price_id)
-  ) {
-    throw new ApiError(409, "refund_command_binding_mismatch", "Refund event does not match its accepted command.");
+  if (!binding || !isInternalPriceId(binding.internal_price_id)) {
+    throw new ApiError(409, "refund_source_binding_mismatch", "Refund source price binding is invalid.");
   }
   return {
     orgId: binding.org_id,
-    objectId: chargeId,
-    customerId,
+    objectId: refundId,
+    customerId: requireOpaqueId(binding.provider_customer_id, "provider_customer_id", 255),
     subscriptionId: requireOpaqueId(binding.provider_subscription_id, "provider_subscription_id", 255),
     internalPriceId: binding.internal_price_id,
     providerPriceId: providerPriceId(env, binding.internal_price_id),
-    checkoutIntentId: null
+    checkoutIntentId: null,
+    refundId,
+    refundAmountCents: amountCents,
+    refundChargeId: chargeId,
+    refundPaymentIntentId: paymentIntentId,
+    refundSourcePaymentEventId: sourcePaymentEventId,
+    refundBillingCommandId: billingCommandId
   };
 }
 
@@ -351,6 +455,7 @@ async function rejectProviderTenantCollision(
 
 export async function prepareCheckout(request: Request, env: Env, auth: AuthContext): Promise<Response> {
   requireRole(auth, ["owner", "billing"]);
+  assertBillingDutySecretSeparation(env);
   const idempotencyKey = requireIdempotencyKey(request);
   const body = await readJsonObject(request);
   assertExactKeys(body, ["internal_price_id"]);
@@ -378,6 +483,7 @@ export async function prepareCheckout(request: Request, env: Env, auth: AuthCont
     throw new ApiError(409, "already_entitled", "This organization already has an active Team entitlement.");
   }
   const at = nowIso();
+  const actorPseudonym = await commercialActorPseudonym(env, auth.orgId, auth.userId);
   const checkoutIntentId = newId("checkout");
   const commandId = newId("billing_command");
   const expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
@@ -403,41 +509,101 @@ export async function prepareCheckout(request: Request, env: Env, auth: AuthCont
     },
     expires_at: expiresAt
   };
-  await env.TEAM_CONTROL_DB.batch([
-    env.TEAM_CONTROL_DB.prepare(
-      `INSERT INTO checkout_intents
-        (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
-         contributor_limit, status, created_by, created_at, expires_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 15, 'prepared', ?7, ?8, ?9)`
-    ).bind(
-      checkoutIntentId,
-      auth.orgId,
-      idempotencyKey,
-      internalPriceId,
-      price.interval,
-      price.listAmountCents,
-      auth.userId,
-      at,
-      expiresAt
-    ),
-    env.TEAM_CONTROL_DB.prepare(
-      `INSERT INTO billing_commands
-        (id, org_id, command_type, idempotency_key, command_json, status, created_by, created_at)
-       VALUES (?1, ?2, 'create_checkout_session', ?3, ?4, 'prepared', ?5, ?6)`
-    ).bind(commandId, auth.orgId, idempotencyKey, JSON.stringify(command), auth.userId, at),
-    env.TEAM_CONTROL_DB.prepare(
-      `INSERT OR IGNORE INTO billing_accounts (org_id, commercial_state, updated_at)
-       VALUES (?1, 'offer_shown', ?2)`
-    ).bind(auth.orgId, at),
-    userAudit(env.TEAM_CONTROL_DB, auth, "team.checkout.command_prepared", "billing_command", commandId, at, {
-      internal_price_id: internalPriceId
-    })
-  ]);
+  let results: D1Result[];
+  try {
+    results = await env.TEAM_CONTROL_DB.batch([
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO checkout_intents
+          (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
+           contributor_limit, status, created_by, created_at, expires_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 15, 'prepared', ?7, ?8, ?9
+          WHERE EXISTS (
+            SELECT 1 FROM organizations WHERE id = ?2 AND status = 'active'
+          )
+            AND NOT EXISTS (
+              SELECT 1 FROM checkout_intents
+               WHERE org_id = ?2
+                 AND status IN ('prepared', 'executing', 'provider_created', 'compensating')
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM billing_accounts
+               WHERE org_id = ?2 AND provider_subscription_id IS NOT NULL
+                 AND commercial_state NOT IN ('expired', 'refunded')
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM entitlements
+               WHERE org_id = ?2 AND status IN ('active', 'grace') AND ends_at > ?8
+            )`
+      ).bind(
+        checkoutIntentId,
+        auth.orgId,
+        idempotencyKey,
+        internalPriceId,
+        price.interval,
+        price.listAmountCents,
+        actorPseudonym,
+        at,
+        expiresAt
+      ),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_commands
+          (id, org_id, command_type, idempotency_key, command_json, status, created_by, created_at)
+         SELECT ?1, ?2, 'create_checkout_session', ?3, ?4, 'prepared', ?5, ?6
+          WHERE EXISTS (
+            SELECT 1 FROM checkout_intents WHERE id = ?7 AND org_id = ?2 AND status = 'prepared'
+          )`
+      ).bind(commandId, auth.orgId, idempotencyKey, JSON.stringify(command), actorPseudonym, at, checkoutIntentId),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT OR IGNORE INTO billing_accounts (org_id, commercial_state, updated_at)
+         SELECT ?1, 'offer_shown', ?2
+          WHERE EXISTS (
+            SELECT 1 FROM checkout_intents WHERE id = ?3 AND org_id = ?1 AND status = 'prepared'
+          )`
+      ).bind(auth.orgId, at, checkoutIntentId),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO audit_events
+          (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+         SELECT ?1, ?2, 'user', ?3, 'team.checkout.command_prepared',
+                'billing_command', ?4, ?5, ?6
+          WHERE EXISTS (
+            SELECT 1 FROM checkout_intents WHERE id = ?7 AND org_id = ?2 AND status = 'prepared'
+          )`
+      ).bind(
+        newId("audit"),
+        auth.orgId,
+        auth.userId,
+        commandId,
+        JSON.stringify({ internal_price_id: internalPriceId }),
+        at,
+        checkoutIntentId
+      )
+    ]);
+  } catch (error) {
+    const live = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT id FROM checkout_intents
+        WHERE org_id = ?1 AND status IN ('prepared', 'executing', 'provider_created', 'compensating')
+        LIMIT 1`
+    )
+      .bind(auth.orgId)
+      .first();
+    if (live) {
+      throw new ApiError(409, "checkout_workflow_already_live", "This organization already has a live checkout workflow.");
+    }
+    throw error;
+  }
+  if (
+    (results[0]?.meta.changes ?? 0) !== 1 ||
+    (results[1]?.meta.changes ?? 0) !== 1 ||
+    (results[3]?.meta.changes ?? 0) !== 1
+  ) {
+    throw new ApiError(409, "checkout_workflow_already_live", "This organization already has a live checkout workflow.");
+  }
   return jsonResponse({ command_id: commandId, checkout_intent_id: checkoutIntentId, command }, 202);
 }
 
 export async function prepareCancellation(request: Request, env: Env, auth: AuthContext): Promise<Response> {
   requireRole(auth, ["owner", "billing"]);
+  assertBillingDutySecretSeparation(env);
   const idempotencyKey = requireIdempotencyKey(request);
   const body = await readJsonObject(request);
   assertExactKeys(body, ["reason"]);
@@ -462,6 +628,7 @@ export async function prepareCancellation(request: Request, env: Env, auth: Auth
     throw new ApiError(409, "no_cancelable_subscription", "No cancelable Team subscription is present.");
   }
   const at = nowIso();
+  const actorPseudonym = await commercialActorPseudonym(env, auth.orgId, auth.userId);
   const commandId = newId("billing_command");
   const command = {
     schema_version: "billing-command-v1",
@@ -477,7 +644,7 @@ export async function prepareCancellation(request: Request, env: Env, auth: Auth
       `INSERT INTO billing_commands
         (id, org_id, command_type, idempotency_key, command_json, status, created_by, created_at)
        VALUES (?1, ?2, 'cancel_at_period_end', ?3, ?4, 'prepared', ?5, ?6)`
-    ).bind(commandId, auth.orgId, idempotencyKey, JSON.stringify(command), auth.userId, at),
+    ).bind(commandId, auth.orgId, idempotencyKey, JSON.stringify(command), actorPseudonym, at),
     userAudit(env.TEAM_CONTROL_DB, auth, "team.cancellation.command_prepared", "billing_command", commandId, at, {
       reason
     })
@@ -487,6 +654,7 @@ export async function prepareCancellation(request: Request, env: Env, auth: Auth
 
 export async function prepareRefund(request: Request, env: Env, auth: AuthContext): Promise<Response> {
   requireRole(auth, ["owner", "billing"]);
+  assertBillingDutySecretSeparation(env);
   const idempotencyKey = requireIdempotencyKey(request);
   const body = await readJsonObject(request);
   assertExactKeys(body, ["reason", "amount_cents", "paid_features_materially_used", "source_payment_event_id"]);
@@ -542,6 +710,7 @@ export async function prepareRefund(request: Request, env: Env, auth: AuthContex
     throw new ApiError(409, "refund_exceeds_net_cash", "Refund amount exceeds provider-confirmed net cash.");
   }
   const at = nowIso();
+  const actorPseudonym = await commercialActorPseudonym(env, auth.orgId, auth.userId);
   const commandId = newId("billing_command");
   const command = {
     schema_version: "billing-command-v1",
@@ -560,7 +729,7 @@ export async function prepareRefund(request: Request, env: Env, auth: AuthContex
       `INSERT INTO billing_commands
         (id, org_id, command_type, idempotency_key, command_json, status, created_by, created_at)
        VALUES (?1, ?2, 'request_refund', ?3, ?4, 'prepared', ?5, ?6)`
-    ).bind(commandId, auth.orgId, idempotencyKey, JSON.stringify(command), auth.userId, at),
+    ).bind(commandId, auth.orgId, idempotencyKey, JSON.stringify(command), actorPseudonym, at),
     userAudit(env.TEAM_CONTROL_DB, auth, "team.refund.command_prepared", "billing_command", commandId, at, {
       reason,
       amount_cents: amountCents,
@@ -584,6 +753,7 @@ export async function listBillingCommands(env: Env, auth: AuthContext): Promise<
 }
 
 export async function handleStripeWebhook(request: Request, env: Env): Promise<Response> {
+  assertBillingDutySecretSeparation(env);
   const rawBody = await readBoundedText(request, WEBHOOK_BODY_LIMIT);
   await verifySignedPayload(request.headers.get("Stripe-Signature"), rawBody, env.STRIPE_WEBHOOK_SECRET);
   const event = parseJsonObject(rawBody);
@@ -604,7 +774,7 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
     "checkout.session.completed",
     "invoice.paid",
     "invoice.payment_failed",
-    "charge.refunded",
+    "refund.created",
     "customer.subscription.updated",
     "customer.subscription.deleted"
   ]);
@@ -615,32 +785,53 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
   const data = requireObject(event.data, "event.data");
   const object = requireObject(data.object, "event.data.object");
   const summary =
-    eventType === "charge.refunded"
+    eventType === "refund.created"
       ? await extractRefundStripeSummary(env, object)
       : extractStripeSummary(eventType, object);
+  const organization = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT status FROM organizations WHERE id = ?1`
+  )
+    .bind(summary.orgId)
+    .first<{ status: "active" | "deletion_pending" | "deleted" }>();
+  if (!organization || organization.status === "deleted") {
+    throw new ApiError(410, "organization_deleted", "Provider events cannot mutate a deleted organization.");
+  }
   if (summary.providerPriceId !== providerPriceId(env, summary.internalPriceId)) {
     throw new ApiError(409, "provider_price_mismatch", "Provider event does not match the canonical price catalog.");
   }
   const payloadHash = await sha256Hex(rawBody);
   const at = nowIso();
-  const insert = await env.TEAM_CONTROL_DB.prepare(
-    `INSERT OR IGNORE INTO provider_events
-      (event_id, provider, event_type, object_id, org_id, event_created, payload_sha256,
-       summary_json, status, received_at)
-     VALUES (?1, 'stripe', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
-  )
-    .bind(
-      eventId,
-      eventType,
-      summary.objectId,
-      summary.orgId,
-      eventCreated,
-      payloadHash,
-      JSON.stringify(summary),
-      eventType === "checkout.session.completed" ? "ignored" : "awaiting_reconciliation",
-      at
+  let insert: D1Result;
+  try {
+    insert = await env.TEAM_CONTROL_DB.prepare(
+      `INSERT OR IGNORE INTO provider_events
+        (event_id, provider, event_type, object_id, org_id, event_created, payload_sha256,
+         summary_json, status, received_at)
+       VALUES (?1, 'stripe', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
     )
-    .run();
+      .bind(
+        eventId,
+        eventType,
+        summary.objectId,
+        summary.orgId,
+        eventCreated,
+        payloadHash,
+        JSON.stringify(summary),
+        eventType === "checkout.session.completed" ? "ignored" : "awaiting_reconciliation",
+        at
+      )
+      .run();
+  } catch (error) {
+    const current = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT status FROM organizations WHERE id = ?1`
+    )
+      .bind(summary.orgId)
+      .first<{ status: string }>();
+    if (!current || current.status === "deleted") {
+      throw new ApiError(410, "organization_deleted", "Provider events cannot mutate a deleted organization.");
+    }
+    throw error;
+  }
   if ((insert.meta.changes ?? 0) === 0) {
     const existing = await env.TEAM_CONTROL_DB.prepare(
       `SELECT payload_sha256 FROM provider_events WHERE event_id = ?1`
@@ -689,7 +880,7 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
       !checkout ||
       checkout.org_id !== summary.orgId ||
       checkout.internal_price_id !== summary.internalPriceId ||
-      !["prepared", "provider_created"].includes(checkout.status) ||
+      !["prepared", "executing", "provider_created", "compensating"].includes(checkout.status) ||
       eventCreated * 1000 > Date.parse(checkout.expires_at) + SIGNATURE_TOLERANCE_SECONDS * 1000
     ) {
       throw new ApiError(409, "checkout_tenant_mismatch", "Checkout session does not match the prepared tenant intent.");
@@ -700,21 +891,50 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
       summary.customerId,
       summary.subscriptionId
     );
+    if (
+      account?.provider_subscription_id &&
+      (account.provider_subscription_id !== summary.subscriptionId || account.provider_customer_id !== summary.customerId)
+    ) {
+      await env.TEAM_CONTROL_DB.prepare(
+        `UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1`
+      )
+        .bind(eventId)
+        .run();
+      throw new ApiError(
+        409,
+        "checkout_workflow_collision",
+        "A second provider subscription cannot replace the organization billing binding."
+      );
+    }
     const previousState = account?.commercial_state ?? "offer_shown";
-    await env.TEAM_CONTROL_DB.batch([
+    let completionResults: D1Result[];
+    try {
+      completionResults = await env.TEAM_CONTROL_DB.batch([
+        env.TEAM_CONTROL_DB.prepare(
+          `UPDATE checkout_intents SET status = 'completed', provider_session_id = ?1,
+             execution_lease_id = NULL, execution_lease_expires_at = NULL
+            WHERE id = ?2 AND org_id = ?3
+              AND status IN ('prepared', 'executing', 'provider_created', 'compensating')
+              AND EXISTS (SELECT 1 FROM organizations WHERE id = ?3 AND status <> 'deleted')`
+        ).bind(summary.objectId, summary.checkoutIntentId, summary.orgId),
       env.TEAM_CONTROL_DB.prepare(
-        `UPDATE checkout_intents SET status = 'completed', provider_session_id = ?1 WHERE id = ?2`
-      ).bind(summary.objectId, summary.checkoutIntentId),
-      env.TEAM_CONTROL_DB.prepare(
-        `UPDATE billing_commands SET status = 'confirmed'
+        `UPDATE billing_commands SET status = 'confirmed', execution_lease_id = NULL,
+             execution_lease_expires_at = NULL
           WHERE org_id = ?1 AND command_type = 'create_checkout_session'
+            AND status IN ('prepared', 'executing', 'provider_accepted', 'compensating')
             AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?2`
       ).bind(summary.orgId, summary.checkoutIntentId),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO billing_accounts
           (org_id, provider_customer_id, provider_subscription_id, commercial_state, internal_price_id,
            billing_interval, contributor_limit, updated_at)
-         VALUES (?1, ?2, ?3, 'payment_pending', ?4, ?5, 15, ?6)
+         SELECT ?1, ?2, ?3, 'payment_pending', ?4, ?5, 15, ?6
+          WHERE EXISTS (
+            SELECT 1 FROM billing_commands
+             WHERE org_id = ?1 AND command_type = 'create_checkout_session' AND status = 'confirmed'
+               AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?7
+          )
+            AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status <> 'deleted')
          ON CONFLICT(org_id) DO UPDATE SET
            provider_customer_id = excluded.provider_customer_id,
            provider_subscription_id = excluded.provider_subscription_id,
@@ -728,7 +948,8 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
         summary.subscriptionId,
         summary.internalPriceId,
         TEAM_PRICES[summary.internalPriceId].interval,
-        at
+        at,
+        summary.checkoutIntentId
       ),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO commercial_transitions
@@ -756,7 +977,25 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
         resourceId: eventId,
         at
       })
-    ]);
+      ]);
+    } catch (error) {
+      const current = await env.TEAM_CONTROL_DB.prepare(
+        `SELECT status FROM organizations WHERE id = ?1`
+      )
+        .bind(summary.orgId)
+        .first<{ status: string }>();
+      if (!current || current.status === "deleted") {
+        throw new ApiError(410, "organization_deleted", "Provider events cannot mutate a deleted organization.");
+      }
+      throw error;
+    }
+    if (
+      (completionResults[0]?.meta.changes ?? 0) !== 1 ||
+      (completionResults[1]?.meta.changes ?? 0) !== 1 ||
+      (completionResults[2]?.meta.changes ?? 0) !== 1
+    ) {
+      throw new ApiError(409, "checkout_completion_conflict", "Checkout completion lost its atomic billing binding.");
+    }
   } else {
     await env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO audit_events
@@ -787,6 +1026,12 @@ function parseReconciliation(body: Record<string, unknown>): ReconciliationSnaps
     "cash_amount_cents",
     "net_recurring_amount_cents",
     "refund_amount_cents",
+    "provider_refund_id",
+    "provider_charge_id",
+    "provider_payment_intent_id",
+    "source_payment_event_id",
+    "billing_command_id",
+    "cumulative_refund_amount_cents",
     "period_start",
     "period_end",
     "cancel_at_period_end"
@@ -827,6 +1072,16 @@ function parseReconciliation(body: Record<string, unknown>): ReconciliationSnaps
       min: 0,
       max: 10_000_000
     }),
+    providerRefundId: nullableProviderId(body.provider_refund_id, "provider_refund_id"),
+    providerChargeId: nullableProviderId(body.provider_charge_id, "provider_charge_id"),
+    providerPaymentIntentId: nullableProviderId(body.provider_payment_intent_id, "provider_payment_intent_id"),
+    sourcePaymentEventId: nullableProviderId(body.source_payment_event_id, "source_payment_event_id"),
+    billingCommandId: nullableProviderId(body.billing_command_id, "billing_command_id"),
+    cumulativeRefundAmountCents: requireInteger(
+      body.cumulative_refund_amount_cents,
+      "cumulative_refund_amount_cents",
+      { min: 0, max: 10_000_000 }
+    ),
     periodStart: requireIsoDate(body.period_start, "period_start"),
     periodEnd: requireIsoDate(body.period_end, "period_end"),
     cancelAtPeriodEnd: requireBoolean(body.cancel_at_period_end, "cancel_at_period_end")
@@ -840,7 +1095,7 @@ function expectedEventType(kind: ReconciliationKind): readonly SupportedStripeEv
     case "payment_failure":
       return ["invoice.payment_failed"];
     case "refund":
-      return ["charge.refunded"];
+      return ["refund.created"];
     case "subscription":
       return ["customer.subscription.updated", "customer.subscription.deleted"];
   }
@@ -855,7 +1110,8 @@ function validateReconciliationValues(snapshot: ReconciliationSnapshot): void {
       snapshot.providerStatus !== "paid" ||
       snapshot.cashAmountCents <= 0 ||
       snapshot.netRecurringAmountCents <= 0 ||
-      snapshot.refundAmountCents !== 0
+      snapshot.refundAmountCents !== 0 ||
+      !refundFieldsAreEmpty(snapshot)
     ) {
       throw new ApiError(400, "invalid_payment_snapshot", "Payment reconciliation values are inconsistent.");
     }
@@ -864,15 +1120,22 @@ function validateReconciliationValues(snapshot: ReconciliationSnapshot): void {
       snapshot.providerStatus !== "failed" ||
       snapshot.cashAmountCents !== 0 ||
       snapshot.netRecurringAmountCents !== 0 ||
-      snapshot.refundAmountCents !== 0
+      snapshot.refundAmountCents !== 0 ||
+      !refundFieldsAreEmpty(snapshot)
     ) {
       throw new ApiError(400, "invalid_failure_snapshot", "Payment-failure reconciliation values are inconsistent.");
     }
   } else if (snapshot.kind === "refund") {
     if (
       snapshot.providerStatus !== "refunded" ||
+      snapshot.cashAmountCents !== 0 ||
       snapshot.refundAmountCents <= 0 ||
-      snapshot.netRecurringAmountCents <= 0
+      snapshot.netRecurringAmountCents !== snapshot.refundAmountCents ||
+      snapshot.providerRefundId !== snapshot.providerObjectId ||
+      !snapshot.providerChargeId ||
+      !snapshot.providerPaymentIntentId ||
+      !snapshot.sourcePaymentEventId ||
+      snapshot.cumulativeRefundAmountCents < snapshot.refundAmountCents
     ) {
       throw new ApiError(400, "invalid_refund_snapshot", "Refund reconciliation values are inconsistent.");
     }
@@ -883,11 +1146,23 @@ function validateReconciliationValues(snapshot: ReconciliationSnapshot): void {
       ) ||
       snapshot.cashAmountCents !== 0 ||
       snapshot.netRecurringAmountCents !== 0 ||
-      snapshot.refundAmountCents !== 0
+      snapshot.refundAmountCents !== 0 ||
+      !refundFieldsAreEmpty(snapshot)
     ) {
       throw new ApiError(400, "invalid_subscription_snapshot", "Subscription reconciliation values are inconsistent.");
     }
   }
+}
+
+function refundFieldsAreEmpty(snapshot: ReconciliationSnapshot): boolean {
+  return (
+    snapshot.providerRefundId === null &&
+    snapshot.providerChargeId === null &&
+    snapshot.providerPaymentIntentId === null &&
+    snapshot.sourcePaymentEventId === null &&
+    snapshot.billingCommandId === null &&
+    snapshot.cumulativeRefundAmountCents === 0
+  );
 }
 
 async function rejectSnapshot(
@@ -957,6 +1232,7 @@ async function claimProviderState(
 }
 
 export async function handleProviderReconciliation(request: Request, env: Env): Promise<Response> {
+  assertBillingDutySecretSeparation(env);
   const rawBody = await readBoundedText(request, 65_536);
   await verifySignedPayload(
     request.headers.get("Agent-Vigil-Reconciliation-Signature"),
@@ -997,6 +1273,15 @@ export async function handleProviderReconciliation(request: Request, env: Env): 
     return jsonResponse({ reconciled: true, duplicate: true });
   }
   const summary = JSON.parse(event.summary_json) as StripeSummary;
+  const organization = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT status FROM organizations WHERE id = ?1`
+  )
+    .bind(snapshot.orgId)
+    .first<{ status: "active" | "deletion_pending" | "deleted" }>();
+  if (!organization || organization.status === "deleted") {
+    await rejectSnapshot(env, snapshot, event, payloadHash, "rejected");
+    throw new ApiError(410, "organization_deleted", "Reconciliation cannot mutate a deleted organization.");
+  }
   if (
     !expectedEventType(snapshot.kind).includes(event.event_type) ||
     event.org_id !== snapshot.orgId ||
@@ -1005,7 +1290,14 @@ export async function handleProviderReconciliation(request: Request, env: Env): 
     (summary.customerId !== null && summary.customerId !== snapshot.providerCustomerId) ||
     (summary.subscriptionId !== null && summary.subscriptionId !== snapshot.providerSubscriptionId) ||
     summary.internalPriceId !== snapshot.internalPriceId ||
-    summary.providerPriceId !== snapshot.providerPriceId
+    summary.providerPriceId !== snapshot.providerPriceId ||
+    (snapshot.kind === "refund" &&
+      (summary.refundId !== snapshot.providerRefundId ||
+        summary.refundAmountCents !== snapshot.refundAmountCents ||
+        summary.refundChargeId !== snapshot.providerChargeId ||
+        summary.refundPaymentIntentId !== snapshot.providerPaymentIntentId ||
+        summary.refundSourcePaymentEventId !== snapshot.sourcePaymentEventId ||
+        summary.refundBillingCommandId !== snapshot.billingCommandId))
   ) {
     await rejectSnapshot(env, snapshot, event, payloadHash, "rejected");
     throw new ApiError(409, "reconciliation_mismatch", "Reconciliation does not match the signed provider event.");
@@ -1025,6 +1317,7 @@ export async function handleProviderReconciliation(request: Request, env: Env): 
     throw new ApiError(409, "provider_binding_mismatch", "Provider identifiers do not match the tenant billing account.");
   }
   if (
+    snapshot.kind !== "refund" &&
     account?.last_reconciled_event_created !== null &&
     account?.last_reconciled_event_created !== undefined &&
     (event.event_created < account.last_reconciled_event_created ||
@@ -1033,19 +1326,31 @@ export async function handleProviderReconciliation(request: Request, env: Env): 
     await rejectSnapshot(env, snapshot, event, payloadHash, "stale");
     throw new ApiError(409, "stale_provider_event", "An older or ambiguously ordered event cannot change billing state.");
   }
-  if (!(await claimProviderState(env, snapshot, event))) {
+  if (snapshot.kind !== "refund" && !(await claimProviderState(env, snapshot, event))) {
     await rejectSnapshot(env, snapshot, event, payloadHash, "stale");
     throw new ApiError(409, "stale_provider_event", "Provider chronology was claimed by a newer or competing event.");
   }
 
-  if (snapshot.kind === "payment") {
-    await applyPayment(env, snapshot, event, account, payloadHash);
-  } else if (snapshot.kind === "payment_failure") {
-    await applyPaymentFailure(env, snapshot, event, account, payloadHash);
-  } else if (snapshot.kind === "refund") {
-    await applyRefund(env, snapshot, event, account, payloadHash);
-  } else {
-    await applySubscription(env, snapshot, event, account, payloadHash);
+  try {
+    if (snapshot.kind === "payment") {
+      await applyPayment(env, snapshot, event, account, payloadHash);
+    } else if (snapshot.kind === "payment_failure") {
+      await applyPaymentFailure(env, snapshot, event, account, payloadHash);
+    } else if (snapshot.kind === "refund") {
+      await applyRefund(env, snapshot, event, account, payloadHash);
+    } else {
+      await applySubscription(env, snapshot, event, account, payloadHash);
+    }
+  } catch (error) {
+    const current = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT status FROM organizations WHERE id = ?1`
+    )
+      .bind(snapshot.orgId)
+      .first<{ status: string }>();
+    if (!current || current.status === "deleted") {
+      throw new ApiError(410, "organization_deleted", "Reconciliation cannot mutate a deleted organization.");
+    }
+    throw error;
   }
   return jsonResponse({ reconciled: true, source_event_id: event.event_id });
 }
@@ -1255,6 +1560,23 @@ async function applyRefund(
   if (!account) {
     throw new ApiError(409, "billing_account_missing", "A refund cannot bind an unknown billing account.");
   }
+  if (
+    !snapshot.providerRefundId ||
+    !snapshot.providerChargeId ||
+    !snapshot.providerPaymentIntentId ||
+    !snapshot.sourcePaymentEventId
+  ) {
+    throw new ApiError(400, "invalid_refund_snapshot", "Refund reconciliation is missing its exact provider binding.");
+  }
+  const sourcePayment = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT amount_cents FROM cash_ledger
+      WHERE org_id = ?1 AND source_event_id = ?2 AND entry_type = 'payment'`
+  )
+    .bind(snapshot.orgId, snapshot.sourcePaymentEventId)
+    .first<{ amount_cents: number }>();
+  if (!sourcePayment || snapshot.cumulativeRefundAmountCents > sourcePayment.amount_cents) {
+    throw new ApiError(409, "refund_exceeds_source_payment", "Provider refund exceeds its exact confirmed payment.");
+  }
   const netCash = await env.TEAM_CONTROL_DB.prepare(
     `SELECT COALESCE(SUM(amount_cents), 0) AS total FROM cash_ledger WHERE org_id = ?1`
   )
@@ -1264,22 +1586,62 @@ async function applyRefund(
     throw new ApiError(409, "refund_exceeds_net_cash", "Provider refund exceeds confirmed net cash.");
   }
   const adjustment = recognizedMrrMicros(snapshot.netRecurringAmountCents, snapshot.internalPriceId);
-  const nextMrr = Math.max(0, account.current_recognized_mrr_micros - adjustment);
-  const fullyRefunded = nextMrr === 0;
+  const fullyRefunded = snapshot.cumulativeRefundAmountCents === sourcePayment.amount_cents;
   const at = nowIso();
   const statements = reconciliationBaseStatements(env, snapshot, event, payloadHash, at);
   statements.push(
     env.TEAM_CONTROL_DB.prepare(
-      `UPDATE billing_commands SET status = 'confirmed'
-        WHERE org_id = ?1 AND command_type = 'request_refund' AND status = 'provider_accepted'
-          AND json_extract(command_json, '$.provider_result.charge_id') = ?2
-          AND json_extract(command_json, '$.provider_result.amount_cents') = ?3`
-    ).bind(snapshot.orgId, snapshot.providerObjectId, snapshot.refundAmountCents),
+      `INSERT INTO provider_refund_applications
+        (provider_refund_id, org_id, billing_command_id, source_payment_event_id,
+         source_refund_event_id, provider_charge_id, provider_payment_intent_id,
+         amount_cents, cumulative_amount_cents, applied_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+    ).bind(
+      snapshot.providerRefundId,
+      snapshot.orgId,
+      snapshot.billingCommandId,
+      snapshot.sourcePaymentEventId,
+      event.event_id,
+      snapshot.providerChargeId,
+      snapshot.providerPaymentIntentId,
+      snapshot.refundAmountCents,
+      snapshot.cumulativeRefundAmountCents,
+      at
+    ),
     env.TEAM_CONTROL_DB.prepare(
-      `UPDATE billing_accounts SET commercial_state = ?1, current_recognized_mrr_micros = ?2,
-        last_reconciled_event_created = ?3, last_reconciled_event_id = ?4, updated_at = ?5
-       WHERE org_id = ?6`
-    ).bind(fullyRefunded ? "refunded" : account.commercial_state, nextMrr, event.event_created, event.event_id, at, snapshot.orgId),
+      `UPDATE billing_commands SET status = 'confirmed'
+        WHERE id = ?1 AND org_id = ?2 AND command_type = 'request_refund' AND status = 'provider_accepted'
+          AND json_extract(command_json, '$.provider_result.refund_id') = ?3
+          AND json_extract(command_json, '$.provider_result.charge_id') = ?4
+          AND json_extract(command_json, '$.provider_result.payment_intent_id') = ?5
+          AND json_extract(command_json, '$.provider_result.source_payment_event_id') = ?6
+          AND json_extract(command_json, '$.provider_result.amount_cents') = ?7`
+    ).bind(
+      snapshot.billingCommandId,
+      snapshot.orgId,
+      snapshot.providerRefundId,
+      snapshot.providerChargeId,
+      snapshot.providerPaymentIntentId,
+      snapshot.sourcePaymentEventId,
+      snapshot.refundAmountCents
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE billing_accounts SET commercial_state = ?1,
+        current_recognized_mrr_micros = CASE
+          WHEN ?2 = 1 THEN 0
+          ELSE MAX(0, current_recognized_mrr_micros - ?3)
+        END,
+        last_reconciled_event_created = ?4, last_reconciled_event_id = ?5, updated_at = ?6
+       WHERE org_id = ?7`
+    ).bind(
+      fullyRefunded ? "refunded" : account.commercial_state,
+      fullyRefunded ? 1 : 0,
+      adjustment,
+      event.event_created,
+      event.event_id,
+      at,
+      snapshot.orgId
+    ),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE entitlements SET status = ?1, source_event_id = ?2, updated_at = ?3 WHERE org_id = ?4`
     ).bind(fullyRefunded ? "refunded" : "active", event.event_id, at, snapshot.orgId),
@@ -1323,7 +1685,15 @@ async function applyRefund(
       at
     })
   );
-  await env.TEAM_CONTROL_DB.batch(statements);
+  const results = await env.TEAM_CONTROL_DB.batch(statements);
+  const expectedCommandChanges = snapshot.billingCommandId === null ? 0 : 1;
+  if (
+    (results[3]?.meta.changes ?? 0) !== 1 ||
+    (results[4]?.meta.changes ?? 0) !== expectedCommandChanges ||
+    (results[5]?.meta.changes ?? 0) !== 1
+  ) {
+    throw new ApiError(409, "refund_binding_conflict", "Refund reconciliation lost its exact command binding.");
+  }
 }
 
 async function applySubscription(

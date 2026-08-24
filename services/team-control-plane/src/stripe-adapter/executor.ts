@@ -8,6 +8,7 @@ import type {
 } from "./contracts.ts";
 import {
   AdapterError,
+  assertAdapterDutySecretSeparation,
   boolean,
   configuredPrice,
   exactKeys,
@@ -26,13 +27,15 @@ import {
 } from "./safe.ts";
 import {
   billingAccount,
+  claimCheckoutExecution,
   checkoutIntent,
   executableCommand,
   markCheckoutAccepted,
+  markCheckoutCompensated,
   markCommandAccepted,
   sourcePaymentContext
 } from "./store.ts";
-import { invoicePaymentsPath, StripeClient, stripePath } from "./stripe-http.ts";
+import { checkoutSessionExpirePath, invoicePaymentsPath, StripeClient, stripePath } from "./stripe-http.ts";
 
 interface ParsedCheckout {
   command: Record<string, unknown>;
@@ -285,11 +288,22 @@ async function executeCheckout(
   if (
     !intent ||
     intent.internal_price_id !== parsed.internalPriceId ||
-    !["prepared", "provider_created"].includes(intent.status) ||
+    !["prepared", "executing", "provider_created", "compensating"].includes(intent.status) ||
     Date.parse(intent.expires_at) < now
   ) {
     throw new AdapterError(409, "checkout_intent_mismatch", "Prepared checkout intent is not executable.");
   }
+  const leaseId = `checkout_lease_${crypto.randomUUID()}`;
+  const leasedAt = new Date(now).toISOString();
+  const leaseExpiresAt = new Date(now + 60_000).toISOString();
+  await claimCheckoutExecution(
+    env.TEAM_CONTROL_DB,
+    row,
+    parsed.checkoutIntentId,
+    leaseId,
+    leasedAt,
+    leaseExpiresAt
+  );
   const urls = returnUrls(env);
   const form = new URLSearchParams();
   form.set("mode", "subscription");
@@ -332,7 +346,37 @@ async function executeCheckout(
   ) {
     throw new AdapterError(502, "stripe_response_invalid", "Stripe checkout response failed binding validation.");
   }
-  await markCheckoutAccepted(env.TEAM_CONTROL_DB, row, parsed.command, parsed.checkoutIntentId, sessionId);
+  const accepted = await markCheckoutAccepted(
+    env.TEAM_CONTROL_DB,
+    row,
+    parsed.command,
+    parsed.checkoutIntentId,
+    sessionId,
+    leaseId
+  );
+  if (!accepted) {
+    const expired = await stripe.request(checkoutSessionExpirePath(sessionId), {
+      method: "POST",
+      idempotencyKey: `${providerIdempotency(row)}:expire`
+    });
+    if (expired.object !== "checkout.session" || expired.id !== sessionId || expired.status !== "expired") {
+      throw new AdapterError(502, "checkout_compensation_unproven", "Stripe did not prove Checkout compensation.");
+    }
+    await markCheckoutCompensated(
+      env.TEAM_CONTROL_DB,
+      row,
+      parsed.command,
+      parsed.checkoutIntentId,
+      sessionId,
+      leaseId,
+      new Date(now).toISOString()
+    );
+    throw new AdapterError(
+      409,
+      "checkout_compensated_for_deletion",
+      "Checkout was expired because organization deletion won the execution race."
+    );
+  }
   return noStoreJson({
     schema_version: "stripe-command-execution-result-v1",
     request_id: null,
@@ -491,6 +535,10 @@ export async function handleExecution(
   if (env.STRIPE_EXECUTION_ENABLED !== "true") {
     throw new AdapterError(503, "feature_disabled", "Stripe execution is disabled.");
   }
+  assertAdapterDutySecretSeparation([
+    { name: "TEAM_STRIPE_EXECUTOR_HMAC_SECRET", value: env.TEAM_STRIPE_EXECUTOR_HMAC_SECRET },
+    { name: "STRIPE_EXECUTOR_RESTRICTED_KEY", value: env.STRIPE_EXECUTOR_RESTRICTED_KEY }
+  ]);
   const raw = await readBoundedBody(request);
   await verifyInvocation(request, raw, env.TEAM_STRIPE_EXECUTOR_HMAC_SECRET, dependencies.now?.());
   const invocation = executionInvocation(raw);

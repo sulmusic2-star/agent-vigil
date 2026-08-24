@@ -9,7 +9,9 @@
     "provider_customer_id", "provider_subscription_id", "provider_object_id", "internal_price_id",
     "provider_price_id", "provider_status", "currency", "cash_amount_cents",
     "net_recurring_amount_cents", "refund_amount_cents", "period_start", "period_end",
-    "cancel_at_period_end"
+    "cancel_at_period_end", "provider_refund_id", "provider_charge_id",
+    "provider_payment_intent_id", "source_payment_event_id", "billing_command_id",
+    "cumulative_refund_amount_cents"
   ],
   "properties": {
     "schema_version": { "const": "billing-reconciliation-v1" },
@@ -28,10 +30,40 @@
     "cash_amount_cents": { "type": "integer", "minimum": 0, "maximum": 10000000 },
     "net_recurring_amount_cents": { "type": "integer", "minimum": 0, "maximum": 10000000 },
     "refund_amount_cents": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "provider_refund_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+    "provider_charge_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+    "provider_payment_intent_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+    "source_payment_event_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+    "billing_command_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+    "cumulative_refund_amount_cents": { "type": "integer", "minimum": 0, "maximum": 10000000 },
     "period_start": { "type": "string", "format": "date-time" },
     "period_end": { "type": "string", "format": "date-time" },
     "cancel_at_period_end": { "type": "boolean" }
   },
+  "allOf": [{
+    "if": { "properties": { "kind": { "const": "refund" } }, "required": ["kind"] },
+    "then": {
+      "properties": {
+        "provider_refund_id": { "$ref": "#/$defs/id" },
+        "provider_charge_id": { "$ref": "#/$defs/id" },
+        "provider_payment_intent_id": { "$ref": "#/$defs/id" },
+        "source_payment_event_id": { "$ref": "#/$defs/id" },
+        "billing_command_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "refund_amount_cents": { "minimum": 1 },
+        "cumulative_refund_amount_cents": { "minimum": 1 }
+      }
+    },
+    "else": {
+      "properties": {
+        "provider_refund_id": { "type": "null" },
+        "provider_charge_id": { "type": "null" },
+        "provider_payment_intent_id": { "type": "null" },
+        "source_payment_event_id": { "type": "null" },
+        "billing_command_id": { "type": "null" },
+        "cumulative_refund_amount_cents": { "const": 0 }
+      }
+    }
+  }],
   "$defs": {
     "id": { "type": "string", "minLength": 3, "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$" }
   }

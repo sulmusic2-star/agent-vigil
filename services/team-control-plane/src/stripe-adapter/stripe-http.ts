@@ -169,10 +169,14 @@ export class StripeClient {
 }
 
 export function stripePath(
-  resource: "events" | "subscriptions" | "payment_intents" | "refunds",
+  resource: "events" | "subscriptions" | "payment_intents" | "refunds" | "charges" | "checkout/sessions",
   id: string
 ): string {
   return `/v1/${resource}/${encodeURIComponent(id)}`;
+}
+
+export function checkoutSessionExpirePath(sessionId: string): string {
+  return `/v1/checkout/sessions/${encodeURIComponent(sessionId)}/expire`;
 }
 
 export function invoicePaymentsPath(invoiceId: string): string {

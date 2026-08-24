@@ -1,4 +1,5 @@
 import { hmacHex, verifyHmacHex } from "../crypto.ts";
+import { dutySecretsAreSeparated, type DutySecret } from "../duty-secrets.ts";
 
 import { INVOCATION_TOLERANCE_SECONDS, type InternalPriceId } from "./contracts.ts";
 
@@ -14,6 +15,12 @@ export class AdapterError extends Error {
   ) {
     super(message);
     this.name = "AdapterError";
+  }
+}
+
+export function assertAdapterDutySecretSeparation(secrets: readonly DutySecret[]): void {
+  if (!dutySecretsAreSeparated(secrets)) {
+    throw new AdapterError(503, "adapter_secret_configuration_invalid", "Adapter duty-secret configuration is invalid.");
   }
 }
 

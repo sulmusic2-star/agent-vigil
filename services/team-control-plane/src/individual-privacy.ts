@@ -48,10 +48,19 @@ async function loadPrivacyIdentity(
   ) {
     throw new ApiError(409, "individual_identity_collision", "The authenticated GitHub identity conflicts with an existing binding.");
   }
-  if (identity.status !== "active" || identity.canonical_subject_token !== identity.subject_token) {
-    throw new ApiError(409, "individual_identity_merged", "This identity was merged and cannot accept privacy requests.");
+  const canonical = await db.prepare(
+    `SELECT subject_token, canonical_subject_token, github_account_node_id, auth_subject_sha256, status
+       FROM individual_identities
+      WHERE subject_token = ?1
+        AND canonical_subject_token = subject_token
+        AND status = 'active'`
+  )
+    .bind(identity.canonical_subject_token)
+    .first<PrivacyIdentityRow>();
+  if (!canonical) {
+    throw new ApiError(409, "individual_identity_chain_invalid", "The identity does not resolve to one active canonical subject.");
   }
-  return identity;
+  return { ...identity, canonical_subject_token: canonical.subject_token };
 }
 
 export async function exportIndividualData(
@@ -109,30 +118,70 @@ export async function requestIndividualDeletion(
   const requestId = newId("individual_deletion");
   const at = nowIso();
   const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
-  await env.TEAM_CONTROL_DB.batch([
+  let results: D1Result[];
+  try {
+    results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO individual_privacy_deletion_requests
         (id, subject_token, confirmation_sha256, status, requested_session_sha256,
          requested_at, expires_at)
-       VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6)`
-    ).bind(requestId, identity.canonical_subject_token, confirmationHash, auth.sessionSha256, at, expiresAt),
-    sessionMutationStatement(
-      env.TEAM_CONTROL_DB,
-      auth,
-      "deletion_request",
-      hash,
-      identity.subject_token,
-      at
+       SELECT ?1, ?2, ?3, 'pending', ?4, ?5, ?6
+        WHERE EXISTS (
+          SELECT 1 FROM individual_identities anchor
+          JOIN individual_identities canonical ON canonical.subject_token = ?2
+         WHERE anchor.subject_token = ?7 AND anchor.canonical_subject_token = ?2
+           AND canonical.status = 'active'
+           AND canonical.canonical_subject_token = canonical.subject_token
+        )`
+    ).bind(
+      requestId,
+      identity.canonical_subject_token,
+      confirmationHash,
+      auth.sessionSha256,
+      at,
+      expiresAt,
+      identity.subject_token
     ),
-    individualAuditStatement(env.TEAM_CONTROL_DB, {
-      subjectToken: identity.subject_token,
-      actorType: "human_session",
-      actorSessionSha256: auth.sessionSha256,
-      action: "privacy.individual_deletion.requested",
-      resourceType: "individual_privacy_deletion_request",
-      at
-    })
-  ]);
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO individual_session_mutations
+        (session_sha256, action, request_sha256, subject_token, result, applied_at)
+       SELECT ?1, 'deletion_request', ?2, ?3, 'applied', ?4
+        WHERE EXISTS (
+          SELECT 1 FROM individual_privacy_deletion_requests
+           WHERE id = ?5 AND subject_token = ?6 AND status = 'pending'
+        )`
+    ).bind(auth.sessionSha256, hash, identity.subject_token, at, requestId, identity.canonical_subject_token),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO individual_audit_events
+        (id, subject_token, actor_type, actor_session_sha256, action, resource_type, metadata_json, created_at)
+       SELECT ?1, ?2, 'human_session', ?3, 'privacy.individual_deletion.requested',
+              'individual_privacy_deletion_request', '{}', ?4
+        WHERE EXISTS (
+          SELECT 1 FROM individual_session_mutations
+           WHERE session_sha256 = ?3 AND action = 'deletion_request'
+             AND request_sha256 = ?5 AND subject_token = ?2
+        )`
+    ).bind(newId("individual_audit"), identity.subject_token, auth.sessionSha256, at, hash)
+    ]);
+  } catch (error) {
+    const competing = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT 1 AS found FROM individual_privacy_deletion_requests
+        WHERE subject_token = ?1 AND status = 'pending' LIMIT 1`
+    )
+      .bind(identity.canonical_subject_token)
+      .first<{ found: number }>();
+    if (competing) {
+      throw new ApiError(409, "individual_deletion_concurrent_conflict", "Individual identity or deletion state changed concurrently.");
+    }
+    throw error;
+  }
+  if (
+    (results[0]?.meta.changes ?? 0) !== 1 ||
+    (results[1]?.meta.changes ?? 0) !== 1 ||
+    (results[2]?.meta.changes ?? 0) !== 1
+  ) {
+    throw new ApiError(409, "individual_deletion_concurrent_conflict", "Individual identity or deletion state changed concurrently.");
+  }
   return jsonResponse(
     {
       request_id: requestId,
@@ -261,6 +310,17 @@ export async function confirmIndividualDeletion(
         WHERE subject_token IN (
           SELECT subject_token FROM individual_identities
            WHERE subject_token = ?1 OR canonical_subject_token = ?1
+        )`
+    ).bind(identity.canonical_subject_token),
+    db.prepare(
+      `DELETE FROM github_installation_provider_proofs
+        WHERE github_account_node_id IN (
+          SELECT github_account_node_id FROM individual_identities
+           WHERE subject_token = ?1 OR canonical_subject_token = ?1
+        ) OR delivery_id IN (
+          SELECT c.provider_proof_delivery_id FROM github_personal_installation_claims c
+          JOIN individual_identities i ON i.subject_token = c.subject_token
+          WHERE i.subject_token = ?1 OR i.canonical_subject_token = ?1
         )`
     ).bind(identity.canonical_subject_token),
     db.prepare(

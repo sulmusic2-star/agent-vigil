@@ -1,4 +1,4 @@
-import { nowIso } from "./db.ts";
+import { newId, nowIso } from "./db.ts";
 import type { IndividualAuthContext } from "./individual-auth.ts";
 import { requireIndividualFeatureConfiguration } from "./individual-config.ts";
 import {
@@ -6,11 +6,11 @@ import {
   loadIndividualIdentity,
   refreshIndividualEligibility,
   requestMutationHash,
-  sessionMutationReplay,
-  sessionMutationStatement
+  sessionMutationReplay
 } from "./individual-measurement.ts";
 import { ApiError, jsonResponse, parseJsonObject } from "./http.ts";
-import { assertExactKeys, requireInteger } from "./validation.ts";
+import { recordGitHubProviderProof } from "./github-provider-proof.ts";
+import { assertExactKeys, requireInteger, requireString } from "./validation.ts";
 
 export type PersonalGitHubEventName = "installation" | "installation_repositories";
 export type PersonalGitHubAction = "created" | "deleted" | "suspend" | "unsuspend" | "added" | "removed";
@@ -59,6 +59,8 @@ interface PersonalClaimRow {
   subject_token: string;
   account_type: "User";
   status: "claimed" | "bound" | "revoked";
+  provider_proof_delivery_id: string | null;
+  claim_expires_at: string | null;
   identity_status: "active" | "merged";
 }
 
@@ -84,7 +86,7 @@ async function personalClaim(db: D1Database, installationId: number): Promise<Pe
   return db
     .prepare(
       `SELECT c.installation_id, c.github_account_node_id, c.subject_token, c.account_type,
-              c.status, i.status AS identity_status
+              c.status, c.provider_proof_delivery_id, c.claim_expires_at, i.status AS identity_status
          FROM github_personal_installation_claims c
          JOIN individual_identities i ON i.subject_token = c.subject_token
         WHERE c.installation_id = ?1`
@@ -131,11 +133,16 @@ export async function claimPersonalInstallation(
   requireIndividualFeatureConfiguration(env);
   const { rawBody, hash } = await requestMutationHash(request);
   const body = parseJsonObject(rawBody);
-  assertExactKeys(body, ["schema_version", "installation_id"]);
+  assertExactKeys(body, ["schema_version", "installation_id", "provider_delivery_id"]);
   if (body.schema_version !== "github-personal-installation-claim-v1") {
     throw new ApiError(400, "invalid_schema", "schema_version must be github-personal-installation-claim-v1.");
   }
   const installationId = requireInteger(body.installation_id, "installation_id", { min: 1 });
+  const providerDeliveryId = requireString(body.provider_delivery_id, "provider_delivery_id", {
+    min: 36,
+    max: 36,
+    pattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+  });
   const identity = await loadIndividualIdentity(env, auth, false);
   const consent = await env.TEAM_CONTROL_DB.prepare(
     `SELECT opted_in FROM individual_consents WHERE subject_token = ?1`
@@ -154,6 +161,58 @@ export async function claimPersonalInstallation(
   );
   if (priorMutation) {
     return jsonResponse({ claimed: true, duplicate: true, installation_id: installationId });
+  }
+  const at = nowIso();
+  await env.TEAM_CONTROL_DB.batch([
+    env.TEAM_CONTROL_DB.prepare(
+      `DELETE FROM github_personal_installation_claims
+        WHERE status = 'claimed' AND claim_expires_at <= ?1
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installations
+             WHERE installation_id = github_personal_installation_claims.installation_id
+          )`
+    ).bind(at),
+    env.TEAM_CONTROL_DB.prepare(
+      `DELETE FROM github_installation_claims
+        WHERE status = 'claimed' AND claim_expires_at <= ?1
+          AND NOT EXISTS (
+            SELECT 1 FROM github_installations
+             WHERE installation_id = github_installation_claims.installation_id
+          )`
+    ).bind(at),
+    env.TEAM_CONTROL_DB.prepare(
+      `DELETE FROM github_installation_provider_proofs
+        WHERE expires_at <= ?1
+          AND NOT EXISTS (
+            SELECT 1 FROM github_installation_claims
+             WHERE provider_proof_delivery_id = github_installation_provider_proofs.delivery_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installation_claims
+             WHERE provider_proof_delivery_id = github_installation_provider_proofs.delivery_id
+          )`
+    ).bind(at)
+  ]);
+  const proof = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT delivery_id, expires_at
+       FROM github_installation_provider_proofs
+      WHERE delivery_id = ?1 AND installation_id = ?2 AND github_account_node_id = ?3
+        AND account_type = 'User' AND consumed_at IS NULL AND expires_at > ?4`
+  )
+    .bind(providerDeliveryId, installationId, identity.github_account_node_id, at)
+    .first<{ delivery_id: string; expires_at: string }>();
+  if (!proof) {
+    const duplicate = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT 1 AS found FROM github_personal_installation_claims
+        WHERE installation_id = ?1 AND github_account_node_id = ?2 AND subject_token = ?3
+          AND provider_proof_delivery_id = ?4 AND status <> 'revoked'`
+    )
+      .bind(installationId, identity.github_account_node_id, identity.subject_token, providerDeliveryId)
+      .first<{ found: number }>();
+    if (duplicate) {
+      return jsonResponse({ claimed: true, duplicate: true, installation_id: installationId });
+    }
+    throw new ApiError(409, "github_provider_proof_required", "A recent verified GitHub creation delivery is required.");
   }
   const collision = await env.TEAM_CONTROL_DB.prepare(
     `SELECT 'personal' AS lane, installation_id, github_account_node_id
@@ -177,25 +236,76 @@ export async function claimPersonalInstallation(
     }
     throw new ApiError(409, "github_installation_claim_collision", "Installation or account identity is already bound.");
   }
-  const at = nowIso();
   const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO github_personal_installation_claims
         (installation_id, github_account_node_id, subject_token, account_type, status,
-         claimed_session_sha256, claimed_at, updated_at)
-       VALUES (?1, ?2, ?3, 'User', 'claimed', ?4, ?5, ?5)`
-    ).bind(installationId, identity.github_account_node_id, identity.subject_token, auth.sessionSha256, at),
-    sessionMutationStatement(env.TEAM_CONTROL_DB, auth, "installation_claim", hash, identity.subject_token, at),
-    individualAuditStatement(env.TEAM_CONTROL_DB, {
-      subjectToken: identity.subject_token,
-      actorType: "human_session",
-      actorSessionSha256: auth.sessionSha256,
-      action: "github.personal_installation.claimed",
-      resourceType: "github_personal_installation",
-      at
-    })
+         claimed_session_sha256, claimed_at, updated_at, provider_proof_delivery_id,
+         claim_expires_at, bound_at)
+       SELECT ?1, ?2, ?3, 'User', 'claimed', ?4, ?5, ?5, ?6, ?7, NULL
+        WHERE EXISTS (
+          SELECT 1 FROM github_installation_provider_proofs
+           WHERE delivery_id = ?6 AND installation_id = ?1 AND github_account_node_id = ?2
+             AND account_type = 'User' AND consumed_at IS NULL AND expires_at > ?5
+        )`
+    ).bind(
+      installationId,
+      identity.github_account_node_id,
+      identity.subject_token,
+      auth.sessionSha256,
+      at,
+      providerDeliveryId,
+      proof.expires_at
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE github_installation_provider_proofs
+          SET consumed_at = ?1, consumed_by_lane = 'personal'
+        WHERE delivery_id = ?2 AND installation_id = ?3 AND github_account_node_id = ?4
+          AND account_type = 'User' AND consumed_at IS NULL AND expires_at > ?1
+          AND EXISTS (
+            SELECT 1 FROM github_personal_installation_claims
+             WHERE installation_id = ?3 AND github_account_node_id = ?4 AND subject_token = ?5
+               AND status = 'claimed' AND provider_proof_delivery_id = ?2
+          )`
+    ).bind(at, providerDeliveryId, installationId, identity.github_account_node_id, identity.subject_token),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO individual_session_mutations
+        (session_sha256, action, request_sha256, subject_token, result, applied_at)
+       SELECT ?1, 'installation_claim', ?2, ?3, 'applied', ?4
+        WHERE EXISTS (
+          SELECT 1 FROM github_personal_installation_claims c
+          JOIN github_installation_provider_proofs p
+            ON p.delivery_id = c.provider_proof_delivery_id
+         WHERE c.installation_id = ?5 AND c.github_account_node_id = ?6
+           AND c.subject_token = ?3 AND c.status = 'claimed'
+           AND p.consumed_at = ?4 AND p.consumed_by_lane = 'personal'
+        )`
+    ).bind(
+      auth.sessionSha256,
+      hash,
+      identity.subject_token,
+      at,
+      installationId,
+      identity.github_account_node_id
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO individual_audit_events
+        (id, subject_token, actor_type, actor_session_sha256, action, resource_type, metadata_json, created_at)
+       SELECT ?1, ?2, 'human_session', ?3, 'github.personal_installation.claimed',
+              'github_personal_installation', '{}', ?4
+        WHERE EXISTS (
+          SELECT 1 FROM individual_session_mutations
+           WHERE session_sha256 = ?3 AND action = 'installation_claim'
+             AND request_sha256 = ?5 AND subject_token = ?2
+        )`
+    ).bind(newId("individual_audit"), identity.subject_token, auth.sessionSha256, at, hash)
   ]);
-  if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) {
+  if (
+    (results[0]?.meta.changes ?? 0) !== 1 ||
+    (results[1]?.meta.changes ?? 0) !== 1 ||
+    (results[2]?.meta.changes ?? 0) !== 1 ||
+    (results[3]?.meta.changes ?? 0) !== 1
+  ) {
     throw new ApiError(409, "github_personal_claim_concurrent_conflict", "Personal installation claim changed concurrently.");
   }
   return jsonResponse({ claimed: true, installation_id: installationId }, 201);
@@ -288,13 +398,24 @@ export async function handlePersonalGitHubWebhook(
       return jsonResponse({ received: true, duplicate: true, result: existingDelivery.result });
     }
   }
+  if (summary.action === "created") {
+    await recordGitHubProviderProof(env.TEAM_CONTROL_DB, {
+      deliveryId,
+      installationId: summary.installationId,
+      accountNodeId: summary.accountNodeId,
+      accountType: "User"
+    });
+  }
   const claim = await personalClaim(env.TEAM_CONTROL_DB, summary.installationId);
   if (
     !claim ||
     claim.status === "revoked" ||
     claim.identity_status !== "active" ||
     claim.github_account_node_id !== summary.accountNodeId ||
-    claim.account_type !== "User"
+    claim.account_type !== "User" ||
+    (claim.status === "claimed" && (!claim.claim_expires_at || claim.claim_expires_at <= nowIso())) ||
+    (summary.action === "created" && claim.provider_proof_delivery_id !== deliveryId) ||
+    (summary.action !== "created" && claim.status !== "bound")
   ) {
     await recordUnclaimed(env, existingDelivery, deliveryId, payloadHash, summary);
     throw new ApiError(409, "github_personal_installation_claim_required", "A matching authenticated personal claim is required.");
@@ -357,7 +478,13 @@ export async function handlePersonalGitHubWebhook(
         `INSERT INTO github_personal_installations
           (installation_id, app_id, github_account_node_id, subject_token, account_type, state,
            repository_selection, last_event_created_at, last_delivery_id, installed_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 'User', 'pending_reconciliation', ?5, ?6, ?7, ?8, ?9)`
+         SELECT ?1, ?2, ?3, ?4, 'User', 'pending_reconciliation', ?5, ?6, ?7, ?8, ?9
+          WHERE EXISTS (
+            SELECT 1 FROM github_personal_installation_claims
+             WHERE installation_id = ?1 AND github_account_node_id = ?3 AND subject_token = ?4
+               AND status = 'claimed' AND provider_proof_delivery_id = ?7
+               AND claim_expires_at > ?9
+          )`
       ).bind(
         summary.installationId,
         summary.appId,
@@ -370,19 +497,30 @@ export async function handlePersonalGitHubWebhook(
         at
       ),
       env.TEAM_CONTROL_DB.prepare(
-        `UPDATE github_personal_installation_claims SET status = 'bound', updated_at = ?1
-          WHERE installation_id = ?2 AND subject_token = ?3 AND github_account_node_id = ?4`
-      ).bind(at, summary.installationId, claim.subject_token, summary.accountNodeId),
+        `UPDATE github_personal_installation_claims SET status = 'bound', bound_at = ?1,
+           claim_expires_at = '9999-12-31T23:59:59.999Z', updated_at = ?1
+          WHERE installation_id = ?2 AND subject_token = ?3 AND github_account_node_id = ?4
+            AND status = 'claimed' AND provider_proof_delivery_id = ?5 AND claim_expires_at > ?1`
+      ).bind(at, summary.installationId, claim.subject_token, summary.accountNodeId, deliveryId),
       existingDelivery
         ? env.TEAM_CONTROL_DB.prepare(
             `UPDATE github_personal_deliveries SET subject_token = ?1,
-               result = 'pending_reconciliation', received_at = ?2 WHERE delivery_id = ?3`
-          ).bind(claim.subject_token, at, deliveryId)
+               result = 'pending_reconciliation', received_at = ?2
+              WHERE delivery_id = ?3
+                AND EXISTS (
+                  SELECT 1 FROM github_personal_installations
+                   WHERE installation_id = ?4 AND last_delivery_id = ?3
+                )`
+          ).bind(claim.subject_token, at, deliveryId, summary.installationId)
         : env.TEAM_CONTROL_DB.prepare(
             `INSERT INTO github_personal_deliveries
               (delivery_id, payload_sha256, event_name, action, installation_id, subject_token,
                account_type, event_created_at, result, received_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'User', ?7, 'pending_reconciliation', ?8)`
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'User', ?7, 'pending_reconciliation', ?8
+              WHERE EXISTS (
+                SELECT 1 FROM github_personal_installations
+                 WHERE installation_id = ?5 AND last_delivery_id = ?1
+              )`
           ).bind(
             deliveryId,
             payloadHash,
@@ -393,16 +531,33 @@ export async function handlePersonalGitHubWebhook(
             summary.eventCreatedAt,
             at
           ),
-      individualAuditStatement(env.TEAM_CONTROL_DB, {
-        subjectToken: claim.subject_token,
-        actorType: "github_app",
-        action: "github.personal_installation.created_pending_reconciliation",
-        resourceType: "github_personal_installation",
-        metadata: { account_type: "User", repository_selection: summary.repositorySelection },
-        at
-      })
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO individual_audit_events
+          (id, subject_token, actor_type, actor_session_sha256, action, resource_type, metadata_json, created_at)
+         SELECT ?1, ?2, 'github_app', NULL,
+                'github.personal_installation.created_pending_reconciliation',
+                'github_personal_installation', ?3, ?4
+          WHERE EXISTS (
+            SELECT 1 FROM github_personal_installations i
+            JOIN github_personal_installation_claims c ON c.installation_id = i.installation_id
+             WHERE i.installation_id = ?5 AND i.subject_token = ?2 AND i.last_delivery_id = ?6
+               AND c.status = 'bound' AND c.provider_proof_delivery_id = ?6
+          )`
+      ).bind(
+        newId("individual_audit"),
+        claim.subject_token,
+        JSON.stringify({ account_type: "User", repository_selection: summary.repositorySelection }),
+        at,
+        summary.installationId,
+        deliveryId
+      )
     ]);
-    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[2]?.meta.changes ?? 0) !== 1) {
+    if (
+      (results[0]?.meta.changes ?? 0) !== 1 ||
+      (results[1]?.meta.changes ?? 0) !== 1 ||
+      (results[2]?.meta.changes ?? 0) !== 1 ||
+      (results[3]?.meta.changes ?? 0) !== 1
+    ) {
       throw new ApiError(409, "github_personal_installation_concurrent_conflict", "Personal installation could not be safely initialized.");
     }
     return jsonResponse({ received: true, account_type: "User", state: "pending_reconciliation" }, 202);

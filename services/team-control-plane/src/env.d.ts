@@ -1,5 +1,6 @@
 interface TeamControlPlaneSecrets {
   TEAM_SESSION_HMAC_SECRET: string;
+  COMMERCIAL_ACTOR_HMAC_SECRET: string;
   STRIPE_WEBHOOK_SECRET: string;
   STRIPE_RECONCILIATION_HMAC_SECRET: string;
   GITHUB_WEBHOOK_SECRET: string;

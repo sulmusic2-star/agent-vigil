@@ -53,7 +53,12 @@ function parseSessionPayload(raw: string): {
   }
 }
 
-export async function authenticate(request: Request, env: Env, routeOrgId: string): Promise<AuthContext> {
+export async function authenticate(
+  request: Request,
+  env: Env,
+  routeOrgId: string,
+  options: { allowDeletionPending?: boolean } = {}
+): Promise<AuthContext> {
   const authorization = request.headers.get("Authorization");
   if (!authorization || authorization.length > 4096 || !authorization.startsWith("Bearer ")) {
     throw new ApiError(401, "authentication_required", "A bearer session is required.");
@@ -111,7 +116,10 @@ export async function authenticate(request: Request, env: Env, routeOrgId: strin
   )
     .bind(routeOrgId, payload.sub)
     .first<MembershipRow>();
-  if (!membership || membership.active !== 1 || membership.organization_status !== "active") {
+  const allowedOrganization =
+    membership?.organization_status === "active" ||
+    (options.allowDeletionPending === true && membership?.organization_status === "deletion_pending");
+  if (!membership || membership.active !== 1 || !allowedOrganization) {
     throw new ApiError(403, "membership_inactive", "Active organization membership is required.");
   }
   return {

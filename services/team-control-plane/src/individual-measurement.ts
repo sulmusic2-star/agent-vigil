@@ -645,51 +645,119 @@ async function mergeIdentities(
   if (!source || !target || source.status !== "active" || target.status !== "active") {
     throw new ApiError(409, "individual_identity_merge_mismatch", "Both merge identities must exist and be active.");
   }
-  if (base.observedAt <= source.updated_at || base.observedAt <= target.updated_at) {
+  const sourceCohort = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT subject_token, updated_at
+       FROM individual_identities
+      WHERE subject_token = ?1 OR canonical_subject_token = ?1
+      ORDER BY subject_token`
+  )
+    .bind(source.subject_token)
+    .all<{ subject_token: string; updated_at: string }>();
+  if (
+    sourceCohort.results.length < 1 ||
+    sourceCohort.results.some((alias) => base.observedAt <= alias.updated_at) ||
+    base.observedAt <= target.updated_at
+  ) {
     throw new ApiError(409, "stale_individual_identity_merge", "Identity merges must be strictly chronological.");
   }
+  const cohortJson = JSON.stringify(sourceCohort.results.map((alias) => alias.subject_token));
   const at = nowIso();
   const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE individual_identities SET canonical_subject_token = ?1, status = 'merged',
-         merged_at = ?2, eligible_at = NULL, updated_at = ?2
-       WHERE subject_token = ?3 AND status = 'active' AND updated_at < ?2`
-    ).bind(target.subject_token, base.observedAt, source.subject_token),
+         merged_at = CASE WHEN subject_token = ?2 THEN ?3 ELSE merged_at END,
+         eligible_at = NULL, updated_at = ?3
+       WHERE subject_token IN (SELECT value FROM json_each(?4))
+         AND (
+           (subject_token = ?2 AND status = 'active' AND canonical_subject_token = subject_token) OR
+           (subject_token <> ?2 AND status = 'merged' AND canonical_subject_token = ?2)
+         )
+         AND updated_at < ?3
+         AND NOT EXISTS (
+           SELECT 1 FROM individual_privacy_deletion_requests
+            WHERE status = 'pending' AND expires_at > ?3
+              AND subject_token IN (?1, ?2)
+         )
+         AND (
+           SELECT COUNT(*) FROM individual_identities candidate
+            WHERE candidate.subject_token IN (SELECT value FROM json_each(?4))
+              AND candidate.updated_at < ?3
+              AND (
+                (candidate.subject_token = ?2 AND candidate.status = 'active'
+                  AND candidate.canonical_subject_token = candidate.subject_token) OR
+                (candidate.subject_token <> ?2 AND candidate.status = 'merged'
+                  AND candidate.canonical_subject_token = ?2)
+              )
+         ) = json_array_length(?4)
+         AND EXISTS (
+           SELECT 1 FROM individual_identities target
+            WHERE target.subject_token = ?1 AND target.status = 'active'
+              AND target.canonical_subject_token = target.subject_token
+         )`
+    ).bind(target.subject_token, source.subject_token, base.observedAt, cohortJson),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE individual_consents SET opted_in = 0, opted_out_at = ?1, updated_at = ?1
-       WHERE subject_token = ?2 AND opted_in = 1`
-    ).bind(base.observedAt, source.subject_token),
+       WHERE subject_token IN (SELECT value FROM json_each(?2)) AND opted_in = 1
+         AND (
+           SELECT COUNT(*) FROM individual_identities
+            WHERE subject_token IN (SELECT value FROM json_each(?2))
+              AND canonical_subject_token = ?3 AND status = 'merged' AND updated_at = ?1
+         ) = json_array_length(?2)`
+    ).bind(base.observedAt, cohortJson, target.subject_token),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_personal_installations SET state = 'deleted', deleted_at = ?1,
          reconciled_at = NULL, updated_at = ?1
-       WHERE subject_token = ?2 AND state <> 'deleted'`
-    ).bind(base.observedAt, source.subject_token),
+       WHERE subject_token IN (SELECT value FROM json_each(?2)) AND state <> 'deleted'
+         AND (
+           SELECT COUNT(*) FROM individual_identities
+            WHERE subject_token IN (SELECT value FROM json_each(?2))
+              AND canonical_subject_token = ?3 AND status = 'merged' AND updated_at = ?1
+         ) = json_array_length(?2)`
+    ).bind(base.observedAt, cohortJson, target.subject_token),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_personal_installation_claims SET status = 'revoked', updated_at = ?1
-       WHERE subject_token = ?2`
-    ).bind(base.observedAt, source.subject_token),
+       WHERE subject_token IN (SELECT value FROM json_each(?2))
+         AND (
+           SELECT COUNT(*) FROM individual_identities
+            WHERE subject_token IN (SELECT value FROM json_each(?2))
+              AND canonical_subject_token = ?3 AND status = 'merged' AND updated_at = ?1
+         ) = json_array_length(?2)`
+    ).bind(base.observedAt, cohortJson, target.subject_token),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO individual_measurement_bridge_messages
         (message_id, payload_sha256, message_kind, subject_token, installation_id,
          observed_at, result, received_at)
-       VALUES (?1, ?2, ?3, ?4, NULL, ?5, 'applied', ?6)`
-    ).bind(base.messageId, payloadHash, base.messageKind, target.subject_token, base.observedAt, at),
+       SELECT ?1, ?2, ?3, ?4, NULL, ?5, 'applied', ?6
+        WHERE (
+          SELECT COUNT(*) FROM individual_identities
+           WHERE subject_token IN (SELECT value FROM json_each(?7))
+             AND canonical_subject_token = ?4 AND status = 'merged' AND updated_at = ?5
+        ) = json_array_length(?7)`
+    ).bind(base.messageId, payloadHash, base.messageKind, target.subject_token, base.observedAt, at, cohortJson),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO individual_identity_merges
         (message_id, source_subject_token, target_subject_token, provider_merge_reference_sha256, observed_at)
-       VALUES (?1, ?2, ?3, ?4, ?5)`
-    ).bind(base.messageId, source.subject_token, target.subject_token, mergeReference, base.observedAt),
-    individualAuditStatement(env.TEAM_CONTROL_DB, {
-      subjectToken: target.subject_token,
-      actorType: "identity_bridge",
-      action: "measurement.individual.identity_merged",
-      resourceType: "individual_identity",
-      at
-    })
+       SELECT ?1, ?2, ?3, ?4, ?5
+        WHERE EXISTS (
+          SELECT 1 FROM individual_measurement_bridge_messages
+           WHERE message_id = ?1 AND subject_token = ?3 AND observed_at = ?5
+        )`
+    ).bind(base.messageId, source.subject_token, target.subject_token, mergeReference, base.observedAt)
   ]);
-  if ((results[0]?.meta.changes ?? 0) !== 1 || (results[4]?.meta.changes ?? 0) !== 1) {
+  if (
+    (results[0]?.meta.changes ?? 0) !== sourceCohort.results.length ||
+    (results[4]?.meta.changes ?? 0) !== 1 ||
+    (results[5]?.meta.changes ?? 0) !== 1
+  ) {
     throw new ApiError(409, "individual_identity_merge_concurrent_conflict", "Individual identity changed concurrently.");
   }
+  await individualAuditStatement(env.TEAM_CONTROL_DB, {
+    subjectToken: target.subject_token,
+    actorType: "identity_bridge",
+    action: "measurement.individual.identity_merged",
+    resourceType: "individual_identity",
+    at
+  }).run();
   return jsonResponse({ accepted: true, merged: true, subject_token: target.subject_token }, 201);
 }
 
@@ -1078,7 +1146,14 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
         `SELECT message_id, source_subject_token, target_subject_token,
                 provider_merge_reference_sha256, observed_at
            FROM individual_identity_merges
-          WHERE source_subject_token = ?1 OR target_subject_token = ?1`
+          WHERE source_subject_token IN (
+                  SELECT subject_token FROM individual_identities
+                   WHERE subject_token = ?1 OR canonical_subject_token = ?1
+                )
+             OR target_subject_token IN (
+                  SELECT subject_token FROM individual_identities
+                   WHERE subject_token = ?1 OR canonical_subject_token = ?1
+                )`
       )
         .bind(canonicalSubjectToken)
         .all(),

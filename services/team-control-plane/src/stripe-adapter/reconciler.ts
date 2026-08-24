@@ -11,6 +11,7 @@ import type {
 import { STRIPE_API_VERSION } from "./contracts.ts";
 import {
   AdapterError,
+  assertAdapterDutySecretSeparation,
   boolean,
   configuredPrice,
   exactKeys,
@@ -28,7 +29,13 @@ import {
   string,
   verifyInvocation
 } from "./safe.ts";
-import { billingAccount, parsedSummary, providerEvent, refundProviderBinding } from "./store.ts";
+import {
+  billingAccount,
+  parsedSummary,
+  providerEvent,
+  refundProviderBinding,
+  refundSourceBinding
+} from "./store.ts";
 import { StripeClient, stripePath } from "./stripe-http.ts";
 
 interface SubscriptionBinding {
@@ -73,6 +80,26 @@ function metadataBinding(value: unknown, expected: StripeSummary, field: string)
     parsed.provider_price_id !== expected.providerPriceId
   ) {
     throw new AdapterError(409, "provider_binding_mismatch", "Stripe metadata does not match the stored tenant binding.");
+  }
+}
+
+function refundMetadataBinding(value: unknown, expected: StripeSummary, field: string): void {
+  const parsed = metadata(value, field);
+  const commandBound = expected.refundBillingCommandId !== null;
+  if (commandBound && (
+    parsed.team_org_id !== expected.orgId ||
+    parsed.source_payment_event_id !== expected.refundSourcePaymentEventId ||
+    parsed.billing_command_id !== expected.refundBillingCommandId
+  )) {
+    throw new AdapterError(409, "provider_binding_mismatch", "Stripe Refund metadata does not match the exact command binding.");
+  }
+  if (!commandBound && (
+    (parsed.team_org_id !== undefined && parsed.team_org_id !== expected.orgId) ||
+    (parsed.source_payment_event_id !== undefined &&
+      parsed.source_payment_event_id !== expected.refundSourcePaymentEventId) ||
+    parsed.billing_command_id !== undefined
+  )) {
+    throw new AdapterError(409, "provider_binding_mismatch", "Out-of-band Stripe Refund metadata conflicts with provider truth.");
   }
 }
 
@@ -168,7 +195,13 @@ function baseSnapshot(
     currency: "usd",
     period_start: iso(subscription.periodStart),
     period_end: iso(subscription.periodEnd),
-    cancel_at_period_end: subscription.cancelAtPeriodEnd
+    cancel_at_period_end: subscription.cancelAtPeriodEnd,
+    provider_refund_id: null,
+    provider_charge_id: null,
+    provider_payment_intent_id: null,
+    source_payment_event_id: null,
+    billing_command_id: null,
+    cumulative_refund_amount_cents: 0
   };
 }
 
@@ -308,28 +341,54 @@ async function buildSnapshot(
     };
   }
 
-  if (row.event_type === "charge.refunded") {
+  if (row.event_type === "refund.created") {
     if (
-      providerObject.object !== "charge" ||
-      providerObject.customer !== summary.customerId ||
-      providerObject.currency !== "usd" ||
-      providerObject.status !== "succeeded"
+      !summary.refundId ||
+      !summary.refundChargeId ||
+      !summary.refundPaymentIntentId ||
+      !summary.refundSourcePaymentEventId ||
+      !summary.refundAmountCents
     ) {
-      throw new AdapterError(409, "provider_binding_mismatch", "Refunded charge does not match the stored tenant binding.");
+      throw new AdapterError(500, "provider_binding_corrupt", "Stored Refund binding is incomplete.");
     }
-    const chargeId = opaqueId(providerObject.id, "charge.id");
-    const paymentIntentId = opaqueId(providerObject.payment_intent, "charge.payment_intent");
-    const binding = await refundProviderBinding(env.TEAM_CONTROL_DB, summary.orgId, chargeId);
-    if (binding.paymentIntentId !== paymentIntentId) {
-      throw new AdapterError(409, "provider_binding_mismatch", "Refund PaymentIntent does not match the accepted command.");
+    if (
+      providerObject.object !== "refund" ||
+      providerObject.id !== summary.refundId ||
+      providerObject.charge !== summary.refundChargeId ||
+      providerObject.payment_intent !== summary.refundPaymentIntentId ||
+      providerObject.currency !== "usd" ||
+      providerObject.amount !== summary.refundAmountCents
+    ) {
+      throw new AdapterError(409, "provider_binding_mismatch", "Refund event does not match the stored exact Refund binding.");
     }
-    const refund = await stripe.request(stripePath("refunds", binding.refundId));
+    refundMetadataBinding(providerObject.metadata, summary, "refund.metadata");
+    const binding = summary.refundBillingCommandId
+      ? await refundProviderBinding(env.TEAM_CONTROL_DB, summary.orgId, summary.refundId)
+      : await refundSourceBinding(
+          env.TEAM_CONTROL_DB,
+          summary.orgId,
+          summary.refundChargeId,
+          summary.refundPaymentIntentId,
+          summary.refundSourcePaymentEventId
+        );
+    if (
+      binding.commandId !== summary.refundBillingCommandId ||
+      binding.chargeId !== summary.refundChargeId ||
+      binding.paymentIntentId !== summary.refundPaymentIntentId ||
+      (binding.amountCents !== null && binding.amountCents !== summary.refundAmountCents) ||
+      binding.sourcePaymentEventId !== summary.refundSourcePaymentEventId
+    ) {
+      throw new AdapterError(409, "provider_binding_mismatch", "Refund does not match the accepted exact command.");
+    }
+    const exactRefundId = summary.refundId;
+    const exactRefundAmountCents = summary.refundAmountCents;
+    const refund = await stripe.request(stripePath("refunds", exactRefundId));
     if (
       refund.object !== "refund" ||
-      refund.id !== binding.refundId ||
-      refund.charge !== chargeId ||
-      refund.payment_intent !== paymentIntentId ||
-      refund.amount !== binding.amountCents ||
+      refund.id !== exactRefundId ||
+      refund.charge !== binding.chargeId ||
+      refund.payment_intent !== binding.paymentIntentId ||
+      refund.amount !== exactRefundAmountCents ||
       refund.currency !== "usd" ||
       !["pending", "requires_action", "succeeded"].includes(string(refund.status, "refund.status", 32))
     ) {
@@ -338,13 +397,33 @@ async function buildSnapshot(
     if (refund.status !== "succeeded") {
       throw new AdapterError(409, "refund_not_settled", "Stripe refund is not yet succeeded.");
     }
+    refundMetadataBinding(refund.metadata, summary, "refund.metadata");
+    const charge = await stripe.request(stripePath("charges", binding.chargeId));
+    const cumulativeRefundAmountCents = integer(charge.amount_refunded, "charge.amount_refunded", exactRefundAmountCents);
+    if (
+      charge.object !== "charge" ||
+      charge.id !== binding.chargeId ||
+      charge.customer !== summary.customerId ||
+      charge.payment_intent !== binding.paymentIntentId ||
+      charge.currency !== "usd" ||
+      charge.status !== "succeeded" ||
+      cumulativeRefundAmountCents < exactRefundAmountCents
+    ) {
+      throw new AdapterError(409, "provider_binding_mismatch", "Charge cumulative refund state is not canonical.");
+    }
     return {
       ...base,
       kind: "refund",
       provider_status: "refunded",
       cash_amount_cents: 0,
-      net_recurring_amount_cents: binding.amountCents,
-      refund_amount_cents: binding.amountCents
+      net_recurring_amount_cents: exactRefundAmountCents,
+      refund_amount_cents: exactRefundAmountCents,
+      provider_refund_id: exactRefundId,
+      provider_charge_id: binding.chargeId,
+      provider_payment_intent_id: binding.paymentIntentId,
+      source_payment_event_id: binding.sourcePaymentEventId,
+      billing_command_id: binding.commandId,
+      cumulative_refund_amount_cents: cumulativeRefundAmountCents
     };
   }
 
@@ -405,6 +484,11 @@ export async function handleReconciliation(
   if (env.STRIPE_RECONCILIATION_ENABLED !== "true") {
     throw new AdapterError(503, "feature_disabled", "Stripe reconciliation is disabled.");
   }
+  assertAdapterDutySecretSeparation([
+    { name: "TEAM_STRIPE_RECONCILER_INVOKE_HMAC_SECRET", value: env.TEAM_STRIPE_RECONCILER_INVOKE_HMAC_SECRET },
+    { name: "STRIPE_READONLY_SECRET_KEY", value: env.STRIPE_READONLY_SECRET_KEY },
+    { name: "STRIPE_RECONCILIATION_HMAC_SECRET", value: env.STRIPE_RECONCILIATION_HMAC_SECRET }
+  ]);
   const now = dependencies.now?.() ?? Date.now();
   const raw = await readBoundedBody(request);
   await verifyInvocation(request, raw, env.TEAM_STRIPE_RECONCILER_INVOKE_HMAC_SECRET, now);

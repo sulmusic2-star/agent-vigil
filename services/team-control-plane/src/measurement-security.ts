@@ -1,7 +1,15 @@
 import { ApiError } from "./http.ts";
+import { dutySecretsAreSeparated } from "./duty-secrets.ts";
+
+export const BILLING_DUTY_SECRET_NAMES = [
+  "TEAM_SESSION_HMAC_SECRET",
+  "COMMERCIAL_ACTOR_HMAC_SECRET",
+  "STRIPE_WEBHOOK_SECRET",
+  "STRIPE_RECONCILIATION_HMAC_SECRET"
+] as const;
 
 const ORGANIZATION_MEASUREMENT_DUTY_SECRET_NAMES = [
-  "TEAM_SESSION_HMAC_SECRET",
+  ...BILLING_DUTY_SECRET_NAMES,
   "GITHUB_WEBHOOK_SECRET",
   "GITHUB_RECONCILIATION_HMAC_SECRET",
   "R0_MEASUREMENT_CONTROL_HMAC_SECRET",
@@ -21,6 +29,7 @@ export const MEASUREMENT_DUTY_SECRET_NAMES = [
 ] as const;
 
 type MeasurementDutySecretName = (typeof MEASUREMENT_DUTY_SECRET_NAMES)[number];
+type BillingDutySecretName = (typeof BILLING_DUTY_SECRET_NAMES)[number];
 
 type MeasurementDutyEnvironment = {
   [Name in MeasurementDutySecretName]: string;
@@ -28,6 +37,27 @@ type MeasurementDutyEnvironment = {
   R0_MEASUREMENT_ENABLED: string;
   R0_INDIVIDUAL_MEASUREMENT_ENABLED: string;
 };
+
+type BillingDutyEnvironment = {
+  [Name in BillingDutySecretName]: string;
+};
+
+function separated<Name extends string>(
+  env: { [Key in Name]: string },
+  names: readonly Name[]
+): boolean {
+  return dutySecretsAreSeparated(names.map((name) => ({ name, value: env[name] })));
+}
+
+export function assertBillingDutySecretSeparation(env: BillingDutyEnvironment): void {
+  if (!separated(env, BILLING_DUTY_SECRET_NAMES)) {
+    throw new ApiError(
+      503,
+      "billing_duty_secret_configuration_invalid",
+      "Billing duty-secret configuration is invalid."
+    );
+  }
+}
 
 export function assertMeasurementDutySecretSeparation(
   env: MeasurementDutyEnvironment
@@ -40,12 +70,7 @@ export function assertMeasurementDutySecretSeparation(
     individualEnabled === "true"
       ? MEASUREMENT_DUTY_SECRET_NAMES
       : ORGANIZATION_MEASUREMENT_DUTY_SECRET_NAMES;
-  const encoder = new TextEncoder();
-  const secrets = activeNames.map((name) => env[name]);
-  if (
-    secrets.some((secret) => typeof secret !== "string" || encoder.encode(secret).byteLength < 32) ||
-    new Set(secrets).size !== secrets.length
-  ) {
+  if (!separated(env, activeNames)) {
     throw new ApiError(
       503,
       "r0_measurement_secret_configuration_invalid",

@@ -25,6 +25,7 @@ async function clearDatabase(): Promise<void> {
     DELETE FROM github_personal_deliveries;
     DELETE FROM github_personal_installations;
     DELETE FROM github_personal_installation_claims;
+    DELETE FROM github_installation_provider_proofs;
     DELETE FROM individual_audit_events;
     DELETE FROM individual_session_mutations;
     DELETE FROM individual_consents;
@@ -42,6 +43,7 @@ async function clearDatabase(): Promise<void> {
     DELETE FROM github_installations;
     DELETE FROM github_installation_claims;
     DELETE FROM privacy_deletion_requests;
+    DELETE FROM provider_refund_applications;
     DELETE FROM provider_reconciliation_snapshots;
     DELETE FROM provider_state_cursors;
     DELETE FROM lifecycle_events;
@@ -183,6 +185,12 @@ interface ReconciliationOverrides {
   period_start?: string;
   period_end?: string;
   cancel_at_period_end?: boolean;
+  provider_refund_id?: string | null;
+  provider_charge_id?: string | null;
+  provider_payment_intent_id?: string | null;
+  source_payment_event_id?: string | null;
+  billing_command_id?: string | null;
+  cumulative_refund_amount_cents?: number;
 }
 
 function reconciliation(overrides: ReconciliationOverrides = {}): Record<string, unknown> {
@@ -204,6 +212,12 @@ function reconciliation(overrides: ReconciliationOverrides = {}): Record<string,
     cash_amount_cents: overrides.cash_amount_cents ?? 29_900,
     net_recurring_amount_cents: overrides.net_recurring_amount_cents ?? 29_900,
     refund_amount_cents: overrides.refund_amount_cents ?? 0,
+    provider_refund_id: overrides.provider_refund_id ?? null,
+    provider_charge_id: overrides.provider_charge_id ?? null,
+    provider_payment_intent_id: overrides.provider_payment_intent_id ?? null,
+    source_payment_event_id: overrides.source_payment_event_id ?? null,
+    billing_command_id: overrides.billing_command_id ?? null,
+    cumulative_refund_amount_cents: overrides.cumulative_refund_amount_cents ?? 0,
     period_start: overrides.period_start ?? new Date(now - 60_000).toISOString(),
     period_end: overrides.period_end ?? new Date(now + 30 * 86_400_000).toISOString(),
     cancel_at_period_end: overrides.cancel_at_period_end ?? false
@@ -294,14 +308,15 @@ async function sendGitHubWebhook(
   });
 }
 
-async function claimGitHubInstallation(owner: string): Promise<Response> {
+async function claimGitHubInstallation(owner: string, providerDeliveryId: string): Promise<Response> {
   return api("/v1/orgs/org_main/github/installation-claim", {
     method: "POST",
     token: owner,
     body: {
       schema_version: "github-installation-claim-v1",
       installation_id: GITHUB_INSTALLATION_ID,
-      account_node_id: GITHUB_ACCOUNT_NODE_ID
+      account_node_id: GITHUB_ACCOUNT_NODE_ID,
+      provider_delivery_id: providerDeliveryId
     }
   });
 }
@@ -346,7 +361,6 @@ async function reconcileGitHub(body: Record<string, unknown>): Promise<Response>
 }
 
 async function activateGitHubInstallation(owner: string, baseTime: number): Promise<{ deliveryId: string; serviceToken: string }> {
-  expect((await claimGitHubInstallation(owner)).status).toBe(201);
   const deliveryId = crypto.randomUUID();
   const raw = githubPayload({
     deliveryId,
@@ -354,6 +368,8 @@ async function activateGitHubInstallation(owner: string, baseTime: number): Prom
     action: "created",
     eventTime: new Date(baseTime).toISOString()
   });
+  expect((await sendGitHubWebhook(raw, "installation", deliveryId)).status).toBe(409);
+  expect((await claimGitHubInstallation(owner, deliveryId)).status).toBe(201);
   expect((await sendGitHubWebhook(raw, "installation", deliveryId)).status).toBe(202);
   expect((await reconcileGitHub(githubReconciliation(deliveryId))).status).toBe(200);
   return {
@@ -407,6 +423,55 @@ describe.sequential("Team control plane", () => {
       token: await session("org_main", "user_owner", Math.floor(Date.now() / 1000) - 7200)
     });
     expect(expired.status).toBe(401);
+  });
+
+  it("serializes distinct checkout idempotency keys into one live workflow and pseudonymizes its actor", async () => {
+    const owner = await session();
+    const create = (idempotencyKey: string) =>
+      api("/v1/orgs/org_main/billing/checkout", {
+        method: "POST",
+        token: owner,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: { internal_price_id: "team_monthly_usd_v1" }
+      });
+    const responses = await Promise.all([create("checkout_race_a"), create("checkout_race_b")]);
+    expect(responses.map((response) => response.status).sort()).toEqual([202, 409]);
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM checkout_intents
+           WHERE org_id = 'org_main'
+             AND status IN ('prepared', 'executing', 'provider_created', 'compensating')) AS live_intents,
+         (SELECT COUNT(*) FROM billing_commands
+           WHERE org_id = 'org_main' AND command_type = 'create_checkout_session'
+             AND status IN ('prepared', 'executing', 'provider_accepted', 'compensating')) AS live_commands,
+         (SELECT created_by FROM checkout_intents WHERE org_id = 'org_main') AS actor`
+    ).first<{ live_intents: number; live_commands: number; actor: string }>();
+    expect(state).toMatchObject({ live_intents: 1, live_commands: 1 });
+    expect(state?.actor).toMatch(/^userp_[a-f0-9]{64}$/u);
+    expect(state?.actor).not.toContain("user_owner");
+  });
+
+  it("atomically issues only one deletion confirmation under concurrent owner requests", async () => {
+    const owner = await session();
+    const responses = await Promise.all([
+      api("/v1/orgs/org_main/privacy/deletion-requests", { method: "POST", token: owner }),
+      api("/v1/orgs/org_main/privacy/deletion-requests", { method: "POST", token: owner })
+    ]);
+    const statuses = responses.map((response) => response.status).sort();
+    expect(statuses[0]).toBe(202);
+    expect([403, 409]).toContain(statuses[1]);
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+         (SELECT status FROM organizations WHERE id = 'org_main') AS org_status,
+         (SELECT COUNT(*) FROM privacy_deletion_requests
+           WHERE org_id = 'org_main' AND status = 'pending') AS pending_requests,
+         (SELECT COUNT(*) FROM audit_events
+           WHERE org_id = 'org_main' AND action = 'privacy.deletion.requested') AS request_audits,
+         (SELECT requested_by FROM privacy_deletion_requests
+           WHERE org_id = 'org_main' AND status = 'pending') AS actor`
+    ).first<Record<string, unknown>>();
+    expect(state).toMatchObject({ org_status: "deletion_pending", pending_requests: 1, request_audits: 1 });
+    expect(state?.actor).toMatch(/^userp_[a-f0-9]{64}$/u);
   });
 
   it("keeps checkout and webhook state separate from paid entitlement and recognized MRR", async () => {
@@ -710,22 +775,37 @@ describe.sequential("Team control plane", () => {
 
     const refundEvent = await stripeWebhook({
       id: "evt_refund",
-      type: "charge.refunded",
+      type: "refund.created",
       created: created + 1,
       object: {
-        id: "ch_main",
-        customer: "cus_main",
-        payment_intent: "pi_main"
+        id: "re_main",
+        object: "refund",
+        charge: "ch_main",
+        payment_intent: "pi_main",
+        amount: 29_900,
+        currency: "usd",
+        status: "succeeded",
+        metadata: {
+          team_org_id: "org_main",
+          source_payment_event_id: "evt_invoice_paid",
+          billing_command_id: preparedRefund.command_id
+        }
       }
     });
     expect(refundEvent.status).toBe(200);
     const refundSnapshot = reconciliation({
       source_event_id: "evt_refund",
       kind: "refund",
-      provider_object_id: "ch_main",
+      provider_object_id: "re_main",
       provider_status: "refunded",
       cash_amount_cents: 0,
-      refund_amount_cents: 29_900
+      refund_amount_cents: 29_900,
+      provider_refund_id: "re_main",
+      provider_charge_id: "ch_main",
+      provider_payment_intent_id: "pi_main",
+      source_payment_event_id: "evt_invoice_paid",
+      billing_command_id: preparedRefund.command_id,
+      cumulative_refund_amount_cents: 29_900
     });
     const refunded = await reconcile(refundSnapshot);
     expect(refunded.status).toBe(200);
@@ -735,6 +815,160 @@ describe.sequential("Team control plane", () => {
       entitlement: { status: "refunded" },
       recognized_mrr: { minor_unit_micros: 0 },
       cash_ledger: [{ amount_cents: 29_900 }, { amount_cents: -29_900 }]
+    });
+  });
+
+  it("reconciles exact API and out-of-band partial Refunds independently without double booking", async () => {
+    const created = Math.floor(Date.now() / 1000);
+    await activateMonthlyTeam(created);
+    const owner = await session();
+
+    const prepareAcceptedRefund = async (
+      idempotencyKey: string,
+      amountCents: number,
+      refundId: string
+    ): Promise<string> => {
+      const prepared = await api("/v1/orgs/org_main/billing/refund", {
+        method: "POST",
+        token: owner,
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: {
+          reason: "case_by_case",
+          amount_cents: amountCents,
+          paid_features_materially_used: true,
+          source_payment_event_id: "evt_invoice_paid"
+        }
+      });
+      expect(prepared.status).toBe(202);
+      const { command_id: commandId } = await prepared.json<{ command_id: string }>();
+      const row = await env.TEAM_CONTROL_DB.prepare(
+        `SELECT command_json FROM billing_commands WHERE id = ?1`
+      )
+        .bind(commandId)
+        .first<{ command_json: string }>();
+      await env.TEAM_CONTROL_DB.prepare(
+        `UPDATE billing_commands SET status = 'provider_accepted', command_json = ?1 WHERE id = ?2`
+      )
+        .bind(
+          JSON.stringify({
+            ...JSON.parse(row!.command_json),
+            provider_result: {
+              refund_id: refundId,
+              payment_intent_id: "pi_partial",
+              charge_id: "ch_partial",
+              amount_cents: amountCents,
+              source_payment_event_id: "evt_invoice_paid"
+            }
+          }),
+          commandId
+        )
+        .run();
+      return commandId;
+    };
+
+    const firstCommand = await prepareAcceptedRefund("refund_partial_1", 10_000, "re_partial_1");
+    const ingest = async (
+      eventId: string,
+      refundId: string,
+      commandId: string | null,
+      amountCents: number,
+      offset: number
+    ) => {
+      const response = await stripeWebhook({
+        id: eventId,
+        type: "refund.created",
+        created: created + offset,
+        object: {
+          id: refundId,
+          object: "refund",
+          charge: "ch_partial",
+          payment_intent: "pi_partial",
+          amount: amountCents,
+          currency: "usd",
+          status: "succeeded",
+          metadata: commandId
+            ? {
+                team_org_id: "org_main",
+                source_payment_event_id: "evt_invoice_paid",
+                billing_command_id: commandId
+              }
+            : {}
+        }
+      });
+      expect(response.status).toBe(200);
+    };
+    await ingest("evt_partial_1", "re_partial_1", firstCommand, 10_000, 1);
+    await ingest("evt_partial_2", "re_partial_2", null, 19_900, 2);
+
+    const partialSnapshot = (
+      eventId: string,
+      refundId: string,
+      commandId: string | null,
+      amountCents: number,
+      cumulative: number,
+      reconciliationId: string
+    ) =>
+      reconciliation({
+        reconciliation_id: reconciliationId,
+        source_event_id: eventId,
+        kind: "refund",
+        provider_object_id: refundId,
+        provider_status: "refunded",
+        cash_amount_cents: 0,
+        net_recurring_amount_cents: amountCents,
+        refund_amount_cents: amountCents,
+        provider_refund_id: refundId,
+        provider_charge_id: "ch_partial",
+        provider_payment_intent_id: "pi_partial",
+        source_payment_event_id: "evt_invoice_paid",
+        billing_command_id: commandId,
+        cumulative_refund_amount_cents: cumulative
+      });
+    const second = partialSnapshot(
+      "evt_partial_2",
+      "re_partial_2",
+      null,
+      19_900,
+      29_900,
+      "recon_partial_2"
+    );
+    expect((await reconcile(second)).status).toBe(200);
+    expect((await reconcile(second)).status).toBe(200);
+
+    const first = partialSnapshot(
+      "evt_partial_1",
+      "re_partial_1",
+      firstCommand,
+      10_000,
+      29_900,
+      "recon_partial_1"
+    );
+    expect((await reconcile(first)).status).toBe(200);
+    expect((await reconcile(first)).status).toBe(200);
+
+    const applications = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT provider_refund_id, billing_command_id, amount_cents, cumulative_amount_cents
+         FROM provider_refund_applications ORDER BY provider_refund_id`
+    ).all();
+    expect(applications.results).toEqual([
+      {
+        provider_refund_id: "re_partial_1",
+        billing_command_id: firstCommand,
+        amount_cents: 10_000,
+        cumulative_amount_cents: 29_900
+      },
+      {
+        provider_refund_id: "re_partial_2",
+        billing_command_id: null,
+        amount_cents: 19_900,
+        cumulative_amount_cents: 29_900
+      }
+    ]);
+    const ledger = await api("/v1/orgs/org_main/billing/ledger", { token: owner });
+    expect(await ledger.json()).toMatchObject({
+      billing_state: "refunded",
+      recognized_mrr: { minor_unit_micros: 0 },
+      cash_ledger: [{ amount_cents: 29_900 }, { amount_cents: -19_900 }, { amount_cents: -10_000 }]
     });
   });
 
@@ -884,6 +1118,57 @@ describe.sequential("Team control plane", () => {
     expect(await json(ledger)).toMatchObject({ entitlement: null, recognized_mrr: { minor_unit_micros: 0 } });
   });
 
+  it("requires signed provider preclaim proof and releases an expired unbound organization claim", async () => {
+    const owner = await session();
+    const firstDelivery = crypto.randomUUID();
+    const firstRaw = githubPayload({
+      deliveryId: firstDelivery,
+      event: "installation",
+      action: "created",
+      eventTime: new Date(Date.now() - 2_000).toISOString()
+    });
+    expect((await sendGitHubWebhook(firstRaw, "installation", firstDelivery)).status).toBe(409);
+    expect((await claimGitHubInstallation(owner, firstDelivery)).status).toBe(201);
+    await env.TEAM_CONTROL_DB.prepare(
+      `UPDATE github_installation_claims SET claim_expires_at = '1970-01-01T00:00:00.000Z'
+        WHERE installation_id = ?1`
+    )
+      .bind(GITHUB_INSTALLATION_ID)
+      .run();
+
+    const secondDelivery = crypto.randomUUID();
+    const secondRaw = githubPayload({
+      deliveryId: secondDelivery,
+      event: "installation",
+      action: "created",
+      eventTime: new Date(Date.now() - 1_000).toISOString()
+    });
+    expect((await sendGitHubWebhook(secondRaw, "installation", secondDelivery)).status).toBe(409);
+    await seedOrganization("org_other");
+    const reclaimed = await api("/v1/orgs/org_other/github/installation-claim", {
+      method: "POST",
+      token: await session("org_other"),
+      body: {
+        schema_version: "github-installation-claim-v1",
+        installation_id: GITHUB_INSTALLATION_ID,
+        account_node_id: GITHUB_ACCOUNT_NODE_ID,
+        provider_delivery_id: secondDelivery
+      }
+    });
+    expect(reclaimed.status).toBe(201);
+    const claim = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT org_id, provider_proof_delivery_id, status FROM github_installation_claims
+        WHERE installation_id = ?1`
+    )
+      .bind(GITHUB_INSTALLATION_ID)
+      .first();
+    expect(claim).toMatchObject({
+      org_id: "org_other",
+      provider_proof_delivery_id: secondDelivery,
+      status: "claimed"
+    });
+  });
+
   it("verifies raw GitHub signatures, requires an owner claim, deduplicates bytes, and reconciles before activation", async () => {
     const invalidSignature = await sendGitHubWebhook(
       "not-json",
@@ -903,7 +1188,7 @@ describe.sequential("Team control plane", () => {
     });
     const unclaimed = await sendGitHubWebhook(raw, "installation", deliveryId);
     expect(unclaimed.status).toBe(409);
-    expect((await claimGitHubInstallation(await session())).status).toBe(201);
+    expect((await claimGitHubInstallation(await session(), deliveryId)).status).toBe(201);
     await seedOrganization("org_other");
     const tenantCollision = await api("/v1/orgs/org_other/github/installation-claim", {
       method: "POST",
@@ -911,10 +1196,17 @@ describe.sequential("Team control plane", () => {
       body: {
         schema_version: "github-installation-claim-v1",
         installation_id: GITHUB_INSTALLATION_ID,
-        account_node_id: GITHUB_ACCOUNT_NODE_ID
+        account_node_id: GITHUB_ACCOUNT_NODE_ID,
+        provider_delivery_id: deliveryId
       }
     });
     expect(tenantCollision.status).toBe(409);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS count FROM audit_events
+          WHERE org_id = 'org_other' AND action = 'github.installation.claimed'`
+      ).first<{ count: number }>()
+    ).toMatchObject({ count: 0 });
 
     const wrongAppDelivery = crypto.randomUUID();
     const wrongAppRaw = githubPayload({
@@ -1122,7 +1414,7 @@ describe.sequential("Team control plane", () => {
       `SELECT status FROM billing_commands WHERE org_id = 'org_main'`
     ).first<{ status: string }>();
     expect(checkoutState?.status).toBe("canceled");
-    expect(commandState?.status).toBe("provider_rejected");
+    expect(commandState?.status).toBe("canceled");
     const githubResiduals = await env.TEAM_CONTROL_DB.prepare(
       `SELECT
          (SELECT COUNT(*) FROM github_installation_claims WHERE installation_id = ?1 OR org_id = 'org_main') AS claims,
@@ -1155,6 +1447,33 @@ describe.sequential("Team control plane", () => {
     expect(retainedAuditJson).not.toContain(String(GITHUB_INSTALLATION_ID));
     expect(retainedAudit.results.some((row) => String(row.action).startsWith("github."))).toBe(false);
     expect(retainedAudit.results.some((row) => row.action === "privacy.deletion.completed")).toBe(true);
+    const retainedCommercialActors = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT created_by AS actor FROM checkout_intents WHERE org_id = 'org_main'
+       UNION ALL SELECT created_by FROM billing_commands WHERE org_id = 'org_main'
+       UNION ALL SELECT requested_by FROM privacy_deletion_requests WHERE org_id = 'org_main'`
+    ).all<{ actor: string }>();
+    expect(retainedCommercialActors.results).toHaveLength(3);
+    for (const row of retainedCommercialActors.results) {
+      expect(row.actor).toMatch(/^userp_[a-f0-9]{64}$/u);
+      expect(row.actor).not.toBe("user_owner");
+    }
+    const rejectedAfterDeletion = await stripeWebhook({
+      id: "evt_after_deletion",
+      type: "invoice.paid",
+      created: Math.floor(Date.now() / 1000),
+      object: {
+        id: "in_after_deletion",
+        customer: "cus_after_deletion",
+        subscription: "sub_after_deletion",
+        metadata: metadata("org_main")
+      }
+    });
+    expect(rejectedAfterDeletion.status).toBe(410);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS count FROM provider_events WHERE event_id = 'evt_after_deletion'`
+      ).first<{ count: number }>()
+    ).toMatchObject({ count: 0 });
     expect((await api("/v1/orgs/org_main", { token: github.serviceToken })).status).toBe(403);
     const after = await api("/v1/orgs/org_main", { token: owner });
     expect(after.status).toBe(403);
