@@ -22,6 +22,11 @@ const RECEIPT_SHA256 = "a".repeat(64);
 
 async function clearDatabase(): Promise<void> {
   await env.TEAM_CONTROL_DB.exec(`
+    DROP TRIGGER IF EXISTS test_individual_eligibility_reconciliation_rollback;
+    DROP TRIGGER IF EXISTS test_individual_eligibility_consent_rollback;
+    DROP TRIGGER IF EXISTS test_individual_eligibility_attestation_rollback;
+    DELETE FROM workflow_integrity_receipts;
+    DELETE FROM github_installation_release_reconciliations;
     DELETE FROM individual_measurement_events;
     DELETE FROM individual_subject_attestations;
     DELETE FROM individual_auth_subject_rotations;
@@ -48,6 +53,7 @@ async function clearDatabase(): Promise<void> {
     DELETE FROM github_installation_repositories;
     DELETE FROM github_installations;
     DELETE FROM github_installation_claims;
+    DELETE FROM github_installation_lifecycle_heads;
     DELETE FROM privacy_deletion_requests;
     DELETE FROM audit_events;
     DELETE FROM organization_members;
@@ -197,27 +203,48 @@ function activation(overrides: Record<string, unknown> = {}): Record<string, unk
 async function sendPersonalWebhook(
   deliveryId: string,
   accountType: "User" | "Organization" = "User",
-  eventTime = new Date().toISOString()
+  eventTime = new Date().toISOString(),
+  installationId = INSTALLATION_ID,
+  action: "created" | "deleted" | "suspend" | "unsuspend" | "added" | "removed" = "created",
+  accountNodeId = ACCOUNT_NODE_ID
 ): Promise<Response> {
+  const eventName = action === "added" || action === "removed" ? "installation_repositories" : "installation";
   const raw = JSON.stringify({
-    action: "created",
+    action,
     installation: {
-      id: INSTALLATION_ID,
+      id: installationId,
       app_id: APP_ID,
-      account: { node_id: ACCOUNT_NODE_ID, type: accountType, login: "must-never-be-stored" },
+      account: { node_id: accountNodeId, type: accountType, login: "must-never-be-stored" },
       repository_selection: "selected",
       created_at: eventTime,
       updated_at: eventTime
     },
-    repositories: [
-      { node_id: REPOSITORY_NODE_ID, name: "must-never-be-stored", full_name: "private/must-never-be-stored" }
-    ]
+    ...(action === "created"
+      ? {
+          repositories: [
+            { node_id: REPOSITORY_NODE_ID, name: "must-never-be-stored", full_name: "private/must-never-be-stored" }
+          ]
+        }
+      : {}),
+    ...(eventName === "installation_repositories"
+      ? {
+          repository_selection: "selected",
+          repositories_added:
+            action === "added"
+              ? [{ node_id: REPOSITORY_NODE_ID, name: "must-never-be-stored", full_name: "private/must-never-be-stored" }]
+              : [],
+          repositories_removed:
+            action === "removed"
+              ? [{ node_id: REPOSITORY_NODE_ID, name: "must-never-be-stored", full_name: "private/must-never-be-stored" }]
+              : []
+        }
+      : {})
   });
   return exports.default.fetch(`${ORIGIN}/v1/github/app/webhook`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-GitHub-Event": "installation",
+      "X-GitHub-Event": eventName,
       "X-GitHub-Delivery": deliveryId,
       "X-Hub-Signature-256": `sha256=${await hmacHex(GITHUB_WEBHOOK_SECRET, raw)}`
     },
@@ -225,19 +252,23 @@ async function sendPersonalWebhook(
   });
 }
 
-async function reconcilePersonal(deliveryId: string): Promise<Response> {
+async function reconcilePersonal(
+  deliveryId: string,
+  providerStatus: "active" | "not_found" = "active",
+  exact?: { reconciliationId: string; observedAt: string }
+): Promise<Response> {
   const body = {
     schema_version: "github-installation-reconciliation-v1",
-    reconciliation_id: `personal_recon_${crypto.randomUUID()}`,
+    reconciliation_id: exact?.reconciliationId ?? `personal_recon_${crypto.randomUUID()}`,
     source_delivery_id: deliveryId,
-    observed_at: new Date().toISOString(),
+    observed_at: exact?.observedAt ?? new Date().toISOString(),
     app_id: APP_ID,
     installation_id: INSTALLATION_ID,
     account_node_id: ACCOUNT_NODE_ID,
     account_type: "User",
-    provider_status: "active",
+    provider_status: providerStatus,
     repository_selection: "selected",
-    repository_node_ids: [REPOSITORY_NODE_ID]
+    repository_node_ids: providerStatus === "active" ? [REPOSITORY_NODE_ID] : []
   };
   const raw = JSON.stringify(body);
   const timestamp = Math.floor(Date.now() / 1000);
@@ -250,6 +281,22 @@ async function reconcilePersonal(deliveryId: string): Promise<Response> {
     },
     body: raw
   });
+}
+
+async function createPendingPersonalInstallation(token: string, deliveryId: string, eventTime: string): Promise<void> {
+  const firstDelivery = await sendPersonalWebhook(deliveryId, "User", eventTime);
+  expect(firstDelivery.status).toBe(409);
+  expect(await firstDelivery.json()).toMatchObject({ error: { code: "github_personal_installation_claim_required" } });
+  const claim = await individualApi("/v1/individual/github/installation-claim", token, {
+    method: "POST",
+    body: {
+      schema_version: "github-personal-installation-claim-v1",
+      installation_id: INSTALLATION_ID,
+      provider_delivery_id: deliveryId
+    }
+  });
+  expect(claim.status).toBe(201);
+  expect((await sendPersonalWebhook(deliveryId, "User", eventTime)).status).toBe(202);
 }
 
 async function initializeEligibleIndividual(token: string): Promise<void> {
@@ -272,7 +319,14 @@ async function initializeEligibleIndividual(token: string): Promise<void> {
   });
   expect(unprovedClaim.status).toBe(409);
   expect(await unprovedClaim.json()).toMatchObject({ error: { code: "github_provider_proof_required" } });
-  const wrongType = await sendPersonalWebhook(crypto.randomUUID(), "Organization");
+  const wrongType = await sendPersonalWebhook(
+    crypto.randomUUID(),
+    "Organization",
+    new Date().toISOString(),
+    INSTALLATION_ID + 1,
+    "created",
+    "ORG_NODE_WRONG_ACCOUNT_TYPE_123"
+  );
   expect(wrongType.status).toBe(409);
   expect(await wrongType.json()).toMatchObject({ error: { code: "github_installation_claim_required" } });
   const deliveryId = crypto.randomUUID();
@@ -390,6 +444,658 @@ async function seedMergedCanonicalCohort(
 
 describe("R0 individual measurement lane", () => {
   beforeEach(clearDatabase);
+
+  it("rolls back and exactly replays when GitHub reconciliation is the final eligibility prerequisite", async () => {
+    const token = await individualSession({ sessionId: "eligibility_reconciliation_last" });
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", token, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+        })
+      ).status
+    ).toBe(200);
+    const subjectAttestation = attestation();
+    expect((await signedMeasurement("/v1/measurement/bridge", subjectAttestation)).status).toBe(201);
+
+    const deliveryId = crypto.randomUUID();
+    const deliveryTime = new Date(Date.now() - 1_000).toISOString();
+    await createPendingPersonalInstallation(token, deliveryId, deliveryTime);
+    const exact = {
+      reconciliationId: `eligibility_reconciliation_${crypto.randomUUID()}`,
+      observedAt: new Date().toISOString()
+    };
+    await env.TEAM_CONTROL_DB.prepare(
+      `CREATE TRIGGER test_individual_eligibility_reconciliation_rollback
+       BEFORE UPDATE OF eligible_at ON individual_identities
+       FOR EACH ROW WHEN OLD.eligible_at IS NULL AND NEW.eligible_at IS NOT NULL
+       BEGIN SELECT RAISE(IGNORE); END`
+    ).run();
+
+    expect((await reconcilePersonal(deliveryId, "active", exact)).status).toBe(500);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT installation.state, installation.last_reconciliation_id,
+                installation.reconciled_at, delivery.result AS delivery_result,
+                identity.eligible_at,
+                (SELECT COUNT(*) FROM github_personal_installation_reconciliations
+                  WHERE reconciliation_id = ?1) AS reconciliations,
+                (SELECT COUNT(*) FROM workflow_integrity_receipts
+                  WHERE id = ?2) AS receipts,
+                (SELECT COUNT(*) FROM individual_audit_events
+                  WHERE action = 'github.personal_installation.reconciled') AS reconciliation_audits
+           FROM github_personal_installations installation
+           JOIN github_personal_deliveries delivery
+             ON delivery.delivery_id = installation.last_delivery_id
+           JOIN individual_identities identity ON identity.subject_token = installation.subject_token
+          WHERE installation.installation_id = ?3`
+      )
+        .bind(
+          exact.reconciliationId,
+          `integrity_individual_eligibility_reconciliation_${exact.reconciliationId}`,
+          INSTALLATION_ID
+        )
+        .first()
+    ).toEqual({
+      state: "pending_reconciliation",
+      last_reconciliation_id: null,
+      reconciled_at: null,
+      delivery_result: "pending_reconciliation",
+      eligible_at: null,
+      reconciliations: 0,
+      receipts: 0,
+      reconciliation_audits: 0
+    });
+
+    await env.TEAM_CONTROL_DB.prepare(
+      `DROP TRIGGER test_individual_eligibility_reconciliation_rollback`
+    ).run();
+    expect((await reconcilePersonal(deliveryId, "active", exact)).status).toBe(200);
+    const replay = await reconcilePersonal(deliveryId, "active", exact);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ reconciled: true, duplicate: true, result: "applied" });
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT installation.state, installation.last_reconciliation_id,
+                CASE WHEN identity.eligible_at IS NULL THEN 0 ELSE 1 END AS eligible,
+                (SELECT COUNT(*) FROM github_personal_installation_reconciliations
+                  WHERE reconciliation_id = ?1) AS reconciliations,
+                (SELECT COUNT(*) FROM workflow_integrity_receipts
+                  WHERE id = ?2 AND valid = 1
+                    AND source_ref = identity.subject_token || ':' || ?1) AS receipts
+           FROM github_personal_installations installation
+           JOIN individual_identities identity ON identity.subject_token = installation.subject_token
+          WHERE installation.installation_id = ?3`
+      )
+        .bind(
+          exact.reconciliationId,
+          `integrity_individual_eligibility_reconciliation_${exact.reconciliationId}`,
+          INSTALLATION_ID
+        )
+        .first()
+    ).toEqual({
+      state: "active",
+      last_reconciliation_id: exact.reconciliationId,
+      eligible: 1,
+      reconciliations: 1,
+      receipts: 1
+    });
+  });
+
+  it("rolls back and exactly replays when consent is the final eligibility prerequisite", async () => {
+    const initialToken = await individualSession({ sessionId: "eligibility_consent_initial" });
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", initialToken, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+        })
+      ).status
+    ).toBe(200);
+    const deliveryId = crypto.randomUUID();
+    await createPendingPersonalInstallation(initialToken, deliveryId, new Date(Date.now() - 1_000).toISOString());
+    expect((await reconcilePersonal(deliveryId)).status).toBe(200);
+    const optOutToken = await individualSession({ sessionId: "eligibility_consent_opt_out" });
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", optOutToken, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: false }
+        })
+      ).status
+    ).toBe(200);
+    expect((await signedMeasurement("/v1/measurement/bridge", attestation())).status).toBe(201);
+
+    const finalSessionId = "eligibility_consent_final";
+    const finalSessionSha = await sha256Hex(`${SESSION_ISSUER}:${finalSessionId}`);
+    const finalToken = await individualSession({ sessionId: finalSessionId });
+    const consentBody = { schema_version: "r0-individual-measurement-consent-v1", opted_in: true };
+    await env.TEAM_CONTROL_DB.prepare(
+      `CREATE TRIGGER test_individual_eligibility_consent_rollback
+       BEFORE UPDATE OF eligible_at ON individual_identities
+       FOR EACH ROW WHEN OLD.eligible_at IS NULL AND NEW.eligible_at IS NOT NULL
+       BEGIN SELECT RAISE(IGNORE); END`
+    ).run();
+
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", finalToken, {
+          method: "PUT",
+          body: consentBody
+        })
+      ).status
+    ).toBe(500);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT consent.opted_in, identity.eligible_at,
+                (SELECT COUNT(*) FROM individual_session_mutations
+                  WHERE session_sha256 = ?1 AND action = 'measurement_consent') AS mutations,
+                (SELECT COUNT(*) FROM workflow_integrity_receipts
+                  WHERE id = ?2) AS receipts,
+                (SELECT COUNT(*) FROM individual_audit_events
+                  WHERE actor_session_sha256 = ?1
+                    AND action = 'measurement.individual.consent_opted_in') AS consent_audits
+           FROM individual_consents consent
+           JOIN individual_identities identity ON identity.subject_token = consent.subject_token`
+      )
+        .bind(finalSessionSha, `integrity_individual_eligibility_consent_${finalSessionSha}`)
+        .first()
+    ).toEqual({ opted_in: 0, eligible_at: null, mutations: 0, receipts: 0, consent_audits: 0 });
+
+    await env.TEAM_CONTROL_DB.prepare(`DROP TRIGGER test_individual_eligibility_consent_rollback`).run();
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", finalToken, {
+          method: "PUT",
+          body: consentBody
+        })
+      ).status
+    ).toBe(200);
+    const replay = await individualApi("/v1/individual/measurement-consent", finalToken, {
+      method: "PUT",
+      body: consentBody
+    });
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ opted_in: true, duplicate: true });
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT consent.opted_in,
+                CASE WHEN identity.eligible_at IS NULL THEN 0 ELSE 1 END AS eligible,
+                (SELECT COUNT(*) FROM individual_session_mutations
+                  WHERE session_sha256 = ?1 AND action = 'measurement_consent') AS mutations,
+                (SELECT COUNT(*) FROM workflow_integrity_receipts
+                  WHERE id = ?2 AND valid = 1
+                    AND source_ref = identity.subject_token || ':' || ?1) AS receipts
+           FROM individual_consents consent
+           JOIN individual_identities identity ON identity.subject_token = consent.subject_token`
+      )
+        .bind(finalSessionSha, `integrity_individual_eligibility_consent_${finalSessionSha}`)
+        .first()
+    ).toEqual({ opted_in: 1, eligible: 1, mutations: 1, receipts: 1 });
+  });
+
+  it("rolls back and exactly replays when attestation is the final eligibility prerequisite", async () => {
+    const token = await individualSession({ sessionId: "eligibility_attestation_last" });
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", token, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+        })
+      ).status
+    ).toBe(200);
+    const deliveryId = crypto.randomUUID();
+    await createPendingPersonalInstallation(token, deliveryId, new Date(Date.now() - 1_000).toISOString());
+    expect((await reconcilePersonal(deliveryId)).status).toBe(200);
+
+    const exactAttestation = attestation();
+    const messageId = String(exactAttestation.message_id);
+    await env.TEAM_CONTROL_DB.prepare(
+      `CREATE TRIGGER test_individual_eligibility_attestation_rollback
+       BEFORE UPDATE OF eligible_at ON individual_identities
+       FOR EACH ROW WHEN OLD.eligible_at IS NULL AND NEW.eligible_at IS NOT NULL
+       BEGIN SELECT RAISE(IGNORE); END`
+    ).run();
+    expect((await signedMeasurement("/v1/measurement/bridge", exactAttestation)).status).toBe(500);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT identity.classification, identity.classification_attested_at, identity.eligible_at,
+                (SELECT COUNT(*) FROM individual_measurement_bridge_messages
+                  WHERE message_id = ?1) AS messages,
+                (SELECT COUNT(*) FROM individual_subject_attestations
+                  WHERE message_id = ?1) AS attestations,
+                (SELECT COUNT(*) FROM workflow_integrity_receipts
+                  WHERE id = ?2) AS receipts,
+                (SELECT COUNT(*) FROM individual_audit_events
+                  WHERE action = 'measurement.individual.classified') AS classification_audits
+           FROM individual_identities identity`
+      )
+        .bind(messageId, `integrity_individual_eligibility_attestation_${messageId}`)
+        .first()
+    ).toEqual({
+      classification: null,
+      classification_attested_at: null,
+      eligible_at: null,
+      messages: 0,
+      attestations: 0,
+      receipts: 0,
+      classification_audits: 0
+    });
+
+    await env.TEAM_CONTROL_DB.prepare(`DROP TRIGGER test_individual_eligibility_attestation_rollback`).run();
+    expect((await signedMeasurement("/v1/measurement/bridge", exactAttestation)).status).toBe(201);
+    const replay = await signedMeasurement("/v1/measurement/bridge", exactAttestation);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ accepted: true, duplicate: true });
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT identity.classification,
+                CASE WHEN identity.eligible_at IS NULL THEN 0 ELSE 1 END AS eligible,
+                (SELECT COUNT(*) FROM individual_measurement_bridge_messages
+                  WHERE message_id = ?1) AS messages,
+                (SELECT COUNT(*) FROM individual_subject_attestations
+                  WHERE message_id = ?1) AS attestations,
+                (SELECT COUNT(*) FROM workflow_integrity_receipts
+                  WHERE id = ?2 AND valid = 1
+                    AND source_ref = identity.subject_token || ':' || ?1) AS receipts
+           FROM individual_identities identity`
+      )
+        .bind(messageId, `integrity_individual_eligibility_attestation_${messageId}`)
+        .first()
+    ).toEqual({ classification: "external", eligible: 1, messages: 1, attestations: 1, receipts: 1 });
+  });
+
+  it("requires a later personal creation after suspension and provider-not-found release", async () => {
+    const claim = (token: string, deliveryId: string): Promise<Response> =>
+      individualApi("/v1/individual/github/installation-claim", token, {
+        method: "POST",
+        body: {
+          schema_version: "github-personal-installation-claim-v1",
+          installation_id: INSTALLATION_ID,
+          provider_delivery_id: deliveryId
+        }
+      });
+    const baseTime = Date.now() - 10_000;
+    const token1 = await individualSession({ sessionId: "personal_lifecycle_session_1" });
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", token1, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+        })
+      ).status
+    ).toBe(200);
+    expect((await signedMeasurement("/v1/measurement/bridge", attestation())).status).toBe(201);
+    const creation1 = crypto.randomUUID();
+    const creation1Time = new Date(baseTime).toISOString();
+    expect((await sendPersonalWebhook(creation1, "User", creation1Time)).status).toBe(409);
+    expect((await claim(token1, creation1)).status).toBe(201);
+
+    const suspension1 = crypto.randomUUID();
+    expect(
+      (
+        await sendPersonalWebhook(
+          suspension1,
+          "User",
+          new Date(baseTime + 1_000).toISOString(),
+          INSTALLATION_ID,
+          "suspend"
+        )
+      ).status
+    ).toBe(409);
+    const token2 = await individualSession({ sessionId: "personal_lifecycle_session_2" });
+    const oldClaimAfterSuspend = await claim(token2, creation1);
+    expect(oldClaimAfterSuspend.status).toBe(409);
+    expect(await oldClaimAfterSuspend.json()).toMatchObject({ error: { code: "github_provider_proof_required" } });
+    const oldReplayAfterSuspend = await sendPersonalWebhook(creation1, "User", creation1Time);
+    expect(oldReplayAfterSuspend.status).toBe(409);
+    expect(await oldReplayAfterSuspend.json()).toMatchObject({ error: { code: "stale_github_lifecycle" } });
+
+    const creation2 = crypto.randomUUID();
+    const creation2Time = new Date(baseTime + 2_000).toISOString();
+    expect((await sendPersonalWebhook(creation2, "User", creation2Time)).status).toBe(409);
+    expect((await claim(token2, creation2)).status).toBe(201);
+    expect((await sendPersonalWebhook(creation2, "User", creation2Time)).status).toBe(202);
+    expect((await reconcilePersonal(creation2)).status).toBe(200);
+    const suspension2 = crypto.randomUUID();
+    await env.TEAM_CONTROL_DB.prepare(
+      `CREATE TRIGGER test_github_personal_terminal_batch_rollback
+       BEFORE INSERT ON individual_audit_events
+       FOR EACH ROW WHEN NEW.action = 'github.personal_installation.suspend'
+       BEGIN SELECT RAISE(ABORT, 'forced personal lifecycle rollback'); END`
+    ).run();
+    expect(
+      (
+        await sendPersonalWebhook(
+          suspension2,
+          "User",
+          new Date(baseTime + 3_000).toISOString(),
+          INSTALLATION_ID,
+          "suspend"
+        )
+      ).status
+    ).toBe(500);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT h.latest_action, h.terminal, p.state,
+                CASE WHEN i.eligible_at IS NULL THEN 0 ELSE 1 END AS eligible
+           FROM github_installation_lifecycle_heads h
+           JOIN github_personal_installations p
+             ON p.installation_id = h.installation_id AND p.incarnation = h.incarnation
+           JOIN github_personal_installation_claims c
+             ON c.installation_id = h.installation_id AND c.incarnation = h.incarnation
+           JOIN individual_identities i ON i.subject_token = c.subject_token
+          WHERE h.installation_id = ?1`
+      )
+        .bind(INSTALLATION_ID)
+        .first()
+    ).toEqual({ latest_action: "created", terminal: 0, state: "active", eligible: 1 });
+    await env.TEAM_CONTROL_DB.prepare(`DROP TRIGGER test_github_personal_terminal_batch_rollback`).run();
+    expect(
+      (
+        await sendPersonalWebhook(
+          suspension2,
+          "User",
+          new Date(baseTime + 3_000).toISOString(),
+          INSTALLATION_ID,
+          "suspend"
+        )
+      ).status
+    ).toBe(202);
+    const pendingUpdate2 = crypto.randomUUID();
+    expect(
+      (
+        await sendPersonalWebhook(
+          pendingUpdate2,
+          "User",
+          new Date(baseTime + 4_000).toISOString(),
+          INSTALLATION_ID,
+          "unsuspend"
+        )
+      ).status
+    ).toBe(202);
+    const released = await reconcilePersonal(pendingUpdate2, "not_found");
+    expect(released.status).toBe(200);
+    expect(await released.json()).toMatchObject({ reconciled: false, released: true, account_type: "User" });
+
+    const token3 = await individualSession({ sessionId: "personal_lifecycle_session_3" });
+    const oldClaimAfterRelease = await claim(token3, creation2);
+    expect(oldClaimAfterRelease.status).toBe(409);
+    expect(await oldClaimAfterRelease.json()).toMatchObject({ error: { code: "github_provider_proof_required" } });
+    const oldReplayAfterRelease = await sendPersonalWebhook(creation2, "User", creation2Time);
+    expect(oldReplayAfterRelease.status).toBe(200);
+    expect(await oldReplayAfterRelease.json()).toMatchObject({ duplicate: true, result: "applied" });
+    const releasedState = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT p.delivery_id AS proof_delivery_id, p.invalidated_by_delivery_id,
+              h.latest_delivery_id, h.latest_action, h.terminal,
+              (SELECT COUNT(*) FROM github_personal_deliveries
+                WHERE installation_id = ?1 AND result = 'rejected') AS rejected_deliveries,
+              (SELECT COUNT(*) FROM github_personal_deliveries
+                WHERE installation_id = ?1 AND result = 'pending_reconciliation') AS pending_deliveries
+         FROM github_installation_provider_proofs p
+         JOIN github_installation_lifecycle_heads h ON h.installation_id = p.installation_id
+        WHERE p.installation_id = ?1 AND p.delivery_id = ?2`
+    )
+      .bind(INSTALLATION_ID, creation2)
+      .first<Record<string, unknown>>();
+    expect(releasedState).toEqual({
+      proof_delivery_id: creation2,
+      invalidated_by_delivery_id: suspension2,
+      latest_delivery_id: pendingUpdate2,
+      latest_action: "provider_not_found",
+      terminal: 1,
+      rejected_deliveries: 1,
+      pending_deliveries: 0
+    });
+    const exported = await individualApi("/v1/individual/privacy/export", token3);
+    expect(exported.status).toBe(200);
+    const exportBody = await exported.json<{
+      r0_measurement: {
+        github_provider_proofs: Array<{ delivery_id: string; invalidated_by_delivery_id: string }>;
+        github_lifecycle_heads: Array<{ latest_delivery_id: string; latest_action: string }>;
+        github_deliveries: Array<{ delivery_id: string; result: string }>;
+        github_release_reconciliations: Array<{ source_delivery_id: string }>;
+        github_integrity_receipts: Array<{ workflow_type: string }>;
+      };
+    }>();
+    expect(exportBody.r0_measurement.github_provider_proofs).toContainEqual(
+      expect.objectContaining({ delivery_id: creation2, invalidated_by_delivery_id: suspension2 })
+    );
+    expect(exportBody.r0_measurement.github_lifecycle_heads).toContainEqual(
+      expect.objectContaining({ latest_delivery_id: pendingUpdate2, latest_action: "provider_not_found" })
+    );
+    expect(exportBody.r0_measurement.github_deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ delivery_id: suspension2, result: "revoked" }),
+        expect.objectContaining({ delivery_id: pendingUpdate2, result: "rejected" })
+      ])
+    );
+    expect(exportBody.r0_measurement.github_release_reconciliations).toContainEqual(
+      expect.objectContaining({ source_delivery_id: pendingUpdate2 })
+    );
+    expect(exportBody.r0_measurement.github_integrity_receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ workflow_type: "github_lifecycle_head_recorded" }),
+        expect.objectContaining({ workflow_type: "github_personal_not_found_release" })
+      ])
+    );
+
+    const creation3 = crypto.randomUUID();
+    const creation3Time = new Date(baseTime + 5_000).toISOString();
+    expect((await sendPersonalWebhook(creation3, "User", creation3Time)).status).toBe(409);
+    expect((await claim(token3, creation3)).status).toBe(201);
+    expect((await sendPersonalWebhook(creation3, "User", creation3Time)).status).toBe(202);
+    expect((await reconcilePersonal(creation3)).status).toBe(200);
+
+    const final = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT h.creation_delivery_id, h.latest_delivery_id, h.latest_action, h.terminal,
+              c.provider_proof_delivery_id, c.status AS claim_status, i.state AS installation_state,
+              (SELECT COUNT(*) FROM github_installation_provider_proofs
+                WHERE installation_id = ?1 AND invalidated_at IS NULL) AS live_proofs,
+              (SELECT COUNT(*) FROM github_installation_release_reconciliations
+                WHERE installation_id = ?1 AND result = 'released') AS releases
+         FROM github_installation_lifecycle_heads h
+         JOIN github_personal_installation_claims c ON c.installation_id = h.installation_id
+         JOIN github_personal_installations i ON i.installation_id = h.installation_id
+        WHERE h.installation_id = ?1`
+    )
+      .bind(INSTALLATION_ID)
+      .first<Record<string, unknown>>();
+    expect(final).toEqual({
+      creation_delivery_id: creation3,
+      latest_delivery_id: creation3,
+      latest_action: "created",
+      terminal: 0,
+      provider_proof_delivery_id: creation3,
+      claim_status: "bound",
+      installation_state: "active",
+      live_proofs: 1,
+      releases: 1
+    });
+  });
+
+  it("lets a same-second terminal personal delivery dominate creation and blocks same-second recreation", async () => {
+    const token = await individualSession({ sessionId: "personal_same_second_terminal" });
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", token, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+        })
+      ).status
+    ).toBe(200);
+    const claim = (deliveryId: string): Promise<Response> =>
+      individualApi("/v1/individual/github/installation-claim", token, {
+        method: "POST",
+        body: {
+          schema_version: "github-personal-installation-claim-v1",
+          installation_id: INSTALLATION_ID,
+          provider_delivery_id: deliveryId
+        }
+      });
+    const eventTime = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
+    const creation = crypto.randomUUID();
+    expect((await sendPersonalWebhook(creation, "User", eventTime)).status).toBe(409);
+    expect((await claim(creation)).status).toBe(201);
+    expect((await sendPersonalWebhook(creation, "User", eventTime)).status).toBe(202);
+
+    const deletion = crypto.randomUUID();
+    expect((await sendPersonalWebhook(deletion, "User", eventTime, INSTALLATION_ID, "deleted")).status).toBe(202);
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT h.latest_delivery_id, h.latest_action, h.terminal,
+              p.invalidated_by_delivery_id, i.state AS installation_state,
+              c.status AS claim_status
+         FROM github_installation_lifecycle_heads h
+         JOIN github_installation_provider_proofs p ON p.delivery_id = h.creation_delivery_id
+         JOIN github_personal_installations i ON i.installation_id = h.installation_id
+         JOIN github_personal_installation_claims c ON c.installation_id = h.installation_id
+        WHERE h.installation_id = ?1`
+    )
+      .bind(INSTALLATION_ID)
+      .first<Record<string, unknown>>();
+    expect(state).toEqual({
+      latest_delivery_id: deletion,
+      latest_action: "deleted",
+      terminal: 1,
+      invalidated_by_delivery_id: deletion,
+      installation_state: "deleted",
+      claim_status: "revoked"
+    });
+
+    const sameSecondRecreation = crypto.randomUUID();
+    const rejected = await sendPersonalWebhook(sameSecondRecreation, "User", eventTime);
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject({ error: { code: "stale_github_lifecycle" } });
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT latest_delivery_id, latest_action, terminal
+           FROM github_installation_lifecycle_heads WHERE installation_id = ?1`
+      )
+        .bind(INSTALLATION_ID)
+        .first()
+    ).toEqual({ latest_delivery_id: deletion, latest_action: "deleted", terminal: 1 });
+  });
+
+  it("erases released personal lifecycle, proof, release, delivery, and integrity rows on privacy deletion", async () => {
+    const token = await individualSession({ sessionId: "personal_release_privacy_delete" });
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", token, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+        })
+      ).status
+    ).toBe(200);
+    expect((await signedMeasurement("/v1/measurement/bridge", attestation())).status).toBe(201);
+    const creation = crypto.randomUUID();
+    const eventTime = new Date(Date.now() - 2_000).toISOString();
+    expect((await sendPersonalWebhook(creation, "User", eventTime)).status).toBe(409);
+    const claimed = await individualApi("/v1/individual/github/installation-claim", token, {
+      method: "POST",
+      body: {
+        schema_version: "github-personal-installation-claim-v1",
+        installation_id: INSTALLATION_ID,
+        provider_delivery_id: creation
+      }
+    });
+    expect(claimed.status).toBe(201);
+    expect((await sendPersonalWebhook(creation, "User", eventTime)).status).toBe(202);
+    expect((await reconcilePersonal(creation, "active")).status).toBe(200);
+    const suspension = crypto.randomUUID();
+    expect(
+      (
+        await sendPersonalWebhook(
+          suspension,
+          "User",
+          new Date(Date.now() - 1_000).toISOString(),
+          INSTALLATION_ID,
+          "suspend"
+        )
+      ).status
+    ).toBe(202);
+    const update = crypto.randomUUID();
+    expect(
+      (
+        await sendPersonalWebhook(
+          update,
+          "User",
+          new Date().toISOString(),
+          INSTALLATION_ID,
+          "unsuspend"
+        )
+      ).status
+    ).toBe(202);
+    expect((await reconcilePersonal(update, "not_found")).status).toBe(200);
+
+    const identity = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT subject_token FROM individual_identities WHERE github_account_node_id = ?1`
+    )
+      .bind(ACCOUNT_NODE_ID)
+      .first<{ subject_token: string }>();
+    expect(identity).not.toBeNull();
+    await env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES ('test_migrated_individual_eligibility', 'individual_eligibility_migration_backfill',
+         ?1 || ':migration_0008', 1, ?2)`
+    )
+      .bind(identity!.subject_token, new Date().toISOString())
+      .run();
+
+    const exported = await individualApi("/v1/individual/privacy/export", token);
+    expect(exported.status).toBe(200);
+    const exportBody = await exported.json<{
+      r0_measurement: { eligibility_integrity_receipts: Array<{ workflow_type: string; source_ref: string }> };
+    }>();
+    expect(exportBody.r0_measurement.eligibility_integrity_receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ workflow_type: "individual_eligibility_after_consent" }),
+        expect.objectContaining({ workflow_type: "individual_eligibility_after_attestation" }),
+        expect.objectContaining({ workflow_type: "individual_eligibility_after_github_reconciliation" }),
+        expect.objectContaining({
+          workflow_type: "individual_eligibility_migration_backfill",
+          source_ref: `${identity!.subject_token}:migration_0008`
+        })
+      ])
+    );
+
+    const requested = await individualApi("/v1/individual/privacy/deletion-requests", token, {
+      method: "POST",
+      body: { schema_version: "individual-deletion-request-v1" }
+    });
+    expect(requested.status).toBe(202);
+    const { confirmation } = await requested.json<{ confirmation: string }>();
+    const deleted = await individualApi("/v1/individual/privacy/data", token, {
+      method: "DELETE",
+      headers: { "X-Deletion-Confirmation": confirmation },
+      body: { schema_version: "individual-deletion-confirmation-v1" }
+    });
+    expect(deleted.status).toBe(200);
+    const residuals = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM github_installation_provider_proofs WHERE installation_id = ?1) AS proofs,
+         (SELECT COUNT(*) FROM github_installation_lifecycle_heads WHERE installation_id = ?1) AS heads,
+         (SELECT COUNT(*) FROM github_installation_release_reconciliations WHERE installation_id = ?1) AS releases,
+         (SELECT COUNT(*) FROM github_personal_deliveries WHERE installation_id = ?1) AS deliveries,
+         (SELECT COUNT(*) FROM workflow_integrity_receipts
+           WHERE workflow_type IN (
+             'github_lifecycle_head_recorded',
+             'github_personal_not_found_release',
+             'individual_eligibility_after_consent',
+             'individual_eligibility_after_attestation',
+             'individual_eligibility_after_github_reconciliation',
+             'individual_eligibility_migration_backfill'
+           )) AS receipts`
+    )
+      .bind(INSTALLATION_ID)
+      .first<Record<string, unknown>>();
+    expect(residuals).toEqual({ proofs: 0, heads: 0, releases: 0, deliveries: 0, receipts: 0 });
+  });
 
   it("requires independent human session, account.type=User reconciliation, exact verifier proof, and daily dedupe", async () => {
     const wrongAudience = await individualSession({ audience: "another-control-plane" });

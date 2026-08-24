@@ -216,6 +216,7 @@ async function requireBoundary(env: Env): Promise<BoundaryRow> {
 function individualAuditStatement(
   db: D1Database,
   input: {
+    id?: string;
     subjectToken: string;
     actorType: "human_session" | "identity_bridge" | "activity_bridge" | "github_app" | "system";
     actorSessionSha256?: string;
@@ -232,7 +233,7 @@ function individualAuditStatement(
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
     )
     .bind(
-      newId("individual_audit"),
+      input.id ?? newId("individual_audit"),
       input.subjectToken,
       input.actorType,
       input.actorSessionSha256 ?? null,
@@ -325,15 +326,20 @@ function assertMutationReplay(
   return true;
 }
 
-export async function refreshIndividualEligibility(db: D1Database, subjectToken: string, at: string): Promise<void> {
-  await db
+export function individualEligibilityUpdateStatement(
+  db: D1Database,
+  subjectToken: string,
+  at: string
+): D1PreparedStatement {
+  return db
     .prepare(
       `UPDATE individual_identities
-          SET eligible_at = COALESCE(eligible_at, ?1), updated_at = ?1
+          SET eligible_at = ?1, updated_at = ?1
         WHERE subject_token = ?2
           AND canonical_subject_token = subject_token
           AND status = 'active'
           AND classification = 'external'
+          AND eligible_at IS NULL
           AND EXISTS (
             SELECT 1 FROM individual_consents c
              WHERE c.subject_token = ?2 AND c.opted_in = 1
@@ -353,8 +359,178 @@ export async function refreshIndividualEligibility(db: D1Database, subjectToken:
                AND b.r0_started_at <= ?1
           )`
     )
-    .bind(at, subjectToken)
-    .run();
+    .bind(at, subjectToken);
+}
+
+export function individualEligibilityReceiptStatement(
+  db: D1Database,
+  input: {
+    id: string;
+    workflowType:
+      | "individual_eligibility_after_consent"
+      | "individual_eligibility_after_attestation"
+      | "individual_eligibility_after_github_reconciliation";
+    sourceRef: string;
+    subjectToken: string;
+    at: string;
+    expectedOptedIn?: boolean;
+    classification?: IndividualClassification;
+    classificationBasis?: IndividualClassificationBasis;
+    observedAt?: string;
+    installationId?: number;
+    incarnation?: number;
+    sourceDeliveryId?: string;
+    auditId: string;
+  }
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, ?2, ?4 || ':' || ?3,
+         CASE WHEN
+           EXISTS (
+             SELECT 1 FROM individual_identities identity
+              WHERE identity.subject_token = ?4
+                AND identity.canonical_subject_token = identity.subject_token
+                AND identity.status = 'active'
+           )
+           AND (
+             (?2 = 'individual_eligibility_after_consent' AND EXISTS (
+               SELECT 1
+                 FROM individual_session_mutations mutation
+                 JOIN individual_consents consent ON consent.subject_token = mutation.subject_token
+                WHERE mutation.session_sha256 = ?3 AND mutation.action = 'measurement_consent'
+                  AND mutation.subject_token = ?4 AND mutation.result = 'applied'
+                  AND mutation.applied_at = ?5
+                  AND consent.updated_session_sha256 = ?3 AND consent.updated_at = ?5
+                  AND consent.opted_in = ?6
+                  AND (
+                    (?6 = 1 AND consent.opted_in_at IS NOT NULL
+                      AND consent.opted_in_at <= ?5 AND consent.opted_out_at IS NULL) OR
+                    (?6 = 0 AND consent.opted_out_at = ?5)
+                  )
+                  AND EXISTS (
+                    SELECT 1 FROM individual_audit_events audit
+                     WHERE audit.id = ?13
+                       AND audit.subject_token = ?4 AND audit.actor_type = 'human_session'
+                       AND audit.actor_session_sha256 = ?3
+                       AND audit.action = CASE WHEN ?6 = 1
+                         THEN 'measurement.individual.consent_opted_in'
+                         ELSE 'measurement.individual.consent_opted_out' END
+                       AND audit.resource_type = 'individual_measurement_consent'
+                       AND audit.created_at = ?5
+                  )
+             )) OR
+             (?2 = 'individual_eligibility_after_attestation' AND EXISTS (
+               SELECT 1
+                 FROM individual_measurement_bridge_messages message
+                 JOIN individual_subject_attestations attestation
+                   ON attestation.message_id = message.message_id
+                 JOIN individual_identities identity
+                   ON identity.subject_token = attestation.subject_token
+                WHERE message.message_id = ?3
+                  AND message.message_kind = 'individual_subject_attestation_v1'
+                  AND message.subject_token = ?4 AND message.observed_at = ?9
+                  AND message.result = 'applied' AND message.received_at = ?5
+                  AND attestation.subject_token = ?4
+                  AND attestation.classification = ?7
+                  AND attestation.classification_basis = ?8
+                  AND attestation.observed_at = ?9
+                  AND identity.subject_token = ?4
+                  AND identity.canonical_subject_token = identity.subject_token
+                  AND identity.status = 'active'
+                  AND identity.classification = ?7
+                  AND identity.classification_basis = ?8
+                  AND identity.classification_attested_at = ?9
+                  AND identity.updated_at = ?5
+                  AND EXISTS (
+                    SELECT 1 FROM individual_audit_events audit
+                     WHERE audit.id = ?13
+                       AND audit.subject_token = ?4 AND audit.actor_type = 'identity_bridge'
+                       AND audit.action = 'measurement.individual.classified'
+                       AND audit.resource_type = 'individual_measurement_subject'
+                       AND audit.created_at = ?5
+                  )
+             )) OR
+             (?2 = 'individual_eligibility_after_github_reconciliation' AND EXISTS (
+               SELECT 1
+                 FROM github_personal_installation_reconciliations reconciliation
+                 JOIN github_personal_installations installation
+                   ON installation.installation_id = reconciliation.installation_id
+                  AND installation.incarnation = reconciliation.incarnation
+                 JOIN github_personal_deliveries delivery
+                   ON delivery.delivery_id = reconciliation.source_delivery_id
+                  AND delivery.installation_id = reconciliation.installation_id
+                  AND delivery.incarnation = reconciliation.incarnation
+                WHERE reconciliation.reconciliation_id = ?3
+                  AND reconciliation.subject_token = ?4
+                  AND reconciliation.source_delivery_id = ?12
+                  AND reconciliation.installation_id = ?10
+                  AND reconciliation.incarnation = ?11
+                  AND reconciliation.account_type = 'User'
+                  AND reconciliation.observed_at = ?9
+                  AND reconciliation.result = 'applied'
+                  AND reconciliation.applied_at = ?5
+                  AND installation.subject_token = ?4
+                  AND installation.account_type = 'User'
+                  AND installation.state = 'active'
+                  AND installation.last_delivery_id = ?12
+                  AND installation.last_reconciliation_id = ?3
+                  AND installation.reconciled_at = ?5
+                  AND installation.updated_at = ?5
+                  AND delivery.subject_token = ?4
+                  AND delivery.account_type = 'User'
+                  AND delivery.result = 'applied'
+                  AND EXISTS (
+                    SELECT 1 FROM individual_audit_events audit
+                     WHERE audit.id = ?13
+                       AND audit.subject_token = ?4 AND audit.actor_type = 'github_app'
+                       AND audit.action = 'github.personal_installation.reconciled'
+                       AND audit.resource_type = 'github_personal_installation'
+                       AND audit.created_at = ?5
+                  )
+             ))
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM individual_identities identity
+              WHERE identity.subject_token = ?4
+                AND identity.canonical_subject_token = identity.subject_token
+                AND identity.status = 'active' AND identity.classification = 'external'
+                AND (identity.eligible_at IS NULL OR identity.eligible_at > ?5)
+                AND EXISTS (
+                  SELECT 1 FROM individual_consents consent
+                   WHERE consent.subject_token = ?4 AND consent.opted_in = 1
+                )
+                AND EXISTS (
+                  SELECT 1 FROM github_personal_installations installation
+                  JOIN measurement_boundaries boundary ON boundary.boundary_id = 'r0'
+                   WHERE installation.subject_token = ?4
+                     AND installation.account_type = 'User' AND installation.state = 'active'
+                     AND installation.reconciled_at IS NOT NULL
+                     AND installation.app_id = boundary.github_app_id
+                     AND installation.installed_at >= boundary.r0_started_at
+                     AND installation.installed_at <= ?5
+                     AND installation.reconciled_at <= ?5
+                     AND boundary.r0_started_at <= ?5
+                )
+           )
+         THEN 1 ELSE 0 END, ?5)`
+    )
+    .bind(
+      input.id,
+      input.workflowType,
+      input.sourceRef,
+      input.subjectToken,
+      input.at,
+      input.expectedOptedIn === undefined ? null : input.expectedOptedIn ? 1 : 0,
+      input.classification ?? null,
+      input.classificationBasis ?? null,
+      input.observedAt ?? null,
+      input.installationId ?? null,
+      input.incarnation ?? null,
+      input.sourceDeliveryId ?? null,
+      input.auditId
+    );
 }
 
 export async function putIndividualMeasurementConsent(
@@ -381,6 +557,7 @@ export async function putIndividualMeasurementConsent(
     });
   }
   const at = nowIso();
+  const auditId = newId("individual_audit");
   const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO individual_consents
@@ -402,19 +579,34 @@ export async function putIndividualMeasurementConsent(
        VALUES (?1, 'measurement_consent', ?2, ?3, 'applied', ?4)`
     ).bind(auth.sessionSha256, requestHash, identity.subject_token, at),
     individualAuditStatement(env.TEAM_CONTROL_DB, {
+      id: auditId,
       subjectToken: identity.subject_token,
       actorType: "human_session",
       actorSessionSha256: auth.sessionSha256,
       action: optedIn ? "measurement.individual.consent_opted_in" : "measurement.individual.consent_opted_out",
       resourceType: "individual_measurement_consent",
       at
+    }),
+    individualEligibilityUpdateStatement(env.TEAM_CONTROL_DB, identity.subject_token, at),
+    individualEligibilityReceiptStatement(env.TEAM_CONTROL_DB, {
+      id: `integrity_individual_eligibility_consent_${auth.sessionSha256}`,
+      workflowType: "individual_eligibility_after_consent",
+      sourceRef: auth.sessionSha256,
+      subjectToken: identity.subject_token,
+      at,
+      expectedOptedIn: optedIn,
+      auditId
     })
   ]);
-  if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) {
+  if (
+    results.length !== 5 ||
+    (results[0]?.meta.changes ?? 0) !== 1 ||
+    (results[1]?.meta.changes ?? 0) !== 1 ||
+    (results[2]?.meta.changes ?? 0) !== 1 ||
+    ![0, 1].includes(results[3]?.meta.changes ?? -1) ||
+    (results[4]?.meta.changes ?? 0) !== 1
+  ) {
     throw new ApiError(409, "individual_consent_concurrent_conflict", "Individual consent changed concurrently.");
-  }
-  if (optedIn && (await env.TEAM_CONTROL_DB.prepare("SELECT 1 FROM measurement_boundaries WHERE boundary_id = 'r0'").first())) {
-    await refreshIndividualEligibility(env.TEAM_CONTROL_DB, identity.subject_token, at);
   }
   return jsonResponse({
     schema_version: "r0-individual-measurement-consent-v1",
@@ -483,6 +675,7 @@ async function attestIndividual(
     );
   }
   const at = nowIso();
+  const auditId = newId("individual_audit");
   const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE individual_identities SET classification = ?1, classification_basis = ?2,
@@ -502,18 +695,38 @@ async function attestIndividual(
        VALUES (?1, ?2, ?3, ?4, ?5)`
     ).bind(base.messageId, identity.subject_token, classification, basis, base.observedAt),
     individualAuditStatement(env.TEAM_CONTROL_DB, {
+      id: auditId,
       subjectToken: identity.subject_token,
       actorType: "identity_bridge",
       action: "measurement.individual.classified",
       resourceType: "individual_measurement_subject",
       metadata: { classification, classification_basis: basis },
       at
+    }),
+    individualEligibilityUpdateStatement(env.TEAM_CONTROL_DB, identity.subject_token, at),
+    individualEligibilityReceiptStatement(env.TEAM_CONTROL_DB, {
+      id: `integrity_individual_eligibility_attestation_${base.messageId}`,
+      workflowType: "individual_eligibility_after_attestation",
+      sourceRef: base.messageId,
+      subjectToken: identity.subject_token,
+      at,
+      classification,
+      classificationBasis: basis,
+      observedAt: base.observedAt,
+      auditId
     })
   ]);
-  if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) {
+  if (
+    results.length !== 6 ||
+    (results[0]?.meta.changes ?? 0) !== 1 ||
+    (results[1]?.meta.changes ?? 0) !== 1 ||
+    (results[2]?.meta.changes ?? 0) !== 1 ||
+    (results[3]?.meta.changes ?? 0) !== 1 ||
+    ![0, 1].includes(results[4]?.meta.changes ?? -1) ||
+    (results[5]?.meta.changes ?? 0) !== 1
+  ) {
     throw new ApiError(409, "individual_subject_concurrent_conflict", "Individual subject changed concurrently.");
   }
-  await refreshIndividualEligibility(env.TEAM_CONTROL_DB, identity.subject_token, at);
   const refreshed = await env.TEAM_CONTROL_DB.prepare(
     `SELECT eligible_at FROM individual_identities WHERE subject_token = ?1`
   )
@@ -1089,7 +1302,24 @@ export async function individualReportProjection(env: Env, generatedAt: string):
 }
 
 export async function exportIndividualMeasurement(db: D1Database, canonicalSubjectToken: string): Promise<object> {
-  const [identities, consents, claims, installations, attestations, rotations, merges, events, audit] =
+  const [
+    identities,
+    consents,
+    claims,
+    installations,
+    githubProofs,
+    githubLifecycleHeads,
+    githubDeliveries,
+    githubReconciliations,
+    githubReleaseReconciliations,
+    githubIntegrityReceipts,
+    eligibilityIntegrityReceipts,
+    attestations,
+    rotations,
+    merges,
+    events,
+    audit
+  ] =
     await Promise.all([
       db.prepare(
         `SELECT subject_token, canonical_subject_token, github_account_node_id, auth_subject_sha256,
@@ -1109,7 +1339,7 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
         .bind(canonicalSubjectToken)
         .all(),
       db.prepare(
-        `SELECT c.subject_token, c.account_type, c.status, c.claimed_at, c.updated_at
+        `SELECT c.subject_token, c.installation_id, c.incarnation, c.account_type, c.status, c.claimed_at, c.updated_at
            FROM github_personal_installation_claims c
            JOIN individual_identities i ON i.subject_token = c.subject_token
           WHERE i.subject_token = ?1 OR i.canonical_subject_token = ?1`
@@ -1117,11 +1347,159 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
         .bind(canonicalSubjectToken)
         .all(),
       db.prepare(
-        `SELECT p.subject_token, p.account_type, p.state, p.repository_selection,
+        `SELECT p.subject_token, p.installation_id, p.incarnation, p.account_type, p.state, p.repository_selection,
                 p.installed_at, p.suspended_at, p.deleted_at, p.reconciled_at, p.updated_at
            FROM github_personal_installations p
            JOIN individual_identities i ON i.subject_token = p.subject_token
           WHERE i.subject_token = ?1 OR i.canonical_subject_token = ?1`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT delivery_id, installation_id, incarnation, github_account_node_id, account_type,
+                verified_at, expires_at, consumed_at, consumed_by_lane,
+                invalidated_at, invalidated_by_delivery_id
+           FROM github_installation_provider_proofs
+          WHERE account_type = 'User' AND (
+            EXISTS (
+              SELECT 1 FROM github_personal_installation_claims c
+              JOIN individual_identities i ON i.subject_token = c.subject_token
+               WHERE (i.subject_token = ?1 OR i.canonical_subject_token = ?1)
+                 AND c.installation_id = github_installation_provider_proofs.installation_id
+                 AND c.incarnation = github_installation_provider_proofs.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_personal_installations p
+              JOIN individual_identities i ON i.subject_token = p.subject_token
+               WHERE (i.subject_token = ?1 OR i.canonical_subject_token = ?1)
+                 AND p.installation_id = github_installation_provider_proofs.installation_id
+                 AND p.incarnation = github_installation_provider_proofs.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_installation_release_reconciliations r
+               WHERE r.lane = 'personal' AND r.owner_ref IN (
+                 SELECT subject_token FROM individual_identities
+                  WHERE subject_token = ?1 OR canonical_subject_token = ?1
+               ) AND r.installation_id = github_installation_provider_proofs.installation_id
+                 AND r.incarnation = github_installation_provider_proofs.incarnation
+                 AND r.creation_delivery_id = github_installation_provider_proofs.delivery_id
+            )
+          ) ORDER BY verified_at, delivery_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT installation_id, incarnation, github_account_node_id, account_type, creation_delivery_id,
+                latest_delivery_id, latest_event_created_at, latest_action, terminal, updated_at
+           FROM github_installation_lifecycle_heads
+          WHERE account_type = 'User' AND (
+            EXISTS (
+              SELECT 1 FROM github_personal_installation_claims c
+              JOIN individual_identities i ON i.subject_token = c.subject_token
+               WHERE (i.subject_token = ?1 OR i.canonical_subject_token = ?1)
+                 AND c.installation_id = github_installation_lifecycle_heads.installation_id
+                 AND c.incarnation = github_installation_lifecycle_heads.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_personal_installations p
+              JOIN individual_identities i ON i.subject_token = p.subject_token
+               WHERE (i.subject_token = ?1 OR i.canonical_subject_token = ?1)
+                 AND p.installation_id = github_installation_lifecycle_heads.installation_id
+                 AND p.incarnation = github_installation_lifecycle_heads.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_installation_release_reconciliations r
+               WHERE r.lane = 'personal' AND r.owner_ref IN (
+                 SELECT subject_token FROM individual_identities
+                  WHERE subject_token = ?1 OR canonical_subject_token = ?1
+               ) AND r.installation_id = github_installation_lifecycle_heads.installation_id
+                 AND r.incarnation = github_installation_lifecycle_heads.incarnation
+            )
+          ) ORDER BY latest_event_created_at, installation_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT delivery_id, event_name, action, installation_id, incarnation, account_type,
+                event_created_at, result, received_at
+           FROM github_personal_deliveries
+          WHERE subject_token IN (
+            SELECT subject_token FROM individual_identities
+             WHERE subject_token = ?1 OR canonical_subject_token = ?1
+          ) OR EXISTS (
+            SELECT 1 FROM github_installation_release_reconciliations r
+             WHERE r.lane = 'personal' AND r.owner_ref IN (
+               SELECT subject_token FROM individual_identities
+                WHERE subject_token = ?1 OR canonical_subject_token = ?1
+             ) AND r.installation_id = github_personal_deliveries.installation_id
+               AND r.incarnation = github_personal_deliveries.incarnation
+          ) ORDER BY event_created_at, delivery_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT reconciliation_id, source_delivery_id, installation_id, incarnation, account_type,
+                observed_at, result, applied_at
+           FROM github_personal_installation_reconciliations
+          WHERE subject_token IN (
+            SELECT subject_token FROM individual_identities
+             WHERE subject_token = ?1 OR canonical_subject_token = ?1
+          ) ORDER BY observed_at, reconciliation_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT reconciliation_id, source_delivery_id, creation_delivery_id, installation_id, incarnation, github_account_node_id,
+                lane, owner_ref, observed_at, result, applied_at
+           FROM github_installation_release_reconciliations
+          WHERE lane = 'personal' AND owner_ref IN (
+              SELECT subject_token FROM individual_identities
+               WHERE subject_token = ?1 OR canonical_subject_token = ?1
+          ) ORDER BY observed_at, reconciliation_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT id, workflow_type, source_ref, valid, created_at
+           FROM workflow_integrity_receipts
+          WHERE (
+            workflow_type IN ('github_lifecycle_head_recorded', 'github_personal_lifecycle_materialized') AND source_ref IN (
+              SELECT delivery_id FROM github_personal_deliveries
+               WHERE subject_token IN (
+                 SELECT subject_token FROM individual_identities
+                  WHERE subject_token = ?1 OR canonical_subject_token = ?1
+               ) OR EXISTS (
+                 SELECT 1 FROM github_installation_release_reconciliations r
+                  WHERE r.lane = 'personal' AND r.owner_ref IN (
+                    SELECT subject_token FROM individual_identities
+                     WHERE subject_token = ?1 OR canonical_subject_token = ?1
+                  ) AND r.installation_id = github_personal_deliveries.installation_id
+                    AND r.incarnation = github_personal_deliveries.incarnation
+               )
+            )
+          ) OR (
+            workflow_type = 'github_personal_not_found_release' AND source_ref IN (
+              SELECT reconciliation_id FROM github_installation_release_reconciliations
+               WHERE lane = 'personal' AND owner_ref IN (
+                 SELECT subject_token FROM individual_identities
+                  WHERE subject_token = ?1 OR canonical_subject_token = ?1
+               )
+            )
+          ) ORDER BY created_at, id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT id, workflow_type, source_ref, valid, created_at
+           FROM workflow_integrity_receipts receipt
+          WHERE receipt.workflow_type IN (
+                  'individual_eligibility_after_consent',
+                  'individual_eligibility_after_attestation',
+                  'individual_eligibility_after_github_reconciliation',
+                  'individual_eligibility_migration_backfill'
+                )
+            AND EXISTS (
+              SELECT 1 FROM individual_identities identity
+               WHERE (identity.subject_token = ?1 OR identity.canonical_subject_token = ?1)
+                 AND substr(receipt.source_ref, 1, length(identity.subject_token) + 1) = identity.subject_token || ':'
+            )
+          ORDER BY created_at, id`
       )
         .bind(canonicalSubjectToken)
         .all(),
@@ -1181,6 +1559,13 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
     consents: consents.results.map((row) => ({ ...row, opted_in: Number(row.opted_in) === 1 })),
     personal_installation_claims: claims.results,
     personal_installations: installations.results,
+    github_provider_proofs: githubProofs.results,
+    github_lifecycle_heads: githubLifecycleHeads.results,
+    github_deliveries: githubDeliveries.results,
+    github_reconciliations: githubReconciliations.results,
+    github_release_reconciliations: githubReleaseReconciliations.results,
+    github_integrity_receipts: githubIntegrityReceipts.results,
+    eligibility_integrity_receipts: eligibilityIntegrityReceipts.results,
     subject_attestations: attestations.results,
     auth_subject_rotations: rotations.results,
     identity_merges: merges.results,

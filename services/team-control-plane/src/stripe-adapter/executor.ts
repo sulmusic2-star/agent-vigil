@@ -27,13 +27,18 @@ import {
 } from "./safe.ts";
 import {
   billingAccount,
+  billingGeneration,
   claimCheckoutExecution,
+  claimCheckoutSubscriptionCompensation,
+  checkoutCompensationExpectedProviderState,
   checkoutIntent,
+  checkoutSubscriptionCompensation,
   executableCommand,
   markCheckoutAccepted,
   markCheckoutCompensated,
   markCheckoutSubscriptionCompensated,
   markCommandAccepted,
+  markUnexpectedCheckoutSubscriptionCompensated,
   sourcePaymentContext
 } from "./store.ts";
 import { checkoutSessionExpirePath, invoicePaymentsPath, StripeClient, stripePath } from "./stripe-http.ts";
@@ -43,12 +48,14 @@ interface ParsedCheckout {
   checkoutIntentId: string;
   internalPriceId: InternalPriceId;
   providerPriceId: string;
+  billingGeneration: number;
   metadata: Record<string, string>;
 }
 
 interface ParsedCancellation {
   command: Record<string, unknown>;
   providerSubscriptionId: string;
+  billingGeneration: number;
 }
 
 interface ParsedRefund {
@@ -126,7 +133,7 @@ function checkoutCommand(
   const metadataValue = record(parameters.metadata, "metadata");
   exactKeys(
     metadataValue,
-    ["team_org_id", "internal_price_id", "provider_price_id", "checkout_intent_id", "contributor_limit"],
+    ["team_org_id", "internal_price_id", "provider_price_id", "billing_generation", "checkout_intent_id", "contributor_limit"],
     "metadata"
   );
   if (
@@ -138,10 +145,15 @@ function checkoutCommand(
     throw new AdapterError(409, "command_binding_mismatch", "Checkout metadata is not canonical.");
   }
   const checkoutIntentId = opaqueId(metadataValue.checkout_intent_id, "checkout_intent_id");
+  const billingGenerationRaw = string(metadataValue.billing_generation, "billing_generation", 10);
+  if (!/^[1-9][0-9]{0,9}$/u.test(billingGenerationRaw)) {
+    throw new AdapterError(409, "command_binding_mismatch", "Checkout billing generation is invalid.");
+  }
+  const billingGeneration = Number(billingGenerationRaw);
   const metadata = Object.fromEntries(
     Object.entries(metadataValue).map(([key, value]) => [key, string(value, `metadata.${key}`, 255)])
   );
-  return { command, checkoutIntentId, internalPriceId: priceId, providerPriceId, metadata };
+  return { command, checkoutIntentId, internalPriceId: priceId, providerPriceId, billingGeneration, metadata };
 }
 
 function cancellationCommand(row: BillingCommandRow): ParsedCancellation {
@@ -152,6 +164,7 @@ function cancellationCommand(row: BillingCommandRow): ParsedCancellation {
     "operation",
     "idempotency_key",
     "provider_subscription_id",
+    "billing_generation",
     "reason"
   ]);
   if (command.schema_version !== "billing-command-v1") {
@@ -163,7 +176,8 @@ function cancellationCommand(row: BillingCommandRow): ParsedCancellation {
   }
   return {
     command,
-    providerSubscriptionId: opaqueId(command.provider_subscription_id, "provider_subscription_id")
+    providerSubscriptionId: opaqueId(command.provider_subscription_id, "provider_subscription_id"),
+    billingGeneration: integer(command.billing_generation, "billing_generation", 1, 2_147_483_647)
   };
 }
 
@@ -310,10 +324,60 @@ async function executeCheckout(
   now: number
 ): Promise<Response> {
   const parsed = checkoutCommand(row, row.org_id, env);
+  const unexpectedCompensation = await checkoutSubscriptionCompensation(env.TEAM_CONTROL_DB, row.org_id, row.id);
+  if (unexpectedCompensation) {
+    if (
+      unexpectedCompensation.checkout_intent_id !== parsed.checkoutIntentId ||
+      unexpectedCompensation.billing_generation !== parsed.billingGeneration
+    ) {
+      throw new AdapterError(500, "checkout_compensation_binding_corrupt", "Checkout compensation does not match its immutable generation.");
+    }
+    const expectedProviderState = await checkoutCompensationExpectedProviderState(
+      env.TEAM_CONTROL_DB,
+      unexpectedCompensation
+    );
+    if (expectedProviderState.providerPriceId !== parsed.providerPriceId) {
+      throw new AdapterError(500, "checkout_compensation_binding_corrupt", "Checkout compensation price is not canonical.");
+    }
+    const compensationLeaseId = `checkout_extra_lease_${crypto.randomUUID()}`;
+    const leasedAt = new Date(now).toISOString();
+    const leaseExpiresAt = new Date(now + 60_000).toISOString();
+    await claimCheckoutSubscriptionCompensation(
+      env.TEAM_CONTROL_DB,
+      row,
+      unexpectedCompensation,
+      compensationLeaseId,
+      leasedAt,
+      leaseExpiresAt
+    );
+    const canceled = await stripe.request(stripePath("subscriptions", unexpectedCompensation.provider_subscription_id), {
+      method: "DELETE"
+    });
+    validateCanceledCheckoutSubscription(
+      canceled,
+      unexpectedCompensation.provider_subscription_id,
+      unexpectedCompensation.provider_customer_id,
+      parsed.providerPriceId,
+      expectedProviderState.metadata
+    );
+    await markUnexpectedCheckoutSubscriptionCompensated(
+      env.TEAM_CONTROL_DB,
+      row,
+      unexpectedCompensation,
+      compensationLeaseId,
+      new Date(now).toISOString()
+    );
+    throw new AdapterError(
+      409,
+      "unexpected_checkout_subscription_compensated",
+      "Unexpected completed Checkout subscription was canceled and bound to its billing-generation history."
+    );
+  }
   const intent = await checkoutIntent(env.TEAM_CONTROL_DB, parsed.checkoutIntentId, row.org_id);
   if (
     !intent ||
     intent.internal_price_id !== parsed.internalPriceId ||
+    intent.billing_generation !== parsed.billingGeneration ||
     !["prepared", "executing", "provider_created", "compensating"].includes(intent.status)
   ) {
     throw new AdapterError(409, "checkout_intent_mismatch", "Prepared checkout intent is not executable.");
@@ -356,6 +420,7 @@ async function executeCheckout(
       row,
       parsed.command,
       parsed.checkoutIntentId,
+      parsed.billingGeneration,
       intent.provider_session_id,
       compensationCustomerId,
       compensationSubscriptionId,
@@ -415,6 +480,7 @@ async function executeCheckout(
     row,
     parsed.command,
     parsed.checkoutIntentId,
+    parsed.billingGeneration,
     sessionId,
     leaseId
   );
@@ -431,6 +497,7 @@ async function executeCheckout(
       row,
       parsed.command,
       parsed.checkoutIntentId,
+      parsed.billingGeneration,
       sessionId,
       leaseId,
       new Date(now).toISOString()
@@ -459,12 +526,22 @@ async function executeCancellation(
 ): Promise<Response> {
   const parsed = cancellationCommand(row);
   const account = await billingAccount(env.TEAM_CONTROL_DB, row.org_id);
+  const generation = account
+    ? await billingGeneration(env.TEAM_CONTROL_DB, row.org_id, parsed.billingGeneration)
+    : null;
   if (
     !account ||
+    !generation ||
     !account.provider_customer_id ||
     !account.provider_subscription_id ||
     !account.internal_price_id ||
-    parsed.providerSubscriptionId !== account.provider_subscription_id
+    parsed.providerSubscriptionId !== account.provider_subscription_id ||
+    parsed.billingGeneration !== account.billing_generation ||
+    generation.generation !== parsed.billingGeneration ||
+    generation.status !== "bound" ||
+    generation.provider_customer_id !== account.provider_customer_id ||
+    generation.provider_subscription_id !== account.provider_subscription_id ||
+    generation.internal_price_id !== account.internal_price_id
   ) {
     throw new AdapterError(409, "provider_binding_mismatch", "Cancellation is not bound to this tenant subscription.");
   }

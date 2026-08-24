@@ -31,7 +31,7 @@
       "pattern": "^[A-Za-z0-9_-]{8,128}={0,2}$"
     },
     "account_type": { "enum": ["Organization", "User"] },
-    "provider_status": { "const": "active" },
+    "provider_status": { "enum": ["active", "not_found"] },
     "repository_selection": { "enum": ["all", "selected"] },
     "repository_node_ids": {
       "type": "array",
@@ -48,6 +48,10 @@
   "allOf": [
     {
       "if": { "properties": { "repository_selection": { "const": "all" } }, "required": ["repository_selection"] },
+      "then": { "properties": { "repository_node_ids": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "provider_status": { "const": "not_found" } }, "required": ["provider_status"] },
       "then": { "properties": { "repository_node_ids": { "maxItems": 0 } } }
     }
   ]

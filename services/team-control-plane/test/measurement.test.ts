@@ -54,7 +54,12 @@ async function signedRequest(body: Record<string, unknown>, secret: string): Pro
 }
 
 async function clearDatabase(): Promise<void> {
-  await env.TEAM_CONTROL_DB.exec(`
+  await env.TEAM_CONTROL_DB.prepare(`DROP TRIGGER billing_generation_event_delete_guard`).run();
+  try {
+    await env.TEAM_CONTROL_DB.exec(`
+    DELETE FROM workflow_integrity_receipts;
+    DELETE FROM checkout_subscription_compensations;
+    DELETE FROM github_installation_release_reconciliations;
     DELETE FROM individual_measurement_events;
     DELETE FROM individual_subject_attestations;
     DELETE FROM individual_auth_subject_rotations;
@@ -92,6 +97,8 @@ async function clearDatabase(): Promise<void> {
     DELETE FROM commercial_transitions;
     DELETE FROM checkout_intents;
     DELETE FROM billing_accounts;
+    DELETE FROM billing_generation_events;
+    DELETE FROM billing_generations;
     DELETE FROM audit_events;
     DELETE FROM rollback_records;
     DELETE FROM exception_records;
@@ -100,7 +107,17 @@ async function clearDatabase(): Promise<void> {
     DELETE FROM policy_revisions;
     DELETE FROM organization_members;
     DELETE FROM organizations;
-  `);
+    DELETE FROM github_installation_lifecycle_heads;
+    `);
+  } finally {
+    await env.TEAM_CONTROL_DB.prepare(
+      `CREATE TRIGGER billing_generation_event_delete_guard
+       BEFORE DELETE ON billing_generation_events
+       BEGIN
+         SELECT RAISE(ABORT, 'billing generation history is append only');
+       END`
+    ).run();
+  }
 }
 
 async function seedActiveOrganizationInstallation(): Promise<void> {
