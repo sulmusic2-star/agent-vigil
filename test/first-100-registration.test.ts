@@ -331,7 +331,11 @@ function validate(
   trust?: TrustFixture,
   overrides: Partial<Pick<TrustFixture, "manifestPath" | "headPath" | "publicKeyPath" | "chunkPaths">> = {},
 ): { status: number | null; stdout: string; stderr: string } {
-  const args = [join(directory, "validate-first-100.mjs")];
+  const args = [
+    join(frequencySource, "validate-first-100.mjs"),
+    "--ledger", join(directory, "first-100-ledger.jsonl"),
+    "--provenance", join(directory, "first-100-provenance.jsonl"),
+  ];
   if (trust) {
     const effective = { ...trust, ...overrides };
     args.push("--manifest", effective.manifestPath, "--trusted-head", effective.headPath, "--operator-public-key", effective.publicKeyPath);
