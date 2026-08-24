@@ -70,7 +70,8 @@ function evaluationFixture(): EvaluationFixture {
 }
 
 function mutatingDocker(fixture: EvaluationFixture, mutation: "changed" | "malformed" | "missing" | "moved"): string {
-  const docker = join(fixture.repository, `fake-docker-${mutation}.mjs`);
+  const docker = join(fixture.repository, `fake-docker-${mutation}.sh`);
+  const worker = join(fixture.repository, `fake-docker-${mutation}.mjs`);
   const marker = join(fixture.repository, `.mutated-${mutation}`);
   const changed = structuredClone(fixture.configDocument) as any;
   changed.runner.pids = 17;
@@ -80,7 +81,7 @@ function mutatingDocker(fixture: EvaluationFixture, mutation: "changed" | "malfo
     missing: "unlinkSync(configPath);",
     moved: `renameSync(configPath, configPath + ".moved"); writeFileSync(configPath, ${JSON.stringify(JSON.stringify(fixture.configDocument))});`,
   };
-  writeFileSync(docker, `#!/usr/bin/env node
+  writeFileSync(worker, `#!/usr/bin/env node
 import { existsSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 const configPath = ${JSON.stringify(fixture.configPath)};
 const marker = ${JSON.stringify(marker)};
@@ -94,6 +95,12 @@ if (args[0] === "context" && args[1] === "inspect") {
 } else if (args[0] === "image" && args[1] === "inspect") {
   process.stdout.write("[]");
 }
+`);
+  // The generated Node program is a test double for the Docker binary, not
+  // product code. Keep it from joining the parent process's V8 coverage
+  // denominator while still exercising the complete evaluation path.
+  writeFileSync(docker, `#!/bin/sh
+exec /usr/bin/env -u NODE_V8_COVERAGE -u NODE_TEST_CONTEXT ${JSON.stringify(process.execPath)} ${JSON.stringify(worker)} "$@"
 `);
   chmodSync(docker, 0o755);
   return docker;

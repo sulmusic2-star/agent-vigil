@@ -744,8 +744,8 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 520 tests, including 80 generated-repository compatibility scenarios across
-  18 runner-output families. In the v0.17.0 release-candidate run, 512 passed
+- 524 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families. In the v0.17.0 release-candidate run, 516 passed
   and eight opt-in integration tests skipped in the ordinary suite. With Docker enabled, the
   combined 13-test containment, timeout-cleanup, verdict, signing, and index
   suite passed against the selected local test daemon with no residual Upgrade
