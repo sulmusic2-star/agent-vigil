@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.invalid/schemas/first-100-acquisition-v1.schema.json",
+  "title": "Agent Vigil first-100 pre-inspection acquisition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "registrationId", "acquisition"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-first-100-acquisition/v1" },
+    "kind": { "const": "acquisition" },
+    "registrationId": { "const": "d0a44ad6-acfc-4542-a5fa-84c68ff37067" },
+    "acquisition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "channel",
+        "external",
+        "optedIn",
+        "runClass",
+        "identityClass",
+        "artifactClass",
+        "realUpdateIntent",
+        "rawEventSha256",
+        "pair"
+      ],
+      "properties": {
+        "channel": {
+          "enum": [
+            "apm",
+            "skills",
+            "agent-plugin",
+            "mcp-registry-referral",
+            "github-action",
+            "github-app",
+            "public-proof-referral"
+          ]
+        },
+        "external": { "type": "boolean" },
+        "optedIn": { "type": "boolean" },
+        "runClass": {
+          "enum": ["EXTERNAL_STANDARD", "INTERNAL_OR_MAINTAINER", "DEMO_OR_CORPUS", "CI_RETRY"]
+        },
+        "identityClass": { "enum": ["IMMUTABLE", "MUTABLE"] },
+        "artifactClass": { "enum": ["SUPPORTED", "UNSUPPORTED"] },
+        "realUpdateIntent": { "type": "boolean" },
+        "rawEventSha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "pair": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ecosystem", "componentIdentity", "currentExactIdentity", "candidateExactIdentity"],
+          "properties": {
+            "ecosystem": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+            "componentIdentity": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[a-z0-9@][a-z0-9@/._-]*$" },
+            "currentExactIdentity": { "type": "string", "minLength": 8, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9@:+._-]*$" },
+            "candidateExactIdentity": { "type": "string", "minLength": 8, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9@:+._-]*$" }
+          }
+        }
+      }
+    },
+    "adapterAttestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "keyId", "adapterVersion", "eventId", "observedAt", "artifactState", "signature"],
+      "properties": {
+        "schemaVersion": { "const": "agent-vigil-frequency-adapter-attestation/v1" },
+        "keyId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "adapterVersion": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[A-Za-z0-9][A-Za-z0-9.+_-]*$" },
+        "eventId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+        "observedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "artifactState": { "const": "UNOPENED" },
+        "signature": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    }
+  }
+}
