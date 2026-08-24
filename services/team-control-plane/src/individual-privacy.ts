@@ -4,7 +4,6 @@ import type { IndividualAuthContext } from "./individual-auth.ts";
 import {
   exportIndividualMeasurement,
   individualAuditStatement,
-  loadIndividualIdentity,
   requestMutationHash,
   sessionMutationReplay,
   sessionMutationStatement
@@ -19,11 +18,47 @@ interface IndividualDeletionRequestRow {
   expires_at: string;
 }
 
+interface PrivacyIdentityRow {
+  subject_token: string;
+  canonical_subject_token: string;
+  github_account_node_id: string;
+  auth_subject_sha256: string;
+  status: "active" | "merged";
+}
+
+async function loadPrivacyIdentity(
+  db: D1Database,
+  auth: IndividualAuthContext
+): Promise<PrivacyIdentityRow> {
+  const matches = await db.prepare(
+    `SELECT subject_token, canonical_subject_token, github_account_node_id, auth_subject_sha256, status
+       FROM individual_identities
+      WHERE github_account_node_id = ?1 OR auth_subject_sha256 = ?2`
+  )
+    .bind(auth.githubAccountNodeId, auth.authSubjectSha256)
+    .all<PrivacyIdentityRow>();
+  const identity = matches.results[0];
+  if (!identity) {
+    throw new ApiError(409, "individual_identity_not_bound", "The authenticated GitHub identity has not opted in.");
+  }
+  if (
+    matches.results.length !== 1 ||
+    identity.github_account_node_id !== auth.githubAccountNodeId ||
+    identity.auth_subject_sha256 !== auth.authSubjectSha256
+  ) {
+    throw new ApiError(409, "individual_identity_collision", "The authenticated GitHub identity conflicts with an existing binding.");
+  }
+  if (identity.status !== "active" || identity.canonical_subject_token !== identity.subject_token) {
+    throw new ApiError(409, "individual_identity_merged", "This identity was merged and cannot accept privacy requests.");
+  }
+  return identity;
+}
+
 export async function exportIndividualData(
   env: Env,
   auth: IndividualAuthContext
 ): Promise<Response> {
-  const identity = await loadIndividualIdentity(env, auth, false);
+  const identity = await loadPrivacyIdentity(env.TEAM_CONTROL_DB, auth);
   const measurement = await exportIndividualMeasurement(env.TEAM_CONTROL_DB, identity.canonical_subject_token);
   return jsonResponse({
     schema_version: "individual-privacy-export-v1",
@@ -40,7 +75,7 @@ export async function requestIndividualDeletion(
   env: Env,
   auth: IndividualAuthContext
 ): Promise<Response> {
-  const identity = await loadIndividualIdentity(env, auth, false);
+  const identity = await loadPrivacyIdentity(env.TEAM_CONTROL_DB, auth);
   const { rawBody, hash } = await requestMutationHash(request);
   const body = parseJsonObject(rawBody);
   assertExactKeys(body, ["schema_version"]);
@@ -114,7 +149,7 @@ export async function confirmIndividualDeletion(
   env: Env,
   auth: IndividualAuthContext
 ): Promise<Response> {
-  const identity = await loadIndividualIdentity(env, auth, false);
+  const identity = await loadPrivacyIdentity(env.TEAM_CONTROL_DB, auth);
   const confirmation = request.headers.get("X-Deletion-Confirmation");
   if (!confirmation || confirmation.length > 256) {
     throw new ApiError(428, "deletion_confirmation_required", "X-Deletion-Confirmation is required.");
@@ -272,6 +307,6 @@ export async function confirmIndividualDeletion(
       access_revoked: true,
       retained: "Only a non-identifying deletion-completion tombstone remains."
     },
-    202
+    200
   );
 }

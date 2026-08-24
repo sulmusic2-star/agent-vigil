@@ -45,7 +45,9 @@ export default defineConfig(async () => {
             R0_MEASUREMENT_RELEASE_PUBLISHED_AT: "2026-05-01T00:00:00.000Z",
             R0_MEASUREMENT_STARTED_AT: "2026-05-01T00:00:00.000Z",
             R0_INDIVIDUAL_MEASUREMENT_ENABLED: "true",
+            INDIVIDUAL_SESSION_ENABLED: "true",
             INDIVIDUAL_SESSION_ISSUER: "https://auth.example.test/",
+            INDIVIDUAL_SESSION_AUDIENCE: "agent-vigil-team-control-plane",
             INDIVIDUAL_SESSION_KEY_ID: "individual-session-key-v1",
             R0_INDIVIDUAL_IDENTITY_HMAC_KEY_ID: "individual-identity-key-v1"
           }

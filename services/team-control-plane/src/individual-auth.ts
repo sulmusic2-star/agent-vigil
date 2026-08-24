@@ -1,5 +1,5 @@
 import { base64UrlDecode, sha256Hex, verifyHmacBase64Url } from "./crypto.ts";
-import { requireIndividualFeatureConfiguration } from "./individual-config.ts";
+import { requireIndividualSessionConfiguration } from "./individual-config.ts";
 import { ApiError } from "./http.ts";
 import { assertExactKeys, requireEnum, requireInteger, requireOpaqueId, requireString } from "./validation.ts";
 
@@ -26,7 +26,7 @@ function invalidSession(): ApiError {
 }
 
 export async function authenticateIndividual(request: Request, env: Env): Promise<IndividualAuthContext> {
-  const config = requireIndividualFeatureConfiguration(env);
+  const config = requireIndividualSessionConfiguration(env);
   const authorization = request.headers.get("Authorization");
   if (!authorization || authorization.length > 8192 || !authorization.startsWith("Bearer ")) {
     throw new ApiError(401, "individual_authentication_required", "A GitHub/OIDC-bound human session is required.");
@@ -62,6 +62,7 @@ export async function authenticateIndividual(request: Request, env: Env): Promis
       "schema_version",
       "kid",
       "iss",
+      "aud",
       "sub",
       "github_account_node_id",
       "identity_kind",
@@ -72,7 +73,14 @@ export async function authenticateIndividual(request: Request, env: Env): Promis
     if (payload.schema_version !== "individual-session-v1") throw new Error("schema");
     const kid = requireString(payload.kid, "kid", { max: 128 });
     const issuer = requireString(payload.iss, "iss", { max: 512 });
-    if (kid !== config.sessionKeyId || issuer !== config.sessionIssuer) throw new Error("boundary");
+    const audience = requireString(payload.aud, "aud", { max: 256 });
+    if (
+      kid !== config.sessionKeyId ||
+      issuer !== config.sessionIssuer ||
+      audience !== config.sessionAudience
+    ) {
+      throw new Error("boundary");
+    }
     requireEnum(payload.identity_kind, "identity_kind", ["human"] as const);
     const subject = requireOpaqueId(payload.sub, "sub", 255);
     const accountNodeId = requireNodeId(payload.github_account_node_id, "github_account_node_id");

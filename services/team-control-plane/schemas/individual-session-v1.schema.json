@@ -5,13 +5,14 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "kid", "iss", "sub", "github_account_node_id",
+    "schema_version", "kid", "iss", "aud", "sub", "github_account_node_id",
     "identity_kind", "jti", "iat", "exp"
   ],
   "properties": {
     "schema_version": { "const": "individual-session-v1" },
     "kid": { "type": "string", "minLength": 3, "maxLength": 128 },
     "iss": { "type": "string", "format": "uri" },
+    "aud": { "type": "string", "minLength": 3, "maxLength": 256 },
     "sub": { "type": "string", "minLength": 3, "maxLength": 255 },
     "github_account_node_id": {
       "type": "string",

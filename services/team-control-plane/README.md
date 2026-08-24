@@ -47,6 +47,8 @@ INDIVIDUAL_SESSION_HMAC_SECRET=...
 
 When organization measurement is enabled, its four measurement secrets and the Team-session, GitHub-webhook, and GitHub-reconciliation secrets form one seven-duty separation set. When the individual lane is enabled, its session and stable-identity secrets join the same set, making all nine values pairwise distinct. Every value must contain at least 32 UTF-8 bytes. The shared guard runs before enabled bridge/report, consent/claim, and GitHub provider-ingestion work; enabled routes fail closed with a generic configuration error before reading or mutating evidence otherwise.
 
+Individual session authentication has its own deployment boundary: `INDIVIDUAL_SESSION_ENABLED`, the exact `avindividual_v1` schema/key ID, `INDIVIDUAL_SESSION_ISSUER`, `INDIVIDUAL_SESSION_AUDIENCE`, and `INDIVIDUAL_SESSION_HMAC_SECRET`. Privacy export and erasure validate only that boundary and an existing exact node/auth-subject binding, so an unrelated measurement-duty collision cannot strand a data subject. Consent, installation, activity, identity, and report routes still require the complete measurement-duty guard.
+
 Secret names are declared only in `src/env.d.ts`; Wrangler has no supported `secrets.required` configuration field. The HMAC implementation rejects missing or shorter-than-32-byte secrets at runtime, and production values must be installed with Wrangler rather than committed as vars.
 
 Set real Stripe price identifiers and the numeric GitHub App ID in a deployment-specific Wrangler environment before any deployment. The checked-in `CONFIGURE_BEFORE_DEPLOYMENT` values deliberately make provider processing fail closed.

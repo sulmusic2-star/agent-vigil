@@ -90,20 +90,22 @@ Organization privacy export includes consent, opaque subject state, attestations
 The individual receiver is enabled only when `R0_INDIVIDUAL_MEASUREMENT_ENABLED=true` and all exact configuration and secret-role checks pass. The checked-in value is `false`, so reports return `HOLD` / `UNMEASURABLE` with `null` denominators. Enabling requires:
 
 ```text
+INDIVIDUAL_SESSION_ENABLED=true
 INDIVIDUAL_SESSION_ISSUER=https://.../       # exact trusted GitHub/OIDC adapter issuer
+INDIVIDUAL_SESSION_AUDIENCE=...              # exact control-plane audience
 INDIVIDUAL_SESSION_KEY_ID=...
 R0_INDIVIDUAL_IDENTITY_HMAC_KEY_ID=...
 INDIVIDUAL_SESSION_HMAC_SECRET=...           # secret binding
 R0_INDIVIDUAL_IDENTITY_HMAC_SECRET=...       # secret binding
 ```
 
-An `avindividual_v1` session is limited to 15 minutes, identifies a human, and binds its authenticated issuer/subject to one stable GitHub account node ID. The user must explicitly opt in and claim a numeric installation ID; the claim body cannot supply an account identity. GitHub's signed webhook must attest `installation.account.type = User`, and a separate fresh reconciliation snapshot must independently confirm the same App, installation, node ID, account type, lifecycle delivery, and selection mode before eligibility.
+An `avindividual_v1` session is limited to 15 minutes, identifies a human, and binds its exact key ID, issuer, audience, and authenticated subject to one stable GitHub account node ID. The user must explicitly opt in and claim a numeric installation ID; the claim body cannot supply an account identity. GitHub's signed webhook must attest `installation.account.type = User`, and a separate fresh reconciliation snapshot must independently confirm the same App, installation, node ID, account type, lifecycle delivery, and selection mode before eligibility.
 
 The identity bridge records chronological external/internal/demo/test classification, signed auth-subject rotation, and provider-confirmed account merge. A stable HMAC-opaque `mind_...` token is persisted at first binding. A merged source becomes inactive and cannot emit new activity. Human mutations are session/action replay-bound; message IDs are exact-byte and cross-lane replay-bound.
 
 `individual_activation_v1` accepts no subject, account, login, IP, repository, or device identity. It names only the personal installation and proves `verifier_outcome=completed`, the exact immutable R0 version and commit, one verdict, and a receipt SHA-256 under the activity-bridge signature. Server state resolves the opted-in external subject. One event per canonical subject and UTC day counts; merged aliases use the earliest `occurred_at` on that day regardless of insertion order. Matured repeat is a second day within 60 days of that true first activation, with the first activation at least 60 days old.
 
-Individual export includes the authenticated bindings and evidence. Confirmed deletion removes the raw node/auth binding, opaque token, personal claim/installation, deliveries, reconciliation, events, bridge evidence, and audit rows; only a non-identifying completion tombstone remains. Download counts, anonymous telemetry, IP/device fingerprints, repository names, and self-asserted identities are never joined.
+Individual export includes the authenticated bindings and evidence. Privacy routes verify the independently enabled exact session boundary and resolve only an existing node/auth-subject binding; they do not depend on measurement-duty separation, so export and erasure remain available during an unrelated measurement-secret incident. Consent, claims, provider/activity ingestion, identity changes, and reports remain behind the complete duty-separation guard. Confirmed deletion removes the raw node/auth binding, opaque token, personal claim/installation, deliveries, reconciliation, events, bridge evidence, and audit rows; only a non-identifying completion tombstone remains. Download counts, anonymous telemetry, IP/device fingerprints, repository names, and self-asserted identities are never joined.
 
 The receiver alone does not clear deployment HOLD. A real GitHub/OIDC issuer, read-only GitHub reconciliation adapter, operator/demo/test registry, activation bridge, production secrets, staging exercise, and independent exact-SHA review remain external prerequisites. No provider adapter is called by this Worker.
 

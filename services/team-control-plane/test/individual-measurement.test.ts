@@ -2,9 +2,11 @@ import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { base64UrlEncode, hmacBase64Url, hmacHex, sha256Hex } from "../src/crypto.ts";
+import worker from "../src/index.ts";
 
 const ORIGIN = "https://team.example.test";
 const SESSION_ISSUER = "https://auth.example.test/";
+const SESSION_AUDIENCE = "agent-vigil-team-control-plane";
 const SESSION_SECRET = "test-only-individual-session-secret-32-bytes-minimum";
 const CONTROL_SECRET = "test-only-r0-measurement-control-secret-32-bytes";
 const IDENTITY_SECRET = "test-only-r0-identity-bridge-secret-32-bytes";
@@ -53,7 +55,7 @@ async function clearDatabase(): Promise<void> {
 }
 
 async function individualSession(
-  input: { sub?: string; accountNodeId?: string; sessionId?: string } = {}
+  input: { sub?: string; accountNodeId?: string; sessionId?: string; audience?: string } = {}
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const payload = base64UrlEncode(
@@ -61,6 +63,7 @@ async function individualSession(
       schema_version: "individual-session-v1",
       kid: "individual-session-key-v1",
       iss: SESSION_ISSUER,
+      aud: input.audience ?? SESSION_AUDIENCE,
       sub: input.sub ?? "github_oidc_user_primary",
       github_account_node_id: input.accountNodeId ?? ACCOUNT_NODE_ID,
       identity_kind: "human",
@@ -71,6 +74,39 @@ async function individualSession(
   );
   const signed = `avindividual_v1.${payload}`;
   return `${signed}.${await hmacBase64Url(SESSION_SECRET, signed)}`;
+}
+
+async function individualApiWithEnv(
+  path: string,
+  token: string,
+  runtimeEnv: Env,
+  options: { method?: string; body?: object; headers?: Record<string, string> } = {}
+): Promise<Response> {
+  const headers = new Headers(options.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  if (options.body) headers.set("Content-Type", "application/json");
+  return worker.fetch(
+    new Request(`${ORIGIN}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      ...(options.body ? { body: JSON.stringify(options.body) } : {})
+    }),
+    runtimeEnv
+  );
+}
+
+async function allApplicationRowsText(): Promise<string> {
+  const tables = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`
+  ).all<{ name: string }>();
+  const snapshot: Array<{ table: string; rows: unknown[] }> = [];
+  for (const { name } of tables.results) {
+    if (name.startsWith("sqlite_") || name.startsWith("_cf_") || name === "d1_migrations") continue;
+    if (!/^[a-z0-9_]+$/u.test(name)) throw new Error(`Unexpected application table name: ${name}`);
+    const rows = await env.TEAM_CONTROL_DB.prepare(`SELECT * FROM "${name}"`).all();
+    snapshot.push({ table: name, rows: rows.results });
+  }
+  return JSON.stringify(snapshot);
 }
 
 async function individualApi(
@@ -339,6 +375,11 @@ describe("R0 individual measurement lane", () => {
   beforeEach(clearDatabase);
 
   it("requires independent human session, account.type=User reconciliation, exact verifier proof, and daily dedupe", async () => {
+    const wrongAudience = await individualSession({ audience: "another-control-plane" });
+    const rejectedAudience = await individualApi("/v1/individual/measurement", wrongAudience);
+    expect(rejectedAudience.status).toBe(401);
+    expect(await rejectedAudience.json()).toMatchObject({ error: { code: "invalid_individual_session" } });
+
     const token = await individualSession();
     await initializeEligibleIndividual(token);
 
@@ -504,12 +545,32 @@ describe("R0 individual measurement lane", () => {
     }
   });
 
-  it("exports the authenticated lane then erases every raw personal identifier and installation ID", async () => {
+  it("keeps privacy export and erasure available during an unrelated measurement-secret collision", async () => {
     const token = await individualSession();
     await initializeEligibleIndividual(token);
-    expect((await signedMeasurement("/v1/measurement/bridge", activation())).status).toBe(201);
+    const activationId = "privacy_collision_activation";
+    expect(
+      (
+        await signedMeasurement(
+          "/v1/measurement/bridge",
+          activation({ message_id: activationId })
+        )
+      ).status
+    ).toBe(201);
 
-    const exported = await individualApi("/v1/individual/privacy/export", token);
+    const collidedEnv = new Proxy(env as Env, {
+      get(target, property, receiver) {
+        if (property === "TEAM_SESSION_HMAC_SECRET") return IDENTITY_SECRET;
+        return Reflect.get(target, property, receiver);
+      }
+    });
+    const blockedMeasurement = await individualApiWithEnv("/v1/individual/measurement", token, collidedEnv);
+    expect(blockedMeasurement.status).toBe(503);
+    expect(await blockedMeasurement.json()).toMatchObject({
+      error: { code: "r0_measurement_secret_configuration_invalid" }
+    });
+
+    const exported = await individualApiWithEnv("/v1/individual/privacy/export", token, collidedEnv);
     expect(exported.status).toBe(200);
     const exportBody = await exported.json<Record<string, unknown>>();
     const exportJson = JSON.stringify(exportBody);
@@ -523,18 +584,28 @@ describe("R0 individual measurement lane", () => {
       .first<{ subject_token: string; auth_subject_sha256: string }>();
     expect(subject?.subject_token).toMatch(/^mind_[a-f0-9]{64}$/u);
 
-    const deletionRequest = await individualApi("/v1/individual/privacy/deletion-requests", token, {
-      method: "POST",
-      body: { schema_version: "individual-deletion-request-v1" }
-    });
+    const deletionRequest = await individualApiWithEnv(
+      "/v1/individual/privacy/deletion-requests",
+      token,
+      collidedEnv,
+      {
+        method: "POST",
+        body: { schema_version: "individual-deletion-request-v1" }
+      }
+    );
     expect(deletionRequest.status).toBe(202);
     const deletion = await deletionRequest.json<{ confirmation: string }>();
-    const confirmed = await individualApi("/v1/individual/privacy/data", token, {
-      method: "DELETE",
-      headers: { "X-Deletion-Confirmation": deletion.confirmation },
-      body: { schema_version: "individual-deletion-confirmation-v1" }
-    });
-    expect(confirmed.status).toBe(202);
+    const confirmed = await individualApiWithEnv(
+      "/v1/individual/privacy/data",
+      token,
+      collidedEnv,
+      {
+        method: "DELETE",
+        headers: { "X-Deletion-Confirmation": deletion.confirmation },
+        body: { schema_version: "individual-deletion-confirmation-v1" }
+      }
+    );
+    expect(confirmed.status).toBe(200);
     expect(await confirmed.json()).toMatchObject({ deleted: true, access_revoked: true });
 
     const residuals = await env.TEAM_CONTROL_DB.prepare(
@@ -577,7 +648,24 @@ describe("R0 individual measurement lane", () => {
     expect(deletionRows.results).toHaveLength(1);
     expect(deletionRows.results[0]).toMatchObject({ status: "completed" });
 
-    const postDeleteExport = await individualApi("/v1/individual/privacy/export", token);
+    const databaseText = await allApplicationRowsText();
+    for (const erased of [
+      ACCOUNT_NODE_ID,
+      String(INSTALLATION_ID),
+      subject?.subject_token ?? "mind_missing",
+      subject?.auth_subject_sha256 ?? "hash_missing",
+      activationId,
+      "provider_session_and_non_operator_registry"
+    ]) {
+      expect(databaseText).not.toContain(erased);
+    }
+    expect(databaseText).not.toContain("mind_");
+
+    const postDeleteExport = await individualApiWithEnv(
+      "/v1/individual/privacy/export",
+      token,
+      collidedEnv
+    );
     expect(postDeleteExport.status).toBe(409);
     expect(await postDeleteExport.json()).toMatchObject({ error: { code: "individual_identity_not_bound" } });
   });
