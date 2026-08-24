@@ -43,12 +43,18 @@ import {
   type PublisherStatus,
 } from "./db";
 import {
+  buildFirst100SignedExport,
   exportFirst100Bundle,
   exportFirst100Entries,
   first100Jsonl,
   first100ProvenanceJsonl,
+  getFrequencyAdapter,
+  grantFirst100ArtifactAccess,
+  registerFrequencyAdapter,
   registerFirst100Pair,
+  revokeFrequencyAdapter,
   storeFirst100Evaluation,
+  validateFirst100AccessGrantRequest,
   validateFirst100Evaluation,
   validateFirst100Proposal,
 } from "./frequency";
@@ -278,9 +284,77 @@ async function handleRegisterPublisher(request: Request, env: Env): Promise<Resp
   const keyId = boundedString(body.keyId, "publisher key ID", 71, HASH);
   const publicKey = boundedString(body.publicKey, "publisher public key", 512);
   if (await publicKeyIdFromBase64(publicKey) !== keyId) throw new HttpError(422, "PUBLISHER_KEY_INVALID", "Publisher key ID does not match the submitted public key");
+  if (keyId === env.FREQUENCY_OPERATOR_KEY_ID || await getFrequencyAdapter(env.PROOF_DB, keyId)) {
+    throw new HttpError(409, "KEY_DUTY_CONFLICT", "Publisher, adapter, and export-operator keys must be pairwise distinct");
+  }
   const occurredAt = new Date().toISOString();
   const result = await registerPublisher(env.PROOF_DB, { eventId, keyId, publicKey, occurredAt });
   return jsonResponse({ schemaVersion: "agent-vigil-publisher-registration/v1", created: result.created, keyId, status: result.publisher.status, occurredAt }, result.created ? 201 : 200, { "Cache-Control": "no-store" });
+}
+
+async function handleRegisterFrequencyAdapter(request: Request, env: Env): Promise<Response> {
+  await requireAdmin(request, env);
+  const { value } = await readBoundedJson(request, ADMIN_BODY_MAX);
+  const body = exactObject(value, ["eventId", "keyId", "publicKey", "version"], "frequency adapter registration");
+  const eventId = boundedString(body.eventId, "frequency adapter event ID", 36, UUID_V4);
+  const keyId = boundedString(body.keyId, "frequency adapter key ID", 71, HASH);
+  const publicKey = boundedString(body.publicKey, "frequency adapter public key", 512);
+  const version = boundedString(body.version, "frequency adapter version", 80, /^[A-Za-z0-9][A-Za-z0-9.+_-]*$/);
+  if (await publicKeyIdFromBase64(publicKey) !== keyId) {
+    throw new HttpError(422, "FREQUENCY_ADAPTER_KEY_INVALID", "Frequency adapter key ID does not match its public key");
+  }
+  if (keyId === env.FREQUENCY_OPERATOR_KEY_ID || await getPublisher(env.PROOF_DB, keyId)) {
+    throw new HttpError(409, "KEY_DUTY_CONFLICT", "Publisher, adapter, and export-operator keys must be pairwise distinct");
+  }
+  const occurredAt = new Date().toISOString();
+  let result;
+  try {
+    result = await registerFrequencyAdapter(env.PROOF_DB, { eventId, keyId, publicKey, version, occurredAt });
+  } catch (error) {
+    if (errorHasMarker(error, "FREQUENCY_KEY_DUTY_CONFLICT")) {
+      throw new HttpError(409, "KEY_DUTY_CONFLICT", "Publisher, adapter, and export-operator keys must be pairwise distinct");
+    }
+    throw error;
+  }
+  return jsonResponse({
+    schemaVersion: "agent-vigil-frequency-adapter-registration/v1",
+    created: result.created,
+    keyId,
+    version,
+    status: result.adapter.status,
+    occurredAt,
+  }, result.created ? 201 : 200, { "Cache-Control": "no-store" });
+}
+
+async function handleFrequencyAdapterStatus(request: Request, env: Env): Promise<Response> {
+  await requireAdmin(request, env);
+  const { value } = await readBoundedJson(request, ADMIN_BODY_MAX);
+  const body = exactObject(value, ["eventId", "keyId", "status", "reasonClass"], "frequency adapter status event");
+  if (body.status !== "REVOKED" || typeof body.reasonClass !== "string"
+    || !new Set(["COMPROMISED", "OPERATOR_REQUEST", "POLICY", "ABUSE"]).has(body.reasonClass)) {
+    throw new HttpError(400, "INVALID_REQUEST", "Frequency adapter status or reason class is invalid");
+  }
+  let adapter;
+  try {
+    adapter = await revokeFrequencyAdapter(env.PROOF_DB, {
+      eventId: boundedString(body.eventId, "frequency adapter event ID", 36, UUID_V4),
+      keyId: boundedString(body.keyId, "frequency adapter key ID", 71, HASH),
+      reasonClass: body.reasonClass,
+      occurredAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (errorHasMarker(error, "FREQUENCY_ADAPTER_STATUS_TERMINAL")) {
+      throw new HttpError(409, "FREQUENCY_ADAPTER_STATUS_TERMINAL", "A revoked adapter key cannot be restored");
+    }
+    throw error;
+  }
+  return jsonResponse({
+    schemaVersion: "agent-vigil-frequency-adapter-status/v1",
+    keyId: adapter.key_id,
+    version: adapter.version,
+    status: adapter.status,
+    updatedAt: adapter.updated_at,
+  }, 200, { "Cache-Control": "no-store" });
 }
 
 async function handlePublisherStatus(request: Request, env: Env): Promise<Response> {
@@ -603,15 +677,65 @@ async function handleFirst100Proposal(request: Request, env: Env): Promise<Respo
       receivedAt,
       publisherKeyId: auth.publisher.key_id,
       requestId: auth.requestId,
+      operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
     });
   } catch (error) {
     if (error instanceof Error && error.message === "first-100 sample is closed") throw new HttpError(409, "FIRST_100_SAMPLE_CLOSED", "The frozen first-100 sample is complete");
     if (errorHasMarker(error, "PUBLISHER_NOT_ACTIVE")) {
       throw new HttpError(403, "PUBLISHER_NOT_ACTIVE", "Publisher key became inactive before the chronological record was committed");
     }
+    if (errorHasMarker(error, "KEY_DUTY_CONFLICT")) {
+      throw new HttpError(409, "KEY_DUTY_CONFLICT", "Publisher, adapter, and export-operator keys must be pairwise distinct");
+    }
+    if (errorHasMarker(error, "ADAPTER")) {
+      throw new HttpError(422, "FIRST_100_ADAPTER_ATTESTATION_INVALID", "The separately trusted adapter attestation is invalid or inactive");
+    }
+    if (error instanceof Error && error.message.includes("row cap reached")) {
+      throw new HttpError(409, "FIRST_100_ROW_CAP_REACHED", "The bounded chronological lane is stopped at its signed row ceiling");
+    }
     throw error;
   }
   return jsonResponse(entry, 201, { "Cache-Control": "no-store" });
+}
+
+async function handleFirst100AccessGrant(request: Request, env: Env, acquisitionHandle: string): Promise<Response> {
+  requireEnabled(env.FREQUENCY_INGESTION_ENABLED, "FREQUENCY_INGESTION_DISABLED");
+  await edgeWriteLimit(request, env, "first-100-access-grant", env.PROOF_WRITE_LIMITER);
+  const body = await readBoundedJson(request, ADMIN_BODY_MAX);
+  const auth = await verifyPublisherRequest(request, env, body.bodySha256);
+  let value;
+  try { value = validateFirst100AccessGrantRequest(body.value); }
+  catch { throw new HttpError(422, "FIRST_100_ACCESS_GRANT_INVALID", "Artifact access grant request is invalid"); }
+  if (value.acquisitionHandle !== acquisitionHandle) {
+    throw new HttpError(422, "FIRST_100_ACCESS_GRANT_INVALID", "Artifact access handle does not match the route");
+  }
+  let result;
+  try {
+    result = await grantFirst100ArtifactAccess(env.PROOF_DB, value, {
+      publisherKeyId: auth.publisher.key_id,
+      operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+      grantedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (errorHasMarker(error, "KEY_DUTY_CONFLICT")) {
+      throw new HttpError(409, "KEY_DUTY_CONFLICT", "Publisher, adapter, and export-operator keys must be pairwise distinct");
+    }
+    if (errorHasMarker(error, "ADAPTER_NOT_ACTIVE")) {
+      throw new HttpError(409, "FIRST_100_ADAPTER_NOT_ACTIVE", "The acquisition adapter is no longer active");
+    }
+    if (errorHasMarker(error, "ACCESS_GRANT_REPLAY_EXPIRED")) {
+      throw new HttpError(409, "FIRST_100_ACCESS_GRANT_EXPIRED", "The historical artifact access grant cannot authorize a new acquisition");
+    }
+    throw new HttpError(422, "FIRST_100_ACCESS_GRANT_INVALID", "Artifact access cannot be granted for this acquisition");
+  }
+  return jsonResponse({
+    schemaVersion: "agent-vigil-first-100-artifact-access-grant/v1",
+    created: result.created,
+    acquisitionHandle,
+    ingestionSequence: result.ingestionSequence,
+    grantedAt: result.grantedAt,
+    artifactAccess: result.artifactAccess,
+  }, result.created ? 201 : 200, { "Cache-Control": "no-store" });
 }
 
 async function handleFirst100Evaluation(request: Request, env: Env): Promise<Response> {
@@ -625,6 +749,9 @@ async function handleFirst100Evaluation(request: Request, env: Env): Promise<Res
   catch (error) {
     if (errorHasMarker(error, "FIRST_100_PUBLISHER_NOT_ACTIVE")) {
       throw new HttpError(409, "FIRST_100_PUBLISHER_NOT_ACTIVE", "Quarantined publisher evidence cannot receive a new evaluation");
+    }
+    if (errorHasMarker(error, "FIRST_100_ARTIFACT_ACCESS_NOT_GRANTED")) {
+      throw new HttpError(409, "FIRST_100_ARTIFACT_ACCESS_NOT_GRANTED", "Evaluation cannot start before the trusted adapter access grant");
     }
     throw error;
   }
@@ -803,7 +930,7 @@ async function handleFirst100Export(request: Request, env: Env): Promise<Respons
   headers.set("Cache-Control", "no-store");
   headers.set("X-Agent-Vigil-Gate-Eligible", "false");
   headers.set("X-Agent-Vigil-Provenance-Required", "true");
-  headers.set("Link", "</api/v1/frequency/first-100-provenance.jsonl>; rel=\"provenance\"; type=\"application/x-ndjson\"");
+  headers.set("Link", "</api/v1/frequency/first-100-provenance.jsonl>; rel=\"provenance\"; type=\"application/x-ndjson\", </api/v1/frequency/first-100/manifest.json>; rel=\"describedby\"; type=\"application/json\"");
   return new Response(first100Jsonl(entries), { headers });
 }
 
@@ -817,6 +944,65 @@ async function handleFirst100ProvenanceExport(request: Request, env: Env): Promi
   headers.set("Cache-Control", "no-store");
   headers.set("X-Agent-Vigil-Chronology-Mutable", "false");
   return new Response(provenance, { headers });
+}
+
+function frequencySigning(env: Env): { keyId: string; privateKeyPkcs8Base64: string } {
+  if (!HASH.test(env.FREQUENCY_OPERATOR_KEY_ID)
+    || env.FREQUENCY_OPERATOR_KEY_ID === `sha256:${"0".repeat(64)}`
+    || typeof env.FREQUENCY_OPERATOR_PRIVATE_KEY_PKCS8_B64 !== "string"
+    || env.FREQUENCY_OPERATOR_PRIVATE_KEY_PKCS8_B64.length < 32) {
+    throw new HttpError(503, "FREQUENCY_EXPORT_SIGNING_UNAVAILABLE", "Frequency export signing is not configured");
+  }
+  return {
+    keyId: env.FREQUENCY_OPERATOR_KEY_ID,
+    privateKeyPkcs8Base64: env.FREQUENCY_OPERATOR_PRIVATE_KEY_PKCS8_B64,
+  };
+}
+
+function requestedExportIssuedAt(request: Request): string {
+  const value = new URL(request.url).searchParams.get("issuedAt");
+  if (value === null) throw new HttpError(400, "EXPORT_ISSUED_AT_REQUIRED", "Use the exact issuedAt from the signed manifest");
+  const issuedAt = exactTimestamp(value, "frequency export issuedAt");
+  const distance = Date.now() - Date.parse(issuedAt);
+  if (distance < -5_000 || distance > 5 * 60_000) {
+    throw new HttpError(410, "EXPORT_ISSUED_AT_EXPIRED", "The requested signed snapshot is future-dated or expired");
+  }
+  return issuedAt;
+}
+
+async function handleFirst100Manifest(request: Request, env: Env): Promise<Response> {
+  await publicReadLimit(env, request, "first-100-manifest");
+  const issuedAt = new Date().toISOString();
+  const snapshot = await buildFirst100SignedExport(env.PROOF_DB, frequencySigning(env), issuedAt);
+  return jsonResponse(snapshot.manifest, 200, {
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store",
+    "X-Agent-Vigil-Head-Issued-At": issuedAt,
+    Link: `</api/v1/frequency/first-100/head.json?issuedAt=${encodeURIComponent(issuedAt)}>; rel=\"current\"; type=\"application/json\"`,
+  });
+}
+
+async function handleFirst100TrustedHead(request: Request, env: Env): Promise<Response> {
+  await publicReadLimit(env, request, "first-100-trusted-head");
+  const issuedAt = requestedExportIssuedAt(request);
+  const snapshot = await buildFirst100SignedExport(env.PROOF_DB, frequencySigning(env), issuedAt);
+  return jsonResponse(snapshot.trustedHead, 200, {
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store",
+  });
+}
+
+async function handleFirst100Chunk(request: Request, env: Env, index: number): Promise<Response> {
+  await publicReadLimit(env, request, "first-100-chunk");
+  const issuedAt = requestedExportIssuedAt(request);
+  const snapshot = await buildFirst100SignedExport(env.PROOF_DB, frequencySigning(env), issuedAt);
+  const chunk = snapshot.chunks[index];
+  if (!chunk) throw new HttpError(404, "FIRST_100_CHUNK_NOT_FOUND", "The signed export chunk does not exist");
+  return jsonResponse(chunk.document, 200, {
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store",
+    "X-Agent-Vigil-Chunk-Index": String(index),
+  });
 }
 
 async function handleRobots(request: Request, env: Env): Promise<Response> {
@@ -865,17 +1051,25 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET" && url.pathname === "/sitemap.xml") return handleSitemap(request, env);
   if (request.method === "POST" && url.pathname === "/v1/admin/publishers/register") return handleRegisterPublisher(request, env);
   if (request.method === "POST" && url.pathname === "/v1/admin/publishers/status") return handlePublisherStatus(request, env);
+  if (request.method === "POST" && url.pathname === "/v1/admin/frequency/adapters/register") return handleRegisterFrequencyAdapter(request, env);
+  if (request.method === "POST" && url.pathname === "/v1/admin/frequency/adapters/status") return handleFrequencyAdapterStatus(request, env);
   if (request.method === "POST" && url.pathname === "/v1/admin/lifecycle/installations/status") return handleLifecycleInstallationStatus(request, env);
   if (request.method === "POST" && url.pathname === "/v1/admin/moderation") return handleModeration(request, env);
   if (request.method === "POST" && url.pathname === "/v1/entries") return handleEntryIngestion(request, env);
   if (request.method === "POST" && url.pathname === "/v1/resolutions") return handleResolutionIngestion(request, env);
   if (request.method === "POST" && url.pathname === "/v1/lifecycle/installations") return handleLifecycleRegistration(request, env);
   if (request.method === "POST" && url.pathname === "/v1/lifecycle") return handleLifecycleIngestion(request, env);
-  if (request.method === "POST" && url.pathname === "/v1/frequency/first-100/pairs") return handleFirst100Proposal(request, env);
+  if (request.method === "POST" && url.pathname === "/v1/frequency/first-100/acquisitions") return handleFirst100Proposal(request, env);
+  const accessGrant = url.pathname.match(/^\/v1\/frequency\/first-100\/acquisitions\/([0-9a-f-]{36})\/grant$/);
+  if (request.method === "POST" && accessGrant) return handleFirst100AccessGrant(request, env, accessGrant[1]!);
   if (request.method === "POST" && url.pathname === "/v1/admin/frequency/first-100/evaluations") return handleFirst100Evaluation(request, env);
   if (request.method === "GET" && url.pathname === "/v1/admin/lifecycle/export") return handleLifecycleExport(request, env);
   if (request.method === "GET" && url.pathname === "/api/v1/frequency/first-100.jsonl") return handleFirst100Export(request, env);
   if (request.method === "GET" && url.pathname === "/api/v1/frequency/first-100-provenance.jsonl") return handleFirst100ProvenanceExport(request, env);
+  if (request.method === "GET" && url.pathname === "/api/v1/frequency/first-100/manifest.json") return handleFirst100Manifest(request, env);
+  if (request.method === "GET" && url.pathname === "/api/v1/frequency/first-100/head.json") return handleFirst100TrustedHead(request, env);
+  const chunk = url.pathname.match(/^\/api\/v1\/frequency\/first-100\/chunks\/(\d+)\.json$/);
+  if (request.method === "GET" && chunk) return handleFirst100Chunk(request, env, positiveInteger(chunk[1]!, "chunk index", 0, 9));
   if (request.method === "GET" && url.pathname === "/") return handleSearch(request, env, true);
   if (request.method === "GET" && url.pathname === "/api/v1/search") return handleSearch(request, env, false);
   const entryApi = url.pathname.match(/^\/api\/v1\/entries\/(sha256:[0-9a-f]{64})$/);
@@ -888,7 +1082,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET" && resolutionPage) return handleResolutionGet(request, env, resolutionPage[1]!, true);
   const badge = url.pathname.match(/^\/api\/v1\/badges\/(sha256:[0-9a-f]{64})$/);
   if (request.method === "GET" && badge) return handleBadge(request, env, badge[1]!);
-  if (new Set(["/v1/admin/publishers/register", "/v1/admin/publishers/status", "/v1/admin/lifecycle/installations/status", "/v1/admin/moderation", "/v1/entries", "/v1/resolutions", "/v1/lifecycle/installations", "/v1/lifecycle", "/v1/frequency/first-100/pairs", "/v1/admin/frequency/first-100/evaluations"]).has(url.pathname)) {
+  if (new Set(["/v1/admin/publishers/register", "/v1/admin/publishers/status", "/v1/admin/frequency/adapters/register", "/v1/admin/frequency/adapters/status", "/v1/admin/lifecycle/installations/status", "/v1/admin/moderation", "/v1/entries", "/v1/resolutions", "/v1/lifecycle/installations", "/v1/lifecycle", "/v1/frequency/first-100/acquisitions", "/v1/admin/frequency/first-100/evaluations"]).has(url.pathname)) {
     throw new HttpError(405, "METHOD_NOT_ALLOWED", "Method is not allowed for this route");
   }
   throw new HttpError(404, "NOT_FOUND", "Route was not found");
@@ -900,10 +1094,12 @@ export default {
     const pathname = new URL(request.url).pathname;
     const fixedRoutes = new Set([
       "/health", "/robots.txt", "/sitemap.xml", "/", "/v1/admin/publishers/register", "/v1/admin/publishers/status",
-      "/v1/admin/lifecycle/installations/status", "/v1/admin/moderation", "/v1/entries", "/v1/resolutions",
-      "/v1/lifecycle/installations", "/v1/lifecycle", "/v1/frequency/first-100/pairs",
+      "/v1/admin/lifecycle/installations/status", "/v1/admin/moderation", "/v1/admin/frequency/adapters/register",
+      "/v1/admin/frequency/adapters/status", "/v1/entries", "/v1/resolutions",
+      "/v1/lifecycle/installations", "/v1/lifecycle", "/v1/frequency/first-100/acquisitions",
       "/v1/admin/frequency/first-100/evaluations", "/v1/admin/lifecycle/export",
-      "/api/v1/frequency/first-100.jsonl", "/api/v1/frequency/first-100-provenance.jsonl", "/api/v1/search",
+      "/api/v1/frequency/first-100.jsonl", "/api/v1/frequency/first-100-provenance.jsonl",
+      "/api/v1/frequency/first-100/manifest.json", "/api/v1/frequency/first-100/head.json", "/api/v1/search",
     ]);
     const routeClass = fixedRoutes.has(pathname) ? pathname
       : /^\/api\/v1\/entries\//.test(pathname) ? "/api/v1/entries/:hash"
@@ -911,6 +1107,8 @@ export default {
       : /^\/api\/v1\/resolutions\//.test(pathname) ? "/api/v1/resolutions/:hash"
       : /^\/resolution\//.test(pathname) ? "/resolution/:hash"
       : /^\/api\/v1\/badges\//.test(pathname) ? "/api/v1/badges/:hash"
+      : /^\/v1\/frequency\/first-100\/acquisitions\//.test(pathname) ? "/v1/frequency/first-100/acquisitions/:handle/grant"
+      : /^\/api\/v1\/frequency\/first-100\/chunks\//.test(pathname) ? "/api/v1/frequency/first-100/chunks/:index"
       : "unmatched";
     const methodClass = new Set(["GET", "POST", "OPTIONS"]).has(request.method) ? request.method : "OTHER";
     try {

@@ -1,11 +1,23 @@
 import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { canonical, sha256, signLifecycleRequest } from "../src/contracts";
-import { FIRST_100_REGISTRATION_ID } from "../src/frequency";
+import {
+  FIRST_100_ACQUISITION_SCHEMA,
+  FIRST_100_REGISTRATION_ID,
+  exportFirst100Bundle,
+  first100AccessGrantMessage,
+  first100AdapterAttestationMessage,
+  registerFirst100Pair,
+  revokeFrequencyAdapter,
+  type First100AccessGrantRequest,
+  type First100Proposal,
+} from "../src/frequency";
 import { publisherRequestHeaders, signedEntry, signedResolution, signingFixture, type SigningFixture } from "./fixtures";
 
 const ADMIN_TOKEN = "local-test-admin-token-32-bytes-minimum-only";
 let signer: SigningFixture;
+let frequencyAdapter: SigningFixture;
+const FREQUENCY_ADAPTER_VERSION = "test-adapter-1.0.0";
 
 type LifecycleCredential = {
   installationId: string;
@@ -20,8 +32,8 @@ type LifecycleCredential = {
 
 async function workerFetch(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
-  if (headers.has("Authorization") && !headers.has("CF-Connecting-IP")) {
-    headers.set("CF-Connecting-IP", `admin-test-${crypto.randomUUID()}`);
+  if (init?.method === "POST" && !headers.has("CF-Connecting-IP")) {
+    headers.set("CF-Connecting-IP", `write-test-${crypto.randomUUID()}`);
   }
   return exports.default.fetch(`https://proof.example${path}`, { ...init, headers });
 }
@@ -39,11 +51,139 @@ async function registerCurrentSigner(): Promise<void> {
   await registerSigner(signer);
 }
 
+async function registerFrequencyAdapter(value: SigningFixture, version = FREQUENCY_ADAPTER_VERSION): Promise<void> {
+  const response = await adminPost("/v1/admin/frequency/adapters/register", {
+    eventId: crypto.randomUUID(),
+    keyId: value.keyId,
+    publicKey: value.publicKeyBase64,
+    version,
+  });
+  expect(response.status).toBe(201);
+}
+
+function acquisitionFacts(index = 1): First100Proposal["acquisition"] {
+  return {
+    channel: "apm",
+    external: true,
+    optedIn: true,
+    runClass: "EXTERNAL_STANDARD",
+    identityClass: "IMMUTABLE",
+    artifactClass: "SUPPORTED",
+    realUpdateIntent: true,
+    rawEventSha256: `sha256:${index.toString(16).padStart(64, "e")}`,
+    pair: {
+      ecosystem: "apm",
+      componentIdentity: `public-agent-package-${Math.floor(index / 20)}`,
+      currentExactIdentity: `sha256:${index.toString(16).padStart(64, "1")}`,
+      candidateExactIdentity: `sha256:${(index + 1_000).toString(16).padStart(64, "2")}`,
+    },
+  };
+}
+
+async function acquisitionProposal(
+  publisher: SigningFixture,
+  adapter: SigningFixture | null,
+  index = 1,
+  acquisition: First100Proposal["acquisition"] = acquisitionFacts(index),
+): Promise<First100Proposal> {
+  const proposal: First100Proposal = {
+    schemaVersion: FIRST_100_ACQUISITION_SCHEMA,
+    kind: "acquisition",
+    registrationId: FIRST_100_REGISTRATION_ID,
+    acquisition,
+  };
+  if (!adapter) return proposal;
+  const observedAt = new Date().toISOString();
+  const unsigned = {
+    schemaVersion: "agent-vigil-frequency-adapter-attestation/v1" as const,
+    keyId: adapter.keyId,
+    adapterVersion: FREQUENCY_ADAPTER_VERSION,
+    eventId: crypto.randomUUID(),
+    observedAt,
+    artifactState: "UNOPENED" as const,
+    signature: "",
+  };
+  const withUnsigned = { ...proposal, adapterAttestation: unsigned };
+  const signature = await crypto.subtle.sign(
+    "Ed25519", adapter.privateKey,
+    new TextEncoder().encode(first100AdapterAttestationMessage(withUnsigned, publisher.keyId)),
+  );
+  return { ...proposal, adapterAttestation: { ...unsigned, signature: base64(signature) } };
+}
+
+async function adapterAccessRequest(
+  publisher: SigningFixture,
+  adapter: SigningFixture,
+  acquisitionHandle: string,
+): Promise<First100AccessGrantRequest> {
+  const unsigned: First100AccessGrantRequest = {
+    schemaVersion: "agent-vigil-frequency-artifact-access-request/v1",
+    registrationId: FIRST_100_REGISTRATION_ID,
+    acquisitionHandle,
+    adapterKeyId: adapter.keyId,
+    eventId: crypto.randomUUID(),
+    requestedAt: new Date().toISOString(),
+    signature: "",
+  };
+  const signature = await crypto.subtle.sign(
+    "Ed25519", adapter.privateKey,
+    new TextEncoder().encode(first100AccessGrantMessage(unsigned, publisher.keyId)),
+  );
+  return { ...unsigned, signature: base64(signature) };
+}
+
+function base64(value: ArrayBuffer): string {
+  const bytes = new Uint8Array(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 async function adminPost(path: string, body: Record<string, unknown>): Promise<Response> {
   return workerFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
     body: JSON.stringify(body),
+  });
+}
+
+function interleaveBeforeFirstPairInsert(db: D1Database, action: () => Promise<void>): D1Database {
+  let pending = true;
+  const boundMember = (target: object, property: PropertyKey): unknown => {
+    const value = Reflect.get(target, property, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  };
+  const wrapBound = (statement: D1PreparedStatement): D1PreparedStatement => new Proxy(statement, {
+    get(target, property) {
+      if (property === "run") {
+        return async () => {
+          if (pending) {
+            pending = false;
+            await action();
+          }
+          return target.run();
+        };
+      }
+      return boundMember(target, property);
+    },
+  });
+  return new Proxy(db, {
+    get(target, property) {
+      if (property !== "prepare") return boundMember(target, property);
+      return (query: string) => {
+        const statement = target.prepare(query);
+        if (!/^\s*INSERT INTO frequency_pairs\b/.test(query)) return statement;
+        return new Proxy(statement, {
+          get(statementTarget, statementProperty) {
+            if (statementProperty === "bind") {
+              return (...values: unknown[]) => wrapBound(statementTarget.bind(...values));
+            }
+            if (statementProperty === "run") return wrapBound(statementTarget).run;
+            return boundMember(statementTarget, statementProperty);
+          },
+        });
+      };
+    },
   });
 }
 
@@ -121,7 +261,12 @@ async function lifecycleHeaders(
 beforeEach(async () => {
   await env.PROOF_DB.batch([
     env.PROOF_DB.prepare("DELETE FROM frequency_evaluations"),
+    env.PROOF_DB.prepare("DELETE FROM frequency_artifact_access_grants"),
     env.PROOF_DB.prepare("DELETE FROM frequency_pairs"),
+    env.PROOF_DB.prepare("DELETE FROM frequency_stop_events"),
+    env.PROOF_DB.prepare("DELETE FROM frequency_adapter_status_events"),
+    env.PROOF_DB.prepare("DELETE FROM frequency_adapters"),
+    env.PROOF_DB.prepare("DELETE FROM frequency_publisher_checkpoints"),
     env.PROOF_DB.prepare("DELETE FROM lifecycle_events"),
     env.PROOF_DB.prepare("DELETE FROM lifecycle_installation_status_events"),
     env.PROOF_DB.prepare("DELETE FROM lifecycle_installations"),
@@ -134,6 +279,8 @@ beforeEach(async () => {
   ]);
   signer = await signingFixture();
   await registerCurrentSigner();
+  frequencyAdapter = await signingFixture();
+  await registerFrequencyAdapter(frequencyAdapter);
 });
 
 describe("proof-network Worker", () => {
@@ -540,272 +687,492 @@ describe("proof-network Worker", () => {
     expect(Number(count?.count)).toBe(0);
   });
 
-  it("allocates first-100 chronology before inspection and exports the frozen schema", async () => {
-    const proposal = {
-      schemaVersion: "diffwitness-first-100-entry/v1",
-      kind: "pair",
-      registrationId: FIRST_100_REGISTRATION_ID,
-      channel: "apm",
-      external: true,
-      optedIn: true,
-      inspectionStarted: false,
-      eligibility: { decision: "INCLUDED", reason: "ELIGIBLE" },
-      pair: {
-        ecosystem: "apm",
-        componentIdentity: "public-agent-package",
-        currentExactIdentity: `sha256:${"1".repeat(64)}`,
-        candidateExactIdentity: `sha256:${"2".repeat(64)}`,
-        realUpdateIntent: true,
-      },
-    };
+  it("registers trusted acquisition before access, derives exclusions, and signs fresh moderation state", async () => {
+    const path = "/v1/frequency/first-100/acquisitions";
+    const proposal = await acquisitionProposal(signer, frequencyAdapter, 1);
     const body = JSON.stringify(proposal);
-    const path = "/v1/frequency/first-100/pairs";
     const headers = await publisherRequestHeaders(signer, path, body);
     const first = await workerFetch(path, { method: "POST", headers, body });
     expect(first.status).toBe(201);
-    const registered = await first.json<{ receivedAt: string; ingestionSequence: number; inspectionStarted: boolean; eligibility: { decision: string } }>();
-    expect(registered.ingestionSequence).toBeGreaterThan(0);
-    expect(registered.inspectionStarted).toBe(false);
-    expect(registered.eligibility.decision).toBe("INCLUDED");
-    expect(Number.isFinite(Date.parse(registered.receivedAt))).toBe(true);
-
-    const replay = await workerFetch(path, { method: "POST", headers, body });
-    expect((await replay.json<{ ingestionSequence: number }>()).ingestionSequence).toBe(registered.ingestionSequence);
-    const exportResponse = await workerFetch("/api/v1/frequency/first-100.jsonl");
-    expect(exportResponse.headers.get("X-Agent-Vigil-Gate-Eligible")).toBe("false");
-    expect(exportResponse.headers.get("X-Agent-Vigil-Provenance-Required")).toBe("true");
-    expect(exportResponse.headers.get("Link")).toContain("first-100-provenance.jsonl");
-    expect(exportResponse.headers.get("Cache-Control")).toBe("no-store");
-    let rawBeforeRevocation = new TextDecoder().decode(await exportResponse.arrayBuffer());
-    const lines = rawBeforeRevocation.trim().split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(lines).toHaveLength(2);
-    expect(lines[1]?.ingestionSequence).toBe(registered.ingestionSequence);
-    expect(lines[1]?.inspectionStarted).toBe(false);
-
-    const activeProvenanceResponse = await workerFetch("/api/v1/frequency/first-100-provenance.jsonl");
-    const activeProvenance = new TextDecoder().decode(await activeProvenanceResponse.arrayBuffer());
-    const activeNewline = activeProvenance.indexOf("\n");
-    const activeProvenanceLines = activeProvenance.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(activeProvenanceLines[0]).toMatchObject({
-      schemaVersion: "agent-vigil-first-100-provenance-ledger/v2",
-      rawLedgerSha256: await sha256(rawBeforeRevocation),
-      rawLedgerPairEntries: 1,
-      provenanceRecords: 1,
-      provenanceRecordsSha256: await sha256(activeProvenance.slice(activeNewline + 1)),
-      rawLedgerGateEligibleWithoutProvenance: false,
-      chronologyMutable: false,
+    const receipt = await first.json<{
+      acquisitionHandle: string;
+      artifactAccess: string;
+      entry: { receivedAt: string; ingestionSequence: number; inspectionStarted: boolean; eligibility: { decision: string; reason: string } };
+    }>();
+    expect(receipt).toMatchObject({
+      artifactAccess: "REQUIRES_TRUSTED_ADAPTER_GRANT",
+      entry: { inspectionStarted: false, eligibility: { decision: "INCLUDED", reason: "ELIGIBLE" } },
     });
-    expect(activeProvenance).toContain(signer.keyId);
-    expect(activeProvenance).toContain('"status":"ACTIVE"');
-    expect(activeProvenance).toContain('"gateEligible":true');
+    expect((await env.PROOF_DB.prepare("SELECT COUNT(*) AS count FROM frequency_artifact_access_grants")
+      .first<{ count: number }>())?.count).toBe(0);
 
-    const startedAt = new Date(Date.parse(registered.receivedAt) + 1).toISOString();
-    const contradictory = await adminPost("/v1/admin/frequency/first-100/evaluations", {
-      ingestionSequence: registered.ingestionSequence,
+    const beforeGrant = await adminPost("/v1/admin/frequency/first-100/evaluations", {
+      ingestionSequence: receipt.entry.ingestionSequence,
       evaluation: {
-        startedAt,
-        completedAt: new Date(Date.parse(startedAt) + 1_000).toISOString(),
-        verdict: "SAFE",
-        receiptHash: `sha256:${"7".repeat(64)}`,
-        falseCompatible: false,
-        materiality: { classification: "MATERIAL", evidenceComplete: true, workflowConsequences: ["REQUIRED_BEHAVIOR_UNAVAILABLE"] },
-      },
-    });
-    expect(contradictory.status).toBe(422);
-    expect((await contradictory.json<{ error: { code: string } }>()).error.code).toBe("FIRST_100_EVALUATION_INVALID");
-    await expect(env.PROOF_DB.prepare(
-      `INSERT INTO frequency_evaluations
-        (ingestion_sequence, started_at, completed_at, verdict, receipt_hash, false_compatible,
-         materiality_classification, evidence_complete, workflow_consequences_json, recorded_at)
-       VALUES (?, ?, ?, 'SAFE', ?, 0, 'MATERIAL', 1, '["REQUIRED_BEHAVIOR_UNAVAILABLE"]', ?)`,
-    ).bind(registered.ingestionSequence, startedAt, startedAt, `sha256:${"8".repeat(64)}`, startedAt).run())
-      .rejects.toThrow(/FIRST_100_EVALUATION_CONTRADICTORY/);
-    const validEvaluation = await adminPost("/v1/admin/frequency/first-100/evaluations", {
-      ingestionSequence: registered.ingestionSequence,
-      evaluation: {
-        startedAt,
-        completedAt: new Date(Date.parse(startedAt) + 1_000).toISOString(),
+        startedAt: new Date(Date.parse(receipt.entry.receivedAt) + 1).toISOString(),
+        completedAt: new Date(Date.parse(receipt.entry.receivedAt) + 2).toISOString(),
         verdict: "CHANGED",
         receiptHash: `sha256:${"9".repeat(64)}`,
         falseCompatible: false,
         materiality: { classification: "MATERIAL", evidenceComplete: true, workflowConsequences: ["REQUIRED_BEHAVIOR_UNAVAILABLE"] },
       },
     });
-    expect(validEvaluation.status).toBe(201);
-    await expect(env.PROOF_DB.prepare(
-      "UPDATE frequency_evaluations SET verdict = 'SAFE' WHERE ingestion_sequence = ?",
-    ).bind(registered.ingestionSequence).run()).rejects.toThrow(/FIRST_100_EVALUATION_CONTRADICTORY/);
+    expect(beforeGrant.status).toBe(409);
+    expect((await beforeGrant.json<{ error: { code: string } }>()).error.code).toBe("FIRST_100_ARTIFACT_ACCESS_NOT_GRANTED");
 
-    const excludedProposal = {
-      ...proposal,
-      eligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" },
-      pair: { ...proposal.pair, candidateExactIdentity: `sha256:${"3".repeat(64)}` },
-    };
-    const excludedBody = JSON.stringify(excludedProposal);
-    const excludedResponse = await workerFetch(path, {
+    const fakeDuplicate = { ...proposal, eligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" } };
+    const fakeBody = JSON.stringify(fakeDuplicate);
+    expect((await workerFetch(path, {
+      method: "POST", headers: await publisherRequestHeaders(signer, path, fakeBody), body: fakeBody,
+    })).status).toBe(422);
+
+    const untrusted = await acquisitionProposal(signer, null, 2);
+    const untrustedBody = JSON.stringify(untrusted);
+    const untrustedResponse = await workerFetch(path, {
+      method: "POST", headers: await publisherRequestHeaders(signer, path, untrustedBody), body: untrustedBody,
+    });
+    expect(await untrustedResponse.json()).toMatchObject({
+      artifactAccess: "GATE_INELIGIBLE",
+      entry: { eligibility: { decision: "EXCLUDED", reason: "MALFORMED_PREINSPECTION_RECORD" } },
+    });
+
+    const invalidAttestation = await acquisitionProposal(signer, frequencyAdapter, 22);
+    invalidAttestation.adapterAttestation!.signature = `${invalidAttestation.adapterAttestation!.signature.startsWith("A") ? "B" : "A"}${invalidAttestation.adapterAttestation!.signature.slice(1)}`;
+    const invalidAttestationBody = JSON.stringify(invalidAttestation);
+    const invalidAttestationResponse = await workerFetch(path, {
       method: "POST",
-      headers: await publisherRequestHeaders(signer, path, excludedBody),
-      body: excludedBody,
+      headers: await publisherRequestHeaders(signer, path, invalidAttestationBody),
+      body: invalidAttestationBody,
     });
-    expect(excludedResponse.status).toBe(201);
-    const excluded = await excludedResponse.json<{
-      ingestionSequence: number;
-      inspectionStarted: boolean;
-      eligibility: { decision: string; reason: string };
-    }>();
-    expect(excluded).toMatchObject({
-      inspectionStarted: false,
-      eligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" },
-    });
-    rawBeforeRevocation = new TextDecoder().decode(
-      await (await workerFetch("/api/v1/frequency/first-100.jsonl")).arrayBuffer(),
-    );
-
-    const inspectedProposal = { ...proposal, inspectionStarted: true, eligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" } };
-    const inspectedBody = JSON.stringify(inspectedProposal);
-    const inspectedHeaders = await publisherRequestHeaders(signer, path, inspectedBody);
-    expect((await workerFetch(path, { method: "POST", headers: inspectedHeaders, body: inspectedBody })).status).toBe(422);
-
-    expect((await setPublisherStatus(signer.keyId, "SUSPENDED", "POLICY")).status).toBe(200);
-    const suspendedProvenanceResponse = await workerFetch("/api/v1/frequency/first-100-provenance.jsonl");
-    const suspendedProvenance = new TextDecoder().decode(await suspendedProvenanceResponse.arrayBuffer());
-    expect(suspendedProvenance).toContain('"status":"SUSPENDED"');
-    expect(suspendedProvenance).toContain('"reason":"PUBLISHER_SUSPENDED"');
-    expect(suspendedProvenance).toContain('"gateEligible":false');
-    const rawWhileSuspendedResponse = await workerFetch("/api/v1/frequency/first-100.jsonl");
-    expect(new TextDecoder().decode(await rawWhileSuspendedResponse.arrayBuffer())).toBe(rawBeforeRevocation);
-    expect((await setPublisherStatus(signer.keyId, "ACTIVE", "RESTORED")).status).toBe(200);
-    const restoredProvenanceResponse = await workerFetch("/api/v1/frequency/first-100-provenance.jsonl");
-    const restoredProvenance = new TextDecoder().decode(await restoredProvenanceResponse.arrayBuffer());
-    expect(restoredProvenance).toContain('"status":"ACTIVE"');
-    expect(restoredProvenance).toContain('"gateEligible":true');
-
-    expect((await setPublisherStatus(signer.keyId, "REVOKED", "COMPROMISED")).status).toBe(200);
-    const rawAfterRevocationResponse = await workerFetch("/api/v1/frequency/first-100.jsonl");
-    const rawAfterRevocation = new TextDecoder().decode(await rawAfterRevocationResponse.arrayBuffer());
-    expect(rawAfterRevocation).toBe(rawBeforeRevocation);
-    const provenanceResponse = await workerFetch("/api/v1/frequency/first-100-provenance.jsonl");
-    const provenanceLines = new TextDecoder().decode(await provenanceResponse.arrayBuffer())
-      .trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(provenanceLines[1]).toMatchObject({
-      ingestionSequence: registered.ingestionSequence,
-      publisher: { keyId: signer.keyId, status: "REVOKED" },
-      frozenEligibility: { decision: "INCLUDED", reason: "ELIGIBLE" },
-      effectiveEligibility: { decision: "QUARANTINED", reason: "PUBLISHER_REVOKED", gateEligible: false },
-      chronologyMutable: false,
-    });
-    expect(provenanceLines[2]).toMatchObject({
-      ingestionSequence: excluded.ingestionSequence,
-      publisher: { keyId: signer.keyId, status: "REVOKED" },
-      frozenEligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" },
-      effectiveEligibility: { decision: "QUARANTINED", reason: "PUBLISHER_REVOKED", gateEligible: false },
-      chronologyMutable: false,
+    expect(invalidAttestationResponse.status).toBe(201);
+    expect(await invalidAttestationResponse.json()).toMatchObject({
+      artifactAccess: "GATE_INELIGIBLE",
+      entry: { eligibility: { decision: "EXCLUDED", reason: "MALFORMED_PREINSPECTION_RECORD" } },
     });
 
-    const evaluation = await adminPost("/v1/admin/frequency/first-100/evaluations", {
-      ingestionSequence: registered.ingestionSequence,
+    const replayedAdapterEvent = await acquisitionProposal(signer, frequencyAdapter, 23);
+    replayedAdapterEvent.adapterAttestation!.eventId = proposal.adapterAttestation!.eventId;
+    replayedAdapterEvent.adapterAttestation!.signature = base64(await crypto.subtle.sign(
+      "Ed25519",
+      frequencyAdapter.privateKey,
+      new TextEncoder().encode(first100AdapterAttestationMessage(replayedAdapterEvent, signer.keyId)),
+    ));
+    const replayedAdapterBody = JSON.stringify(replayedAdapterEvent);
+    const replayedAdapterResponse = await workerFetch(path, {
+      method: "POST",
+      headers: await publisherRequestHeaders(signer, path, replayedAdapterBody),
+      body: replayedAdapterBody,
+    });
+    expect(await replayedAdapterResponse.json()).toMatchObject({
+      artifactAccess: "GATE_INELIGIBLE",
+      entry: { eligibility: { decision: "EXCLUDED", reason: "MALFORMED_PREINSPECTION_RECORD" } },
+    });
+    expect(await env.PROOF_DB.prepare(
+      `SELECT eligibility_decision, eligibility_reason, adapter_event_id
+         FROM frequency_pairs WHERE raw_event_sha256 = ?`,
+    ).bind(replayedAdapterEvent.acquisition.rawEventSha256).first()).toEqual({
+      eligibility_decision: "EXCLUDED",
+      eligibility_reason: "MALFORMED_PREINSPECTION_RECORD",
+      adapter_event_id: null,
+    });
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs WHERE raw_event_sha256 = ?",
+    ).bind(replayedAdapterEvent.acquisition.rawEventSha256).first<{ count: number }>())?.count)).toBe(1);
+
+    const duplicateProposal = await acquisitionProposal(signer, frequencyAdapter, 3, {
+      ...proposal.acquisition,
+      rawEventSha256: `sha256:${"d".repeat(64)}`,
+    });
+    const duplicateBody = JSON.stringify(duplicateProposal);
+    const duplicateResponse = await workerFetch(path, {
+      method: "POST", headers: await publisherRequestHeaders(signer, path, duplicateBody), body: duplicateBody,
+    });
+    expect(await duplicateResponse.json()).toMatchObject({
+      entry: { eligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" } },
+    });
+
+    const accessPath = `/v1/frequency/first-100/acquisitions/${receipt.acquisitionHandle}/grant`;
+    const access = await adapterAccessRequest(signer, frequencyAdapter, receipt.acquisitionHandle);
+    const accessBody = JSON.stringify(access);
+    const accessResponse = await workerFetch(accessPath, {
+      method: "POST", headers: await publisherRequestHeaders(signer, accessPath, accessBody), body: accessBody,
+    });
+    expect(accessResponse.status).toBe(201);
+    const grant = await accessResponse.json<{ grantedAt: string }>();
+    expect(Date.parse(grant.grantedAt)).toBeGreaterThanOrEqual(Date.parse(receipt.entry.receivedAt));
+
+    const conflictingAccess = {
+      ...access,
+      requestedAt: new Date(Date.parse(access.requestedAt) + 1).toISOString(),
+      signature: "",
+    };
+    conflictingAccess.signature = base64(await crypto.subtle.sign(
+      "Ed25519",
+      frequencyAdapter.privateKey,
+      new TextEncoder().encode(first100AccessGrantMessage(conflictingAccess, signer.keyId)),
+    ));
+    const conflictingAccessBody = JSON.stringify(conflictingAccess);
+    const conflictingAccessResponse = await workerFetch(accessPath, {
+      method: "POST",
+      headers: await publisherRequestHeaders(signer, accessPath, conflictingAccessBody),
+      body: conflictingAccessBody,
+    });
+    expect(conflictingAccessResponse.status).toBe(422);
+
+    const startedAt = new Date(Date.parse(grant.grantedAt) + 1).toISOString();
+    expect((await adminPost("/v1/admin/frequency/first-100/evaluations", {
+      ingestionSequence: receipt.entry.ingestionSequence,
       evaluation: {
         startedAt,
-        completedAt: new Date(Date.parse(startedAt) + 1_000).toISOString(),
-        verdict: "SAFE",
+        completedAt: new Date(Date.parse(startedAt) + 1).toISOString(),
+        verdict: "CHANGED",
         receiptHash: `sha256:${"a".repeat(64)}`,
         falseCompatible: false,
-        materiality: { classification: "NON_MATERIAL", evidenceComplete: true, workflowConsequences: [] },
+        materiality: { classification: "MATERIAL", evidenceComplete: true, workflowConsequences: ["REQUIRED_BEHAVIOR_UNAVAILABLE"] },
       },
-    });
-    expect(evaluation.status).toBe(409);
-    expect((await evaluation.json<{ error: { code: string } }>()).error.code).toBe("FIRST_100_PUBLISHER_NOT_ACTIVE");
+    })).status).toBe(201);
 
-    const now = new Date().toISOString();
-    await expect(env.PROOF_DB.prepare(
-      `INSERT INTO frequency_pairs
-        (schema_version, kind, registration_id, publisher_key_id, request_id, received_at, channel,
-         external, opted_in, inspection_started, eligibility_decision, eligibility_decided_at,
-         eligibility_reason, ecosystem, component_identity, current_exact_identity,
-         candidate_exact_identity, real_update_intent, dedup_key, included_dedup_key, received_body_sha256)
-       VALUES ('diffwitness-first-100-entry/v1', 'pair', ?, ?, ?, ?, 'apm',
-               1, 1, 0, 'INCLUDED', ?, 'ELIGIBLE', 'apm', 'other-package', ?, ?, 1, ?, ?, ?)`,
-    ).bind(
-      FIRST_100_REGISTRATION_ID,
-      signer.keyId,
-      crypto.randomUUID(),
-      now,
-      now,
-      `sha256:${"3".repeat(64)}`,
-      `sha256:${"4".repeat(64)}`,
-      `sha256:${"5".repeat(64)}`,
-      `sha256:${"5".repeat(64)}`,
-      `sha256:${"6".repeat(64)}`,
-    ).run()).rejects.toThrow(/PUBLISHER_NOT_ACTIVE/);
+    const manifestResponse = await workerFetch("/api/v1/frequency/first-100/manifest.json");
+    expect(manifestResponse.status).toBe(200);
+    const issuedAt = manifestResponse.headers.get("X-Agent-Vigil-Head-Issued-At")!;
+    const manifest = await manifestResponse.json<{
+      payload: {
+        moderationCheckpoint: { sequence: number };
+        publisherStates: unknown[];
+        adapterStates: unknown[];
+        publisherStateSha256: string;
+        adapterStateSha256: string;
+        rawLedgerSha256: string;
+        provenanceSha256: string;
+        chunks: unknown[];
+      };
+      signature: { keyId: string; value: string };
+    }>();
+    expect(manifest.payload.chunks).toHaveLength(1);
+    expect(manifest.payload.publisherStates).toHaveLength(1);
+    expect(manifest.payload.adapterStates).toHaveLength(1);
+    expect(manifest.payload.publisherStateSha256).toBe(await sha256(canonical(manifest.payload.publisherStates)));
+    expect(manifest.payload.adapterStateSha256).toBe(await sha256(canonical(manifest.payload.adapterStates)));
+    expect(manifest.signature.keyId).toBe(env.FREQUENCY_OPERATOR_KEY_ID);
+    expect(manifest.signature.keyId).not.toBe(signer.keyId);
+    expect(manifest.signature.keyId).not.toBe(frequencyAdapter.keyId);
+    const headResponse = await workerFetch(`/api/v1/frequency/first-100/head.json?issuedAt=${encodeURIComponent(issuedAt)}`);
+    const activeHead = await headResponse.json<{ payload: Record<string, unknown>; signature: { keyId: string } }>();
+    expect(activeHead.payload).toMatchObject({
+      rawLedgerSha256: manifest.payload.rawLedgerSha256,
+      provenanceSha256: manifest.payload.provenanceSha256,
+      moderationCheckpoint: manifest.payload.moderationCheckpoint,
+      operatorDutySeparated: true,
+    });
+
+    expect((await setPublisherStatus(signer.keyId, "REVOKED", "COMPROMISED")).status).toBe(200);
+    const revokedHead = await (await workerFetch(
+      `/api/v1/frequency/first-100/head.json?issuedAt=${encodeURIComponent(issuedAt)}`,
+    )).json<{ payload: { manifestPayloadSha256: string; moderationCheckpoint: { sequence: number } } }>();
+    expect(revokedHead.payload.moderationCheckpoint.sequence).toBeGreaterThan(manifest.payload.moderationCheckpoint.sequence);
+    expect(revokedHead.payload.manifestPayloadSha256).not.toBe(activeHead.payload.manifestPayloadSha256);
+    const revokedProvenance = new TextDecoder().decode(
+      await (await workerFetch("/api/v1/frequency/first-100-provenance.jsonl")).arrayBuffer(),
+    );
+    expect(revokedProvenance).toContain('"reason":"PUBLISHER_REVOKED"');
+    expect(revokedProvenance).toContain('"gateEligible":false');
   });
 
-  it("serializes concurrent first-100 component caps without rewriting chronology", async () => {
-    const path = "/v1/frequency/first-100/pairs";
+  it("persists an adapter-revocation interleaving as exactly one malformed chronological exclusion", async () => {
+    const proposal = await acquisitionProposal(signer, frequencyAdapter, 24);
+    const requestId = crypto.randomUUID();
+    const receivedAt = new Date().toISOString();
+    const interleaved = interleaveBeforeFirstPairInsert(env.PROOF_DB, async () => {
+      await revokeFrequencyAdapter(env.PROOF_DB, {
+        eventId: crypto.randomUUID(),
+        keyId: frequencyAdapter.keyId,
+        reasonClass: "TEST_INTERLEAVING",
+        occurredAt: new Date().toISOString(),
+      });
+    });
+    const receipt = await registerFirst100Pair(interleaved, proposal, {
+      r0ReleasedAt: "2026-08-23T00:00:00.000Z",
+      releasedChannels: "apm",
+      receivedAt,
+      publisherKeyId: signer.keyId,
+      requestId,
+      operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+    });
+    expect(receipt).toMatchObject({
+      artifactAccess: "GATE_INELIGIBLE",
+      entry: { eligibility: { decision: "EXCLUDED", reason: "MALFORMED_PREINSPECTION_RECORD" } },
+    });
+    const row = await env.PROOF_DB.prepare(
+      `SELECT request_id, acquisition_handle, received_body_sha256, raw_event_sha256,
+              eligibility_decision, eligibility_reason, adapter_key_id, adapter_event_id
+         FROM frequency_pairs WHERE request_id = ?`,
+    ).bind(requestId).first<{
+      request_id: string;
+      acquisition_handle: string;
+      received_body_sha256: string;
+      raw_event_sha256: string;
+      eligibility_decision: string;
+      eligibility_reason: string;
+      adapter_key_id: string | null;
+      adapter_event_id: string | null;
+    }>();
+    expect(row).toEqual({
+      request_id: requestId,
+      acquisition_handle: receipt.acquisitionHandle,
+      received_body_sha256: await sha256(canonical(proposal)),
+      raw_event_sha256: proposal.acquisition.rawEventSha256,
+      eligibility_decision: "EXCLUDED",
+      eligibility_reason: "MALFORMED_PREINSPECTION_RECORD",
+      adapter_key_id: null,
+      adapter_event_id: null,
+    });
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs",
+    ).first<{ count: number }>())?.count)).toBe(1);
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs WHERE eligibility_decision = 'INCLUDED'",
+    ).first<{ count: number }>())?.count)).toBe(0);
+
+    const replay = await registerFirst100Pair(env.PROOF_DB, proposal, {
+      r0ReleasedAt: "2026-08-23T00:00:00.000Z",
+      releasedChannels: "apm",
+      receivedAt: new Date().toISOString(),
+      publisherKeyId: signer.keyId,
+      requestId,
+      operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+    });
+    expect(replay.acquisitionHandle).toBe(receipt.acquisitionHandle);
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs",
+    ).first<{ count: number }>())?.count)).toBe(1);
+  });
+
+  it("never renews an idempotent access grant after replay, expiry, or adapter revocation", async () => {
+    const path = "/v1/frequency/first-100/acquisitions";
+    const proposal = await acquisitionProposal(signer, frequencyAdapter, 25);
+    const body = JSON.stringify(proposal);
+    const acquisitionResponse = await workerFetch(path, {
+      method: "POST", headers: await publisherRequestHeaders(signer, path, body), body,
+    });
+    const acquisition = await acquisitionResponse.json<{ acquisitionHandle: string }>();
+    const grantPath = `/v1/frequency/first-100/acquisitions/${acquisition.acquisitionHandle}/grant`;
+    const grant = await adapterAccessRequest(signer, frequencyAdapter, acquisition.acquisitionHandle);
+    const grantBody = JSON.stringify(grant);
+    const first = await workerFetch(grantPath, {
+      method: "POST", headers: await publisherRequestHeaders(signer, grantPath, grantBody), body: grantBody,
+    });
+    expect(first.status).toBe(201);
+    expect(await first.json()).toMatchObject({ created: true, artifactAccess: "ADAPTER_MAY_ACQUIRE_AFTER_GRANT" });
+
+    const freshReplay = await workerFetch(grantPath, {
+      method: "POST", headers: await publisherRequestHeaders(signer, grantPath, grantBody), body: grantBody,
+    });
+    expect(freshReplay.status).toBe(200);
+    expect(await freshReplay.json()).toMatchObject({
+      created: false,
+      artifactAccess: "HISTORICAL_GRANT_RECEIPT_ONLY",
+    });
+
+    await env.PROOF_DB.prepare(
+      "UPDATE frequency_artifact_access_grants SET granted_at = ? WHERE event_id = ?",
+    ).bind(new Date(Date.now() - 5 * 60_000 - 1).toISOString(), grant.eventId).run();
+    const expiredReplay = await workerFetch(grantPath, {
+      method: "POST", headers: await publisherRequestHeaders(signer, grantPath, grantBody), body: grantBody,
+    });
+    expect(expiredReplay.status).toBe(409);
+    expect((await expiredReplay.json<{ error: { code: string } }>()).error.code).toBe("FIRST_100_ACCESS_GRANT_EXPIRED");
+
+    expect((await adminPost("/v1/admin/frequency/adapters/status", {
+      eventId: crypto.randomUUID(),
+      keyId: frequencyAdapter.keyId,
+      status: "REVOKED",
+      reasonClass: "COMPROMISED",
+    })).status).toBe(200);
+    const revokedReplay = await workerFetch(grantPath, {
+      method: "POST", headers: await publisherRequestHeaders(signer, grantPath, grantBody), body: grantBody,
+    });
+    expect(revokedReplay.status).toBe(409);
+    expect((await revokedReplay.json<{ error: { code: string } }>()).error.code).toBe("FIRST_100_ADAPTER_NOT_ACTIVE");
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_artifact_access_grants",
+    ).first<{ count: number }>())?.count)).toBe(1);
+  });
+
+  it("enforces publisher, adapter, and operator signing duties pairwise", async () => {
+    const adapterReuse = await adminPost("/v1/admin/frequency/adapters/register", {
+      eventId: crypto.randomUUID(),
+      keyId: signer.keyId,
+      publicKey: signer.publicKeyBase64,
+      version: FREQUENCY_ADAPTER_VERSION,
+    });
+    expect(adapterReuse.status).toBe(409);
+    expect((await adapterReuse.json<{ error: { code: string } }>()).error.code).toBe("KEY_DUTY_CONFLICT");
+
+    const publisherReuse = await workerFetch("/v1/admin/publishers/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({
+        eventId: crypto.randomUUID(),
+        keyId: frequencyAdapter.keyId,
+        publicKey: frequencyAdapter.publicKeyBase64,
+      }),
+    });
+    expect(publisherReuse.status).toBe(409);
+
+    await env.PROOF_DB.prepare(
+      `INSERT INTO publishers (key_id, public_key_b64, status, registered_at, updated_at)
+       VALUES (?, ?, 'ACTIVE', ?, ?)`,
+    ).bind(env.FREQUENCY_OPERATOR_KEY_ID, signer.publicKeyBase64, new Date().toISOString(), new Date().toISOString()).run();
+    expect((await workerFetch("/api/v1/frequency/first-100/manifest.json")).status).toBe(500);
+  });
+
+  it("derives duplicate and component caps under concurrent trusted writes", async () => {
+    const path = "/v1/frequency/first-100/acquisitions";
     const responses = await Promise.all(Array.from({ length: 25 }, async (_, index) => {
-      const proposal = {
-        schemaVersion: "diffwitness-first-100-entry/v1",
-        kind: "pair",
-        registrationId: FIRST_100_REGISTRATION_ID,
-        channel: "apm",
-        external: true,
-        optedIn: true,
-        inspectionStarted: false,
-        eligibility: { decision: "INCLUDED", reason: "ELIGIBLE" },
-        pair: {
-          ecosystem: index % 2 === 0 ? "apm" : "skills",
-          componentIdentity: "bounded-package",
-          currentExactIdentity: `sha256:${index.toString(16).padStart(64, "0")}`,
-          candidateExactIdentity: `sha256:${(index + 100).toString(16).padStart(64, "0")}`,
-          realUpdateIntent: true,
-        },
-      };
+      const facts = acquisitionFacts(index + 1);
+      facts.pair.componentIdentity = "bounded-package";
+      facts.pair.ecosystem = index % 2 === 0 ? "apm" : "skills";
+      const proposal = await acquisitionProposal(signer, frequencyAdapter, index + 1, facts);
       const body = JSON.stringify(proposal);
       return workerFetch(path, { method: "POST", headers: await publisherRequestHeaders(signer, path, body), body });
     }));
     expect(responses.every((response) => response.status === 201)).toBe(true);
-    const entries = await Promise.all(responses.map((response) => response.json<{
-      ingestionSequence: number;
-      eligibility: { decision: string; reason: string };
+    const receipts = await Promise.all(responses.map((response) => response.json<{
+      entry: { ingestionSequence: number; eligibility: { decision: string; reason: string } };
     }>()));
-    expect(entries.filter((entry) => entry.eligibility.decision === "INCLUDED")).toHaveLength(20);
-    expect(entries.filter((entry) => entry.eligibility.reason === "COMPONENT_CAP")).toHaveLength(5);
-    expect(new Set(entries.map((entry) => entry.ingestionSequence)).size).toBe(25);
+    expect(receipts.filter((value) => value.entry.eligibility.decision === "INCLUDED")).toHaveLength(20);
+    expect(receipts.filter((value) => value.entry.eligibility.reason === "COMPONENT_CAP")).toHaveLength(5);
+    expect(new Set(receipts.map((value) => value.entry.ingestionSequence)).size).toBe(25);
+  });
 
-    const uppercaseProposal = {
-      schemaVersion: "diffwitness-first-100-entry/v1",
-      kind: "pair",
-      registrationId: FIRST_100_REGISTRATION_ID,
-      channel: "apm",
-      external: true,
-      optedIn: true,
-      inspectionStarted: false,
-      eligibility: { decision: "INCLUDED", reason: "ELIGIBLE" },
-      pair: {
-        ecosystem: "other",
-        componentIdentity: "Bounded-Package",
-        currentExactIdentity: `sha256:${"a".repeat(64)}`,
-        candidateExactIdentity: `sha256:${"b".repeat(64)}`,
-        realUpdateIntent: true,
+  it("serializes the 100th inclusion against concurrent exclusions without exporting a post-close row", async () => {
+    const register = async (index: number, adapter: SigningFixture | null) => registerFirst100Pair(
+      env.PROOF_DB,
+      await acquisitionProposal(signer, adapter, index),
+      {
+        r0ReleasedAt: "2026-08-23T00:00:00.000Z",
+        releasedChannels: "apm",
+        receivedAt: new Date().toISOString(),
+        publisherKeyId: signer.keyId,
+        requestId: crypto.randomUUID(),
+        operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
       },
-    };
-    const uppercaseBody = JSON.stringify(uppercaseProposal);
-    expect((await workerFetch(path, {
-      method: "POST",
-      headers: await publisherRequestHeaders(signer, path, uppercaseBody),
-      body: uppercaseBody,
-    })).status).toBe(422);
-    await expect(env.PROOF_DB.prepare(
-      "UPDATE frequency_pairs SET component_identity = 'bounded:package' WHERE ingestion_sequence = ?",
-    ).bind(entries[0]!.ingestionSequence).run()).rejects.toThrow(/CHECK constraint failed/);
-
-    const exportResponse = await workerFetch("/api/v1/frequency/first-100.jsonl");
-    const ledger = new TextDecoder().decode(await exportResponse.arrayBuffer()).trim().split("\n")
-      .slice(1).map((line) => JSON.parse(line) as { ingestionSequence: number });
-    expect(ledger).toHaveLength(25);
-    expect(ledger.map((entry) => entry.ingestionSequence)).toEqual(
-      [...ledger].map((entry) => entry.ingestionSequence).sort((left, right) => left - right),
     );
+    for (let index = 1; index <= 99; index += 1) {
+      expect((await register(index, frequencyAdapter)).entry.eligibility.decision).toBe("INCLUDED");
+    }
+    const concurrent = await Promise.allSettled([
+      register(100, frequencyAdapter),
+      register(10_000, null),
+    ]);
+    expect(concurrent[0]!.status).toBe("fulfilled");
+    await expect(register(10_001, null)).rejects.toThrow(/sample is closed/);
+    const bundle = await exportFirst100Bundle(env.PROOF_DB);
+    expect(bundle.entries.filter((entry) => entry.eligibility.decision === "INCLUDED")).toHaveLength(100);
+    expect(bundle.entries.at(-1)?.eligibility.decision).toBe("INCLUDED");
+    expect(bundle.entries.length).toBeLessThanOrEqual(101);
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs",
+    ).first<{ count: number }>())?.count)).toBe(bundle.entries.length);
+    expect(await env.PROOF_DB.prepare(
+      "SELECT scope_type, reason FROM frequency_stop_events WHERE reason = 'INCLUDED_SAMPLE_CLOSED'",
+    ).first()).toMatchObject({ scope_type: "SAMPLE", reason: "INCLUDED_SAMPLE_CLOSED" });
+  });
+
+  it("serializes total, channel, and publisher all-row quotas and records bounded stop events", async () => {
+    const untrustedResults = await Promise.allSettled(Array.from({ length: 405 }, async (_, index) => registerFirst100Pair(
+      env.PROOF_DB,
+      await acquisitionProposal(signer, null, index + 1),
+      {
+        r0ReleasedAt: "2026-08-23T00:00:00.000Z",
+        releasedChannels: "apm",
+        receivedAt: new Date().toISOString(),
+        publisherKeyId: signer.keyId,
+        requestId: crypto.randomUUID(),
+        operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+      },
+    )));
+    expect(untrustedResults.filter((result) => result.status === "fulfilled")).toHaveLength(400);
+    expect(untrustedResults.filter((result) => result.status === "rejected")).toHaveLength(5);
+    expect(Number((await env.PROOF_DB.prepare("SELECT COUNT(*) AS count FROM frequency_pairs").first<{ count: number }>())?.count)).toBe(400);
+    expect(await env.PROOF_DB.prepare("SELECT scope_type, reason FROM frequency_stop_events").first())
+      .toMatchObject({ scope_type: "PUBLISHER", reason: "PUBLISHER_ROW_CAP" });
+
+    const cappedProposal = await acquisitionProposal(signer, frequencyAdapter, 8_999);
+    const cappedDb = interleaveBeforeFirstPairInsert(env.PROOF_DB, async () => {
+      await revokeFrequencyAdapter(env.PROOF_DB, {
+        eventId: crypto.randomUUID(),
+        keyId: frequencyAdapter.keyId,
+        reasonClass: "TEST_CAP_INTERLEAVING",
+        occurredAt: new Date().toISOString(),
+      });
+    });
+    await expect(registerFirst100Pair(cappedDb, cappedProposal, {
+      r0ReleasedAt: "2026-08-23T00:00:00.000Z",
+      releasedChannels: "apm",
+      receivedAt: new Date().toISOString(),
+      publisherKeyId: signer.keyId,
+      requestId: crypto.randomUUID(),
+      operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+    })).rejects.toThrow(/publisher row cap reached/);
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs",
+    ).first<{ count: number }>())?.count)).toBe(400);
+
+    // Reset only the bounded frequency lane, retaining registered principals.
+    await env.PROOF_DB.batch([
+      env.PROOF_DB.prepare("DELETE FROM frequency_stop_events"),
+      env.PROOF_DB.prepare("DELETE FROM frequency_pairs"),
+    ]);
+    const publishers = [signer, await signingFixture(), await signingFixture()];
+    const adapters = [frequencyAdapter, await signingFixture(), await signingFixture()];
+    for (let index = 1; index < publishers.length; index += 1) {
+      await registerSigner(publishers[index]!);
+      await registerFrequencyAdapter(adapters[index]!);
+    }
+    const insertExcluded = async (index: number, channel: "apm" | "skills"): Promise<void> => {
+      const publisher = publishers[index % publishers.length]!;
+      const adapter = adapters[index % adapters.length]!;
+      const now = new Date().toISOString();
+      await env.PROOF_DB.prepare(
+        `INSERT INTO frequency_pairs
+          (schema_version, kind, registration_id, publisher_key_id, request_id, received_at, channel,
+           external, opted_in, inspection_started, eligibility_decision, eligibility_decided_at,
+           eligibility_reason, ecosystem, component_identity, current_exact_identity, candidate_exact_identity,
+           real_update_intent, dedup_key, included_dedup_key, received_body_sha256, acquisition_handle,
+           raw_event_sha256, adapter_key_id, adapter_version, adapter_event_id, adapter_observed_at,
+           adapter_attestation_sha256)
+         VALUES ('diffwitness-first-100-entry/v1', 'pair', ?, ?, ?, ?, ?, 1, 1, 0, 'EXCLUDED', ?,
+                 'DUPLICATE_PAIR', ?, ?, ?, ?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        FIRST_100_REGISTRATION_ID, publisher.keyId, crypto.randomUUID(), now, channel, now, channel,
+        `quota-component-${index}`, `sha256:${index.toString(16).padStart(64, "1")}`,
+        `sha256:${(index + 2_000).toString(16).padStart(64, "2")}`,
+        `sha256:${index.toString(16).padStart(64, "3")}`, `sha256:${index.toString(16).padStart(64, "4")}`,
+        crypto.randomUUID(), `sha256:${index.toString(16).padStart(64, "5")}`, adapter.keyId,
+        FREQUENCY_ADAPTER_VERSION, crypto.randomUUID(), now, `sha256:${index.toString(16).padStart(64, "6")}`,
+      ).run();
+    };
+    const lane = await Promise.allSettled(Array.from({ length: 510 }, (_, index) => insertExcluded(index + 1_000, "apm")));
+    expect(lane.filter((result) => result.status === "fulfilled")).toHaveLength(500);
+    expect(lane.filter((result) => result.status === "rejected")).toHaveLength(10);
+    await expect(registerFirst100Pair(env.PROOF_DB, await acquisitionProposal(signer, null, 9_000), {
+      r0ReleasedAt: "2026-08-23T00:00:00.000Z", releasedChannels: "apm", receivedAt: new Date().toISOString(),
+      publisherKeyId: signer.keyId, requestId: crypto.randomUUID(), operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+    })).rejects.toThrow(/channel row cap reached/);
+    const global = await Promise.allSettled(Array.from({ length: 510 }, (_, index) => insertExcluded(index + 10_000, "skills")));
+    expect(global.filter((result) => result.status === "fulfilled")).toHaveLength(500);
+    expect(global.filter((result) => result.status === "rejected")).toHaveLength(10);
+    await expect(registerFirst100Pair(env.PROOF_DB, await acquisitionProposal(signer, null, 19_000), {
+      r0ReleasedAt: "2026-08-23T00:00:00.000Z", releasedChannels: "apm,skills", receivedAt: new Date().toISOString(),
+      publisherKeyId: signer.keyId, requestId: crypto.randomUUID(), operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+    })).rejects.toThrow(/global row cap reached/);
+    expect(Number((await env.PROOF_DB.prepare("SELECT COUNT(*) AS count FROM frequency_pairs").first<{ count: number }>())?.count)).toBe(1_000);
+    const stops = await env.PROOF_DB.prepare("SELECT scope_type, reason FROM frequency_stop_events ORDER BY stop_sequence").all();
+    expect(stops.results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scope_type: "CHANNEL", reason: "CHANNEL_ROW_CAP" }),
+      expect.objectContaining({ scope_type: "GLOBAL", reason: "GLOBAL_ROW_CAP" }),
+    ]));
   });
 
   it("uses append-only moderation for takedown and correction state", async () => {
