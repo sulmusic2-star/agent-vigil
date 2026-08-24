@@ -167,6 +167,8 @@ type First100ProvenanceRow = {
   eligibility_reason: First100Reason;
 };
 
+type First100BundleRow = FrequencyRow & First100ProvenanceRow;
+
 function object(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value as Record<string, unknown>;
@@ -225,7 +227,7 @@ export function validateFirst100Proposal(input: unknown): First100Proposal {
     eligibility: { decision: eligibility.decision, reason: eligibility.reason as First100Reason },
     pair: {
       ecosystem: text(pair.ecosystem, "first-100 ecosystem", 1, 64, /^[a-z0-9][a-z0-9._-]*$/),
-      componentIdentity: text(pair.componentIdentity, "first-100 component identity", 1, 160, /^[A-Za-z0-9@][A-Za-z0-9@/._-]*$/),
+      componentIdentity: text(pair.componentIdentity, "first-100 component identity", 1, 160, /^[a-z0-9@][a-z0-9@/._-]*$/),
       currentExactIdentity,
       candidateExactIdentity,
       realUpdateIntent: pair.realUpdateIntent,
@@ -254,18 +256,35 @@ export function validateFirst100Evaluation(input: unknown): First100Evaluation {
     || new Set(materiality.workflowConsequences).size !== materiality.workflowConsequences.length) {
     throw new Error("first-100 materiality is invalid");
   }
+  const verdict = evaluation.verdict as "SAFE" | "CHANGED" | "HOLD";
+  const classification = materiality.classification as "MATERIAL" | "NON_MATERIAL" | "INCONCLUSIVE";
+  const falseCompatible = evaluation.falseCompatible;
+  const evidenceComplete = materiality.evidenceComplete;
+  const workflowConsequences = materiality.workflowConsequences as string[];
+  if (classification === "MATERIAL") {
+    if (verdict === "HOLD" || !evidenceComplete || workflowConsequences.length === 0
+      || falseCompatible !== (verdict === "SAFE")) {
+      throw new Error("first-100 material evaluation is contradictory");
+    }
+  } else if (classification === "NON_MATERIAL") {
+    if (verdict === "HOLD" || !evidenceComplete || workflowConsequences.length !== 0 || falseCompatible) {
+      throw new Error("first-100 non-material evaluation is contradictory");
+    }
+  } else if (verdict !== "HOLD" || evidenceComplete || workflowConsequences.length !== 0 || falseCompatible) {
+    throw new Error("first-100 inconclusive evaluation is contradictory");
+  }
   return {
     ingestionSequence: Number(root.ingestionSequence),
     evaluation: {
       startedAt,
       completedAt,
-      verdict: evaluation.verdict as "SAFE" | "CHANGED" | "HOLD",
+      verdict,
       receiptHash: text(evaluation.receiptHash, "first-100 receipt hash", 71, 71, /^sha256:[0-9a-f]{64}$/),
-      falseCompatible: evaluation.falseCompatible,
+      falseCompatible,
       materiality: {
-        classification: materiality.classification as "MATERIAL" | "NON_MATERIAL" | "INCONCLUSIVE",
-        evidenceComplete: materiality.evidenceComplete,
-        workflowConsequences: materiality.workflowConsequences as string[],
+        classification,
+        evidenceComplete,
+        workflowConsequences,
       },
     },
   };
@@ -343,8 +362,8 @@ export async function registerFirst100Pair(
   let sequence: number;
   if (reason === "ELIGIBLE") {
     const componentCount = await db.prepare(
-      "SELECT COUNT(*) AS count FROM frequency_pairs WHERE eligibility_decision = 'INCLUDED' AND ecosystem = ? AND component_identity = ?",
-    ).bind(proposal.pair.ecosystem, proposal.pair.componentIdentity).first<{ count: number }>();
+      "SELECT COUNT(*) AS count FROM frequency_pairs WHERE eligibility_decision = 'INCLUDED' AND component_identity = ?",
+    ).bind(proposal.pair.componentIdentity).first<{ count: number }>();
     if (Number(componentCount?.count ?? 0) >= 20) reason = "COMPONENT_CAP";
   }
   try {
@@ -483,64 +502,71 @@ export async function storeFirst100Evaluation(
   return { created: true };
 }
 
-export async function exportFirst100Entries(db: D1Database): Promise<First100Entry[]> {
-  const cutoff = await db.prepare(
-    "SELECT ingestion_sequence FROM frequency_pairs WHERE eligibility_decision = 'INCLUDED' ORDER BY ingestion_sequence ASC LIMIT 1 OFFSET 99",
-  ).first<{ ingestion_sequence: number }>();
+async function queryFirst100Bundle(db: D1Database): Promise<First100BundleRow[]> {
   const result = await db.prepare(
-    `SELECT p.ingestion_sequence, p.received_at, p.channel, p.external, p.opted_in,
+    `WITH cutoff AS (
+       SELECT ingestion_sequence AS value
+         FROM frequency_pairs
+        WHERE eligibility_decision = 'INCLUDED'
+        ORDER BY ingestion_sequence ASC
+        LIMIT 1 OFFSET 99
+     )
+     SELECT p.ingestion_sequence, p.received_at, p.channel, p.external, p.opted_in,
             p.eligibility_decision, p.eligibility_decided_at, p.eligibility_reason, p.ecosystem,
             p.component_identity, p.current_exact_identity, p.candidate_exact_identity, p.real_update_intent,
             e.started_at, e.completed_at, e.verdict, e.receipt_hash, e.false_compatible,
-            e.materiality_classification, e.evidence_complete, e.workflow_consequences_json
+            e.materiality_classification, e.evidence_complete, e.workflow_consequences_json,
+            p.publisher_key_id, publisher.status AS publisher_status, publisher.updated_at AS publisher_updated_at
        FROM frequency_pairs p
+       JOIN publishers publisher ON publisher.key_id = p.publisher_key_id
        LEFT JOIN frequency_evaluations e ON e.ingestion_sequence = p.ingestion_sequence
-      WHERE ? IS NULL OR p.ingestion_sequence <= ?
+      WHERE NOT EXISTS (SELECT 1 FROM cutoff)
+         OR p.ingestion_sequence <= (SELECT value FROM cutoff)
       ORDER BY p.ingestion_sequence ASC`,
-  ).bind(cutoff?.ingestion_sequence ?? null, cutoff?.ingestion_sequence ?? null).all<FrequencyRow>();
-  return result.results.map(rowToFirst100Entry);
+  ).all<First100BundleRow>();
+  return result.results;
 }
 
-export async function exportFirst100Provenance(db: D1Database): Promise<First100ProvenanceRecord[]> {
-  const cutoff = await db.prepare(
-    "SELECT ingestion_sequence FROM frequency_pairs WHERE eligibility_decision = 'INCLUDED' ORDER BY ingestion_sequence ASC LIMIT 1 OFFSET 99",
-  ).first<{ ingestion_sequence: number }>();
-  const result = await db.prepare(
-    `SELECT pair.ingestion_sequence, pair.publisher_key_id,
-            publisher.status AS publisher_status, publisher.updated_at AS publisher_updated_at,
-            pair.eligibility_decision, pair.eligibility_reason
-       FROM frequency_pairs pair
-       JOIN publishers publisher ON publisher.key_id = pair.publisher_key_id
-      WHERE ? IS NULL OR pair.ingestion_sequence <= ?
-      ORDER BY pair.ingestion_sequence ASC`,
-  ).bind(cutoff?.ingestion_sequence ?? null, cutoff?.ingestion_sequence ?? null).all<First100ProvenanceRow>();
-  return result.results.map((row) => {
-    const activeIncluded = row.eligibility_decision === "INCLUDED" && row.publisher_status === "ACTIVE";
-    const quarantined = row.eligibility_decision === "INCLUDED" && row.publisher_status !== "ACTIVE";
-    return {
-      schemaVersion: "agent-vigil-first-100-provenance/v1",
-      kind: "publisher-provenance",
-      registrationId: FIRST_100_REGISTRATION_ID,
-      ingestionSequence: row.ingestion_sequence,
-      publisher: {
-        keyId: row.publisher_key_id,
-        status: row.publisher_status,
-        statusUpdatedAt: row.publisher_updated_at,
-      },
-      frozenEligibility: {
-        decision: row.eligibility_decision,
-        reason: row.eligibility_reason,
-      },
-      effectiveEligibility: {
-        decision: quarantined ? "QUARANTINED" : row.eligibility_decision,
-        reason: quarantined
-          ? (row.publisher_status === "REVOKED" ? "PUBLISHER_REVOKED" : "PUBLISHER_SUSPENDED")
-          : row.eligibility_reason,
-        gateEligible: activeIncluded,
-      },
-      chronologyMutable: false,
-    };
-  });
+function rowToFirst100Provenance(row: First100ProvenanceRow): First100ProvenanceRecord {
+  const activeIncluded = row.eligibility_decision === "INCLUDED" && row.publisher_status === "ACTIVE";
+  const quarantined = row.publisher_status !== "ACTIVE";
+  return {
+    schemaVersion: "agent-vigil-first-100-provenance/v1",
+    kind: "publisher-provenance",
+    registrationId: FIRST_100_REGISTRATION_ID,
+    ingestionSequence: row.ingestion_sequence,
+    publisher: {
+      keyId: row.publisher_key_id,
+      status: row.publisher_status,
+      statusUpdatedAt: row.publisher_updated_at,
+    },
+    frozenEligibility: {
+      decision: row.eligibility_decision,
+      reason: row.eligibility_reason,
+    },
+    effectiveEligibility: {
+      decision: quarantined ? "QUARANTINED" : row.eligibility_decision,
+      reason: quarantined
+        ? (row.publisher_status === "REVOKED" ? "PUBLISHER_REVOKED" : "PUBLISHER_SUSPENDED")
+        : row.eligibility_reason,
+      gateEligible: activeIncluded,
+    },
+    chronologyMutable: false,
+  };
+}
+
+export async function exportFirst100Bundle(
+  db: D1Database,
+): Promise<{ entries: First100Entry[]; provenance: First100ProvenanceRecord[] }> {
+  const rows = await queryFirst100Bundle(db);
+  return {
+    entries: rows.map(rowToFirst100Entry),
+    provenance: rows.map(rowToFirst100Provenance),
+  };
+}
+
+export async function exportFirst100Entries(db: D1Database): Promise<First100Entry[]> {
+  return (await exportFirst100Bundle(db)).entries;
 }
 
 export function first100Jsonl(entries: First100Entry[]): string {
@@ -556,15 +582,22 @@ export function first100Jsonl(entries: First100Entry[]): string {
   return `${[anchor, ...entries].map((entry) => JSON.stringify(entry)).join("\n")}\n`;
 }
 
-export function first100ProvenanceJsonl(records: First100ProvenanceRecord[]): string {
+export async function first100ProvenanceJsonl(
+  records: First100ProvenanceRecord[],
+  rawLedger: string,
+): Promise<string> {
+  const recordsBody = records.length === 0 ? "" : `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
   const anchor = {
-    schemaVersion: "agent-vigil-first-100-provenance-ledger/v1",
+    schemaVersion: "agent-vigil-first-100-provenance-ledger/v2",
     kind: "provenance-anchor",
     registrationId: FIRST_100_REGISTRATION_ID,
     registrationSha256: FIRST_100_REGISTRATION_SHA256,
-    rawLedgerPath: "/api/v1/frequency/first-100.jsonl",
+    rawLedgerSha256: await sha256(rawLedger),
+    rawLedgerPairEntries: Math.max(0, rawLedger.trimEnd().split("\n").length - 1),
+    provenanceRecords: records.length,
+    provenanceRecordsSha256: await sha256(recordsBody),
     rawLedgerGateEligibleWithoutProvenance: false,
     chronologyMutable: false,
   };
-  return `${[anchor, ...records].map((record) => JSON.stringify(record)).join("\n")}\n`;
+  return `${JSON.stringify(anchor)}\n${recordsBody}`;
 }

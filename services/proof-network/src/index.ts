@@ -43,8 +43,8 @@ import {
   type PublisherStatus,
 } from "./db";
 import {
+  exportFirst100Bundle,
   exportFirst100Entries,
-  exportFirst100Provenance,
   first100Jsonl,
   first100ProvenanceJsonl,
   registerFirst100Pair,
@@ -240,7 +240,7 @@ async function publicReadLimit(env: Env, request: Request, routeClass: string): 
 }
 
 function moderationUnavailable(state: ModerationState | null): boolean {
-  return state !== null && (state.action === "TAKEDOWN" || state.action === "REVOKE");
+  return state !== null && (state.action === "CORRECT" || state.action === "TAKEDOWN" || state.action === "REVOKE");
 }
 
 function revokedResponse(state: ModerationState): Response {
@@ -765,6 +765,17 @@ async function handleSearch(request: Request, env: Env, html: boolean): Promise<
 async function handleBadge(request: Request, env: Env, entryHash: string): Promise<Response> {
   await publicReadLimit(env, request, "badge-api");
   const [row, state] = await Promise.all([getEntryRow(env.PROOF_DB, entryHash), getModerationState(env.PROOF_DB, "ENTRY", entryHash)]);
+  if (row && state?.action === "CORRECT") {
+    const representationTag = await sha256(canonical({ entryHash, moderation: state }));
+    return publicApiResponse({
+      schemaVersion: 1,
+      label: "agent update",
+      message: "corrected",
+      color: "lightgrey",
+      cacheSeconds: 60,
+      ...(state.replacement_hash === null ? {} : { link: `/proof/${state.replacement_hash}` }),
+    }, "public, no-cache", representationTag);
+  }
   if (!row || moderationUnavailable(state)) return publicApiResponse({ schemaVersion: 1, label: "agent update", message: "unavailable", color: "lightgrey", cacheSeconds: 60 }, "public, max-age=60");
   const publisher = await getPublisher(env.PROOF_DB, row.key_id);
   if (!publisher || publisher.status !== "ACTIVE") return publicApiResponse({ schemaVersion: 1, label: "agent update", message: "revoked", color: "lightgrey", cacheSeconds: 60 }, "public, max-age=60");
@@ -798,12 +809,14 @@ async function handleFirst100Export(request: Request, env: Env): Promise<Respons
 
 async function handleFirst100ProvenanceExport(request: Request, env: Env): Promise<Response> {
   await publicReadLimit(env, request, "first-100-provenance-export");
-  const records = await exportFirst100Provenance(env.PROOF_DB);
+  const bundle = await exportFirst100Bundle(env.PROOF_DB);
+  const rawLedger = first100Jsonl(bundle.entries);
+  const provenance = await first100ProvenanceJsonl(bundle.provenance, rawLedger);
   const headers = securityHeaders("application/x-ndjson; charset=utf-8");
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Cache-Control", "no-store");
   headers.set("X-Agent-Vigil-Chronology-Mutable", "false");
-  return new Response(first100ProvenanceJsonl(records), { headers });
+  return new Response(provenance, { headers });
 }
 
 async function handleRobots(request: Request, env: Env): Promise<Response> {

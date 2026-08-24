@@ -65,8 +65,9 @@ async function setPublisherStatus(
 
 async function moderateEntry(
   entryHash: string,
-  action: "TAKEDOWN" | "REVOKE" | "RESTORE",
+  action: "CORRECT" | "TAKEDOWN" | "REVOKE" | "RESTORE",
   reasonClass: "PRIVACY" | "INVALID_EVIDENCE" | "KEY_COMPROMISE" | "PUBLISHER_REQUEST" | "RESTORED",
+  replacementHash?: string,
 ): Promise<Response> {
   return adminPost("/v1/admin/moderation", {
     eventId: crypto.randomUUID(),
@@ -74,6 +75,7 @@ async function moderateEntry(
     recordHash: entryHash,
     action,
     reasonClass,
+    ...(replacementHash === undefined ? {} : { replacementHash }),
   });
 }
 
@@ -161,6 +163,34 @@ describe("proof-network Worker", () => {
     expect((await search.json<{ count: number }>()).count).toBe(1);
     expect(new TextDecoder().decode(await (await workerFetch("/robots.txt")).arrayBuffer())).toContain("/sitemap.xml");
     expect(new TextDecoder().decode(await (await workerFetch("/sitemap.xml")).arrayBuffer())).toContain(`/proof/${entry.entryHash}`);
+  });
+
+  it("never serves corrected SAFE evidence as an active direct, search, API, or green badge signal", async () => {
+    const original = await signedEntry(signer, { verdict: "SAFE", candidateVersion: "1.1.0-invalid" });
+    const replacement = await signedEntry(signer, { verdict: "CHANGED", candidateVersion: "1.1.0-corrected" });
+    expect((await ingestEntry(original)).status).toBe(201);
+    expect((await ingestEntry(replacement)).status).toBe(201);
+    expect((await moderateEntry(original.entryHash, "CORRECT", "INVALID_EVIDENCE", replacement.entryHash)).status).toBe(200);
+
+    const directApi = await workerFetch(`/api/v1/entries/${original.entryHash}`);
+    expect(directApi.status).toBe(410);
+    expect(await directApi.json()).toMatchObject({ error: { action: "CORRECT", replacementHash: replacement.entryHash } });
+    const directPage = await workerFetch(`/proof/${original.entryHash}`);
+    expect(directPage.status).toBe(410);
+    expect(await directPage.text()).not.toContain(">SAFE<");
+
+    const search = await workerFetch("/api/v1/search?component=public-agent-package");
+    const searchBody = await search.json<{ entries: Array<{ entryHash: string }> }>();
+    expect(searchBody.entries.map((entry) => entry.entryHash)).not.toContain(original.entryHash);
+
+    const badge = await workerFetch(`/api/v1/badges/${original.entryHash}`);
+    expect(badge.status).toBe(200);
+    expect(await badge.json()).toMatchObject({ message: "corrected", color: "lightgrey", link: `/proof/${replacement.entryHash}` });
+    expect((await workerFetch(`/api/v1/badges/${replacement.entryHash}`)).status).toBe(200);
+
+    expect((await moderateEntry(original.entryHash, "RESTORE", "RESTORED")).status).toBe(200);
+    expect((await workerFetch(`/api/v1/entries/${original.entryHash}`)).status).toBe(200);
+    expect(await (await workerFetch(`/api/v1/badges/${original.entryHash}`)).json()).toMatchObject({ message: "safe", color: "2ea44f" });
   });
 
   it("rejects tampering and unregistered publisher keys", async () => {
@@ -546,7 +576,7 @@ describe("proof-network Worker", () => {
     expect(exportResponse.headers.get("X-Agent-Vigil-Provenance-Required")).toBe("true");
     expect(exportResponse.headers.get("Link")).toContain("first-100-provenance.jsonl");
     expect(exportResponse.headers.get("Cache-Control")).toBe("no-store");
-    const rawBeforeRevocation = new TextDecoder().decode(await exportResponse.arrayBuffer());
+    let rawBeforeRevocation = new TextDecoder().decode(await exportResponse.arrayBuffer());
     const lines = rawBeforeRevocation.trim().split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);
     expect(lines).toHaveLength(2);
@@ -555,9 +585,87 @@ describe("proof-network Worker", () => {
 
     const activeProvenanceResponse = await workerFetch("/api/v1/frequency/first-100-provenance.jsonl");
     const activeProvenance = new TextDecoder().decode(await activeProvenanceResponse.arrayBuffer());
+    const activeNewline = activeProvenance.indexOf("\n");
+    const activeProvenanceLines = activeProvenance.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(activeProvenanceLines[0]).toMatchObject({
+      schemaVersion: "agent-vigil-first-100-provenance-ledger/v2",
+      rawLedgerSha256: await sha256(rawBeforeRevocation),
+      rawLedgerPairEntries: 1,
+      provenanceRecords: 1,
+      provenanceRecordsSha256: await sha256(activeProvenance.slice(activeNewline + 1)),
+      rawLedgerGateEligibleWithoutProvenance: false,
+      chronologyMutable: false,
+    });
     expect(activeProvenance).toContain(signer.keyId);
     expect(activeProvenance).toContain('"status":"ACTIVE"');
     expect(activeProvenance).toContain('"gateEligible":true');
+
+    const startedAt = new Date(Date.parse(registered.receivedAt) + 1).toISOString();
+    const contradictory = await adminPost("/v1/admin/frequency/first-100/evaluations", {
+      ingestionSequence: registered.ingestionSequence,
+      evaluation: {
+        startedAt,
+        completedAt: new Date(Date.parse(startedAt) + 1_000).toISOString(),
+        verdict: "SAFE",
+        receiptHash: `sha256:${"7".repeat(64)}`,
+        falseCompatible: false,
+        materiality: { classification: "MATERIAL", evidenceComplete: true, workflowConsequences: ["REQUIRED_BEHAVIOR_UNAVAILABLE"] },
+      },
+    });
+    expect(contradictory.status).toBe(422);
+    expect((await contradictory.json<{ error: { code: string } }>()).error.code).toBe("FIRST_100_EVALUATION_INVALID");
+    await expect(env.PROOF_DB.prepare(
+      `INSERT INTO frequency_evaluations
+        (ingestion_sequence, started_at, completed_at, verdict, receipt_hash, false_compatible,
+         materiality_classification, evidence_complete, workflow_consequences_json, recorded_at)
+       VALUES (?, ?, ?, 'SAFE', ?, 0, 'MATERIAL', 1, '["REQUIRED_BEHAVIOR_UNAVAILABLE"]', ?)`,
+    ).bind(registered.ingestionSequence, startedAt, startedAt, `sha256:${"8".repeat(64)}`, startedAt).run())
+      .rejects.toThrow(/FIRST_100_EVALUATION_CONTRADICTORY/);
+    const validEvaluation = await adminPost("/v1/admin/frequency/first-100/evaluations", {
+      ingestionSequence: registered.ingestionSequence,
+      evaluation: {
+        startedAt,
+        completedAt: new Date(Date.parse(startedAt) + 1_000).toISOString(),
+        verdict: "CHANGED",
+        receiptHash: `sha256:${"9".repeat(64)}`,
+        falseCompatible: false,
+        materiality: { classification: "MATERIAL", evidenceComplete: true, workflowConsequences: ["REQUIRED_BEHAVIOR_UNAVAILABLE"] },
+      },
+    });
+    expect(validEvaluation.status).toBe(201);
+    await expect(env.PROOF_DB.prepare(
+      "UPDATE frequency_evaluations SET verdict = 'SAFE' WHERE ingestion_sequence = ?",
+    ).bind(registered.ingestionSequence).run()).rejects.toThrow(/FIRST_100_EVALUATION_CONTRADICTORY/);
+
+    const excludedProposal = {
+      ...proposal,
+      eligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" },
+      pair: { ...proposal.pair, candidateExactIdentity: `sha256:${"3".repeat(64)}` },
+    };
+    const excludedBody = JSON.stringify(excludedProposal);
+    const excludedResponse = await workerFetch(path, {
+      method: "POST",
+      headers: await publisherRequestHeaders(signer, path, excludedBody),
+      body: excludedBody,
+    });
+    expect(excludedResponse.status).toBe(201);
+    const excluded = await excludedResponse.json<{
+      ingestionSequence: number;
+      inspectionStarted: boolean;
+      eligibility: { decision: string; reason: string };
+    }>();
+    expect(excluded).toMatchObject({
+      inspectionStarted: false,
+      eligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" },
+    });
+    rawBeforeRevocation = new TextDecoder().decode(
+      await (await workerFetch("/api/v1/frequency/first-100.jsonl")).arrayBuffer(),
+    );
+
+    const inspectedProposal = { ...proposal, inspectionStarted: true, eligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" } };
+    const inspectedBody = JSON.stringify(inspectedProposal);
+    const inspectedHeaders = await publisherRequestHeaders(signer, path, inspectedBody);
+    expect((await workerFetch(path, { method: "POST", headers: inspectedHeaders, body: inspectedBody })).status).toBe(422);
 
     expect((await setPublisherStatus(signer.keyId, "SUSPENDED", "POLICY")).status).toBe(200);
     const suspendedProvenanceResponse = await workerFetch("/api/v1/frequency/first-100-provenance.jsonl");
@@ -587,8 +695,14 @@ describe("proof-network Worker", () => {
       effectiveEligibility: { decision: "QUARANTINED", reason: "PUBLISHER_REVOKED", gateEligible: false },
       chronologyMutable: false,
     });
+    expect(provenanceLines[2]).toMatchObject({
+      ingestionSequence: excluded.ingestionSequence,
+      publisher: { keyId: signer.keyId, status: "REVOKED" },
+      frozenEligibility: { decision: "EXCLUDED", reason: "DUPLICATE_PAIR" },
+      effectiveEligibility: { decision: "QUARANTINED", reason: "PUBLISHER_REVOKED", gateEligible: false },
+      chronologyMutable: false,
+    });
 
-    const startedAt = new Date(Date.parse(registered.receivedAt) + 1).toISOString();
     const evaluation = await adminPost("/v1/admin/frequency/first-100/evaluations", {
       ingestionSequence: registered.ingestionSequence,
       evaluation: {
@@ -639,7 +753,7 @@ describe("proof-network Worker", () => {
         inspectionStarted: false,
         eligibility: { decision: "INCLUDED", reason: "ELIGIBLE" },
         pair: {
-          ecosystem: "apm",
+          ecosystem: index % 2 === 0 ? "apm" : "skills",
           componentIdentity: "bounded-package",
           currentExactIdentity: `sha256:${index.toString(16).padStart(64, "0")}`,
           candidateExactIdentity: `sha256:${(index + 100).toString(16).padStart(64, "0")}`,
@@ -657,6 +771,33 @@ describe("proof-network Worker", () => {
     expect(entries.filter((entry) => entry.eligibility.decision === "INCLUDED")).toHaveLength(20);
     expect(entries.filter((entry) => entry.eligibility.reason === "COMPONENT_CAP")).toHaveLength(5);
     expect(new Set(entries.map((entry) => entry.ingestionSequence)).size).toBe(25);
+
+    const uppercaseProposal = {
+      schemaVersion: "diffwitness-first-100-entry/v1",
+      kind: "pair",
+      registrationId: FIRST_100_REGISTRATION_ID,
+      channel: "apm",
+      external: true,
+      optedIn: true,
+      inspectionStarted: false,
+      eligibility: { decision: "INCLUDED", reason: "ELIGIBLE" },
+      pair: {
+        ecosystem: "other",
+        componentIdentity: "Bounded-Package",
+        currentExactIdentity: `sha256:${"a".repeat(64)}`,
+        candidateExactIdentity: `sha256:${"b".repeat(64)}`,
+        realUpdateIntent: true,
+      },
+    };
+    const uppercaseBody = JSON.stringify(uppercaseProposal);
+    expect((await workerFetch(path, {
+      method: "POST",
+      headers: await publisherRequestHeaders(signer, path, uppercaseBody),
+      body: uppercaseBody,
+    })).status).toBe(422);
+    await expect(env.PROOF_DB.prepare(
+      "UPDATE frequency_pairs SET component_identity = 'bounded:package' WHERE ingestion_sequence = ?",
+    ).bind(entries[0]!.ingestionSequence).run()).rejects.toThrow(/CHECK constraint failed/);
 
     const exportResponse = await workerFetch("/api/v1/frequency/first-100.jsonl");
     const ledger = new TextDecoder().decode(await exportResponse.arrayBuffer()).trim().split("\n")
@@ -684,5 +825,10 @@ describe("proof-network Worker", () => {
     const stored = await env.PROOF_DB.prepare("SELECT body_json FROM compatibility_entries WHERE entry_hash = ?")
       .bind(entry.entryHash).first<{ body_json: string }>();
     expect(stored?.body_json).toBe(canonical(entry));
+  });
+
+  it("keeps the migrated D1 foreign-key graph internally consistent", async () => {
+    const foreignKeys = await env.PROOF_DB.prepare("PRAGMA foreign_key_check").all();
+    expect(foreignKeys.results).toEqual([]);
   });
 });

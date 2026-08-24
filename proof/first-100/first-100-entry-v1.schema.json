@@ -36,7 +36,7 @@
     },
     "external": { "type": "boolean" },
     "optedIn": { "type": "boolean" },
-    "inspectionStarted": { "type": "boolean" },
+    "inspectionStarted": { "const": false },
     "eligibility": {
       "type": "object",
       "additionalProperties": false,
@@ -75,7 +75,13 @@
       ],
       "properties": {
         "ecosystem": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$" },
-        "componentIdentity": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "componentIdentity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[a-z0-9@][a-z0-9@/._-]*$",
+          "description": "Exact lowercase ASCII global component identity; the 20-pair cap ignores ecosystem."
+        },
         "currentExactIdentity": { "type": "string", "minLength": 8, "maxLength": 256 },
         "candidateExactIdentity": { "type": "string", "minLength": 8, "maxLength": 256 },
         "realUpdateIntent": { "type": "boolean" }
@@ -140,6 +146,79 @@
     {
       "if": { "required": ["evaluation"] },
       "then": { "properties": { "eligibility": { "properties": { "decision": { "const": "INCLUDED" } } } } }
+    },
+    {
+      "if": { "properties": { "eligibility": { "properties": { "decision": { "const": "EXCLUDED" } } } } },
+      "then": { "properties": { "eligibility": { "properties": { "reason": { "not": { "const": "ELIGIBLE" } } } } } }
+    },
+    {
+      "if": {
+        "required": ["evaluation"],
+        "properties": { "evaluation": { "properties": { "materiality": { "properties": { "classification": { "const": "MATERIAL" } } } } } }
+      },
+      "then": {
+        "properties": {
+          "evaluation": {
+            "properties": {
+              "verdict": { "enum": ["SAFE", "CHANGED"] },
+              "materiality": {
+                "properties": {
+                  "evidenceComplete": { "const": true },
+                  "workflowConsequences": { "minItems": 1 }
+                }
+              }
+            },
+            "oneOf": [
+              { "properties": { "verdict": { "const": "SAFE" }, "falseCompatible": { "const": true } } },
+              { "properties": { "verdict": { "const": "CHANGED" }, "falseCompatible": { "const": false } } }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["evaluation"],
+        "properties": { "evaluation": { "properties": { "materiality": { "properties": { "classification": { "const": "NON_MATERIAL" } } } } } }
+      },
+      "then": {
+        "properties": {
+          "evaluation": {
+            "properties": {
+              "verdict": { "enum": ["SAFE", "CHANGED"] },
+              "falseCompatible": { "const": false },
+              "materiality": {
+                "properties": {
+                  "evidenceComplete": { "const": true },
+                  "workflowConsequences": { "maxItems": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["evaluation"],
+        "properties": { "evaluation": { "properties": { "materiality": { "properties": { "classification": { "const": "INCONCLUSIVE" } } } } } }
+      },
+      "then": {
+        "properties": {
+          "evaluation": {
+            "properties": {
+              "verdict": { "const": "HOLD" },
+              "falseCompatible": { "const": false },
+              "materiality": {
+                "properties": {
+                  "evidenceComplete": { "const": false },
+                  "workflowConsequences": { "maxItems": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }

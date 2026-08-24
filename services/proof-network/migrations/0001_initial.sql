@@ -282,7 +282,12 @@ CREATE TABLE frequency_pairs (
   eligibility_decided_at TEXT NOT NULL,
   eligibility_reason TEXT NOT NULL,
   ecosystem TEXT NOT NULL,
-  component_identity TEXT NOT NULL,
+  component_identity TEXT NOT NULL CHECK (
+    length(component_identity) BETWEEN 1 AND 160
+    AND component_identity = lower(component_identity)
+    AND component_identity GLOB '[a-z0-9@]*'
+    AND component_identity NOT GLOB '*[^a-z0-9@/._-]*'
+  ),
   current_exact_identity TEXT NOT NULL,
   candidate_exact_identity TEXT NOT NULL,
   real_update_intent INTEGER NOT NULL CHECK (real_update_intent IN (0, 1)),
@@ -292,7 +297,7 @@ CREATE TABLE frequency_pairs (
 ) STRICT;
 
 CREATE INDEX frequency_pairs_component_included_idx
-  ON frequency_pairs(ecosystem, component_identity, eligibility_decision, ingestion_sequence);
+  ON frequency_pairs(component_identity, eligibility_decision, ingestion_sequence);
 
 -- D1 serializes the write guarded by this trigger, so concurrent requests
 -- cannot create a 101st included pair or a 21st pair for one component.
@@ -305,7 +310,6 @@ BEGIN
   SELECT RAISE(ABORT, 'FIRST_100_COMPONENT_CAP')
     WHERE (SELECT COUNT(*) FROM frequency_pairs
            WHERE eligibility_decision = 'INCLUDED'
-             AND ecosystem = NEW.ecosystem
              AND component_identity = NEW.component_identity) >= 20;
 END;
 
@@ -331,6 +335,58 @@ CREATE TABLE frequency_evaluations (
   workflow_consequences_json TEXT NOT NULL,
   recorded_at TEXT NOT NULL
 ) STRICT;
+
+-- A complete evaluation has one coherent state. MATERIAL is a demonstrated
+-- regression: CHANGED is correctly detected, while SAFE is explicitly a
+-- false-compatible result. HOLD is the only inconclusive state. Direct D1
+-- writes therefore cannot bypass the Worker/schema cross-field contract.
+CREATE TRIGGER frequency_evaluations_coherence_guard
+BEFORE INSERT ON frequency_evaluations
+BEGIN
+  SELECT RAISE(ABORT, 'FIRST_100_EVALUATION_CONTRADICTORY')
+    WHERE json_valid(NEW.workflow_consequences_json) <> 1
+       OR json_type(NEW.workflow_consequences_json) <> 'array';
+  SELECT RAISE(ABORT, 'FIRST_100_EVALUATION_CONTRADICTORY')
+    WHERE (NEW.materiality_classification = 'MATERIAL'
+           AND (NEW.verdict = 'HOLD'
+             OR NEW.evidence_complete <> 1
+             OR json_array_length(NEW.workflow_consequences_json) = 0
+             OR NEW.false_compatible <> CASE WHEN NEW.verdict = 'SAFE' THEN 1 ELSE 0 END))
+       OR (NEW.materiality_classification = 'NON_MATERIAL'
+           AND (NEW.verdict = 'HOLD'
+             OR NEW.evidence_complete <> 1
+             OR json_array_length(NEW.workflow_consequences_json) <> 0
+             OR NEW.false_compatible <> 0))
+       OR (NEW.materiality_classification = 'INCONCLUSIVE'
+           AND (NEW.verdict <> 'HOLD'
+             OR NEW.evidence_complete <> 0
+             OR json_array_length(NEW.workflow_consequences_json) <> 0
+             OR NEW.false_compatible <> 0));
+END;
+
+CREATE TRIGGER frequency_evaluations_coherence_guard_update
+BEFORE UPDATE ON frequency_evaluations
+BEGIN
+  SELECT RAISE(ABORT, 'FIRST_100_EVALUATION_CONTRADICTORY')
+    WHERE json_valid(NEW.workflow_consequences_json) <> 1
+       OR json_type(NEW.workflow_consequences_json) <> 'array';
+  SELECT RAISE(ABORT, 'FIRST_100_EVALUATION_CONTRADICTORY')
+    WHERE (NEW.materiality_classification = 'MATERIAL'
+           AND (NEW.verdict = 'HOLD'
+             OR NEW.evidence_complete <> 1
+             OR json_array_length(NEW.workflow_consequences_json) = 0
+             OR NEW.false_compatible <> CASE WHEN NEW.verdict = 'SAFE' THEN 1 ELSE 0 END))
+       OR (NEW.materiality_classification = 'NON_MATERIAL'
+           AND (NEW.verdict = 'HOLD'
+             OR NEW.evidence_complete <> 1
+             OR json_array_length(NEW.workflow_consequences_json) <> 0
+             OR NEW.false_compatible <> 0))
+       OR (NEW.materiality_classification = 'INCONCLUSIVE'
+           AND (NEW.verdict <> 'HOLD'
+             OR NEW.evidence_complete <> 0
+             OR json_array_length(NEW.workflow_consequences_json) <> 0
+             OR NEW.false_compatible <> 0));
+END;
 
 CREATE TRIGGER frequency_evaluations_active_publisher
 BEFORE INSERT ON frequency_evaluations
