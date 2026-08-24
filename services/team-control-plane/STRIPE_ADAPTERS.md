@@ -10,7 +10,7 @@ This is an implemented but disabled provider boundary. It has not been deployed,
 
 Both `workers_dev` and preview URLs are disabled. `STRIPE_EXECUTION_ENABLED` and `STRIPE_RECONCILIATION_ENABLED` default to `false`.
 
-All Stripe requests send `Stripe-Version: 2026-07-29.dahlia`. Mutations carry stable `avteam:{org_id}:{command_id}` idempotency keys. Network attempts time out after eight seconds and retry at most twice after the first attempt. Stripe `POST` retries reuse identical parameters and idempotency. A deletion race after hosted Checkout creation triggers an exact Session-expiration request; the executor verifies `expired`, records the leased command and intent as compensated/canceled, and does not return a live URL. Webhooks and reconciliations refuse a confirmed-deleted tenant.
+All Stripe requests send `Stripe-Version: 2026-07-29.dahlia`. Mutations carry stable `avteam:{org_id}:{command_id}` idempotency keys. Network attempts time out after eight seconds and retry at most twice after the first attempt. Stripe `POST` retries reuse identical parameters and idempotency. A deletion race after hosted Checkout creation triggers an exact Session-expiration request; the executor verifies `expired`, records the leased command and intent as compensated/canceled, and does not return a live URL. Checkout completion requires an exactly active organization at both the Worker and D1 serialized boundaries. A completion received during `deletion_pending` is recorded as rejected, cannot bind the subscription, and leaves the compensation state blocking confirmed deletion. Webhooks and reconciliations refuse a confirmed-deleted tenant.
 
 ## Team Worker Service Binding contract
 

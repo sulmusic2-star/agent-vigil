@@ -844,6 +844,19 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
     return jsonResponse({ received: true, duplicate: true });
   }
 
+  if (eventType === "checkout.session.completed" && organization.status !== "active") {
+    await env.TEAM_CONTROL_DB.prepare(
+      `UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1 AND status = 'ignored'`
+    )
+      .bind(eventId)
+      .run();
+    throw new ApiError(
+      409,
+      "checkout_completion_frozen_for_deletion",
+      "Checkout completion cannot bind commercial state while organization deletion is pending."
+    );
+  }
+
   const account = await billingAccount(env.TEAM_CONTROL_DB, summary.orgId);
   if (
     account?.last_reconciled_event_created !== null &&
@@ -915,15 +928,20 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
              execution_lease_id = NULL, execution_lease_expires_at = NULL
             WHERE id = ?2 AND org_id = ?3
               AND status IN ('prepared', 'executing', 'provider_created', 'compensating')
-              AND EXISTS (SELECT 1 FROM organizations WHERE id = ?3 AND status <> 'deleted')`
+              AND EXISTS (SELECT 1 FROM organizations WHERE id = ?3 AND status = 'active')`
         ).bind(summary.objectId, summary.checkoutIntentId, summary.orgId),
       env.TEAM_CONTROL_DB.prepare(
         `UPDATE billing_commands SET status = 'confirmed', execution_lease_id = NULL,
              execution_lease_expires_at = NULL
           WHERE org_id = ?1 AND command_type = 'create_checkout_session'
             AND status IN ('prepared', 'executing', 'provider_accepted', 'compensating')
-            AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?2`
-      ).bind(summary.orgId, summary.checkoutIntentId),
+            AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?2
+            AND EXISTS (
+              SELECT 1 FROM checkout_intents
+               WHERE id = ?2 AND org_id = ?1 AND status = 'completed' AND provider_session_id = ?3
+            )
+            AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'active')`
+      ).bind(summary.orgId, summary.checkoutIntentId, summary.objectId),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO billing_accounts
           (org_id, provider_customer_id, provider_subscription_id, commercial_state, internal_price_id,
@@ -934,7 +952,11 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
              WHERE org_id = ?1 AND command_type = 'create_checkout_session' AND status = 'confirmed'
                AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?7
           )
-            AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status <> 'deleted')
+            AND EXISTS (
+              SELECT 1 FROM checkout_intents
+               WHERE id = ?7 AND org_id = ?1 AND status = 'completed' AND provider_session_id = ?8
+            )
+            AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'active')
          ON CONFLICT(org_id) DO UPDATE SET
            provider_customer_id = excluded.provider_customer_id,
            provider_subscription_id = excluded.provider_subscription_id,
@@ -949,34 +971,70 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
         summary.internalPriceId,
         TEAM_PRICES[summary.internalPriceId].interval,
         at,
-        summary.checkoutIntentId
+        summary.checkoutIntentId,
+        summary.objectId
       ),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO commercial_transitions
           (id, org_id, from_state, to_state, source, source_ref, occurred_at)
-         VALUES (?1, ?2, ?3, 'payment_pending', 'stripe_webhook', ?4, ?5)`
-      ).bind(newId("transition"), summary.orgId, previousState, eventId, at),
-      lifecycleStatement(env.TEAM_CONTROL_DB, {
-        orgId: summary.orgId,
-        eventName: "team_offer_shown_v1",
-        sourceRef: summary.checkoutIntentId,
-        at
-      }),
-      lifecycleStatement(env.TEAM_CONTROL_DB, {
-        orgId: summary.orgId,
-        eventName: "checkout_started_v1",
-        sourceRef: summary.objectId,
-        at
-      }),
-      auditStatement(env.TEAM_CONTROL_DB, {
-        orgId: summary.orgId,
-        actorType: "stripe",
-        actorId: "stripe",
-        action: "billing.checkout.confirmed",
-        resourceType: "provider_event",
-        resourceId: eventId,
-        at
-      })
+         SELECT ?1, ?2, ?3, 'payment_pending', 'stripe_webhook', ?4, ?5
+          WHERE EXISTS (
+            SELECT 1 FROM billing_accounts
+             WHERE org_id = ?2 AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+               AND commercial_state = 'payment_pending'
+          )
+            AND EXISTS (SELECT 1 FROM organizations WHERE id = ?2 AND status = 'active')`
+      ).bind(newId("transition"), summary.orgId, previousState, eventId, at, summary.customerId, summary.subscriptionId),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT OR IGNORE INTO lifecycle_events
+          (event_id, org_id, event_name, source_ref, event_day, created_at)
+         SELECT ?1, ?2, 'team_offer_shown_v1', ?3, ?4, ?5
+          WHERE EXISTS (
+            SELECT 1 FROM billing_accounts
+             WHERE org_id = ?2 AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+               AND commercial_state = 'payment_pending'
+          )
+            AND EXISTS (SELECT 1 FROM organizations WHERE id = ?2 AND status = 'active')`
+      ).bind(
+        newId("life"),
+        summary.orgId,
+        summary.checkoutIntentId,
+        at.slice(0, 10),
+        at,
+        summary.customerId,
+        summary.subscriptionId
+      ),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT OR IGNORE INTO lifecycle_events
+          (event_id, org_id, event_name, source_ref, event_day, created_at)
+         SELECT ?1, ?2, 'checkout_started_v1', ?3, ?4, ?5
+          WHERE EXISTS (
+            SELECT 1 FROM billing_accounts
+             WHERE org_id = ?2 AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+               AND commercial_state = 'payment_pending'
+          )
+            AND EXISTS (SELECT 1 FROM organizations WHERE id = ?2 AND status = 'active')`
+      ).bind(
+        newId("life"),
+        summary.orgId,
+        summary.objectId,
+        at.slice(0, 10),
+        at,
+        summary.customerId,
+        summary.subscriptionId
+      ),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO audit_events
+          (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+         SELECT ?1, ?2, 'stripe', 'stripe', 'billing.checkout.confirmed',
+                'provider_event', ?3, '{}', ?4
+          WHERE EXISTS (
+            SELECT 1 FROM billing_accounts
+             WHERE org_id = ?2 AND provider_customer_id = ?5 AND provider_subscription_id = ?6
+               AND commercial_state = 'payment_pending'
+          )
+            AND EXISTS (SELECT 1 FROM organizations WHERE id = ?2 AND status = 'active')`
+      ).bind(newId("audit"), summary.orgId, eventId, at, summary.customerId, summary.subscriptionId)
       ]);
     } catch (error) {
       const current = await env.TEAM_CONTROL_DB.prepare(
@@ -987,13 +1045,26 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
       if (!current || current.status === "deleted") {
         throw new ApiError(410, "organization_deleted", "Provider events cannot mutate a deleted organization.");
       }
+      if (current.status === "deletion_pending") {
+        await env.TEAM_CONTROL_DB.prepare(
+          `UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1 AND status = 'ignored'`
+        )
+          .bind(eventId)
+          .run();
+        throw new ApiError(
+          409,
+          "checkout_completion_frozen_for_deletion",
+          "Checkout completion cannot bind commercial state while organization deletion is pending."
+        );
+      }
       throw error;
     }
-    if (
-      (completionResults[0]?.meta.changes ?? 0) !== 1 ||
-      (completionResults[1]?.meta.changes ?? 0) !== 1 ||
-      (completionResults[2]?.meta.changes ?? 0) !== 1
-    ) {
+    if (completionResults.some((result) => (result.meta.changes ?? 0) !== 1)) {
+      await env.TEAM_CONTROL_DB.prepare(
+        `UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1 AND status = 'ignored'`
+      )
+        .bind(eventId)
+        .run();
       throw new ApiError(409, "checkout_completion_conflict", "Checkout completion lost its atomic billing binding.");
     }
   } else {

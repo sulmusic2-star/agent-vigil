@@ -145,9 +145,9 @@ CREATE TRIGGER checkout_completion_deleted_org_guard
 BEFORE UPDATE OF status ON checkout_intents
 FOR EACH ROW
 WHEN NEW.status = 'completed'
- AND EXISTS (SELECT 1 FROM organizations WHERE id = NEW.org_id AND status = 'deleted')
+ AND NOT EXISTS (SELECT 1 FROM organizations WHERE id = NEW.org_id AND status = 'active')
 BEGIN
-  SELECT RAISE(ABORT, 'checkout completion targets deleted organization');
+  SELECT RAISE(ABORT, 'checkout completion targets non-active organization');
 END;
 
 CREATE TRIGGER billing_account_deleted_org_insert_guard

@@ -451,6 +451,101 @@ describe.sequential("Team control plane", () => {
     expect(state?.actor).not.toContain("user_owner");
   });
 
+  it("refuses checkout completion during deletion freeze and preserves the compensation block", async () => {
+    const owner = await session();
+    const prepared = await api("/v1/orgs/org_main/billing/checkout", {
+      method: "POST",
+      token: owner,
+      headers: { "Idempotency-Key": "checkout_completion_deletion_race" },
+      body: { internal_price_id: "team_monthly_usd_v1" }
+    });
+    expect(prepared.status).toBe(202);
+    const preparedBody = await prepared.json<{ command_id: string; checkout_intent_id: string }>();
+    const commandRow = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT command_json FROM billing_commands WHERE id = ?1`
+    )
+      .bind(preparedBody.command_id)
+      .first<{ command_json: string }>();
+    await env.TEAM_CONTROL_DB.batch([
+      env.TEAM_CONTROL_DB.prepare(
+        `UPDATE checkout_intents SET status = 'provider_created', provider_session_id = 'cs_frozen'
+          WHERE id = ?1 AND status = 'prepared'`
+      ).bind(preparedBody.checkout_intent_id),
+      env.TEAM_CONTROL_DB.prepare(
+        `UPDATE billing_commands SET status = 'provider_accepted', command_json = ?1
+          WHERE id = ?2 AND status = 'prepared'`
+      ).bind(
+        JSON.stringify({ ...JSON.parse(commandRow!.command_json), provider_result: { session_id: "cs_frozen" } }),
+        preparedBody.command_id
+      )
+    ]);
+
+    const deletion = await api("/v1/orgs/org_main/privacy/deletion-requests", {
+      method: "POST",
+      token: owner
+    });
+    expect(deletion.status).toBe(202);
+    const deletionBody = await deletion.json<{ confirmation: string }>();
+    await expect(
+      env.TEAM_CONTROL_DB.prepare(
+        `UPDATE checkout_intents SET status = 'completed' WHERE id = ?1 AND status = 'compensating'`
+      )
+        .bind(preparedBody.checkout_intent_id)
+        .run()
+    ).rejects.toThrow(/checkout completion targets non-active organization/u);
+    const completion = await stripeWebhook({
+      id: "evt_checkout_completed_during_deletion",
+      type: "checkout.session.completed",
+      created: Math.floor(Date.now() / 1000),
+      object: {
+        id: "cs_frozen",
+        mode: "subscription",
+        customer: "cus_frozen",
+        subscription: "sub_frozen",
+        metadata: metadata("org_main", preparedBody.checkout_intent_id)
+      }
+    });
+    expect(completion.status).toBe(409);
+    expect(await completion.json()).toMatchObject({ error: { code: "checkout_completion_frozen_for_deletion" } });
+
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+         (SELECT status FROM organizations WHERE id = 'org_main') AS org_status,
+         (SELECT status FROM checkout_intents WHERE id = ?1) AS checkout_status,
+         (SELECT status FROM billing_commands WHERE id = ?2) AS command_status,
+         (SELECT status FROM provider_events WHERE event_id = 'evt_checkout_completed_during_deletion') AS event_status,
+         (SELECT COUNT(*) FROM billing_accounts
+           WHERE org_id = 'org_main' AND provider_subscription_id IS NOT NULL) AS provider_bindings,
+         (SELECT COUNT(*) FROM commercial_transitions
+           WHERE org_id = 'org_main' AND source_ref = 'evt_checkout_completed_during_deletion') AS transitions,
+         (SELECT COUNT(*) FROM lifecycle_events
+           WHERE org_id = 'org_main' AND source_ref IN (?1, 'cs_frozen')) AS lifecycle,
+         (SELECT COUNT(*) FROM audit_events
+           WHERE org_id = 'org_main' AND action = 'billing.checkout.confirmed'
+             AND resource_id = 'evt_checkout_completed_during_deletion') AS confirmation_audits`
+    )
+      .bind(preparedBody.checkout_intent_id, preparedBody.command_id)
+      .first<Record<string, unknown>>();
+    expect(state).toEqual({
+      org_status: "deletion_pending",
+      checkout_status: "compensating",
+      command_status: "compensating",
+      event_status: "rejected",
+      provider_bindings: 0,
+      transitions: 0,
+      lifecycle: 0,
+      confirmation_audits: 0
+    });
+
+    const confirmed = await api("/v1/orgs/org_main/privacy/data", {
+      method: "DELETE",
+      token: owner,
+      headers: { "X-Deletion-Confirmation": deletionBody.confirmation }
+    });
+    expect(confirmed.status).toBe(409);
+    expect(await confirmed.json()).toMatchObject({ error: { code: "provider_cleanup_incomplete" } });
+  });
+
   it("atomically issues only one deletion confirmation under concurrent owner requests", async () => {
     const owner = await session();
     const responses = await Promise.all([
