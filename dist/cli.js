@@ -1224,7 +1224,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash2 } from "node:crypto";
-var VERSION = "0.16.0";
+var VERSION = "0.17.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -2980,7 +2980,7 @@ function authorityContractTemplate() {
 }
 
 // src/setup.ts
-var PUBLISHED_ACTION_VERSION = "0.16.0";
+var PUBLISHED_ACTION_VERSION = "0.17.0";
 function workflow(mode, setupCommand, attest = false) {
   return `name: Agent Vigil
 
