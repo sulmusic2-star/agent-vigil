@@ -723,6 +723,9 @@ async function handleFirst100AccessGrant(request: Request, env: Env, acquisition
     if (errorHasMarker(error, "ADAPTER_NOT_ACTIVE")) {
       throw new HttpError(409, "FIRST_100_ADAPTER_NOT_ACTIVE", "The acquisition adapter is no longer active");
     }
+    if (errorHasMarker(error, "ACCESS_GRANT_REPLAY_EXPIRED")) {
+      throw new HttpError(409, "FIRST_100_ACCESS_GRANT_EXPIRED", "The historical artifact access grant cannot authorize a new acquisition");
+    }
     throw new HttpError(422, "FIRST_100_ACCESS_GRANT_INVALID", "Artifact access cannot be granted for this acquisition");
   }
   return jsonResponse({
@@ -731,7 +734,7 @@ async function handleFirst100AccessGrant(request: Request, env: Env, acquisition
     acquisitionHandle,
     ingestionSequence: result.ingestionSequence,
     grantedAt: result.grantedAt,
-    artifactAccess: "ADAPTER_MAY_ACQUIRE_AFTER_GRANT",
+    artifactAccess: result.artifactAccess,
   }, result.created ? 201 : 200, { "Cache-Control": "no-store" });
 }
 

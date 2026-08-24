@@ -718,7 +718,8 @@ export async function registerFirst100Pair(
       throw new Error("first-100 sample is closed");
     }
     let fallbackAdapter = trustedAdapter;
-    if (message.includes("frequency_pairs.adapter_event_id") && trustedAdapter !== null) {
+    if ((message.includes("frequency_pairs.adapter_event_id") && trustedAdapter !== null)
+      || message.includes("FIRST_100_TRUSTED_ADAPTER_REQUIRED")) {
       reason = "MALFORMED_PREINSPECTION_RECORD";
       fallbackAdapter = null;
     } else {
@@ -730,16 +731,47 @@ export async function registerFirst100Pair(
     try {
       sequence = await insert("EXCLUDED", reason, null, fallbackAdapter);
     } catch (fallbackError) {
+      const fallbackReplay = await db.prepare(
+        "SELECT ingestion_sequence, publisher_key_id, received_body_sha256, acquisition_handle FROM frequency_pairs WHERE request_id = ?",
+      ).bind(config.requestId).first<{
+        ingestion_sequence: number;
+        publisher_key_id: string;
+        received_body_sha256: string;
+        acquisition_handle: string;
+      }>();
+      if (fallbackReplay) {
+        if (fallbackReplay.publisher_key_id !== config.publisherKeyId || fallbackReplay.received_body_sha256 !== bodySha256) {
+          throw new Error("first-100 request ID conflicts with different signed content");
+        }
+        const existing = await getFirst100Entry(db, fallbackReplay.ingestion_sequence);
+        if (!existing) throw new Error("first-100 replay record is unavailable");
+        return {
+          schemaVersion: "agent-vigil-first-100-acquisition-receipt/v1",
+          acquisitionHandle: fallbackReplay.acquisition_handle,
+          artifactAccess: existing.eligibility.decision === "INCLUDED" ? "REQUIRES_TRUSTED_ADAPTER_GRANT" : "GATE_INELIGIBLE",
+          entry: existing,
+        };
+      }
       const fallbackQuota = quotaMarker(fallbackError);
-      if (!fallbackQuota) throw fallbackError;
-      const scopeId = fallbackQuota.scopeType === "GLOBAL" ? FIRST_100_REGISTRATION_ID
-        : fallbackQuota.scopeType === "CHANNEL" ? proposal.acquisition.channel
-        : config.publisherKeyId;
-      await recordFirst100Stop(db, {
-        ...fallbackQuota, scopeId, publisherKeyId: config.publisherKeyId, channel: proposal.acquisition.channel,
-        requestId: config.requestId, requestBodySha256: bodySha256, observedAt: config.receivedAt,
-      });
-      throw new Error(`first-100 ${fallbackQuota.reason.toLowerCase().replaceAll("_", " ")} reached`);
+      if (fallbackQuota) {
+        const scopeId = fallbackQuota.scopeType === "GLOBAL" ? FIRST_100_REGISTRATION_ID
+          : fallbackQuota.scopeType === "CHANNEL" ? proposal.acquisition.channel
+          : config.publisherKeyId;
+        await recordFirst100Stop(db, {
+          ...fallbackQuota, scopeId, publisherKeyId: config.publisherKeyId, channel: proposal.acquisition.channel,
+          requestId: config.requestId, requestBodySha256: bodySha256, observedAt: config.receivedAt,
+        });
+        throw new Error(`first-100 ${fallbackQuota.reason.toLowerCase().replaceAll("_", " ")} reached`);
+      }
+      if (fallbackError instanceof Error && fallbackError.message.includes("FIRST_100_SAMPLE_CLOSED")) {
+        await recordFirst100Stop(db, {
+          scopeType: "SAMPLE", scopeId: FIRST_100_REGISTRATION_ID, reason: "INCLUDED_SAMPLE_CLOSED",
+          publisherKeyId: config.publisherKeyId, channel: proposal.acquisition.channel, requestId: config.requestId,
+          requestBodySha256: bodySha256, observedAt: config.receivedAt,
+        });
+        throw new Error("first-100 sample is closed");
+      }
+      throw fallbackError;
     }
   }
   const entry: First100Entry = {
@@ -856,7 +888,12 @@ export async function grantFirst100ArtifactAccess(
   db: D1Database,
   value: First100AccessGrantRequest,
   config: { publisherKeyId: string; operatorKeyId: string; grantedAt: string },
-): Promise<{ created: boolean; ingestionSequence: number; grantedAt: string }> {
+): Promise<{
+  created: boolean;
+  ingestionSequence: number;
+  grantedAt: string;
+  artifactAccess: "ADAPTER_MAY_ACQUIRE_AFTER_GRANT" | "HISTORICAL_GRANT_RECEIPT_ONLY";
+}> {
   if (value.adapterKeyId === config.publisherKeyId || value.adapterKeyId === config.operatorKeyId
     || config.publisherKeyId === config.operatorKeyId) throw new Error("FIRST_100_KEY_DUTY_CONFLICT");
   const requestSha256 = await sha256(canonical(value));
@@ -876,7 +913,21 @@ export async function grantFirst100ArtifactAccess(
       || existing.adapter_key_id !== value.adapterKeyId || existing.request_sha256 !== requestSha256) {
       throw new Error("first-100 access event ID conflicts with different content");
     }
-    return { created: false, ingestionSequence: existing.ingestion_sequence, grantedAt: existing.granted_at };
+    const adapter = await getFrequencyAdapter(db, value.adapterKeyId);
+    if (!adapter || adapter.status !== "ACTIVE") throw new Error("FIRST_100_ADAPTER_NOT_ACTIVE");
+    const replayedAt = Date.parse(config.grantedAt);
+    if (Date.parse(value.requestedAt) > replayedAt + 5 * 60_000
+      || Date.parse(value.requestedAt) < replayedAt - 5 * 60_000
+      || Date.parse(existing.granted_at) > replayedAt
+      || Date.parse(existing.granted_at) < replayedAt - 5 * 60_000) {
+      throw new Error("FIRST_100_ACCESS_GRANT_REPLAY_EXPIRED");
+    }
+    return {
+      created: false,
+      ingestionSequence: existing.ingestion_sequence,
+      grantedAt: existing.granted_at,
+      artifactAccess: "HISTORICAL_GRANT_RECEIPT_ONLY",
+    };
   }
   const pair = await db.prepare(
     `SELECT ingestion_sequence, publisher_key_id, adapter_key_id, received_at, eligibility_decision
@@ -909,7 +960,12 @@ export async function grantFirst100ArtifactAccess(
     value.eventId, value.acquisitionHandle, pair.ingestion_sequence, config.publisherKeyId,
     value.adapterKeyId, value.requestedAt, config.grantedAt, requestSha256,
   ).run();
-  return { created: true, ingestionSequence: pair.ingestion_sequence, grantedAt: config.grantedAt };
+  return {
+    created: true,
+    ingestionSequence: pair.ingestion_sequence,
+    grantedAt: config.grantedAt,
+    artifactAccess: "ADAPTER_MAY_ACQUIRE_AFTER_GRANT",
+  };
 }
 
 export async function storeFirst100Evaluation(

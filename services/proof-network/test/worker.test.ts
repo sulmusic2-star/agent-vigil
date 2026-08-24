@@ -8,6 +8,7 @@ import {
   first100AccessGrantMessage,
   first100AdapterAttestationMessage,
   registerFirst100Pair,
+  revokeFrequencyAdapter,
   type First100AccessGrantRequest,
   type First100Proposal,
 } from "../src/frequency";
@@ -143,6 +144,46 @@ async function adminPost(path: string, body: Record<string, unknown>): Promise<R
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
     body: JSON.stringify(body),
+  });
+}
+
+function interleaveBeforeFirstPairInsert(db: D1Database, action: () => Promise<void>): D1Database {
+  let pending = true;
+  const boundMember = (target: object, property: PropertyKey): unknown => {
+    const value = Reflect.get(target, property, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  };
+  const wrapBound = (statement: D1PreparedStatement): D1PreparedStatement => new Proxy(statement, {
+    get(target, property) {
+      if (property === "run") {
+        return async () => {
+          if (pending) {
+            pending = false;
+            await action();
+          }
+          return target.run();
+        };
+      }
+      return boundMember(target, property);
+    },
+  });
+  return new Proxy(db, {
+    get(target, property) {
+      if (property !== "prepare") return boundMember(target, property);
+      return (query: string) => {
+        const statement = target.prepare(query);
+        if (!/^\s*INSERT INTO frequency_pairs\b/.test(query)) return statement;
+        return new Proxy(statement, {
+          get(statementTarget, statementProperty) {
+            if (statementProperty === "bind") {
+              return (...values: unknown[]) => wrapBound(statementTarget.bind(...values));
+            }
+            if (statementProperty === "run") return wrapBound(statementTarget).run;
+            return boundMember(statementTarget, statementProperty);
+          },
+        });
+      };
+    },
   });
 }
 
@@ -726,6 +767,17 @@ describe("proof-network Worker", () => {
       artifactAccess: "GATE_INELIGIBLE",
       entry: { eligibility: { decision: "EXCLUDED", reason: "MALFORMED_PREINSPECTION_RECORD" } },
     });
+    expect(await env.PROOF_DB.prepare(
+      `SELECT eligibility_decision, eligibility_reason, adapter_event_id
+         FROM frequency_pairs WHERE raw_event_sha256 = ?`,
+    ).bind(replayedAdapterEvent.acquisition.rawEventSha256).first()).toEqual({
+      eligibility_decision: "EXCLUDED",
+      eligibility_reason: "MALFORMED_PREINSPECTION_RECORD",
+      adapter_event_id: null,
+    });
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs WHERE raw_event_sha256 = ?",
+    ).bind(replayedAdapterEvent.acquisition.rawEventSha256).first<{ count: number }>())?.count)).toBe(1);
 
     const duplicateProposal = await acquisitionProposal(signer, frequencyAdapter, 3, {
       ...proposal.acquisition,
@@ -824,6 +876,126 @@ describe("proof-network Worker", () => {
     );
     expect(revokedProvenance).toContain('"reason":"PUBLISHER_REVOKED"');
     expect(revokedProvenance).toContain('"gateEligible":false');
+  });
+
+  it("persists an adapter-revocation interleaving as exactly one malformed chronological exclusion", async () => {
+    const proposal = await acquisitionProposal(signer, frequencyAdapter, 24);
+    const requestId = crypto.randomUUID();
+    const receivedAt = new Date().toISOString();
+    const interleaved = interleaveBeforeFirstPairInsert(env.PROOF_DB, async () => {
+      await revokeFrequencyAdapter(env.PROOF_DB, {
+        eventId: crypto.randomUUID(),
+        keyId: frequencyAdapter.keyId,
+        reasonClass: "TEST_INTERLEAVING",
+        occurredAt: new Date().toISOString(),
+      });
+    });
+    const receipt = await registerFirst100Pair(interleaved, proposal, {
+      r0ReleasedAt: "2026-08-23T00:00:00.000Z",
+      releasedChannels: "apm",
+      receivedAt,
+      publisherKeyId: signer.keyId,
+      requestId,
+      operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+    });
+    expect(receipt).toMatchObject({
+      artifactAccess: "GATE_INELIGIBLE",
+      entry: { eligibility: { decision: "EXCLUDED", reason: "MALFORMED_PREINSPECTION_RECORD" } },
+    });
+    const row = await env.PROOF_DB.prepare(
+      `SELECT request_id, acquisition_handle, received_body_sha256, raw_event_sha256,
+              eligibility_decision, eligibility_reason, adapter_key_id, adapter_event_id
+         FROM frequency_pairs WHERE request_id = ?`,
+    ).bind(requestId).first<{
+      request_id: string;
+      acquisition_handle: string;
+      received_body_sha256: string;
+      raw_event_sha256: string;
+      eligibility_decision: string;
+      eligibility_reason: string;
+      adapter_key_id: string | null;
+      adapter_event_id: string | null;
+    }>();
+    expect(row).toEqual({
+      request_id: requestId,
+      acquisition_handle: receipt.acquisitionHandle,
+      received_body_sha256: await sha256(canonical(proposal)),
+      raw_event_sha256: proposal.acquisition.rawEventSha256,
+      eligibility_decision: "EXCLUDED",
+      eligibility_reason: "MALFORMED_PREINSPECTION_RECORD",
+      adapter_key_id: null,
+      adapter_event_id: null,
+    });
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs",
+    ).first<{ count: number }>())?.count)).toBe(1);
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs WHERE eligibility_decision = 'INCLUDED'",
+    ).first<{ count: number }>())?.count)).toBe(0);
+
+    const replay = await registerFirst100Pair(env.PROOF_DB, proposal, {
+      r0ReleasedAt: "2026-08-23T00:00:00.000Z",
+      releasedChannels: "apm",
+      receivedAt: new Date().toISOString(),
+      publisherKeyId: signer.keyId,
+      requestId,
+      operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+    });
+    expect(replay.acquisitionHandle).toBe(receipt.acquisitionHandle);
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs",
+    ).first<{ count: number }>())?.count)).toBe(1);
+  });
+
+  it("never renews an idempotent access grant after replay, expiry, or adapter revocation", async () => {
+    const path = "/v1/frequency/first-100/acquisitions";
+    const proposal = await acquisitionProposal(signer, frequencyAdapter, 25);
+    const body = JSON.stringify(proposal);
+    const acquisitionResponse = await workerFetch(path, {
+      method: "POST", headers: await publisherRequestHeaders(signer, path, body), body,
+    });
+    const acquisition = await acquisitionResponse.json<{ acquisitionHandle: string }>();
+    const grantPath = `/v1/frequency/first-100/acquisitions/${acquisition.acquisitionHandle}/grant`;
+    const grant = await adapterAccessRequest(signer, frequencyAdapter, acquisition.acquisitionHandle);
+    const grantBody = JSON.stringify(grant);
+    const first = await workerFetch(grantPath, {
+      method: "POST", headers: await publisherRequestHeaders(signer, grantPath, grantBody), body: grantBody,
+    });
+    expect(first.status).toBe(201);
+    expect(await first.json()).toMatchObject({ created: true, artifactAccess: "ADAPTER_MAY_ACQUIRE_AFTER_GRANT" });
+
+    const freshReplay = await workerFetch(grantPath, {
+      method: "POST", headers: await publisherRequestHeaders(signer, grantPath, grantBody), body: grantBody,
+    });
+    expect(freshReplay.status).toBe(200);
+    expect(await freshReplay.json()).toMatchObject({
+      created: false,
+      artifactAccess: "HISTORICAL_GRANT_RECEIPT_ONLY",
+    });
+
+    await env.PROOF_DB.prepare(
+      "UPDATE frequency_artifact_access_grants SET granted_at = ? WHERE event_id = ?",
+    ).bind(new Date(Date.now() - 5 * 60_000 - 1).toISOString(), grant.eventId).run();
+    const expiredReplay = await workerFetch(grantPath, {
+      method: "POST", headers: await publisherRequestHeaders(signer, grantPath, grantBody), body: grantBody,
+    });
+    expect(expiredReplay.status).toBe(409);
+    expect((await expiredReplay.json<{ error: { code: string } }>()).error.code).toBe("FIRST_100_ACCESS_GRANT_EXPIRED");
+
+    expect((await adminPost("/v1/admin/frequency/adapters/status", {
+      eventId: crypto.randomUUID(),
+      keyId: frequencyAdapter.keyId,
+      status: "REVOKED",
+      reasonClass: "COMPROMISED",
+    })).status).toBe(200);
+    const revokedReplay = await workerFetch(grantPath, {
+      method: "POST", headers: await publisherRequestHeaders(signer, grantPath, grantBody), body: grantBody,
+    });
+    expect(revokedReplay.status).toBe(409);
+    expect((await revokedReplay.json<{ error: { code: string } }>()).error.code).toBe("FIRST_100_ADAPTER_NOT_ACTIVE");
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_artifact_access_grants",
+    ).first<{ count: number }>())?.count)).toBe(1);
   });
 
   it("enforces publisher, adapter, and operator signing duties pairwise", async () => {
@@ -925,6 +1097,27 @@ describe("proof-network Worker", () => {
     expect(Number((await env.PROOF_DB.prepare("SELECT COUNT(*) AS count FROM frequency_pairs").first<{ count: number }>())?.count)).toBe(400);
     expect(await env.PROOF_DB.prepare("SELECT scope_type, reason FROM frequency_stop_events").first())
       .toMatchObject({ scope_type: "PUBLISHER", reason: "PUBLISHER_ROW_CAP" });
+
+    const cappedProposal = await acquisitionProposal(signer, frequencyAdapter, 8_999);
+    const cappedDb = interleaveBeforeFirstPairInsert(env.PROOF_DB, async () => {
+      await revokeFrequencyAdapter(env.PROOF_DB, {
+        eventId: crypto.randomUUID(),
+        keyId: frequencyAdapter.keyId,
+        reasonClass: "TEST_CAP_INTERLEAVING",
+        occurredAt: new Date().toISOString(),
+      });
+    });
+    await expect(registerFirst100Pair(cappedDb, cappedProposal, {
+      r0ReleasedAt: "2026-08-23T00:00:00.000Z",
+      releasedChannels: "apm",
+      receivedAt: new Date().toISOString(),
+      publisherKeyId: signer.keyId,
+      requestId: crypto.randomUUID(),
+      operatorKeyId: env.FREQUENCY_OPERATOR_KEY_ID,
+    })).rejects.toThrow(/publisher row cap reached/);
+    expect(Number((await env.PROOF_DB.prepare(
+      "SELECT COUNT(*) AS count FROM frequency_pairs",
+    ).first<{ count: number }>())?.count)).toBe(400);
 
     // Reset only the bounded frequency lane, retaining registered principals.
     await env.PROOF_DB.batch([
