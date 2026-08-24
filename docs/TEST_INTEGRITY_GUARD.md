@@ -9,14 +9,30 @@ vigil test-integrity --base <base-sha> --head <head-sha>
 The default calibrated mode blocks direct weakening:
 
 - focused or skipped tests added
-- verification bypasses such as `--no-verify`, `passWithNoTests`, or `|| true`
-- coverage thresholds set to zero
+- verification bypasses such as `--no-verify`, `passWithNoTests`, `|| true`,
+  `continue-on-error: true`, or a disabled workflow step
+- coverage thresholds set to zero or lowered from the base revision
 - recognized test definitions removed without replacement
 - empty test bodies
 - constant or self-equal assertions
+- assertions placed under a constant-false branch or caught and discarded by
+  the test itself
+- pytest collection hooks or options that newly remove tests
+- bidirectional or tag Unicode controls added to source or
+  repository instructions
 
 It records lower-confidence findings as advisories:
 
+- a distinctive literal directly returned by changed source and asserted by an
+  unchanged test, when that literal did not exist in base source; the receipt
+  stores a hash rather than the value and does not claim copying
+- a newly imported or declared package name one edit away from a common package; this is an offline
+  spelling warning, not a malware or registry-ownership finding
+- a transcript command that reads a commit outside the selected base-to-head history;
+  this records retrieval without claiming copying or causation
+- zero-width, direction-mark, or variation-selector characters in source or
+  repository instructions
+- mixed Latin, Cyrillic, or Greek characters in one changed identifier-like token
 - browser tests that alter page runtime state before judging behavior
 - new coverage-exclusion markers
 - exact assertions replaced with looser predicates
@@ -26,6 +42,15 @@ It records lower-confidence findings as advisories:
 - swallowed error paths
 
 Use `--strict` only after calibrating every enabled rule on the repository. It makes every static finding blocking.
+
+## What was deliberately left out
+
+The check does not execute candidate source merely to compare behavior. It
+does not contact a public package registry during the default gate. Those two
+prototype ideas can hang, leak data, run hostile code, or misread private
+registry setups. Agent Vigil keeps the default scan offline and limited to the
+selected Git change. The existing no-op and suppression checks already cover
+the useful part of the proposed Python-only Null Compile check.
 
 ## What PASS means
 
