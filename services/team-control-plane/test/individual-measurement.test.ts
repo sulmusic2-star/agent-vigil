@@ -22,6 +22,8 @@ const RECEIPT_SHA256 = "a".repeat(64);
 
 async function clearDatabase(): Promise<void> {
   await env.TEAM_CONTROL_DB.exec(`
+    DELETE FROM workflow_integrity_receipts;
+    DELETE FROM github_installation_release_reconciliations;
     DELETE FROM individual_measurement_events;
     DELETE FROM individual_subject_attestations;
     DELETE FROM individual_auth_subject_rotations;
@@ -48,6 +50,7 @@ async function clearDatabase(): Promise<void> {
     DELETE FROM github_installation_repositories;
     DELETE FROM github_installations;
     DELETE FROM github_installation_claims;
+    DELETE FROM github_installation_lifecycle_heads;
     DELETE FROM privacy_deletion_requests;
     DELETE FROM audit_events;
     DELETE FROM organization_members;
@@ -197,27 +200,48 @@ function activation(overrides: Record<string, unknown> = {}): Record<string, unk
 async function sendPersonalWebhook(
   deliveryId: string,
   accountType: "User" | "Organization" = "User",
-  eventTime = new Date().toISOString()
+  eventTime = new Date().toISOString(),
+  installationId = INSTALLATION_ID,
+  action: "created" | "deleted" | "suspend" | "unsuspend" | "added" | "removed" = "created",
+  accountNodeId = ACCOUNT_NODE_ID
 ): Promise<Response> {
+  const eventName = action === "added" || action === "removed" ? "installation_repositories" : "installation";
   const raw = JSON.stringify({
-    action: "created",
+    action,
     installation: {
-      id: INSTALLATION_ID,
+      id: installationId,
       app_id: APP_ID,
-      account: { node_id: ACCOUNT_NODE_ID, type: accountType, login: "must-never-be-stored" },
+      account: { node_id: accountNodeId, type: accountType, login: "must-never-be-stored" },
       repository_selection: "selected",
       created_at: eventTime,
       updated_at: eventTime
     },
-    repositories: [
-      { node_id: REPOSITORY_NODE_ID, name: "must-never-be-stored", full_name: "private/must-never-be-stored" }
-    ]
+    ...(action === "created"
+      ? {
+          repositories: [
+            { node_id: REPOSITORY_NODE_ID, name: "must-never-be-stored", full_name: "private/must-never-be-stored" }
+          ]
+        }
+      : {}),
+    ...(eventName === "installation_repositories"
+      ? {
+          repository_selection: "selected",
+          repositories_added:
+            action === "added"
+              ? [{ node_id: REPOSITORY_NODE_ID, name: "must-never-be-stored", full_name: "private/must-never-be-stored" }]
+              : [],
+          repositories_removed:
+            action === "removed"
+              ? [{ node_id: REPOSITORY_NODE_ID, name: "must-never-be-stored", full_name: "private/must-never-be-stored" }]
+              : []
+        }
+      : {})
   });
   return exports.default.fetch(`${ORIGIN}/v1/github/app/webhook`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-GitHub-Event": "installation",
+      "X-GitHub-Event": eventName,
       "X-GitHub-Delivery": deliveryId,
       "X-Hub-Signature-256": `sha256=${await hmacHex(GITHUB_WEBHOOK_SECRET, raw)}`
     },
@@ -225,7 +249,7 @@ async function sendPersonalWebhook(
   });
 }
 
-async function reconcilePersonal(deliveryId: string): Promise<Response> {
+async function reconcilePersonal(deliveryId: string, providerStatus: "active" | "not_found" = "active"): Promise<Response> {
   const body = {
     schema_version: "github-installation-reconciliation-v1",
     reconciliation_id: `personal_recon_${crypto.randomUUID()}`,
@@ -235,9 +259,9 @@ async function reconcilePersonal(deliveryId: string): Promise<Response> {
     installation_id: INSTALLATION_ID,
     account_node_id: ACCOUNT_NODE_ID,
     account_type: "User",
-    provider_status: "active",
+    provider_status: providerStatus,
     repository_selection: "selected",
-    repository_node_ids: [REPOSITORY_NODE_ID]
+    repository_node_ids: providerStatus === "active" ? [REPOSITORY_NODE_ID] : []
   };
   const raw = JSON.stringify(body);
   const timestamp = Math.floor(Date.now() / 1000);
@@ -272,7 +296,14 @@ async function initializeEligibleIndividual(token: string): Promise<void> {
   });
   expect(unprovedClaim.status).toBe(409);
   expect(await unprovedClaim.json()).toMatchObject({ error: { code: "github_provider_proof_required" } });
-  const wrongType = await sendPersonalWebhook(crypto.randomUUID(), "Organization");
+  const wrongType = await sendPersonalWebhook(
+    crypto.randomUUID(),
+    "Organization",
+    new Date().toISOString(),
+    INSTALLATION_ID + 1,
+    "created",
+    "ORG_NODE_WRONG_ACCOUNT_TYPE_123"
+  );
   expect(wrongType.status).toBe(409);
   expect(await wrongType.json()).toMatchObject({ error: { code: "github_installation_claim_required" } });
   const deliveryId = crypto.randomUUID();
@@ -390,6 +421,284 @@ async function seedMergedCanonicalCohort(
 
 describe("R0 individual measurement lane", () => {
   beforeEach(clearDatabase);
+
+  it("requires a later personal creation after suspension and provider-not-found release", async () => {
+    const claim = (token: string, deliveryId: string): Promise<Response> =>
+      individualApi("/v1/individual/github/installation-claim", token, {
+        method: "POST",
+        body: {
+          schema_version: "github-personal-installation-claim-v1",
+          installation_id: INSTALLATION_ID,
+          provider_delivery_id: deliveryId
+        }
+      });
+    const baseTime = Date.now() - 10_000;
+    const token1 = await individualSession({ sessionId: "personal_lifecycle_session_1" });
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", token1, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+        })
+      ).status
+    ).toBe(200);
+    const creation1 = crypto.randomUUID();
+    const creation1Time = new Date(baseTime).toISOString();
+    expect((await sendPersonalWebhook(creation1, "User", creation1Time)).status).toBe(409);
+    expect((await claim(token1, creation1)).status).toBe(201);
+
+    const suspension1 = crypto.randomUUID();
+    expect(
+      (
+        await sendPersonalWebhook(
+          suspension1,
+          "User",
+          new Date(baseTime + 1_000).toISOString(),
+          INSTALLATION_ID,
+          "suspend"
+        )
+      ).status
+    ).toBe(409);
+    const token2 = await individualSession({ sessionId: "personal_lifecycle_session_2" });
+    const oldClaimAfterSuspend = await claim(token2, creation1);
+    expect(oldClaimAfterSuspend.status).toBe(409);
+    expect(await oldClaimAfterSuspend.json()).toMatchObject({ error: { code: "github_provider_proof_required" } });
+    const oldReplayAfterSuspend = await sendPersonalWebhook(creation1, "User", creation1Time);
+    expect(oldReplayAfterSuspend.status).toBe(409);
+    expect(await oldReplayAfterSuspend.json()).toMatchObject({ error: { code: "stale_github_lifecycle" } });
+
+    const creation2 = crypto.randomUUID();
+    const creation2Time = new Date(baseTime + 2_000).toISOString();
+    expect((await sendPersonalWebhook(creation2, "User", creation2Time)).status).toBe(409);
+    expect((await claim(token2, creation2)).status).toBe(201);
+    expect((await sendPersonalWebhook(creation2, "User", creation2Time)).status).toBe(202);
+    const pendingUpdate2 = crypto.randomUUID();
+    expect(
+      (
+        await sendPersonalWebhook(
+          pendingUpdate2,
+          "User",
+          new Date(baseTime + 3_000).toISOString(),
+          INSTALLATION_ID,
+          "added"
+        )
+      ).status
+    ).toBe(202);
+    const released = await reconcilePersonal(pendingUpdate2, "not_found");
+    expect(released.status).toBe(200);
+    expect(await released.json()).toMatchObject({ reconciled: false, released: true, account_type: "User" });
+
+    const token3 = await individualSession({ sessionId: "personal_lifecycle_session_3" });
+    const oldClaimAfterRelease = await claim(token3, creation2);
+    expect(oldClaimAfterRelease.status).toBe(409);
+    expect(await oldClaimAfterRelease.json()).toMatchObject({ error: { code: "github_provider_proof_required" } });
+    const oldReplayAfterRelease = await sendPersonalWebhook(creation2, "User", creation2Time);
+    expect(oldReplayAfterRelease.status).toBe(200);
+    expect(await oldReplayAfterRelease.json()).toMatchObject({ duplicate: true, result: "rejected" });
+    const releasedState = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT p.delivery_id AS proof_delivery_id, p.invalidated_by_delivery_id,
+              h.latest_delivery_id, h.latest_action, h.terminal,
+              (SELECT COUNT(*) FROM github_personal_deliveries
+                WHERE installation_id = ?1 AND result = 'rejected') AS rejected_deliveries,
+              (SELECT COUNT(*) FROM github_personal_deliveries
+                WHERE installation_id = ?1 AND result = 'pending_reconciliation') AS pending_deliveries
+         FROM github_installation_provider_proofs p
+         JOIN github_installation_lifecycle_heads h ON h.installation_id = p.installation_id
+        WHERE p.installation_id = ?1 AND p.delivery_id = ?2`
+    )
+      .bind(INSTALLATION_ID, creation2)
+      .first<Record<string, unknown>>();
+    expect(releasedState).toEqual({
+      proof_delivery_id: creation2,
+      invalidated_by_delivery_id: pendingUpdate2,
+      latest_delivery_id: pendingUpdate2,
+      latest_action: "provider_not_found",
+      terminal: 1,
+      rejected_deliveries: 2,
+      pending_deliveries: 0
+    });
+    const exported = await individualApi("/v1/individual/privacy/export", token3);
+    expect(exported.status).toBe(200);
+    const exportBody = await exported.json<{
+      r0_measurement: {
+        github_provider_proofs: Array<{ delivery_id: string; invalidated_by_delivery_id: string }>;
+        github_lifecycle_heads: Array<{ latest_delivery_id: string; latest_action: string }>;
+        github_deliveries: Array<{ delivery_id: string; result: string }>;
+        github_release_reconciliations: Array<{ source_delivery_id: string }>;
+        github_integrity_receipts: Array<{ workflow_type: string }>;
+      };
+    }>();
+    expect(exportBody.r0_measurement.github_provider_proofs).toContainEqual(
+      expect.objectContaining({ delivery_id: creation2, invalidated_by_delivery_id: pendingUpdate2 })
+    );
+    expect(exportBody.r0_measurement.github_lifecycle_heads).toContainEqual(
+      expect.objectContaining({ latest_delivery_id: pendingUpdate2, latest_action: "provider_not_found" })
+    );
+    expect(exportBody.r0_measurement.github_deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ delivery_id: creation2, result: "rejected" }),
+        expect.objectContaining({ delivery_id: pendingUpdate2, result: "rejected" })
+      ])
+    );
+    expect(exportBody.r0_measurement.github_release_reconciliations).toContainEqual(
+      expect.objectContaining({ source_delivery_id: pendingUpdate2 })
+    );
+    expect(exportBody.r0_measurement.github_integrity_receipts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ workflow_type: "github_lifecycle_head_recorded" }),
+        expect.objectContaining({ workflow_type: "github_personal_not_found_release" })
+      ])
+    );
+
+    const creation3 = crypto.randomUUID();
+    const creation3Time = new Date(baseTime + 4_000).toISOString();
+    expect((await sendPersonalWebhook(creation3, "User", creation3Time)).status).toBe(409);
+    expect((await claim(token3, creation3)).status).toBe(201);
+    expect((await sendPersonalWebhook(creation3, "User", creation3Time)).status).toBe(202);
+    expect((await reconcilePersonal(creation3)).status).toBe(200);
+
+    const final = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT h.creation_delivery_id, h.latest_delivery_id, h.latest_action, h.terminal,
+              c.provider_proof_delivery_id, c.status AS claim_status, i.state AS installation_state,
+              (SELECT COUNT(*) FROM github_installation_provider_proofs
+                WHERE installation_id = ?1 AND invalidated_at IS NULL) AS live_proofs,
+              (SELECT COUNT(*) FROM github_installation_release_reconciliations
+                WHERE installation_id = ?1 AND result = 'released') AS releases
+         FROM github_installation_lifecycle_heads h
+         JOIN github_personal_installation_claims c ON c.installation_id = h.installation_id
+         JOIN github_personal_installations i ON i.installation_id = h.installation_id
+        WHERE h.installation_id = ?1`
+    )
+      .bind(INSTALLATION_ID)
+      .first<Record<string, unknown>>();
+    expect(final).toEqual({
+      creation_delivery_id: creation3,
+      latest_delivery_id: creation3,
+      latest_action: "created",
+      terminal: 0,
+      provider_proof_delivery_id: creation3,
+      claim_status: "bound",
+      installation_state: "active",
+      live_proofs: 1,
+      releases: 1
+    });
+  });
+
+  it("lets a same-second terminal personal delivery dominate creation and blocks same-second recreation", async () => {
+    const token = await individualSession({ sessionId: "personal_same_second_terminal" });
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", token, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+        })
+      ).status
+    ).toBe(200);
+    const claim = (deliveryId: string): Promise<Response> =>
+      individualApi("/v1/individual/github/installation-claim", token, {
+        method: "POST",
+        body: {
+          schema_version: "github-personal-installation-claim-v1",
+          installation_id: INSTALLATION_ID,
+          provider_delivery_id: deliveryId
+        }
+      });
+    const eventTime = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
+    const creation = crypto.randomUUID();
+    expect((await sendPersonalWebhook(creation, "User", eventTime)).status).toBe(409);
+    expect((await claim(creation)).status).toBe(201);
+    expect((await sendPersonalWebhook(creation, "User", eventTime)).status).toBe(202);
+
+    const deletion = crypto.randomUUID();
+    expect((await sendPersonalWebhook(deletion, "User", eventTime, INSTALLATION_ID, "deleted")).status).toBe(202);
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT h.latest_delivery_id, h.latest_action, h.terminal,
+              p.invalidated_by_delivery_id, i.state AS installation_state,
+              c.status AS claim_status
+         FROM github_installation_lifecycle_heads h
+         JOIN github_installation_provider_proofs p ON p.delivery_id = h.creation_delivery_id
+         JOIN github_personal_installations i ON i.installation_id = h.installation_id
+         JOIN github_personal_installation_claims c ON c.installation_id = h.installation_id
+        WHERE h.installation_id = ?1`
+    )
+      .bind(INSTALLATION_ID)
+      .first<Record<string, unknown>>();
+    expect(state).toEqual({
+      latest_delivery_id: deletion,
+      latest_action: "deleted",
+      terminal: 1,
+      invalidated_by_delivery_id: deletion,
+      installation_state: "deleted",
+      claim_status: "revoked"
+    });
+
+    const sameSecondRecreation = crypto.randomUUID();
+    const rejected = await sendPersonalWebhook(sameSecondRecreation, "User", eventTime);
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject({ error: { code: "stale_github_lifecycle" } });
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT latest_delivery_id, latest_action, terminal
+           FROM github_installation_lifecycle_heads WHERE installation_id = ?1`
+      )
+        .bind(INSTALLATION_ID)
+        .first()
+    ).toEqual({ latest_delivery_id: deletion, latest_action: "deleted", terminal: 1 });
+  });
+
+  it("erases released personal lifecycle, proof, release, delivery, and integrity rows on privacy deletion", async () => {
+    const token = await individualSession({ sessionId: "personal_release_privacy_delete" });
+    expect((await signedMeasurement("/v1/measurement/bridge", boundary())).status).toBe(201);
+    expect(
+      (
+        await individualApi("/v1/individual/measurement-consent", token, {
+          method: "PUT",
+          body: { schema_version: "r0-individual-measurement-consent-v1", opted_in: true }
+        })
+      ).status
+    ).toBe(200);
+    const creation = crypto.randomUUID();
+    const eventTime = new Date(Date.now() - 2_000).toISOString();
+    expect((await sendPersonalWebhook(creation, "User", eventTime)).status).toBe(409);
+    const claimed = await individualApi("/v1/individual/github/installation-claim", token, {
+      method: "POST",
+      body: {
+        schema_version: "github-personal-installation-claim-v1",
+        installation_id: INSTALLATION_ID,
+        provider_delivery_id: creation
+      }
+    });
+    expect(claimed.status).toBe(201);
+    expect((await sendPersonalWebhook(creation, "User", eventTime)).status).toBe(202);
+    expect((await reconcilePersonal(creation, "not_found")).status).toBe(200);
+
+    const requested = await individualApi("/v1/individual/privacy/deletion-requests", token, {
+      method: "POST",
+      body: { schema_version: "individual-deletion-request-v1" }
+    });
+    expect(requested.status).toBe(202);
+    const { confirmation } = await requested.json<{ confirmation: string }>();
+    const deleted = await individualApi("/v1/individual/privacy/data", token, {
+      method: "DELETE",
+      headers: { "X-Deletion-Confirmation": confirmation },
+      body: { schema_version: "individual-deletion-confirmation-v1" }
+    });
+    expect(deleted.status).toBe(200);
+    const residuals = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM github_installation_provider_proofs WHERE installation_id = ?1) AS proofs,
+         (SELECT COUNT(*) FROM github_installation_lifecycle_heads WHERE installation_id = ?1) AS heads,
+         (SELECT COUNT(*) FROM github_installation_release_reconciliations WHERE installation_id = ?1) AS releases,
+         (SELECT COUNT(*) FROM github_personal_deliveries WHERE installation_id = ?1) AS deliveries,
+         (SELECT COUNT(*) FROM workflow_integrity_receipts
+           WHERE workflow_type IN ('github_lifecycle_head_recorded', 'github_personal_not_found_release')) AS receipts`
+    )
+      .bind(INSTALLATION_ID)
+      .first<Record<string, unknown>>();
+    expect(residuals).toEqual({ proofs: 0, heads: 0, releases: 0, deliveries: 0, receipts: 0 });
+  });
 
   it("requires independent human session, account.type=User reconciliation, exact verifier proof, and daily dedupe", async () => {
     const wrongAudience = await individualSession({ audience: "another-control-plane" });

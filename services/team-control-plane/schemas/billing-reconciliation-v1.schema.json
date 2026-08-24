@@ -7,6 +7,7 @@
   "required": [
     "schema_version", "reconciliation_id", "observed_at", "source_event_id", "kind", "org_id",
     "provider_customer_id", "provider_subscription_id", "provider_object_id", "internal_price_id",
+    "billing_generation",
     "provider_price_id", "provider_status", "currency", "cash_amount_cents",
     "net_recurring_amount_cents", "refund_amount_cents", "period_start", "period_end",
     "cancel_at_period_end", "provider_refund_id", "provider_charge_id",
@@ -25,6 +26,7 @@
     "provider_object_id": { "$ref": "#/$defs/id" },
     "internal_price_id": { "enum": ["team_monthly_usd_v1", "team_annual_usd_v1"] },
     "provider_price_id": { "$ref": "#/$defs/id" },
+    "billing_generation": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
     "provider_status": { "enum": ["paid", "failed", "active", "past_due", "canceled", "refunded"] },
     "currency": { "const": "usd" },
     "cash_amount_cents": { "type": "integer", "minimum": 0, "maximum": 10000000 },

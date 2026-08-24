@@ -30,6 +30,10 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
     rollbacks,
     checkoutIntents,
     billingCommands,
+    billingGenerations,
+    billingGenerationEvents,
+    checkoutCompensations,
+    billingIntegrityReceipts,
     deletionRequests,
     entitlement,
     cash,
@@ -38,6 +42,12 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
     githubClaim,
     githubInstallation,
     githubRepositories,
+    githubProofs,
+    githubLifecycleHeads,
+    githubDeliveries,
+    githubReconciliations,
+    githubReleaseReconciliations,
+    githubIntegrityReceipts,
     measurement
   ] =
     await Promise.all([
@@ -64,6 +74,42 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
         `SELECT id, command_type, idempotency_key, status, created_by AS actor_pseudonym,
                 created_at, compensated_at
            FROM billing_commands WHERE org_id = ?1 ORDER BY created_at`,
+        auth.orgId
+      ),
+      allRows(
+        db,
+        `SELECT generation, checkout_intent_id, internal_price_id, status,
+                provider_checkout_session_id, provider_customer_id, provider_subscription_id,
+                reserved_at, bound_at, terminal_verified_at, terminal_source_event_id, retired_at
+           FROM billing_generations WHERE org_id = ?1 ORDER BY generation`,
+        auth.orgId
+      ),
+      allRows(
+        db,
+        `SELECT id, generation, event_type, source_ref, occurred_at
+           FROM billing_generation_events WHERE org_id = ?1 ORDER BY occurred_at, id`,
+        auth.orgId
+      ),
+      allRows(
+        db,
+        `SELECT id, billing_command_id, checkout_intent_id, billing_generation,
+                provider_event_id, provider_session_id, provider_customer_id,
+                provider_subscription_id, reason, status, resume_command_status,
+                requested_at, completed_at
+           FROM checkout_subscription_compensations WHERE org_id = ?1 ORDER BY requested_at, id`,
+        auth.orgId
+      ),
+      allRows(
+        db,
+        `SELECT id, workflow_type, source_ref, valid, created_at
+           FROM workflow_integrity_receipts
+          WHERE workflow_type NOT GLOB 'github_*' AND (
+            source_ref IN (SELECT id FROM checkout_intents WHERE org_id = ?1) OR
+            source_ref IN (SELECT id FROM billing_commands WHERE org_id = ?1) OR
+            source_ref IN (SELECT id FROM checkout_subscription_compensations WHERE org_id = ?1) OR
+            source_ref IN (SELECT event_id FROM provider_events WHERE org_id = ?1) OR
+            source_ref IN (SELECT reconciliation_id FROM provider_reconciliation_snapshots WHERE org_id = ?1)
+          ) ORDER BY created_at, id`,
         auth.orgId
       ),
       allRows(
@@ -98,6 +144,78 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
           WHERE i.org_id = ?1 ORDER BY r.repository_node_id`,
         auth.orgId
       ),
+      allRows(
+        db,
+        `SELECT delivery_id, installation_id, github_account_node_id, account_type,
+                verified_at, expires_at, consumed_at, consumed_by_lane,
+                invalidated_at, invalidated_by_delivery_id
+           FROM github_installation_provider_proofs
+          WHERE account_type = 'Organization' AND installation_id IN (
+            SELECT installation_id FROM github_installation_claims WHERE org_id = ?1
+            UNION SELECT installation_id FROM github_installations WHERE org_id = ?1
+            UNION SELECT installation_id FROM github_installation_release_reconciliations
+              WHERE lane = 'organization' AND owner_ref = ?1
+          ) ORDER BY verified_at, delivery_id`,
+        auth.orgId
+      ),
+      allRows(
+        db,
+        `SELECT installation_id, github_account_node_id, account_type, creation_delivery_id,
+                latest_delivery_id, latest_event_created_at, latest_action, terminal, updated_at
+           FROM github_installation_lifecycle_heads
+          WHERE account_type = 'Organization' AND installation_id IN (
+            SELECT installation_id FROM github_installation_claims WHERE org_id = ?1
+            UNION SELECT installation_id FROM github_installations WHERE org_id = ?1
+            UNION SELECT installation_id FROM github_installation_release_reconciliations
+              WHERE lane = 'organization' AND owner_ref = ?1
+          ) ORDER BY latest_event_created_at, installation_id`,
+        auth.orgId
+      ),
+      allRows(
+        db,
+        `SELECT delivery_id, event_name, action, installation_id, event_created_at, result, received_at
+           FROM github_deliveries
+          WHERE org_id = ?1 OR installation_id IN (
+            SELECT installation_id FROM github_installation_release_reconciliations
+             WHERE lane = 'organization' AND owner_ref = ?1
+          ) ORDER BY event_created_at, delivery_id`,
+        auth.orgId
+      ),
+      allRows(
+        db,
+        `SELECT reconciliation_id, source_delivery_id, installation_id,
+                observed_at, result, applied_at
+           FROM github_installation_reconciliations WHERE org_id = ?1 ORDER BY observed_at, reconciliation_id`,
+        auth.orgId
+      ),
+      allRows(
+        db,
+        `SELECT reconciliation_id, source_delivery_id, installation_id, github_account_node_id,
+                lane, owner_ref, observed_at, result, applied_at
+           FROM github_installation_release_reconciliations
+          WHERE lane = 'organization' AND owner_ref = ?1 ORDER BY observed_at, reconciliation_id`,
+        auth.orgId
+      ),
+      allRows(
+        db,
+        `SELECT id, workflow_type, source_ref, valid, created_at
+           FROM workflow_integrity_receipts
+          WHERE (
+            workflow_type = 'github_lifecycle_head_recorded' AND source_ref IN (
+              SELECT delivery_id FROM github_deliveries
+               WHERE org_id = ?1 OR installation_id IN (
+                 SELECT installation_id FROM github_installation_release_reconciliations
+                  WHERE lane = 'organization' AND owner_ref = ?1
+               )
+            )
+          ) OR (
+            workflow_type = 'github_org_not_found_release' AND source_ref IN (
+              SELECT reconciliation_id FROM github_installation_release_reconciliations
+               WHERE lane = 'organization' AND owner_ref = ?1
+            )
+          ) ORDER BY created_at, id`,
+        auth.orgId
+      ),
       exportOrganizationMeasurement(db, auth.orgId)
     ]);
   const generatedAt = nowIso();
@@ -115,6 +233,10 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
     rollbacks,
     checkout_intents: checkoutIntents,
     billing_commands: billingCommands,
+    billing_generations: billingGenerations,
+    billing_generation_events: billingGenerationEvents,
+    checkout_subscription_compensations: checkoutCompensations,
+    billing_integrity_receipts: billingIntegrityReceipts,
     deletion_requests: deletionRequests,
     entitlement,
     cash_ledger: cash,
@@ -123,6 +245,12 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
       claim: githubClaim,
       installation: githubInstallation,
       repositories: githubRepositories,
+      provider_proofs: githubProofs,
+      lifecycle_heads: githubLifecycleHeads,
+      deliveries: githubDeliveries,
+      reconciliations: githubReconciliations,
+      release_reconciliations: githubReleaseReconciliations,
+      integrity_receipts: githubIntegrityReceipts,
       stores_repository_names_or_source: false
     },
     r0_measurement: measurement,
@@ -363,6 +491,26 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
         AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deleted' AND deleted_at = ?2)`
     ).bind(auth.orgId, at),
     db.prepare(
+      `DELETE FROM workflow_integrity_receipts
+        WHERE (
+          (
+            workflow_type = 'github_lifecycle_head_recorded' AND source_ref IN (
+              SELECT delivery_id FROM github_deliveries
+               WHERE org_id = ?1 OR installation_id IN (
+                 SELECT installation_id FROM github_installations WHERE org_id = ?1
+                 UNION SELECT installation_id FROM github_installation_release_reconciliations
+                   WHERE lane = 'organization' AND owner_ref = ?1
+               )
+            )
+          ) OR (
+            workflow_type = 'github_org_not_found_release' AND source_ref IN (
+              SELECT reconciliation_id FROM github_installation_release_reconciliations
+               WHERE lane = 'organization' AND owner_ref = ?1
+            )
+          )
+        ) AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deleted' AND deleted_at = ?2)`
+    ).bind(auth.orgId, at),
+    db.prepare(
       `DELETE FROM github_installation_reconciliations WHERE org_id = ?1
         AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deleted' AND deleted_at = ?2)`
     ).bind(auth.orgId, at),
@@ -370,6 +518,8 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
       `DELETE FROM github_deliveries
         WHERE (org_id = ?1 OR installation_id IN (
           SELECT installation_id FROM github_installations WHERE org_id = ?1
+          UNION SELECT installation_id FROM github_installation_release_reconciliations
+            WHERE lane = 'organization' AND owner_ref = ?1
         )) AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deleted' AND deleted_at = ?2)`
     ).bind(auth.orgId, at),
     db.prepare(
@@ -384,9 +534,42 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
     ).bind(auth.orgId, at),
     db.prepare(
       `DELETE FROM github_installation_provider_proofs
-        WHERE delivery_id IN (
-          SELECT provider_proof_delivery_id FROM github_installation_claims WHERE org_id = ?1
-        ) AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deleted' AND deleted_at = ?2)`
+        WHERE account_type = 'Organization' AND installation_id IN (
+          SELECT installation_id FROM github_installation_claims WHERE org_id = ?1
+          UNION SELECT installation_id FROM github_installation_release_reconciliations
+            WHERE lane = 'organization' AND owner_ref = ?1
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installations
+             WHERE installation_id = github_installation_provider_proofs.installation_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installation_claims
+             WHERE installation_id = github_installation_provider_proofs.installation_id
+          )
+          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deleted' AND deleted_at = ?2)`
+    ).bind(auth.orgId, at),
+    db.prepare(
+      `DELETE FROM github_installation_lifecycle_heads
+        WHERE account_type = 'Organization' AND installation_id IN (
+          SELECT installation_id FROM github_installation_claims WHERE org_id = ?1
+          UNION SELECT installation_id FROM github_installation_release_reconciliations
+            WHERE lane = 'organization' AND owner_ref = ?1
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installations
+             WHERE installation_id = github_installation_lifecycle_heads.installation_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installation_claims
+             WHERE installation_id = github_installation_lifecycle_heads.installation_id
+          )
+          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deleted' AND deleted_at = ?2)`
+    ).bind(auth.orgId, at),
+    db.prepare(
+      `DELETE FROM github_installation_release_reconciliations
+        WHERE lane = 'organization' AND owner_ref = ?1
+          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deleted' AND deleted_at = ?2)`
     ).bind(auth.orgId, at),
     db.prepare(
       `DELETE FROM github_installation_claims WHERE org_id = ?1
@@ -462,8 +645,8 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
   ]);
   if (
     (results[0]?.meta.changes ?? 0) !== 1 ||
-    (results[22]?.meta.changes ?? 0) !== 1 ||
-    (results[23]?.meta.changes ?? 0) !== 1
+    (results[25]?.meta.changes ?? 0) !== 1 ||
+    (results[26]?.meta.changes ?? 0) !== 1
   ) {
     throw new ApiError(409, "provider_cleanup_incomplete", "Provider cleanup changed before deletion could commit.");
   }

@@ -1,5 +1,5 @@
 import type {
-  BillingAccountRow,
+  BillingGenerationRow,
   InternalPriceId,
   ProviderEventRow,
   ReconcilerEnv,
@@ -30,7 +30,7 @@ import {
   verifyInvocation
 } from "./safe.ts";
 import {
-  billingAccount,
+  billingGeneration,
   parsedSummary,
   providerEvent,
   refundProviderBinding,
@@ -77,7 +77,8 @@ function metadataBinding(value: unknown, expected: StripeSummary, field: string)
   if (
     parsed.team_org_id !== expected.orgId ||
     parsed.internal_price_id !== expected.internalPriceId ||
-    parsed.provider_price_id !== expected.providerPriceId
+    parsed.provider_price_id !== expected.providerPriceId ||
+    parsed.billing_generation !== String(expected.billingGeneration)
   ) {
     throw new AdapterError(409, "provider_binding_mismatch", "Stripe metadata does not match the stored tenant binding.");
   }
@@ -192,6 +193,7 @@ function baseSnapshot(
     provider_object_id: event.object_id,
     internal_price_id: summary.internalPriceId,
     provider_price_id: summary.providerPriceId,
+    billing_generation: summary.billingGeneration,
     currency: "usd",
     period_start: iso(subscription.periodStart),
     period_end: iso(subscription.periodEnd),
@@ -230,15 +232,16 @@ function verifyEventEnvelope(
 
 async function subscriptionFor(
   stripe: StripeClient,
-  account: BillingAccountRow | null,
+  generation: BillingGenerationRow | null,
   summary: StripeSummary,
   env: ReconcilerEnv
 ): Promise<SubscriptionBinding> {
   if (
-    !account ||
-    account.provider_customer_id !== summary.customerId ||
-    account.provider_subscription_id !== summary.subscriptionId ||
-    account.internal_price_id !== summary.internalPriceId ||
+    !generation ||
+    generation.provider_customer_id !== summary.customerId ||
+    generation.provider_subscription_id !== summary.subscriptionId ||
+    generation.internal_price_id !== summary.internalPriceId ||
+    generation.generation !== summary.billingGeneration ||
     !summary.subscriptionId
   ) {
     throw new AdapterError(409, "provider_binding_mismatch", "Stored billing account does not match the provider event.");
@@ -259,9 +262,9 @@ async function buildSnapshot(
   if (summary.providerPriceId !== configuredPrice(env, summary.internalPriceId)) {
     throw new AdapterError(409, "provider_binding_mismatch", "Stored provider price is not canonical.");
   }
-  const account = await billingAccount(env.TEAM_CONTROL_DB, summary.orgId);
+  const generation = await billingGeneration(env.TEAM_CONTROL_DB, summary.orgId, summary.billingGeneration);
   const providerObject = verifyEventEnvelope(event, row, liveMode(env.STRIPE_LIVEMODE));
-  const subscription = await subscriptionFor(stripe, account, summary, env);
+  const subscription = await subscriptionFor(stripe, generation, summary, env);
   const base = baseSnapshot(row, summary, subscription, now, randomUUID);
 
   if (row.event_type === "invoice.paid" || row.event_type === "invoice.payment_failed") {

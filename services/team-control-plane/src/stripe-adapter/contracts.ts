@@ -67,8 +67,35 @@ export interface BillingAccountRow {
   org_id: string;
   provider_customer_id: string | null;
   provider_subscription_id: string | null;
+  billing_generation: number;
   internal_price_id: InternalPriceId | null;
   billing_interval: "month" | "year" | null;
+}
+
+export interface BillingGenerationRow {
+  org_id: string;
+  generation: number;
+  internal_price_id: InternalPriceId;
+  status: "bound" | "terminal_verified" | "retired";
+  provider_customer_id: string;
+  provider_subscription_id: string;
+}
+
+export interface CheckoutSubscriptionCompensationRow {
+  id: string;
+  org_id: string;
+  billing_command_id: string;
+  checkout_intent_id: string;
+  billing_generation: number;
+  provider_event_id: string;
+  provider_session_id: string;
+  provider_customer_id: string;
+  provider_subscription_id: string;
+  reason: "unexpected_session" | "unexpected_generation_binding";
+  status: "prepared" | "executing";
+  resume_command_status: "provider_accepted" | "confirmed";
+  execution_lease_id: string | null;
+  execution_lease_expires_at: string | null;
 }
 
 export interface ProviderEventRow {
@@ -93,6 +120,7 @@ export interface StripeSummary {
   subscriptionId: string | null;
   internalPriceId: InternalPriceId;
   providerPriceId: string;
+  billingGeneration: number;
   checkoutIntentId: string | null;
   refundId: string | null;
   refundAmountCents: number | null;
@@ -114,6 +142,7 @@ export interface ReconciliationSnapshot {
   provider_object_id: string;
   internal_price_id: InternalPriceId;
   provider_price_id: string;
+  billing_generation: number;
   provider_status: "paid" | "failed" | "active" | "past_due" | "canceled" | "refunded";
   currency: "usd";
   cash_amount_cents: number;

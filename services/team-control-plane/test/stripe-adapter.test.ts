@@ -45,7 +45,11 @@ function reconcilerEnv(controlPlane: Fetcher, overrides: Partial<ReconcilerEnv> 
 }
 
 async function reset(): Promise<void> {
-  await env.TEAM_CONTROL_DB.exec(`
+  await env.TEAM_CONTROL_DB.prepare(`DROP TRIGGER billing_generation_event_delete_guard`).run();
+  try {
+    await env.TEAM_CONTROL_DB.exec(`
+    DELETE FROM workflow_integrity_receipts;
+    DELETE FROM checkout_subscription_compensations;
     DELETE FROM provider_refund_applications;
     DELETE FROM provider_reconciliation_snapshots;
     DELETE FROM provider_state_cursors;
@@ -58,10 +62,21 @@ async function reset(): Promise<void> {
     DELETE FROM commercial_transitions;
     DELETE FROM checkout_intents;
     DELETE FROM billing_accounts;
+    DELETE FROM billing_generation_events;
+    DELETE FROM billing_generations;
     DELETE FROM audit_events;
     DELETE FROM organization_members;
     DELETE FROM organizations;
-  `);
+    `);
+  } finally {
+    await env.TEAM_CONTROL_DB.prepare(
+      `CREATE TRIGGER billing_generation_event_delete_guard
+       BEFORE DELETE ON billing_generation_events
+       BEGIN
+         SELECT RAISE(ABORT, 'billing generation history is append only');
+       END`
+    ).run();
+  }
   await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO organizations (id, slug, display_name, status, created_at)
@@ -109,7 +124,8 @@ function subscription(overrides: Record<string, unknown> = {}): Record<string, u
     metadata: {
       team_org_id: "org_main",
       internal_price_id: "team_monthly_usd_v1",
-      provider_price_id: "price_team_monthly_test"
+      provider_price_id: "price_team_monthly_test",
+      billing_generation: "1"
     },
     items: {
       data: [
@@ -131,15 +147,30 @@ function subscription(overrides: Record<string, unknown> = {}): Record<string, u
 }
 
 async function seedAccount(): Promise<void> {
-  await env.TEAM_CONTROL_DB.prepare(
-    `INSERT INTO billing_accounts
-      (org_id, provider_customer_id, provider_subscription_id, commercial_state,
-       internal_price_id, billing_interval, updated_at)
-     VALUES ('org_main', 'cus_main', 'sub_main', 'entitled',
-             'team_monthly_usd_v1', 'month', ?1)`
-  )
-    .bind(new Date(NOW).toISOString())
-    .run();
+  const at = new Date(NOW).toISOString();
+  await env.TEAM_CONTROL_DB.batch([
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO billing_generations
+        (org_id, generation, internal_price_id, status, provider_customer_id,
+         provider_subscription_id, reserved_at, bound_at)
+       VALUES ('org_main', 1, 'team_monthly_usd_v1', 'bound', 'cus_main', 'sub_main', ?1, ?1)`
+    ).bind(at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO billing_accounts
+        (org_id, provider_customer_id, provider_subscription_id, commercial_state,
+         internal_price_id, billing_interval, billing_generation, updated_at)
+       VALUES ('org_main', 'cus_main', 'sub_main', 'entitled',
+               'team_monthly_usd_v1', 'month', 1, ?1)`
+    ).bind(at)
+  ]);
+}
+
+function reservedGeneration(checkoutIntentId: string, at: string): D1PreparedStatement {
+  return env.TEAM_CONTROL_DB.prepare(
+    `INSERT INTO billing_generations
+      (org_id, generation, checkout_intent_id, internal_price_id, status, reserved_at)
+     VALUES ('org_main', 1, ?1, 'team_monthly_usd_v1', 'reserved', ?2)`
+  ).bind(checkoutIntentId, at);
 }
 
 describe.sequential("separate Stripe executor and reconciler", () => {
@@ -152,6 +183,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       team_org_id: "org_main",
       internal_price_id: "team_monthly_usd_v1",
       provider_price_id: "price_team_monthly_test",
+      billing_generation: "1",
       checkout_intent_id: checkoutIntentId,
       contributor_limit: "15"
     };
@@ -172,6 +204,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       expires_at: new Date(NOW + 30 * 60_000).toISOString()
     };
     await env.TEAM_CONTROL_DB.batch([
+      reservedGeneration(checkoutIntentId, new Date(NOW).toISOString()),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO checkout_intents
           (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
@@ -251,6 +284,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       team_org_id: "org_main",
       internal_price_id: "team_monthly_usd_v1",
       provider_price_id: "price_team_monthly_test",
+      billing_generation: "1",
       checkout_intent_id: checkoutIntentId,
       contributor_limit: "15"
     };
@@ -271,6 +305,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       expires_at: new Date(NOW + 30 * 60_000).toISOString()
     };
     await env.TEAM_CONTROL_DB.batch([
+      reservedGeneration(checkoutIntentId, new Date(NOW).toISOString()),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO checkout_intents
           (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
@@ -374,6 +409,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       team_org_id: "org_main",
       internal_price_id: "team_monthly_usd_v1",
       provider_price_id: "price_team_monthly_test",
+      billing_generation: "1",
       checkout_intent_id: checkoutIntentId,
       contributor_limit: "15"
     };
@@ -397,6 +433,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       env.TEAM_CONTROL_DB.prepare(
         `UPDATE organizations SET status = 'deletion_pending' WHERE id = 'org_main' AND status = 'active'`
       ),
+      reservedGeneration(checkoutIntentId, new Date(NOW).toISOString()),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO checkout_intents
           (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
@@ -487,6 +524,156 @@ describe.sequential("separate Stripe executor and reconciler", () => {
     expect(deleted.meta.changes).toBe(1);
   });
 
+  it("cancels an unexpected extra completed Session and restores the legitimate generation", async () => {
+    const commandId = "billing_command_unexpected_session";
+    const checkoutIntentId = "checkout_intent_unexpected_session";
+    const compensationId = "checkout_subscription_compensation_unexpected";
+    const metadata = {
+      team_org_id: "org_main",
+      internal_price_id: "team_monthly_usd_v1",
+      provider_price_id: "price_team_monthly_test",
+      billing_generation: "1",
+      checkout_intent_id: checkoutIntentId,
+      contributor_limit: "15"
+    };
+    const command = {
+      schema_version: "checkout-command-v1",
+      command_id: commandId,
+      provider: "stripe",
+      operation: "create_checkout_session",
+      idempotency_key: "checkout_unexpected_session_idem",
+      parameters: {
+        mode: "subscription",
+        quantity: 1,
+        provider_price_id: "price_team_monthly_test",
+        internal_price_id: "team_monthly_usd_v1",
+        client_reference_id: "org_main",
+        metadata
+      },
+      expires_at: new Date(NOW + 30 * 60_000).toISOString(),
+      provider_result: { session_id: "cs_expected" }
+    };
+    const at = new Date(NOW).toISOString();
+    await env.TEAM_CONTROL_DB.batch([
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_generations
+          (org_id, generation, checkout_intent_id, internal_price_id, status,
+           provider_checkout_session_id, reserved_at)
+         VALUES ('org_main', 1, ?1, 'team_monthly_usd_v1', 'reserved', 'cs_expected', ?2)`
+      ).bind(checkoutIntentId, at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO checkout_intents
+          (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
+           contributor_limit, status, provider_session_id, created_by, created_at, expires_at)
+         VALUES (?1, 'org_main', 'checkout_unexpected_session_idem', 'team_monthly_usd_v1',
+                 'month', 29900, 15, 'provider_created', 'cs_expected', 'userp_test', ?2, ?3)`
+      ).bind(checkoutIntentId, at, command.expires_at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_commands
+          (id, org_id, command_type, idempotency_key, command_json, status,
+           execution_lease_id, execution_lease_expires_at, created_by, created_at)
+         VALUES (?1, 'org_main', 'create_checkout_session', 'checkout_unexpected_session_idem',
+                 ?2, 'compensating', ?3, ?4, 'userp_test', ?4)`
+      ).bind(commandId, JSON.stringify(command), compensationId, at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO provider_events
+          (event_id, provider, event_type, object_id, org_id, event_created, payload_sha256,
+           summary_json, status, received_at)
+         VALUES ('evt_checkout_unexpected', 'stripe', 'checkout.session.completed', 'cs_unexpected',
+                 'org_main', ?1, ?2, '{}', 'rejected', ?3)`
+      ).bind(Math.floor(NOW / 1000), "f".repeat(64), at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO checkout_subscription_compensations
+          (id, org_id, billing_command_id, checkout_intent_id, billing_generation,
+           provider_event_id, provider_session_id, provider_customer_id, provider_subscription_id,
+           reason, status, resume_command_status, requested_at)
+         VALUES (?1, 'org_main', ?2, ?3, 1, 'evt_checkout_unexpected', 'cs_unexpected',
+                 'cus_unexpected', 'sub_unexpected', 'unexpected_session', 'prepared',
+                 'provider_accepted', ?4)`
+      ).bind(compensationId, commandId, checkoutIntentId, at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_generation_events
+          (id, org_id, generation, event_type, source_ref, occurred_at)
+         VALUES ('generation_unexpected_reserved', 'org_main', 1,
+                 'unexpected_subscription_reserved', ?1, ?2)`
+      ).bind(commandId, at)
+    ]);
+
+    const fetchMock = vi.fn<StripeFetch>(async (input, init) => {
+      expect(new URL(input.toString()).pathname).toBe("/v1/subscriptions/sub_unexpected");
+      expect(init?.method).toBe("DELETE");
+      expect(new Headers(init?.headers).get("Idempotency-Key")).toBeNull();
+      expect(init?.body).toBeUndefined();
+      return stripeJson(
+        subscription({
+          id: "sub_unexpected",
+          customer: "cus_unexpected",
+          status: "canceled",
+          metadata
+        })
+      );
+    });
+    await expect(
+      handleExecution(
+        await signedRequest(
+          "/v1/execute",
+          {
+            schema_version: "stripe-command-execution-request-v1",
+            request_id: "request_unexpected_checkout_compensation",
+            org_id: "org_main",
+            command_id: commandId,
+            return_target: "team_billing_v1"
+          },
+          EXECUTOR_SECRET
+        ),
+        executorEnv(),
+        { stripeFetch: fetchMock, sleep: async () => undefined, now: () => NOW }
+      )
+    ).rejects.toMatchObject({ status: 409, code: "unexpected_checkout_subscription_compensated" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT x.status AS compensation_status, x.completed_at,
+              c.status AS command_status, c.execution_lease_id,
+              g.status AS generation_status, g.provider_checkout_session_id,
+              g.provider_customer_id, g.provider_subscription_id,
+              i.status AS intent_status, i.provider_session_id,
+              (SELECT COUNT(*) FROM billing_generation_events
+                WHERE org_id = 'org_main' AND generation = 1
+                  AND event_type = 'unexpected_subscription_compensated'
+                  AND source_ref = 'sub_unexpected') AS compensation_events,
+              (SELECT COUNT(*) FROM audit_events
+                WHERE org_id = 'org_main'
+                  AND action = 'billing.checkout.unexpected_subscription_compensated'
+                  AND resource_id = ?1) AS compensation_audits,
+              (SELECT COUNT(*) FROM billing_accounts
+                WHERE org_id = 'org_main' AND provider_subscription_id IS NOT NULL) AS installed_subscriptions
+         FROM checkout_subscription_compensations x
+         JOIN billing_commands c ON c.id = x.billing_command_id
+         JOIN billing_generations g
+           ON g.org_id = x.org_id AND g.generation = x.billing_generation
+         JOIN checkout_intents i ON i.id = x.checkout_intent_id
+        WHERE x.id = ?1`
+    )
+      .bind(compensationId)
+      .first<Record<string, unknown>>();
+    expect(state).toMatchObject({
+      compensation_status: "completed",
+      command_status: "provider_accepted",
+      execution_lease_id: null,
+      generation_status: "reserved",
+      provider_checkout_session_id: "cs_expected",
+      provider_customer_id: null,
+      provider_subscription_id: null,
+      intent_status: "provider_created",
+      provider_session_id: "cs_expected",
+      compensation_events: 1,
+      compensation_audits: 1,
+      installed_subscriptions: 0
+    });
+    expect(state?.completed_at).toBe(at);
+  });
+
   it("executes cancellation only against the tenant-bound subscription", async () => {
     await seedAccount();
     const commandId = "billing_command_cancel";
@@ -540,6 +727,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       subscriptionId: "sub_main",
       internalPriceId: "team_monthly_usd_v1",
       providerPriceId: "price_team_monthly_test",
+      billingGeneration: 1,
       checkoutIntentId: null,
       refundId: null,
       refundAmountCents: null,
@@ -662,6 +850,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       subscriptionId: "sub_main",
       internalPriceId: "team_monthly_usd_v1",
       providerPriceId: "price_team_monthly_test",
+      billingGeneration: 1,
       checkoutIntentId: null,
       refundId: null,
       refundAmountCents: null,
@@ -709,7 +898,8 @@ describe.sequential("separate Stripe executor and reconciler", () => {
                   metadata: {
                     team_org_id: "org_main",
                     internal_price_id: "team_monthly_usd_v1",
-                    provider_price_id: "price_team_monthly_test"
+                    provider_price_id: "price_team_monthly_test",
+                    billing_generation: "1"
                   }
                 }
               }
@@ -771,6 +961,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       subscriptionId: "sub_main",
       internalPriceId: "team_monthly_usd_v1",
       providerPriceId: "price_team_monthly_test",
+      billingGeneration: 1,
       checkoutIntentId: null,
       refundId: "re_main",
       refundAmountCents: 29_900,
@@ -924,6 +1115,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       subscriptionId: "sub_main",
       internalPriceId: "team_monthly_usd_v1",
       providerPriceId: "price_team_monthly_test",
+      billingGeneration: 1,
       checkoutIntentId: null,
       refundId: null,
       refundAmountCents: null,

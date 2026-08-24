@@ -43,6 +43,7 @@ interface BillingAccountRow {
   org_id: string;
   provider_customer_id: string | null;
   provider_subscription_id: string | null;
+  billing_generation: number;
   commercial_state: string;
   internal_price_id: InternalPriceId | null;
   billing_interval: "month" | "year" | null;
@@ -71,6 +72,20 @@ interface BillingCommandRow {
   command_json: string;
 }
 
+interface CheckoutCommandStateRow {
+  id: string;
+  status: "provider_accepted" | "confirmed";
+}
+
+interface BillingGenerationRow {
+  generation: number;
+  internal_price_id: InternalPriceId;
+  status: "reserved" | "bound" | "terminal_verified" | "retired" | "abandoned";
+  provider_customer_id: string | null;
+  provider_subscription_id: string | null;
+  terminal_source_event_id: string | null;
+}
+
 interface StripeSummary {
   orgId: string;
   objectId: string;
@@ -78,6 +93,7 @@ interface StripeSummary {
   subscriptionId: string | null;
   internalPriceId: InternalPriceId;
   providerPriceId: string;
+  billingGeneration: number;
   checkoutIntentId: string | null;
   refundId: string | null;
   refundAmountCents: number | null;
@@ -98,6 +114,7 @@ interface ReconciliationSnapshot {
   providerObjectId: string;
   internalPriceId: InternalPriceId;
   providerPriceId: string;
+  billingGeneration: number;
   providerStatus: "paid" | "failed" | "active" | "past_due" | "canceled" | "refunded";
   currency: "usd";
   cashAmountCents: number;
@@ -125,6 +142,7 @@ function parseMetadataValue(value: unknown): {
   orgId: string;
   internalPriceId: InternalPriceId;
   providerPriceId: string;
+  billingGeneration: number;
   checkoutIntentId: string | null;
 } {
   const metadata = requireObject(value, "provider metadata");
@@ -132,10 +150,16 @@ function parseMetadataValue(value: unknown): {
   if (!isInternalPriceId(metadata.internal_price_id)) {
     throw new ApiError(400, "invalid_provider_event", "Provider event contains an unknown internal price.");
   }
+  const billingGenerationRaw = requireString(metadata.billing_generation, "metadata.billing_generation", {
+    min: 1,
+    max: 10,
+    pattern: /^[1-9][0-9]{0,9}$/u
+  });
   return {
     orgId,
     internalPriceId: metadata.internal_price_id,
     providerPriceId: requireOpaqueId(metadata.provider_price_id, "metadata.provider_price_id", 255),
+    billingGeneration: Number(billingGenerationRaw),
     checkoutIntentId: nullableProviderId(metadata.checkout_intent_id, "metadata.checkout_intent_id")
   };
 }
@@ -207,10 +231,17 @@ async function extractRefundStripeSummary(env: Env, object: Record<string, unkno
   }
   const metadata = requireObject(object.metadata, "data.object.metadata");
   const bindings = await env.TEAM_CONTROL_DB.prepare(
-    `SELECT bc.id, bc.org_id, bc.command_json, ba.provider_customer_id, ba.provider_subscription_id,
-            ba.internal_price_id
+    `SELECT bc.id, bc.org_id, bc.command_json,
+            json_extract(source.summary_json, '$.customerId') AS provider_customer_id,
+            json_extract(source.summary_json, '$.subscriptionId') AS provider_subscription_id,
+            json_extract(source.summary_json, '$.internalPriceId') AS internal_price_id,
+            json_extract(source.summary_json, '$.providerPriceId') AS provider_price_id,
+            json_extract(source.summary_json, '$.billingGeneration') AS billing_generation
        FROM billing_commands bc
-       JOIN billing_accounts ba ON ba.org_id = bc.org_id
+       JOIN provider_events source
+         ON source.event_id = json_extract(bc.command_json, '$.provider_result.source_payment_event_id')
+        AND source.org_id = bc.org_id AND source.event_type = 'invoice.paid'
+        AND source.status = 'reconciled'
       WHERE bc.command_type = 'request_refund'
         AND bc.status IN ('provider_accepted', 'confirmed')
         AND json_extract(bc.command_json, '$.provider_result.refund_id') = ?1
@@ -224,6 +255,8 @@ async function extractRefundStripeSummary(env: Env, object: Record<string, unkno
       provider_customer_id: string;
       provider_subscription_id: string;
       internal_price_id: string;
+      provider_price_id: string;
+      billing_generation: number;
     }>();
   let binding = bindings.results[0];
   let sourcePaymentEventId: string;
@@ -259,9 +292,16 @@ async function extractRefundStripeSummary(env: Env, object: Record<string, unkno
     const sourceBindings = await env.TEAM_CONTROL_DB.prepare(
       `SELECT DISTINCT bc.org_id,
               json_extract(bc.command_json, '$.provider_result.source_payment_event_id') AS source_payment_event_id,
-              ba.provider_customer_id, ba.provider_subscription_id, ba.internal_price_id
+              json_extract(source.summary_json, '$.customerId') AS provider_customer_id,
+              json_extract(source.summary_json, '$.subscriptionId') AS provider_subscription_id,
+              json_extract(source.summary_json, '$.internalPriceId') AS internal_price_id,
+              json_extract(source.summary_json, '$.providerPriceId') AS provider_price_id,
+              json_extract(source.summary_json, '$.billingGeneration') AS billing_generation
          FROM billing_commands bc
-         JOIN billing_accounts ba ON ba.org_id = bc.org_id
+         JOIN provider_events source
+           ON source.event_id = json_extract(bc.command_json, '$.provider_result.source_payment_event_id')
+          AND source.org_id = bc.org_id AND source.event_type = 'invoice.paid'
+          AND source.status = 'reconciled'
         WHERE bc.command_type = 'request_refund'
           AND bc.status IN ('provider_accepted', 'confirmed')
           AND json_extract(bc.command_json, '$.provider_result.charge_id') = ?1
@@ -275,6 +315,8 @@ async function extractRefundStripeSummary(env: Env, object: Record<string, unkno
         provider_customer_id: string;
         provider_subscription_id: string;
         internal_price_id: string;
+        provider_price_id: string;
+        billing_generation: number;
       }>();
     if (sourceBindings.results.length !== 1) {
       throw new ApiError(409, "refund_source_binding_missing", "Out-of-band Refund has no unique confirmed source payment binding.");
@@ -294,7 +336,9 @@ async function extractRefundStripeSummary(env: Env, object: Record<string, unkno
       command_json: "{}",
       provider_customer_id: sourceBinding.provider_customer_id,
       provider_subscription_id: sourceBinding.provider_subscription_id,
-      internal_price_id: sourceBinding.internal_price_id
+      internal_price_id: sourceBinding.internal_price_id,
+      provider_price_id: sourceBinding.provider_price_id,
+      billing_generation: sourceBinding.billing_generation
     };
     sourcePaymentEventId = requireOpaqueId(
       sourceBinding.source_payment_event_id,
@@ -305,7 +349,13 @@ async function extractRefundStripeSummary(env: Env, object: Record<string, unkno
   } else {
     throw new ApiError(409, "refund_command_binding_ambiguous", "Refund identifier is bound to multiple commands.");
   }
-  if (!binding || !isInternalPriceId(binding.internal_price_id)) {
+  if (
+    !binding ||
+    !isInternalPriceId(binding.internal_price_id) ||
+    binding.provider_price_id !== providerPriceId(env, binding.internal_price_id) ||
+    !Number.isSafeInteger(binding.billing_generation) ||
+    binding.billing_generation <= 0
+  ) {
     throw new ApiError(409, "refund_source_binding_mismatch", "Refund source price binding is invalid.");
   }
   return {
@@ -314,7 +364,8 @@ async function extractRefundStripeSummary(env: Env, object: Record<string, unkno
     customerId: requireOpaqueId(binding.provider_customer_id, "provider_customer_id", 255),
     subscriptionId: requireOpaqueId(binding.provider_subscription_id, "provider_subscription_id", 255),
     internalPriceId: binding.internal_price_id,
-    providerPriceId: providerPriceId(env, binding.internal_price_id),
+    providerPriceId: binding.provider_price_id,
+    billingGeneration: binding.billing_generation,
     checkoutIntentId: null,
     refundId,
     refundAmountCents: amountCents,
@@ -426,12 +477,39 @@ async function billingAccount(db: D1Database, orgId: string): Promise<BillingAcc
   return db
     .prepare(
       `SELECT org_id, provider_customer_id, provider_subscription_id, commercial_state,
-              internal_price_id, billing_interval, current_period_start, current_period_end,
+              internal_price_id, billing_interval, billing_generation, current_period_start, current_period_end,
               current_recognized_mrr_micros, last_reconciled_event_created, last_reconciled_event_id
          FROM billing_accounts WHERE org_id = ?1`
     )
     .bind(orgId)
     .first<BillingAccountRow>();
+}
+
+async function billingGenerationHead(db: D1Database, orgId: string): Promise<BillingGenerationRow | null> {
+  return db
+    .prepare(
+      `SELECT generation, internal_price_id, status, provider_customer_id, provider_subscription_id,
+              terminal_source_event_id
+         FROM billing_generations WHERE org_id = ?1
+        ORDER BY generation DESC LIMIT 1`
+    )
+    .bind(orgId)
+    .first<BillingGenerationRow>();
+}
+
+async function billingGeneration(
+  db: D1Database,
+  orgId: string,
+  generation: number
+): Promise<BillingGenerationRow | null> {
+  return db
+    .prepare(
+      `SELECT generation, internal_price_id, status, provider_customer_id, provider_subscription_id,
+              terminal_source_event_id
+         FROM billing_generations WHERE org_id = ?1 AND generation = ?2`
+    )
+    .bind(orgId, generation)
+    .first<BillingGenerationRow>();
 }
 
 async function rejectProviderTenantCollision(
@@ -442,7 +520,10 @@ async function rejectProviderTenantCollision(
 ): Promise<void> {
   const collision = await db
     .prepare(
-      `SELECT org_id FROM billing_accounts
+      `SELECT org_id FROM billing_generations
+        WHERE org_id <> ?1 AND (provider_customer_id = ?2 OR provider_subscription_id = ?3)
+       UNION ALL
+       SELECT org_id FROM billing_accounts
         WHERE org_id <> ?1 AND (provider_customer_id = ?2 OR provider_subscription_id = ?3)
         LIMIT 1`
     )
@@ -482,6 +563,31 @@ export async function prepareCheckout(request: Request, env: Env, auth: AuthCont
   if (entitlement?.status === "active" && Date.parse(entitlement.ends_at) > Date.now()) {
     throw new ApiError(409, "already_entitled", "This organization already has an active Team entitlement.");
   }
+  const [account, generationHead] = await Promise.all([
+    billingAccount(env.TEAM_CONTROL_DB, auth.orgId),
+    billingGenerationHead(env.TEAM_CONTROL_DB, auth.orgId)
+  ]);
+  const replacingSubscription = account?.provider_subscription_id !== null && account?.provider_subscription_id !== undefined;
+  if (replacingSubscription) {
+    if (
+      !generationHead ||
+      generationHead.status !== "terminal_verified" ||
+      account.billing_generation !== generationHead.generation ||
+      account.provider_customer_id !== generationHead.provider_customer_id ||
+      account.provider_subscription_id !== generationHead.provider_subscription_id ||
+      !generationHead.terminal_source_event_id
+    ) {
+      throw new ApiError(
+        409,
+        "provider_subscription_not_terminal",
+        "A signed, reconciled terminal subscription fact is required before another checkout."
+      );
+    }
+  } else if (generationHead && generationHead.status !== "abandoned") {
+    throw new ApiError(409, "checkout_generation_not_terminal", "The prior checkout generation is not terminal.");
+  }
+  const billingGeneration = (generationHead?.generation ?? 0) + 1;
+  const previousGeneration = generationHead?.generation ?? null;
   const at = nowIso();
   const actorPseudonym = await commercialActorPseudonym(env, auth.orgId, auth.userId);
   const checkoutIntentId = newId("checkout");
@@ -503,6 +609,7 @@ export async function prepareCheckout(request: Request, env: Env, auth: AuthCont
         team_org_id: auth.orgId,
         internal_price_id: internalPriceId,
         provider_price_id: stripePriceId,
+        billing_generation: String(billingGeneration),
         checkout_intent_id: checkoutIntentId,
         contributor_limit: String(TEAM_CONTRIBUTOR_LIMIT)
       }
@@ -513,27 +620,63 @@ export async function prepareCheckout(request: Request, env: Env, auth: AuthCont
   try {
     results = await env.TEAM_CONTROL_DB.batch([
       env.TEAM_CONTROL_DB.prepare(
-        `INSERT INTO checkout_intents
-          (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
-           contributor_limit, status, created_by, created_at, expires_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 15, 'prepared', ?7, ?8, ?9
-          WHERE EXISTS (
-            SELECT 1 FROM organizations WHERE id = ?2 AND status = 'active'
-          )
+        `UPDATE billing_generations SET status = 'retired', retired_at = ?1
+          WHERE org_id = ?2 AND generation = ?3 AND status = 'terminal_verified'
+            AND terminal_source_event_id IS NOT NULL AND ?3 IS NOT NULL`
+      ).bind(at, auth.orgId, previousGeneration),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_generation_events
+          (id, org_id, generation, event_type, source_ref, occurred_at)
+         SELECT ?1, ?2, ?3, 'retired', ?4, ?5
+          WHERE ?3 IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM billing_generations
+               WHERE org_id = ?2 AND generation = ?3 AND status = 'retired' AND retired_at = ?5
+            )`
+      ).bind(`billing_generation_retired_${checkoutIntentId}`, auth.orgId, previousGeneration, checkoutIntentId, at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_generations
+          (org_id, generation, checkout_intent_id, internal_price_id, status, reserved_at)
+         SELECT ?1, ?2, ?3, ?4, 'reserved', ?5
+          WHERE EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'active')
             AND NOT EXISTS (
-              SELECT 1 FROM checkout_intents
-               WHERE org_id = ?2
-                 AND status IN ('prepared', 'executing', 'provider_created', 'compensating')
+              SELECT 1 FROM billing_generations WHERE org_id = ?1 AND status IN ('reserved', 'bound')
+            )
+            AND (
+              (?6 IS NULL AND NOT EXISTS (SELECT 1 FROM billing_generations WHERE org_id = ?1)) OR
+              (?6 IS NOT NULL AND EXISTS (
+                SELECT 1 FROM billing_generations
+                 WHERE org_id = ?1 AND generation = ?6
+                   AND (status = 'abandoned' OR (status = 'retired' AND terminal_source_event_id IS NOT NULL))
+              ))
             )
             AND NOT EXISTS (
-              SELECT 1 FROM billing_accounts
-               WHERE org_id = ?2 AND provider_subscription_id IS NOT NULL
-                 AND commercial_state NOT IN ('expired', 'refunded')
+              SELECT 1 FROM checkout_intents
+               WHERE org_id = ?1 AND status IN ('prepared', 'executing', 'provider_created', 'compensating')
             )
             AND NOT EXISTS (
               SELECT 1 FROM entitlements
-               WHERE org_id = ?2 AND status IN ('active', 'grace') AND ends_at > ?8
+               WHERE org_id = ?1 AND status IN ('active', 'grace') AND ends_at > ?5
             )`
+      ).bind(auth.orgId, billingGeneration, checkoutIntentId, internalPriceId, at, previousGeneration),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_generation_events
+          (id, org_id, generation, event_type, source_ref, occurred_at)
+         SELECT ?1, ?2, ?3, 'reserved', ?4, ?5
+          WHERE EXISTS (
+            SELECT 1 FROM billing_generations
+             WHERE org_id = ?2 AND generation = ?3 AND checkout_intent_id = ?4 AND status = 'reserved'
+          )`
+      ).bind(`billing_generation_reserved_${checkoutIntentId}`, auth.orgId, billingGeneration, checkoutIntentId, at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO checkout_intents
+          (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
+           contributor_limit, status, created_by, created_at, expires_at, billing_generation)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 15, 'prepared', ?7, ?8, ?9, ?10
+          WHERE EXISTS (
+            SELECT 1 FROM billing_generations
+             WHERE org_id = ?2 AND generation = ?10 AND checkout_intent_id = ?1 AND status = 'reserved'
+          )`
       ).bind(
         checkoutIntentId,
         auth.orgId,
@@ -543,7 +686,8 @@ export async function prepareCheckout(request: Request, env: Env, auth: AuthCont
         price.listAmountCents,
         actorPseudonym,
         at,
-        expiresAt
+        expiresAt,
+        billingGeneration
       ),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO billing_commands
@@ -554,12 +698,12 @@ export async function prepareCheckout(request: Request, env: Env, auth: AuthCont
           )`
       ).bind(commandId, auth.orgId, idempotencyKey, JSON.stringify(command), actorPseudonym, at, checkoutIntentId),
       env.TEAM_CONTROL_DB.prepare(
-        `INSERT OR IGNORE INTO billing_accounts (org_id, commercial_state, updated_at)
-         SELECT ?1, 'offer_shown', ?2
+        `INSERT OR IGNORE INTO billing_accounts (org_id, commercial_state, billing_generation, updated_at)
+         SELECT ?1, 'offer_shown', ?2, ?3
           WHERE EXISTS (
-            SELECT 1 FROM checkout_intents WHERE id = ?3 AND org_id = ?1 AND status = 'prepared'
+            SELECT 1 FROM checkout_intents WHERE id = ?4 AND org_id = ?1 AND status = 'prepared'
           )`
-      ).bind(auth.orgId, at, checkoutIntentId),
+      ).bind(auth.orgId, billingGeneration, at, checkoutIntentId),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO audit_events
           (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
@@ -576,7 +720,29 @@ export async function prepareCheckout(request: Request, env: Env, auth: AuthCont
         JSON.stringify({ internal_price_id: internalPriceId }),
         at,
         checkoutIntentId
-      )
+      ),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+         VALUES (?1, 'billing_generation_reserved', ?2,
+           CASE WHEN
+             EXISTS (
+               SELECT 1 FROM billing_generations
+                WHERE org_id = ?3 AND generation = ?4 AND checkout_intent_id = ?5 AND status = 'reserved'
+             )
+             AND EXISTS (
+               SELECT 1 FROM billing_generation_events
+                WHERE org_id = ?3 AND generation = ?4 AND event_type = 'reserved' AND source_ref = ?5
+             )
+             AND EXISTS (
+               SELECT 1 FROM checkout_intents
+                WHERE id = ?5 AND org_id = ?3 AND billing_generation = ?4 AND status = 'prepared'
+             )
+             AND EXISTS (
+               SELECT 1 FROM billing_commands
+                WHERE id = ?2 AND org_id = ?3 AND status = 'prepared'
+             )
+           THEN 1 ELSE 0 END, ?6)`
+      ).bind(`integrity_${commandId}`, commandId, auth.orgId, billingGeneration, checkoutIntentId, at)
     ]);
   } catch (error) {
     const live = await env.TEAM_CONTROL_DB.prepare(
@@ -592,9 +758,14 @@ export async function prepareCheckout(request: Request, env: Env, auth: AuthCont
     throw error;
   }
   if (
-    (results[0]?.meta.changes ?? 0) !== 1 ||
-    (results[1]?.meta.changes ?? 0) !== 1 ||
-    (results[3]?.meta.changes ?? 0) !== 1
+    (results[2]?.meta.changes ?? 0) !== 1 ||
+    (results[3]?.meta.changes ?? 0) !== 1 ||
+    (results[4]?.meta.changes ?? 0) !== 1 ||
+    (results[5]?.meta.changes ?? 0) !== 1 ||
+    (results[7]?.meta.changes ?? 0) !== 1 ||
+    (results[8]?.meta.changes ?? 0) !== 1 ||
+    (replacingSubscription &&
+      ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1))
   ) {
     throw new ApiError(409, "checkout_workflow_already_live", "This organization already has a live checkout workflow.");
   }
@@ -847,6 +1018,164 @@ async function recordFrozenCheckoutCompletion(
   }
 }
 
+async function reserveUnexpectedCheckoutCompensation(
+  env: Env,
+  summary: StripeSummary,
+  eventId: string,
+  checkout: {
+    id: string;
+    org_id: string;
+    internal_price_id: string;
+    billing_generation: number;
+    status: string;
+    provider_session_id: string | null;
+  },
+  at: string
+): Promise<void> {
+  if (!summary.customerId || !summary.subscriptionId || !summary.checkoutIntentId) {
+    throw new ApiError(400, "invalid_provider_event", "Unexpected Checkout completion is missing provider identifiers.");
+  }
+  const command = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT id, status FROM billing_commands
+      WHERE org_id = ?1 AND command_type = 'create_checkout_session'
+        AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?2
+        AND status IN ('provider_accepted', 'confirmed')
+      LIMIT 1`
+  )
+    .bind(summary.orgId, summary.checkoutIntentId)
+    .first<CheckoutCommandStateRow>();
+  if (!command) {
+    const pending = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT 1 AS found FROM checkout_subscription_compensations
+        WHERE org_id = ?1 AND checkout_intent_id = ?2 AND billing_generation = ?3
+          AND status IN ('prepared', 'executing') LIMIT 1`
+    )
+      .bind(summary.orgId, summary.checkoutIntentId, summary.billingGeneration)
+      .first<{ found: number }>();
+    if (pending) {
+      throw new ApiError(
+        409,
+        "checkout_compensation_already_pending",
+        "A prior unexpected subscription must finish exact cancellation before another can be reserved."
+      );
+    }
+  }
+  if (!command || summary.billingGeneration !== checkout.billing_generation) {
+    await env.TEAM_CONTROL_DB.prepare(`UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1 AND status = 'ignored'`)
+      .bind(eventId)
+      .run();
+    throw new ApiError(409, "checkout_generation_mismatch", "Checkout completion does not match its reserved billing generation.");
+  }
+  await rejectProviderTenantCollision(env.TEAM_CONTROL_DB, summary.orgId, summary.customerId, summary.subscriptionId);
+  const compensationId = newId("checkout_subscription_compensation");
+  const generationEventId = newId("billing_generation_event");
+  const resumeStatus = command.status === "confirmed" ? "confirmed" : "provider_accepted";
+  const results = await env.TEAM_CONTROL_DB.batch([
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE provider_events SET status = 'rejected'
+        WHERE event_id = ?1 AND org_id = ?2 AND event_type = 'checkout.session.completed'
+          AND object_id = ?3 AND status = 'ignored'`
+    ).bind(eventId, summary.orgId, summary.objectId),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO checkout_subscription_compensations
+        (id, org_id, billing_command_id, checkout_intent_id, billing_generation,
+         provider_event_id, provider_session_id, provider_customer_id, provider_subscription_id,
+         reason, status, resume_command_status, requested_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+              'unexpected_session', 'prepared', ?10, ?11
+        WHERE EXISTS (
+          SELECT 1 FROM billing_generations
+           WHERE org_id = ?2 AND generation = ?5 AND checkout_intent_id = ?4
+             AND provider_checkout_session_id IS NOT NULL
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM billing_generations
+             WHERE provider_subscription_id = ?9
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM checkout_subscription_compensations
+             WHERE billing_command_id = ?3 AND status IN ('prepared', 'executing')
+          )`
+    ).bind(
+      compensationId,
+      summary.orgId,
+      command.id,
+      summary.checkoutIntentId,
+      summary.billingGeneration,
+      eventId,
+      summary.objectId,
+      summary.customerId,
+      summary.subscriptionId,
+      resumeStatus,
+      at
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE billing_commands SET status = 'compensating',
+          execution_lease_id = ?4, execution_lease_expires_at = ?5
+        WHERE id = ?1 AND org_id = ?2 AND status = ?3
+          AND EXISTS (
+            SELECT 1 FROM checkout_subscription_compensations
+             WHERE id = ?4 AND billing_command_id = ?1 AND status = 'prepared'
+          )`
+    ).bind(command.id, summary.orgId, resumeStatus, compensationId, at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO billing_generation_events
+        (id, org_id, generation, event_type, source_ref, occurred_at)
+       SELECT ?1, ?2, ?3, 'unexpected_subscription_reserved', ?4, ?5
+        WHERE EXISTS (
+          SELECT 1 FROM checkout_subscription_compensations
+           WHERE id = ?6 AND billing_command_id = ?7 AND status = 'prepared'
+        )`
+    ).bind(
+      generationEventId,
+      summary.orgId,
+      summary.billingGeneration,
+      summary.subscriptionId,
+      at,
+      compensationId,
+      command.id
+    ),
+    auditStatement(env.TEAM_CONTROL_DB, {
+      orgId: summary.orgId,
+      actorType: "stripe",
+      actorId: "stripe",
+      action: "billing.checkout.unexpected_subscription_requires_compensation",
+      resourceType: "provider_event",
+      resourceId: eventId,
+      at
+    }),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'unexpected_checkout_compensation_reserved', ?2,
+         CASE WHEN
+           EXISTS (SELECT 1 FROM provider_events WHERE event_id = ?2 AND status = 'rejected')
+           AND EXISTS (
+             SELECT 1 FROM checkout_subscription_compensations
+              WHERE id = ?3 AND status = 'prepared' AND provider_subscription_id = ?4
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_commands WHERE id = ?5 AND status = 'compensating'
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_generation_events
+              WHERE id = ?6 AND event_type = 'unexpected_subscription_reserved'
+           )
+         THEN 1 ELSE 0 END, ?7)`
+    ).bind(
+      `integrity_${compensationId}`,
+      eventId,
+      compensationId,
+      summary.subscriptionId,
+      command.id,
+      generationEventId,
+      at
+    )
+  ]);
+  if (results.some((result) => (result.meta.changes ?? 0) !== 1)) {
+    throw new ApiError(409, "checkout_compensation_conflict", "Unexpected subscription compensation changed concurrently.");
+  }
+}
+
 export async function handleStripeWebhook(request: Request, env: Env): Promise<Response> {
   assertBillingDutySecretSeparation(env);
   const rawBody = await readBoundedText(request, WEBHOOK_BODY_LIMIT);
@@ -929,14 +1258,16 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
   }
   if ((insert.meta.changes ?? 0) === 0) {
     const existing = await env.TEAM_CONTROL_DB.prepare(
-      `SELECT payload_sha256 FROM provider_events WHERE event_id = ?1`
+      `SELECT payload_sha256, status FROM provider_events WHERE event_id = ?1`
     )
       .bind(eventId)
-      .first<{ payload_sha256: string }>();
+      .first<{ payload_sha256: string; status: ProviderEventRow["status"] }>();
     if (!existing || existing.payload_sha256 !== payloadHash) {
       throw new ApiError(409, "provider_event_replay_mismatch", "Provider event identifier was reused with different data.");
     }
-    return jsonResponse({ received: true, duplicate: true });
+    if (eventType !== "checkout.session.completed" || existing.status !== "ignored") {
+      return jsonResponse({ received: true, duplicate: true });
+    }
   }
 
   if (eventType === "checkout.session.completed" && organization.status !== "active") {
@@ -950,6 +1281,7 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
 
   const account = await billingAccount(env.TEAM_CONTROL_DB, summary.orgId);
   if (
+    eventType !== "checkout.session.completed" &&
     account?.last_reconciled_event_created !== null &&
     account?.last_reconciled_event_created !== undefined &&
     (eventCreated < account.last_reconciled_event_created ||
@@ -976,18 +1308,55 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
       throw new ApiError(400, "invalid_provider_event", "Completed checkout is missing provider identifiers.");
     }
     const checkout = await env.TEAM_CONTROL_DB.prepare(
-      `SELECT id, org_id, internal_price_id, status, expires_at FROM checkout_intents WHERE id = ?1`
+      `SELECT id, org_id, internal_price_id, billing_generation, status,
+              provider_session_id, expires_at
+         FROM checkout_intents WHERE id = ?1`
     )
       .bind(summary.checkoutIntentId)
-      .first<{ id: string; org_id: string; internal_price_id: string; status: string; expires_at: string }>();
+      .first<{
+        id: string;
+        org_id: string;
+        internal_price_id: string;
+        billing_generation: number;
+        status: string;
+        provider_session_id: string | null;
+        expires_at: string;
+      }>();
     if (
       !checkout ||
       checkout.org_id !== summary.orgId ||
       checkout.internal_price_id !== summary.internalPriceId ||
-      !["prepared", "executing", "provider_created", "compensating"].includes(checkout.status) ||
+      checkout.billing_generation !== summary.billingGeneration ||
       eventCreated * 1000 > Date.parse(checkout.expires_at) + SIGNATURE_TOLERANCE_SECONDS * 1000
     ) {
       throw new ApiError(409, "checkout_tenant_mismatch", "Checkout session does not match the prepared tenant intent.");
+    }
+    const generation = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT status, provider_checkout_session_id, provider_customer_id, provider_subscription_id
+         FROM billing_generations
+        WHERE org_id = ?1 AND generation = ?2 AND checkout_intent_id = ?3`
+    )
+      .bind(summary.orgId, summary.billingGeneration, summary.checkoutIntentId)
+      .first<{
+        status: string;
+        provider_checkout_session_id: string | null;
+        provider_customer_id: string | null;
+        provider_subscription_id: string | null;
+      }>();
+    const expectedCompletion =
+      checkout.status === "provider_created" &&
+      checkout.provider_session_id === summary.objectId &&
+      generation?.status === "reserved" &&
+      generation.provider_checkout_session_id === summary.objectId &&
+      generation.provider_customer_id === null &&
+      generation.provider_subscription_id === null;
+    if (!expectedCompletion) {
+      await reserveUnexpectedCheckoutCompensation(env, summary, eventId, checkout, at);
+      throw new ApiError(
+        409,
+        "checkout_completion_requires_compensation",
+        "Unexpected completed subscription was reserved for exact provider cancellation."
+      );
     }
     await rejectProviderTenantCollision(
       env.TEAM_CONTROL_DB,
@@ -995,21 +1364,6 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
       summary.customerId,
       summary.subscriptionId
     );
-    if (
-      account?.provider_subscription_id &&
-      (account.provider_subscription_id !== summary.subscriptionId || account.provider_customer_id !== summary.customerId)
-    ) {
-      await env.TEAM_CONTROL_DB.prepare(
-        `UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1`
-      )
-        .bind(eventId)
-        .run();
-      throw new ApiError(
-        409,
-        "checkout_workflow_collision",
-        "A second provider subscription cannot replace the organization billing binding."
-      );
-    }
     const previousState = account?.commercial_state ?? "offer_shown";
     let completionResults: D1Result[];
     try {
@@ -1018,34 +1372,91 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
           `UPDATE checkout_intents SET status = 'completed', provider_session_id = ?1,
              execution_lease_id = NULL, execution_lease_expires_at = NULL
             WHERE id = ?2 AND org_id = ?3
-              AND status IN ('prepared', 'executing', 'provider_created', 'compensating')
+              AND status = 'provider_created' AND provider_session_id = ?1
               AND EXISTS (SELECT 1 FROM organizations WHERE id = ?3 AND status = 'active')`
         ).bind(summary.objectId, summary.checkoutIntentId, summary.orgId),
       env.TEAM_CONTROL_DB.prepare(
         `UPDATE billing_commands SET status = 'confirmed', execution_lease_id = NULL,
              execution_lease_expires_at = NULL
           WHERE org_id = ?1 AND command_type = 'create_checkout_session'
-            AND status IN ('prepared', 'executing', 'provider_accepted', 'compensating')
+            AND status = 'provider_accepted'
             AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?2
+            AND CAST(json_extract(command_json, '$.parameters.metadata.billing_generation') AS INTEGER) = ?4
+            AND json_extract(command_json, '$.provider_result.session_id') = ?3
             AND EXISTS (
               SELECT 1 FROM checkout_intents
                WHERE id = ?2 AND org_id = ?1 AND status = 'completed' AND provider_session_id = ?3
             )
             AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'active')`
-      ).bind(summary.orgId, summary.checkoutIntentId, summary.objectId),
+      ).bind(summary.orgId, summary.checkoutIntentId, summary.objectId, summary.billingGeneration),
+      env.TEAM_CONTROL_DB.prepare(
+        `UPDATE billing_generations
+            SET status = 'bound', provider_customer_id = ?1, provider_subscription_id = ?2,
+                bound_at = ?3
+          WHERE org_id = ?4 AND generation = ?5 AND checkout_intent_id = ?6
+            AND status = 'reserved' AND provider_checkout_session_id = ?7
+            AND provider_customer_id IS NULL AND provider_subscription_id IS NULL
+            AND EXISTS (
+              SELECT 1 FROM checkout_intents
+               WHERE id = ?6 AND org_id = ?4 AND billing_generation = ?5
+                 AND status = 'completed' AND provider_session_id = ?7
+            )
+            AND EXISTS (
+              SELECT 1 FROM billing_commands
+               WHERE org_id = ?4 AND command_type = 'create_checkout_session' AND status = 'confirmed'
+                 AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?6
+                 AND CAST(json_extract(command_json, '$.parameters.metadata.billing_generation') AS INTEGER) = ?5
+                 AND json_extract(command_json, '$.provider_result.session_id') = ?7
+            )`
+      ).bind(
+        summary.customerId,
+        summary.subscriptionId,
+        at,
+        summary.orgId,
+        summary.billingGeneration,
+        summary.checkoutIntentId,
+        summary.objectId
+      ),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_generation_events
+          (id, org_id, generation, event_type, source_ref, occurred_at)
+         SELECT ?1, ?2, ?3, 'bound', ?4, ?5
+          WHERE EXISTS (
+            SELECT 1 FROM billing_generations
+             WHERE org_id = ?2 AND generation = ?3 AND checkout_intent_id = ?6
+               AND status = 'bound' AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+          )`
+      ).bind(
+        `billing_generation_bound_${eventId}`,
+        summary.orgId,
+        summary.billingGeneration,
+        eventId,
+        at,
+        summary.checkoutIntentId,
+        summary.customerId,
+        summary.subscriptionId
+      ),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO billing_accounts
           (org_id, provider_customer_id, provider_subscription_id, commercial_state, internal_price_id,
-           billing_interval, contributor_limit, updated_at)
-         SELECT ?1, ?2, ?3, 'payment_pending', ?4, ?5, 15, ?6
+           billing_interval, contributor_limit, billing_generation, updated_at)
+         SELECT ?1, ?2, ?3, 'payment_pending', ?4, ?5, 15, ?6, ?7
           WHERE EXISTS (
             SELECT 1 FROM billing_commands
              WHERE org_id = ?1 AND command_type = 'create_checkout_session' AND status = 'confirmed'
-               AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?7
+               AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?8
+               AND CAST(json_extract(command_json, '$.parameters.metadata.billing_generation') AS INTEGER) = ?6
+               AND json_extract(command_json, '$.provider_result.session_id') = ?9
           )
             AND EXISTS (
               SELECT 1 FROM checkout_intents
-               WHERE id = ?7 AND org_id = ?1 AND status = 'completed' AND provider_session_id = ?8
+               WHERE id = ?8 AND org_id = ?1 AND billing_generation = ?6
+                 AND status = 'completed' AND provider_session_id = ?9
+            )
+            AND EXISTS (
+              SELECT 1 FROM billing_generations
+               WHERE org_id = ?1 AND generation = ?6 AND checkout_intent_id = ?8
+                 AND status = 'bound' AND provider_customer_id = ?2 AND provider_subscription_id = ?3
             )
             AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'active')
          ON CONFLICT(org_id) DO UPDATE SET
@@ -1054,6 +1465,7 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
            commercial_state = 'payment_pending',
            internal_price_id = excluded.internal_price_id,
            billing_interval = excluded.billing_interval,
+           billing_generation = excluded.billing_generation,
            updated_at = excluded.updated_at`
       ).bind(
         summary.orgId,
@@ -1061,6 +1473,7 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
         summary.subscriptionId,
         summary.internalPriceId,
         TEAM_PRICES[summary.internalPriceId].interval,
+        summary.billingGeneration,
         at,
         summary.checkoutIntentId,
         summary.objectId
@@ -1125,7 +1538,60 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
                AND commercial_state = 'payment_pending'
           )
             AND EXISTS (SELECT 1 FROM organizations WHERE id = ?2 AND status = 'active')`
-      ).bind(newId("audit"), summary.orgId, eventId, at, summary.customerId, summary.subscriptionId)
+      ).bind(newId("audit"), summary.orgId, eventId, at, summary.customerId, summary.subscriptionId),
+      env.TEAM_CONTROL_DB.prepare(
+        `UPDATE provider_events SET status = 'reconciled', reconciled_at = ?1
+          WHERE event_id = ?2 AND org_id = ?3 AND event_type = 'checkout.session.completed'
+            AND object_id = ?4 AND status = 'ignored'`
+      ).bind(at, eventId, summary.orgId, summary.objectId),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+         VALUES (?1, 'billing_generation_bound', ?2,
+           CASE WHEN
+             EXISTS (
+               SELECT 1 FROM checkout_intents
+                WHERE id = ?3 AND org_id = ?4 AND billing_generation = ?5
+                  AND status = 'completed' AND provider_session_id = ?6
+             )
+             AND EXISTS (
+               SELECT 1 FROM billing_commands
+                WHERE org_id = ?4 AND command_type = 'create_checkout_session' AND status = 'confirmed'
+                  AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?3
+                  AND CAST(json_extract(command_json, '$.parameters.metadata.billing_generation') AS INTEGER) = ?5
+                  AND json_extract(command_json, '$.provider_result.session_id') = ?6
+             )
+             AND EXISTS (
+               SELECT 1 FROM billing_generations
+                WHERE org_id = ?4 AND generation = ?5 AND checkout_intent_id = ?3
+                  AND status = 'bound' AND provider_checkout_session_id = ?6
+                  AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+             )
+             AND EXISTS (
+               SELECT 1 FROM billing_generation_events
+                WHERE org_id = ?4 AND generation = ?5 AND event_type = 'bound' AND source_ref = ?2
+             )
+             AND EXISTS (
+               SELECT 1 FROM billing_accounts
+                WHERE org_id = ?4 AND billing_generation = ?5
+                  AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+                  AND commercial_state = 'payment_pending'
+             )
+             AND EXISTS (
+               SELECT 1 FROM provider_events
+                WHERE event_id = ?2 AND org_id = ?4 AND status = 'reconciled'
+             )
+           THEN 1 ELSE 0 END, ?9)`
+      ).bind(
+        `integrity_billing_generation_bound_${eventId}`,
+        eventId,
+        summary.checkoutIntentId,
+        summary.orgId,
+        summary.billingGeneration,
+        summary.objectId,
+        summary.customerId,
+        summary.subscriptionId,
+        at
+      )
       ]);
     } catch (error) {
       const current = await env.TEAM_CONTROL_DB.prepare(
@@ -1192,6 +1658,7 @@ function parseReconciliation(body: Record<string, unknown>): ReconciliationSnaps
     "provider_object_id",
     "internal_price_id",
     "provider_price_id",
+    "billing_generation",
     "provider_status",
     "currency",
     "cash_amount_cents",
@@ -1225,6 +1692,7 @@ function parseReconciliation(body: Record<string, unknown>): ReconciliationSnaps
     providerObjectId: requireOpaqueId(body.provider_object_id, "provider_object_id", 255),
     internalPriceId: body.internal_price_id,
     providerPriceId: requireOpaqueId(body.provider_price_id, "provider_price_id", 255),
+    billingGeneration: requireInteger(body.billing_generation, "billing_generation", { min: 1, max: 2_147_483_647 }),
     providerStatus: requireEnum(body.provider_status, "provider_status", [
       "paid",
       "failed",
@@ -1374,6 +1842,93 @@ async function rejectSnapshot(
   ]);
 }
 
+async function rejectLateBillingGeneration(
+  env: Env,
+  snapshot: ReconciliationSnapshot,
+  event: ProviderEventRow,
+  payloadHash: string
+): Promise<void> {
+  const at = nowIso();
+  const generationEventId = newId("billing_generation_event");
+  const receiptId = newId("integrity");
+  const results = await env.TEAM_CONTROL_DB.batch([
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO provider_reconciliation_snapshots
+        (reconciliation_id, source_event_id, org_id, snapshot_kind, payload_sha256, observed_at, applied_at, result)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'stale')`
+    ).bind(
+      snapshot.reconciliationId,
+      snapshot.sourceEventId,
+      snapshot.orgId,
+      snapshot.kind,
+      payloadHash,
+      snapshot.observedAt,
+      at
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE provider_events SET status = 'stale'
+        WHERE event_id = ?1 AND org_id = ?2 AND status = 'awaiting_reconciliation'`
+    ).bind(event.event_id, snapshot.orgId),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO billing_generation_events
+        (id, org_id, generation, event_type, source_ref, occurred_at)
+       SELECT ?1, ?2, ?3, 'late_provider_event_ignored', ?4, ?5
+        WHERE EXISTS (
+          SELECT 1 FROM billing_generations
+           WHERE org_id = ?2 AND generation = ?3 AND provider_customer_id = ?6
+             AND provider_subscription_id = ?7
+        )`
+    ).bind(
+      generationEventId,
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      event.event_id,
+      at,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId
+    ),
+    auditStatement(env.TEAM_CONTROL_DB, {
+      orgId: snapshot.orgId,
+      actorType: "reconciler",
+      actorId: "stripe-readonly-adapter",
+      action: "billing.generation.late_provider_event_ignored",
+      resourceType: "provider_event",
+      resourceId: event.event_id,
+      metadata: { billing_generation: snapshot.billingGeneration },
+      at
+    }),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'late_billing_generation_rejected', ?2,
+         CASE WHEN
+           EXISTS (
+             SELECT 1 FROM provider_reconciliation_snapshots
+              WHERE reconciliation_id = ?3 AND source_event_id = ?2 AND result = 'stale'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_events WHERE event_id = ?2 AND status = 'stale'
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_generation_events
+              WHERE id = ?4 AND org_id = ?5 AND generation = ?6
+                AND event_type = 'late_provider_event_ignored' AND source_ref = ?2
+           )
+         THEN 1 ELSE 0 END, ?7)`
+    ).bind(
+      receiptId,
+      event.event_id,
+      snapshot.reconciliationId,
+      generationEventId,
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      at
+    )
+  ]);
+  if (results.some((result) => (result.meta.changes ?? 0) !== 1)) {
+    throw new ApiError(409, "late_generation_record_conflict", "Late provider generation could not be recorded atomically.");
+  }
+}
+
 async function claimProviderState(
   env: Env,
   snapshot: ReconciliationSnapshot,
@@ -1462,6 +2017,7 @@ export async function handleProviderReconciliation(request: Request, env: Env): 
     (summary.subscriptionId !== null && summary.subscriptionId !== snapshot.providerSubscriptionId) ||
     summary.internalPriceId !== snapshot.internalPriceId ||
     summary.providerPriceId !== snapshot.providerPriceId ||
+    summary.billingGeneration !== snapshot.billingGeneration ||
     (snapshot.kind === "refund" &&
       (summary.refundId !== snapshot.providerRefundId ||
         summary.refundAmountCents !== snapshot.refundAmountCents ||
@@ -1473,20 +2029,43 @@ export async function handleProviderReconciliation(request: Request, env: Env): 
     await rejectSnapshot(env, snapshot, event, payloadHash, "rejected");
     throw new ApiError(409, "reconciliation_mismatch", "Reconciliation does not match the signed provider event.");
   }
+  const [account, generation] = await Promise.all([
+    billingAccount(env.TEAM_CONTROL_DB, snapshot.orgId),
+    billingGeneration(env.TEAM_CONTROL_DB, snapshot.orgId, snapshot.billingGeneration)
+  ]);
+  if (
+    !generation ||
+    generation.internal_price_id !== snapshot.internalPriceId ||
+    generation.provider_customer_id !== snapshot.providerCustomerId ||
+    generation.provider_subscription_id !== snapshot.providerSubscriptionId
+  ) {
+    await rejectSnapshot(env, snapshot, event, payloadHash, "rejected");
+    throw new ApiError(409, "billing_generation_mismatch", "Reconciliation does not match an immutable billing generation.");
+  }
+  if (
+    !account ||
+    account.billing_generation !== snapshot.billingGeneration ||
+    generation.status === "terminal_verified" ||
+    generation.status === "retired"
+  ) {
+    await rejectLateBillingGeneration(env, snapshot, event, payloadHash);
+    throw new ApiError(409, "retired_billing_generation", "A retired or superseded billing generation cannot change current state.");
+  }
+  if (
+    generation.status !== "bound" ||
+    account.provider_customer_id !== snapshot.providerCustomerId ||
+    account.provider_subscription_id !== snapshot.providerSubscriptionId ||
+    account.internal_price_id !== snapshot.internalPriceId
+  ) {
+    await rejectSnapshot(env, snapshot, event, payloadHash, "rejected");
+    throw new ApiError(409, "provider_binding_mismatch", "Provider identifiers do not match the tenant billing account.");
+  }
   await rejectProviderTenantCollision(
     env.TEAM_CONTROL_DB,
     snapshot.orgId,
     snapshot.providerCustomerId,
     snapshot.providerSubscriptionId
   );
-  const account = await billingAccount(env.TEAM_CONTROL_DB, snapshot.orgId);
-  if (
-    (account?.provider_customer_id && account.provider_customer_id !== snapshot.providerCustomerId) ||
-    (account?.provider_subscription_id && account.provider_subscription_id !== snapshot.providerSubscriptionId)
-  ) {
-    await rejectSnapshot(env, snapshot, event, payloadHash, "rejected");
-    throw new ApiError(409, "provider_binding_mismatch", "Provider identifiers do not match the tenant billing account.");
-  }
   if (
     snapshot.kind !== "refund" &&
     account?.last_reconciled_event_created !== null &&
@@ -1548,7 +2127,8 @@ function reconciliationBaseStatements(
       at
     ),
     env.TEAM_CONTROL_DB.prepare(
-      `UPDATE provider_events SET status = 'reconciled', reconciled_at = ?1 WHERE event_id = ?2`
+      `UPDATE provider_events SET status = 'reconciled', reconciled_at = ?1
+        WHERE event_id = ?2 AND status = 'awaiting_reconciliation'`
     ).bind(at, event.event_id),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE provider_state_cursors SET status = 'applied', updated_at = ?1
@@ -1571,28 +2151,40 @@ async function applyPayment(
   const previousMrr = account?.current_recognized_mrr_micros ?? 0;
   const finalState = renewal ? "renewed" : "entitled";
   const previousState = account?.commercial_state ?? "payment_pending";
+  const cashId = newId("cash");
+  const revenueId = newId("revenue");
+  const paidTransitionId = newId("transition");
+  const finalTransitionId = newId("transition");
+  const paymentLifecycleId = newId("life");
+  const entitlementLifecycleId = newId("life");
+  const auditId = newId("audit");
+  const receiptId = newId("integrity");
   const statements = reconciliationBaseStatements(env, snapshot, event, payloadHash, at);
   statements.push(
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO billing_accounts
         (org_id, provider_customer_id, provider_subscription_id, commercial_state, internal_price_id,
-         billing_interval, contributor_limit, current_period_start, current_period_end,
+         billing_interval, contributor_limit, billing_generation, current_period_start, current_period_end,
          cancel_at_period_end, current_recognized_mrr_micros, last_reconciled_event_created,
          last_reconciled_event_id, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 15, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 15, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
        ON CONFLICT(org_id) DO UPDATE SET
          provider_customer_id = excluded.provider_customer_id,
          provider_subscription_id = excluded.provider_subscription_id,
          commercial_state = excluded.commercial_state,
          internal_price_id = excluded.internal_price_id,
          billing_interval = excluded.billing_interval,
+         billing_generation = excluded.billing_generation,
          current_period_start = excluded.current_period_start,
          current_period_end = excluded.current_period_end,
          cancel_at_period_end = excluded.cancel_at_period_end,
          current_recognized_mrr_micros = excluded.current_recognized_mrr_micros,
          last_reconciled_event_created = excluded.last_reconciled_event_created,
          last_reconciled_event_id = excluded.last_reconciled_event_id,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at
+       WHERE billing_accounts.billing_generation = excluded.billing_generation
+         AND billing_accounts.provider_customer_id = excluded.provider_customer_id
+         AND billing_accounts.provider_subscription_id = excluded.provider_subscription_id`
     ).bind(
       snapshot.orgId,
       snapshot.providerCustomerId,
@@ -1600,6 +2192,7 @@ async function applyPayment(
       finalState,
       snapshot.internalPriceId,
       TEAM_PRICES[snapshot.internalPriceId].interval,
+      snapshot.billingGeneration,
       snapshot.periodStart,
       snapshot.periodEnd,
       snapshot.cancelAtPeriodEnd ? 1 : 0,
@@ -1621,14 +2214,14 @@ async function applyPayment(
       `INSERT INTO cash_ledger
         (id, org_id, source_event_id, entry_type, amount_cents, currency, occurred_at)
        VALUES (?1, ?2, ?3, 'payment', ?4, 'usd', ?5)`
-    ).bind(newId("cash"), snapshot.orgId, event.event_id, snapshot.cashAmountCents, at),
+    ).bind(cashId, snapshot.orgId, event.event_id, snapshot.cashAmountCents, at),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO revenue_ledger
         (id, org_id, source_event_id, entry_type, recognized_mrr_delta_micros, currency,
          recognized_period_start, recognized_period_end, occurred_at)
        VALUES (?1, ?2, ?3, ?4, ?5, 'usd', ?6, ?7, ?8)`
     ).bind(
-      newId("revenue"),
+      revenueId,
       snapshot.orgId,
       event.event_id,
       renewal ? "mrr_renewed" : "mrr_started",
@@ -1641,36 +2234,127 @@ async function applyPayment(
       `INSERT INTO commercial_transitions
         (id, org_id, from_state, to_state, source, source_ref, occurred_at)
        VALUES (?1, ?2, ?3, 'paid', 'provider_reconciliation', ?4, ?5)`
-    ).bind(newId("transition"), snapshot.orgId, previousState, event.event_id, at),
+    ).bind(paidTransitionId, snapshot.orgId, previousState, event.event_id, at),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO commercial_transitions
         (id, org_id, from_state, to_state, source, source_ref, occurred_at)
        VALUES (?1, ?2, 'paid', ?3, 'provider_reconciliation', ?4, ?5)`
-    ).bind(newId("transition"), snapshot.orgId, finalState, event.event_id, at),
-    lifecycleStatement(env.TEAM_CONTROL_DB, {
-      orgId: snapshot.orgId,
-      eventName: "payment_succeeded_v1",
-      sourceRef: event.event_id,
+    ).bind(finalTransitionId, snapshot.orgId, finalState, event.event_id, at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO lifecycle_events
+        (event_id, org_id, event_name, source_ref, event_day, created_at)
+       VALUES (?1, ?2, 'payment_succeeded_v1', ?3, ?4, ?5)`
+    ).bind(paymentLifecycleId, snapshot.orgId, event.event_id, at.slice(0, 10), at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO lifecycle_events
+        (event_id, org_id, event_name, source_ref, event_day, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+    ).bind(
+      entitlementLifecycleId,
+      snapshot.orgId,
+      renewal ? "subscription_renewed_v1" : "entitlement_activated_v1",
+      event.event_id,
+      at.slice(0, 10),
       at
-    }),
-    lifecycleStatement(env.TEAM_CONTROL_DB, {
-      orgId: snapshot.orgId,
-      eventName: renewal ? "subscription_renewed_v1" : "entitlement_activated_v1",
-      sourceRef: event.event_id,
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO audit_events
+        (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+       VALUES (?1, ?2, 'reconciler', 'stripe-readonly-adapter', ?3,
+               'provider_event', ?4, ?5, ?6)`
+    ).bind(
+      auditId,
+      snapshot.orgId,
+      renewal ? "billing.subscription.renewed" : "billing.entitlement.activated",
+      event.event_id,
+      JSON.stringify({ internal_price_id: snapshot.internalPriceId }),
       at
-    }),
-    auditStatement(env.TEAM_CONTROL_DB, {
-      orgId: snapshot.orgId,
-      actorType: "reconciler",
-      actorId: "stripe-readonly-adapter",
-      action: renewal ? "billing.subscription.renewed" : "billing.entitlement.activated",
-      resourceType: "provider_event",
-      resourceId: event.event_id,
-      metadata: { internal_price_id: snapshot.internalPriceId },
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'billing_payment_reconciled', ?2,
+         CASE WHEN
+           EXISTS (
+             SELECT 1 FROM provider_reconciliation_snapshots
+              WHERE reconciliation_id = ?3 AND source_event_id = ?2 AND result = 'applied'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_events
+              WHERE event_id = ?2 AND org_id = ?4 AND status = 'reconciled'
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_accounts
+              WHERE org_id = ?4 AND billing_generation = ?5
+                AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+                AND commercial_state = ?8 AND current_recognized_mrr_micros = ?9
+                AND last_reconciled_event_id = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM entitlements
+              WHERE org_id = ?4 AND status = 'active' AND source_event_id = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM cash_ledger
+              WHERE id = ?10 AND org_id = ?4 AND source_event_id = ?2
+                AND entry_type = 'payment' AND amount_cents = ?11
+           )
+           AND EXISTS (
+             SELECT 1 FROM revenue_ledger
+              WHERE id = ?12 AND org_id = ?4 AND source_event_id = ?2
+                AND entry_type = ?13 AND recognized_mrr_delta_micros = ?14
+           )
+           AND EXISTS (
+             SELECT 1 FROM commercial_transitions
+              WHERE id = ?15 AND org_id = ?4 AND source_ref = ?2 AND to_state = 'paid'
+           )
+           AND EXISTS (
+             SELECT 1 FROM commercial_transitions
+              WHERE id = ?16 AND org_id = ?4 AND source_ref = ?2 AND to_state = ?8
+           )
+           AND EXISTS (
+             SELECT 1 FROM lifecycle_events
+              WHERE event_id = ?17 AND org_id = ?4 AND source_ref = ?2
+                AND event_name = 'payment_succeeded_v1'
+           )
+           AND EXISTS (
+             SELECT 1 FROM lifecycle_events
+              WHERE event_id = ?18 AND org_id = ?4 AND source_ref = ?2
+                AND event_name = ?19
+           )
+           AND EXISTS (
+             SELECT 1 FROM audit_events
+              WHERE id = ?20 AND org_id = ?4 AND resource_id = ?2 AND action = ?21
+           )
+         THEN 1 ELSE 0 END, ?22)`
+    ).bind(
+      receiptId,
+      event.event_id,
+      snapshot.reconciliationId,
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId,
+      finalState,
+      mrr,
+      cashId,
+      snapshot.cashAmountCents,
+      revenueId,
+      renewal ? "mrr_renewed" : "mrr_started",
+      mrr - previousMrr,
+      paidTransitionId,
+      finalTransitionId,
+      paymentLifecycleId,
+      entitlementLifecycleId,
+      renewal ? "subscription_renewed_v1" : "entitlement_activated_v1",
+      auditId,
+      renewal ? "billing.subscription.renewed" : "billing.entitlement.activated",
       at
-    })
+    )
   );
-  await env.TEAM_CONTROL_DB.batch(statements);
+  const results = await env.TEAM_CONTROL_DB.batch(statements);
+  if (results.some((result) => (result.meta.changes ?? 0) !== 1)) {
+    throw new ApiError(409, "payment_reconciliation_conflict", "Payment reconciliation lost its exact generation binding.");
+  }
 }
 
 async function applyPaymentFailure(
@@ -1685,40 +2369,177 @@ async function applyPaymentFailure(
   }
   const at = nowIso();
   const graceUntil = new Date(Date.parse(snapshot.observedAt) + 7 * 86_400_000).toISOString();
+  const transitionId = newId("transition");
+  const lifecycleId = newId("life");
+  const auditId = newId("audit");
+  const receiptId = newId("integrity");
   const statements = reconciliationBaseStatements(env, snapshot, event, payloadHash, at);
   statements.push(
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE billing_accounts SET commercial_state = 'past_due', grace_until = ?1,
         last_reconciled_event_created = ?2, last_reconciled_event_id = ?3, updated_at = ?4
-       WHERE org_id = ?5`
-    ).bind(graceUntil, event.event_created, event.event_id, at, snapshot.orgId),
+       WHERE org_id = ?5 AND billing_generation = ?6
+         AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+         AND internal_price_id = ?9
+         AND EXISTS (
+           SELECT 1 FROM billing_generations
+            WHERE org_id = ?5 AND generation = ?6 AND status = 'bound'
+              AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+              AND internal_price_id = ?9
+         )`
+    ).bind(
+      graceUntil,
+      event.event_created,
+      event.event_id,
+      at,
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId,
+      snapshot.internalPriceId
+    ),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE entitlements SET status = 'grace', grace_until = ?1, source_event_id = ?2, updated_at = ?3
-       WHERE org_id = ?4`
-    ).bind(graceUntil, event.event_id, at, snapshot.orgId),
+       WHERE org_id = ?4
+         AND EXISTS (
+           SELECT 1 FROM billing_accounts
+            WHERE org_id = ?4 AND billing_generation = ?5
+              AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+              AND internal_price_id = ?8 AND commercial_state = 'past_due'
+              AND last_reconciled_event_id = ?2
+         )`
+    ).bind(
+      graceUntil,
+      event.event_id,
+      at,
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId,
+      snapshot.internalPriceId
+    ),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO commercial_transitions
         (id, org_id, from_state, to_state, source, source_ref, occurred_at)
-       VALUES (?1, ?2, ?3, 'past_due', 'provider_reconciliation', ?4, ?5)`
-    ).bind(newId("transition"), snapshot.orgId, account.commercial_state, event.event_id, at),
-    lifecycleStatement(env.TEAM_CONTROL_DB, {
-      orgId: snapshot.orgId,
-      eventName: "payment_failed_v1",
-      sourceRef: event.event_id,
+       SELECT ?1, ?2, ?3, 'past_due', 'provider_reconciliation', ?4, ?5
+        WHERE EXISTS (
+          SELECT 1 FROM billing_accounts
+           WHERE org_id = ?2 AND billing_generation = ?6
+             AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+             AND commercial_state = 'past_due' AND last_reconciled_event_id = ?4
+        )`
+    ).bind(
+      transitionId,
+      snapshot.orgId,
+      account.commercial_state,
+      event.event_id,
+      at,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO lifecycle_events
+        (event_id, org_id, event_name, source_ref, event_day, created_at)
+       SELECT ?1, ?2, 'payment_failed_v1', ?3, ?4, ?5
+        WHERE EXISTS (
+          SELECT 1 FROM billing_accounts
+           WHERE org_id = ?2 AND billing_generation = ?6
+             AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+             AND commercial_state = 'past_due' AND last_reconciled_event_id = ?3
+        )`
+    ).bind(
+      lifecycleId,
+      snapshot.orgId,
+      event.event_id,
+      at.slice(0, 10),
+      at,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO audit_events
+        (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+       SELECT ?1, ?2, 'reconciler', 'stripe-readonly-adapter', 'billing.payment.failed',
+              'provider_event', ?3, ?4, ?5
+        WHERE EXISTS (
+          SELECT 1 FROM billing_accounts
+           WHERE org_id = ?2 AND billing_generation = ?6
+             AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+             AND commercial_state = 'past_due' AND last_reconciled_event_id = ?3
+        )`
+    ).bind(
+      auditId,
+      snapshot.orgId,
+      event.event_id,
+      JSON.stringify({ grace_until: graceUntil }),
+      at,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'payment_failure_reconciliation', ?2,
+         CASE WHEN
+           EXISTS (
+             SELECT 1 FROM provider_reconciliation_snapshots
+              WHERE reconciliation_id = ?3 AND source_event_id = ?2 AND org_id = ?4
+                AND snapshot_kind = 'payment_failure' AND result = 'applied'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_events
+              WHERE event_id = ?2 AND org_id = ?4 AND status = 'reconciled'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_state_cursors
+              WHERE org_id = ?4 AND event_id = ?2 AND reconciliation_id = ?3 AND status = 'applied'
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_accounts
+              WHERE org_id = ?4 AND billing_generation = ?5
+                AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+                AND internal_price_id = ?8 AND commercial_state = 'past_due'
+                AND grace_until = ?9 AND last_reconciled_event_id = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM entitlements
+              WHERE org_id = ?4 AND status = 'grace' AND grace_until = ?9 AND source_event_id = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM commercial_transitions
+              WHERE id = ?10 AND org_id = ?4 AND to_state = 'past_due' AND source_ref = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM lifecycle_events
+              WHERE event_id = ?11 AND org_id = ?4 AND event_name = 'payment_failed_v1' AND source_ref = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM audit_events
+              WHERE id = ?12 AND org_id = ?4 AND action = 'billing.payment.failed' AND resource_id = ?2
+           )
+         THEN 1 ELSE 0 END, ?13)`
+    ).bind(
+      receiptId,
+      event.event_id,
+      snapshot.reconciliationId,
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId,
+      snapshot.internalPriceId,
+      graceUntil,
+      transitionId,
+      lifecycleId,
+      auditId,
       at
-    }),
-    auditStatement(env.TEAM_CONTROL_DB, {
-      orgId: snapshot.orgId,
-      actorType: "reconciler",
-      actorId: "stripe-readonly-adapter",
-      action: "billing.payment.failed",
-      resourceType: "provider_event",
-      resourceId: event.event_id,
-      metadata: { grace_until: graceUntil },
-      at
-    })
+    )
   );
-  await env.TEAM_CONTROL_DB.batch(statements);
+  const results = await env.TEAM_CONTROL_DB.batch(statements);
+  if (results.some((result) => (result.meta.changes ?? 0) !== 1)) {
+    throw new ApiError(409, "payment_failure_reconciliation_conflict", "Payment failure lost its exact generation binding.");
+  }
 }
 
 async function applyRefund(
@@ -1758,6 +2579,13 @@ async function applyRefund(
   }
   const adjustment = recognizedMrrMicros(snapshot.netRecurringAmountCents, snapshot.internalPriceId);
   const fullyRefunded = snapshot.cumulativeRefundAmountCents === sourcePayment.amount_cents;
+  const expectedMrr = fullyRefunded ? 0 : Math.max(0, account.current_recognized_mrr_micros - adjustment);
+  const cashId = newId("cash");
+  const revenueId = newId("revenue");
+  const transitionId = newId("transition");
+  const lifecycleId = newId("life");
+  const auditId = newId("audit");
+  const receiptId = newId("integrity");
   const at = nowIso();
   const statements = reconciliationBaseStatements(env, snapshot, event, payloadHash, at);
   statements.push(
@@ -1803,7 +2631,8 @@ async function applyRefund(
           ELSE MAX(0, current_recognized_mrr_micros - ?3)
         END,
         last_reconciled_event_created = ?4, last_reconciled_event_id = ?5, updated_at = ?6
-       WHERE org_id = ?7`
+       WHERE org_id = ?7 AND billing_generation = ?8
+         AND provider_customer_id = ?9 AND provider_subscription_id = ?10`
     ).bind(
       fullyRefunded ? "refunded" : account.commercial_state,
       fullyRefunded ? 1 : 0,
@@ -1811,7 +2640,10 @@ async function applyRefund(
       event.event_created,
       event.event_id,
       at,
-      snapshot.orgId
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId
     ),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE entitlements SET status = ?1, source_event_id = ?2, updated_at = ?3 WHERE org_id = ?4`
@@ -1820,49 +2652,142 @@ async function applyRefund(
       `INSERT INTO cash_ledger
         (id, org_id, source_event_id, entry_type, amount_cents, currency, occurred_at)
        VALUES (?1, ?2, ?3, 'refund', ?4, 'usd', ?5)`
-    ).bind(newId("cash"), snapshot.orgId, event.event_id, -snapshot.refundAmountCents, at),
+    ).bind(cashId, snapshot.orgId, event.event_id, -snapshot.refundAmountCents, at),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO revenue_ledger
         (id, org_id, source_event_id, entry_type, recognized_mrr_delta_micros, currency,
          recognized_period_start, recognized_period_end, occurred_at)
        VALUES (?1, ?2, ?3, 'mrr_refund_adjustment', ?4, 'usd', ?5, ?6, ?7)`
-    ).bind(newId("revenue"), snapshot.orgId, event.event_id, -adjustment, snapshot.periodStart, snapshot.periodEnd, at),
+    ).bind(revenueId, snapshot.orgId, event.event_id, -adjustment, snapshot.periodStart, snapshot.periodEnd, at),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO commercial_transitions
         (id, org_id, from_state, to_state, source, source_ref, occurred_at)
        VALUES (?1, ?2, ?3, ?4, 'provider_reconciliation', ?5, ?6)`
     ).bind(
-      newId("transition"),
+      transitionId,
       snapshot.orgId,
       account.commercial_state,
       fullyRefunded ? "refunded" : account.commercial_state,
       event.event_id,
       at
     ),
-    lifecycleStatement(env.TEAM_CONTROL_DB, {
-      orgId: snapshot.orgId,
-      eventName: "refund_issued_v1",
-      sourceRef: event.event_id,
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO lifecycle_events
+        (event_id, org_id, event_name, source_ref, event_day, created_at)
+       VALUES (?1, ?2, 'refund_issued_v1', ?3, ?4, ?5)`
+    ).bind(lifecycleId, snapshot.orgId, event.event_id, at.slice(0, 10), at),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO audit_events
+        (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+       VALUES (?1, ?2, 'reconciler', 'stripe-readonly-adapter', 'billing.refund.confirmed',
+               'provider_event', ?3, ?4, ?5)`
+    ).bind(
+      auditId,
+      snapshot.orgId,
+      event.event_id,
+      JSON.stringify({ amount_cents: snapshot.refundAmountCents, full: fullyRefunded }),
       at
-    }),
-    auditStatement(env.TEAM_CONTROL_DB, {
-      orgId: snapshot.orgId,
-      actorType: "reconciler",
-      actorId: "stripe-readonly-adapter",
-      action: "billing.refund.confirmed",
-      resourceType: "provider_event",
-      resourceId: event.event_id,
-      metadata: { amount_cents: snapshot.refundAmountCents, full: fullyRefunded },
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'billing_refund_reconciled', ?2,
+         CASE WHEN
+           EXISTS (
+             SELECT 1 FROM provider_reconciliation_snapshots
+              WHERE reconciliation_id = ?3 AND source_event_id = ?2 AND result = 'applied'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_events
+              WHERE event_id = ?2 AND org_id = ?4 AND status = 'reconciled'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_refund_applications
+              WHERE provider_refund_id = ?5 AND org_id = ?4
+                AND source_refund_event_id = ?2 AND source_payment_event_id = ?6
+                AND amount_cents = ?7 AND cumulative_amount_cents = ?8
+           )
+           AND (
+             (?9 IS NULL AND NOT EXISTS (
+               SELECT 1 FROM provider_refund_applications
+                WHERE provider_refund_id = ?5 AND billing_command_id IS NOT NULL
+             )) OR EXISTS (
+               SELECT 1 FROM billing_commands
+                WHERE id = ?9 AND org_id = ?4 AND status = 'confirmed'
+             )
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_accounts
+              WHERE org_id = ?4 AND billing_generation = ?10
+                AND provider_customer_id = ?11 AND provider_subscription_id = ?12
+                AND commercial_state = ?13 AND current_recognized_mrr_micros = ?14
+                AND last_reconciled_event_id = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_generations
+              WHERE org_id = ?4 AND generation = ?10 AND status = 'bound'
+                AND provider_customer_id = ?11 AND provider_subscription_id = ?12
+           )
+           AND EXISTS (
+             SELECT 1 FROM entitlements
+              WHERE org_id = ?4 AND status = ?15 AND source_event_id = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM cash_ledger
+              WHERE id = ?16 AND org_id = ?4 AND source_event_id = ?2
+                AND entry_type = 'refund' AND amount_cents = ?17
+           )
+           AND EXISTS (
+             SELECT 1 FROM revenue_ledger
+              WHERE id = ?18 AND org_id = ?4 AND source_event_id = ?2
+                AND entry_type = 'mrr_refund_adjustment'
+                AND recognized_mrr_delta_micros = ?19
+           )
+           AND EXISTS (
+             SELECT 1 FROM commercial_transitions
+              WHERE id = ?20 AND org_id = ?4 AND source_ref = ?2 AND to_state = ?13
+           )
+           AND EXISTS (
+             SELECT 1 FROM lifecycle_events
+              WHERE event_id = ?21 AND org_id = ?4 AND source_ref = ?2
+                AND event_name = 'refund_issued_v1'
+           )
+           AND EXISTS (
+             SELECT 1 FROM audit_events
+              WHERE id = ?22 AND org_id = ?4 AND resource_id = ?2
+                AND action = 'billing.refund.confirmed'
+           )
+         THEN 1 ELSE 0 END, ?23)`
+    ).bind(
+      receiptId,
+      event.event_id,
+      snapshot.reconciliationId,
+      snapshot.orgId,
+      snapshot.providerRefundId,
+      snapshot.sourcePaymentEventId,
+      snapshot.refundAmountCents,
+      snapshot.cumulativeRefundAmountCents,
+      snapshot.billingCommandId,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId,
+      fullyRefunded ? "refunded" : account.commercial_state,
+      expectedMrr,
+      fullyRefunded ? "refunded" : "active",
+      cashId,
+      -snapshot.refundAmountCents,
+      revenueId,
+      -adjustment,
+      transitionId,
+      lifecycleId,
+      auditId,
       at
-    })
+    )
   );
   const results = await env.TEAM_CONTROL_DB.batch(statements);
   const expectedCommandChanges = snapshot.billingCommandId === null ? 0 : 1;
-  if (
-    (results[3]?.meta.changes ?? 0) !== 1 ||
-    (results[4]?.meta.changes ?? 0) !== expectedCommandChanges ||
-    (results[5]?.meta.changes ?? 0) !== 1
-  ) {
+  const expectedChanges = results.map((_, index) => (index === 2 || index === 4 ? 0 : 1));
+  expectedChanges[4] = expectedCommandChanges;
+  if (results.some((result, index) => (result.meta.changes ?? 0) !== expectedChanges[index])) {
     throw new ApiError(409, "refund_binding_conflict", "Refund reconciliation lost its exact command binding.");
   }
 }
@@ -1885,6 +2810,51 @@ async function applySubscription(
   const nextMrr = canceled ? 0 : account.current_recognized_mrr_micros;
   const graceUntil = pastDue ? new Date(Date.parse(snapshot.observedAt) + 7 * 86_400_000).toISOString() : null;
   const statements = reconciliationBaseStatements(env, snapshot, event, payloadHash, at);
+  const requiredResultIndices = [0, 1, 2];
+  const pushRequired = (statement: D1PreparedStatement): void => {
+    requiredResultIndices.push(statements.length);
+    statements.push(statement);
+  };
+  if (canceled) {
+    pushRequired(
+      env.TEAM_CONTROL_DB.prepare(
+        `UPDATE billing_generations
+            SET status = 'terminal_verified', terminal_verified_at = ?1, terminal_source_event_id = ?2
+          WHERE org_id = ?3 AND generation = ?4 AND status = 'bound'
+            AND provider_customer_id = ?5 AND provider_subscription_id = ?6
+            AND EXISTS (
+              SELECT 1 FROM provider_events
+               WHERE event_id = ?2 AND org_id = ?3 AND event_type = 'customer.subscription.deleted'
+                 AND status = 'reconciled'
+            )`
+      ).bind(
+        at,
+        event.event_id,
+        snapshot.orgId,
+        snapshot.billingGeneration,
+        snapshot.providerCustomerId,
+        snapshot.providerSubscriptionId
+      )
+    );
+    pushRequired(
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_generation_events
+          (id, org_id, generation, event_type, source_ref, occurred_at)
+         SELECT ?1, ?2, ?3, 'terminal_verified', ?4, ?5
+          WHERE EXISTS (
+            SELECT 1 FROM billing_generations
+             WHERE org_id = ?2 AND generation = ?3 AND status = 'terminal_verified'
+               AND terminal_source_event_id = ?4
+          )`
+      ).bind(
+        `billing_generation_terminal_${event.event_id}`,
+        snapshot.orgId,
+        snapshot.billingGeneration,
+        event.event_id,
+        at
+      )
+    );
+  }
   statements.push(
     ...(snapshot.cancelAtPeriodEnd || canceled
       ? [
@@ -1899,7 +2869,9 @@ async function applySubscription(
       `UPDATE billing_accounts SET commercial_state = ?1, current_period_start = ?2,
         current_period_end = ?3, grace_until = ?4, cancel_at_period_end = ?5,
         current_recognized_mrr_micros = ?6, last_reconciled_event_created = ?7,
-        last_reconciled_event_id = ?8, updated_at = ?9 WHERE org_id = ?10`
+        last_reconciled_event_id = ?8, updated_at = ?9
+       WHERE org_id = ?10 AND billing_generation = ?11
+         AND provider_customer_id = ?12 AND provider_subscription_id = ?13`
     ).bind(
       nextState,
       snapshot.periodStart,
@@ -1910,7 +2882,10 @@ async function applySubscription(
       event.event_created,
       event.event_id,
       at,
-      snapshot.orgId
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId
     ),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE entitlements SET status = ?1, ends_at = ?2, grace_until = ?3,
@@ -1975,7 +2950,57 @@ async function applySubscription(
       })
     );
   }
-  await env.TEAM_CONTROL_DB.batch(statements);
+  pushRequired(
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'billing_subscription_reconciled', ?2,
+         CASE WHEN
+           EXISTS (
+             SELECT 1 FROM provider_reconciliation_snapshots
+              WHERE reconciliation_id = ?3 AND source_event_id = ?2 AND result = 'applied'
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_events WHERE event_id = ?2 AND status = 'reconciled'
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_accounts
+              WHERE org_id = ?4 AND billing_generation = ?5
+                AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+                AND commercial_state = ?8 AND current_recognized_mrr_micros = ?9
+                AND last_reconciled_event_id = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM entitlements
+              WHERE org_id = ?4 AND status = ?10 AND source_event_id = ?2
+           )
+           AND (
+             ?11 = 0 OR EXISTS (
+               SELECT 1 FROM billing_generations
+                WHERE org_id = ?4 AND generation = ?5 AND status = 'terminal_verified'
+                  AND provider_customer_id = ?6 AND provider_subscription_id = ?7
+                  AND terminal_source_event_id = ?2
+             )
+           )
+         THEN 1 ELSE 0 END, ?12)`
+    ).bind(
+      `integrity_billing_subscription_${event.event_id}`,
+      event.event_id,
+      snapshot.reconciliationId,
+      snapshot.orgId,
+      snapshot.billingGeneration,
+      snapshot.providerCustomerId,
+      snapshot.providerSubscriptionId,
+      nextState,
+      nextMrr,
+      canceled ? "expired" : pastDue ? "grace" : "active",
+      canceled ? 1 : 0,
+      at
+    )
+  );
+  const results = await env.TEAM_CONTROL_DB.batch(statements);
+  if (requiredResultIndices.some((index) => (results[index]?.meta.changes ?? 0) !== 1)) {
+    throw new ApiError(409, "subscription_reconciliation_conflict", "Subscription reconciliation lost its exact generation binding.");
+  }
 }
 
 export async function getEntitlementAndRevenue(env: Env, auth: AuthContext): Promise<Response> {

@@ -280,6 +280,32 @@ export async function confirmIndividualDeletion(
         )`
     ).bind(identity.canonical_subject_token),
     db.prepare(
+      `DELETE FROM workflow_integrity_receipts
+        WHERE (
+          workflow_type = 'github_lifecycle_head_recorded' AND source_ref IN (
+            SELECT delivery_id FROM github_personal_deliveries
+             WHERE subject_token IN (
+               SELECT subject_token FROM individual_identities
+                WHERE subject_token = ?1 OR canonical_subject_token = ?1
+             ) OR installation_id IN (
+               SELECT installation_id FROM github_installation_release_reconciliations
+                WHERE lane = 'personal' AND owner_ref IN (
+                  SELECT subject_token FROM individual_identities
+                   WHERE subject_token = ?1 OR canonical_subject_token = ?1
+                )
+             )
+          )
+        ) OR (
+          workflow_type = 'github_personal_not_found_release' AND source_ref IN (
+            SELECT reconciliation_id FROM github_installation_release_reconciliations
+             WHERE lane = 'personal' AND owner_ref IN (
+               SELECT subject_token FROM individual_identities
+                WHERE subject_token = ?1 OR canonical_subject_token = ?1
+             )
+          )
+        )`
+    ).bind(identity.canonical_subject_token),
+    db.prepare(
       `DELETE FROM github_personal_installation_reconciliations
         WHERE subject_token IN (
           SELECT subject_token FROM individual_identities
@@ -295,6 +321,11 @@ export async function confirmIndividualDeletion(
           SELECT c.installation_id FROM github_personal_installation_claims c
           JOIN individual_identities i ON i.subject_token = c.subject_token
           WHERE i.subject_token = ?1 OR i.canonical_subject_token = ?1
+          UNION SELECT installation_id FROM github_installation_release_reconciliations
+            WHERE lane = 'personal' AND owner_ref IN (
+              SELECT subject_token FROM individual_identities
+               WHERE subject_token = ?1 OR canonical_subject_token = ?1
+            )
         )`
     ).bind(identity.canonical_subject_token),
     db.prepare(
@@ -314,20 +345,69 @@ export async function confirmIndividualDeletion(
     ).bind(identity.canonical_subject_token),
     db.prepare(
       `DELETE FROM github_installation_provider_proofs
-        WHERE github_account_node_id IN (
+        WHERE account_type = 'User' AND (github_account_node_id IN (
           SELECT github_account_node_id FROM individual_identities
            WHERE subject_token = ?1 OR canonical_subject_token = ?1
         ) OR delivery_id IN (
           SELECT c.provider_proof_delivery_id FROM github_personal_installation_claims c
           JOIN individual_identities i ON i.subject_token = c.subject_token
           WHERE i.subject_token = ?1 OR i.canonical_subject_token = ?1
-        )`
+        ) OR installation_id IN (
+          SELECT installation_id FROM github_installation_release_reconciliations
+           WHERE lane = 'personal' AND owner_ref IN (
+             SELECT subject_token FROM individual_identities
+              WHERE subject_token = ?1 OR canonical_subject_token = ?1
+           )
+        ))`
     ).bind(identity.canonical_subject_token),
     db.prepare(
       `DELETE FROM github_personal_installation_claims
         WHERE subject_token IN (
           SELECT subject_token FROM individual_identities
            WHERE subject_token = ?1 OR canonical_subject_token = ?1
+        )`
+    ).bind(identity.canonical_subject_token),
+    db.prepare(
+      `DELETE FROM github_installation_lifecycle_heads
+        WHERE account_type = 'User' AND (
+          github_account_node_id IN (
+            SELECT github_account_node_id FROM individual_identities
+             WHERE subject_token = ?1 OR canonical_subject_token = ?1
+          ) OR installation_id IN (
+            SELECT installation_id FROM github_installation_release_reconciliations
+             WHERE lane = 'personal' AND owner_ref IN (
+               SELECT subject_token FROM individual_identities
+                WHERE subject_token = ?1 OR canonical_subject_token = ?1
+             )
+          )
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_installations
+             WHERE installation_id = github_installation_lifecycle_heads.installation_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_installation_claims
+             WHERE installation_id = github_installation_lifecycle_heads.installation_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installations
+             WHERE installation_id = github_installation_lifecycle_heads.installation_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_personal_installation_claims
+             WHERE installation_id = github_installation_lifecycle_heads.installation_id
+          )`
+    ).bind(identity.canonical_subject_token),
+    db.prepare(
+      `DELETE FROM github_installation_release_reconciliations
+        WHERE lane = 'personal' AND (
+          owner_ref IN (
+            SELECT subject_token FROM individual_identities
+             WHERE subject_token = ?1 OR canonical_subject_token = ?1
+          ) OR github_account_node_id IN (
+            SELECT github_account_node_id FROM individual_identities
+             WHERE subject_token = ?1 OR canonical_subject_token = ?1
+          )
         )`
     ).bind(identity.canonical_subject_token),
     db.prepare(

@@ -1089,7 +1089,23 @@ export async function individualReportProjection(env: Env, generatedAt: string):
 }
 
 export async function exportIndividualMeasurement(db: D1Database, canonicalSubjectToken: string): Promise<object> {
-  const [identities, consents, claims, installations, attestations, rotations, merges, events, audit] =
+  const [
+    identities,
+    consents,
+    claims,
+    installations,
+    githubProofs,
+    githubLifecycleHeads,
+    githubDeliveries,
+    githubReconciliations,
+    githubReleaseReconciliations,
+    githubIntegrityReceipts,
+    attestations,
+    rotations,
+    merges,
+    events,
+    audit
+  ] =
     await Promise.all([
       db.prepare(
         `SELECT subject_token, canonical_subject_token, github_account_node_id, auth_subject_sha256,
@@ -1122,6 +1138,118 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
            FROM github_personal_installations p
            JOIN individual_identities i ON i.subject_token = p.subject_token
           WHERE i.subject_token = ?1 OR i.canonical_subject_token = ?1`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT delivery_id, installation_id, github_account_node_id, account_type,
+                verified_at, expires_at, consumed_at, consumed_by_lane,
+                invalidated_at, invalidated_by_delivery_id
+           FROM github_installation_provider_proofs
+          WHERE account_type = 'User' AND (
+            github_account_node_id IN (
+              SELECT github_account_node_id FROM individual_identities
+               WHERE subject_token = ?1 OR canonical_subject_token = ?1
+            ) OR installation_id IN (
+              SELECT installation_id FROM github_installation_release_reconciliations
+               WHERE lane = 'personal' AND owner_ref IN (
+                 SELECT subject_token FROM individual_identities
+                  WHERE subject_token = ?1 OR canonical_subject_token = ?1
+               )
+            )
+          ) ORDER BY verified_at, delivery_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT installation_id, github_account_node_id, account_type, creation_delivery_id,
+                latest_delivery_id, latest_event_created_at, latest_action, terminal, updated_at
+           FROM github_installation_lifecycle_heads
+          WHERE account_type = 'User' AND (
+            github_account_node_id IN (
+              SELECT github_account_node_id FROM individual_identities
+               WHERE subject_token = ?1 OR canonical_subject_token = ?1
+            ) OR installation_id IN (
+              SELECT installation_id FROM github_installation_release_reconciliations
+               WHERE lane = 'personal' AND owner_ref IN (
+                 SELECT subject_token FROM individual_identities
+                  WHERE subject_token = ?1 OR canonical_subject_token = ?1
+               )
+            )
+          ) ORDER BY latest_event_created_at, installation_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT delivery_id, event_name, action, installation_id, account_type,
+                event_created_at, result, received_at
+           FROM github_personal_deliveries
+          WHERE subject_token IN (
+            SELECT subject_token FROM individual_identities
+             WHERE subject_token = ?1 OR canonical_subject_token = ?1
+          ) OR installation_id IN (
+            SELECT installation_id FROM github_installation_release_reconciliations
+             WHERE lane = 'personal' AND owner_ref IN (
+               SELECT subject_token FROM individual_identities
+                WHERE subject_token = ?1 OR canonical_subject_token = ?1
+             )
+          ) ORDER BY event_created_at, delivery_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT reconciliation_id, source_delivery_id, installation_id, account_type,
+                observed_at, result, applied_at
+           FROM github_personal_installation_reconciliations
+          WHERE subject_token IN (
+            SELECT subject_token FROM individual_identities
+             WHERE subject_token = ?1 OR canonical_subject_token = ?1
+          ) ORDER BY observed_at, reconciliation_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT reconciliation_id, source_delivery_id, installation_id, github_account_node_id,
+                lane, owner_ref, observed_at, result, applied_at
+           FROM github_installation_release_reconciliations
+          WHERE lane = 'personal' AND (
+            owner_ref IN (
+              SELECT subject_token FROM individual_identities
+               WHERE subject_token = ?1 OR canonical_subject_token = ?1
+            ) OR github_account_node_id IN (
+              SELECT github_account_node_id FROM individual_identities
+               WHERE subject_token = ?1 OR canonical_subject_token = ?1
+            )
+          ) ORDER BY observed_at, reconciliation_id`
+      )
+        .bind(canonicalSubjectToken)
+        .all(),
+      db.prepare(
+        `SELECT id, workflow_type, source_ref, valid, created_at
+           FROM workflow_integrity_receipts
+          WHERE (
+            workflow_type = 'github_lifecycle_head_recorded' AND source_ref IN (
+              SELECT delivery_id FROM github_personal_deliveries
+               WHERE subject_token IN (
+                 SELECT subject_token FROM individual_identities
+                  WHERE subject_token = ?1 OR canonical_subject_token = ?1
+               ) OR installation_id IN (
+                 SELECT installation_id FROM github_installation_release_reconciliations
+                  WHERE lane = 'personal' AND owner_ref IN (
+                    SELECT subject_token FROM individual_identities
+                     WHERE subject_token = ?1 OR canonical_subject_token = ?1
+                  )
+               )
+            )
+          ) OR (
+            workflow_type = 'github_personal_not_found_release' AND source_ref IN (
+              SELECT reconciliation_id FROM github_installation_release_reconciliations
+               WHERE lane = 'personal' AND owner_ref IN (
+                 SELECT subject_token FROM individual_identities
+                  WHERE subject_token = ?1 OR canonical_subject_token = ?1
+               )
+            )
+          ) ORDER BY created_at, id`
       )
         .bind(canonicalSubjectToken)
         .all(),
@@ -1181,6 +1309,12 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
     consents: consents.results.map((row) => ({ ...row, opted_in: Number(row.opted_in) === 1 })),
     personal_installation_claims: claims.results,
     personal_installations: installations.results,
+    github_provider_proofs: githubProofs.results,
+    github_lifecycle_heads: githubLifecycleHeads.results,
+    github_deliveries: githubDeliveries.results,
+    github_reconciliations: githubReconciliations.results,
+    github_release_reconciliations: githubReleaseReconciliations.results,
+    github_integrity_receipts: githubIntegrityReceipts.results,
     subject_attestations: attestations.results,
     auth_subject_rotations: rotations.results,
     identity_merges: merges.results,
