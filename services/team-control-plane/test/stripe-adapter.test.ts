@@ -580,8 +580,27 @@ describe.sequential("separate Stripe executor and reconciler", () => {
           (event_id, provider, event_type, object_id, org_id, event_created, payload_sha256,
            summary_json, status, received_at)
          VALUES ('evt_checkout_unexpected', 'stripe', 'checkout.session.completed', 'cs_unexpected',
-                 'org_main', ?1, ?2, '{}', 'rejected', ?3)`
-      ).bind(Math.floor(NOW / 1000), "f".repeat(64), at),
+                 'org_main', ?1, ?2, ?3, 'rejected', ?4)`
+      ).bind(
+        Math.floor(NOW / 1000),
+        "f".repeat(64),
+        JSON.stringify({
+          orgId: "org_main",
+          objectId: "cs_unexpected",
+          checkoutSessionId: "cs_unexpected",
+          customerId: "cus_unexpected",
+          subscriptionId: "sub_unexpected",
+          internalPriceId: "team_monthly_usd_v1",
+          providerPriceId: "price_team_monthly_test",
+          reportedInternalPriceId: "team_monthly_usd_v1",
+          reportedProviderPriceId: "price_team_monthly_test",
+          billingGeneration: 1,
+          reportedBillingGeneration: 1,
+          billingGenerationSource: "metadata",
+          checkoutIntentId
+        }),
+        at
+      ),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO checkout_subscription_compensations
           (id, org_id, billing_command_id, checkout_intent_id, billing_generation,
@@ -641,7 +660,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
               (SELECT COUNT(*) FROM billing_generation_events
                 WHERE org_id = 'org_main' AND generation = 1
                   AND event_type = 'unexpected_subscription_compensated'
-                  AND source_ref = 'sub_unexpected') AS compensation_events,
+                  AND source_ref = ?1) AS compensation_events,
               (SELECT COUNT(*) FROM audit_events
                 WHERE org_id = 'org_main'
                   AND action = 'billing.checkout.unexpected_subscription_compensated'
@@ -684,6 +703,7 @@ describe.sequential("separate Stripe executor and reconciler", () => {
       operation: "cancel_at_period_end",
       idempotency_key: "cancel_idem_1",
       provider_subscription_id: "sub_main",
+      billing_generation: 1,
       reason: "no_longer_needed"
     };
     await env.TEAM_CONTROL_DB.prepare(

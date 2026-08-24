@@ -44,18 +44,63 @@ export async function recordGitHubProviderProof(
     accountType: "Organization" | "User";
     action: Exclude<GitHubLifecycleAction, "provider_not_found">;
     eventCreatedAt: number;
-  }
-): Promise<void> {
+  },
+  materializationStatements: D1PreparedStatement[] = []
+): Promise<D1Result[]> {
   const verifiedAt = nowIso();
   const expiresAt = new Date(Date.parse(verifiedAt) + PROVIDER_PROOF_TTL_MS).toISOString();
   const terminal = input.action === "deleted" || input.action === "suspend";
-  await db.prepare(
+  const currentHead = await db.prepare(
+    `SELECT incarnation, github_account_node_id, account_type, latest_delivery_id, latest_event_created_at,
+            latest_action, terminal, creation_delivery_id
+       FROM github_installation_lifecycle_heads WHERE installation_id = ?1`
+  )
+    .bind(input.installationId)
+    .first<{
+      incarnation: number;
+      github_account_node_id: string;
+      account_type: string;
+      latest_delivery_id: string;
+      latest_event_created_at: number;
+      latest_action: GitHubLifecycleAction;
+      terminal: number;
+      creation_delivery_id: string | null;
+    }>();
+  if (
+    currentHead &&
+    (currentHead.github_account_node_id !== input.accountNodeId || currentHead.account_type !== input.accountType)
+  ) {
+    throw new ApiError(409, "github_lifecycle_identity_collision", "Verified GitHub lifecycle identity changed.");
+  }
+  if (
+    currentHead &&
+    !isGitHubLifecycleAdvance(
+      { deliveryId: input.deliveryId, eventCreatedAt: input.eventCreatedAt, action: input.action },
+      {
+        deliveryId: currentHead.latest_delivery_id,
+        eventCreatedAt: currentHead.latest_event_created_at,
+        action: currentHead.latest_action
+      }
+    )
+  ) {
+    throw new ApiError(409, "stale_github_lifecycle", "Older or ambiguously ordered GitHub lifecycle delivery was rejected.");
+  }
+
+  const receiptId = newId("integrity");
+  const results = await db.batch([
+    db.prepare(
       `INSERT INTO github_installation_lifecycle_heads
-        (installation_id, github_account_node_id, account_type, creation_delivery_id,
+        (installation_id, incarnation, github_account_node_id, account_type, creation_delivery_id,
          latest_delivery_id, latest_event_created_at, latest_action, terminal, updated_at)
-       VALUES (?1, ?2, ?3, CASE WHEN ?4 = 'created' THEN ?5 ELSE NULL END,
+       VALUES (?1, 1, ?2, ?3, CASE WHEN ?4 = 'created' THEN ?5 ELSE NULL END,
                ?5, ?6, ?4, ?7, ?8)
        ON CONFLICT(installation_id) DO UPDATE SET
+         incarnation = CASE
+           WHEN excluded.latest_action = 'created'
+             AND excluded.latest_delivery_id <> github_installation_lifecycle_heads.latest_delivery_id
+             THEN github_installation_lifecycle_heads.incarnation + 1
+           ELSE github_installation_lifecycle_heads.incarnation
+         END,
          creation_delivery_id = CASE
            WHEN excluded.latest_action = 'created' THEN excluded.latest_delivery_id
            ELSE github_installation_lifecycle_heads.creation_delivery_id
@@ -99,40 +144,7 @@ export async function recordGitHubProviderProof(
       input.eventCreatedAt,
       terminal ? 1 : 0,
       verifiedAt
-    )
-    .run();
-  const head = await db.prepare(
-    `SELECT github_account_node_id, account_type, latest_delivery_id, latest_event_created_at,
-            latest_action, terminal, creation_delivery_id
-       FROM github_installation_lifecycle_heads WHERE installation_id = ?1`
-  )
-    .bind(input.installationId)
-    .first<{
-      github_account_node_id: string;
-      account_type: string;
-      latest_delivery_id: string;
-      latest_event_created_at: number;
-      latest_action: string;
-      terminal: number;
-      creation_delivery_id: string | null;
-    }>();
-  if (
-    !head ||
-    head.github_account_node_id !== input.accountNodeId ||
-    head.account_type !== input.accountType
-  ) {
-    throw new ApiError(409, "github_lifecycle_identity_collision", "Verified GitHub lifecycle identity changed.");
-  }
-  if (
-    head.latest_delivery_id !== input.deliveryId ||
-    head.latest_event_created_at !== input.eventCreatedAt ||
-    head.latest_action !== input.action
-  ) {
-    throw new ApiError(409, "stale_github_lifecycle", "Older or ambiguously ordered GitHub lifecycle delivery was rejected.");
-  }
-
-  const receiptId = newId("integrity");
-  const results = await db.batch([
+    ),
     db.prepare(
       `DELETE FROM github_installation_provider_proofs
         WHERE expires_at <= ?1
@@ -147,14 +159,12 @@ export async function recordGitHubProviderProof(
     ).bind(verifiedAt),
     db.prepare(
       `INSERT OR IGNORE INTO github_installation_provider_proofs
-        (delivery_id, installation_id, github_account_node_id, account_type, verified_at, expires_at)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6
+        (delivery_id, installation_id, github_account_node_id, account_type, verified_at, expires_at, incarnation)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, incarnation
+         FROM github_installation_lifecycle_heads
         WHERE ?7 = 'created'
-          AND EXISTS (
-            SELECT 1 FROM github_installation_lifecycle_heads
-             WHERE installation_id = ?2 AND github_account_node_id = ?3 AND account_type = ?4
-               AND creation_delivery_id = ?1 AND latest_delivery_id = ?1 AND terminal = 0
-          )`
+          AND installation_id = ?2 AND github_account_node_id = ?3 AND account_type = ?4
+          AND creation_delivery_id = ?1 AND latest_delivery_id = ?1 AND terminal = 0`
     ).bind(
       input.deliveryId,
       input.installationId,
@@ -171,7 +181,9 @@ export async function recordGitHubProviderProof(
           AND ?4 = 1
           AND EXISTS (
             SELECT 1 FROM github_installation_lifecycle_heads
-             WHERE installation_id = ?3 AND latest_delivery_id = ?2 AND terminal = 1
+             WHERE installation_id = ?3
+               AND incarnation = github_installation_provider_proofs.incarnation
+               AND latest_delivery_id = ?2 AND terminal = 1
           )`
     ).bind(verifiedAt, input.deliveryId, input.installationId, terminal ? 1 : 0),
     db.prepare(
@@ -183,7 +195,9 @@ export async function recordGitHubProviderProof(
           )
           AND EXISTS (
             SELECT 1 FROM github_installation_lifecycle_heads
-             WHERE installation_id = ?1 AND latest_delivery_id = ?3 AND terminal = 1
+             WHERE installation_id = ?1
+               AND incarnation = github_installation_claims.incarnation
+               AND latest_delivery_id = ?3 AND terminal = 1
           )`
     ).bind(input.installationId, terminal ? 1 : 0, input.deliveryId),
     db.prepare(
@@ -195,9 +209,12 @@ export async function recordGitHubProviderProof(
           )
           AND EXISTS (
             SELECT 1 FROM github_installation_lifecycle_heads
-             WHERE installation_id = ?1 AND latest_delivery_id = ?3 AND terminal = 1
+             WHERE installation_id = ?1
+               AND incarnation = github_personal_installation_claims.incarnation
+               AND latest_delivery_id = ?3 AND terminal = 1
           )`
     ).bind(input.installationId, terminal ? 1 : 0, input.deliveryId),
+    ...materializationStatements,
     db.prepare(
       `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
        VALUES (?1, 'github_lifecycle_head_recorded', ?2,
@@ -213,11 +230,12 @@ export async function recordGitHubProviderProof(
                SELECT 1 FROM github_installation_provider_proofs p
                JOIN github_installation_lifecycle_heads h
                  ON h.installation_id = p.installation_id
-                AND h.creation_delivery_id = p.delivery_id
+               AND h.creation_delivery_id = p.delivery_id
                 AND h.latest_delivery_id = p.delivery_id
                 AND h.terminal = 0
               WHERE p.delivery_id = ?2 AND p.installation_id = ?3
                 AND p.github_account_node_id = ?4 AND p.account_type = ?5
+                AND p.incarnation = h.incarnation
                 AND p.invalidated_at IS NULL AND p.expires_at > ?9
              )
            )
@@ -225,11 +243,16 @@ export async function recordGitHubProviderProof(
              ?8 = 0 OR (
                NOT EXISTS (
                  SELECT 1 FROM github_installation_provider_proofs
-                  WHERE installation_id = ?3 AND invalidated_at IS NULL
+                  WHERE installation_id = ?3 AND incarnation = (
+                    SELECT incarnation FROM github_installation_lifecycle_heads WHERE installation_id = ?3
+                  ) AND invalidated_at IS NULL
                )
                AND NOT EXISTS (
                  SELECT 1 FROM github_installation_claims c
                   WHERE c.installation_id = ?3 AND c.status = 'claimed'
+                    AND c.incarnation = (
+                      SELECT incarnation FROM github_installation_lifecycle_heads WHERE installation_id = ?3
+                    )
                     AND NOT EXISTS (
                       SELECT 1 FROM github_installations i
                        WHERE i.installation_id = c.installation_id
@@ -238,6 +261,9 @@ export async function recordGitHubProviderProof(
                AND NOT EXISTS (
                  SELECT 1 FROM github_personal_installation_claims c
                   WHERE c.installation_id = ?3 AND c.status = 'claimed'
+                    AND c.incarnation = (
+                      SELECT incarnation FROM github_installation_lifecycle_heads WHERE installation_id = ?3
+                    )
                     AND NOT EXISTS (
                       SELECT 1 FROM github_personal_installations i
                        WHERE i.installation_id = c.installation_id
@@ -258,26 +284,54 @@ export async function recordGitHubProviderProof(
       verifiedAt
     )
   ]);
-  if ((results.at(-1)?.meta.changes ?? 0) !== 1) {
+  if ((results[0]?.meta.changes ?? 0) !== 1 || (results.at(-1)?.meta.changes ?? 0) !== 1) {
+    throw new ApiError(409, "github_lifecycle_commit_conflict", "Verified GitHub lifecycle effects were not committed atomically.");
+  }
+  const head = await db.prepare(
+    `SELECT incarnation, github_account_node_id, account_type, latest_delivery_id, latest_event_created_at,
+            latest_action, terminal, creation_delivery_id
+       FROM github_installation_lifecycle_heads WHERE installation_id = ?1`
+  )
+    .bind(input.installationId)
+    .first<{
+      incarnation: number;
+      github_account_node_id: string;
+      account_type: string;
+      latest_delivery_id: string;
+      latest_event_created_at: number;
+      latest_action: string;
+      terminal: number;
+      creation_delivery_id: string | null;
+    }>();
+  if (
+    !head ||
+    head.github_account_node_id !== input.accountNodeId ||
+    head.account_type !== input.accountType ||
+    head.latest_delivery_id !== input.deliveryId ||
+    head.latest_event_created_at !== input.eventCreatedAt ||
+    head.latest_action !== input.action
+  ) {
     throw new ApiError(409, "github_lifecycle_commit_conflict", "Verified GitHub lifecycle effects were not committed atomically.");
   }
   if (input.action === "created") {
     const proof = await db.prepare(
-      `SELECT installation_id, github_account_node_id, account_type
+      `SELECT installation_id, github_account_node_id, account_type, incarnation
          FROM github_installation_provider_proofs
         WHERE delivery_id = ?1 AND invalidated_at IS NULL`
     )
       .bind(input.deliveryId)
-      .first<{ installation_id: number; github_account_node_id: string; account_type: string }>();
+      .first<{ installation_id: number; github_account_node_id: string; account_type: string; incarnation: number }>();
     if (
       !proof ||
       proof.installation_id !== input.installationId ||
       proof.github_account_node_id !== input.accountNodeId ||
       proof.account_type !== input.accountType ||
+      proof.incarnation !== head.incarnation ||
       head.creation_delivery_id !== input.deliveryId ||
       head.terminal !== 0
     ) {
       throw new ApiError(409, "github_provider_proof_collision", "Verified GitHub delivery proof changed identity.");
     }
   }
+  return results;
 }

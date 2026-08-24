@@ -74,7 +74,8 @@ interface BillingCommandRow {
 
 interface CheckoutCommandStateRow {
   id: string;
-  status: "provider_accepted" | "confirmed";
+  status: "provider_accepted" | "confirmed" | "compensating" | "canceled";
+  resume_status: "provider_accepted" | "confirmed" | "canceled" | null;
 }
 
 interface BillingGenerationRow {
@@ -93,14 +94,24 @@ interface StripeSummary {
   subscriptionId: string | null;
   internalPriceId: InternalPriceId;
   providerPriceId: string;
+  reportedInternalPriceId: InternalPriceId;
+  reportedProviderPriceId: string;
   billingGeneration: number;
+  reportedBillingGeneration: number | null;
+  billingGenerationSource: "metadata" | "legacy_unique_binding" | "checkout_intent_binding";
   checkoutIntentId: string | null;
+  checkoutSessionId: string | null;
   refundId: string | null;
   refundAmountCents: number | null;
   refundChargeId: string | null;
   refundPaymentIntentId: string | null;
   refundSourcePaymentEventId: string | null;
   refundBillingCommandId: string | null;
+}
+
+interface UnresolvedStripeSummary extends Omit<StripeSummary, "billingGeneration" | "billingGenerationSource"> {
+  billingGeneration: number | null;
+  billingGenerationSource: "metadata" | "checkout_intent_binding";
 }
 
 interface ReconciliationSnapshot {
@@ -142,7 +153,10 @@ function parseMetadataValue(value: unknown): {
   orgId: string;
   internalPriceId: InternalPriceId;
   providerPriceId: string;
-  billingGeneration: number;
+  reportedInternalPriceId: InternalPriceId;
+  reportedProviderPriceId: string;
+  billingGeneration: number | null;
+  reportedBillingGeneration: number | null;
   checkoutIntentId: string | null;
 } {
   const metadata = requireObject(value, "provider metadata");
@@ -150,16 +164,23 @@ function parseMetadataValue(value: unknown): {
   if (!isInternalPriceId(metadata.internal_price_id)) {
     throw new ApiError(400, "invalid_provider_event", "Provider event contains an unknown internal price.");
   }
-  const billingGenerationRaw = requireString(metadata.billing_generation, "metadata.billing_generation", {
-    min: 1,
-    max: 10,
-    pattern: /^[1-9][0-9]{0,9}$/u
-  });
+  const billingGenerationRaw =
+    metadata.billing_generation === null || metadata.billing_generation === undefined
+      ? null
+      : requireString(metadata.billing_generation, "metadata.billing_generation", {
+          min: 1,
+          max: 10,
+          pattern: /^[1-9][0-9]{0,9}$/u
+        });
+  const reportedBillingGeneration = billingGenerationRaw === null ? null : Number(billingGenerationRaw);
   return {
     orgId,
     internalPriceId: metadata.internal_price_id,
     providerPriceId: requireOpaqueId(metadata.provider_price_id, "metadata.provider_price_id", 255),
-    billingGeneration: Number(billingGenerationRaw),
+    reportedInternalPriceId: metadata.internal_price_id,
+    reportedProviderPriceId: requireOpaqueId(metadata.provider_price_id, "metadata.provider_price_id", 255),
+    billingGeneration: reportedBillingGeneration,
+    reportedBillingGeneration,
     checkoutIntentId: nullableProviderId(metadata.checkout_intent_id, "metadata.checkout_intent_id")
   };
 }
@@ -183,7 +204,10 @@ function invoiceBinding(object: Record<string, unknown>): { metadata: unknown; s
   };
 }
 
-function extractStripeSummary(eventType: SupportedStripeEventType, object: Record<string, unknown>): StripeSummary {
+function extractStripeSummary(
+  eventType: Exclude<SupportedStripeEventType, "refund.created">,
+  object: Record<string, unknown>
+): UnresolvedStripeSummary {
   const invoice = eventType === "invoice.paid" || eventType === "invoice.payment_failed" ? invoiceBinding(object) : null;
   const metadata = parseMetadataValue(invoice?.metadata ?? object.metadata);
   const objectId = requireOpaqueId(object.id, "data.object.id", 255);
@@ -205,9 +229,11 @@ function extractStripeSummary(eventType: SupportedStripeEventType, object: Recor
   }
   return {
     ...metadata,
+    billingGenerationSource: metadata.billingGeneration === null ? "checkout_intent_binding" : "metadata",
     objectId,
     customerId,
     subscriptionId,
+    checkoutSessionId: eventType === "checkout.session.completed" ? objectId : null,
     refundId: null,
     refundAmountCents: null,
     refundChargeId: null,
@@ -365,8 +391,13 @@ async function extractRefundStripeSummary(env: Env, object: Record<string, unkno
     subscriptionId: requireOpaqueId(binding.provider_subscription_id, "provider_subscription_id", 255),
     internalPriceId: binding.internal_price_id,
     providerPriceId: binding.provider_price_id,
+    reportedInternalPriceId: binding.internal_price_id,
+    reportedProviderPriceId: binding.provider_price_id,
     billingGeneration: binding.billing_generation,
+    reportedBillingGeneration: binding.billing_generation,
+    billingGenerationSource: "metadata",
     checkoutIntentId: null,
+    checkoutSessionId: null,
     refundId,
     refundAmountCents: amountCents,
     refundChargeId: chargeId,
@@ -510,6 +541,156 @@ async function billingGeneration(
     )
     .bind(orgId, generation)
     .first<BillingGenerationRow>();
+}
+
+async function resolveStripeSummaryGeneration(
+  env: Env,
+  eventType: Exclude<SupportedStripeEventType, "refund.created">,
+  summary: UnresolvedStripeSummary
+): Promise<StripeSummary> {
+  const db = env.TEAM_CONTROL_DB;
+  if (eventType === "checkout.session.completed") {
+    if (!summary.checkoutIntentId) {
+      throw new ApiError(400, "invalid_provider_event", "Checkout session is missing its checkout intent identifier.");
+    }
+    const candidates = await db
+      .prepare(
+        `SELECT ci.billing_generation, ci.internal_price_id, ci.status AS checkout_status,
+                ci.provider_session_id AS checkout_session_id,
+                bg.status AS generation_status,
+                bg.provider_checkout_session_id,
+                bg.provider_customer_id, bg.provider_subscription_id,
+                EXISTS (
+                  SELECT 1 FROM workflow_integrity_receipts eligible
+                   WHERE eligible.workflow_type = 'legacy_billing_generation_bridge_eligible'
+                     AND eligible.source_ref = bg.org_id || ':' || CAST(bg.generation AS TEXT)
+                     AND eligible.valid = 1
+                ) AS legacy_bridge_eligible
+           FROM checkout_intents ci
+           JOIN billing_generations bg
+             ON bg.org_id = ci.org_id AND bg.generation = ci.billing_generation
+            AND bg.checkout_intent_id = ci.id
+          WHERE ci.id = ?1 AND ci.org_id = ?2 AND bg.internal_price_id = ci.internal_price_id
+            AND EXISTS (
+              SELECT 1 FROM billing_commands bc
+               WHERE bc.org_id = ci.org_id AND bc.command_type = 'create_checkout_session'
+                 AND json_extract(bc.command_json, '$.parameters.metadata.checkout_intent_id') = ci.id
+                 AND json_extract(bc.command_json, '$.parameters.internal_price_id') = ci.internal_price_id
+            )
+          LIMIT 2`
+      )
+      .bind(summary.checkoutIntentId, summary.orgId)
+      .all<{
+        billing_generation: number;
+        internal_price_id: string;
+        checkout_status: string;
+        checkout_session_id: string | null;
+        generation_status: string;
+        provider_checkout_session_id: string | null;
+        provider_customer_id: string | null;
+        provider_subscription_id: string | null;
+        legacy_bridge_eligible: number;
+      }>();
+    if (candidates.results.length !== 1) {
+      throw new ApiError(
+        409,
+        "checkout_generation_binding_missing",
+        "Checkout completion does not have one exact immutable intent generation."
+      );
+    }
+    const candidate = candidates.results[0]!;
+    if (!isInternalPriceId(candidate.internal_price_id)) {
+      throw new ApiError(500, "checkout_generation_binding_corrupt", "Checkout generation has an invalid canonical price.");
+    }
+    const canonicalGeneration = candidate.billing_generation;
+    const canonicalProviderPriceId = providerPriceId(env, candidate.internal_price_id);
+    let legacyCheckoutBridge = false;
+    if (
+      summary.reportedBillingGeneration === null &&
+      summary.customerId &&
+      summary.subscriptionId &&
+      candidate.legacy_bridge_eligible === 1 &&
+      candidate.checkout_status === "provider_created" &&
+      candidate.generation_status === "reserved" &&
+      candidate.checkout_session_id === summary.objectId &&
+      candidate.provider_checkout_session_id === summary.objectId &&
+      candidate.provider_customer_id === null &&
+      candidate.provider_subscription_id === null &&
+      summary.reportedInternalPriceId === candidate.internal_price_id &&
+      summary.reportedProviderPriceId === canonicalProviderPriceId
+    ) {
+      const collision = await db
+        .prepare(
+          `SELECT 1 AS found
+             FROM billing_generations
+            WHERE provider_customer_id = ?1 OR provider_subscription_id = ?2
+           UNION ALL
+           SELECT 1 AS found
+             FROM checkout_subscription_compensations
+            WHERE provider_customer_id = ?1 OR provider_subscription_id = ?2
+           LIMIT 1`
+        )
+        .bind(summary.customerId, summary.subscriptionId)
+        .first<{ found: number }>();
+      legacyCheckoutBridge = !collision;
+    }
+    return {
+      ...summary,
+      internalPriceId: candidate.internal_price_id,
+      providerPriceId: canonicalProviderPriceId,
+      billingGeneration: canonicalGeneration,
+      billingGenerationSource:
+        summary.reportedBillingGeneration === canonicalGeneration
+          ? "metadata"
+          : legacyCheckoutBridge
+            ? "legacy_unique_binding"
+            : "checkout_intent_binding"
+    };
+  }
+
+  if (summary.billingGeneration !== null) {
+    return { ...summary, billingGeneration: summary.billingGeneration, billingGenerationSource: "metadata" };
+  }
+  if (!summary.customerId || !summary.subscriptionId) {
+    throw new ApiError(
+      409,
+      "legacy_generation_binding_missing",
+      "Legacy provider event is missing exact customer and subscription bindings."
+    );
+  }
+  const candidates = await db
+    .prepare(
+      `SELECT bg.generation
+         FROM billing_generations bg
+         JOIN workflow_integrity_receipts eligible
+           ON eligible.workflow_type = 'legacy_billing_generation_bridge_eligible'
+          AND eligible.source_ref = bg.org_id || ':' || CAST(bg.generation AS TEXT)
+          AND eligible.valid = 1
+        WHERE bg.org_id = ?1 AND bg.provider_customer_id = ?2
+          AND bg.provider_subscription_id = ?3 AND bg.internal_price_id = ?4
+          AND (?5 IS NULL OR bg.checkout_intent_id = ?5)
+        LIMIT 2`
+    )
+    .bind(
+      summary.orgId,
+      summary.customerId,
+      summary.subscriptionId,
+      summary.internalPriceId,
+      summary.checkoutIntentId
+    )
+    .all<{ generation: number }>();
+  if (candidates.results.length !== 1) {
+    throw new ApiError(
+      409,
+      "legacy_generation_binding_missing",
+      "Legacy provider event does not have one migration-approved immutable billing generation."
+    );
+  }
+  return {
+    ...summary,
+    billingGeneration: candidates.results[0]!.generation,
+    billingGenerationSource: "legacy_unique_binding"
+  };
 }
 
 async function rejectProviderTenantCollision(
@@ -795,7 +976,18 @@ export async function prepareCancellation(request: Request, env: Env, auth: Auth
     return jsonResponse({ command_id: existing.id, command, duplicate: true });
   }
   const account = await billingAccount(env.TEAM_CONTROL_DB, auth.orgId);
-  if (!account?.provider_subscription_id || ["expired", "refunded"].includes(account.commercial_state)) {
+  const generation = account
+    ? await billingGeneration(env.TEAM_CONTROL_DB, auth.orgId, account.billing_generation)
+    : null;
+  if (
+    !account?.provider_customer_id ||
+    !account.provider_subscription_id ||
+    !generation ||
+    generation.status !== "bound" ||
+    generation.provider_customer_id !== account.provider_customer_id ||
+    generation.provider_subscription_id !== account.provider_subscription_id ||
+    generation.internal_price_id !== account.internal_price_id
+  ) {
     throw new ApiError(409, "no_cancelable_subscription", "No cancelable Team subscription is present.");
   }
   const at = nowIso();
@@ -808,18 +1000,70 @@ export async function prepareCancellation(request: Request, env: Env, auth: Auth
     operation: "cancel_at_period_end",
     idempotency_key: idempotencyKey,
     provider_subscription_id: account.provider_subscription_id,
+    billing_generation: account.billing_generation,
     reason
   };
-  await env.TEAM_CONTROL_DB.batch([
+  const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO billing_commands
         (id, org_id, command_type, idempotency_key, command_json, status, created_by, created_at)
-       VALUES (?1, ?2, 'cancel_at_period_end', ?3, ?4, 'prepared', ?5, ?6)`
-    ).bind(commandId, auth.orgId, idempotencyKey, JSON.stringify(command), actorPseudonym, at),
+       SELECT ?1, ?2, 'cancel_at_period_end', ?3, ?4, 'prepared', ?5, ?6
+        WHERE EXISTS (
+          SELECT 1 FROM billing_accounts ba
+          JOIN billing_generations bg ON bg.org_id = ba.org_id AND bg.generation = ba.billing_generation
+         WHERE ba.org_id = ?2 AND ba.billing_generation = ?7
+           AND ba.provider_customer_id = ?8 AND ba.provider_subscription_id = ?9
+           AND ba.internal_price_id = ?10
+           AND bg.status = 'bound' AND bg.provider_customer_id = ba.provider_customer_id
+           AND bg.provider_subscription_id = ba.provider_subscription_id
+           AND bg.internal_price_id = ba.internal_price_id
+        )`
+    ).bind(
+      commandId,
+      auth.orgId,
+      idempotencyKey,
+      JSON.stringify(command),
+      actorPseudonym,
+      at,
+      account.billing_generation,
+      account.provider_customer_id,
+      account.provider_subscription_id,
+      account.internal_price_id
+    ),
     userAudit(env.TEAM_CONTROL_DB, auth, "team.cancellation.command_prepared", "billing_command", commandId, at, {
-      reason
-    })
+      reason,
+      billing_generation: account.billing_generation
+    }),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'billing_cancellation_prepared', ?2,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM billing_commands c
+           JOIN billing_accounts ba ON ba.org_id = c.org_id
+          JOIN billing_generations bg ON bg.org_id = ba.org_id AND bg.generation = ba.billing_generation
+          WHERE c.id = ?2 AND c.org_id = ?3 AND c.command_type = 'cancel_at_period_end'
+            AND c.status = 'prepared'
+            AND CAST(json_extract(c.command_json, '$.billing_generation') AS INTEGER) = ?4
+            AND json_extract(c.command_json, '$.provider_subscription_id') = ?5
+            AND ba.billing_generation = ?4 AND ba.provider_customer_id = ?6
+            AND ba.provider_subscription_id = ?5 AND ba.internal_price_id = ?7
+            AND bg.status = 'bound' AND bg.provider_customer_id = ?6
+            AND bg.provider_subscription_id = ?5 AND bg.internal_price_id = ?7
+         ) THEN 1 ELSE 0 END, ?8)`
+    ).bind(
+      newId("integrity"),
+      commandId,
+      auth.orgId,
+      account.billing_generation,
+      account.provider_subscription_id,
+      account.provider_customer_id,
+      account.internal_price_id,
+      at
+    )
   ]);
+  if (results.some((result) => (result.meta.changes ?? 0) !== 1)) {
+    throw new ApiError(409, "cancellation_state_conflict", "Cancelable subscription changed concurrently.");
+  }
   return jsonResponse({ command_id: commandId, command }, 202);
 }
 
@@ -923,101 +1167,6 @@ export async function listBillingCommands(env: Env, auth: AuthContext): Promise<
   });
 }
 
-async function recordFrozenCheckoutCompletion(
-  env: Env,
-  summary: StripeSummary,
-  eventId: string,
-  at: string
-): Promise<void> {
-  if (!summary.checkoutIntentId || !summary.customerId || !summary.subscriptionId) {
-    throw new ApiError(400, "invalid_provider_event", "Frozen Checkout completion is missing provider identifiers.");
-  }
-  const leaseId = newId("checkout_subscription_compensation_lease");
-  const results = await env.TEAM_CONTROL_DB.batch([
-    env.TEAM_CONTROL_DB.prepare(
-      `UPDATE checkout_intents
-          SET status = 'compensating', provider_session_id = ?1,
-              compensation_customer_id = ?2, compensation_subscription_id = ?3,
-              execution_lease_id = ?4, execution_lease_expires_at = ?5
-        WHERE id = ?6 AND org_id = ?7 AND internal_price_id = ?8
-          AND status IN ('prepared', 'executing', 'provider_created', 'compensating', 'canceled')
-          AND (provider_session_id IS NULL OR provider_session_id = ?1)
-          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?7 AND status = 'deletion_pending')`
-    ).bind(
-      summary.objectId,
-      summary.customerId,
-      summary.subscriptionId,
-      leaseId,
-      at,
-      summary.checkoutIntentId,
-      summary.orgId,
-      summary.internalPriceId
-    ),
-    env.TEAM_CONTROL_DB.prepare(
-      `UPDATE billing_commands
-          SET status = 'compensating', execution_lease_id = ?1, execution_lease_expires_at = ?2
-        WHERE org_id = ?3 AND command_type = 'create_checkout_session'
-          AND status IN ('prepared', 'executing', 'provider_accepted', 'compensating', 'canceled')
-          AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?4
-          AND EXISTS (
-            SELECT 1 FROM checkout_intents
-             WHERE id = ?4 AND org_id = ?3 AND status = 'compensating'
-               AND provider_session_id = ?5
-               AND compensation_customer_id = ?6 AND compensation_subscription_id = ?7
-               AND execution_lease_id = ?1 AND execution_lease_expires_at = ?2
-          )`
-    ).bind(
-      leaseId,
-      at,
-      summary.orgId,
-      summary.checkoutIntentId,
-      summary.objectId,
-      summary.customerId,
-      summary.subscriptionId
-    ),
-    env.TEAM_CONTROL_DB.prepare(
-      `UPDATE provider_events SET status = 'rejected'
-        WHERE event_id = ?1 AND org_id = ?2 AND event_type = 'checkout.session.completed'
-          AND object_id = ?3 AND status = 'ignored'
-          AND EXISTS (
-            SELECT 1 FROM checkout_intents
-             WHERE id = ?4 AND org_id = ?2 AND status = 'compensating'
-               AND provider_session_id = ?3
-               AND compensation_customer_id = ?5 AND compensation_subscription_id = ?6
-          )`
-    ).bind(
-      eventId,
-      summary.orgId,
-      summary.objectId,
-      summary.checkoutIntentId,
-      summary.customerId,
-      summary.subscriptionId
-    ),
-    env.TEAM_CONTROL_DB.prepare(
-      `INSERT INTO audit_events
-        (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
-       SELECT ?1, ?2, 'stripe', 'stripe', 'billing.checkout.completion_requires_compensation',
-              'provider_event', ?3, '{}', ?4
-        WHERE EXISTS (
-          SELECT 1 FROM provider_events
-           WHERE event_id = ?3 AND org_id = ?2 AND status = 'rejected'
-        )
-          AND EXISTS (
-            SELECT 1 FROM checkout_intents
-             WHERE id = ?5 AND org_id = ?2 AND status = 'compensating'
-               AND compensation_subscription_id = ?6
-          )`
-    ).bind(newId("audit"), summary.orgId, eventId, at, summary.checkoutIntentId, summary.subscriptionId)
-  ]);
-  if (results.some((result) => (result.meta.changes ?? 0) !== 1)) {
-    throw new ApiError(
-      409,
-      "checkout_completion_compensation_conflict",
-      "Frozen Checkout completion could not reserve exact provider compensation."
-    );
-  }
-}
-
 async function reserveUnexpectedCheckoutCompensation(
   env: Env,
   summary: StripeSummary,
@@ -1035,41 +1184,51 @@ async function reserveUnexpectedCheckoutCompensation(
   if (!summary.customerId || !summary.subscriptionId || !summary.checkoutIntentId) {
     throw new ApiError(400, "invalid_provider_event", "Unexpected Checkout completion is missing provider identifiers.");
   }
-  const command = await env.TEAM_CONTROL_DB.prepare(
-    `SELECT id, status FROM billing_commands
-      WHERE org_id = ?1 AND command_type = 'create_checkout_session'
-        AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?2
-        AND status IN ('provider_accepted', 'confirmed')
-      LIMIT 1`
+  const commands = await env.TEAM_CONTROL_DB.prepare(
+    `SELECT bc.id, bc.status,
+            CASE
+              WHEN bc.status = 'compensating' THEN (
+                SELECT x.resume_command_status
+                  FROM checkout_subscription_compensations x
+                 WHERE x.org_id = bc.org_id AND x.billing_command_id = bc.id
+                   AND x.status IN ('prepared', 'executing')
+                 ORDER BY x.requested_at, x.id LIMIT 1
+              )
+              ELSE bc.status
+            END AS resume_status
+       FROM billing_commands bc
+      WHERE bc.org_id = ?1 AND bc.command_type = 'create_checkout_session'
+        AND json_extract(bc.command_json, '$.parameters.metadata.checkout_intent_id') = ?2
+        AND CAST(json_extract(bc.command_json, '$.parameters.metadata.billing_generation') AS INTEGER) = ?3
+        AND bc.status IN ('provider_accepted', 'confirmed', 'compensating', 'canceled')
+      LIMIT 2`
   )
-    .bind(summary.orgId, summary.checkoutIntentId)
-    .first<CheckoutCommandStateRow>();
-  if (!command) {
-    const pending = await env.TEAM_CONTROL_DB.prepare(
-      `SELECT 1 AS found FROM checkout_subscription_compensations
-        WHERE org_id = ?1 AND checkout_intent_id = ?2 AND billing_generation = ?3
-          AND status IN ('prepared', 'executing') LIMIT 1`
-    )
-      .bind(summary.orgId, summary.checkoutIntentId, summary.billingGeneration)
-      .first<{ found: number }>();
-    if (pending) {
-      throw new ApiError(
-        409,
-        "checkout_compensation_already_pending",
-        "A prior unexpected subscription must finish exact cancellation before another can be reserved."
-      );
-    }
-  }
-  if (!command || summary.billingGeneration !== checkout.billing_generation) {
-    await env.TEAM_CONTROL_DB.prepare(`UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1 AND status = 'ignored'`)
-      .bind(eventId)
-      .run();
-    throw new ApiError(409, "checkout_generation_mismatch", "Checkout completion does not match its reserved billing generation.");
+    .bind(summary.orgId, summary.checkoutIntentId, summary.billingGeneration)
+    .all<CheckoutCommandStateRow>();
+  const command = commands.results[0];
+  if (
+    commands.results.length !== 1 ||
+    !command ||
+    !command.resume_status ||
+    summary.billingGeneration !== checkout.billing_generation
+  ) {
+    throw new ApiError(
+      409,
+      "checkout_generation_mismatch",
+      "Checkout completion does not match one executable immutable billing generation."
+    );
   }
   await rejectProviderTenantCollision(env.TEAM_CONTROL_DB, summary.orgId, summary.customerId, summary.subscriptionId);
   const compensationId = newId("checkout_subscription_compensation");
   const generationEventId = newId("billing_generation_event");
-  const resumeStatus = command.status === "confirmed" ? "confirmed" : "provider_accepted";
+  const auditId = newId("audit");
+  const resumeStatus = command.resume_status;
+  const reason =
+    summary.reportedBillingGeneration === checkout.billing_generation &&
+    summary.reportedInternalPriceId === summary.internalPriceId &&
+    summary.reportedProviderPriceId === summary.providerPriceId
+      ? "unexpected_session"
+      : "unexpected_generation_binding";
   const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE provider_events SET status = 'rejected'
@@ -1082,11 +1241,14 @@ async function reserveUnexpectedCheckoutCompensation(
          provider_event_id, provider_session_id, provider_customer_id, provider_subscription_id,
          reason, status, resume_command_status, requested_at)
        SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-              'unexpected_session', 'prepared', ?10, ?11
+              ?10, 'prepared', ?11, ?12
         WHERE EXISTS (
-          SELECT 1 FROM billing_generations
-           WHERE org_id = ?2 AND generation = ?5 AND checkout_intent_id = ?4
-             AND provider_checkout_session_id IS NOT NULL
+          SELECT 1 FROM billing_generations bg
+          JOIN checkout_intents ci
+            ON ci.id = bg.checkout_intent_id AND ci.org_id = bg.org_id
+           AND ci.billing_generation = bg.generation
+         WHERE bg.org_id = ?2 AND bg.generation = ?5 AND bg.checkout_intent_id = ?4
+           AND bg.internal_price_id = ?13 AND ci.internal_price_id = ?13
         )
           AND NOT EXISTS (
             SELECT 1 FROM billing_generations
@@ -1094,7 +1256,8 @@ async function reserveUnexpectedCheckoutCompensation(
           )
           AND NOT EXISTS (
             SELECT 1 FROM checkout_subscription_compensations
-             WHERE billing_command_id = ?3 AND status IN ('prepared', 'executing')
+             WHERE provider_event_id = ?6
+                OR (provider_session_id = ?7 AND provider_subscription_id = ?9)
           )`
     ).bind(
       compensationId,
@@ -1106,18 +1269,37 @@ async function reserveUnexpectedCheckoutCompensation(
       summary.objectId,
       summary.customerId,
       summary.subscriptionId,
+      reason,
       resumeStatus,
-      at
+      at,
+      summary.internalPriceId
     ),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE billing_commands SET status = 'compensating',
-          execution_lease_id = ?4, execution_lease_expires_at = ?5
-        WHERE id = ?1 AND org_id = ?2 AND status = ?3
+          execution_lease_id = CASE WHEN status = 'compensating' THEN execution_lease_id ELSE ?4 END,
+          execution_lease_expires_at = CASE WHEN status = 'compensating' THEN execution_lease_expires_at ELSE ?5 END
+        WHERE id = ?1 AND org_id = ?2
+          AND status IN ('provider_accepted', 'confirmed', 'compensating', 'canceled')
+          AND (status = 'compensating' OR status = ?3)
           AND EXISTS (
             SELECT 1 FROM checkout_subscription_compensations
-             WHERE id = ?4 AND billing_command_id = ?1 AND status = 'prepared'
+             WHERE id = ?4 AND org_id = ?2 AND billing_command_id = ?1
+               AND checkout_intent_id = ?6 AND billing_generation = ?7
+               AND provider_event_id = ?8 AND provider_session_id = ?9
+               AND provider_subscription_id = ?10 AND status = 'prepared'
           )`
-    ).bind(command.id, summary.orgId, resumeStatus, compensationId, at),
+    ).bind(
+      command.id,
+      summary.orgId,
+      command.status,
+      compensationId,
+      at,
+      summary.checkoutIntentId,
+      summary.billingGeneration,
+      eventId,
+      summary.objectId,
+      summary.subscriptionId
+    ),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO billing_generation_events
         (id, org_id, generation, event_type, source_ref, occurred_at)
@@ -1130,44 +1312,85 @@ async function reserveUnexpectedCheckoutCompensation(
       generationEventId,
       summary.orgId,
       summary.billingGeneration,
-      summary.subscriptionId,
+      compensationId,
       at,
       compensationId,
       command.id
     ),
-    auditStatement(env.TEAM_CONTROL_DB, {
-      orgId: summary.orgId,
-      actorType: "stripe",
-      actorId: "stripe",
-      action: "billing.checkout.unexpected_subscription_requires_compensation",
-      resourceType: "provider_event",
-      resourceId: eventId,
-      at
-    }),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO audit_events
+        (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+       SELECT ?1, ?2, 'stripe', 'stripe', 'billing.checkout.unexpected_subscription_requires_compensation',
+              'checkout_subscription_compensation', ?3, ?4, ?5
+        WHERE EXISTS (
+          SELECT 1 FROM checkout_subscription_compensations
+           WHERE id = ?3 AND org_id = ?2 AND provider_event_id = ?6
+             AND provider_session_id = ?7 AND provider_subscription_id = ?8
+             AND status = 'prepared'
+        )`
+    ).bind(
+      auditId,
+      summary.orgId,
+      compensationId,
+      JSON.stringify({ reason, provider_event_id: eventId }),
+      at,
+      eventId,
+      summary.objectId,
+      summary.subscriptionId
+    ),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
        VALUES (?1, 'unexpected_checkout_compensation_reserved', ?2,
          CASE WHEN
-           EXISTS (SELECT 1 FROM provider_events WHERE event_id = ?2 AND status = 'rejected')
-           AND EXISTS (
-             SELECT 1 FROM checkout_subscription_compensations
-              WHERE id = ?3 AND status = 'prepared' AND provider_subscription_id = ?4
+           EXISTS (
+             SELECT 1 FROM provider_events
+              WHERE event_id = ?2 AND org_id = ?3 AND event_type = 'checkout.session.completed'
+                AND object_id = ?4 AND status = 'rejected'
+                AND json_extract(summary_json, '$.billingGeneration') = ?5
+                AND json_extract(summary_json, '$.reportedBillingGeneration') IS ?6
+                AND json_extract(summary_json, '$.customerId') = ?7
+                AND json_extract(summary_json, '$.subscriptionId') = ?8
            )
            AND EXISTS (
-             SELECT 1 FROM billing_commands WHERE id = ?5 AND status = 'compensating'
+             SELECT 1 FROM checkout_subscription_compensations
+              WHERE id = ?9 AND org_id = ?3 AND billing_command_id = ?10
+                AND checkout_intent_id = ?11 AND billing_generation = ?5
+                AND provider_event_id = ?2 AND provider_session_id = ?4
+                AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+                AND reason = ?12 AND status = 'prepared' AND resume_command_status = ?13
+           )
+           AND EXISTS (
+             SELECT 1 FROM billing_commands
+              WHERE id = ?10 AND org_id = ?3 AND status = 'compensating'
            )
            AND EXISTS (
              SELECT 1 FROM billing_generation_events
-              WHERE id = ?6 AND event_type = 'unexpected_subscription_reserved'
+              WHERE id = ?14 AND org_id = ?3 AND generation = ?5
+                AND event_type = 'unexpected_subscription_reserved' AND source_ref = ?9
            )
-         THEN 1 ELSE 0 END, ?7)`
+           AND EXISTS (
+             SELECT 1 FROM audit_events
+              WHERE id = ?15 AND org_id = ?3
+                AND action = 'billing.checkout.unexpected_subscription_requires_compensation'
+                AND resource_id = ?9
+           )
+         THEN 1 ELSE 0 END, ?16)`
     ).bind(
       `integrity_${compensationId}`,
       eventId,
-      compensationId,
+      summary.orgId,
+      summary.objectId,
+      summary.billingGeneration,
+      summary.reportedBillingGeneration,
+      summary.customerId,
       summary.subscriptionId,
+      compensationId,
       command.id,
+      summary.checkoutIntentId,
+      reason,
+      resumeStatus,
       generationEventId,
+      auditId,
       at
     )
   ]);
@@ -1208,10 +1431,16 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
   const eventType = eventTypeValue as SupportedStripeEventType;
   const data = requireObject(event.data, "event.data");
   const object = requireObject(data.object, "event.data.object");
-  const summary =
-    eventType === "refund.created"
-      ? await extractRefundStripeSummary(env, object)
-      : extractStripeSummary(eventType, object);
+  let summary: StripeSummary;
+  if (eventType === "refund.created") {
+    summary = await extractRefundStripeSummary(env, object);
+  } else {
+    summary = await resolveStripeSummaryGeneration(
+      env,
+      eventType,
+      extractStripeSummary(eventType, object)
+    );
+  }
   const organization = await env.TEAM_CONTROL_DB.prepare(
     `SELECT status FROM organizations WHERE id = ?1`
   )
@@ -1227,7 +1456,7 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
   const at = nowIso();
   let insert: D1Result;
   try {
-    insert = await env.TEAM_CONTROL_DB.prepare(
+    const insertStatement = env.TEAM_CONTROL_DB.prepare(
       `INSERT OR IGNORE INTO provider_events
         (event_id, provider, event_type, object_id, org_id, event_created, payload_sha256,
          summary_json, status, received_at)
@@ -1243,8 +1472,80 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
         JSON.stringify(summary),
         eventType === "checkout.session.completed" ? "ignored" : "awaiting_reconciliation",
         at
-      )
-      .run();
+      );
+    if (summary.billingGenerationSource === "legacy_unique_binding") {
+      const receiptId = `integrity_legacy_billing_generation_bridge_${eventId}`;
+      const bridgeResults = await env.TEAM_CONTROL_DB.batch([
+        insertStatement,
+        env.TEAM_CONTROL_DB.prepare(
+          `INSERT OR IGNORE INTO workflow_integrity_receipts
+            (id, workflow_type, source_ref, valid, created_at)
+           VALUES (?1, 'legacy_billing_generation_bridge_applied', ?2,
+             CASE WHEN EXISTS (
+               SELECT 1
+                 FROM provider_events pe
+                 JOIN billing_generations bg
+                   ON bg.org_id = pe.org_id
+                  AND bg.generation = CAST(json_extract(pe.summary_json, '$.billingGeneration') AS INTEGER)
+                  AND bg.internal_price_id = json_extract(pe.summary_json, '$.internalPriceId')
+                 JOIN workflow_integrity_receipts eligible
+                   ON eligible.workflow_type = 'legacy_billing_generation_bridge_eligible'
+                  AND eligible.source_ref = bg.org_id || ':' || CAST(bg.generation AS TEXT)
+                  AND eligible.valid = 1
+                WHERE pe.event_id = ?2 AND pe.payload_sha256 = ?3
+                  AND json_extract(pe.summary_json, '$.billingGenerationSource') = 'legacy_unique_binding'
+                  AND json_extract(pe.summary_json, '$.reportedBillingGeneration') IS NULL
+                  AND (
+                    (
+                      pe.event_type <> 'checkout.session.completed'
+                      AND bg.provider_customer_id = json_extract(pe.summary_json, '$.customerId')
+                      AND bg.provider_subscription_id = json_extract(pe.summary_json, '$.subscriptionId')
+                      AND (
+                        json_extract(pe.summary_json, '$.checkoutIntentId') IS NULL OR
+                        bg.checkout_intent_id = json_extract(pe.summary_json, '$.checkoutIntentId')
+                      )
+                    ) OR (
+                      pe.event_type = 'checkout.session.completed'
+                      AND bg.status = 'reserved'
+                      AND bg.provider_customer_id IS NULL AND bg.provider_subscription_id IS NULL
+                      AND bg.checkout_intent_id = json_extract(pe.summary_json, '$.checkoutIntentId')
+                      AND bg.provider_checkout_session_id = pe.object_id
+                      AND json_extract(pe.summary_json, '$.checkoutSessionId') = pe.object_id
+                      AND json_extract(pe.summary_json, '$.reportedInternalPriceId') = bg.internal_price_id
+                      AND json_extract(pe.summary_json, '$.reportedProviderPriceId') =
+                          json_extract(pe.summary_json, '$.providerPriceId')
+                      AND EXISTS (
+                        SELECT 1 FROM checkout_intents ci
+                         WHERE ci.id = bg.checkout_intent_id AND ci.org_id = bg.org_id
+                           AND ci.billing_generation = bg.generation AND ci.status = 'provider_created'
+                           AND ci.provider_session_id = pe.object_id
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM billing_generations collision
+                         WHERE collision.provider_customer_id = json_extract(pe.summary_json, '$.customerId')
+                            OR collision.provider_subscription_id = json_extract(pe.summary_json, '$.subscriptionId')
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM checkout_subscription_compensations collision
+                         WHERE collision.provider_customer_id = json_extract(pe.summary_json, '$.customerId')
+                            OR collision.provider_subscription_id = json_extract(pe.summary_json, '$.subscriptionId')
+                      )
+                    )
+                  )
+             ) THEN 1 ELSE 0 END, ?4)`
+        ).bind(receiptId, eventId, payloadHash, at)
+      ]);
+      insert = bridgeResults[0]!;
+      if ((insert.meta.changes ?? 0) === 1 && (bridgeResults[1]?.meta.changes ?? 0) !== 1) {
+        throw new ApiError(
+          409,
+          "legacy_generation_bridge_conflict",
+          "Legacy provider generation bridge was not recorded atomically."
+        );
+      }
+    } else {
+      insert = await insertStatement.run();
+    }
   } catch (error) {
     const current = await env.TEAM_CONTROL_DB.prepare(
       `SELECT status FROM organizations WHERE id = ?1`
@@ -1265,23 +1566,44 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
     if (!existing || existing.payload_sha256 !== payloadHash) {
       throw new ApiError(409, "provider_event_replay_mismatch", "Provider event identifier was reused with different data.");
     }
+    if (summary.billingGenerationSource === "legacy_unique_binding") {
+      const receipt = await env.TEAM_CONTROL_DB.prepare(
+        `SELECT valid FROM workflow_integrity_receipts
+          WHERE id = ?1 AND workflow_type = 'legacy_billing_generation_bridge_applied'
+            AND source_ref = ?2 AND valid = 1`
+      )
+        .bind(`integrity_legacy_billing_generation_bridge_${eventId}`, eventId)
+        .first<{ valid: number }>();
+      if (!receipt) {
+        throw new ApiError(
+          409,
+          "legacy_generation_bridge_conflict",
+          "Legacy provider generation bridge lacks its exact evidence receipt."
+        );
+      }
+    }
     if (eventType !== "checkout.session.completed" || existing.status !== "ignored") {
       return jsonResponse({ received: true, duplicate: true });
     }
   }
 
-  if (eventType === "checkout.session.completed" && organization.status !== "active") {
-    await recordFrozenCheckoutCompletion(env, summary, eventId, at);
-    throw new ApiError(
-      409,
-      "checkout_completion_frozen_for_deletion",
-      "Checkout completion was reserved for exact subscription cancellation while organization deletion is pending."
-    );
-  }
-
-  const account = await billingAccount(env.TEAM_CONTROL_DB, summary.orgId);
+  const [account, eventGeneration] = await Promise.all([
+    billingAccount(env.TEAM_CONTROL_DB, summary.orgId),
+    billingGeneration(env.TEAM_CONTROL_DB, summary.orgId, summary.billingGeneration)
+  ]);
+  const belongsToHistoricalGeneration =
+    eventType !== "checkout.session.completed" &&
+    summary.customerId !== null &&
+    summary.subscriptionId !== null &&
+    eventGeneration?.provider_customer_id === summary.customerId &&
+    eventGeneration.provider_subscription_id === summary.subscriptionId &&
+    eventGeneration.internal_price_id === summary.internalPriceId &&
+    (account?.billing_generation !== summary.billingGeneration ||
+      eventGeneration.status === "terminal_verified" ||
+      eventGeneration.status === "retired");
   if (
     eventType !== "checkout.session.completed" &&
+    !belongsToHistoricalGeneration &&
     account?.last_reconciled_event_created !== null &&
     account?.last_reconciled_event_created !== undefined &&
     (eventCreated < account.last_reconciled_event_created ||
@@ -1343,15 +1665,103 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
         provider_customer_id: string | null;
         provider_subscription_id: string | null;
       }>();
+    const exactReportedCheckoutPrice =
+      summary.reportedInternalPriceId === summary.internalPriceId &&
+      summary.reportedProviderPriceId === summary.providerPriceId;
+    const exactGenerationEvidence =
+      (summary.billingGenerationSource === "metadata" &&
+        summary.reportedBillingGeneration === summary.billingGeneration) ||
+      (summary.billingGenerationSource === "legacy_unique_binding" &&
+        summary.reportedBillingGeneration === null);
     const expectedCompletion =
+      exactGenerationEvidence &&
+      exactReportedCheckoutPrice &&
       checkout.status === "provider_created" &&
       checkout.provider_session_id === summary.objectId &&
       generation?.status === "reserved" &&
       generation.provider_checkout_session_id === summary.objectId &&
       generation.provider_customer_id === null &&
       generation.provider_subscription_id === null;
-    if (!expectedCompletion) {
+    const alreadyBoundCompletion =
+      summary.billingGenerationSource === "metadata" &&
+      summary.reportedBillingGeneration === summary.billingGeneration &&
+      exactReportedCheckoutPrice &&
+      checkout.status === "completed" &&
+      checkout.provider_session_id === summary.objectId &&
+      generation?.status === "bound" &&
+      generation.provider_checkout_session_id === summary.objectId &&
+      generation.provider_customer_id === summary.customerId &&
+      generation.provider_subscription_id === summary.subscriptionId;
+    if (alreadyBoundCompletion) {
+      const duplicateReceiptId = `integrity_duplicate_checkout_completion_${eventId}`;
+      const duplicateAuditId = newId("audit");
+      const duplicateResults = await env.TEAM_CONTROL_DB.batch([
+        env.TEAM_CONTROL_DB.prepare(
+          `UPDATE provider_events SET status = 'reconciled', reconciled_at = ?1
+            WHERE event_id = ?2 AND org_id = ?3 AND event_type = 'checkout.session.completed'
+              AND object_id = ?4 AND status = 'ignored'`
+        ).bind(at, eventId, summary.orgId, summary.objectId),
+        env.TEAM_CONTROL_DB.prepare(
+          `INSERT INTO audit_events
+            (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+           SELECT ?1, ?2, 'stripe', 'stripe', 'billing.checkout.duplicate_completion',
+                  'provider_event', ?3, '{}', ?4
+            WHERE EXISTS (
+              SELECT 1 FROM provider_events
+               WHERE event_id = ?3 AND org_id = ?2 AND status = 'reconciled'
+            )`
+        ).bind(duplicateAuditId, summary.orgId, eventId, at),
+        env.TEAM_CONTROL_DB.prepare(
+          `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+           VALUES (?1, 'duplicate_checkout_completion', ?2,
+             CASE WHEN
+               EXISTS (
+                 SELECT 1 FROM provider_events
+                  WHERE event_id = ?2 AND org_id = ?3 AND object_id = ?4 AND status = 'reconciled'
+               )
+               AND EXISTS (
+                 SELECT 1 FROM checkout_intents
+                  WHERE id = ?5 AND org_id = ?3 AND billing_generation = ?6
+                    AND status = 'completed' AND provider_session_id = ?4
+               )
+               AND EXISTS (
+                 SELECT 1 FROM billing_generations
+                  WHERE org_id = ?3 AND generation = ?6 AND checkout_intent_id = ?5
+                    AND status = 'bound' AND provider_checkout_session_id = ?4
+                    AND provider_customer_id = ?7 AND provider_subscription_id = ?8
+               )
+               AND EXISTS (
+                 SELECT 1 FROM audit_events
+                  WHERE id = ?9 AND org_id = ?3 AND action = 'billing.checkout.duplicate_completion'
+               )
+             THEN 1 ELSE 0 END, ?10)`
+        ).bind(
+          duplicateReceiptId,
+          eventId,
+          summary.orgId,
+          summary.objectId,
+          summary.checkoutIntentId,
+          summary.billingGeneration,
+          summary.customerId,
+          summary.subscriptionId,
+          duplicateAuditId,
+          at
+        )
+      ]);
+      if (duplicateResults.some((result) => (result.meta.changes ?? 0) !== 1)) {
+        throw new ApiError(409, "checkout_completion_conflict", "Duplicate Checkout completion was not recorded atomically.");
+      }
+      return jsonResponse({ received: true, duplicate: true });
+    }
+    if (!expectedCompletion || organization.status !== "active") {
       await reserveUnexpectedCheckoutCompensation(env, summary, eventId, checkout, at);
+      if (organization.status !== "active") {
+        throw new ApiError(
+          409,
+          "checkout_completion_frozen_for_deletion",
+          "Checkout completion was reserved for exact subscription cancellation while organization deletion is pending."
+        );
+      }
       throw new ApiError(
         409,
         "checkout_completion_requires_compensation",
@@ -1603,7 +2013,7 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
         throw new ApiError(410, "organization_deleted", "Provider events cannot mutate a deleted organization.");
       }
       if (current.status === "deletion_pending") {
-        await recordFrozenCheckoutCompletion(env, summary, eventId, at);
+        await reserveUnexpectedCheckoutCompensation(env, summary, eventId, checkout, at);
         throw new ApiError(
           409,
           "checkout_completion_frozen_for_deletion",
@@ -1619,7 +2029,7 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
         .bind(summary.orgId)
         .first<{ status: string }>();
       if (current?.status === "deletion_pending") {
-        await recordFrozenCheckoutCompletion(env, summary, eventId, at);
+        await reserveUnexpectedCheckoutCompensation(env, summary, eventId, checkout, at);
         throw new ApiError(
           409,
           "checkout_completion_frozen_for_deletion",

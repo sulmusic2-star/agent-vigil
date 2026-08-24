@@ -1125,7 +1125,7 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
         .bind(canonicalSubjectToken)
         .all(),
       db.prepare(
-        `SELECT c.subject_token, c.account_type, c.status, c.claimed_at, c.updated_at
+        `SELECT c.subject_token, c.installation_id, c.incarnation, c.account_type, c.status, c.claimed_at, c.updated_at
            FROM github_personal_installation_claims c
            JOIN individual_identities i ON i.subject_token = c.subject_token
           WHERE i.subject_token = ?1 OR i.canonical_subject_token = ?1`
@@ -1133,7 +1133,7 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
         .bind(canonicalSubjectToken)
         .all(),
       db.prepare(
-        `SELECT p.subject_token, p.account_type, p.state, p.repository_selection,
+        `SELECT p.subject_token, p.installation_id, p.incarnation, p.account_type, p.state, p.repository_selection,
                 p.installed_at, p.suspended_at, p.deleted_at, p.reconciled_at, p.updated_at
            FROM github_personal_installations p
            JOIN individual_identities i ON i.subject_token = p.subject_token
@@ -1142,63 +1142,85 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
         .bind(canonicalSubjectToken)
         .all(),
       db.prepare(
-        `SELECT delivery_id, installation_id, github_account_node_id, account_type,
+        `SELECT delivery_id, installation_id, incarnation, github_account_node_id, account_type,
                 verified_at, expires_at, consumed_at, consumed_by_lane,
                 invalidated_at, invalidated_by_delivery_id
            FROM github_installation_provider_proofs
           WHERE account_type = 'User' AND (
-            github_account_node_id IN (
-              SELECT github_account_node_id FROM individual_identities
-               WHERE subject_token = ?1 OR canonical_subject_token = ?1
-            ) OR installation_id IN (
-              SELECT installation_id FROM github_installation_release_reconciliations
-               WHERE lane = 'personal' AND owner_ref IN (
+            EXISTS (
+              SELECT 1 FROM github_personal_installation_claims c
+              JOIN individual_identities i ON i.subject_token = c.subject_token
+               WHERE (i.subject_token = ?1 OR i.canonical_subject_token = ?1)
+                 AND c.installation_id = github_installation_provider_proofs.installation_id
+                 AND c.incarnation = github_installation_provider_proofs.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_personal_installations p
+              JOIN individual_identities i ON i.subject_token = p.subject_token
+               WHERE (i.subject_token = ?1 OR i.canonical_subject_token = ?1)
+                 AND p.installation_id = github_installation_provider_proofs.installation_id
+                 AND p.incarnation = github_installation_provider_proofs.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_installation_release_reconciliations r
+               WHERE r.lane = 'personal' AND r.owner_ref IN (
                  SELECT subject_token FROM individual_identities
                   WHERE subject_token = ?1 OR canonical_subject_token = ?1
-               )
+               ) AND r.installation_id = github_installation_provider_proofs.installation_id
+                 AND r.incarnation = github_installation_provider_proofs.incarnation
+                 AND r.creation_delivery_id = github_installation_provider_proofs.delivery_id
             )
           ) ORDER BY verified_at, delivery_id`
       )
         .bind(canonicalSubjectToken)
         .all(),
       db.prepare(
-        `SELECT installation_id, github_account_node_id, account_type, creation_delivery_id,
+        `SELECT installation_id, incarnation, github_account_node_id, account_type, creation_delivery_id,
                 latest_delivery_id, latest_event_created_at, latest_action, terminal, updated_at
            FROM github_installation_lifecycle_heads
           WHERE account_type = 'User' AND (
-            github_account_node_id IN (
-              SELECT github_account_node_id FROM individual_identities
-               WHERE subject_token = ?1 OR canonical_subject_token = ?1
-            ) OR installation_id IN (
-              SELECT installation_id FROM github_installation_release_reconciliations
-               WHERE lane = 'personal' AND owner_ref IN (
+            EXISTS (
+              SELECT 1 FROM github_personal_installation_claims c
+              JOIN individual_identities i ON i.subject_token = c.subject_token
+               WHERE (i.subject_token = ?1 OR i.canonical_subject_token = ?1)
+                 AND c.installation_id = github_installation_lifecycle_heads.installation_id
+                 AND c.incarnation = github_installation_lifecycle_heads.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_personal_installations p
+              JOIN individual_identities i ON i.subject_token = p.subject_token
+               WHERE (i.subject_token = ?1 OR i.canonical_subject_token = ?1)
+                 AND p.installation_id = github_installation_lifecycle_heads.installation_id
+                 AND p.incarnation = github_installation_lifecycle_heads.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_installation_release_reconciliations r
+               WHERE r.lane = 'personal' AND r.owner_ref IN (
                  SELECT subject_token FROM individual_identities
                   WHERE subject_token = ?1 OR canonical_subject_token = ?1
-               )
+               ) AND r.installation_id = github_installation_lifecycle_heads.installation_id
+                 AND r.incarnation = github_installation_lifecycle_heads.incarnation
             )
           ) ORDER BY latest_event_created_at, installation_id`
       )
         .bind(canonicalSubjectToken)
         .all(),
       db.prepare(
-        `SELECT delivery_id, event_name, action, installation_id, account_type,
+        `SELECT delivery_id, event_name, action, installation_id, incarnation, account_type,
                 event_created_at, result, received_at
            FROM github_personal_deliveries
           WHERE subject_token IN (
             SELECT subject_token FROM individual_identities
              WHERE subject_token = ?1 OR canonical_subject_token = ?1
-          ) OR installation_id IN (
-            SELECT installation_id FROM github_installation_release_reconciliations
-             WHERE lane = 'personal' AND owner_ref IN (
+          ) OR EXISTS (
+            SELECT 1 FROM github_installation_release_reconciliations r
+             WHERE r.lane = 'personal' AND r.owner_ref IN (
                SELECT subject_token FROM individual_identities
                 WHERE subject_token = ?1 OR canonical_subject_token = ?1
-             )
+             ) AND r.installation_id = github_personal_deliveries.installation_id
+               AND r.incarnation = github_personal_deliveries.incarnation
           ) ORDER BY event_created_at, delivery_id`
       )
         .bind(canonicalSubjectToken)
         .all(),
       db.prepare(
-        `SELECT reconciliation_id, source_delivery_id, installation_id, account_type,
+        `SELECT reconciliation_id, source_delivery_id, installation_id, incarnation, account_type,
                 observed_at, result, applied_at
            FROM github_personal_installation_reconciliations
           WHERE subject_token IN (
@@ -1209,17 +1231,12 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
         .bind(canonicalSubjectToken)
         .all(),
       db.prepare(
-        `SELECT reconciliation_id, source_delivery_id, installation_id, github_account_node_id,
+        `SELECT reconciliation_id, source_delivery_id, creation_delivery_id, installation_id, incarnation, github_account_node_id,
                 lane, owner_ref, observed_at, result, applied_at
            FROM github_installation_release_reconciliations
-          WHERE lane = 'personal' AND (
-            owner_ref IN (
+          WHERE lane = 'personal' AND owner_ref IN (
               SELECT subject_token FROM individual_identities
                WHERE subject_token = ?1 OR canonical_subject_token = ?1
-            ) OR github_account_node_id IN (
-              SELECT github_account_node_id FROM individual_identities
-               WHERE subject_token = ?1 OR canonical_subject_token = ?1
-            )
           ) ORDER BY observed_at, reconciliation_id`
       )
         .bind(canonicalSubjectToken)
@@ -1228,17 +1245,18 @@ export async function exportIndividualMeasurement(db: D1Database, canonicalSubje
         `SELECT id, workflow_type, source_ref, valid, created_at
            FROM workflow_integrity_receipts
           WHERE (
-            workflow_type = 'github_lifecycle_head_recorded' AND source_ref IN (
+            workflow_type IN ('github_lifecycle_head_recorded', 'github_personal_lifecycle_materialized') AND source_ref IN (
               SELECT delivery_id FROM github_personal_deliveries
                WHERE subject_token IN (
                  SELECT subject_token FROM individual_identities
                   WHERE subject_token = ?1 OR canonical_subject_token = ?1
-               ) OR installation_id IN (
-                 SELECT installation_id FROM github_installation_release_reconciliations
-                  WHERE lane = 'personal' AND owner_ref IN (
+               ) OR EXISTS (
+                 SELECT 1 FROM github_installation_release_reconciliations r
+                  WHERE r.lane = 'personal' AND r.owner_ref IN (
                     SELECT subject_token FROM individual_identities
                      WHERE subject_token = ?1 OR canonical_subject_token = ?1
-                  )
+                  ) AND r.installation_id = github_personal_deliveries.installation_id
+                    AND r.incarnation = github_personal_deliveries.incarnation
                )
             )
           ) OR (

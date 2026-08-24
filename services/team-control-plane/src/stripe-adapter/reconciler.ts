@@ -31,6 +31,7 @@ import {
 } from "./safe.ts";
 import {
   billingGeneration,
+  hasExactLegacyGenerationBridgeEvidence,
   parsedSummary,
   providerEvent,
   refundProviderBinding,
@@ -72,13 +73,34 @@ function metadata(value: unknown, field: string): Record<string, unknown> {
   return parsed;
 }
 
-function metadataBinding(value: unknown, expected: StripeSummary, field: string): void {
+function metadataBinding(
+  value: unknown,
+  expected: StripeSummary,
+  field: string,
+  allowExactLegacyMissingGeneration: boolean
+): void {
   const parsed = metadata(value, field);
+  const legacyMissingGeneration =
+    allowExactLegacyMissingGeneration &&
+    parsed.billing_generation === undefined &&
+    expected.checkoutIntentId !== null &&
+    Object.keys(parsed).length === 5 &&
+    Object.keys(parsed).every((key) =>
+      [
+        "team_org_id",
+        "internal_price_id",
+        "provider_price_id",
+        "checkout_intent_id",
+        "contributor_limit"
+      ].includes(key)
+    ) &&
+    parsed.checkout_intent_id === expected.checkoutIntentId &&
+    parsed.contributor_limit === "15";
   if (
     parsed.team_org_id !== expected.orgId ||
     parsed.internal_price_id !== expected.internalPriceId ||
     parsed.provider_price_id !== expected.providerPriceId ||
-    parsed.billing_generation !== String(expected.billingGeneration)
+    (!legacyMissingGeneration && parsed.billing_generation !== String(expected.billingGeneration))
   ) {
     throw new AdapterError(409, "provider_binding_mismatch", "Stripe metadata does not match the stored tenant binding.");
   }
@@ -107,11 +129,12 @@ function refundMetadataBinding(value: unknown, expected: StripeSummary, field: s
 function subscriptionBinding(
   object: Record<string, unknown>,
   expected: StripeSummary,
-  env: ReconcilerEnv
+  env: ReconcilerEnv,
+  allowExactLegacyMissingGeneration: boolean
 ): SubscriptionBinding {
   const id = opaqueId(object.id, "subscription.id");
   const customerId = opaqueId(object.customer, "subscription.customer");
-  metadataBinding(object.metadata, expected, "subscription.metadata");
+  metadataBinding(object.metadata, expected, "subscription.metadata", allowExactLegacyMissingGeneration);
   if (object.object !== "subscription" || id !== expected.subscriptionId || customerId !== expected.customerId) {
     throw new AdapterError(409, "provider_binding_mismatch", "Stripe subscription does not match the stored binding.");
   }
@@ -234,7 +257,8 @@ async function subscriptionFor(
   stripe: StripeClient,
   generation: BillingGenerationRow | null,
   summary: StripeSummary,
-  env: ReconcilerEnv
+  env: ReconcilerEnv,
+  allowExactLegacyMissingGeneration: boolean
 ): Promise<SubscriptionBinding> {
   if (
     !generation ||
@@ -247,7 +271,7 @@ async function subscriptionFor(
     throw new AdapterError(409, "provider_binding_mismatch", "Stored billing account does not match the provider event.");
   }
   const object = await stripe.request(stripePath("subscriptions", summary.subscriptionId));
-  return subscriptionBinding(object, summary, env);
+  return subscriptionBinding(object, summary, env, allowExactLegacyMissingGeneration);
 }
 
 async function buildSnapshot(
@@ -263,8 +287,19 @@ async function buildSnapshot(
     throw new AdapterError(409, "provider_binding_mismatch", "Stored provider price is not canonical.");
   }
   const generation = await billingGeneration(env.TEAM_CONTROL_DB, summary.orgId, summary.billingGeneration);
+  const allowExactLegacyMissingGeneration = await hasExactLegacyGenerationBridgeEvidence(
+    env.TEAM_CONTROL_DB,
+    row,
+    summary
+  );
   const providerObject = verifyEventEnvelope(event, row, liveMode(env.STRIPE_LIVEMODE));
-  const subscription = await subscriptionFor(stripe, generation, summary, env);
+  const subscription = await subscriptionFor(
+    stripe,
+    generation,
+    summary,
+    env,
+    allowExactLegacyMissingGeneration
+  );
   const base = baseSnapshot(row, summary, subscription, now, randomUUID);
 
   if (row.event_type === "invoice.paid" || row.event_type === "invoice.payment_failed") {
@@ -272,7 +307,12 @@ async function buildSnapshot(
       throw new AdapterError(409, "provider_binding_mismatch", "Stripe invoice does not match the stored binding.");
     }
     const details = invoiceSubscriptionDetails(providerObject);
-    metadataBinding(details.metadata, summary, "invoice.parent.subscription_details.metadata");
+    metadataBinding(
+      details.metadata,
+      summary,
+      "invoice.parent.subscription_details.metadata",
+      allowExactLegacyMissingGeneration
+    );
     if (details.subscriptionId !== summary.subscriptionId || providerObject.currency !== "usd") {
       throw new AdapterError(409, "provider_binding_mismatch", "Stripe invoice subscription is not canonical.");
     }
@@ -312,7 +352,12 @@ async function buildSnapshot(
   }
 
   if (row.event_type === "customer.subscription.updated" || row.event_type === "customer.subscription.deleted") {
-    const eventSubscription = subscriptionBinding(providerObject, summary, env);
+    const eventSubscription = subscriptionBinding(
+      providerObject,
+      summary,
+      env,
+      allowExactLegacyMissingGeneration
+    );
     if (
       eventSubscription.id !== subscription.id ||
       eventSubscription.customerId !== subscription.customerId ||

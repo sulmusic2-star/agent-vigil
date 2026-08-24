@@ -49,6 +49,7 @@ interface GitHubSummary {
 
 interface ClaimRow {
   installation_id: number;
+  incarnation: number;
   github_account_node_id: string;
   org_id: string;
   status: "claimed" | "bound" | "revoked";
@@ -59,6 +60,7 @@ interface ClaimRow {
 
 interface InstallationRow {
   installation_id: number;
+  incarnation: number;
   app_id: number;
   github_account_node_id: string;
   org_id: string;
@@ -80,6 +82,7 @@ interface DeliveryRow {
   event_name: GitHubEventName;
   action: GitHubAction;
   installation_id: number;
+  incarnation: number;
   org_id: string | null;
   event_created_at: number;
   result: "unclaimed" | "pending_reconciliation" | "applied" | "revoked" | "stale" | "rejected";
@@ -272,7 +275,7 @@ function serviceUserId(installationId: number): string {
 async function claimForInstallation(db: D1Database, installationId: number): Promise<ClaimRow | null> {
   return db
     .prepare(
-      `SELECT c.installation_id, c.github_account_node_id, c.org_id, c.status,
+      `SELECT c.installation_id, c.incarnation, c.github_account_node_id, c.org_id, c.status,
               c.provider_proof_delivery_id, c.claim_expires_at,
               o.status AS organization_status
          FROM github_installation_claims c
@@ -286,7 +289,7 @@ async function claimForInstallation(db: D1Database, installationId: number): Pro
 async function installationById(db: D1Database, installationId: number): Promise<InstallationRow | null> {
   return db
     .prepare(
-      `SELECT installation_id, app_id, github_account_node_id, org_id, state, repository_selection,
+      `SELECT installation_id, incarnation, app_id, github_account_node_id, org_id, state, repository_selection,
               last_event_created_at, last_delivery_id, last_reconciliation_id, installed_at,
               suspended_at, deleted_at, reconciled_at, updated_at
          FROM github_installations WHERE installation_id = ?1`
@@ -311,6 +314,7 @@ async function rejectServiceIdentityCollision(db: D1Database, orgId: string, ins
 function repositoryUpsertStatement(
   db: D1Database,
   installationId: number,
+  incarnation: number,
   repositoryNodeIds: string[],
   selected: boolean,
   at: string,
@@ -323,12 +327,12 @@ function repositoryUpsertStatement(
        SELECT ?1, value, ?2, ?3 FROM json_each(?4)
         WHERE EXISTS (
           SELECT 1 FROM github_installations
-           WHERE installation_id = ?1 AND last_delivery_id = ?5
+           WHERE installation_id = ?1 AND incarnation = ?6 AND last_delivery_id = ?5
         )
        ON CONFLICT(installation_id, repository_node_id) DO UPDATE SET
          selected = excluded.selected, updated_at = excluded.updated_at`
     )
-    .bind(installationId, selected ? 1 : 0, at, JSON.stringify(repositoryNodeIds), deliveryId);
+    .bind(installationId, selected ? 1 : 0, at, JSON.stringify(repositoryNodeIds), deliveryId, incarnation);
 }
 
 function deliveryStatement(
@@ -338,6 +342,7 @@ function deliveryStatement(
   payloadHash: string,
   summary: GitHubSummary,
   orgId: string,
+  incarnation: number,
   result: DeliveryRow["result"],
   at: string,
   requireCurrentInstallation: boolean
@@ -345,28 +350,28 @@ function deliveryStatement(
   const current = requireCurrentInstallation
     ? `AND EXISTS (
          SELECT 1 FROM github_installations
-          WHERE installation_id = ?4 AND last_delivery_id = ?1
+          WHERE installation_id = ?4 AND incarnation = ?6 AND last_delivery_id = ?1
        )`
     : "";
   if (existing) {
     return db
       .prepare(
         `UPDATE github_deliveries SET org_id = ?2, result = ?3, received_at = ?5
-          WHERE delivery_id = ?1 ${current}`
+          WHERE delivery_id = ?1 AND incarnation = ?6 ${current}`
       )
-      .bind(deliveryId, orgId, result, summary.installationId, at);
+      .bind(deliveryId, orgId, result, summary.installationId, at, incarnation);
   }
   return db
     .prepare(
       `INSERT INTO github_deliveries
-        (delivery_id, payload_sha256, event_name, action, installation_id, org_id,
+        (delivery_id, payload_sha256, event_name, action, installation_id, incarnation, org_id,
          event_created_at, result, received_at)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+       SELECT ?1, ?2, ?3, ?4, ?5, ?10, ?6, ?7, ?8, ?9
         WHERE 1 = 1 ${
           requireCurrentInstallation
             ? `AND EXISTS (
                  SELECT 1 FROM github_installations
-                  WHERE installation_id = ?5 AND last_delivery_id = ?1
+                  WHERE installation_id = ?5 AND incarnation = ?10 AND last_delivery_id = ?1
                )`
             : ""
         }`
@@ -380,7 +385,8 @@ function deliveryStatement(
       orgId,
       summary.eventCreatedAt,
       result,
-      at
+      at,
+      incarnation
     );
 }
 
@@ -402,9 +408,11 @@ async function recordUnclaimedDelivery(
   }
   await env.TEAM_CONTROL_DB.prepare(
     `INSERT INTO github_deliveries
-      (delivery_id, payload_sha256, event_name, action, installation_id, org_id,
+      (delivery_id, payload_sha256, event_name, action, installation_id, incarnation, org_id,
        event_created_at, result, received_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, 'unclaimed', ?7)`
+     SELECT ?1, ?2, ?3, ?4, ?5, incarnation, NULL, ?6, 'unclaimed', ?7
+       FROM github_installation_lifecycle_heads
+      WHERE installation_id = ?5 AND latest_delivery_id = ?1`
   )
     .bind(
       deliveryId,
@@ -464,7 +472,7 @@ export async function claimGitHubInstallation(request: Request, env: Env, auth: 
     ).bind(at)
   ]);
   const proof = await env.TEAM_CONTROL_DB.prepare(
-    `SELECT p.delivery_id, p.expires_at
+    `SELECT p.delivery_id, p.expires_at, p.incarnation
        FROM github_installation_provider_proofs p
        JOIN github_installation_lifecycle_heads h
          ON h.installation_id = p.installation_id
@@ -474,10 +482,11 @@ export async function claimGitHubInstallation(request: Request, env: Env, auth: 
         AND p.account_type = 'Organization' AND p.consumed_at IS NULL
         AND p.invalidated_at IS NULL AND p.expires_at > ?4
         AND h.creation_delivery_id = p.delivery_id AND h.latest_delivery_id = p.delivery_id
-        AND h.latest_action = 'created' AND h.terminal = 0`
+        AND h.latest_action = 'created' AND h.terminal = 0
+        AND h.incarnation = p.incarnation`
   )
     .bind(providerDeliveryId, installationId, accountNodeId, at)
-    .first<{ delivery_id: string; expires_at: string }>();
+    .first<{ delivery_id: string; expires_at: string; incarnation: number }>();
   if (!proof) {
     const duplicate = await env.TEAM_CONTROL_DB.prepare(
       `SELECT 1 AS found FROM github_installation_claims
@@ -518,40 +527,40 @@ export async function claimGitHubInstallation(request: Request, env: Env, auth: 
   const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO github_installation_claims
-        (installation_id, github_account_node_id, org_id, status, claimed_by, claimed_at, updated_at,
+        (installation_id, incarnation, github_account_node_id, org_id, status, claimed_by, claimed_at, updated_at,
          provider_proof_delivery_id, claim_expires_at, bound_at)
-       SELECT ?1, ?2, ?3, 'claimed', ?4, ?5, ?5, ?6, ?7, NULL
+       SELECT ?1, ?8, ?2, ?3, 'claimed', ?4, ?5, ?5, ?6, ?7, NULL
         WHERE EXISTS (
           SELECT 1 FROM github_installation_provider_proofs
-           WHERE delivery_id = ?6 AND installation_id = ?1 AND github_account_node_id = ?2
+           WHERE delivery_id = ?6 AND installation_id = ?1 AND incarnation = ?8 AND github_account_node_id = ?2
              AND account_type = 'Organization' AND consumed_at IS NULL
              AND invalidated_at IS NULL AND expires_at > ?5
              AND EXISTS (
                SELECT 1 FROM github_installation_lifecycle_heads
-                WHERE installation_id = ?1 AND github_account_node_id = ?2
+                WHERE installation_id = ?1 AND incarnation = ?8 AND github_account_node_id = ?2
                   AND account_type = 'Organization' AND creation_delivery_id = ?6
                   AND latest_delivery_id = ?6 AND latest_action = 'created' AND terminal = 0
              )
         )`
-    ).bind(installationId, accountNodeId, auth.orgId, auth.userId, at, providerDeliveryId, proof.expires_at),
+    ).bind(installationId, accountNodeId, auth.orgId, auth.userId, at, providerDeliveryId, proof.expires_at, proof.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_installation_provider_proofs
           SET consumed_at = ?1, consumed_by_lane = 'organization'
-        WHERE delivery_id = ?2 AND installation_id = ?3 AND github_account_node_id = ?4
+        WHERE delivery_id = ?2 AND installation_id = ?3 AND incarnation = ?6 AND github_account_node_id = ?4
           AND account_type = 'Organization' AND consumed_at IS NULL
           AND invalidated_at IS NULL AND expires_at > ?1
           AND EXISTS (
             SELECT 1 FROM github_installation_lifecycle_heads
-             WHERE installation_id = ?3 AND github_account_node_id = ?4
+             WHERE installation_id = ?3 AND incarnation = ?6 AND github_account_node_id = ?4
                AND account_type = 'Organization' AND creation_delivery_id = ?2
                AND latest_delivery_id = ?2 AND latest_action = 'created' AND terminal = 0
           )
           AND EXISTS (
             SELECT 1 FROM github_installation_claims
-             WHERE installation_id = ?3 AND github_account_node_id = ?4 AND org_id = ?5
+             WHERE installation_id = ?3 AND incarnation = ?6 AND github_account_node_id = ?4 AND org_id = ?5
                AND status = 'claimed' AND provider_proof_delivery_id = ?2
           )`
-    ).bind(at, providerDeliveryId, installationId, accountNodeId, auth.orgId),
+    ).bind(at, providerDeliveryId, installationId, accountNodeId, auth.orgId, proof.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO audit_events
         (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
@@ -562,7 +571,7 @@ export async function claimGitHubInstallation(request: Request, env: Env, auth: 
           JOIN github_installation_provider_proofs p
             ON p.delivery_id = c.provider_proof_delivery_id
          WHERE c.installation_id = ?7 AND c.github_account_node_id = ?8 AND c.org_id = ?2
-           AND c.status = 'claimed' AND p.consumed_at = ?6
+           AND c.status = 'claimed' AND c.incarnation = p.incarnation AND p.consumed_at = ?6
            AND p.consumed_by_lane = 'organization'
         )`
     ).bind(
@@ -641,7 +650,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
   }
   const [existingDelivery, existingPersonalDelivery] = await Promise.all([
     env.TEAM_CONTROL_DB.prepare(
-      `SELECT delivery_id, payload_sha256, event_name, action, installation_id, org_id,
+      `SELECT delivery_id, payload_sha256, event_name, action, installation_id, incarnation, org_id,
               event_created_at, result
          FROM github_deliveries WHERE delivery_id = ?1`
     )
@@ -674,14 +683,6 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
       return jsonResponse({ received: true, duplicate: true, result: existingDelivery.result });
     }
   }
-  await recordGitHubProviderProof(env.TEAM_CONTROL_DB, {
-    deliveryId,
-    installationId: summary.installationId,
-    accountNodeId: summary.accountNodeId,
-    accountType: "Organization",
-    action: summary.action,
-    eventCreatedAt: summary.eventCreatedAt
-  });
   const claim = await claimForInstallation(env.TEAM_CONTROL_DB, summary.installationId);
   if (
     !claim ||
@@ -692,6 +693,14 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
     (summary.action === "created" && claim.provider_proof_delivery_id !== deliveryId) ||
     (summary.action !== "created" && claim.status !== "bound")
   ) {
+    await recordGitHubProviderProof(env.TEAM_CONTROL_DB, {
+      deliveryId,
+      installationId: summary.installationId,
+      accountNodeId: summary.accountNodeId,
+      accountType: "Organization",
+      action: summary.action,
+      eventCreatedAt: summary.eventCreatedAt
+    });
     await recordUnclaimedDelivery(env, existingDelivery, deliveryId, payloadHash, summary);
     throw new ApiError(409, "github_installation_claim_required", "A matching active organization claim is required.");
   }
@@ -700,14 +709,15 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
   const materializedDelivery = installation
     ? await env.TEAM_CONTROL_DB.prepare(
         `SELECT delivery_id, action, event_created_at FROM github_deliveries
-          WHERE delivery_id = ?1 AND installation_id = ?2 AND org_id = ?3`
+          WHERE delivery_id = ?1 AND installation_id = ?2 AND incarnation = ?4 AND org_id = ?3`
       )
-        .bind(installation.last_delivery_id, installation.installation_id, installation.org_id)
+        .bind(installation.last_delivery_id, installation.installation_id, installation.org_id, installation.incarnation)
         .first<{ delivery_id: string; action: GitHubAction; event_created_at: number }>()
     : null;
   if (installation) {
     if (
       installation.org_id !== claim.org_id ||
+      installation.incarnation !== claim.incarnation ||
       installation.github_account_node_id !== summary.accountNodeId ||
       installation.app_id !== summary.appId
     ) {
@@ -734,6 +744,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
           payloadHash,
           summary,
           claim.org_id,
+          installation.incarnation,
           "stale",
           at,
           false
@@ -758,20 +769,20 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
     }
     const at = nowIso();
     const serviceId = serviceUserId(summary.installationId);
-    const results = await env.TEAM_CONTROL_DB.batch([
+    const materializationStatements: D1PreparedStatement[] = [
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO github_installations
-          (installation_id, app_id, github_account_node_id, org_id, state, repository_selection,
+          (installation_id, incarnation, app_id, github_account_node_id, org_id, state, repository_selection,
            last_event_created_at, last_delivery_id, installed_at, updated_at)
-         SELECT ?1, ?2, ?3, ?4, 'pending_reconciliation', ?5, ?6, ?7, ?8, ?9
+         SELECT ?1, ?10, ?2, ?3, ?4, 'pending_reconciliation', ?5, ?6, ?7, ?8, ?9
           WHERE EXISTS (
             SELECT 1 FROM github_installation_claims
-             WHERE installation_id = ?1 AND github_account_node_id = ?3 AND org_id = ?4
+             WHERE installation_id = ?1 AND incarnation = ?10 AND github_account_node_id = ?3 AND org_id = ?4
                AND status = 'claimed' AND provider_proof_delivery_id = ?7
                AND claim_expires_at > ?9
                AND EXISTS (
                  SELECT 1 FROM github_installation_lifecycle_heads
-                  WHERE installation_id = ?1 AND github_account_node_id = ?3
+                  WHERE installation_id = ?1 AND incarnation = ?10 AND github_account_node_id = ?3
                     AND account_type = 'Organization' AND creation_delivery_id = ?7
                     AND latest_delivery_id = ?7 AND latest_action = 'created' AND terminal = 0
                )
@@ -785,30 +796,32 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
         summary.eventCreatedAt,
         deliveryId,
         summary.eventCreatedIso,
-        at
+        at,
+        claim.incarnation
       ),
       env.TEAM_CONTROL_DB.prepare(
         `UPDATE github_installation_claims SET status = 'bound', bound_at = ?1,
            claim_expires_at = '9999-12-31T23:59:59.999Z', updated_at = ?1
-          WHERE installation_id = ?2 AND org_id = ?3 AND github_account_node_id = ?4
+          WHERE installation_id = ?2 AND incarnation = ?6 AND org_id = ?3 AND github_account_node_id = ?4
             AND status = 'claimed' AND provider_proof_delivery_id = ?5 AND claim_expires_at > ?1`
-      ).bind(at, summary.installationId, claim.org_id, summary.accountNodeId, deliveryId),
+      ).bind(at, summary.installationId, claim.org_id, summary.accountNodeId, deliveryId, claim.incarnation),
       env.TEAM_CONTROL_DB.prepare(
         `INSERT INTO organization_members
           (org_id, user_id, role, identity_kind, active, created_at, updated_at)
          SELECT ?1, ?2, 'member', 'service', 0, ?3, ?3
           WHERE EXISTS (
             SELECT 1 FROM github_installations i
-            JOIN github_installation_claims c ON c.installation_id = i.installation_id
-             WHERE i.installation_id = ?4 AND i.org_id = ?1 AND i.last_delivery_id = ?5
+            JOIN github_installation_claims c ON c.installation_id = i.installation_id AND c.incarnation = i.incarnation
+             WHERE i.installation_id = ?4 AND i.incarnation = ?6 AND i.org_id = ?1 AND i.last_delivery_id = ?5
                AND c.status = 'bound' AND c.provider_proof_delivery_id = ?5
           )
          ON CONFLICT(org_id, user_id) DO UPDATE SET active = 0, updated_at = excluded.updated_at
          WHERE organization_members.role = 'member' AND organization_members.identity_kind = 'service'`
-      ).bind(claim.org_id, serviceId, at, summary.installationId, deliveryId),
+      ).bind(claim.org_id, serviceId, at, summary.installationId, deliveryId, claim.incarnation),
       repositoryUpsertStatement(
         env.TEAM_CONTROL_DB,
         summary.installationId,
+        claim.incarnation,
         summary.addedRepositoryNodeIds,
         true,
         at,
@@ -821,6 +834,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
         payloadHash,
         summary,
         claim.org_id,
+        claim.incarnation,
         "pending_reconciliation",
         at,
         true
@@ -833,8 +847,8 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
                 'github_installation', ?3, ?4, ?5
           WHERE EXISTS (
             SELECT 1 FROM github_installations i
-            JOIN github_installation_claims c ON c.installation_id = i.installation_id
-             WHERE i.installation_id = ?6 AND i.org_id = ?2 AND i.last_delivery_id = ?7
+            JOIN github_installation_claims c ON c.installation_id = i.installation_id AND c.incarnation = i.incarnation
+             WHERE i.installation_id = ?6 AND i.incarnation = ?8 AND i.org_id = ?2 AND i.last_delivery_id = ?7
                AND c.status = 'bound' AND c.provider_proof_delivery_id = ?7
           )`
       ).bind(
@@ -844,15 +858,64 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
         JSON.stringify({ repository_selection: summary.repositorySelection }),
         at,
         summary.installationId,
-        deliveryId
+        deliveryId,
+        claim.incarnation
+      ),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+         VALUES (?1, 'github_org_lifecycle_materialized', ?2,
+           CASE WHEN
+             EXISTS (
+               SELECT 1 FROM github_installations
+                WHERE installation_id = ?3 AND incarnation = ?7 AND org_id = ?4
+                  AND state = 'pending_reconciliation' AND last_delivery_id = ?2
+             )
+             AND EXISTS (
+               SELECT 1 FROM github_installation_claims
+                WHERE installation_id = ?3 AND incarnation = ?7 AND org_id = ?4 AND status = 'bound'
+                  AND provider_proof_delivery_id = ?2
+             )
+             AND EXISTS (
+               SELECT 1 FROM organization_members
+                WHERE org_id = ?4 AND user_id = ?5 AND role = 'member'
+                  AND identity_kind = 'service' AND active = 0
+             )
+             AND EXISTS (
+               SELECT 1 FROM github_deliveries
+                WHERE delivery_id = ?2 AND installation_id = ?3 AND incarnation = ?7 AND org_id = ?4
+                  AND result = 'pending_reconciliation'
+             )
+           THEN 1 ELSE 0 END, ?6)`
+      ).bind(
+        newId("integrity"),
+        deliveryId,
+        summary.installationId,
+        claim.org_id,
+        serviceId,
+        at,
+        claim.incarnation
       )
-    ]);
+    ];
+    const results = await recordGitHubProviderProof(
+      env.TEAM_CONTROL_DB,
+      {
+        deliveryId,
+        installationId: summary.installationId,
+        accountNodeId: summary.accountNodeId,
+        accountType: "Organization",
+        action: summary.action,
+        eventCreatedAt: summary.eventCreatedAt
+      },
+      materializationStatements
+    );
+    const materializationOffset = 6;
     if (
-      (results[0]?.meta.changes ?? 0) !== 1 ||
-      (results[1]?.meta.changes ?? 0) !== 1 ||
-      (results[2]?.meta.changes ?? 0) !== 1 ||
-      (results[4]?.meta.changes ?? 0) !== 1 ||
-      (results[5]?.meta.changes ?? 0) !== 1
+      (results[materializationOffset]?.meta.changes ?? 0) !== 1 ||
+      (results[materializationOffset + 1]?.meta.changes ?? 0) !== 1 ||
+      (results[materializationOffset + 2]?.meta.changes ?? 0) !== 1 ||
+      (results[materializationOffset + 4]?.meta.changes ?? 0) !== 1 ||
+      (results[materializationOffset + 5]?.meta.changes ?? 0) !== 1 ||
+      (results[materializationOffset + 6]?.meta.changes ?? 0) !== 1
     ) {
       throw new ApiError(409, "github_installation_concurrent_conflict", "Installation could not be safely initialized.");
     }
@@ -898,7 +961,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
       `UPDATE github_installations SET state = ?1, repository_selection = ?2,
         last_event_created_at = ?3, last_delivery_id = ?4, last_reconciliation_id = NULL,
         suspended_at = ?5, deleted_at = ?6, reconciled_at = NULL, updated_at = ?7
-       WHERE installation_id = ?8 AND last_event_created_at = ?9 AND last_delivery_id = ?10`
+       WHERE installation_id = ?8 AND incarnation = ?11 AND last_event_created_at = ?9 AND last_delivery_id = ?10`
     ).bind(
       nextState,
       summary.repositorySelection,
@@ -909,7 +972,8 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
       at,
       summary.installationId,
       installation.last_event_created_at,
-      installation.last_delivery_id
+      installation.last_delivery_id,
+      installation.incarnation
     ),
     deliveryStatement(
       env.TEAM_CONTROL_DB,
@@ -918,6 +982,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
       payloadHash,
       summary,
       claim.org_id,
+      installation.incarnation,
       deliveryResult,
       at,
       true
@@ -925,6 +990,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
     repositoryUpsertStatement(
       env.TEAM_CONTROL_DB,
       summary.installationId,
+      installation.incarnation,
       summary.addedRepositoryNodeIds,
       true,
       at,
@@ -933,6 +999,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
     repositoryUpsertStatement(
       env.TEAM_CONTROL_DB,
       summary.installationId,
+      installation.incarnation,
       summary.removedRepositoryNodeIds,
       false,
       at,
@@ -946,17 +1013,17 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
           WHERE installation_id = ?2
             AND EXISTS (
               SELECT 1 FROM github_installations
-               WHERE installation_id = ?2 AND last_delivery_id = ?3
+               WHERE installation_id = ?2 AND incarnation = ?4 AND last_delivery_id = ?3
             )`
-      ).bind(at, summary.installationId, deliveryId),
+      ).bind(at, summary.installationId, deliveryId, installation.incarnation),
       env.TEAM_CONTROL_DB.prepare(
         `UPDATE github_installation_claims SET status = 'revoked', updated_at = ?1
-          WHERE installation_id = ?2
+          WHERE installation_id = ?2 AND incarnation = ?4
             AND EXISTS (
               SELECT 1 FROM github_installations
-               WHERE installation_id = ?2 AND last_delivery_id = ?3
+               WHERE installation_id = ?2 AND incarnation = ?4 AND last_delivery_id = ?3
             )`
-      ).bind(at, summary.installationId, deliveryId)
+      ).bind(at, summary.installationId, deliveryId, installation.incarnation)
     );
   }
   if (requiresDeactivation) {
@@ -974,7 +1041,7 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
        SELECT ?1, ?2, 'system', 'github-app:webhook', ?3, 'github_installation', ?4, ?5, ?6
         WHERE EXISTS (
           SELECT 1 FROM github_installations
-           WHERE installation_id = ?7 AND last_delivery_id = ?8
+           WHERE installation_id = ?7 AND incarnation = ?9 AND last_delivery_id = ?8
         )`
     ).bind(
       newId("audit"),
@@ -984,11 +1051,78 @@ export async function handleGitHubWebhook(request: Request, env: Env): Promise<R
       JSON.stringify({ state: nextState, repository_selection: summary.repositorySelection }),
       at,
       summary.installationId,
-      deliveryId
+      deliveryId,
+      installation.incarnation
     )
   );
-  const results = await env.TEAM_CONTROL_DB.batch(statements);
-  if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) {
+  statements.push(
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'github_org_lifecycle_materialized', ?2,
+         CASE WHEN
+           EXISTS (
+             SELECT 1 FROM github_installation_lifecycle_heads
+              WHERE installation_id = ?3 AND incarnation = ?14 AND github_account_node_id = ?4
+                AND account_type = 'Organization' AND latest_delivery_id = ?2
+                AND latest_event_created_at = ?5 AND latest_action = ?6 AND terminal = ?7
+           )
+           AND EXISTS (
+             SELECT 1 FROM github_installations
+              WHERE installation_id = ?3 AND incarnation = ?14 AND org_id = ?8 AND state = ?9 AND last_delivery_id = ?2
+           )
+           AND EXISTS (
+             SELECT 1 FROM github_deliveries
+              WHERE delivery_id = ?2 AND installation_id = ?3 AND incarnation = ?14 AND org_id = ?8 AND result = ?10
+           )
+           AND (
+             ?11 = 0 OR NOT EXISTS (
+               SELECT 1 FROM organization_members
+                WHERE org_id = ?8 AND user_id = ?12 AND role = 'member'
+                  AND identity_kind = 'service' AND active = 1
+             )
+           )
+           AND (
+             ?6 <> 'deleted' OR EXISTS (
+               SELECT 1 FROM github_installation_claims
+                WHERE installation_id = ?3 AND incarnation = ?14 AND org_id = ?8 AND status = 'revoked'
+             )
+           )
+         THEN 1 ELSE 0 END, ?13)`
+    ).bind(
+      newId("integrity"),
+      deliveryId,
+      summary.installationId,
+      summary.accountNodeId,
+      summary.eventCreatedAt,
+      summary.action,
+      summary.action === "deleted" || summary.action === "suspend" ? 1 : 0,
+      claim.org_id,
+      nextState,
+      deliveryResult,
+      requiresDeactivation ? 1 : 0,
+      serviceUserId(summary.installationId),
+      at,
+      installation.incarnation
+    )
+  );
+  const results = await recordGitHubProviderProof(
+    env.TEAM_CONTROL_DB,
+    {
+      deliveryId,
+      installationId: summary.installationId,
+      accountNodeId: summary.accountNodeId,
+      accountType: "Organization",
+      action: summary.action,
+      eventCreatedAt: summary.eventCreatedAt
+    },
+    statements
+  );
+  const materializationOffset = 6;
+  if (
+    (results[materializationOffset]?.meta.changes ?? 0) !== 1 ||
+    (results[materializationOffset + 1]?.meta.changes ?? 0) !== 1 ||
+    (results[materializationOffset + statements.length - 1]?.meta.changes ?? 0) !== 1
+  ) {
     throw new ApiError(409, "github_installation_concurrent_conflict", "Installation changed concurrently.");
   }
   return jsonResponse({ received: true, state: nextState }, deliveryResult === "applied" ? 200 : 202);
@@ -1038,10 +1172,10 @@ async function releaseOrganizationInstallation(
   snapshot: ReconciliationSnapshot,
   payloadHash: string
 ): Promise<Response> {
-  const [installation, delivery, claim, head, pendingDeliveries, repositories] = await Promise.all([
-    installationById(env.TEAM_CONTROL_DB, snapshot.installationId),
+  const installation = await installationById(env.TEAM_CONTROL_DB, snapshot.installationId);
+  const [delivery, claim, head, proof, pendingDeliveries, repositories] = await Promise.all([
     env.TEAM_CONTROL_DB.prepare(
-      `SELECT delivery_id, payload_sha256, event_name, action, installation_id, org_id,
+      `SELECT delivery_id, payload_sha256, event_name, action, installation_id, incarnation, org_id,
               event_created_at, result
          FROM github_deliveries WHERE delivery_id = ?1`
     )
@@ -1049,12 +1183,13 @@ async function releaseOrganizationInstallation(
       .first<DeliveryRow>(),
     claimForInstallation(env.TEAM_CONTROL_DB, snapshot.installationId),
     env.TEAM_CONTROL_DB.prepare(
-      `SELECT github_account_node_id, account_type, creation_delivery_id, latest_delivery_id,
+      `SELECT incarnation, github_account_node_id, account_type, creation_delivery_id, latest_delivery_id,
               latest_event_created_at, latest_action, terminal
          FROM github_installation_lifecycle_heads WHERE installation_id = ?1`
     )
       .bind(snapshot.installationId)
       .first<{
+        incarnation: number;
         github_account_node_id: string;
         account_type: string;
         creation_delivery_id: string | null;
@@ -1064,10 +1199,28 @@ async function releaseOrganizationInstallation(
         terminal: number;
       }>(),
     env.TEAM_CONTROL_DB.prepare(
-      `SELECT COUNT(*) AS count FROM github_deliveries
-        WHERE installation_id = ?1 AND result = 'pending_reconciliation'`
+      `SELECT delivery_id, installation_id, incarnation, github_account_node_id, account_type,
+              invalidated_at, invalidated_by_delivery_id
+         FROM github_installation_provider_proofs
+        WHERE delivery_id = (
+          SELECT provider_proof_delivery_id FROM github_installation_claims WHERE installation_id = ?1
+        )`
     )
       .bind(snapshot.installationId)
+      .first<{
+        delivery_id: string;
+        installation_id: number;
+        incarnation: number;
+        github_account_node_id: string;
+        account_type: string;
+        invalidated_at: string | null;
+        invalidated_by_delivery_id: string | null;
+      }>(),
+    env.TEAM_CONTROL_DB.prepare(
+      `SELECT COUNT(*) AS count FROM github_deliveries
+        WHERE installation_id = ?1 AND incarnation = ?2 AND result = 'pending_reconciliation'`
+    )
+      .bind(snapshot.installationId, installation?.incarnation ?? -1)
       .first<{ count: number }>(),
     env.TEAM_CONTROL_DB.prepare(
       `SELECT COUNT(*) AS count FROM github_installation_repositories WHERE installation_id = ?1`
@@ -1080,19 +1233,29 @@ async function releaseOrganizationInstallation(
     !delivery ||
     !claim ||
     !head ||
+    !proof ||
     installation.state !== "pending_reconciliation" ||
     installation.last_delivery_id !== snapshot.sourceDeliveryId ||
     installation.app_id !== snapshot.appId ||
     installation.github_account_node_id !== snapshot.accountNodeId ||
     installation.repository_selection !== snapshot.repositorySelection ||
     delivery.installation_id !== snapshot.installationId ||
+    delivery.incarnation !== installation.incarnation ||
     delivery.result !== "pending_reconciliation" ||
     claim.status !== "bound" ||
     claim.organization_status !== "active" ||
     claim.org_id !== installation.org_id ||
+    claim.incarnation !== installation.incarnation ||
     claim.github_account_node_id !== snapshot.accountNodeId ||
     !claim.provider_proof_delivery_id ||
+    proof.delivery_id !== claim.provider_proof_delivery_id ||
+    proof.installation_id !== snapshot.installationId ||
+    proof.incarnation !== installation.incarnation ||
+    proof.github_account_node_id !== snapshot.accountNodeId ||
+    proof.account_type !== "Organization" ||
+    (proof.invalidated_at === null) !== (proof.invalidated_by_delivery_id === null) ||
     head.github_account_node_id !== snapshot.accountNodeId ||
+    head.incarnation !== installation.incarnation ||
     head.account_type !== "Organization" ||
     head.creation_delivery_id !== claim.provider_proof_delivery_id ||
     head.latest_delivery_id !== snapshot.sourceDeliveryId ||
@@ -1106,16 +1269,19 @@ async function releaseOrganizationInstallation(
     throw new ApiError(409, "github_reconciliation_mismatch", "Missing-provider snapshot does not match the current pending installation.");
   }
   const at = nowIso();
+  const expectedProofInvalidatedAt = proof.invalidated_at ?? at;
+  const expectedProofInvalidatedBy = proof.invalidated_by_delivery_id ?? snapshot.sourceDeliveryId;
+  const expectedProofChanges = proof.invalidated_at === null ? 1 : 0;
   const serviceId = serviceUserId(snapshot.installationId);
   const results = await env.TEAM_CONTROL_DB.batch([
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO github_installation_release_reconciliations
-        (reconciliation_id, payload_sha256, source_delivery_id, installation_id,
-         github_account_node_id, lane, owner_ref, observed_at, result, applied_at)
-       SELECT ?1, ?2, ?3, ?4, ?5, 'organization', ?6, ?7, 'released', ?8
+        (reconciliation_id, payload_sha256, source_delivery_id, creation_delivery_id, installation_id,
+         incarnation, github_account_node_id, lane, owner_ref, observed_at, result, applied_at)
+       SELECT ?1, ?2, ?3, ?9, ?4, ?10, ?5, 'organization', ?6, ?7, 'released', ?8
         WHERE EXISTS (
           SELECT 1 FROM github_installations
-           WHERE installation_id = ?4 AND org_id = ?6 AND state = 'pending_reconciliation'
+           WHERE installation_id = ?4 AND incarnation = ?10 AND org_id = ?6 AND state = 'pending_reconciliation'
              AND last_delivery_id = ?3
         )`
     ).bind(
@@ -1126,18 +1292,20 @@ async function releaseOrganizationInstallation(
       snapshot.accountNodeId,
       installation.org_id,
       snapshot.observedAt,
-      at
+      at,
+      claim.provider_proof_delivery_id,
+      installation.incarnation
     ),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_installation_lifecycle_heads
           SET latest_action = 'provider_not_found', terminal = 1, updated_at = ?1
-        WHERE installation_id = ?2 AND github_account_node_id = ?3 AND account_type = 'Organization'
+        WHERE installation_id = ?2 AND incarnation = ?9 AND github_account_node_id = ?3 AND account_type = 'Organization'
           AND creation_delivery_id = ?4 AND latest_delivery_id = ?5
           AND latest_event_created_at = ?6 AND latest_action = ?7
           AND terminal = 0
           AND EXISTS (
             SELECT 1 FROM github_installation_release_reconciliations
-             WHERE reconciliation_id = ?8 AND lane = 'organization' AND result = 'released'
+             WHERE reconciliation_id = ?8 AND lane = 'organization' AND incarnation = ?9 AND result = 'released'
           )`
     ).bind(
       at,
@@ -1147,16 +1315,17 @@ async function releaseOrganizationInstallation(
       snapshot.sourceDeliveryId,
       delivery.event_created_at,
       delivery.action,
-      snapshot.reconciliationId
+      snapshot.reconciliationId,
+      installation.incarnation
     ),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_installation_provider_proofs
           SET invalidated_at = ?1, invalidated_by_delivery_id = ?2
-        WHERE delivery_id = ?3 AND installation_id = ?4 AND github_account_node_id = ?5
+        WHERE delivery_id = ?3 AND installation_id = ?4 AND incarnation = ?6 AND github_account_node_id = ?5
           AND account_type = 'Organization' AND invalidated_at IS NULL
           AND EXISTS (
             SELECT 1 FROM github_installation_lifecycle_heads
-             WHERE installation_id = ?4 AND latest_delivery_id = ?2
+             WHERE installation_id = ?4 AND incarnation = ?6 AND latest_delivery_id = ?2
                AND latest_action = 'provider_not_found' AND terminal = 1
           )`
     ).bind(
@@ -1164,58 +1333,60 @@ async function releaseOrganizationInstallation(
       snapshot.sourceDeliveryId,
       claim.provider_proof_delivery_id,
       snapshot.installationId,
-      snapshot.accountNodeId
+      snapshot.accountNodeId,
+      installation.incarnation
     ),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_deliveries SET result = 'rejected', received_at = ?1
-        WHERE installation_id = ?2 AND org_id = ?3
+        WHERE installation_id = ?2 AND incarnation = ?5 AND org_id = ?3
           AND result = 'pending_reconciliation'
           AND EXISTS (
             SELECT 1 FROM github_installation_release_reconciliations
-             WHERE reconciliation_id = ?4 AND result = 'released'
+             WHERE reconciliation_id = ?4 AND incarnation = ?5 AND result = 'released'
           )`
-    ).bind(at, snapshot.installationId, installation.org_id, snapshot.reconciliationId),
+    ).bind(at, snapshot.installationId, installation.org_id, snapshot.reconciliationId, installation.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `DELETE FROM github_installation_repositories
         WHERE installation_id = ?1
           AND EXISTS (
             SELECT 1 FROM github_installation_release_reconciliations
-             WHERE reconciliation_id = ?2 AND result = 'released'
+             WHERE reconciliation_id = ?2 AND incarnation = ?3 AND result = 'released'
           )`
-    ).bind(snapshot.installationId, snapshot.reconciliationId),
+    ).bind(snapshot.installationId, snapshot.reconciliationId, installation.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `DELETE FROM organization_members
         WHERE org_id = ?1 AND user_id = ?2 AND role = 'member' AND identity_kind = 'service'
           AND active = 0
           AND EXISTS (
             SELECT 1 FROM github_installation_release_reconciliations
-             WHERE reconciliation_id = ?3 AND result = 'released'
+             WHERE reconciliation_id = ?3 AND incarnation = ?4 AND result = 'released'
           )`
-    ).bind(installation.org_id, serviceId, snapshot.reconciliationId),
+    ).bind(installation.org_id, serviceId, snapshot.reconciliationId, installation.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `DELETE FROM github_installations
-        WHERE installation_id = ?1 AND org_id = ?2 AND state = 'pending_reconciliation'
+        WHERE installation_id = ?1 AND incarnation = ?5 AND org_id = ?2 AND state = 'pending_reconciliation'
           AND last_delivery_id = ?3
           AND EXISTS (
             SELECT 1 FROM github_installation_release_reconciliations
-             WHERE reconciliation_id = ?4 AND result = 'released'
+             WHERE reconciliation_id = ?4 AND incarnation = ?5 AND result = 'released'
           )`
-    ).bind(snapshot.installationId, installation.org_id, snapshot.sourceDeliveryId, snapshot.reconciliationId),
+    ).bind(snapshot.installationId, installation.org_id, snapshot.sourceDeliveryId, snapshot.reconciliationId, installation.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `DELETE FROM github_installation_claims
-        WHERE installation_id = ?1 AND org_id = ?2 AND github_account_node_id = ?3
+        WHERE installation_id = ?1 AND incarnation = ?6 AND org_id = ?2 AND github_account_node_id = ?3
           AND status = 'bound' AND provider_proof_delivery_id = ?4
           AND NOT EXISTS (SELECT 1 FROM github_installations WHERE installation_id = ?1)
           AND EXISTS (
             SELECT 1 FROM github_installation_release_reconciliations
-             WHERE reconciliation_id = ?5 AND result = 'released'
+             WHERE reconciliation_id = ?5 AND incarnation = ?6 AND result = 'released'
           )`
     ).bind(
       snapshot.installationId,
       installation.org_id,
       snapshot.accountNodeId,
       claim.provider_proof_delivery_id,
-      snapshot.reconciliationId
+      snapshot.reconciliationId,
+      installation.incarnation
     ),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO audit_events
@@ -1226,14 +1397,15 @@ async function releaseOrganizationInstallation(
           SELECT 1 FROM github_installation_release_reconciliations
            WHERE reconciliation_id = ?5 AND result = 'released'
         )
-          AND NOT EXISTS (SELECT 1 FROM github_installation_claims WHERE installation_id = ?6)`
+          AND NOT EXISTS (SELECT 1 FROM github_installation_claims WHERE installation_id = ?6 AND incarnation = ?7)`
     ).bind(
       newId("audit"),
       installation.org_id,
       String(snapshot.installationId),
       at,
       snapshot.reconciliationId,
-      snapshot.installationId
+      snapshot.installationId,
+      installation.incarnation
     ),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
@@ -1241,41 +1413,44 @@ async function releaseOrganizationInstallation(
          CASE WHEN
            EXISTS (
              SELECT 1 FROM github_installation_release_reconciliations
-              WHERE reconciliation_id = ?2 AND lane = 'organization' AND result = 'released'
+              WHERE reconciliation_id = ?2 AND lane = 'organization' AND incarnation = ?11 AND result = 'released'
            )
            AND EXISTS (
              SELECT 1 FROM github_installation_lifecycle_heads
-              WHERE installation_id = ?3 AND latest_action = 'provider_not_found' AND terminal = 1
+              WHERE installation_id = ?3 AND incarnation = ?11 AND latest_action = 'provider_not_found' AND terminal = 1
            )
            AND EXISTS (
              SELECT 1 FROM github_installation_provider_proofs
-              WHERE delivery_id = ?4 AND invalidated_at = ?5
+              WHERE delivery_id = ?4 AND incarnation = ?11 AND invalidated_at = ?5
                 AND invalidated_by_delivery_id = ?6
            )
-           AND EXISTS (SELECT 1 FROM github_deliveries WHERE delivery_id = ?6 AND result = 'rejected')
+           AND EXISTS (SELECT 1 FROM github_deliveries WHERE delivery_id = ?7 AND incarnation = ?11 AND result = 'rejected')
            AND NOT EXISTS (
              SELECT 1 FROM github_deliveries
-              WHERE installation_id = ?3 AND result = 'pending_reconciliation'
+              WHERE installation_id = ?3 AND incarnation = ?11 AND result = 'pending_reconciliation'
            )
-           AND NOT EXISTS (SELECT 1 FROM github_installations WHERE installation_id = ?3)
-           AND NOT EXISTS (SELECT 1 FROM github_installation_claims WHERE installation_id = ?3)
+           AND NOT EXISTS (SELECT 1 FROM github_installations WHERE installation_id = ?3 AND incarnation = ?11)
+           AND NOT EXISTS (SELECT 1 FROM github_installation_claims WHERE installation_id = ?3 AND incarnation = ?11)
            AND NOT EXISTS (
              SELECT 1 FROM organization_members
-              WHERE org_id = ?7 AND user_id = ?8 AND identity_kind = 'service'
+              WHERE org_id = ?8 AND user_id = ?9 AND identity_kind = 'service'
            )
-         THEN 1 ELSE 0 END, ?5)`
+         THEN 1 ELSE 0 END, ?10)`
     ).bind(
       `integrity_${snapshot.reconciliationId}`,
       snapshot.reconciliationId,
       snapshot.installationId,
       claim.provider_proof_delivery_id,
-      at,
+      expectedProofInvalidatedAt,
+      expectedProofInvalidatedBy,
       snapshot.sourceDeliveryId,
       installation.org_id,
-      serviceId
+      serviceId,
+      at,
+      installation.incarnation
     )
   ]);
-  const exactChanges = [1, 1, 1, pendingDeliveries.count, repositories.count, 1, 1, 1, 1, 1];
+  const exactChanges = [1, 1, expectedProofChanges, pendingDeliveries.count, repositories.count, 1, 1, 1, 1, 1];
   for (const [index, expectedChanges] of exactChanges.entries()) {
     if ((results[index]?.meta.changes ?? 0) !== expectedChanges) {
       throw new ApiError(409, "github_reconciliation_concurrent_conflict", "Provider-not-found release changed concurrently.");
@@ -1348,7 +1523,7 @@ export async function handleGitHubReconciliation(request: Request, env: Env): Pr
   }
   const installation = await installationById(env.TEAM_CONTROL_DB, snapshot.installationId);
   const delivery = await env.TEAM_CONTROL_DB.prepare(
-    `SELECT delivery_id, payload_sha256, event_name, action, installation_id, org_id,
+    `SELECT delivery_id, payload_sha256, event_name, action, installation_id, incarnation, org_id,
             event_created_at, result
        FROM github_deliveries WHERE delivery_id = ?1`
   )
@@ -1359,6 +1534,7 @@ export async function handleGitHubReconciliation(request: Request, env: Env): Pr
     !delivery ||
     delivery.result !== "pending_reconciliation" ||
     delivery.installation_id !== snapshot.installationId ||
+    delivery.incarnation !== installation.incarnation ||
     installation.state !== "pending_reconciliation" ||
     installation.last_delivery_id !== snapshot.sourceDeliveryId ||
     installation.app_id !== snapshot.appId ||
@@ -1373,6 +1549,7 @@ export async function handleGitHubReconciliation(request: Request, env: Env): Pr
     claim.organization_status !== "active" ||
     claim.status === "revoked" ||
     claim.org_id !== installation.org_id ||
+    claim.incarnation !== installation.incarnation ||
     claim.github_account_node_id !== snapshot.accountNodeId
   ) {
     throw new ApiError(409, "github_installation_claim_mismatch", "Installation claim is not eligible for reconciliation.");
@@ -1384,51 +1561,51 @@ export async function handleGitHubReconciliation(request: Request, env: Env): Pr
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_installations SET state = 'active', last_reconciliation_id = ?1,
         reconciled_at = ?2, suspended_at = NULL, updated_at = ?2
-       WHERE installation_id = ?3 AND state = 'pending_reconciliation' AND last_delivery_id = ?4
+       WHERE installation_id = ?3 AND incarnation = ?7 AND state = 'pending_reconciliation' AND last_delivery_id = ?4
          AND NOT EXISTS (
            SELECT 1 FROM organization_members
             WHERE org_id = ?5 AND user_id = ?6
               AND (role <> 'member' OR identity_kind <> 'service')
          )`
-    ).bind(snapshot.reconciliationId, at, snapshot.installationId, snapshot.sourceDeliveryId, installation.org_id, serviceId),
+    ).bind(snapshot.reconciliationId, at, snapshot.installationId, snapshot.sourceDeliveryId, installation.org_id, serviceId, installation.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_installation_repositories SET selected = 0, updated_at = ?1
         WHERE installation_id = ?2
           AND EXISTS (
             SELECT 1 FROM github_installations
-             WHERE installation_id = ?2 AND last_reconciliation_id = ?3 AND state = 'active'
+             WHERE installation_id = ?2 AND incarnation = ?4 AND last_reconciliation_id = ?3 AND state = 'active'
           )`
-    ).bind(at, snapshot.installationId, snapshot.reconciliationId),
+    ).bind(at, snapshot.installationId, snapshot.reconciliationId, installation.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO github_installation_repositories
         (installation_id, repository_node_id, selected, updated_at)
        SELECT ?1, value, 1, ?2 FROM json_each(?3)
         WHERE EXISTS (
           SELECT 1 FROM github_installations
-           WHERE installation_id = ?1 AND last_reconciliation_id = ?4 AND state = 'active'
+           WHERE installation_id = ?1 AND incarnation = ?5 AND last_reconciliation_id = ?4 AND state = 'active'
         )
        ON CONFLICT(installation_id, repository_node_id) DO UPDATE SET
          selected = 1, updated_at = excluded.updated_at`
-    ).bind(snapshot.installationId, at, JSON.stringify(snapshot.repositoryNodeIds), snapshot.reconciliationId),
+    ).bind(snapshot.installationId, at, JSON.stringify(snapshot.repositoryNodeIds), snapshot.reconciliationId, installation.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO organization_members
         (org_id, user_id, role, identity_kind, active, created_at, updated_at)
        SELECT ?1, ?2, 'member', 'service', 1, ?3, ?3
         WHERE EXISTS (
           SELECT 1 FROM github_installations
-           WHERE installation_id = ?4 AND last_reconciliation_id = ?5 AND state = 'active'
+           WHERE installation_id = ?4 AND incarnation = ?6 AND last_reconciliation_id = ?5 AND state = 'active'
         )
        ON CONFLICT(org_id, user_id) DO UPDATE SET active = 1, updated_at = excluded.updated_at
        WHERE organization_members.role = 'member' AND organization_members.identity_kind = 'service'`
-    ).bind(installation.org_id, serviceId, at, snapshot.installationId, snapshot.reconciliationId),
+    ).bind(installation.org_id, serviceId, at, snapshot.installationId, snapshot.reconciliationId, installation.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO github_installation_reconciliations
-        (reconciliation_id, payload_sha256, source_delivery_id, installation_id, org_id,
+        (reconciliation_id, payload_sha256, source_delivery_id, installation_id, incarnation, org_id,
          observed_at, result, applied_at)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6, 'applied', ?7
+       SELECT ?1, ?2, ?3, ?4, ?8, ?5, ?6, 'applied', ?7
         WHERE EXISTS (
           SELECT 1 FROM github_installations
-           WHERE installation_id = ?4 AND last_reconciliation_id = ?1 AND state = 'active'
+           WHERE installation_id = ?4 AND incarnation = ?8 AND last_reconciliation_id = ?1 AND state = 'active'
         )`
     ).bind(
       snapshot.reconciliationId,
@@ -1437,16 +1614,17 @@ export async function handleGitHubReconciliation(request: Request, env: Env): Pr
       snapshot.installationId,
       installation.org_id,
       snapshot.observedAt,
-      at
+      at,
+      installation.incarnation
     ),
     env.TEAM_CONTROL_DB.prepare(
       `UPDATE github_deliveries SET result = 'applied'
         WHERE delivery_id = ?1
           AND EXISTS (
             SELECT 1 FROM github_installations
-             WHERE installation_id = ?2 AND last_reconciliation_id = ?3 AND state = 'active'
+             WHERE installation_id = ?2 AND incarnation = ?4 AND last_reconciliation_id = ?3 AND state = 'active'
           )`
-    ).bind(snapshot.sourceDeliveryId, snapshot.installationId, snapshot.reconciliationId),
+    ).bind(snapshot.sourceDeliveryId, snapshot.installationId, snapshot.reconciliationId, installation.incarnation),
     env.TEAM_CONTROL_DB.prepare(
       `INSERT INTO audit_events
         (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
@@ -1454,7 +1632,7 @@ export async function handleGitHubReconciliation(request: Request, env: Env): Pr
               'github_installation', ?3, ?4, ?5
         WHERE EXISTS (
           SELECT 1 FROM github_installations
-           WHERE installation_id = ?6 AND last_reconciliation_id = ?7 AND state = 'active'
+           WHERE installation_id = ?6 AND incarnation = ?8 AND last_reconciliation_id = ?7 AND state = 'active'
         )`
     ).bind(
       newId("audit"),
@@ -1463,7 +1641,8 @@ export async function handleGitHubReconciliation(request: Request, env: Env): Pr
       JSON.stringify({ repository_selection: snapshot.repositorySelection }),
       at,
       snapshot.installationId,
-      snapshot.reconciliationId
+      snapshot.reconciliationId,
+      installation.incarnation
     )
   ]);
   if ((results[0]?.meta.changes ?? 0) !== 1 || (results[3]?.meta.changes ?? 0) !== 1 || (results[4]?.meta.changes ?? 0) !== 1) {

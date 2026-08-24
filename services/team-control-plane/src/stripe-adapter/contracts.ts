@@ -93,7 +93,7 @@ export interface CheckoutSubscriptionCompensationRow {
   provider_subscription_id: string;
   reason: "unexpected_session" | "unexpected_generation_binding";
   status: "prepared" | "executing";
-  resume_command_status: "provider_accepted" | "confirmed";
+  resume_command_status: "provider_accepted" | "confirmed" | "canceled";
   execution_lease_id: string | null;
   execution_lease_expires_at: string | null;
 }
@@ -120,8 +120,13 @@ export interface StripeSummary {
   subscriptionId: string | null;
   internalPriceId: InternalPriceId;
   providerPriceId: string;
+  reportedInternalPriceId: InternalPriceId;
+  reportedProviderPriceId: string;
   billingGeneration: number;
+  reportedBillingGeneration: number | null;
+  billingGenerationSource: "metadata" | "legacy_unique_binding" | "checkout_intent_binding";
   checkoutIntentId: string | null;
+  checkoutSessionId: string | null;
   refundId: string | null;
   refundAmountCents: number | null;
   refundChargeId: string | null;

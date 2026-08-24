@@ -8,6 +8,7 @@
     "types:check": "wrangler types --check",
     "typecheck": "npm run types && tsc --noEmit && tsc -p test/tsconfig.json && tsc -p tsconfig.node.json",
     "test": "vitest run --maxWorkers=1",
+    "test:migration-0008": "node scripts/verify-migration-0008.mjs",
     "check": "npm run types:check && npm run typecheck && npm test",
     "stripe:executor:dry-run": "wrangler deploy --dry-run --config wrangler.stripe-executor.jsonc",
     "stripe:reconciler:dry-run": "wrangler deploy --dry-run --config wrangler.stripe-reconciler.jsonc",

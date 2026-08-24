@@ -108,6 +108,7 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
             source_ref IN (SELECT id FROM billing_commands WHERE org_id = ?1) OR
             source_ref IN (SELECT id FROM checkout_subscription_compensations WHERE org_id = ?1) OR
             source_ref IN (SELECT event_id FROM provider_events WHERE org_id = ?1) OR
+            source_ref IN (SELECT id FROM privacy_deletion_requests WHERE org_id = ?1) OR
             source_ref IN (SELECT reconciliation_id FROM provider_reconciliation_snapshots WHERE org_id = ?1)
           ) ORDER BY created_at, id`,
         auth.orgId
@@ -123,13 +124,13 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
       allRows(db, `SELECT id, source_event_id, entry_type, recognized_mrr_delta_micros, currency, recognized_period_start, recognized_period_end, occurred_at FROM revenue_ledger WHERE org_id = ?1 ORDER BY occurred_at`, auth.orgId),
       allRows(db, `SELECT id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at FROM audit_events WHERE org_id = ?1 ORDER BY created_at`, auth.orgId),
       db.prepare(
-        `SELECT installation_id, github_account_node_id, status, claimed_by, claimed_at, updated_at
+        `SELECT installation_id, incarnation, github_account_node_id, status, claimed_by, claimed_at, updated_at
            FROM github_installation_claims WHERE org_id = ?1`
       )
         .bind(auth.orgId)
         .first(),
       db.prepare(
-        `SELECT installation_id, app_id, github_account_node_id, state, repository_selection,
+        `SELECT installation_id, incarnation, app_id, github_account_node_id, state, repository_selection,
                 last_event_created_at, last_delivery_id, last_reconciliation_id, installed_at,
                 suspended_at, deleted_at, reconciled_at, updated_at
            FROM github_installations WHERE org_id = ?1`
@@ -146,51 +147,74 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
       ),
       allRows(
         db,
-        `SELECT delivery_id, installation_id, github_account_node_id, account_type,
+        `SELECT delivery_id, installation_id, incarnation, github_account_node_id, account_type,
                 verified_at, expires_at, consumed_at, consumed_by_lane,
                 invalidated_at, invalidated_by_delivery_id
            FROM github_installation_provider_proofs
-          WHERE account_type = 'Organization' AND installation_id IN (
-            SELECT installation_id FROM github_installation_claims WHERE org_id = ?1
-            UNION SELECT installation_id FROM github_installations WHERE org_id = ?1
-            UNION SELECT installation_id FROM github_installation_release_reconciliations
-              WHERE lane = 'organization' AND owner_ref = ?1
+          WHERE account_type = 'Organization' AND (
+            EXISTS (
+              SELECT 1 FROM github_installation_claims c
+               WHERE c.org_id = ?1 AND c.installation_id = github_installation_provider_proofs.installation_id
+                 AND c.incarnation = github_installation_provider_proofs.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_installations i
+               WHERE i.org_id = ?1 AND i.installation_id = github_installation_provider_proofs.installation_id
+                 AND i.incarnation = github_installation_provider_proofs.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_installation_release_reconciliations r
+               WHERE r.lane = 'organization' AND r.owner_ref = ?1
+                 AND r.installation_id = github_installation_provider_proofs.installation_id
+                 AND r.incarnation = github_installation_provider_proofs.incarnation
+                 AND r.creation_delivery_id = github_installation_provider_proofs.delivery_id
+            )
           ) ORDER BY verified_at, delivery_id`,
         auth.orgId
       ),
       allRows(
         db,
-        `SELECT installation_id, github_account_node_id, account_type, creation_delivery_id,
+        `SELECT installation_id, incarnation, github_account_node_id, account_type, creation_delivery_id,
                 latest_delivery_id, latest_event_created_at, latest_action, terminal, updated_at
            FROM github_installation_lifecycle_heads
-          WHERE account_type = 'Organization' AND installation_id IN (
-            SELECT installation_id FROM github_installation_claims WHERE org_id = ?1
-            UNION SELECT installation_id FROM github_installations WHERE org_id = ?1
-            UNION SELECT installation_id FROM github_installation_release_reconciliations
-              WHERE lane = 'organization' AND owner_ref = ?1
+          WHERE account_type = 'Organization' AND (
+            EXISTS (
+              SELECT 1 FROM github_installation_claims c
+               WHERE c.org_id = ?1 AND c.installation_id = github_installation_lifecycle_heads.installation_id
+                 AND c.incarnation = github_installation_lifecycle_heads.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_installations i
+               WHERE i.org_id = ?1 AND i.installation_id = github_installation_lifecycle_heads.installation_id
+                 AND i.incarnation = github_installation_lifecycle_heads.incarnation
+            ) OR EXISTS (
+              SELECT 1 FROM github_installation_release_reconciliations r
+               WHERE r.lane = 'organization' AND r.owner_ref = ?1
+                 AND r.installation_id = github_installation_lifecycle_heads.installation_id
+                 AND r.incarnation = github_installation_lifecycle_heads.incarnation
+            )
           ) ORDER BY latest_event_created_at, installation_id`,
         auth.orgId
       ),
       allRows(
         db,
-        `SELECT delivery_id, event_name, action, installation_id, event_created_at, result, received_at
+        `SELECT delivery_id, event_name, action, installation_id, incarnation, event_created_at, result, received_at
            FROM github_deliveries
-          WHERE org_id = ?1 OR installation_id IN (
-            SELECT installation_id FROM github_installation_release_reconciliations
-             WHERE lane = 'organization' AND owner_ref = ?1
+          WHERE org_id = ?1 OR EXISTS (
+            SELECT 1 FROM github_installation_release_reconciliations r
+             WHERE r.lane = 'organization' AND r.owner_ref = ?1
+               AND r.installation_id = github_deliveries.installation_id
+               AND r.incarnation = github_deliveries.incarnation
           ) ORDER BY event_created_at, delivery_id`,
         auth.orgId
       ),
       allRows(
         db,
-        `SELECT reconciliation_id, source_delivery_id, installation_id,
+        `SELECT reconciliation_id, source_delivery_id, installation_id, incarnation,
                 observed_at, result, applied_at
            FROM github_installation_reconciliations WHERE org_id = ?1 ORDER BY observed_at, reconciliation_id`,
         auth.orgId
       ),
       allRows(
         db,
-        `SELECT reconciliation_id, source_delivery_id, installation_id, github_account_node_id,
+        `SELECT reconciliation_id, source_delivery_id, creation_delivery_id, installation_id, incarnation, github_account_node_id,
                 lane, owner_ref, observed_at, result, applied_at
            FROM github_installation_release_reconciliations
           WHERE lane = 'organization' AND owner_ref = ?1 ORDER BY observed_at, reconciliation_id`,
@@ -201,11 +225,13 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
         `SELECT id, workflow_type, source_ref, valid, created_at
            FROM workflow_integrity_receipts
           WHERE (
-            workflow_type = 'github_lifecycle_head_recorded' AND source_ref IN (
+            workflow_type IN ('github_lifecycle_head_recorded', 'github_org_lifecycle_materialized') AND source_ref IN (
               SELECT delivery_id FROM github_deliveries
-               WHERE org_id = ?1 OR installation_id IN (
-                 SELECT installation_id FROM github_installation_release_reconciliations
-                  WHERE lane = 'organization' AND owner_ref = ?1
+               WHERE org_id = ?1 OR EXISTS (
+                 SELECT 1 FROM github_installation_release_reconciliations r
+                  WHERE r.lane = 'organization' AND r.owner_ref = ?1
+                    AND r.installation_id = github_deliveries.installation_id
+                    AND r.incarnation = github_deliveries.incarnation
                )
             )
           ) OR (
@@ -278,9 +304,25 @@ export async function requestOrganizationDeletion(env: Env, auth: AuthContext): 
     throw new ApiError(409, "deletion_already_pending", "A deletion request is already pending.");
   }
   const activeSubscription = await db.prepare(
-    `SELECT 1 FROM billing_accounts
-      WHERE org_id = ?1 AND provider_subscription_id IS NOT NULL
-        AND commercial_state NOT IN ('expired', 'refunded')`
+    `SELECT 1 FROM billing_accounts ba
+      WHERE ba.org_id = ?1 AND ba.provider_subscription_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM billing_generations bg
+           WHERE bg.org_id = ba.org_id AND bg.generation = ba.billing_generation
+             AND bg.provider_customer_id = ba.provider_customer_id
+             AND bg.provider_subscription_id = ba.provider_subscription_id
+             AND bg.status IN ('terminal_verified', 'retired')
+        )
+     UNION ALL
+     SELECT 1 FROM checkout_subscription_compensations
+      WHERE org_id = ?1 AND status <> 'completed'
+     UNION ALL
+     SELECT 1 FROM checkout_intents
+      WHERE org_id = ?1 AND status IN ('executing', 'compensating')
+     UNION ALL
+     SELECT 1 FROM billing_commands
+      WHERE org_id = ?1 AND status IN ('executing', 'compensating')
+     LIMIT 1`
   )
     .bind(auth.orgId)
     .first();
@@ -291,75 +333,151 @@ export async function requestOrganizationDeletion(env: Env, auth: AuthContext): 
       "Cancel and reconcile the active provider subscription before requesting data deletion."
     );
   }
+  const preparedState = await db.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM checkout_intents WHERE org_id = ?1 AND status = 'prepared') AS checkout_count,
+       (SELECT COUNT(*) FROM checkout_intents ci
+         JOIN billing_generations bg ON bg.org_id = ci.org_id
+          AND bg.generation = ci.billing_generation AND bg.checkout_intent_id = ci.id
+        WHERE ci.org_id = ?1 AND ci.status = 'prepared'
+          AND ci.provider_session_id IS NULL AND bg.status = 'reserved'
+          AND bg.provider_checkout_session_id IS NULL
+          AND bg.provider_customer_id IS NULL AND bg.provider_subscription_id IS NULL) AS safe_checkout_count,
+       (SELECT COUNT(*) FROM billing_commands WHERE org_id = ?1 AND status = 'prepared') AS command_count`
+  )
+    .bind(auth.orgId)
+    .first<{
+      checkout_count: number;
+      safe_checkout_count: number;
+      command_count: number;
+    }>();
+  if (!preparedState || preparedState.checkout_count !== preparedState.safe_checkout_count) {
+    throw new ApiError(409, "provider_cleanup_incomplete", "Prepared checkout generation is not safe to abandon.");
+  }
   const confirmation = randomOpaqueToken();
   const confirmationHash = await sha256Hex(confirmation);
   const requestId = newId("deletion");
   const at = nowIso();
   const actorPseudonym = await commercialActorPseudonym(env, auth.orgId, auth.userId);
   const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
-  const compensationLeaseId = newId("checkout_compensation_lease");
-  const compensationLeaseExpiresAt = at;
   let results: D1Result[];
   try {
     results = await db.batch([
-    db.prepare(
-      `INSERT INTO privacy_deletion_requests
+      db.prepare(
+        `INSERT INTO privacy_deletion_requests
         (id, org_id, confirmation_sha256, status, requested_by, requested_at, expires_at)
        SELECT ?1, ?2, ?3, 'pending', ?4, ?5, ?6
         WHERE EXISTS (SELECT 1 FROM organizations WHERE id = ?2 AND status = 'active')
           AND NOT EXISTS (
-            SELECT 1 FROM billing_accounts
-             WHERE org_id = ?2 AND provider_subscription_id IS NOT NULL
-               AND commercial_state NOT IN ('expired', 'refunded')
+            SELECT 1 FROM billing_accounts ba
+             WHERE ba.org_id = ?2 AND ba.provider_subscription_id IS NOT NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM billing_generations bg
+                  WHERE bg.org_id = ba.org_id AND bg.generation = ba.billing_generation
+                    AND bg.provider_customer_id = ba.provider_customer_id
+                    AND bg.provider_subscription_id = ba.provider_subscription_id
+                    AND bg.status IN ('terminal_verified', 'retired')
+               )
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM checkout_subscription_compensations
+             WHERE org_id = ?2 AND status <> 'completed'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM checkout_intents
+             WHERE org_id = ?2 AND status IN ('executing', 'compensating')
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM billing_commands
+             WHERE org_id = ?2 AND status IN ('executing', 'compensating')
           )`
-    ).bind(requestId, auth.orgId, confirmationHash, actorPseudonym, at, expiresAt),
-    db.prepare(
-      `UPDATE organizations SET status = 'deletion_pending'
+      ).bind(requestId, auth.orgId, confirmationHash, actorPseudonym, at, expiresAt),
+      db.prepare(
+        `UPDATE organizations SET status = 'deletion_pending'
         WHERE id = ?1 AND status = 'active'
           AND EXISTS (
             SELECT 1 FROM privacy_deletion_requests
              WHERE id = ?2 AND org_id = ?1 AND status = 'pending'
           )`
-    ).bind(auth.orgId, requestId),
-    db.prepare(
-      `UPDATE checkout_intents
-          SET status = 'canceled', execution_lease_id = NULL, execution_lease_expires_at = NULL
-        WHERE org_id = ?1 AND status = 'prepared'
-          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deletion_pending')
-          AND EXISTS (SELECT 1 FROM privacy_deletion_requests WHERE id = ?2 AND status = 'pending')`
-    ).bind(auth.orgId, requestId),
-    db.prepare(
-      `UPDATE billing_commands
-          SET status = 'canceled', execution_lease_id = NULL, execution_lease_expires_at = NULL
-        WHERE org_id = ?1 AND status = 'prepared'
-          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deletion_pending')
-          AND EXISTS (SELECT 1 FROM privacy_deletion_requests WHERE id = ?2 AND status = 'pending')`
-    ).bind(auth.orgId, requestId),
-    db.prepare(
-      `UPDATE checkout_intents
-          SET status = 'compensating', execution_lease_id = ?1, execution_lease_expires_at = ?2
-        WHERE org_id = ?3 AND status = 'provider_created' AND provider_session_id IS NOT NULL
-          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?3 AND status = 'deletion_pending')
-          AND EXISTS (SELECT 1 FROM privacy_deletion_requests WHERE id = ?4 AND status = 'pending')`
-    ).bind(compensationLeaseId, compensationLeaseExpiresAt, auth.orgId, requestId),
-    db.prepare(
-      `UPDATE billing_commands
-          SET status = 'compensating', execution_lease_id = ?1, execution_lease_expires_at = ?2
-        WHERE org_id = ?3 AND command_type = 'create_checkout_session' AND status = 'provider_accepted'
-          AND EXISTS (
-            SELECT 1 FROM checkout_intents i
-             WHERE i.org_id = ?3 AND i.status = 'compensating'
-               AND i.id = json_extract(billing_commands.command_json, '$.parameters.metadata.checkout_intent_id')
+      ).bind(auth.orgId, requestId),
+      db.prepare(
+        `UPDATE billing_generations SET status = 'abandoned'
+        WHERE org_id = ?1 AND status = 'reserved'
+          AND provider_checkout_session_id IS NULL
+          AND provider_customer_id IS NULL AND provider_subscription_id IS NULL
+          AND checkout_intent_id IN (
+            SELECT id FROM checkout_intents
+             WHERE org_id = ?1 AND status = 'prepared' AND provider_session_id IS NULL
           )
-          AND EXISTS (SELECT 1 FROM privacy_deletion_requests WHERE id = ?4 AND status = 'pending')`
-    ).bind(compensationLeaseId, compensationLeaseExpiresAt, auth.orgId, requestId),
-    db.prepare(
-      `INSERT INTO audit_events
+          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deletion_pending')
+          AND EXISTS (SELECT 1 FROM privacy_deletion_requests WHERE id = ?2 AND status = 'pending')`
+      ).bind(auth.orgId, requestId),
+      db.prepare(
+        `INSERT INTO billing_generation_events (id, org_id, generation, event_type, source_ref, occurred_at)
+       SELECT 'billing_generation_privacy_abandoned_' || ?2 || '_' || generation,
+              org_id, generation, 'abandoned', ?2, ?3
+         FROM billing_generations
+        WHERE org_id = ?1 AND status = 'abandoned'
+          AND checkout_intent_id IN (
+            SELECT id FROM checkout_intents WHERE org_id = ?1 AND status = 'prepared'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM billing_generation_events e
+             WHERE e.org_id = billing_generations.org_id AND e.generation = billing_generations.generation
+               AND e.event_type = 'abandoned' AND e.source_ref = ?2
+          )`
+      ).bind(auth.orgId, requestId, at),
+      db.prepare(
+        `UPDATE checkout_intents
+          SET status = 'canceled', execution_lease_id = NULL, execution_lease_expires_at = NULL
+        WHERE org_id = ?1 AND status = 'prepared'
+          AND EXISTS (
+            SELECT 1 FROM billing_generations bg
+             WHERE bg.org_id = checkout_intents.org_id
+               AND bg.generation = checkout_intents.billing_generation
+               AND bg.checkout_intent_id = checkout_intents.id AND bg.status = 'abandoned'
+          )
+          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deletion_pending')
+          AND EXISTS (SELECT 1 FROM privacy_deletion_requests WHERE id = ?2 AND status = 'pending')`
+      ).bind(auth.orgId, requestId),
+      db.prepare(
+        `UPDATE billing_commands
+          SET status = 'canceled', execution_lease_id = NULL, execution_lease_expires_at = NULL
+        WHERE org_id = ?1 AND status = 'prepared'
+          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deletion_pending')
+          AND EXISTS (SELECT 1 FROM privacy_deletion_requests WHERE id = ?2 AND status = 'pending')`
+      ).bind(auth.orgId, requestId),
+      db.prepare(
+        `INSERT INTO audit_events
         (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
        SELECT ?1, ?2, 'user', ?3, 'privacy.deletion.requested',
               'privacy_deletion_request', ?4, '{}', ?5
         WHERE EXISTS (SELECT 1 FROM privacy_deletion_requests WHERE id = ?4 AND status = 'pending')`
-    ).bind(newId("audit"), auth.orgId, auth.userId, requestId, at)
+      ).bind(newId("audit"), auth.orgId, auth.userId, requestId, at),
+      db.prepare(
+        `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
+       VALUES (?1, 'privacy_prepared_generations_abandoned', ?2,
+         CASE WHEN
+           NOT EXISTS (
+             SELECT 1 FROM checkout_intents ci
+             JOIN billing_generations bg ON bg.org_id = ci.org_id
+              AND bg.generation = ci.billing_generation AND bg.checkout_intent_id = ci.id
+              WHERE ci.org_id = ?3 AND ci.status = 'canceled'
+                AND (bg.status <> 'abandoned' OR bg.provider_checkout_session_id IS NOT NULL
+                  OR bg.provider_customer_id IS NOT NULL OR bg.provider_subscription_id IS NOT NULL)
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM billing_generations bg
+              WHERE bg.org_id = ?3 AND bg.status = 'abandoned'
+                AND bg.checkout_intent_id IN (SELECT id FROM checkout_intents WHERE org_id = ?3 AND status = 'canceled')
+                AND NOT EXISTS (
+                  SELECT 1 FROM billing_generation_events e
+                   WHERE e.org_id = bg.org_id AND e.generation = bg.generation
+                     AND e.event_type = 'abandoned' AND e.source_ref = ?2
+                )
+           )
+         THEN 1 ELSE 0 END, ?4)`
+      ).bind(newId("integrity"), requestId, auth.orgId, at)
     ]);
   } catch (error) {
     const competing = await db.prepare(
@@ -376,7 +494,12 @@ export async function requestOrganizationDeletion(env: Env, auth: AuthContext): 
   if (
     (results[0]?.meta.changes ?? 0) !== 1 ||
     (results[1]?.meta.changes ?? 0) !== 1 ||
-    (results[6]?.meta.changes ?? 0) !== 1
+    (results[2]?.meta.changes ?? 0) !== preparedState.checkout_count ||
+    (results[3]?.meta.changes ?? 0) !== preparedState.checkout_count ||
+    (results[4]?.meta.changes ?? 0) !== preparedState.checkout_count ||
+    (results[5]?.meta.changes ?? 0) !== preparedState.command_count ||
+    (results[6]?.meta.changes ?? 0) !== 1 ||
+    (results[7]?.meta.changes ?? 0) !== 1
   ) {
     throw new ApiError(409, "deletion_state_conflict", "Organization deletion state changed concurrently.");
   }
@@ -417,15 +540,24 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
   }
   const activeProviderState = await db
     .prepare(
-      `SELECT commercial_state FROM billing_accounts
-        WHERE org_id = ?1 AND provider_subscription_id IS NOT NULL
-          AND commercial_state NOT IN ('expired', 'refunded')
+      `SELECT 'unterminated_subscription' AS commercial_state FROM billing_accounts ba
+        WHERE ba.org_id = ?1 AND ba.provider_subscription_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM billing_generations bg
+             WHERE bg.org_id = ba.org_id AND bg.generation = ba.billing_generation
+               AND bg.provider_customer_id = ba.provider_customer_id
+               AND bg.provider_subscription_id = ba.provider_subscription_id
+               AND bg.status IN ('terminal_verified', 'retired')
+          )
        UNION ALL
        SELECT status AS commercial_state FROM checkout_intents
         WHERE org_id = ?1 AND status IN ('executing', 'provider_created', 'compensating')
        UNION ALL
        SELECT status AS commercial_state FROM billing_commands
         WHERE org_id = ?1 AND status IN ('executing', 'compensating')
+       UNION ALL
+       SELECT status AS commercial_state FROM checkout_subscription_compensations
+        WHERE org_id = ?1 AND status <> 'completed'
        LIMIT 1`
     )
     .bind(auth.orgId)
@@ -445,9 +577,15 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
           SET slug = ?1, display_name = 'Deleted organization', status = 'deleted', deleted_at = ?2
         WHERE id = ?3 AND status = 'deletion_pending'
           AND NOT EXISTS (
-            SELECT 1 FROM billing_accounts
-             WHERE org_id = ?3 AND provider_subscription_id IS NOT NULL
-               AND commercial_state NOT IN ('expired', 'refunded')
+            SELECT 1 FROM billing_accounts ba
+             WHERE ba.org_id = ?3 AND ba.provider_subscription_id IS NOT NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM billing_generations bg
+                  WHERE bg.org_id = ba.org_id AND bg.generation = ba.billing_generation
+                    AND bg.provider_customer_id = ba.provider_customer_id
+                    AND bg.provider_subscription_id = ba.provider_subscription_id
+                    AND bg.status IN ('terminal_verified', 'retired')
+               )
           )
           AND NOT EXISTS (
             SELECT 1 FROM checkout_intents
@@ -456,6 +594,10 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
           AND NOT EXISTS (
             SELECT 1 FROM billing_commands
              WHERE org_id = ?3 AND status IN ('executing', 'compensating')
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM checkout_subscription_compensations
+             WHERE org_id = ?3 AND status <> 'completed'
           )`
     ).bind(`deleted-${tombstone}`, at, auth.orgId),
     db.prepare(
@@ -494,12 +636,13 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
       `DELETE FROM workflow_integrity_receipts
         WHERE (
           (
-            workflow_type = 'github_lifecycle_head_recorded' AND source_ref IN (
+            workflow_type IN ('github_lifecycle_head_recorded', 'github_org_lifecycle_materialized') AND source_ref IN (
               SELECT delivery_id FROM github_deliveries
-               WHERE org_id = ?1 OR installation_id IN (
-                 SELECT installation_id FROM github_installations WHERE org_id = ?1
-                 UNION SELECT installation_id FROM github_installation_release_reconciliations
-                   WHERE lane = 'organization' AND owner_ref = ?1
+               WHERE org_id = ?1 OR EXISTS (
+                 SELECT 1 FROM github_installation_release_reconciliations r
+                  WHERE r.lane = 'organization' AND r.owner_ref = ?1
+                    AND r.installation_id = github_deliveries.installation_id
+                    AND r.incarnation = github_deliveries.incarnation
                )
             )
           ) OR (
@@ -516,10 +659,11 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
     ).bind(auth.orgId, at),
     db.prepare(
       `DELETE FROM github_deliveries
-        WHERE (org_id = ?1 OR installation_id IN (
-          SELECT installation_id FROM github_installations WHERE org_id = ?1
-          UNION SELECT installation_id FROM github_installation_release_reconciliations
-            WHERE lane = 'organization' AND owner_ref = ?1
+        WHERE (org_id = ?1 OR EXISTS (
+          SELECT 1 FROM github_installation_release_reconciliations r
+           WHERE r.lane = 'organization' AND r.owner_ref = ?1
+             AND r.installation_id = github_deliveries.installation_id
+             AND r.incarnation = github_deliveries.incarnation
         )) AND EXISTS (SELECT 1 FROM organizations WHERE id = ?1 AND status = 'deleted' AND deleted_at = ?2)`
     ).bind(auth.orgId, at),
     db.prepare(
@@ -534,10 +678,18 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
     ).bind(auth.orgId, at),
     db.prepare(
       `DELETE FROM github_installation_provider_proofs
-        WHERE account_type = 'Organization' AND installation_id IN (
-          SELECT installation_id FROM github_installation_claims WHERE org_id = ?1
-          UNION SELECT installation_id FROM github_installation_release_reconciliations
-            WHERE lane = 'organization' AND owner_ref = ?1
+        WHERE account_type = 'Organization' AND (
+          EXISTS (
+            SELECT 1 FROM github_installation_claims c
+             WHERE c.org_id = ?1 AND c.installation_id = github_installation_provider_proofs.installation_id
+               AND c.incarnation = github_installation_provider_proofs.incarnation
+          ) OR EXISTS (
+            SELECT 1 FROM github_installation_release_reconciliations r
+             WHERE r.lane = 'organization' AND r.owner_ref = ?1
+               AND r.installation_id = github_installation_provider_proofs.installation_id
+               AND r.incarnation = github_installation_provider_proofs.incarnation
+               AND r.creation_delivery_id = github_installation_provider_proofs.delivery_id
+          )
         )
           AND NOT EXISTS (
             SELECT 1 FROM github_personal_installations
@@ -551,11 +703,30 @@ export async function confirmOrganizationDeletion(request: Request, env: Env, au
     ).bind(auth.orgId, at),
     db.prepare(
       `DELETE FROM github_installation_lifecycle_heads
-        WHERE account_type = 'Organization' AND installation_id IN (
-          SELECT installation_id FROM github_installation_claims WHERE org_id = ?1
-          UNION SELECT installation_id FROM github_installation_release_reconciliations
-            WHERE lane = 'organization' AND owner_ref = ?1
+        WHERE account_type = 'Organization' AND (
+          EXISTS (
+            SELECT 1 FROM github_installation_claims c
+             WHERE c.org_id = ?1 AND c.installation_id = github_installation_lifecycle_heads.installation_id
+               AND c.incarnation = github_installation_lifecycle_heads.incarnation
+          ) OR EXISTS (
+            SELECT 1 FROM github_installation_release_reconciliations r
+             WHERE r.lane = 'organization' AND r.owner_ref = ?1
+               AND r.installation_id = github_installation_lifecycle_heads.installation_id
+               AND r.incarnation = github_installation_lifecycle_heads.incarnation
+          )
         )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_installations i
+             WHERE i.installation_id = github_installation_lifecycle_heads.installation_id
+               AND i.incarnation = github_installation_lifecycle_heads.incarnation
+               AND i.org_id <> ?1
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM github_installation_claims c
+             WHERE c.installation_id = github_installation_lifecycle_heads.installation_id
+               AND c.incarnation = github_installation_lifecycle_heads.incarnation
+               AND c.org_id <> ?1
+          )
           AND NOT EXISTS (
             SELECT 1 FROM github_personal_installations
              WHERE installation_id = github_installation_lifecycle_heads.installation_id

@@ -443,6 +443,7 @@ describe("R0 individual measurement lane", () => {
         })
       ).status
     ).toBe(200);
+    expect((await signedMeasurement("/v1/measurement/bridge", attestation())).status).toBe(201);
     const creation1 = crypto.randomUUID();
     const creation1Time = new Date(baseTime).toISOString();
     expect((await sendPersonalWebhook(creation1, "User", creation1Time)).status).toBe(409);
@@ -473,15 +474,61 @@ describe("R0 individual measurement lane", () => {
     expect((await sendPersonalWebhook(creation2, "User", creation2Time)).status).toBe(409);
     expect((await claim(token2, creation2)).status).toBe(201);
     expect((await sendPersonalWebhook(creation2, "User", creation2Time)).status).toBe(202);
+    expect((await reconcilePersonal(creation2)).status).toBe(200);
+    const suspension2 = crypto.randomUUID();
+    await env.TEAM_CONTROL_DB.prepare(
+      `CREATE TRIGGER test_github_personal_terminal_batch_rollback
+       BEFORE INSERT ON individual_audit_events
+       FOR EACH ROW WHEN NEW.action = 'github.personal_installation.suspend'
+       BEGIN SELECT RAISE(ABORT, 'forced personal lifecycle rollback'); END`
+    ).run();
+    expect(
+      (
+        await sendPersonalWebhook(
+          suspension2,
+          "User",
+          new Date(baseTime + 3_000).toISOString(),
+          INSTALLATION_ID,
+          "suspend"
+        )
+      ).status
+    ).toBe(500);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT h.latest_action, h.terminal, p.state,
+                CASE WHEN i.eligible_at IS NULL THEN 0 ELSE 1 END AS eligible
+           FROM github_installation_lifecycle_heads h
+           JOIN github_personal_installations p
+             ON p.installation_id = h.installation_id AND p.incarnation = h.incarnation
+           JOIN github_personal_installation_claims c
+             ON c.installation_id = h.installation_id AND c.incarnation = h.incarnation
+           JOIN individual_identities i ON i.subject_token = c.subject_token
+          WHERE h.installation_id = ?1`
+      )
+        .bind(INSTALLATION_ID)
+        .first()
+    ).toEqual({ latest_action: "created", terminal: 0, state: "active", eligible: 1 });
+    await env.TEAM_CONTROL_DB.prepare(`DROP TRIGGER test_github_personal_terminal_batch_rollback`).run();
+    expect(
+      (
+        await sendPersonalWebhook(
+          suspension2,
+          "User",
+          new Date(baseTime + 3_000).toISOString(),
+          INSTALLATION_ID,
+          "suspend"
+        )
+      ).status
+    ).toBe(202);
     const pendingUpdate2 = crypto.randomUUID();
     expect(
       (
         await sendPersonalWebhook(
           pendingUpdate2,
           "User",
-          new Date(baseTime + 3_000).toISOString(),
+          new Date(baseTime + 4_000).toISOString(),
           INSTALLATION_ID,
-          "added"
+          "unsuspend"
         )
       ).status
     ).toBe(202);
@@ -495,7 +542,7 @@ describe("R0 individual measurement lane", () => {
     expect(await oldClaimAfterRelease.json()).toMatchObject({ error: { code: "github_provider_proof_required" } });
     const oldReplayAfterRelease = await sendPersonalWebhook(creation2, "User", creation2Time);
     expect(oldReplayAfterRelease.status).toBe(200);
-    expect(await oldReplayAfterRelease.json()).toMatchObject({ duplicate: true, result: "rejected" });
+    expect(await oldReplayAfterRelease.json()).toMatchObject({ duplicate: true, result: "applied" });
     const releasedState = await env.TEAM_CONTROL_DB.prepare(
       `SELECT p.delivery_id AS proof_delivery_id, p.invalidated_by_delivery_id,
               h.latest_delivery_id, h.latest_action, h.terminal,
@@ -511,11 +558,11 @@ describe("R0 individual measurement lane", () => {
       .first<Record<string, unknown>>();
     expect(releasedState).toEqual({
       proof_delivery_id: creation2,
-      invalidated_by_delivery_id: pendingUpdate2,
+      invalidated_by_delivery_id: suspension2,
       latest_delivery_id: pendingUpdate2,
       latest_action: "provider_not_found",
       terminal: 1,
-      rejected_deliveries: 2,
+      rejected_deliveries: 1,
       pending_deliveries: 0
     });
     const exported = await individualApi("/v1/individual/privacy/export", token3);
@@ -530,14 +577,14 @@ describe("R0 individual measurement lane", () => {
       };
     }>();
     expect(exportBody.r0_measurement.github_provider_proofs).toContainEqual(
-      expect.objectContaining({ delivery_id: creation2, invalidated_by_delivery_id: pendingUpdate2 })
+      expect.objectContaining({ delivery_id: creation2, invalidated_by_delivery_id: suspension2 })
     );
     expect(exportBody.r0_measurement.github_lifecycle_heads).toContainEqual(
       expect.objectContaining({ latest_delivery_id: pendingUpdate2, latest_action: "provider_not_found" })
     );
     expect(exportBody.r0_measurement.github_deliveries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ delivery_id: creation2, result: "rejected" }),
+        expect.objectContaining({ delivery_id: suspension2, result: "revoked" }),
         expect.objectContaining({ delivery_id: pendingUpdate2, result: "rejected" })
       ])
     );
@@ -552,7 +599,7 @@ describe("R0 individual measurement lane", () => {
     );
 
     const creation3 = crypto.randomUUID();
-    const creation3Time = new Date(baseTime + 4_000).toISOString();
+    const creation3Time = new Date(baseTime + 5_000).toISOString();
     expect((await sendPersonalWebhook(creation3, "User", creation3Time)).status).toBe(409);
     expect((await claim(token3, creation3)).status).toBe(201);
     expect((await sendPersonalWebhook(creation3, "User", creation3Time)).status).toBe(202);

@@ -589,9 +589,20 @@ describe.sequential("Team control plane", () => {
     });
     expect(deletion.status).toBe(202);
     const deletionBody = await deletion.json<{ confirmation: string }>();
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT
+           (SELECT status FROM checkout_intents WHERE id = ?1) AS checkout_status,
+           (SELECT status FROM billing_commands WHERE id = ?2) AS command_status,
+           (SELECT COUNT(*) FROM checkout_subscription_compensations
+             WHERE checkout_intent_id = ?1) AS compensation_count`
+      )
+        .bind(preparedBody.checkout_intent_id, preparedBody.command_id)
+        .first()
+    ).toEqual({ checkout_status: "provider_created", command_status: "provider_accepted", compensation_count: 0 });
     await expect(
       env.TEAM_CONTROL_DB.prepare(
-        `UPDATE checkout_intents SET status = 'completed' WHERE id = ?1 AND status = 'compensating'`
+        `UPDATE checkout_intents SET status = 'completed' WHERE id = ?1 AND status = 'provider_created'`
       )
         .bind(preparedBody.checkout_intent_id)
         .run()
@@ -615,9 +626,19 @@ describe.sequential("Team control plane", () => {
       `SELECT
          (SELECT status FROM organizations WHERE id = 'org_main') AS org_status,
          (SELECT status FROM checkout_intents WHERE id = ?1) AS checkout_status,
-         (SELECT compensation_customer_id FROM checkout_intents WHERE id = ?1) AS compensation_customer_id,
-         (SELECT compensation_subscription_id FROM checkout_intents WHERE id = ?1) AS compensation_subscription_id,
          (SELECT status FROM billing_commands WHERE id = ?2) AS command_status,
+         (SELECT provider_session_id FROM checkout_subscription_compensations
+           WHERE provider_event_id = 'evt_checkout_completed_during_deletion') AS compensation_session_id,
+         (SELECT provider_customer_id FROM checkout_subscription_compensations
+           WHERE provider_event_id = 'evt_checkout_completed_during_deletion') AS compensation_customer_id,
+         (SELECT provider_subscription_id FROM checkout_subscription_compensations
+           WHERE provider_event_id = 'evt_checkout_completed_during_deletion') AS compensation_subscription_id,
+         (SELECT reason FROM checkout_subscription_compensations
+           WHERE provider_event_id = 'evt_checkout_completed_during_deletion') AS compensation_reason,
+         (SELECT status FROM checkout_subscription_compensations
+           WHERE provider_event_id = 'evt_checkout_completed_during_deletion') AS compensation_status,
+         (SELECT resume_command_status FROM checkout_subscription_compensations
+           WHERE provider_event_id = 'evt_checkout_completed_during_deletion') AS compensation_resume_status,
          (SELECT status FROM provider_events WHERE event_id = 'evt_checkout_completed_during_deletion') AS event_status,
          (SELECT COUNT(*) FROM billing_accounts
            WHERE org_id = 'org_main' AND provider_subscription_id IS NOT NULL) AS provider_bindings,
@@ -633,9 +654,13 @@ describe.sequential("Team control plane", () => {
       .first<Record<string, unknown>>();
     expect(state).toEqual({
       org_status: "deletion_pending",
-      checkout_status: "compensating",
+      checkout_status: "provider_created",
+      compensation_session_id: "cs_frozen",
       compensation_customer_id: "cus_frozen",
       compensation_subscription_id: "sub_frozen",
+      compensation_reason: "unexpected_session",
+      compensation_status: "prepared",
+      compensation_resume_status: "provider_accepted",
       command_status: "compensating",
       event_status: "rejected",
       provider_bindings: 0,
@@ -2064,15 +2089,29 @@ describe.sequential("Team control plane", () => {
     expect((await sendGitHubWebhook(creation2Raw, "installation", creation2)).status).toBe(409);
     expect((await claimGitHubInstallation(await session(), creation2)).status).toBe(201);
     expect((await sendGitHubWebhook(creation2Raw, "installation", creation2)).status).toBe(202);
+    expect(
+      (
+        await reconcileGitHub(
+          githubReconciliation(creation2, { reconciliation_id: "github_recon_active_generation_2" })
+        )
+      ).status
+    ).toBe(200);
+    const suspension2 = crypto.randomUUID();
+    const suspension2Raw = githubPayload({
+      deliveryId: suspension2,
+      event: "installation",
+      action: "suspend",
+      eventTime: new Date(baseTime + 3_000).toISOString(),
+    });
+    expect((await sendGitHubWebhook(suspension2Raw, "installation", suspension2)).status).toBe(202);
     const pendingUpdate2 = crypto.randomUUID();
     const pendingUpdate2Raw = githubPayload({
       deliveryId: pendingUpdate2,
-      event: "installation_repositories",
-      action: "added",
-      eventTime: new Date(baseTime + 3_000).toISOString(),
-      addedRepositoryNodeIds: ["REPO_NODE_LATER_PENDING_2"]
+      event: "installation",
+      action: "unsuspend",
+      eventTime: new Date(baseTime + 4_000).toISOString()
     });
-    expect((await sendGitHubWebhook(pendingUpdate2Raw, "installation_repositories", pendingUpdate2)).status).toBe(202);
+    expect((await sendGitHubWebhook(pendingUpdate2Raw, "installation", pendingUpdate2)).status).toBe(202);
     const released = await reconcileGitHub(
       githubReconciliation(pendingUpdate2, {
         reconciliation_id: "github_recon_not_found_generation_2",
@@ -2088,7 +2127,7 @@ describe.sequential("Team control plane", () => {
     expect(await oldClaimAfterRelease.json()).toMatchObject({ error: { code: "github_provider_proof_required" } });
     const oldReplayAfterRelease = await sendGitHubWebhook(creation2Raw, "installation", creation2);
     expect(oldReplayAfterRelease.status).toBe(200);
-    expect(await oldReplayAfterRelease.json()).toMatchObject({ duplicate: true, result: "rejected" });
+    expect(await oldReplayAfterRelease.json()).toMatchObject({ duplicate: true, result: "applied" });
     const releasedState = await env.TEAM_CONTROL_DB.prepare(
       `SELECT p.delivery_id AS proof_delivery_id, p.invalidated_by_delivery_id,
               h.latest_delivery_id, h.latest_action, h.terminal,
@@ -2104,11 +2143,11 @@ describe.sequential("Team control plane", () => {
       .first<Record<string, unknown>>();
     expect(releasedState).toEqual({
       proof_delivery_id: creation2,
-      invalidated_by_delivery_id: pendingUpdate2,
+      invalidated_by_delivery_id: suspension2,
       latest_delivery_id: pendingUpdate2,
       latest_action: "provider_not_found",
       terminal: 1,
-      rejected_deliveries: 2,
+      rejected_deliveries: 1,
       pending_deliveries: 0
     });
     const postReleaseExport = await api("/v1/orgs/org_main/privacy/export", { token: owner });
@@ -2123,14 +2162,14 @@ describe.sequential("Team control plane", () => {
       };
     }>();
     expect(postReleaseExportBody.github_app.provider_proofs).toContainEqual(
-      expect.objectContaining({ delivery_id: creation2, invalidated_by_delivery_id: pendingUpdate2 })
+      expect.objectContaining({ delivery_id: creation2, invalidated_by_delivery_id: suspension2 })
     );
     expect(postReleaseExportBody.github_app.lifecycle_heads).toContainEqual(
       expect.objectContaining({ latest_delivery_id: pendingUpdate2, latest_action: "provider_not_found" })
     );
     expect(postReleaseExportBody.github_app.deliveries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ delivery_id: creation2, result: "rejected" }),
+        expect.objectContaining({ delivery_id: suspension2, result: "revoked" }),
         expect.objectContaining({ delivery_id: pendingUpdate2, result: "rejected" })
       ])
     );
@@ -2149,10 +2188,24 @@ describe.sequential("Team control plane", () => {
       deliveryId: creation3,
       event: "installation",
       action: "created",
-      eventTime: new Date(baseTime + 4_000).toISOString()
+      eventTime: new Date(baseTime + 5_000).toISOString()
     });
     expect((await sendGitHubWebhook(creation3Raw, "installation", creation3)).status).toBe(409);
-    expect((await claimGitHubInstallation(await session(), creation3)).status).toBe(201);
+    await seedOrganization("org_other");
+    expect(
+      (
+        await api("/v1/orgs/org_other/github/installation-claim", {
+          method: "POST",
+          token: await session("org_other"),
+          body: {
+            schema_version: "github-installation-claim-v1",
+            installation_id: GITHUB_INSTALLATION_ID,
+            account_node_id: GITHUB_ACCOUNT_NODE_ID,
+            provider_delivery_id: creation3
+          }
+        })
+      ).status
+    ).toBe(201);
     expect((await sendGitHubWebhook(creation3Raw, "installation", creation3)).status).toBe(202);
     expect(
       (
@@ -2163,7 +2216,7 @@ describe.sequential("Team control plane", () => {
     ).toBe(200);
     const final = await env.TEAM_CONTROL_DB.prepare(
       `SELECT h.creation_delivery_id, h.latest_delivery_id, h.latest_action, h.terminal,
-              c.provider_proof_delivery_id, c.status AS claim_status, i.state AS installation_state,
+              c.org_id, c.provider_proof_delivery_id, c.status AS claim_status, i.state AS installation_state,
               (SELECT COUNT(*) FROM github_installation_provider_proofs
                 WHERE installation_id = ?1 AND invalidated_at IS NULL) AS live_proofs,
               (SELECT COUNT(*) FROM github_installation_release_reconciliations
@@ -2180,12 +2233,55 @@ describe.sequential("Team control plane", () => {
       latest_delivery_id: creation3,
       latest_action: "created",
       terminal: 0,
+      org_id: "org_other",
       provider_proof_delivery_id: creation3,
       claim_status: "bound",
       installation_state: "active",
       live_proofs: 1,
       releases: 1
     });
+    const isolatedExport = await api("/v1/orgs/org_main/privacy/export", { token: owner });
+    expect(isolatedExport.status).toBe(200);
+    const isolatedBody = await isolatedExport.json<{
+      github_app: {
+        provider_proofs: Array<{ delivery_id: string }>;
+        lifecycle_heads: Array<{ incarnation: number }>;
+        deliveries: Array<{ delivery_id: string }>;
+      };
+    }>();
+    expect(isolatedBody.github_app.provider_proofs.some((row) => row.delivery_id === creation3)).toBe(false);
+    expect(isolatedBody.github_app.lifecycle_heads).toEqual([]);
+    expect(isolatedBody.github_app.deliveries.some((row) => row.delivery_id === creation3)).toBe(false);
+
+    const deletion = await api("/v1/orgs/org_main/privacy/deletion-requests", { method: "POST", token: owner });
+    expect(deletion.status).toBe(202);
+    const confirmation = await deletion.json<{ confirmation: string }>();
+    expect(
+      (
+        await api("/v1/orgs/org_main/privacy/data", {
+          method: "DELETE",
+          token: owner,
+          headers: { "X-Deletion-Confirmation": confirmation.confirmation }
+        })
+      ).status
+    ).toBe(202);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT h.incarnation, c.org_id, c.status, i.state,
+                (SELECT COUNT(*) FROM github_installation_provider_proofs p
+                  WHERE p.delivery_id = ?2 AND p.incarnation = h.incarnation) AS proof_count,
+                (SELECT COUNT(*) FROM github_deliveries d
+                  WHERE d.delivery_id = ?2 AND d.incarnation = h.incarnation) AS delivery_count
+           FROM github_installation_lifecycle_heads h
+           JOIN github_installation_claims c
+             ON c.installation_id = h.installation_id AND c.incarnation = h.incarnation
+           JOIN github_installations i
+             ON i.installation_id = h.installation_id AND i.incarnation = h.incarnation
+          WHERE h.installation_id = ?1`
+      )
+        .bind(GITHUB_INSTALLATION_ID, creation3)
+        .first()
+    ).toEqual({ incarnation: 3, org_id: "org_other", status: "bound", state: "active", proof_count: 1, delivery_count: 1 });
   });
 
   it("lets a same-second terminal organization delivery dominate creation and blocks same-second recreation", async () => {
@@ -2407,6 +2503,27 @@ describe.sequential("Team control plane", () => {
       action: "suspend",
       eventTime: new Date(baseTime + 2_000).toISOString()
     });
+    await env.TEAM_CONTROL_DB.prepare(
+      `CREATE TRIGGER test_github_org_terminal_batch_rollback
+       BEFORE INSERT ON audit_events
+       FOR EACH ROW WHEN NEW.action = 'github.installation.suspend'
+       BEGIN SELECT RAISE(ABORT, 'forced org lifecycle rollback'); END`
+    ).run();
+    expect((await sendGitHubWebhook(suspendRaw, "installation", suspendDelivery)).status).toBe(500);
+    expect(
+      await env.TEAM_CONTROL_DB.prepare(
+        `SELECT h.latest_action, h.terminal, i.state, m.active
+           FROM github_installation_lifecycle_heads h
+           JOIN github_installations i ON i.installation_id = h.installation_id AND i.incarnation = h.incarnation
+           JOIN github_installation_claims c ON c.installation_id = h.installation_id AND c.incarnation = h.incarnation
+           JOIN organization_members m ON m.org_id = c.org_id
+            AND m.user_id = 'github-installation:' || h.installation_id
+          WHERE h.installation_id = ?1`
+      )
+        .bind(GITHUB_INSTALLATION_ID)
+        .first()
+    ).toEqual({ latest_action: "created", terminal: 0, state: "active", active: 1 });
+    await env.TEAM_CONTROL_DB.prepare(`DROP TRIGGER test_github_org_terminal_batch_rollback`).run();
     expect((await sendGitHubWebhook(suspendRaw, "installation", suspendDelivery)).status).toBe(202);
     expect((await api("/v1/orgs/org_main", { token: active.serviceToken })).status).toBe(403);
 

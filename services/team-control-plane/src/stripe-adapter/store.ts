@@ -202,14 +202,63 @@ export async function checkoutSubscriptionCompensation(
         WHERE org_id = ?1 AND billing_command_id = ?2
           AND status IN ('prepared', 'executing')
         ORDER BY requested_at, id
-        LIMIT 2`
+        LIMIT 1`
     )
     .bind(orgId, billingCommandId)
     .all<CheckoutSubscriptionCompensationRow>();
-  if (rows.results.length > 1) {
-    throw new AdapterError(500, "checkout_compensation_binding_corrupt", "Multiple live Checkout compensations exist.");
-  }
   return rows.results[0] ?? null;
+}
+
+export async function checkoutCompensationExpectedProviderState(
+  db: D1Database,
+  compensation: CheckoutSubscriptionCompensationRow
+): Promise<{ providerPriceId: string; metadata: Record<string, string> }> {
+  const rows = await db
+    .prepare(
+      `SELECT summary_json
+         FROM provider_events
+        WHERE event_id = ?1 AND org_id = ?2 AND event_type = 'checkout.session.completed'
+          AND object_id = ?3 AND status = 'rejected'
+        LIMIT 2`
+    )
+    .bind(compensation.provider_event_id, compensation.org_id, compensation.provider_session_id)
+    .all<{ summary_json: string }>();
+  if (rows.results.length !== 1) {
+    throw new AdapterError(500, "checkout_compensation_binding_corrupt", "Checkout compensation lacks one payload-bound provider event.");
+  }
+  const summary = parseJson(rows.results[0]!.summary_json, "checkout compensation provider summary");
+  const reportedGeneration = summary.reportedBillingGeneration;
+  if (
+    summary.orgId !== compensation.org_id ||
+    summary.objectId !== compensation.provider_session_id ||
+    summary.checkoutSessionId !== compensation.provider_session_id ||
+    summary.customerId !== compensation.provider_customer_id ||
+    summary.subscriptionId !== compensation.provider_subscription_id ||
+    summary.checkoutIntentId !== compensation.checkout_intent_id ||
+    summary.billingGeneration !== compensation.billing_generation ||
+    (reportedGeneration !== null &&
+      (!Number.isSafeInteger(reportedGeneration) || (reportedGeneration as number) <= 0)) ||
+    (summary.billingGenerationSource !== "metadata" &&
+      summary.billingGenerationSource !== "checkout_intent_binding" &&
+      summary.billingGenerationSource !== "legacy_unique_binding") ||
+    typeof summary.internalPriceId !== "string" ||
+    typeof summary.providerPriceId !== "string" ||
+    typeof summary.reportedInternalPriceId !== "string" ||
+    typeof summary.reportedProviderPriceId !== "string"
+  ) {
+    throw new AdapterError(500, "checkout_compensation_binding_corrupt", "Checkout compensation provider summary is invalid.");
+  }
+  const metadata: Record<string, string> = {
+    team_org_id: compensation.org_id,
+    internal_price_id: summary.reportedInternalPriceId,
+    provider_price_id: summary.reportedProviderPriceId,
+    checkout_intent_id: compensation.checkout_intent_id,
+    contributor_limit: "15"
+  };
+  if (reportedGeneration !== null) {
+    metadata.billing_generation = String(reportedGeneration);
+  }
+  return { providerPriceId: summary.providerPriceId, metadata };
 }
 
 export async function claimCheckoutSubscriptionCompensation(
@@ -308,7 +357,26 @@ export async function markUnexpectedCheckoutSubscriptionCompensated(
     ),
     db.prepare(
       `UPDATE billing_commands
-          SET status = ?1, execution_lease_id = NULL, execution_lease_expires_at = NULL
+          SET status = CASE WHEN EXISTS (
+                SELECT 1 FROM checkout_subscription_compensations pending
+                 WHERE pending.org_id = ?3 AND pending.billing_command_id = ?2
+                   AND pending.id <> ?5 AND pending.status IN ('prepared', 'executing')
+              ) THEN 'compensating' ELSE ?1 END,
+              execution_lease_id = CASE WHEN EXISTS (
+                SELECT 1 FROM checkout_subscription_compensations pending
+                 WHERE pending.org_id = ?3 AND pending.billing_command_id = ?2
+                   AND pending.id <> ?5 AND pending.status IN ('prepared', 'executing')
+              ) THEN (
+                SELECT pending.id FROM checkout_subscription_compensations pending
+                 WHERE pending.org_id = ?3 AND pending.billing_command_id = ?2
+                   AND pending.id <> ?5 AND pending.status IN ('prepared', 'executing')
+                 ORDER BY pending.requested_at, pending.id LIMIT 1
+              ) ELSE NULL END,
+              execution_lease_expires_at = CASE WHEN EXISTS (
+                SELECT 1 FROM checkout_subscription_compensations pending
+                 WHERE pending.org_id = ?3 AND pending.billing_command_id = ?2
+                   AND pending.id <> ?5 AND pending.status IN ('prepared', 'executing')
+              ) THEN ?6 ELSE NULL END
         WHERE id = ?2 AND org_id = ?3 AND status = 'compensating'
           AND execution_lease_id = ?4
           AND EXISTS (
@@ -316,6 +384,12 @@ export async function markUnexpectedCheckoutSubscriptionCompensated(
              WHERE id = ?5 AND org_id = ?3 AND billing_command_id = ?2
                AND status = 'completed' AND completed_at = ?6
                AND resume_command_status = ?1
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM checkout_subscription_compensations pending
+             WHERE pending.org_id = ?3 AND pending.billing_command_id = ?2
+               AND pending.id <> ?5 AND pending.status IN ('prepared', 'executing')
+               AND pending.resume_command_status <> ?1
           )`
     ).bind(compensation.resume_command_status, row.id, row.org_id, leaseId, compensation.id, compensatedAt),
     db.prepare(
@@ -325,23 +399,41 @@ export async function markUnexpectedCheckoutSubscriptionCompensated(
         WHERE EXISTS (
           SELECT 1 FROM checkout_subscription_compensations
            WHERE id = ?6 AND org_id = ?2 AND billing_command_id = ?7
-             AND billing_generation = ?3 AND provider_subscription_id = ?4
+             AND billing_generation = ?3 AND provider_subscription_id = ?9
              AND status = 'completed' AND completed_at = ?5
         )
           AND EXISTS (
-            SELECT 1 FROM billing_commands
-             WHERE id = ?7 AND org_id = ?2 AND status = ?8
-               AND execution_lease_id IS NULL AND execution_lease_expires_at IS NULL
+            SELECT 1 FROM billing_commands command
+             WHERE command.id = ?7 AND command.org_id = ?2
+               AND (
+                 (command.status = ?8 AND command.execution_lease_id IS NULL
+                   AND command.execution_lease_expires_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM checkout_subscription_compensations pending
+                      WHERE pending.org_id = ?2 AND pending.billing_command_id = ?7
+                        AND pending.status IN ('prepared', 'executing')
+                   ))
+                 OR
+                 (command.status = 'compensating' AND command.execution_lease_id IS NOT NULL
+                   AND command.execution_lease_expires_at = ?5
+                   AND EXISTS (
+                     SELECT 1 FROM checkout_subscription_compensations pending
+                      WHERE pending.org_id = ?2 AND pending.billing_command_id = ?7
+                        AND pending.id = command.execution_lease_id
+                        AND pending.status IN ('prepared', 'executing')
+                   ))
+               )
           )`
     ).bind(
       generationEventId,
       row.org_id,
       compensation.billing_generation,
-      compensation.provider_subscription_id,
+      compensation.id,
       compensatedAt,
       compensation.id,
       row.id,
-      compensation.resume_command_status
+      compensation.resume_command_status,
+      compensation.provider_subscription_id
     ),
     db.prepare(
       `INSERT INTO audit_events
@@ -351,7 +443,7 @@ export async function markUnexpectedCheckoutSubscriptionCompensated(
         WHERE EXISTS (
           SELECT 1 FROM billing_generation_events
            WHERE id = ?5 AND org_id = ?2 AND generation = ?6
-             AND event_type = 'unexpected_subscription_compensated' AND source_ref = ?7
+             AND event_type = 'unexpected_subscription_compensated' AND source_ref = ?3
         )`
     ).bind(
       auditId,
@@ -359,8 +451,7 @@ export async function markUnexpectedCheckoutSubscriptionCompensated(
       compensation.id,
       compensatedAt,
       generationEventId,
-      compensation.billing_generation,
-      compensation.provider_subscription_id
+      compensation.billing_generation
     ),
     db.prepare(
       `INSERT INTO workflow_integrity_receipts (id, workflow_type, source_ref, valid, created_at)
@@ -375,13 +466,29 @@ export async function markUnexpectedCheckoutSubscriptionCompensated(
            )
            AND EXISTS (
              SELECT 1 FROM billing_commands
-              WHERE id = ?4 AND org_id = ?3 AND status = ?10
-                AND execution_lease_id IS NULL AND execution_lease_expires_at IS NULL
+              WHERE id = ?4 AND org_id = ?3
+                AND (
+                  (status = ?10 AND execution_lease_id IS NULL AND execution_lease_expires_at IS NULL
+                    AND NOT EXISTS (
+                      SELECT 1 FROM checkout_subscription_compensations pending
+                       WHERE pending.org_id = ?3 AND pending.billing_command_id = ?4
+                         AND pending.status IN ('prepared', 'executing')
+                    ))
+                  OR
+                  (status = 'compensating' AND execution_lease_id IS NOT NULL
+                    AND execution_lease_expires_at = ?9
+                    AND EXISTS (
+                      SELECT 1 FROM checkout_subscription_compensations pending
+                       WHERE pending.org_id = ?3 AND pending.billing_command_id = ?4
+                         AND pending.id = billing_commands.execution_lease_id
+                         AND pending.status IN ('prepared', 'executing')
+                    ))
+                )
            )
            AND EXISTS (
              SELECT 1 FROM billing_generation_events
               WHERE id = ?11 AND org_id = ?3 AND generation = ?5
-                AND event_type = 'unexpected_subscription_compensated' AND source_ref = ?8
+                AND event_type = 'unexpected_subscription_compensated' AND source_ref = ?2
            )
            AND EXISTS (
              SELECT 1 FROM audit_events
@@ -561,6 +668,69 @@ export function parsedSummary(row: ProviderEventRow): StripeSummary {
     throw new AdapterError(500, "provider_binding_corrupt", "Stored provider binding is invalid.");
   }
   return candidate as StripeSummary;
+}
+
+export async function hasExactLegacyGenerationBridgeEvidence(
+  db: D1Database,
+  row: ProviderEventRow,
+  summary: StripeSummary
+): Promise<boolean> {
+  if (
+    summary.billingGenerationSource !== "legacy_unique_binding" ||
+    summary.reportedBillingGeneration !== null ||
+    !summary.customerId ||
+    !summary.subscriptionId ||
+    !summary.checkoutIntentId
+  ) {
+    return false;
+  }
+  const rows = await db
+    .prepare(
+      `SELECT pe.event_id
+         FROM provider_events pe
+         JOIN billing_generations bg
+           ON bg.org_id = pe.org_id
+          AND bg.generation = CAST(json_extract(pe.summary_json, '$.billingGeneration') AS INTEGER)
+          AND bg.internal_price_id = json_extract(pe.summary_json, '$.internalPriceId')
+          AND bg.provider_customer_id = json_extract(pe.summary_json, '$.customerId')
+          AND bg.provider_subscription_id = json_extract(pe.summary_json, '$.subscriptionId')
+          AND bg.checkout_intent_id = json_extract(pe.summary_json, '$.checkoutIntentId')
+         JOIN workflow_integrity_receipts eligible
+           ON eligible.workflow_type = 'legacy_billing_generation_bridge_eligible'
+          AND eligible.source_ref = bg.org_id || ':' || CAST(bg.generation AS TEXT)
+          AND eligible.valid = 1
+         JOIN workflow_integrity_receipts applied
+           ON applied.id = 'integrity_legacy_billing_generation_bridge_' || pe.event_id
+          AND applied.workflow_type = 'legacy_billing_generation_bridge_applied'
+          AND applied.source_ref = pe.event_id
+          AND applied.valid = 1
+        WHERE pe.event_id = ?1 AND pe.org_id = ?2 AND pe.object_id = ?3
+          AND pe.status = 'awaiting_reconciliation'
+          AND json_extract(pe.summary_json, '$.orgId') = ?2
+          AND json_extract(pe.summary_json, '$.objectId') = ?3
+          AND json_extract(pe.summary_json, '$.customerId') = ?4
+          AND json_extract(pe.summary_json, '$.subscriptionId') = ?5
+          AND json_extract(pe.summary_json, '$.internalPriceId') = ?6
+          AND json_extract(pe.summary_json, '$.providerPriceId') = ?7
+          AND CAST(json_extract(pe.summary_json, '$.billingGeneration') AS INTEGER) = ?8
+          AND json_extract(pe.summary_json, '$.checkoutIntentId') = ?9
+          AND json_extract(pe.summary_json, '$.billingGenerationSource') = 'legacy_unique_binding'
+          AND json_extract(pe.summary_json, '$.reportedBillingGeneration') IS NULL
+        LIMIT 2`
+    )
+    .bind(
+      row.event_id,
+      summary.orgId,
+      summary.objectId,
+      summary.customerId,
+      summary.subscriptionId,
+      summary.internalPriceId,
+      summary.providerPriceId,
+      summary.billingGeneration,
+      summary.checkoutIntentId
+    )
+    .all<{ event_id: string }>();
+  return rows.results.length === 1;
 }
 
 export async function markCheckoutAccepted(
