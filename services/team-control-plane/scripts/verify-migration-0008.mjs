@@ -369,8 +369,75 @@ function ambiguousGithubCreationUpgradeHolds({ label, fixtureName, bindingSql, e
   }
 }
 
+function unsupportedIndividualEligibilityUpgradeHolds() {
+  const root = mkdtempSync(join(tmpdir(), "team-migration-0008-unsupported-individual-eligibility-"));
+  const persist = join(root, "persist");
+  const configPath = config(root);
+  try {
+    copyMigrations(root, false);
+    apply(root, configPath, persist);
+    fixture(root, configPath, persist, "migration-0008-v7-consistent.sql");
+    fixture(root, configPath, persist, "migration-0008-v7-unsupported-eligibility.sql");
+    copyMigrations(root, true);
+    const output = run(
+      root,
+      [
+        "d1",
+        "migrations",
+        "apply",
+        "TEAM_CONTROL_DB",
+        "--config",
+        configPath,
+        "--local",
+        "--persist-to",
+        persist
+      ],
+      { expectFailure: true }
+    );
+    assert.match(output, /CHECK constraint failed/u);
+    assert.deepEqual(
+      query(root, configPath, persist, "SELECT COUNT(*) AS count FROM d1_migrations WHERE name LIKE '0008%'"),
+      [{ count: 0 }]
+    );
+    assert.deepEqual(
+      query(
+        root,
+        configPath,
+        persist,
+        `SELECT identity.eligible_at, identity.updated_at,
+                consent.updated_session_sha256,
+                (SELECT COUNT(*) FROM individual_session_mutations mutation
+                  WHERE mutation.session_sha256 = consent.updated_session_sha256
+                    AND mutation.action = 'measurement_consent'
+                    AND mutation.subject_token = identity.subject_token) AS exact_consent_mutations,
+                (SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'table' AND name = 'workflow_integrity_receipts') AS receipt_tables,
+                (SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'table' AND name = 'billing_generations') AS generation_tables
+           FROM individual_identities identity
+           JOIN individual_consents consent ON consent.subject_token = identity.subject_token
+          WHERE identity.subject_token = 'mind_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'`
+      ),
+      [
+        {
+          eligible_at: "2026-08-20T00:17:03.000Z",
+          updated_at: "2026-08-20T00:17:03.000Z",
+          updated_session_sha256: "9".repeat(64),
+          exact_consent_mutations: 0,
+          receipt_tables: 0,
+          generation_tables: 0
+        }
+      ]
+    );
+  } finally {
+    if (process.env.KEEP_MIGRATION_0008_TMP !== "1") rmSync(root, { recursive: true, force: true });
+    else console.log(`Preserved unsupported individual eligibility migration fixture at ${root}`);
+  }
+}
+
 populatedUpgrade();
 ambiguousUpgradeHolds();
+unsupportedIndividualEligibilityUpgradeHolds();
 ambiguousGithubCreationUpgradeHolds({
   label: "org-multiple-created",
   fixtureName: "migration-0008-v7-org-multiple-created.sql",
@@ -403,4 +470,6 @@ ambiguousGithubCreationUpgradeHolds({
     proof_count: 2
   }
 });
-console.log("migration 0008 populated, idempotent, billing-ambiguous, and multi-created GitHub HOLD fixtures passed");
+console.log(
+  "migration 0008 populated, idempotent, billing-ambiguous, unsupported-eligibility, and multi-created GitHub HOLD fixtures passed"
+);

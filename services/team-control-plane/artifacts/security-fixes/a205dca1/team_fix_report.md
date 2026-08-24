@@ -80,7 +80,7 @@ All commands ran from `services/team-control-plane` with the checked-in provider
 |---|---|
 | Focused individual eligibility/privacy regressions | 13 passed |
 | `npm run check` | generated types current; TypeScript green; 5 files / 65 tests passed |
-| `npm run test:migration-0008` | populated exact v7 billing/GitHub/eligibility fixture upgraded; second apply idempotent; billing ambiguity and organization/personal multiple-created histories held with migration rollback |
+| `npm run test:migration-0008` | populated exact v7 billing/GitHub/eligibility fixture upgraded; second apply idempotent; billing ambiguity, unsupported pre-existing eligibility, and organization/personal multiple-created histories held with migration rollback and original v7 state preserved |
 | JSON schema parse | all 17 service schemas parsed |
 | `npm run stripe:executor:dry-run` | green, 75.19 KiB; execution flag remained `false`; no upload |
 | `npm run stripe:reconciler:dry-run` | green, 43.69 KiB; reconciliation flag remained `false`; no upload |
