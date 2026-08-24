@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.dev/schemas/stripe-command-execution-result-v1.schema.json",
+  "title": "Stripe command execution result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "command_id",
+    "operation",
+    "provider_object_id",
+    "provider_status"
+  ],
+  "properties": {
+    "schema_version": { "const": "stripe-command-execution-result-v1" },
+    "request_id": { "$ref": "#/$defs/opaque_id" },
+    "command_id": { "$ref": "#/$defs/opaque_id" },
+    "operation": {
+      "enum": ["create_checkout_session", "cancel_at_period_end", "request_refund"]
+    },
+    "provider_object_id": { "$ref": "#/$defs/opaque_id" },
+    "provider_status": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "checkout_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://checkout\\.stripe\\.com/"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "create_checkout_session" } } },
+      "then": { "required": ["checkout_url"] },
+      "else": { "not": { "required": ["checkout_url"] } }
+    }
+  ],
+  "$defs": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$"
+    }
+  }
+}

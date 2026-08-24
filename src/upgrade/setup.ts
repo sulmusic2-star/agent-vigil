@@ -26,7 +26,7 @@ import {
 export const DEFAULT_UPGRADE_DIRECTORY = ".agent-vigil/upgrade";
 export const DEFAULT_UPGRADE_CONFIG = `${DEFAULT_UPGRADE_DIRECTORY}/config.json`;
 export const DEFAULT_UPGRADE_RECEIPT = `${DEFAULT_UPGRADE_DIRECTORY}/last-receipt.json`;
-export const DEFAULT_RUNNER_IMAGE = "node:22.22.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752";
+export const DEFAULT_RUNNER_IMAGE = "node:22.22.3-bookworm-slim@sha256:16d364eebf6b62da439dc993d9b80940c78b0ca38438452f011ab9a25c752644";
 
 export type UpgradeSetupResult = { created: string[]; kept: string[] };
 

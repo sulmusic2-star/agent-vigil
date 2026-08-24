@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.example/schemas/team-policy-v1.schema.json",
+  "title": "Agent Vigil Team policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "base_revision", "required_gate_enabled", "policy", "canaries"],
+  "properties": {
+    "schema_version": { "const": "team-policy-v1" },
+    "base_revision": { "type": "integer", "minimum": 0 },
+    "required_gate_enabled": { "type": "boolean" },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_version_tokens", "denied_version_tokens", "required_canary_ids"],
+      "properties": {
+        "allowed_version_tokens": { "$ref": "#/$defs/tokens" },
+        "denied_version_tokens": { "$ref": "#/$defs/tokens" },
+        "required_canary_ids": { "$ref": "#/$defs/tokens" }
+      }
+    },
+    "canaries": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "artifact_class", "description"],
+        "properties": {
+          "id": { "$ref": "#/$defs/token" },
+          "artifact_class": { "enum": ["manifest", "skill", "plugin", "mcp", "behavioral"] },
+          "description": { "type": "string", "minLength": 1, "maxLength": 240 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "token": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$" },
+    "tokens": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/token" }, "uniqueItems": true }
+  }
+}

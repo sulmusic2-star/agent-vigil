@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-vigil-team-stripe-reconciler",
+  "main": "src/stripe-adapter/reconciler-worker.ts",
+  "compatibility_date": "2026-08-23",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "STRIPE_RECONCILIATION_ENABLED": "false",
+    "STRIPE_LIVEMODE": "false",
+    "STRIPE_PRICE_TEAM_MONTHLY": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "STRIPE_PRICE_TEAM_ANNUAL": "CONFIGURE_BEFORE_DEPLOYMENT"
+  },
+  "d1_databases": [
+    {
+      "binding": "TEAM_CONTROL_DB",
+      "database_name": "agent-vigil-team-control",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "services": [
+    {
+      "binding": "TEAM_CONTROL_PLANE",
+      "service": "agent-vigil-team-control-plane"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

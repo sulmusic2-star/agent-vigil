@@ -25,3 +25,20 @@ does not fetch private transcripts or execute code from an external repository.
 The product claim is intentionally narrow: these cases show that the project
 can publish its own failures with exact revisions and keep them as regression
 controls. They do not establish a market-wide false-verdict rate.
+
+## Fifteen-pair feasibility corpus
+
+[`update-pair-corpus/`](update-pair-corpus/) publishes the exact metadata for
+15 old/new npm pairs and the bounded evidence for three independently
+reproduced material regressions. It records 30 tarball identities and hashes,
+but does not publish the third-party tarballs, generated logs, or private
+nonce-bearing receipts. Run `npm run proof:update-pair-corpus` to verify the ten
+durable metadata commitments. That check authenticates the published snapshot;
+it does not replay the historical tarball, Docker, or receipt executions.
+
+## Pre-registered external frequency test
+
+[`first-100/`](first-100/) contains the signed sampling frame frozen before R0.
+It is separate from these first-party historical cases and currently contains
+zero external pair entries. Run `node proof/first-100/verify.mjs` to authenticate
+the exact registration and confirm the empty-ledger boundary.

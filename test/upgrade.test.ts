@@ -5,6 +5,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -14,6 +15,7 @@ import {
   PUBLIC_ENTRY_SCHEMA,
   UPGRADE_CONFIG_SCHEMA,
   loadUpgradeConfig,
+  parseCanaryDocument,
   validateCanaryDocument,
   validateUpgradeConfig,
   type UpgradeCanaryConfig,
@@ -126,15 +128,22 @@ test("upgrade config rejects traversal, platform-specific absolute paths, and mu
     ["manifestPath", "../outside/package.json"],
     ["manifestPath", "nested/../../outside.json"],
     ["manifestPath", "C:\\outside\\package.json"],
+    ["manifestPath", "CON/package.json"],
+    ["manifestPath", "CONOUT$/package.json"],
+    ["manifestPath", "COM¹/package.json"],
+    ["manifestPath", "package.json:stream"],
+    ["manifestPath", "nested./package.json"],
     ["canaryDirectory", "canaries/../../outside"],
     ["canaryDirectory", "/private/canaries"],
+    ["canaryDirectory", "NUL"],
+    ["canaryDirectory", "canaries//nested"],
   ] as const) {
     const input = cloneConfig();
     if (field === "manifestPath") input.component.manifestPath = value;
     else input.canaryDirectory = value;
     assert.throws(
       () => validateUpgradeConfig(input),
-      /must (?:remain inside the selected repository|be a portable repository-relative path)/,
+      /must (?:remain inside the selected repository|be a portable repository-relative path|use cross-platform-safe path segments)/,
       `${field} accepted ${value}`,
     );
   }
@@ -190,6 +199,39 @@ test("canary output requires at least one bounded observation", () => {
   );
   assert.equal(comparison.comparable, false);
   assert.equal(comparison.current.state, "HOLD");
+});
+
+test("canary output rejects lossy numeric, duplicate-key, and UTF-8 representations", () => {
+  const wrapper = (value: string): Buffer => Buffer.from(
+    `{"schemaVersion":"agent-vigil-upgrade-canary/v1","outcome":"PASS","observations":{${value}}}`,
+    "utf8",
+  );
+  for (const value of [
+    '"n":9007199254740992',
+    '"n":9007199254740993',
+    '"n":1e400',
+    '"n":1e-400',
+    '"n":-0',
+    '"n":1.5',
+    '"n":1,"n":2',
+  ]) assert.throws(() => parseCanaryDocument(wrapper(value)));
+  assert.throws(() => validateCanaryDocument({
+    schemaVersion: "agent-vigil-upgrade-canary/v1",
+    outcome: "PASS",
+    observations: { n: Number.MAX_SAFE_INTEGER + 1 },
+  }), /bounded JSON primitive/);
+  assert.throws(() => validateCanaryDocument({
+    schemaVersion: "agent-vigil-upgrade-canary/v1",
+    outcome: "PASS",
+    observations: { n: -0 },
+  }), /bounded JSON primitive/);
+  const invalidUtf8 = wrapper('"value":"ok"');
+  invalidUtf8[invalidUtf8.indexOf(Buffer.from("ok"))] = 0x80;
+  assert.throws(() => parseCanaryDocument(invalidUtf8), /UTF-8/);
+  assert.deepEqual(parseCanaryDocument(wrapper('"n":9007199254740991,"fraction":"1.5"')).observations, {
+    n: 9007199254740991,
+    fraction: "1.5",
+  });
 });
 
 function component(): UpgradeComponentConfig {
@@ -258,6 +300,53 @@ test("capability evidence distinguishes an absent field from explicit null", () 
   const current = inspectTarget(currentDirectory, configured);
   const candidate = inspectTarget(candidateDirectory, configured);
   assert.notEqual(current.capabilities[0].sha256, candidate.capabilities[0].sha256);
+});
+
+test("target manifests with lossy JSON representations force HOLD before containment", () => {
+  const unsafeInteger = Buffer.from(
+    '{"name":"fixture-agent","version":"1.1.0","agent":{"permissions":9007199254740993}}',
+  );
+  const duplicateKey = Buffer.from(
+    '{"name":"fixture-agent","version":"1.1.0","agent":{"permissions":1,"permissions":2}}',
+  );
+  const invalidUtf8 = Buffer.from(
+    '{"name":"fixture-agent","version":"1.1.0","agent":{"permissions":"ok"}}',
+  );
+  invalidUtf8[invalidUtf8.lastIndexOf(Buffer.from("ok"))] = 0x80;
+  for (const [label, manifest] of [
+    ["unsafe integer", unsafeInteger],
+    ["duplicate key", duplicateKey],
+    ["invalid UTF-8", invalidUtf8],
+  ] as const) {
+    const repository = temp("vigil-upgrade-lossy-manifest-");
+    try {
+      const currentDirectory = join(repository, "current");
+      const candidateDirectory = join(repository, "candidate");
+      const canaryDirectory = join(repository, "test", "upgrade-canaries");
+      writeTarget(currentDirectory, "1.0.0");
+      mkdirSync(candidateDirectory);
+      writeFileSync(join(candidateDirectory, "package.json"), manifest);
+      writeFileSync(join(candidateDirectory, "implementation.txt"), "candidate\n");
+      mkdirSync(canaryDirectory, { recursive: true });
+      writeFileSync(join(canaryDirectory, "tool-contract.cjs"), "// trusted fixture\n");
+      const configPath = join(repository, "upgrade.json");
+      writeFileSync(configPath, JSON.stringify(validConfigInput()));
+      const receipt = runUpgradeEvaluation({
+        configPath,
+        repository,
+        currentDirectory,
+        candidateDirectory,
+        dockerBin: "/bin/false",
+        generatedAt: "2026-08-23T20:00:00.000Z",
+        nonce: `lossy-manifest-${label}`,
+      });
+      assert.equal(receipt.summary.verdict, "HOLD", label);
+      assert.match(receipt.summary.reasons[0], /candidate artifact could not be inspected.*not valid JSON/i, label);
+      assert.equal(receipt.candidate, undefined, label);
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
+  }
 });
 
 test("evaluation refuses a canary directory reached through a symbolic-link parent", (context) => {
@@ -330,7 +419,6 @@ test("evaluation becomes HOLD when an artifact or canary harness changes during 
   writeFileSync(configPath, JSON.stringify(input));
 
   const fakeDocker = join(repository, "fake-docker.mjs");
-  const image = String(input.runner.image);
   writeFileSync(fakeDocker, `#!/usr/bin/env node
 import { existsSync, writeFileSync } from "node:fs";
 const rawArgs = process.argv.slice(2);
@@ -338,7 +426,12 @@ const args = rawArgs[0] === "--host" ? rawArgs.slice(2) : rawArgs;
 if (args[0] === "context" && args[1] === "inspect") {
   process.stdout.write(JSON.stringify("unix:///var/run/docker.sock"));
 } else if (args[0] === "image") {
-  process.stdout.write(JSON.stringify([${JSON.stringify(image)}]));
+  const selected = args.at(-1);
+  const digest = selected.slice(selected.lastIndexOf("@") + 1);
+  process.stdout.write(JSON.stringify({
+    Descriptor:{mediaType:"application/vnd.oci.image.manifest.v1+json",digest},
+    Os:"linux",Architecture:"amd64",Variant:"",RepoDigests:[selected]
+  }));
 } else if (args[0] === "container" && args[1] === "ls") {
   process.stdout.write("");
 } else if (args[0] === "container" && args[1] === "rm") {
@@ -475,6 +568,11 @@ test("pure decision fails closed to HOLD for containment, identity, artifact, or
 
   assert.equal(decideUpgrade(HOLD_CONTAINMENT, current, candidate, [compared()]).verdict, "HOLD");
   assert.equal(decideUpgrade({ ...PASS_CONTAINMENT, localEndpoint: false }, current, candidate, [compared()]).verdict, "HOLD");
+  for (const field of [
+    "imagePresent", "networkBlocked", "targetReadOnly", "rootReadOnly", "inheritedSecretAbsent", "proxiesCleared",
+  ] as const) {
+    assert.equal(decideUpgrade({ ...PASS_CONTAINMENT, [field]: false }, current, candidate, [compared()]).verdict, "HOLD", field);
+  }
   assert.equal(decideUpgrade(PASS_CONTAINMENT, current, { ...candidate, name: "other-agent" }, [compared()]).verdict, "HOLD");
   assert.equal(decideUpgrade(PASS_CONTAINMENT, current, { ...candidate, version: current.version }, [compared()]).verdict, "HOLD");
   assert.equal(decideUpgrade(PASS_CONTAINMENT, current, { ...candidate, treeSha256: current.treeSha256 }, [compared()]).verdict, "HOLD");

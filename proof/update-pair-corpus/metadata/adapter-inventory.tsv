@@ -1,0 +1,16 @@
+id	old_files	old_bytes	old_max_file_bytes	new_files	new_bytes	new_max_file_bytes	current_directory_adapter
+codex	4	12851	6659	4	12851	6659	runnable-partial
+claude	20	48924688	13308322	20	48924836	13308470	blocked-file-bound
+gemini	449	97871523	16592684	449	97919089	16603080	blocked-total-and-file-bounds
+mcp-sdk	677	4268166	381960	693	4322438	381960	runnable
+inspector	25	5317641	1733629	26	5358133	1654590	runnable
+filesystem	7	67365	27009	7	69088	28217	runnable
+memory	3	25757	15407	3	30777	19055	runnable
+playwright	7	84517	61322	7	85581	61992	runnable
+notion	34	3353350	1803012	36	2838323	1308704	runnable
+mcp-remote	8	789307	759199	8	789740	759621	runnable
+supergateway	59	363061	206078	56	336103	190993	runnable
+chrome	352	17010898	8475771	367	17100827	8475771	blocked-file-bound
+opencode	4	7865	5496	4	7865	5496	runnable-partial
+copilot	4	12967	7740	4	12985	7740	runnable-partial
+sentry	150	10422806	2947663	160	11168943	3175934	runnable

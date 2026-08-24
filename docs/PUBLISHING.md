@@ -3,6 +3,9 @@
 Distribution states are verified independently. A GitHub release does not make
 the npm package or Marketplace listing live.
 
+For the v0.17.0 two-commit source and exact-SHA pin sequence, follow
+[the immutable release-preparation runbook](V0_17_RELEASE_PREPARATION.md).
+
 ## Release gate
 
 ```bash
@@ -12,6 +15,7 @@ npm run review:public
 npm run test:coverage
 npm run test:package
 npm run proof:historical
+npm run proof:failure-corpus
 npm pack --dry-run --json
 npm audit
 ```
@@ -41,9 +45,10 @@ Verify each release independently:
 
 ```bash
 npm whoami
+PACKAGE_VERSION="$(npm view @sulmusic/agent-vigil version)"
 npm view @sulmusic/agent-vigil version dist-tags.latest
-npm view @sulmusic/agent-vigil@0.14.0 dist.integrity
-npx --yes @sulmusic/agent-vigil@0.14.0 doctor
+npm view "@sulmusic/agent-vigil@$PACKAGE_VERSION" dist.integrity
+npx --yes "@sulmusic/agent-vigil@$PACKAGE_VERSION" doctor
 ```
 
 The canonical npm name is scoped because npm rejected the unscoped

@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, fstatSync, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { canonical } from "../report.ts";
 import type { ContainmentProbe, CanaryTrial } from "./sandbox.ts";
-import type { UpgradeCanaryConfig, UpgradeComponentConfig, UpgradeVerdict } from "./contracts.ts";
+import { parseExactJson, type UpgradeCanaryConfig, type UpgradeComponentConfig, type UpgradeVerdict } from "./contracts.ts";
 
 const MAX_FILES = 4_096;
-const MAX_FILE_BYTES = 4 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
+const MAX_ARTIFACT_FILE_BYTES = 32 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 256 * 1024 * 1024;
 
 export type CapabilitySnapshot = {
   field: string;
@@ -30,6 +31,13 @@ export type ArtifactInventory = {
   treeSha256: string;
   fileCount: number;
   totalBytes: number;
+};
+
+export type ArtifactFileCommitment = {
+  path: string;
+  bytes: number;
+  mode: number;
+  sha256: string;
 };
 
 export type CapabilityChange = {
@@ -70,6 +78,67 @@ function hash(value: string | Buffer): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
+type ExpectedArtifactFile = {
+  dev: bigint;
+  ino: bigint;
+  mode: bigint;
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
+};
+
+type HashedArtifactFile = {
+  bytes: number;
+  mode: number;
+  sha256: string;
+};
+
+function hashRegularFile(
+  path: string,
+  expected: ExpectedArtifactFile,
+  maximumFileBytes: number,
+  maximumRemainingBytes: number,
+): HashedArtifactFile {
+  const descriptor = openSync(path, "r");
+  try {
+    const before = fstatSync(descriptor, { bigint: true });
+    if (!before.isFile()
+      || before.dev !== expected.dev || before.ino !== expected.ino
+      || before.size !== expected.size || before.mode !== expected.mode
+      || before.mtimeNs !== expected.mtimeNs || before.ctimeNs !== expected.ctimeNs) {
+      throw new Error("artifact entry changed while it was being opened for inventory");
+    }
+    if (before.size > BigInt(maximumFileBytes)) throw new Error(`target file exceeds ${maximumFileBytes} bytes`);
+    if (before.size > BigInt(maximumRemainingBytes)) throw new Error(`target exceeds ${MAX_TOTAL_BYTES} total bytes`);
+    const digest = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let total = 0n;
+    while (true) {
+      const read = readSync(descriptor, buffer, 0, buffer.length, null);
+      if (!read) break;
+      total += BigInt(read);
+      if (total > BigInt(maximumFileBytes)) throw new Error(`target file exceeds ${maximumFileBytes} bytes`);
+      if (total > BigInt(maximumRemainingBytes)) throw new Error(`target exceeds ${MAX_TOTAL_BYTES} total bytes`);
+      digest.update(buffer.subarray(0, read));
+    }
+    const after = fstatSync(descriptor, { bigint: true });
+    const afterPath = lstatSync(path, { bigint: true });
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+      || before.mode !== after.mode || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs
+      || total !== after.size || after.dev !== afterPath.dev || after.ino !== afterPath.ino
+      || after.size !== afterPath.size || after.mode !== afterPath.mode || afterPath.isSymbolicLink()) {
+      throw new Error("artifact entry changed while it was being inventoried");
+    }
+    return {
+      bytes: Number(total),
+      mode: Number(before.mode & 0o777n),
+      sha256: `sha256:${digest.digest("hex")}`,
+    };
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
 function lookup(root: unknown, field: string): unknown {
   let value = root;
   for (const segment of field.split(".")) {
@@ -92,7 +161,7 @@ function safeFile(root: string, path: string): string {
   if (rel === ".." || rel.startsWith(`..${sep}`)) throw new Error("manifest escaped the target directory");
   const status = lstatSync(target);
   if (status.isSymbolicLink() || !status.isFile()) throw new Error("manifest must be a regular non-symbolic-link file");
-  if (status.size > MAX_FILE_BYTES) throw new Error(`manifest exceeds ${MAX_FILE_BYTES} bytes`);
+  if (status.size > MAX_MANIFEST_BYTES) throw new Error(`manifest exceeds ${MAX_MANIFEST_BYTES} bytes`);
   const parent = realpathSync(dirname(target));
   if (parent !== realpathSync(root) && !parent.startsWith(`${realpathSync(root)}${sep}`)) {
     throw new Error("manifest parent escaped the target directory");
@@ -100,52 +169,79 @@ function safeFile(root: string, path: string): string {
   return target;
 }
 
-export function inspectArtifactTree(root: string): ArtifactInventory {
+export type ArtifactInspectionHooks = {
+  /** Deterministic test seam for a path replacement between lstat and open. */
+  afterEntryLstat?: (path: string) => void;
+};
+
+export function artifactInventoryFromFileCommitments(
+  input: readonly ArtifactFileCommitment[],
+): ArtifactInventory {
+  const entries = [...input].sort((left, right) => left.path.localeCompare(right.path));
+  return {
+    treeSha256: hash(canonical(entries)),
+    fileCount: entries.length,
+    totalBytes: entries.reduce((total, entry) => total + entry.bytes, 0),
+  };
+}
+
+export function inspectArtifactTree(root: string, hooks: ArtifactInspectionHooks = {}): ArtifactInventory {
   const canonicalRoot = realpathSync(root);
   if (!lstatSync(canonicalRoot).isDirectory()) throw new Error("target must be a directory");
-  const entries: Array<{ path: string; bytes: number; mode: number; sha256: string }> = [];
+  const entries: ArtifactFileCommitment[] = [];
   let totalBytes = 0;
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
       const path = join(directory, entry.name);
-      const status = lstatSync(path);
+      const status = lstatSync(path, { bigint: true });
       if (status.isSymbolicLink()) throw new Error(`target contains a symbolic link: ${relative(canonicalRoot, path)}`);
       if (status.isDirectory()) {
         visit(path);
         continue;
       }
       if (!status.isFile()) throw new Error(`target contains a non-regular entry: ${relative(canonicalRoot, path)}`);
-      if (status.size > MAX_FILE_BYTES) throw new Error(`target file exceeds ${MAX_FILE_BYTES} bytes: ${relative(canonicalRoot, path)}`);
-      totalBytes += status.size;
-      if (totalBytes > MAX_TOTAL_BYTES) throw new Error(`target exceeds ${MAX_TOTAL_BYTES} total bytes`);
+      if (status.size > BigInt(MAX_ARTIFACT_FILE_BYTES)) throw new Error(`target file exceeds ${MAX_ARTIFACT_FILE_BYTES} bytes: ${relative(canonicalRoot, path)}`);
       if (entries.length >= MAX_FILES) throw new Error(`target contains more than ${MAX_FILES} files`);
       const rel = relative(canonicalRoot, path).split(sep).join("/");
+      hooks.afterEntryLstat?.(path);
+      const observed = hashRegularFile(
+        path,
+        status,
+        MAX_ARTIFACT_FILE_BYTES,
+        MAX_TOTAL_BYTES - totalBytes,
+      );
+      totalBytes += observed.bytes;
+      if (totalBytes > MAX_TOTAL_BYTES) throw new Error(`target exceeds ${MAX_TOTAL_BYTES} total bytes`);
       entries.push({
         path: rel,
-        bytes: status.size,
-        mode: status.mode & 0o777,
-        sha256: hash(readFileSync(path)),
+        bytes: observed.bytes,
+        mode: observed.mode,
+        sha256: observed.sha256,
       });
     }
   };
   visit(canonicalRoot);
-  return {
-    treeSha256: hash(canonical(entries)),
-    fileCount: entries.length,
-    totalBytes,
-  };
+  const inventory = artifactInventoryFromFileCommitments(entries);
+  if (inventory.totalBytes !== totalBytes) throw new Error("artifact inventory byte accounting is inconsistent");
+  return inventory;
 }
 
-export function inspectTarget(directory: string, component: UpgradeComponentConfig): TargetSnapshot {
-  const requestedStatus = lstatSync(directory);
-  if (requestedStatus.isSymbolicLink() || !requestedStatus.isDirectory()) {
-    throw new Error("target must be a regular directory, not a symbolic link");
+/**
+ * Derive every manifest-backed target field from exact bytes and an already
+ * established artifact inventory. Automatic materialization receipts reuse
+ * this boundary after binding those bytes to the selected tree's file
+ * commitment, so semantic target fields never need to be trusted copies.
+ */
+export function targetSnapshotFromManifestBytes(
+  manifestBytes: Buffer,
+  component: UpgradeComponentConfig,
+  artifact: ArtifactInventory,
+): TargetSnapshot {
+  if (!manifestBytes.length || manifestBytes.length > MAX_MANIFEST_BYTES) {
+    throw new Error(`manifest must contain from 1 to ${MAX_MANIFEST_BYTES} bytes`);
   }
-  const root = realpathSync(directory);
-  const manifestPath = safeFile(root, component.manifestPath);
-  const manifestBytes = readFileSync(manifestPath);
   let manifest: unknown;
-  try { manifest = JSON.parse(manifestBytes.toString("utf8")); }
+  try { manifest = parseExactJson(manifestBytes, basename(component.manifestPath)); }
   catch { throw new Error(`${basename(component.manifestPath)} is not valid JSON`); }
   const name = lookup(manifest, component.identityField);
   const version = lookup(manifest, component.versionField);
@@ -164,10 +260,21 @@ export function inspectTarget(directory: string, component: UpgradeComponentConf
     ecosystem: component.ecosystem,
     name,
     version,
-    ...inspectArtifactTree(root),
+    ...artifact,
     manifestSha256: hash(manifestBytes),
     capabilities,
   };
+}
+
+export function inspectTarget(directory: string, component: UpgradeComponentConfig): TargetSnapshot {
+  const requestedStatus = lstatSync(directory);
+  if (requestedStatus.isSymbolicLink() || !requestedStatus.isDirectory()) {
+    throw new Error("target must be a regular directory, not a symbolic link");
+  }
+  const root = realpathSync(directory);
+  const manifestPath = safeFile(root, component.manifestPath);
+  const manifestBytes = readFileSync(manifestPath);
+  return targetSnapshotFromManifestBytes(manifestBytes, component, inspectArtifactTree(root));
 }
 
 export function aggregateTrials(trials: CanaryTrial[]): CanaryAggregate {
@@ -208,6 +315,21 @@ export function compareCanary(
 ): CanaryComparison {
   const current = aggregateTrials(currentTrials);
   const candidate = aggregateTrials(candidateTrials);
+  return compareCanaryAggregates(canary, commandSha256, current, candidate);
+}
+
+/**
+ * Recompute a comparison from the aggregate evidence stored in a receipt.
+ * Consumers must validate the aggregate shapes before calling this helper;
+ * this function deliberately derives, rather than trusts, the two decision
+ * booleans.
+ */
+export function compareCanaryAggregates(
+  canary: Pick<UpgradeCanaryConfig, "id" | "publicId">,
+  commandSha256: string,
+  current: CanaryAggregate,
+  candidate: CanaryAggregate,
+): CanaryComparison {
   const comparable = current.stable
     && candidate.stable
     && current.state === "PASS"
@@ -248,7 +370,16 @@ export function decideUpgrade(
 ): UpgradeDecision {
   const reasons: string[] = [];
   const capabilities = compareCapabilities(current, candidate);
-  if (containment.status !== "PASS" || !containment.localEndpoint) reasons.push("required containment controls were not established");
+  if (containment.status !== "PASS"
+    || !containment.localEndpoint
+    || !containment.imagePresent
+    || !containment.networkBlocked
+    || !containment.targetReadOnly
+    || !containment.rootReadOnly
+    || !containment.inheritedSecretAbsent
+    || !containment.proxiesCleared) {
+    reasons.push("required containment controls were not established");
+  }
   if (current.name !== candidate.name || current.ecosystem !== candidate.ecosystem) reasons.push("current and candidate identities are not comparable");
   if (current.version === candidate.version) reasons.push("current and candidate versions are identical");
   if (current.treeSha256 === candidate.treeSha256) reasons.push("current and candidate artifact digests are identical");

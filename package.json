@@ -1,6 +1,6 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Fail-closed change control, upgrade preflight, and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
@@ -11,9 +11,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
+    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --alias:yaml=./node_modules/yaml/browser/index.js --outfile=dist/cli.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test --test-concurrency=4 test/*.test.ts",
     "test:coverage": "node --import tsx --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 --test test/*.test.ts",
     "check": "npm run typecheck && npm run build && npm test && npm run smoke",
     "review:public": "python3 scripts/public_surface_gate.py --self-test && python3 scripts/public_surface_gate.py",
@@ -23,6 +23,7 @@
     "test:package": "python3 scripts/package_smoke.py",
     "proof:historical": "node scripts/historical_proof.mjs",
     "proof:failure-corpus": "tsx scripts/verify_failure_corpus.ts",
+    "proof:update-pair-corpus": "node proof/update-pair-corpus/verify-durable-corpus.mjs",
     "demo:60s": "node scripts/demo_60s.mjs",
     "demo:value-comparison": "tsx scripts/value_comparison_demo.ts",
     "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
@@ -68,6 +69,7 @@
     "docs/AGENT_VALUE_CARD.md",
     "docs/AI_CHANGE_EPISODE_V1.md",
     "docs/AI_CHANGE_RECEIPT.md",
+    "docs/APM_PREFLIGHT_ACTION.md",
     "docs/ATTESTED_RECEIPTS.md",
     "docs/AUTHORITY_RECONCILIATION.md",
     "docs/AUTHORITY_PLAN.md",
@@ -98,6 +100,10 @@
     "docs/control-corpus-entry-v2.schema.json",
     "docs/control-policy-v1.schema.json",
     "docs/control-status-v1.schema.json",
+    "docs/compatibility-resolution-v1.schema.json",
+    "docs/compatibility-registry-v1.schema.json",
+    "docs/fleet-policy-v1.schema.json",
+    "docs/fleet-decision-v1.schema.json",
     "docs/notary-app-manifest.example.json",
     "docs/policy.schema.json",
     "docs/portable-receipt-v1.schema.json",
@@ -105,11 +111,16 @@
     "docs/signed-control-proof-v1.schema.json",
     "docs/upgrade-canary-v1.schema.json",
     "docs/upgrade-config-v1.schema.json",
+    "docs/apm-preflight-v1.schema.json",
     "docs/upgrade-receipt-v1.schema.json",
+    "docs/update-plan-v1.schema.json",
     "examples",
     "proof/README.md",
     "proof/cases",
     "proof/failure-patterns",
+    "proof/first-100",
+    "proof/update-pair-corpus",
+    "scripts/materialize-trusted-upgrade-inputs.mjs",
     "scripts/public_adoption_census.py",
     "scripts/verify_failure_corpus.ts"
   ],
@@ -126,6 +137,7 @@
     "esbuild": "^0.25.9",
     "smol-toml": "^1.8.0",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "yaml": "2.9.0"
   }
 }

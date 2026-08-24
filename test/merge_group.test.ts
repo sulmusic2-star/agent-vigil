@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -75,18 +75,19 @@ test("merge-group CLI writes JSON and SARIF receipts", () => {
 test("composite Action routes a merge_group event to JSON and SARIF outputs", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
   const value = fixture();
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+  const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
   assert.ok(block, "composite Action run script is present");
   const scriptText = block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n");
   const aux = mkdtempSync(join(tmpdir(), "vigil-action-merge-"));
   const script = join(aux, "run.sh");
   const output = join(aux, "output");
   const summary = join(aux, "summary");
-  const runner = join(aux, "runner");
+  const runnerPath = join(aux, "runner");
   writeFileSync(script, scriptText);
   writeFileSync(output, "");
   writeFileSync(summary, "");
-  mkdirSync(runner);
+  mkdirSync(runnerPath);
+  const runner = realpathSync(runnerPath);
   const actionEnv: NodeJS.ProcessEnv = {
     ...process.env,
     GITHUB_ACTION_PATH: process.cwd(),
@@ -117,22 +118,25 @@ test("composite Action routes a merge_group event to JSON and SARIF outputs", { 
     env: actionEnv,
   });
   assert.equal(completed.status, 0, completed.stderr);
-  assert.match(readFileSync(output, "utf8"), /^status=PASS$/m);
-  assert.match(readFileSync(output, "utf8"), /^sarif=.+agent-vigil\.sarif$/m);
-  assert.match(readFileSync(output, "utf8"), /^value_card=.+agent-vigil-value-card\.json$/m);
-  assert.match(readFileSync(output, "utf8"), /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
-  assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil-report.json"), "utf8")).transcriptFormat, "github-merge-group-event");
-  assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil.sarif"), "utf8")).runs[0].properties.status, "PASS");
-  assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil-value-card.json"), "utf8")).schemaVersion, "agent-vigil-value-card/v1");
-  assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil-github-evidence.json"), "utf8")).schemaVersion, "agent-vigil-github-evidence/v1");
+  const firstOutputs = readFileSync(output, "utf8");
+  assert.match(firstOutputs, /^status=PASS$/m);
+  assert.match(firstOutputs, /^sarif=.+agent-vigil\.sarif$/m);
+  assert.match(firstOutputs, /^value_card=.+agent-vigil-value-card\.json$/m);
+  assert.match(firstOutputs, /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
+  const firstPath = (name: string): string => {
+    const path = new RegExp(`^${name}=(.+)$`, "m").exec(firstOutputs)?.[1];
+    assert.ok(path);
+    assert.ok(path.startsWith(`${runner}/`));
+    return path;
+  };
+  assert.equal(JSON.parse(readFileSync(firstPath("report"), "utf8")).transcriptFormat, "github-merge-group-event");
+  assert.equal(JSON.parse(readFileSync(firstPath("sarif"), "utf8")).runs[0].properties.status, "PASS");
+  assert.equal(JSON.parse(readFileSync(firstPath("value_card"), "utf8")).schemaVersion, "agent-vigil-value-card/v1");
+  assert.equal(JSON.parse(readFileSync(firstPath("github_evidence"), "utf8")).schemaVersion, "agent-vigil-github-evidence/v1");
 
   // Authority evidence is enforced in the PR phase. The queue phase must not
   // go missing or try to apply one PR's contract to the composed group; it
   // routes the same required check to exact composed-commit verification.
-  rmSync(join(value.repo, "agent-vigil-report.json"));
-  rmSync(join(value.repo, "agent-vigil.sarif"));
-  rmSync(join(value.repo, "agent-vigil-value-card.json"));
-  rmSync(join(value.repo, "agent-vigil-github-evidence.json"));
   writeFileSync(output, "");
   writeFileSync(summary, "");
   const authorityEnv = {
@@ -148,8 +152,12 @@ test("composite Action routes a merge_group event to JSON and SARIF outputs", { 
     env: authorityEnv,
   });
   assert.equal(authorityCompleted.status, 0, `${authorityCompleted.stderr}\n${authorityCompleted.stdout}`);
-  assert.match(readFileSync(output, "utf8"), /^status=PASS$/m);
-  assert.equal(JSON.parse(readFileSync(join(value.repo, "agent-vigil-report.json"), "utf8")).transcriptFormat, "github-merge-group-event");
+  const secondOutputs = readFileSync(output, "utf8");
+  assert.match(secondOutputs, /^status=PASS$/m);
+  const secondReport = /^report=(.+)$/m.exec(secondOutputs)?.[1];
+  assert.ok(secondReport);
+  assert.ok(secondReport.startsWith(`${runner}/`));
+  assert.equal(JSON.parse(readFileSync(secondReport, "utf8")).transcriptFormat, "github-merge-group-event");
 });
 
 test("merge-group rejects a forged or mismatched event range", () => {

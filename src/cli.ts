@@ -4,6 +4,19 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  duplicateOptionError,
+  invalidGitRangeError,
+  missingTranscriptError,
+  optionRequiresValueError,
+  portableSigningKeyError,
+  receiptIntegrityError,
+  reportCliError,
+  repositoryUnavailableError,
+  transcriptUnavailableError,
+  unexpectedPositionalError,
+  unknownOptionError,
+} from "./cli-errors.ts";
 import { loadTranscript, extractClaims, extractRunClaims } from "./transcript.ts";
 import {
   checkCompletion,
@@ -125,7 +138,7 @@ Usage:
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
-  vigil upgrade <init|doctor|check|verify|index> [options]
+  vigil upgrade <init|doctor|plan|preflight|verify-preflight|check|verify|evidence|resolve|enforce|index|publish|telemetry-register|telemetry> [options]
 
 Options:
   --repo <path>          Repository to verify (default: .)
@@ -171,9 +184,11 @@ function runProve(args: string[]): number {
     const takesValue = new Set(["--repo", "--base", "--format", "--output"]);
     for (let index = 1; index < args.length; index++) {
       const arg = args[index];
-      if (!allowed.has(arg)) throw new Error(`unknown prove argument: ${arg}`);
+      if (!allowed.has(arg)) {
+        throw (arg.startsWith("--") ? unknownOptionError(arg) : unexpectedPositionalError());
+      }
       if (takesValue.has(arg)) {
-        if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${arg} requires a value`);
+        if (!args[index + 1] || args[index + 1].startsWith("--")) throw optionRequiresValueError(arg);
         index += 1;
       }
     }
@@ -188,7 +203,7 @@ function runProve(args: string[]): number {
     if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderControlProof(report));
     return report.status === "PASS" ? 0 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runCertify(args: string[]): number {
@@ -291,9 +306,11 @@ function runPlan(args: string[]): number {
     const takesValue = new Set(["--repo", "--base", "--head", "--policy", "--format", "--output"]);
     for (let index = 1; index < args.length; index++) {
       const arg = args[index];
-      if (!allowed.has(arg)) throw new Error(`unknown plan argument: ${arg}`);
+      if (!allowed.has(arg)) {
+        throw (arg.startsWith("--") ? unknownOptionError(arg) : unexpectedPositionalError());
+      }
       if (takesValue.has(arg)) {
-        if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${arg} requires a value`);
+        if (!args[index + 1] || args[index + 1].startsWith("--")) throw optionRequiresValueError(arg);
         index += 1;
       }
     }
@@ -323,20 +340,22 @@ function runPlan(args: string[]): number {
       appendPrivateFileAtomic(resolve(summaryPath), renderAuthorityPlanMarkdown(report));
     }
     return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runProofComment(args: string[]): number {
   try {
     const parsed = parseCommandArgs(args, new Set(["--verify-url", "--output"]));
     if (parsed.positional.length !== 1) throw new Error("proof-comment requires exactly one full receipt JSON path");
-    const { report } = loadReceipt(resolve(parsed.positional[0]));
+    let report: TrustReport;
+    try { ({ report } = loadReceipt(resolve(parsed.positional[0]))); }
+    catch { throw receiptIntegrityError(); }
     const rendered = renderProofComment(report, { verifyUrl: parsed.values.get("--verify-url") });
     const output = parsed.values.get("--output");
     if (output) writePrivateFileAtomic(resolve(output), rendered);
     else process.stdout.write(rendered);
     return 0;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function parseArgs(args: string[]): Options {
@@ -355,15 +374,17 @@ function parseArgs(args: string[]): Options {
     if (arg === "--strict") { options.strict = true; continue; }
     if (arg === "--github-summary") { options.githubSummary = true; continue; }
     if (arg === "--help" || arg === "--version") continue;
-    if (!takesValue.has(arg)) throw new Error(`unknown argument: ${arg}`);
+    if (!takesValue.has(arg)) {
+      throw (arg.startsWith("--") ? unknownOptionError(arg) : unexpectedPositionalError());
+    }
     const value = args[++index];
-    if (value === undefined) throw new Error(`${arg} requires a value`);
+    if (value === undefined || value.startsWith("--")) throw optionRequiresValueError(arg);
     if (arg === "--repo") options.repo = value;
     if (arg === "--base") options.base = value;
     if (arg === "--head") options.head = value;
     if (arg === "--test-cmd") options.testCmd = value;
     if (arg === "--format") {
-      if (!new Set(["text", "json", "markdown", "sarif"]).has(value)) throw new Error(`unsupported format: ${value}`);
+      if (!new Set(["text", "json", "markdown", "sarif"]).has(value)) throw new Error("--format must be text, json, markdown, or sarif");
       options.format = value as Options["format"];
     }
     if (arg === "--output") options.output = value;
@@ -383,7 +404,7 @@ function parseArgs(args: string[]): Options {
 function optionValue(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   if (index === -1) return undefined;
-  if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${name} requires a value`);
+  if (!args[index + 1] || args[index + 1].startsWith("--")) throw optionRequiresValueError(name);
   return args[index + 1];
 }
 
@@ -415,7 +436,7 @@ function runInit(args: string[]): number {
       console.log("Next for signing: push one pull request, download agent-vigil-report.json, and run vigil verify-attestation before making the check required.");
     }
     return 0;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runProtect(args: string[]): number {
@@ -423,7 +444,9 @@ function runProtect(args: string[]): number {
     const allowed = new Set(["protect", "--repo", "--force", "--attest"]);
     for (let index = 1; index < args.length; index++) {
       const arg = args[index];
-      if (!allowed.has(arg)) throw new Error(`unknown protect argument: ${arg}`);
+      if (!allowed.has(arg)) {
+        throw (arg.startsWith("--") ? unknownOptionError(arg) : unexpectedPositionalError());
+      }
       if (arg === "--repo") index += 1;
     }
     const repo = resolve(optionValue(args, "--repo") ?? ".");
@@ -435,7 +458,7 @@ function runProtect(args: string[]): number {
     console.log(`\n${renderDoctor(checks)}\n`);
     console.log("Next: review the discovered commands and limits in .agent-vigil.json, commit the setup, push one pull request, then require the Agent Vigil evidence check.");
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function withoutOption(args: string[], name: string): string[] {
@@ -501,7 +524,7 @@ function runMaintainer(args: string[]): number {
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runMergeGroup(args: string[]): number {
@@ -521,7 +544,7 @@ function runMergeGroup(args: string[]): number {
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runDoctor(args: string[]): number {
@@ -530,7 +553,7 @@ function runDoctor(args: string[]): number {
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runKeygen(args: string[]): number {
@@ -542,7 +565,7 @@ function runKeygen(args: string[]): number {
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
     console.log(`Signer key ID: ${publicKeyId(resolve(publicPath))}`);
     return 0;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function printReport(report: TrustReport, options: Pick<Options, "format">): void {
@@ -570,7 +593,7 @@ function runGate(args: string[]): number {
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runVerify(args: string[]): number {
@@ -587,7 +610,7 @@ function runVerify(args: string[]): number {
       if (!result.keyPinned) console.log("Identity is not established until the public key is pinned through a trusted channel.");
     } else console.log("Signature: absent (content hash only)");
     return result.hashValid && result.signatureValid !== false ? 0 : 1;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function parseCommandArgs(args: string[], valueOptions: Set<string>, booleanOptions = new Set<string>()): {
@@ -605,18 +628,18 @@ function parseCommandArgs(args: string[], valueOptions: Set<string>, booleanOpti
       continue;
     }
     if (valueOptions.has(arg)) {
-      if (values.has(arg)) throw new Error(`duplicate option: ${arg}`);
+      if (values.has(arg)) throw duplicateOptionError(arg);
       const value = args[++index];
-      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+      if (!value || value.startsWith("--")) throw optionRequiresValueError(arg);
       values.set(arg, value);
       continue;
     }
     if (booleanOptions.has(arg)) {
-      if (flags.has(arg)) throw new Error(`duplicate option: ${arg}`);
+      if (flags.has(arg)) throw duplicateOptionError(arg);
       flags.add(arg);
       continue;
     }
-    throw new Error(`unknown option: ${arg}`);
+    throw unknownOptionError(arg);
   }
   return { positional, values, flags };
 }
@@ -636,7 +659,7 @@ function runAttest(args: string[]): number {
     console.log(`  type:     ${ATTESTATION_PREDICATE_TYPE}`);
     console.log("The predicate contains hashes, SHAs, counts, and the decision. It does not contain source code, prompts, or transcript text.");
     return 0;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runVerifyAttestation(args: string[]): number {
@@ -656,7 +679,7 @@ function runVerifyAttestation(args: string[]): number {
     console.log(`Receipt: ${report.receiptHash}`);
     console.log(`Signer workflow: ${signerWorkflow}`);
     return verification.valid ? 0 : 1;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runNotary(args: string[]): number {
@@ -678,7 +701,7 @@ function runNotary(args: string[]): number {
     if (output) writePrivateFileAtomic(resolve(output), rendered);
     else process.stdout.write(rendered);
     return payload.conclusion === "success" ? 0 : payload.conclusion === "failure" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runCompare(args: string[]): number {
@@ -696,7 +719,7 @@ function runCompare(args: string[]): number {
     if (output) writePrivateFileAtomic(resolve(output), rendered);
     else process.stdout.write(rendered);
     return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 type ValueCliOptions = {
@@ -737,10 +760,10 @@ function parseValueArgs(args: string[]): ValueCliOptions {
   for (let index = 1; index < args.length; index += 1) {
     const arg = args[index];
     if (!arg.startsWith("--")) { positional.push(arg); continue; }
-    if (!takesValue.has(arg)) throw new Error(`unknown value argument: ${arg}`);
-    if (values.has(arg)) throw new Error(`duplicate value argument: ${arg}`);
+    if (!takesValue.has(arg)) throw unknownOptionError(arg);
+    if (values.has(arg)) throw duplicateOptionError(arg);
     const value = args[++index];
-    if (value === undefined || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+    if (value === undefined || value.startsWith("--")) throw optionRequiresValueError(arg);
     values.set(arg, value);
   }
   if (positional.length !== 1) throw new Error("value requires exactly one full receipt JSON path");
@@ -870,7 +893,7 @@ function runValue(args: string[]): number {
     if (options.output) writePrivateFileAtomic(resolve(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runGitHubEvidence(args: string[]): number {
@@ -890,12 +913,13 @@ function runGitHubEvidence(args: string[]): number {
     let output: string | undefined;
     for (let index = 1; index < args.length; index += 1) {
       const flag = args[index];
+      if (!flag.startsWith("--")) throw unexpectedPositionalError();
       const value = args[++index];
-      if (value === undefined || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+      if (value === undefined || value.startsWith("--")) throw optionRequiresValueError(flag);
       if (flag === "--output") { if (output) throw new Error("duplicate --output"); output = value; continue; }
       const kind = flagKinds[flag];
-      if (!kind) throw new Error(`unknown github-evidence argument: ${flag}`);
-      if ((inputs as any)[kind]) throw new Error(`duplicate ${flag}`);
+      if (!kind) throw unknownOptionError(flag);
+      if ((inputs as any)[kind]) throw duplicateOptionError(flag);
       (inputs as any)[kind] = value;
     }
     if (!inputs.event) throw new Error("github-evidence requires --event <event.json>");
@@ -904,7 +928,7 @@ function runGitHubEvidence(args: string[]): number {
     if (output) writePrivateFileAtomic(resolve(output), rendered);
     else process.stdout.write(rendered);
     return 0;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runCompareValue(args: string[]): number {
@@ -917,12 +941,12 @@ function runCompareValue(args: string[]): number {
       const arg = args[index];
       if (arg === "--format" || arg === "--output") {
         const value = args[++index];
-        if (value === undefined || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+        if (value === undefined || value.startsWith("--")) throw optionRequiresValueError(arg);
         if (arg === "--format") {
           if (!new Set(["text", "json", "html"]).has(value)) throw new Error("compare-value --format must be text, json, or html");
           format = value as ComparisonFormat;
         } else output = value;
-      } else if (arg.startsWith("--")) throw new Error(`unknown compare-value argument: ${arg}`);
+      } else if (arg.startsWith("--")) throw unknownOptionError(arg);
       else paths.push(arg);
     }
     if (!paths.length) throw new Error("compare-value requires at least one Agent Value Card JSON path");
@@ -933,7 +957,7 @@ function runCompareValue(args: string[]): number {
     if (output) writePrivateFileAtomic(resolve(output), rendered);
     else process.stdout.write(rendered);
     return comparison.status === "COMPARABLE" ? 0 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runAudit(args: string[]): number {
@@ -970,7 +994,7 @@ function runAudit(args: string[]): number {
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runTestIntegrity(args: string[]): number {
@@ -1015,7 +1039,7 @@ function runTestIntegrity(args: string[]): number {
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function runAuthority(args: string[]): number {
@@ -1082,7 +1106,7 @@ function runAuthority(args: string[]): number {
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
-  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  } catch (error) { return reportCliError("agent-vigil", error); }
 }
 
 function git(repo: string, args: string[]): string | undefined {
@@ -1094,7 +1118,11 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
-export function run(argv = process.argv.slice(2)): number {
+export function run(
+  argv: ["upgrade", "publish" | "telemetry-register" | "telemetry", ...string[]],
+): Promise<number>;
+export function run(argv?: string[]): number;
+export function run(argv = process.argv.slice(2)): number | Promise<number> {
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
@@ -1123,26 +1151,24 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv.includes("--version")) { console.log(VERSION); return 0; }
   let options: Options;
   try { options = parseArgs(argv); }
-  catch (error) { console.error(`agent-vigil: ${(error as Error).message}\n\n${usage()}`); return 2; }
+  catch (error) { return reportCliError("agent-vigil", error); }
   const repo = resolve(options.repo);
   if (options.portableOutput && !options.signingKey) {
-    console.error("agent-vigil: --portable-output requires --signing-key");
-    return 2;
+    return reportCliError("agent-vigil", portableSigningKeyError());
   }
   let policy;
   try { policy = loadPolicy(repo, options.policy, options.policyRef); }
-  catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+  catch (error) { return reportCliError("agent-vigil", error); }
   const transcript = options.transcript ?? policy.value.transcript;
-  if (!transcript) { console.error(usage()); return 2; }
+  if (!transcript) return reportCliError("agent-vigil", missingTranscriptError());
   const transcriptPath = isAbsolute(transcript) ? transcript : resolve(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
-  if (!existsSync(transcriptPath)) { console.error(`agent-vigil: transcript not found: ${transcriptPath}`); return 2; }
-  if (!existsSync(repo)) { console.error(`agent-vigil: repository not found: ${repo}`); return 2; }
+  if (!existsSync(transcriptPath)) return reportCliError("agent-vigil", transcriptUnavailableError());
+  if (!existsSync(repo)) return reportCliError("agent-vigil", repositoryUnavailableError());
   if (!gitRefExists(repo, options.base) || (options.head !== "WORKTREE" && !gitRefExists(repo, options.head))) {
-    console.error(`agent-vigil: invalid git range ${options.base}..${options.head}`);
-    return 2;
+    return reportCliError("agent-vigil", invalidGitRangeError());
   }
 
   try {
@@ -1211,8 +1237,7 @@ export function run(argv = process.argv.slice(2)): number {
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
   } catch (error) {
-    console.error(`agent-vigil: ${(error as Error).message}`);
-    return 2;
+    return reportCliError("agent-vigil", error);
   }
 }
 
@@ -1222,4 +1247,9 @@ function isMainModule(): boolean {
   catch { return false; }
 }
 
-if (isMainModule()) process.exit(run());
+if (isMainModule()) {
+  Promise.resolve(run()).then(
+    (code) => { process.exitCode = code; },
+    () => { process.exitCode = 2; },
+  );
+}

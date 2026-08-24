@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.example/schemas/r0-measurement-report-v1.schema.json",
+  "title": "Bounded R0 lifecycle measurement report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "generated_at", "boundary", "organizations", "individuals",
+    "exclusions", "definitions", "coverage_and_sybil_boundary"
+  ],
+  "properties": {
+    "schema_version": { "const": "r0-measurement-report-v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_version", "release_commit_sha", "release_channel", "deployment_environment",
+        "release_published_at", "r0_started_at", "initialized_at"
+      ],
+      "properties": {
+        "release_version": { "type": "string" },
+        "release_commit_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "release_channel": { "const": "github_app" },
+        "deployment_environment": { "const": "production" },
+        "release_published_at": { "type": "string", "format": "date-time" },
+        "r0_started_at": { "type": "string", "format": "date-time" },
+        "initialized_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "organizations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_status", "evidence_status", "eligible_installations", "currently_active_installations",
+        "activated_organizations", "matured_activated_organizations",
+        "repeated_organizations_within_60_days", "matured_repeat_rate", "pql_organizations",
+        "pql_offered_organizations", "matured_pql_offered_organizations", "offer_contract", "sample_floor_met"
+      ],
+      "properties": {
+        "identity_status": { "const": "AUTHENTICATED_TEAM_AND_RECONCILED_GITHUB_APP" },
+        "evidence_status": { "const": "BOUNDED_GATE_EVIDENCE" },
+        "eligible_installations": { "type": "integer", "minimum": 0 },
+        "currently_active_installations": { "type": "integer", "minimum": 0 },
+        "activated_organizations": { "type": "integer", "minimum": 0 },
+        "matured_activated_organizations": { "type": "integer", "minimum": 0 },
+        "repeated_organizations_within_60_days": { "type": "integer", "minimum": 0 },
+        "matured_repeat_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "pql_organizations": { "type": "integer", "minimum": 0 },
+        "pql_offered_organizations": { "type": "integer", "minimum": 0 },
+        "matured_pql_offered_organizations": { "type": "integer", "minimum": 0 },
+        "offer_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "monthly", "annual", "contributor_limit"],
+          "properties": {
+            "id": { "const": "team_v1_299_monthly_2990_annual" },
+            "monthly": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["internal_price_id", "amount_usd"],
+              "properties": {
+                "internal_price_id": { "const": "team_monthly_usd_v1" },
+                "amount_usd": { "const": 299 }
+              }
+            },
+            "annual": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["internal_price_id", "amount_usd"],
+              "properties": {
+                "internal_price_id": { "const": "team_annual_usd_v1" },
+                "amount_usd": { "const": 2990 }
+              }
+            },
+            "contributor_limit": { "const": 15 }
+          }
+        },
+        "sample_floor_met": { "type": "boolean" }
+      }
+    },
+    "individuals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_status", "evidence_status", "eligible_installations", "currently_active_installations",
+        "activated_individuals", "matured_activated_individuals",
+        "repeated_individuals_within_60_days", "matured_repeat_rate", "reason"
+      ],
+      "properties": {
+        "identity_status": { "enum": ["UNMEASURABLE", "AUTHENTICATED_GITHUB_OIDC_AND_RECONCILED_PERSONAL_APP"] },
+        "evidence_status": { "enum": ["HOLD", "BOUNDED_GATE_EVIDENCE"] },
+        "eligible_installations": { "type": ["integer", "null"], "minimum": 0 },
+        "currently_active_installations": { "type": ["integer", "null"], "minimum": 0 },
+        "activated_individuals": { "type": ["integer", "null"], "minimum": 0 },
+        "matured_activated_individuals": { "type": ["integer", "null"], "minimum": 0 },
+        "repeated_individuals_within_60_days": { "type": ["integer", "null"], "minimum": 0 },
+        "matured_repeat_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "reason": { "type": ["string", "null"] },
+        "exclusions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attested_subjects_by_classification", "coverage_exclusions"],
+          "properties": {
+            "attested_subjects_by_classification": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["external", "internal", "demo", "test", "unclassified"],
+              "properties": {
+                "external": { "type": "integer", "minimum": 0 },
+                "internal": { "type": "integer", "minimum": 0 },
+                "demo": { "type": "integer", "minimum": 0 },
+                "test": { "type": "integer", "minimum": 0 },
+                "unclassified": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "coverage_exclusions": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["opted_out_or_never_opted_in", "not_yet_eligible", "merged_aliases"],
+              "properties": {
+                "opted_out_or_never_opted_in": { "type": "integer", "minimum": 0 },
+                "not_yet_eligible": { "type": "integer", "minimum": 0 },
+                "merged_aliases": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "identity_status": { "const": "UNMEASURABLE" },
+            "evidence_status": { "const": "HOLD" },
+            "eligible_installations": { "type": "null" },
+            "currently_active_installations": { "type": "null" },
+            "activated_individuals": { "type": "null" },
+            "matured_activated_individuals": { "type": "null" },
+            "repeated_individuals_within_60_days": { "type": "null" },
+            "matured_repeat_rate": { "type": "null" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "required": ["exclusions"],
+          "properties": {
+            "identity_status": { "const": "AUTHENTICATED_GITHUB_OIDC_AND_RECONCILED_PERSONAL_APP" },
+            "evidence_status": { "const": "BOUNDED_GATE_EVIDENCE" },
+            "eligible_installations": { "type": "integer" },
+            "currently_active_installations": { "type": "integer" },
+            "activated_individuals": { "type": "integer" },
+            "matured_activated_individuals": { "type": "integer" },
+            "repeated_individuals_within_60_days": { "type": "integer" },
+            "reason": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "exclusions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attested_subjects_by_classification", "coverage_exclusions"],
+      "properties": {
+        "attested_subjects_by_classification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["external", "internal", "demo", "test"],
+          "properties": {
+            "external": { "type": "integer", "minimum": 0 },
+            "internal": { "type": "integer", "minimum": 0 },
+            "demo": { "type": "integer", "minimum": 0 },
+            "test": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "coverage_exclusions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["opted_out_or_never_opted_in", "not_yet_eligible"],
+          "properties": {
+            "opted_out_or_never_opted_in": { "type": "integer", "minimum": 0 },
+            "not_yet_eligible": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "definitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["activation", "matured_repeat", "individual_activation", "pql", "matured_pql_offer"],
+      "properties": {
+        "activation": { "type": "string" },
+        "matured_repeat": { "type": "string" },
+        "individual_activation": { "type": "string" },
+        "pql": { "type": "string" },
+        "matured_pql_offer": { "type": "string" }
+      }
+    },
+    "coverage_and_sybil_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "opt_in_only", "anonymous_telemetry_included", "repository_or_account_names_stored",
+        "total_market_installations_covered", "unique_company_identity_proven", "sybil_resistant", "note"
+      ],
+      "properties": {
+        "opt_in_only": { "const": true },
+        "anonymous_telemetry_included": { "const": false },
+        "repository_or_account_names_stored": { "const": false },
+        "total_market_installations_covered": { "const": false },
+        "unique_company_identity_proven": { "const": false },
+        "sybil_resistant": { "const": false },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

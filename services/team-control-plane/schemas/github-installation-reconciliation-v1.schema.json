@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.example/schemas/github-installation-reconciliation-v1.schema.json",
+  "title": "GitHub installation provider reconciliation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "reconciliation_id",
+    "source_delivery_id",
+    "observed_at",
+    "app_id",
+    "installation_id",
+    "account_node_id",
+    "account_type",
+    "provider_status",
+    "repository_selection",
+    "repository_node_ids"
+  ],
+  "properties": {
+    "schema_version": { "const": "github-installation-reconciliation-v1" },
+    "reconciliation_id": { "type": "string", "minLength": 3, "maxLength": 255 },
+    "source_delivery_id": { "type": "string", "format": "uuid" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "app_id": { "type": "integer", "minimum": 1 },
+    "installation_id": { "type": "integer", "minimum": 1 },
+    "account_node_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_-]{8,128}={0,2}$"
+    },
+    "account_type": { "enum": ["Organization", "User"] },
+    "provider_status": { "enum": ["active", "not_found"] },
+    "repository_selection": { "enum": ["all", "selected"] },
+    "repository_node_ids": {
+      "type": "array",
+      "maxItems": 1000,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9_-]{8,128}={0,2}$"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "repository_selection": { "const": "all" } }, "required": ["repository_selection"] },
+      "then": { "properties": { "repository_node_ids": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "provider_status": { "const": "not_found" } }, "required": ["provider_status"] },
+      "then": { "properties": { "repository_node_ids": { "maxItems": 0 } } }
+    }
+  ]
+}

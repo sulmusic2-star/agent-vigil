@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -100,13 +100,14 @@ test("composite Action prove mode returns the control receipt without synthetic 
   const aux = mkdtempSync(join(tmpdir(), "vigil-control-proof-action-"));
   try {
     const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-    const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+    const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
     assert.ok(block);
     const script = join(aux, "run.sh");
     const output = join(aux, "output");
     const summary = join(aux, "summary");
-    const runner = join(aux, "runner");
-    mkdirSync(runner);
+    const runnerPath = join(aux, "runner");
+    mkdirSync(runnerPath);
+    const runner = realpathSync(runnerPath);
     writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
     writeFileSync(output, "");
     writeFileSync(summary, "");
@@ -151,7 +152,10 @@ test("composite Action prove mode returns the control receipt without synthetic 
     assert.match(outputs, /^status=PASS$/m);
     assert.match(outputs, /^sarif=$/m);
     assert.match(outputs, /^value_card=$/m);
-    assert.equal(JSON.parse(readFileSync(join(repo, "agent-vigil-report.json"), "utf8")).status, "PASS");
+    const reportPath = /^report=(.+)$/m.exec(outputs)?.[1];
+    assert.ok(reportPath);
+    assert.ok(reportPath.startsWith(`${runner}/`));
+    assert.equal(JSON.parse(readFileSync(reportPath, "utf8")).status, "PASS");
     assert.equal(existsInOutput(outputs, "agent-vigil-value-card.json"), false);
 
     const conflicting = spawnSync("bash", [script], {

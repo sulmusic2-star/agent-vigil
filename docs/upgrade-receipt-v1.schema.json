@@ -169,7 +169,7 @@
       "properties": {
         "treeSha256": { "$ref": "#/$defs/sha256" },
         "fileCount": { "type": "integer", "minimum": 0, "maximum": 4096 },
-        "totalBytes": { "type": "integer", "minimum": 0, "maximum": 67108864 }
+        "totalBytes": { "type": "integer", "minimum": 0, "maximum": 268435456 }
       }
     },
     "target": {
@@ -183,7 +183,7 @@
         "treeSha256": { "$ref": "#/$defs/sha256" },
         "manifestSha256": { "$ref": "#/$defs/sha256" },
         "fileCount": { "type": "integer", "minimum": 0, "maximum": 4096 },
-        "totalBytes": { "type": "integer", "minimum": 0, "maximum": 67108864 },
+        "totalBytes": { "type": "integer", "minimum": 0, "maximum": 268435456 },
         "capabilities": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/capabilitySnapshot" } }
       }
     },

@@ -1,0 +1,1 @@
+{"schemaVersion":"agent-vigil-corpus-check/v1","checks":[{"key":"sse.keepalive.module","kind":"exists","path":"dist/esm/server/sseKeepAlive.js"},{"key":"parsed.media.type.module","kind":"exists","path":"dist/esm/shared/mediaType.js"}]}

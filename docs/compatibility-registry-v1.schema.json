@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/compatibility-registry-v1.schema.json",
+  "title": "Agent Vigil compatibility registry v1",
+  "description": "A deterministic static API containing independently signed exact-pair entries and restoration relations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "entries", "resolutions", "summary", "registryHash"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-compatibility-registry/v1" },
+    "generatedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "entries": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": { "$ref": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/compatibility-entry-v1.schema.json" }
+    },
+    "resolutions": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": { "$ref": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/compatibility-resolution-v1.schema.json" }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries", "safe", "changed", "hold", "resolvedBreakages", "components"],
+      "properties": {
+        "entries": { "type": "integer", "minimum": 0, "maximum": 2048 },
+        "safe": { "type": "integer", "minimum": 0, "maximum": 2048 },
+        "changed": { "type": "integer", "minimum": 0, "maximum": 2048 },
+        "hold": { "type": "integer", "minimum": 0, "maximum": 2048 },
+        "resolvedBreakages": { "type": "integer", "minimum": 0, "maximum": 2048 },
+        "components": { "type": "integer", "minimum": 0, "maximum": 2048 }
+      }
+    },
+    "registryHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "$comment": "Every entry and resolution is individually signed. The aggregate registry hash is deterministic but is not itself a publisher signature. Runtime creation verifies pinned-key signatures, unique commitments, references, and summary arithmetic."
+}

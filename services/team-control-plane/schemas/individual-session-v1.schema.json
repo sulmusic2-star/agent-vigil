@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.example/schemas/individual-session-v1.schema.json",
+  "title": "GitHub/OIDC-bound individual session claims v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "kid", "iss", "aud", "sub", "github_account_node_id",
+    "identity_kind", "jti", "iat", "exp"
+  ],
+  "properties": {
+    "schema_version": { "const": "individual-session-v1" },
+    "kid": { "type": "string", "minLength": 3, "maxLength": 128 },
+    "iss": { "type": "string", "format": "uri" },
+    "aud": { "type": "string", "minLength": 3, "maxLength": 256 },
+    "sub": { "type": "string", "minLength": 3, "maxLength": 255 },
+    "github_account_node_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_-]{8,128}={0,2}$"
+    },
+    "identity_kind": { "const": "human" },
+    "jti": { "type": "string", "minLength": 3, "maxLength": 255 },
+    "iat": { "type": "integer", "minimum": 0 },
+    "exp": { "type": "integer", "minimum": 0 }
+  }
+}

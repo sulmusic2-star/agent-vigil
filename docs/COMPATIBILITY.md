@@ -24,8 +24,8 @@ forms, semantic tool-loop fingerprints, and documentation false positives.
 
 Current durable result: **80/80 compatibility scenarios pass**. Combined with
 the core, CLI, adapter, setup, policy-anchor, signing, attestation,
-workspace-binding, and remediation suite, `npm test` executes **391 tests** in
-the latest unreleased v0.13 local candidate: 360 pass and five opt-in Docker tests skip in
+workspace-binding, and remediation suite, `npm test` executes **528 tests** in
+the v0.17.0 release candidate: 520 pass and eight opt-in integration tests skip in
 the ordinary suite. The combined 13-test real-Docker containment,
 timeout-cleanup, verdict, signing, and index suite passes against the selected
 local test daemon and leaves no residual Upgrade Guard containers. This proves
@@ -41,9 +41,9 @@ Maven, Gradle wrapper, Gradle build, Ruby, PHP, and .NET.
 A deterministic fuzz layer adds 9,000 mutated runner, dotted-term, traversal, and structured-tool cases.
 
 The Node coverage gate requires at least 90% lines, 80% branches, and 90%
-functions. The latest reviewed v0.13 run stayed above all three gates at 93.47%
-lines, 80.99% branches, and 97.09% functions. Coverage percentages can move
-slightly with Node's experimental coverage accounting; the thresholds are the
+functions. The latest reviewed v0.13 runs stayed above all three gates.
+Coverage percentages can move slightly with Node's experimental coverage
+accounting; the thresholds, rather than one transient exact percentage, are the
 durable claim.
 
 Run it:
@@ -126,7 +126,9 @@ integrity diff. Repairs now:
   therefore uses `go test -json ./...`.
 - Monorepos require an explicit command such as
   `npm --prefix packages/api test --silent`.
-- v0.4 passed hosted Windows and macOS portability jobs on Node 22. The v0.5
-  candidate's hosted result remains unverified until this branch is pushed and
-  CI completes.
+- The v0.17 workflow checks Node 22 CLI/package install, test, and build paths
+  on both macOS and Windows. Composite Action execution runs on Linux and
+  macOS; the v0.17 Action does not support Windows. Its `mode: upgrade` required
+  workflow supports Ubuntu 24.04 only. Exact hosted candidate results remain
+  unverified until this branch is pushed and CI completes.
 - Test execution runs repository code with the verifier's privileges.

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGitHubEvidence, loadGitHubEvidence, recomputeGitHubEvidenceHash } from "../src/github-evidence.ts";
@@ -142,13 +142,14 @@ test("composite Action outcome mode closes a prior receipt without executing rep
   const { receipt } = receiptFixture(root);
   const event = json(root, "workflow-run-event.json", { repository: { full_name: "owner/repo" }, workflow_run: { id: 99, event: "pull_request", pull_requests: [] } });
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+  const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
   assert.ok(block);
   const script = join(root, "run.sh");
   const output = join(root, "output");
   const summary = join(root, "summary");
-  const runner = join(root, "runner");
-  mkdirSync(runner);
+  const runnerPath = join(root, "runner");
+  mkdirSync(runnerPath);
+  const runner = realpathSync(runnerPath);
   writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
   writeFileSync(output, "");
   writeFileSync(summary, "");
@@ -166,10 +167,19 @@ test("composite Action outcome mode closes a prior receipt without executing rep
   delete env.NODE_TEST_CONTEXT;
   const completed = spawnSync("bash", [script], { cwd: root, encoding: "utf8", env });
   assert.equal(completed.status, 0, `${completed.stdout}\n${completed.stderr}`);
-  assert.match(readFileSync(output, "utf8"), /^status=PASS$/m);
-  assert.match(readFileSync(output, "utf8"), /^value_card=.+agent-vigil-value-card\.json$/m);
-  assert.match(readFileSync(output, "utf8"), /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
-  assert.equal(JSON.parse(readFileSync(join(root, "agent-vigil-value-card.json"), "utf8")).task.taskClass, "bugfix");
+  const outputs = Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map((line) => {
+    const separator = line.indexOf("=");
+    return [line.slice(0, separator), line.slice(separator + 1)];
+  }));
+  assert.equal(outputs.status, "PASS");
+  assert.match(outputs.value_card, /\/agent-vigil-value-card\.json$/);
+  assert.match(outputs.github_evidence, /\/agent-vigil-github-evidence\.json$/);
+  assert.ok(outputs.value_card.startsWith(`${runner}/`));
+  assert.ok(outputs.github_evidence.startsWith(`${runner}/`));
+  assert.equal(JSON.parse(readFileSync(outputs.value_card, "utf8")).task.taskClass, "bugfix");
+  assert.equal(JSON.parse(readFileSync(outputs.github_evidence, "utf8")).schemaVersion, "agent-vigil-github-evidence/v1");
+  assert.equal(existsSync(join(root, "agent-vigil-value-card.json")), false);
+  assert.equal(existsSync(join(root, "agent-vigil-github-evidence.json")), false);
 });
 
 test("open PR event stays unreviewed and unknown instead of becoming accepted", () => {

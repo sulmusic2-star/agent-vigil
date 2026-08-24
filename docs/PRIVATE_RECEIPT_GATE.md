@@ -84,11 +84,11 @@ jobs:
     name: Agent Vigil evidence
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      - uses: sulmusic2-star/agent-vigil@v0.16.0
+      - uses: sulmusic2-star/agent-vigil@v0.17.0
         with:
           receipt: .agent-vigil/receipt.json
           policy: .agent-vigil.json

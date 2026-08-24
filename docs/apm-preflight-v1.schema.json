@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/apm-preflight-v1.schema.json",
+  "title": "Agent Vigil automatic APM preflight receipt v1",
+  "description": "Private evidence binding one exact APM plan row to bounded acquisition, materialization, a contained Upgrade Guard receipt, and temporary-state restoration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "nonce", "plan", "restoration", "summary", "limitations", "receiptHash"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-apm-preflight/v1" },
+    "generatedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "nonce": { "type": "string", "minLength": 16, "maxLength": 128 },
+    "plan": {
+      "allOf": [
+        { "$ref": "update-plan-v1.schema.json" },
+        { "properties": { "manager": { "const": "apm" } } }
+      ]
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "selectedChangeSha256", "currentRowSha256", "candidateRowSha256"],
+      "properties": {
+        "identity": { "type": "string", "pattern": "^apm:[0-9a-f]{64}$" },
+        "selectedChangeSha256": { "$ref": "#/$defs/sha256" },
+        "currentRowSha256": { "$ref": "#/$defs/sha256" },
+        "candidateRowSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "materialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "current": { "$ref": "#/$defs/materializedProof" },
+        "candidate": { "$ref": "#/$defs/materializedProof" }
+      }
+    },
+    "upgradeReceipt": { "$ref": "upgrade-receipt-v1.schema.json" },
+    "restoration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "hostMutation", "sessionRemoved", "reasonCode"],
+      "properties": {
+        "status": { "enum": ["RESTORED", "HOLD"] },
+        "hostMutation": {
+          "const": "NONE",
+          "description": "No active APM installation, lockfile, manifest, or deployed agent state was modified. Temporary acquisition files and the requested receipt are outside that active state."
+        },
+        "sessionRemoved": { "type": "boolean" },
+        "reasonCode": { "$ref": "#/$defs/reasonCode" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "reasonCodes"],
+      "properties": {
+        "verdict": { "enum": ["SAFE", "CHANGED", "HOLD"] },
+        "reasonCodes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/reasonCode" }
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+    },
+    "receiptHash": { "$ref": "#/$defs/sha256" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "summary": { "properties": { "verdict": { "enum": ["SAFE", "CHANGED"] } } } } },
+      "then": {
+        "required": ["selection", "materialization", "upgradeReceipt"],
+        "properties": {
+          "materialization": { "required": ["current", "candidate"] },
+          "restoration": {
+            "properties": {
+              "status": { "const": "RESTORED" },
+              "sessionRemoved": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "summary": { "properties": { "verdict": { "const": "SAFE" } } } } },
+      "then": { "properties": { "upgradeReceipt": { "properties": { "summary": { "properties": { "verdict": { "const": "SAFE" } } } } } } }
+    },
+    {
+      "if": { "properties": { "summary": { "properties": { "verdict": { "const": "CHANGED" } } } } },
+      "then": { "properties": { "upgradeReceipt": { "properties": { "summary": { "properties": { "verdict": { "const": "CHANGED" } } } } } } }
+    },
+    {
+      "if": { "properties": { "restoration": { "properties": { "status": { "const": "RESTORED" } } } } },
+      "then": { "properties": { "restoration": { "properties": { "sessionRemoved": { "const": true } } } } },
+      "else": { "properties": { "restoration": { "properties": { "sessionRemoved": { "const": false } } } } }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "reasonCode": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+    "materializedProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "routeSha256", "rowSha256", "commit", "expectedTreeSha256",
+        "fetchedSha256", "fetchedBytes", "materializedTreeSha256",
+        "fileCount", "totalBytes", "files", "manifestEvidence", "selectedArtifact"
+      ],
+      "properties": {
+        "routeSha256": { "$ref": "#/$defs/sha256" },
+        "rowSha256": { "$ref": "#/$defs/sha256" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "expectedTreeSha256": { "$ref": "#/$defs/sha256" },
+        "fetchedSha256": { "$ref": "#/$defs/sha256" },
+        "fetchedBytes": { "type": "integer", "minimum": 1, "maximum": 67108864 },
+        "materializedTreeSha256": { "$ref": "#/$defs/sha256" },
+        "fileCount": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "totalBytes": { "type": "integer", "minimum": 0, "maximum": 268435456 },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "$comment": "Runtime verification requires sorted unique portable paths, exact byte totals, and recomputes both the OpenAPM canonical tree and selected Agent Vigil artifact inventory from these commitments.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "bytes", "mode", "sha256"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "bytes": { "type": "integer", "minimum": 0, "maximum": 33554432 },
+              "mode": { "enum": [420, 493] },
+              "sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        },
+        "manifestEvidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "$comment": "The runtime requires the trusted configured path and independently derives the nested target snapshot from these exact bytes after matching their size and SHA-256 to the selected-tree file commitment.",
+          "required": ["path", "contentBase64"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "contentBase64": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 87384,
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+            }
+          }
+        },
+        "selectedArtifact": { "$ref": "upgrade-receipt-v1.schema.json#/$defs/artifactInventory" }
+      }
+    }
+  }
+}

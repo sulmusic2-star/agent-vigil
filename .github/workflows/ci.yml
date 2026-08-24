@@ -10,20 +10,34 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         node: [20, 22, 24]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      - name: Smoke the Ubuntu hosted-runtime trust contract
+        if: matrix.node == 22
+        shell: /usr/bin/env -u BASH_ENV -u ENV /bin/bash --noprofile --norc -e -o pipefail {0}
+        run: |
+          node_real=$(/usr/bin/readlink -f -- "$(command -v node)")
+          [[ "$node_real" =~ ^/opt/hostedtoolcache/node/[0-9]+\.[0-9]+\.[0-9]+/x64/bin/node$ ]]
+          [[ -f "$node_real" && ! -L "$node_real" && -x "$node_real" ]]
+          mode=$(/usr/bin/stat -c '%a' -- "$node_real")
+          [[ "$mode" =~ ^[0-7]{3,4}$ ]]
+          (( (8#$mode & 022) == 0 ))
+          [[ -w /opt/hostedtoolcache ]]
+          /usr/bin/env -i LANG=C LC_ALL=C TZ=UTC "$node_real" -e \
+            'if(Number(process.versions.node.split(".")[0])<20)process.exit(1)'
+          /usr/bin/git --no-pager --version
       - run: npm ci
       - run: npm run build
       - run: npm test
@@ -41,6 +55,7 @@ jobs:
         if: matrix.node == 22
         run: npm run proof:historical
       - name: Dogfood Agent Vigil
+        id: dogfood
         uses: ./
         with:
           transcript: examples/demo-pass.md
@@ -64,16 +79,16 @@ jobs:
           STEP_OUTCOME: ${{ steps.malformed.outcome }}
           VIGIL_STATUS: ${{ steps.malformed.outputs.status }}
         run: test "$STEP_OUTCOME" = "failure" && test "$VIGIL_STATUS" = "INCONCLUSIVE"
-      - uses: actions/upload-artifact@v7
-        if: always()
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && steps.dogfood.outputs.report != ''
         with:
           name: agent-vigil-receipt-node-${{ matrix.node }}
           path: |
-            agent-vigil-report.json
-            agent-vigil.sarif
-            agent-vigil-github-evidence.json
-            agent-vigil-value-card.json
-          if-no-files-found: warn
+            ${{ steps.dogfood.outputs.report }}
+            ${{ steps.dogfood.outputs.sarif }}
+            ${{ steps.dogfood.outputs.github-evidence }}
+            ${{ steps.dogfood.outputs.value-card }}
+          if-no-files-found: error
 
   portability:
     strategy:
@@ -82,17 +97,18 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm test
-      - name: Dogfood Agent Vigil
+      - name: Dogfood Agent Vigil (POSIX Action)
+        if: runner.os != 'Windows'
         uses: ./
         with:
           transcript: examples/demo-pass.md

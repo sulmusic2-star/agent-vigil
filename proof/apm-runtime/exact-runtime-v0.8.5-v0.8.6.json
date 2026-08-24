@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "agent-vigil-public-apm-runtime-proof/v1",
+  "evidenceStatus": "EXACT_RUNTIME_REPLAYED",
+  "validatedCodeSha": "72a14ac05397f8fc815fbba5d913693a1ca14bdc",
+  "releaseReplay": {
+    "required": true,
+    "completed": true,
+    "gate": "TECHNICAL_REPLAY_PASS",
+    "version": "0.17.0",
+    "releaseAuthorized": false,
+    "r0Started": false
+  },
+  "source": {
+    "repository": "microsoft/apm",
+    "current": {
+      "tag": "v0.8.5",
+      "commit": "52e9b1b952d61aa2f97259fc3f9ea509cc833d3a",
+      "archive": {
+        "sha256": "sha256:2376fbde78672ce6548400937abf0dcd374489735839a180a4ae955614441680",
+        "bytes": 1242115
+      },
+      "tree": {
+        "expectedSha256": "sha256:aee0224fd5a4194bf4df01e4564194c55b7de263bf8a9ba48054cedda3d8813e",
+        "observedSha256": "sha256:aee0224fd5a4194bf4df01e4564194c55b7de263bf8a9ba48054cedda3d8813e",
+        "fileCount": 499,
+        "totalBytes": 5959236
+      }
+    },
+    "candidate": {
+      "tag": "v0.8.6",
+      "commit": "b56c537cf5a23807b01ca7ea434968981bdded36",
+      "archive": {
+        "sha256": "sha256:f0ab85f5ef97fa188802ff1768c0f9c4922eb196635d56b35443b067365e9ed7",
+        "bytes": 1260808
+      },
+      "tree": {
+        "expectedSha256": "sha256:231b80c97d619dcf56c99cf9e2f7b97654eefd6e8d63509bb6e0ce483c84e845",
+        "observedSha256": "sha256:231b80c97d619dcf56c99cf9e2f7b97654eefd6e8d63509bb6e0ce483c84e845",
+        "fileCount": 502,
+        "totalBytes": 6054248
+      }
+    }
+  },
+  "publicVersionSelections": [
+    {
+      "path": "docs/package.json",
+      "name": "apm-docs",
+      "versionField": "dependencies.astro",
+      "currentVersion": "5.18.0",
+      "candidateVersion": "5.18.1"
+    },
+    {
+      "path": "pyproject.toml",
+      "name": "apm-cli",
+      "versionField": "project.version",
+      "currentVersion": "0.8.5",
+      "candidateVersion": "0.8.6"
+    }
+  ],
+  "outcome": {
+    "verdict": "CHANGED",
+    "reason": "MATERIAL_CHANGE_DETECTED",
+    "wrapperSha256": "sha256:2d2df291eb73e93f431dd5742e9ab28905e63939351a7f5a04921e5e46ff9b88",
+    "nestedReceiptSha256": "sha256:12cea6f4e4a8a447b59d8af598ce94d8dd55168f746fcf054d52ca21071022c2"
+  },
+  "elapsedSeconds": 8.423,
+  "containment": {
+    "localTransportAccepted": true,
+    "exactImagePresent": true,
+    "networkBlocked": true,
+    "targetReadOnly": true,
+    "rootReadOnly": true,
+    "inheritedSecretAbsent": true,
+    "proxiesCleared": true
+  },
+  "restoration": {
+    "restored": true,
+    "hostMutationAbsent": true,
+    "sessionRemoved": true,
+    "residueAbsent": true
+  },
+  "validation": {
+    "schema": {
+      "errors": 0
+    },
+    "verifier": {
+      "valid": true,
+      "exitCode": 0
+    }
+  },
+  "trialStability": {
+    "trialsPerSide": 2,
+    "current": ["PASS", "PASS"],
+    "candidate": ["PASS", "PASS"]
+  },
+  "retryDisclosure": {
+    "attempts": 1,
+    "retries": 0,
+    "flakinessObserved": false
+  }
+}

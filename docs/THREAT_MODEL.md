@@ -135,10 +135,16 @@ or virtualization layer, exact runner image, and trusted canary code remain in
 the trusted computing base. A local socket can proxy another daemon, and a
 privileged same-host actor can change what the pinned path reaches. A malicious
 candidate may attempt to interfere with a poorly designed canary, and a
-container escape can invalidate the boundary. The first version therefore
-supports only offline, already-materialized artifacts and remains outside the
-GitHub Action. It does not establish live provider, model-alias, authentication,
-latency, payment, or production behavior.
+container escape can invalidate the boundary. The GitHub Action's APM mode
+extends the same offline boundary by reading old and new manager state from the
+exact event commits, acquiring only supported exact commit archives into an
+exclusive temporary session, requiring the base and head harness trees to be
+identical, and materializing exact config and canary blobs with sanitized Git
+plumbing. It does not check out or execute repository content, update the active APM installation, or
+establish live provider, model-alias, authentication, latency, payment, or
+production behavior. The separately visible exact-digest image preload mutates
+the runner's Docker cache and trusts the registry transport; it is outside the
+comparison receipt.
 
 The private receipt carries exact local evidence commitments, including the
 configuration and canary-harness tree digests, plus a random nonce. The optional

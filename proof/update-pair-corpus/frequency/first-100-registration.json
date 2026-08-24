@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "diffwitness-first-100-registration/v1",
+  "registrationId": "d0a44ad6-acfc-4542-a5fa-84c68ff37067",
+  "registeredAt": "2026-08-23T19:31:30Z",
+  "state": "FROZEN_BEFORE_R0",
+  "purpose": "Measure material behavioral-regression frequency without selecting pairs after observing their result.",
+  "releaseBoundary": {
+    "r0Definition": "The first independently reviewed external release containing one automatic APM plan-to-exact-materialization-to-contained-check-to-restore path.",
+    "r0Release": null,
+    "acceptBeforeR0": false
+  },
+  "sample": {
+    "targetEligiblePairs": 100,
+    "orderingAuthority": "The proof-ingestion service assigns receivedAt and a monotonically increasing accepted sequence before artifact acquisition, verdict computation, or evidence inspection.",
+    "deduplicationKey": [
+      "ecosystem",
+      "componentIdentity",
+      "currentExactIdentity",
+      "candidateExactIdentity"
+    ],
+    "componentCap": 20,
+    "minimumMaterialRegressions": 3,
+    "stretchMaterialRegressions": 5,
+    "falseCompatibleMaximum": 0
+  },
+  "permittedChannels": [
+    "apm",
+    "skills",
+    "agent-plugin",
+    "mcp-registry-referral",
+    "github-action",
+    "github-app",
+    "public-proof-referral"
+  ],
+  "channelAdmission": [
+    "The channel has an independently reviewed external release.",
+    "The pair was proposed for a real external update, not a demo, corpus replay, maintainer test, or CI retry.",
+    "The current and candidate identities were exact and immutable before evaluation.",
+    "The inclusion or exclusion record was written before artifact inspection or verdict computation."
+  ],
+  "includeWhen": [
+    "The event is external and explicitly opted in.",
+    "The update has a real intended application by that external entity.",
+    "The exact pair is globally unique under the registered deduplication key.",
+    "The component has fewer than 20 previously included pairs.",
+    "Both identities are immutable and supported by the released adapter."
+  ],
+  "excludeReasons": [
+    "BEFORE_R0",
+    "INTERNAL_OR_MAINTAINER",
+    "DEMO_OR_CORPUS",
+    "CI_RETRY",
+    "DUPLICATE_PAIR",
+    "MUTABLE_IDENTITY",
+    "NO_REAL_UPDATE_INTENT",
+    "UNSUPPORTED_CHANNEL",
+    "UNSUPPORTED_ARTIFACT",
+    "COMPONENT_CAP",
+    "CONSENT_WITHDRAWN_BEFORE_INSPECTION",
+    "MALFORMED_PREINSPECTION_RECORD"
+  ],
+  "materiality": {
+    "allRequiredEvidence": [
+      "Exact current and candidate artifact identities are bound.",
+      "The current baseline produces stable passing canary evidence.",
+      "Two contained candidate trials produce the same bounded result.",
+      "A planted or adjacent negative control behaves as expected.",
+      "The evidence is reproducible from retained non-secret commitments."
+    ],
+    "atLeastOneWorkflowConsequence": [
+      "REQUIRED_BEHAVIOR_UNAVAILABLE",
+      "FORBIDDEN_BEHAVIOR_EXECUTES",
+      "DISABLED_PERMISSION_OR_CONFIG_CHANGED",
+      "PROTOCOL_OR_DETERMINISTIC_CONTRACT_INCOMPATIBLE",
+      "EXACT_RESTORATION_FAILED",
+      "EXPLICIT_ORGANIZATION_POLICY_BREACHED"
+    ],
+    "notMaterialAlone": [
+      "Cosmetic output or documentation-only change.",
+      "Expected migration with no workflow or policy consequence.",
+      "Flaky, incomplete, unstable, or uncontained evidence.",
+      "A version, manifest, or file change without a demonstrated consequence."
+    ]
+  },
+  "interpretation": {
+    "underSampleFloor": "Fewer than 100 eligible pairs is insufficient distribution volume, not a problem-frequency result.",
+    "gateMiss": "Fewer than three reproducible material regressions after 100 eligible pairs rejects or narrows the broad Team subscription thesis.",
+    "gatePass": "Three material regressions passes only the bounded frequency gate; it does not prove demand, willingness to pay, revenue, or retention."
+  }
+}

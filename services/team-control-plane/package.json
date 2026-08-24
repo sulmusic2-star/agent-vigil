@@ -1,0 +1,27 @@
+{
+  "name": "@sulmusic/agent-vigil-team-control-plane",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types",
+    "types:check": "wrangler types --check",
+    "typecheck": "npm run types && tsc --noEmit && tsc -p test/tsconfig.json && tsc -p tsconfig.node.json",
+    "test": "vitest run --maxWorkers=1",
+    "test:migration-0008": "node scripts/verify-migration-0008.mjs",
+    "check": "npm run types:check && npm run typecheck && npm test",
+    "stripe:executor:dry-run": "wrangler deploy --dry-run --config wrangler.stripe-executor.jsonc",
+    "stripe:reconciler:dry-run": "wrangler deploy --dry-run --config wrangler.stripe-reconciler.jsonc",
+    "dev": "wrangler dev --local",
+    "db:migrate:local": "wrangler d1 migrations apply TEAM_CONTROL_DB --local",
+    "db:seed:local": "wrangler d1 execute TEAM_CONTROL_DB --local --file=./scripts/dev-bootstrap.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.0.0",
+    "@cloudflare/workers-types": "5.20260823.1",
+    "@types/node": "24.3.0",
+    "typescript": "5.9.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.125.0"
+  }
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -879,14 +879,15 @@ test("composite Action enforces an exact-SHA authority plan as a required check"
   const event = join(auxiliary, "event.json");
   const output = join(auxiliary, "output");
   const summary = join(auxiliary, "summary");
-  const runner = join(auxiliary, "runner");
+  const runnerPath = join(auxiliary, "runner");
   writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: value.base }, head: { sha: head } } }));
   writeFileSync(output, "");
   writeFileSync(summary, "");
-  mkdirSync(runner);
+  mkdirSync(runnerPath);
+  const runner = realpathSync(runnerPath);
 
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+  const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
   assert.ok(block);
   const script = join(auxiliary, "run.sh");
   writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
@@ -906,11 +907,15 @@ test("composite Action enforces an exact-SHA authority plan as a required check"
   delete env.NODE_TEST_CONTEXT;
   const completed = spawnSync("bash", [script], { cwd: value.repo, encoding: "utf8", env });
   assert.equal(completed.status, 1, `${completed.stdout}\n${completed.stderr}`);
-  assert.match(readFileSync(output, "utf8"), /^status=BLOCK$/m);
-  assert.match(readFileSync(output, "utf8"), /^receipt_hash=sha256:[a-f0-9]{64}$/m);
-  assert.match(readFileSync(output, "utf8"), /^sarif=$/m);
-  assert.match(readFileSync(output, "utf8"), /^value_card=$/m);
-  const report = JSON.parse(readFileSync(join(value.repo, "agent-vigil-report.json"), "utf8"));
+  const outputs = readFileSync(output, "utf8");
+  assert.match(outputs, /^status=BLOCK$/m);
+  assert.match(outputs, /^receipt_hash=sha256:[a-f0-9]{64}$/m);
+  assert.match(outputs, /^sarif=$/m);
+  assert.match(outputs, /^value_card=$/m);
+  const reportPath = /^report=(.+)$/m.exec(outputs)?.[1];
+  assert.ok(reportPath);
+  assert.ok(reportPath.startsWith(`${runner}/`));
+  const report = JSON.parse(readFileSync(reportPath, "utf8"));
   assert.equal(report.status, "BLOCK");
   assert.equal(report.base, value.base);
   assert.equal(report.head, head);

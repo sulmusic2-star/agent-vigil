@@ -22,7 +22,7 @@
         "oneOf": [
           { "type": "null" },
           { "type": "boolean" },
-          { "type": "number" },
+          { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
           {
             "type": "string",
             "maxLength": 512,

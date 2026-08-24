@@ -1,0 +1,1 @@
+{"schemaVersion":"agent-vigil-corpus-check/v1","checks":[{"key":"valid.resource.block","kind":"contains","path":"dist/index.js","needle":"type: \"resource\""},{"key":"closed.world.hints","kind":"count","path":"dist/index.js","needle":"openWorldHint: false"}]}

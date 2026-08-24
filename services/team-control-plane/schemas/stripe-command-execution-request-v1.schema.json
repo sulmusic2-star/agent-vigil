@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.dev/schemas/stripe-command-execution-request-v1.schema.json",
+  "title": "Stripe command execution request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "org_id", "command_id", "return_target"],
+  "properties": {
+    "schema_version": { "const": "stripe-command-execution-request-v1" },
+    "request_id": { "$ref": "#/$defs/opaque_id" },
+    "org_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+    "command_id": { "$ref": "#/$defs/opaque_id" },
+    "return_target": { "const": "team_billing_v1" }
+  },
+  "$defs": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$"
+    }
+  }
+}

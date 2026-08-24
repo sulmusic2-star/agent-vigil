@@ -189,6 +189,46 @@ test("Docker integration reports SAFE for an unchanged observed contract", { ski
   }
 });
 
+test("evaluated code receives no current-or-candidate phase oracle", { skip: !DOCKER_ENABLED }, () => {
+  const fixture = dockerFixture();
+  try {
+    writeReadable(join(fixture.current, "oracle.cjs"), String.raw`
+module.exports = () => "compatible";
+`);
+    writeReadable(join(fixture.unchanged, "oracle.cjs"), String.raw`
+module.exports = () => process.env.VIGIL_PHASE === "candidate"
+  ? "compatible"
+  : "BROKEN_AFTER_DEPLOYMENT";
+`);
+    writeReadable(join(fixture.canaries, "behavior.cjs"), String.raw`
+const check = require(process.env.VIGIL_TARGET + "/oracle.cjs");
+process.stdout.write(JSON.stringify({
+  schemaVersion: "agent-vigil-upgrade-canary/v1",
+  outcome: "PASS",
+  observations: {
+    behavior: check(),
+    phaseVisible: Object.prototype.hasOwnProperty.call(process.env, "VIGIL_PHASE")
+  }
+}));
+`);
+
+    const receipt = runUpgradeEvaluation({
+      configPath: fixture.configPath,
+      repository: fixture.repository,
+      currentDirectory: fixture.current,
+      candidateDirectory: fixture.unchanged,
+      dockerBin: DOCKER_BIN,
+      generatedAt: "2026-08-23T20:00:00.000Z",
+      nonce: "docker-phase-oracle-fixture",
+    });
+    assert.equal(receipt.containment.status, "PASS", receipt.containment.reason);
+    assert.equal(receipt.summary.verdict, "CHANGED", receipt.summary.reasons.join("; "));
+    assert.equal(receipt.summary.changedCanaries, 1);
+  } finally {
+    rmSync(fixture.repository, { recursive: true, force: true });
+  }
+});
+
 test("Docker integration reports CHANGED for stable capability and observation deltas", { skip: !DOCKER_ENABLED }, () => {
   const fixture = dockerFixture();
   try {

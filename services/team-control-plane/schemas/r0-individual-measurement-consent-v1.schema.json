@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-vigil.example/schemas/r0-individual-measurement-consent-v1.schema.json",
+  "title": "Individual R0 measurement consent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "opted_in"],
+  "properties": {
+    "schema_version": { "const": "r0-individual-measurement-consent-v1" },
+    "opted_in": { "type": "boolean" }
+  }
+}

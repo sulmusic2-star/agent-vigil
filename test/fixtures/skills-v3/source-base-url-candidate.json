@@ -1,0 +1,15 @@
+{
+  "version": 3,
+  "skills": {
+    "deploy": {
+      "source": "catalog.example",
+      "sourceType": "well-known",
+      "sourceUrl": "https://catalog.example/.well-known/agent-skills/deploy/SKILL.md",
+      "sourceBaseUrl": "https://mirror.catalog.example",
+      "skillFolderHash": "",
+      "installedAt": "2026-08-01T00:00:00.000Z",
+      "updatedAt": "2026-08-01T00:00:00.000Z",
+      "wellKnownDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  }
+}

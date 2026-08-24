@@ -80,7 +80,15 @@ if (args[0] === "context" && args[1] === "inspect") {
   else if (process.env.VIGIL_FAKE_DOCKER_CONTEXT_MALFORMED === "1") process.stdout.write("not-json");
   else process.stdout.write(JSON.stringify(process.env.VIGIL_FAKE_DOCKER_ENDPOINT || "unix:///var/run/docker.sock"));
 } else if (args[0] === "image" && args[1] === "inspect") {
-  process.stdout.write(JSON.stringify([${JSON.stringify(IMAGE)}]));
+  const selected = args.at(-1);
+  const digest = selected.slice(selected.lastIndexOf("@") + 1);
+  process.stdout.write(JSON.stringify({
+    Descriptor:{mediaType:process.env.VIGIL_FAKE_DOCKER_MEDIA_TYPE||"application/vnd.oci.image.manifest.v1+json",digest},
+    Os:process.env.VIGIL_FAKE_DOCKER_OS||"linux",
+    Architecture:process.env.VIGIL_FAKE_DOCKER_ARCH||"amd64",
+    Variant:process.env.VIGIL_FAKE_DOCKER_VARIANT||"",
+    RepoDigests:[selected]
+  }));
 } else if (args[0] === "run") {
   if (process.env.VIGIL_FAKE_DOCKER_HANG === "1") {
     process.on("SIGTERM", () => {});
@@ -221,6 +229,31 @@ test("containment uses a random named container and verifies exact cleanup", { s
   }
 });
 
+test("a multi-platform index or non-linux-amd64 image cannot satisfy the exact runner identity", {
+  skip: POSIX_FAKE_DOCKER ? false : POSIX_FAKE_DOCKER_REASON,
+}, () => {
+  const { root, target, canaries } = fixture();
+  const fake = fakeDocker(root);
+  const cases = [
+    ["VIGIL_FAKE_DOCKER_MEDIA_TYPE", "application/vnd.oci.image.index.v1+json"],
+    ["VIGIL_FAKE_DOCKER_ARCH", "arm64"],
+    ["VIGIL_FAKE_DOCKER_OS", "windows"],
+    ["VIGIL_FAKE_DOCKER_VARIANT", "v8"],
+  ] as const;
+  try {
+    for (const [name, value] of cases) {
+      process.env[name] = value;
+      const result = withoutDockerOverrides(() => probeContainment(config(), target, canaries, fake.executable));
+      assert.equal(result.status, "HOLD", name);
+      assert.equal(result.imagePresent, false, name);
+      delete process.env[name];
+    }
+  } finally {
+    for (const [name] of cases) delete process.env[name];
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a SIGTERM-ignoring Docker client is killed on deadline and its exact container is cleaned", { skip: POSIX_FAKE_DOCKER ? false : POSIX_FAKE_DOCKER_REASON }, () => {
   const { root, target, canaries } = fixture();
   const fake = fakeDocker(root);
@@ -234,7 +267,7 @@ test("a SIGTERM-ignoring Docker client is killed on deadline and its exact conta
   try {
     const started = performance.now();
     const result = withoutDockerOverrides(() => runCanaryTrial(
-      config(), canary, target, canaries, "candidate", fake.executable,
+      config(), canary, target, canaries, fake.executable,
     ));
     const elapsed = performance.now() - started;
     assert.equal(result.state, "HOLD");
@@ -294,7 +327,6 @@ test("one resolved client pins every Docker call despite hostile endpoint and TL
       { id: "pinned", command: ["node", "canary.cjs"], timeoutSeconds: 1 },
       target,
       canaries,
-      "candidate",
       client,
     );
     assert.equal(trial.state, "PASS", trial.reason);
@@ -303,6 +335,7 @@ test("one resolved client pins every Docker call despite hostile endpoint and TL
     assert.equal(calls.filter((call) => call.commandArgs[0] === "context").length, 1);
     const controlled = calls.filter((call) => ["image", "run", "container"].includes(call.commandArgs[0]));
     assert.ok(controlled.length >= 7);
+    assert.equal(calls.some((call) => call.commandArgs.some((arg) => arg.includes("VIGIL_PHASE"))), false);
     for (const call of controlled) {
       assert.deepEqual(call.rawArgs.slice(0, 2), ["--host", endpoint]);
       for (const name of controlledNames) assert.equal(call.dockerEnv[name], undefined, `${name}: ${call.commandArgs.join(" ")}`);
@@ -330,7 +363,6 @@ test("cleanup and absence-list command errors force HOLD", { skip: POSIX_FAKE_DO
         { id: "cleanup", command: ["node", "canary.cjs"], timeoutSeconds: 1 },
         target,
         canaries,
-        "candidate",
         fake.executable,
       ));
       assert.equal(result.state, "HOLD", failure);
@@ -377,7 +409,6 @@ test("real Docker timeout removes a candidate that ignores SIGTERM", { skip: !RE
       canary,
       target,
       canaries,
-      "candidate",
       client,
     );
     const elapsed = performance.now() - started;

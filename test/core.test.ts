@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { buildReport, type CheckResult } from "../src/report.ts";
 import { routeIntegrity } from "../src/integrity-policy.ts";
-import { renderText, toSarif } from "../src/output.ts";
+import { renderDecisionCard, renderMarkdown, renderText, toSarif } from "../src/output.ts";
 import {
   extractClaims,
   extractRunClaims,
@@ -128,6 +128,27 @@ test("receipt-bound advisories do not alter PASS and do alter the receipt hash",
   assert.notEqual(warned.receiptHash, plain.receiptHash);
   assert.match(renderText(warned), /non-blocking under this policy/);
   assert.equal(toSarif(warned).runs[0].results[0].level, "warning");
+});
+test("output renderers explain an inconclusive decision with bounded remediation", () => {
+  const unresolved = Array.from({ length: 6 }, (_, index) => ({
+    ...result("unverifiable"),
+    claim: { kind: "path_exists" as const, quote: `missing ${index}`, subject: `artifact ${index}` },
+    ruleId: index === 0 ? "path-exists" : undefined,
+  }));
+  const report = buildReport({
+    transcript: "x",
+    transcriptFormat: "markdown",
+    repo: ".",
+    base: "a",
+    head: "b",
+    results: unresolved,
+    policy: { strict: true },
+  });
+
+  assert.match(renderText(report), /Missing or unresolved evidence prevents a trustworthy pass/);
+  assert.match(renderMarkdown(report), /## What to do next/);
+  assert.match(renderDecisionCard(report), /1 more item\(s\) are listed in the retained receipt/);
+  assert.equal(toSarif(report).runs[0].results.length, 6);
 });
 test("integrity routing preserves hard context errors and makes heuristic contradictions policy-selectable", () => {
   const contradiction = result("contradicted", false);

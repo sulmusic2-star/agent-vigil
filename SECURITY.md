@@ -4,6 +4,15 @@
 
 Security fixes target the latest release and `main`.
 
+The latest confirmed public release is v0.16.0, whose new surface is signed
+control proof. The v0.17.0 source tree is a release candidate for automatic APM
+preflight, the no-checkout upgrade Action, the packaged public update-pair
+corpus, and disabled local service implementations. Treat it as unreleased
+until one exact commit passes independent review and the corresponding tag and
+assets are verified. It has zero verified external adoption, payment, or
+revenue, and it has not started R0. Operational opt-in measurement and
+commercial-name clearance remain separate gates.
+
 ## Report privately
 
 Use the contact link on [Tim Sullivan's page](https://lastingground.com/tim) and
@@ -27,7 +36,8 @@ it does not sandbox repository code.
 
 ## Upgrade Guard containment
 
-The unreleased `vigil upgrade` lane is separate from repository test execution.
+The v0.17.0-candidate `vigil upgrade` lane is separate from repository test
+execution.
 It accepts only exact-digest OCI runner identities already present locally and
 uses fixed Docker argv with no shell, no network, read-only target, canary, and
 root filesystems, dropped capabilities, `no-new-privileges`, non-root
@@ -64,4 +74,24 @@ socket/pipe routing, host kernel, digest-pinned runner image, and canary harness
 remain trusted. Do not mount the Docker socket or credentials. Public
 compatibility output is opt-in, requires an Ed25519 key, and still exposes
 component, version, artifact-digest, and signer identities; review it before
-disclosure. Upgrade Guard is not enabled in the GitHub Action.
+disclosure. The GitHub Action's APM upgrade mode reads both lockfiles from the
+exact event commits and loads config and canaries as exact Git blobs through
+plumbing-only `ls-tree` and `cat-file` access. It creates no checkout or
+worktree, so checkout hooks and content filters do not participate. It uses only
+temporary materialization roots and still trusts the base configuration,
+canaries, explicitly preloaded runner image, Docker client, daemon, and host. Do
+not grant that job cloud, package-publishing, deployment, model-provider, or
+signing credentials.
+
+Automatic APM acquisition is a separate explicit network boundary. It accepts
+only credential-free public GitHub git rows (`owner/repo` plus `host:
+github.com`, or the host-prefixed equivalent) with both an exact commit and
+OpenAPM `tree_sha256`, then invokes a fixed-location or
+explicit-absolute curl client with curl configuration, proxy variables,
+credentials, redirects, and non-HTTPS protocols disabled. The request target is
+limited to `codeload.github.com/<owner>/<repo>/tar.gz/<commit>`. Downloaded bytes
+and the reconstructed OpenAPM tree are receipt-bound. Bounded tar extraction
+rejects links, special or extension records, traversal, portable-name
+collisions, and over-limit input. No APM installer or package lifecycle script
+runs. This reduces but does not eliminate trust in DNS, TLS roots, curl, GitHub
+codeload, the host filesystem, archive parser, or same-host privileged actors.

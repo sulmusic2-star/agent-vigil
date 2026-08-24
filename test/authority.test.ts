@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -254,17 +254,18 @@ test("composite Action routes authority mode with a base-anchored contract", { s
   const event = join(mkdtempSync(join(tmpdir(), "vigil-authority-event-")), "event.json");
   writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: fx.base }, head: { sha: fx.head } } }));
   const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
+  const block = action.match(/      run: \|\n([\s\S]*?)\n    - id: prepare_attestation/)?.[1];
   assert.ok(block);
   const aux = mkdtempSync(join(tmpdir(), "vigil-action-authority-"));
   const script = join(aux, "run.sh");
   const output = join(aux, "output");
   const summary = join(aux, "summary");
-  const runner = join(aux, "runner");
+  const runnerPath = join(aux, "runner");
   writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
   writeFileSync(output, "");
   writeFileSync(summary, "");
-  mkdirSync(runner);
+  mkdirSync(runnerPath);
+  const runner = realpathSync(runnerPath);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GITHUB_ACTION_PATH: process.cwd(), GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: runner,
@@ -281,12 +282,19 @@ test("composite Action routes authority mode with a base-anchored contract", { s
   delete env.NODE_TEST_CONTEXT;
   const completed = spawnSync("bash", [script], { cwd: fx.repo, encoding: "utf8", env });
   assert.equal(completed.status, 0, `${completed.stdout}\n${completed.stderr}`);
-  assert.match(readFileSync(output, "utf8"), /^status=PASS$/m);
-  assert.match(readFileSync(output, "utf8"), /^value_card=.+agent-vigil-value-card\.json$/m);
-  assert.match(readFileSync(output, "utf8"), /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
-  assert.equal(JSON.parse(readFileSync(join(fx.repo, "agent-vigil-report.json"), "utf8")).transcriptFormat, "authority/codex");
-  assert.equal(JSON.parse(readFileSync(join(fx.repo, "agent-vigil-value-card.json"), "utf8")).schemaVersion, "agent-vigil-value-card/v1");
-  assert.equal(JSON.parse(readFileSync(join(fx.repo, "agent-vigil-github-evidence.json"), "utf8")).schemaVersion, "agent-vigil-github-evidence/v1");
+  const outputs = readFileSync(output, "utf8");
+  assert.match(outputs, /^status=PASS$/m);
+  assert.match(outputs, /^value_card=.+agent-vigil-value-card\.json$/m);
+  assert.match(outputs, /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
+  const outputPath = (name: string): string => {
+    const path = new RegExp(`^${name}=(.+)$`, "m").exec(outputs)?.[1];
+    assert.ok(path);
+    assert.ok(path.startsWith(`${runner}/`));
+    return path;
+  };
+  assert.equal(JSON.parse(readFileSync(outputPath("report"), "utf8")).transcriptFormat, "authority/codex");
+  assert.equal(JSON.parse(readFileSync(outputPath("value_card"), "utf8")).schemaVersion, "agent-vigil-value-card/v1");
+  assert.equal(JSON.parse(readFileSync(outputPath("github_evidence"), "utf8")).schemaVersion, "agent-vigil-github-evidence/v1");
 });
 
 test("authority init emits a conservative valid template", () => {

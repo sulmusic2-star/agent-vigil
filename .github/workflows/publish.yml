@@ -8,7 +8,7 @@ on:
       tag:
         description: Existing release tag to publish
         required: true
-        default: v0.16.0
+        default: v0.17.0
 
 permissions:
   contents: read
@@ -34,12 +34,12 @@ jobs:
           fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           ref: ${{ steps.release.outputs.tag }}
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -63,15 +63,42 @@ jobs:
 
       - name: Verify the exact release source
         run: |
+          cp dist/cli.js "$RUNNER_TEMP/dist-cli.committed.js"
           npm run typecheck
           npm run build
-          npm test --silent
+          cmp -s "$RUNNER_TEMP/dist-cli.committed.js" dist/cli.js
+          npm test
+          npm run test:coverage
           npm run smoke
           npm run review:public
-          npm audit --omit=dev
+          npm run test:package
+          npm run proof:historical
+          npm run proof:failure-corpus
+          npm run proof:update-pair-corpus
+          npm audit
 
       - name: Build the package rehearsal
-        run: npm pack --json > "$RUNNER_TEMP/npm-pack.json"
+        run: |
+          npm pack --json > "$RUNNER_TEMP/npm-pack.json"
+          cmp -s "$RUNNER_TEMP/dist-cli.committed.js" dist/cli.js
+          node - "$RUNNER_TEMP/npm-pack.json" <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const pack = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          if (!Array.isArray(pack) || pack.length !== 1 || !Array.isArray(pack[0]?.files)) {
+            throw new Error("npm pack did not return one inspectable file inventory");
+          }
+          const files = new Set(pack[0].files.map((entry) => entry?.path));
+          for (const required of [
+            "scripts/materialize-trusted-upgrade-inputs.mjs",
+            "docs/APM_PREFLIGHT_ACTION.md",
+            "proof/update-pair-corpus/MANIFEST.md",
+            "proof/update-pair-corpus/metadata/corpus-validation.json",
+          ]) {
+            if (!files.has(required)) throw new Error(`npm package is missing required release file: ${required}`);
+          }
+          const privateService = [...files].find((path) => typeof path === "string" && (path === "services" || path.startsWith("services/")));
+          if (privateService) throw new Error(`npm package leaked private service code: ${privateService}`);
+          NODE
 
       - name: Publish through npm trusted publishing
         env:

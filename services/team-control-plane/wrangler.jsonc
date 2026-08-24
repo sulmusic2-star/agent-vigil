@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-vigil-team-control-plane",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "TEAM_SESSION_KEY_ID": "team-session-key-v1",
+    "STRIPE_PRICE_TEAM_MONTHLY": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "STRIPE_PRICE_TEAM_ANNUAL": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "STRIPE_LIVEMODE": "false",
+    "GITHUB_APP_ID": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "R0_MEASUREMENT_ENABLED": "false",
+    "R0_MEASUREMENT_RELEASE_VERSION": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "R0_MEASUREMENT_RELEASE_COMMIT_SHA": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "R0_MEASUREMENT_RELEASE_CHANNEL": "github_app",
+    "R0_MEASUREMENT_ENVIRONMENT": "disabled",
+    "R0_MEASUREMENT_RELEASE_PUBLISHED_AT": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "R0_MEASUREMENT_STARTED_AT": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "R0_INDIVIDUAL_MEASUREMENT_ENABLED": "false",
+    "INDIVIDUAL_SESSION_ENABLED": "false",
+    "INDIVIDUAL_SESSION_ISSUER": "https://CONFIGURE_BEFORE_DEPLOYMENT.invalid/",
+    "INDIVIDUAL_SESSION_AUDIENCE": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "INDIVIDUAL_SESSION_KEY_ID": "CONFIGURE_BEFORE_DEPLOYMENT",
+    "R0_INDIVIDUAL_IDENTITY_HMAC_KEY_ID": "CONFIGURE_BEFORE_DEPLOYMENT"
+  },
+  "d1_databases": [
+    {
+      "binding": "TEAM_CONTROL_DB",
+      "database_name": "agent-vigil-team-control",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

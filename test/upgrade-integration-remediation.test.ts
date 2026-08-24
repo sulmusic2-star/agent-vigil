@@ -70,7 +70,8 @@ function evaluationFixture(): EvaluationFixture {
 }
 
 function mutatingDocker(fixture: EvaluationFixture, mutation: "changed" | "malformed" | "missing" | "moved"): string {
-  const docker = join(fixture.repository, `fake-docker-${mutation}.mjs`);
+  const docker = join(fixture.repository, `fake-docker-${mutation}.sh`);
+  const worker = join(fixture.repository, `fake-docker-${mutation}.mjs`);
   const marker = join(fixture.repository, `.mutated-${mutation}`);
   const changed = structuredClone(fixture.configDocument) as any;
   changed.runner.pids = 17;
@@ -80,7 +81,7 @@ function mutatingDocker(fixture: EvaluationFixture, mutation: "changed" | "malfo
     missing: "unlinkSync(configPath);",
     moved: `renameSync(configPath, configPath + ".moved"); writeFileSync(configPath, ${JSON.stringify(JSON.stringify(fixture.configDocument))});`,
   };
-  writeFileSync(docker, `#!/usr/bin/env node
+  writeFileSync(worker, `#!/usr/bin/env node
 import { existsSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 const configPath = ${JSON.stringify(fixture.configPath)};
 const marker = ${JSON.stringify(marker)};
@@ -94,6 +95,12 @@ if (args[0] === "context" && args[1] === "inspect") {
 } else if (args[0] === "image" && args[1] === "inspect") {
   process.stdout.write("[]");
 }
+`);
+  // The generated Node program is a test double for the Docker binary, not
+  // product code. Keep it from joining the parent process's V8 coverage
+  // denominator while still exercising the complete evaluation path.
+  writeFileSync(docker, `#!/bin/sh
+exec /usr/bin/env -u NODE_V8_COVERAGE -u NODE_TEST_CONTEXT ${JSON.stringify(process.execPath)} ${JSON.stringify(worker)} "$@"
 `);
   chmodSync(docker, 0o755);
   return docker;
@@ -161,7 +168,7 @@ function withoutFramingNewlines(value: string): string {
   return value.replaceAll("\n", "");
 }
 
-test("upgrade CLI errors escape terminal controls from untrusted arguments", () => {
+test("upgrade CLI errors do not reflect commands containing terminal controls", () => {
   const messages: string[] = [];
   const original = console.error;
   console.error = (...values: unknown[]) => { messages.push(values.map(String).join(" ")); };
@@ -172,7 +179,7 @@ test("upgrade CLI errors escape terminal controls from untrusted arguments", () 
   }
   assert.equal(messages.length, 1);
   assert.doesNotMatch(messages[0], UNSAFE_TERMINAL);
-  assert.match(messages[0], /unknown\\u\{001B\}\[2J\\u\{000D\}\\u\{000A\}\\u\{202E\}\\u\{200B\}\\u\{FE0F\}command/);
+  assert.equal(messages[0], "agent-vigil upgrade: unknown upgrade command");
 });
 
 test("doctor presentation escapes dynamic paths, labels, details, and invisible text", () => {
@@ -220,7 +227,7 @@ test("init success output escapes a repository path containing terminal controls
   assert.match(output, /repo\\u\{001B\}\[2J\\u\{000D\}\\u\{202E\}\\u\{200B\}/);
 });
 
-test("index argument errors cannot inject terminal controls", () => {
+test("index argument errors neither reflect caller values nor inject terminal controls", () => {
   const messages: string[] = [];
   const original = console.error;
   console.error = (...values: unknown[]) => { messages.push(values.map(String).join(" ")); };
@@ -229,6 +236,7 @@ test("index argument errors cannot inject terminal controls", () => {
       "index",
       "entry.json",
       "--output", "bad\u001b[2J\r\n\u202E\u200B.html",
+      "--api-output", "registry.json",
       "--public-key", "publisher.pem",
     ]), 2);
   } finally {
@@ -236,5 +244,6 @@ test("index argument errors cannot inject terminal controls", () => {
   }
   assert.equal(messages.length, 1);
   assert.doesNotMatch(messages[0], UNSAFE_TERMINAL);
-  assert.match(messages[0], /bad\\u\{001B\}\[2J\\u\{000D\}\\u\{000A\}\\u\{202E\}\\u\{200B\}\.html/);
+  assert.equal(messages[0], "agent-vigil upgrade: operation failed");
+  assert.doesNotMatch(messages[0], /bad|entry\.json|publisher\.pem/);
 });
