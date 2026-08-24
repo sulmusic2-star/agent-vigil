@@ -240,7 +240,8 @@ test("Action accepts exactly one evidence mode", () => {
   assert.match(action, /args=\(plan --repo "\$VIGIL_REPO" --base "\$VIGIL_BASE" --head "\$VIGIL_HEAD"/);
   assert.match(action, /prove mode cannot be combined with another evidence input/);
   assert.match(action, /args=\(prove --repo "\$VIGIL_REPO" --base "\$VIGIL_HEAD" --format json/);
-  assert.match(action, /inputs\.mode != 'prove'/);
+  assert.match(action, /attest-control "\$VIGIL_REPORT"/);
+  assert.match(action, /control-proof-predicate-v1\.schema\.json/);
   assert.match(action, /receipt mode requires a base-anchored policy/);
   assert.match(action, /args=\(authority "\$VIGIL_TRANSCRIPT"/);
   assert.match(action, /authority-contract-ref must equal GitHub event base/);

@@ -58,6 +58,13 @@ import { authorityPlanChecks, buildAuthorityPlan, renderAuthorityPlan, renderAut
 import { renderProofComment } from "./proof-comment.ts";
 import { buildControlProof, renderControlProof } from "./control-proof.ts";
 import {
+  CONTROL_PROOF_ATTESTATION_PREDICATE_TYPE,
+  loadControlProof,
+  verifyGitHubControlProofAttestation,
+  writeControlProofPredicate,
+} from "./control-proof-attestation.ts";
+import { installKeylessControlProofAction } from "./control-proof-workflow.ts";
+import {
   CONTROL_POLICY_PACKS,
   appendCorpusEntry,
   buildStatusReport,
@@ -108,6 +115,7 @@ Usage:
   vigil certify add <certificate.json> --corpus <corpus.jsonl>
   vigil certify status --corpus <corpus.jsonl> --policy <policy.json> [--as-of <time>] [--format text|json] [--output <path>]
   vigil certify policy --organization <name> --repository <owner/name> --required-check <name> --pack baseline|authority --output <path>
+  vigil certify install-action --repo <path> --action-ref <full-commit-sha> [--force]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
@@ -116,6 +124,8 @@ Usage:
   vigil verify <receipt.json> [--public-key <path>]
   vigil attest <receipt.json> --predicate-output <path>
   vigil verify-attestation <receipt.json> --repository <owner/name> [--signer-workflow <path>] [--allow-self-hosted]
+  vigil attest-control <control-proof.json> --predicate-output <path>
+  vigil verify-control-attestation <control-proof.json> --repository <owner/name> [--signer-workflow <path>] [--signer-digest <sha>] [--allow-self-hosted]
   vigil notary <receipt.json> --repository <owner/name> --head <sha> --policy-sha256 <digest> [--signer-workflow <path>] [--allow-self-hosted] [--output <path>]
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
@@ -197,6 +207,18 @@ function runProve(args: string[]): number {
 function runCertify(args: string[]): number {
   try {
     const command = args[1];
+    if (command === "install-action") {
+      const parsed = parseCommandArgs(args.slice(1), new Set(["--repo", "--action-ref"]), new Set(["--force"]));
+      const repo = parsed.values.get("--repo") ?? ".";
+      const actionRef = parsed.values.get("--action-ref");
+      if (parsed.positional.length || !actionRef) throw new Error("certify install-action requires --action-ref <full-commit-sha> and accepts optional --repo <path> and --force");
+      const installed = installKeylessControlProofAction(repo, actionRef, parsed.flags.has("--force"));
+      for (const path of installed.created) console.log(`Created ${path}`);
+      for (const path of installed.kept) console.log(`Kept existing ${path}`);
+      console.log(`Agent Vigil control proof is pinned to ${installed.actionCommit}.`);
+      console.log("No private signing key is required. GitHub OIDC signs each proof, and the workflow retains the proof and bundle for 90 days.");
+      return 0;
+    }
     if (command === "record") {
       const parsed = parseCommandArgs(args.slice(1), new Set(["--organization", "--repository", "--required-check", "--output"]));
       if (parsed.positional.length !== 1) throw new Error("certify record requires exactly one control-proof JSON path");
@@ -662,6 +684,49 @@ function runVerifyAttestation(args: string[]): number {
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
+function runAttestControl(args: string[]): number {
+  try {
+    const parsed = parseCommandArgs(args, new Set(["--predicate-output"]));
+    const predicateOutput = parsed.values.get("--predicate-output");
+    if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest-control requires <control-proof.json> and --predicate-output <path>");
+    const proofPath = parsed.positional[0];
+    const predicate = writeControlProofPredicate(resolve(proofPath), resolve(predicateOutput));
+    console.log("Agent Vigil control-proof attestation predicate prepared.");
+    console.log(`  proof:    ${predicate.proof.receiptHash}`);
+    console.log(`  decision: ${predicate.proof.status}`);
+    console.log(`  source:   ${predicate.proof.sourceCommit}`);
+    console.log(`  output:   ${predicateOutput}`);
+    console.log(`  type:     ${CONTROL_PROOF_ATTESTATION_PREDICATE_TYPE}`);
+    console.log("The predicate contains hashes, the exact source commit, counts, and the decision. It does not contain repository paths, claims, or evidence text.");
+    return 0;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runVerifyControlAttestation(args: string[]): number {
+  try {
+    const parsed = parseCommandArgs(args, new Set(["--repository", "--signer-workflow", "--signer-digest"]), new Set(["--allow-self-hosted"]));
+    const repository = parsed.values.get("--repository") ?? process.env.GITHUB_REPOSITORY;
+    if (parsed.positional.length !== 1 || !repository) throw new Error("verify-control-attestation requires <control-proof.json> and --repository <owner/name>");
+    const proofPath = parsed.positional[0];
+    const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository}/.github/workflows/agent-vigil-control-proof.yml`;
+    const verification = verifyGitHubControlProofAttestation(resolve(proofPath), repository, {
+      signerWorkflow,
+      ...(parsed.values.get("--signer-digest") ? { signerDigest: parsed.values.get("--signer-digest")! } : {}),
+      allowSelfHosted: parsed.flags.has("--allow-self-hosted"),
+    });
+    const { proof } = loadControlProof(resolve(proofPath));
+    console.log(`GitHub control-proof attestation: ${verification.valid ? "VALID" : "INVALID"}`);
+    console.log(`Proof file: ${verification.subjectDigestValid ? "VALID" : "INVALID"}`);
+    console.log(`Proof contents: ${verification.proofHashValid && verification.predicateValid ? "VALID" : "INVALID"}`);
+    console.log(`Decision: ${proof.status}`);
+    console.log(`Source commit: ${proof.sourceCommit}`);
+    console.log(`Proof: ${proof.receiptHash}`);
+    console.log(`Signer workflow: ${signerWorkflow}`);
+    if (parsed.values.get("--signer-digest")) console.log(`Signer digest: ${parsed.values.get("--signer-digest")}`);
+    return verification.valid ? 0 : 1;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
 function runNotary(args: string[]): number {
   try {
     const values = new Set(["--repository", "--head", "--policy-sha256", "--signer-workflow", "--output"]);
@@ -1122,6 +1187,8 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "attest") return runAttest(argv);
   if (argv[0] === "verify-attestation") return runVerifyAttestation(argv);
+  if (argv[0] === "attest-control") return runAttestControl(argv);
+  if (argv[0] === "verify-control-attestation") return runVerifyControlAttestation(argv);
   if (argv[0] === "notary") return runNotary(argv);
   if (argv[0] === "compare") return runCompare(argv);
   if (argv[0] === "github-evidence") return runGitHubEvidence(argv);

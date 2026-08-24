@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/control-proof-predicate-v1.schema.json",
+  "title": "Agent Vigil keyless control proof predicate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["predicateVersion", "proof", "privacy"],
+  "properties": {
+    "predicateVersion": { "const": "1" },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "receiptHash", "fileSha256", "status", "sourceCommit", "generatedAt", "vigilVersion", "passed", "total", "challengeSetSha256"],
+      "properties": {
+        "schemaVersion": { "const": "agent-vigil-control-proof/v1" },
+        "receiptHash": { "$ref": "#/$defs/hash" },
+        "fileSha256": { "$ref": "#/$defs/hash" },
+        "status": { "enum": ["PASS", "HOLD"] },
+        "sourceCommit": { "$ref": "#/$defs/commit" },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "vigilVersion": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "challengeSetSha256": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claimsIncluded", "evidenceIncluded", "repositoryPathIncluded"],
+      "properties": {
+        "claimsIncluded": { "const": false },
+        "evidenceIncluded": { "const": false },
+        "repositoryPathIncluded": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+  }
+}

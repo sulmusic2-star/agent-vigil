@@ -9,6 +9,13 @@
 - Keep inference-heavy findings advisory, omit matched oracle values from
   receipts, and keep the default scan offline without executing candidate code
   or requiring a public package registry.
+- Let Action `mode: prove` create a GitHub/Sigstore attestation over a
+  privacy-reduced control-proof predicate. Verification binds the exact proof
+  file, proof content hash, source commit, repository, signer workflow, and an
+  optional signer-workflow commit while denying self-hosted runners by default.
+- Add `vigil certify install-action` for a scheduled and manual exact-commit
+  workflow that needs no repository signing secret and retains the proof and
+  attestation bundle for 90 days.
 
 ## 0.17.0 - 2026-08-24
 
