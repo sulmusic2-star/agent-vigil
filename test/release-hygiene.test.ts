@@ -38,6 +38,28 @@ test("CI pins third-party Actions and uploads dogfood runner-owned outputs", () 
   assert.doesNotMatch(workflow, OBSOLETE_RECEIPT_PATH);
 });
 
+test("CI keeps Windows CLI portability separate from POSIX Action dogfood", () => {
+  const workflow = source(".github/workflows/ci.yml");
+  const portabilityStart = workflow.indexOf("  portability:");
+  assert.notEqual(portabilityStart, -1);
+  const portability = workflow.slice(portabilityStart);
+  assert.match(portability, /os: \[macos-latest, windows-latest\]/);
+  for (const command of ["npm ci", "npm test", "npm run build"]) {
+    assert.match(portability, new RegExp(`^\\s+- run: ${command}$`, "m"));
+  }
+  assert.match(
+    portability,
+    /- name: Dogfood Agent Vigil \(POSIX Action\)\n\s+if: runner\.os != 'Windows'\n\s+uses: \.\//,
+  );
+
+  const linux = workflow.slice(0, portabilityStart);
+  assert.match(linux, /name: Dogfood Agent Vigil\n\s+id: dogfood\n\s+uses: \.\//);
+  assert.match(linux, /name: Dogfood malformed-transcript failure\n\s+id: malformed/);
+  for (const output of ["report", "sarif", "github-evidence", "value-card"]) {
+    assert.match(linux, new RegExp(`\\$\\{\\{ steps\\.dogfood\\.outputs\\.${output} \\}\\}`));
+  }
+});
+
 test("high-trust workflows pin the exact runtime and retain emitted artifact paths", () => {
   const evidence = source(".github/workflows/agent-vigil.yml");
   const outcomes = source(".github/workflows/agent-vigil-outcomes.yml");

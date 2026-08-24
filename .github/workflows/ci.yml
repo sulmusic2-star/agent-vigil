@@ -107,7 +107,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - name: Dogfood Agent Vigil
+      - name: Dogfood Agent Vigil (POSIX Action)
+        if: runner.os != 'Windows'
         uses: ./
         with:
           transcript: examples/demo-pass.md

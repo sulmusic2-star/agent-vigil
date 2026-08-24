@@ -527,6 +527,11 @@ queued composition is checked against the exact `merge_group.base_sha` and
 `merge_group.head_sha`; trusted tests and integrity checks run again on the
 combined commit. See [the merge-queue contract](docs/MERGE_QUEUES.md).
 
+The v0.17 composite Action supports GitHub-hosted Linux and macOS runners. It
+does not support Windows runners; the Windows portability job validates the
+CLI/package install, test, and build path only. `mode: upgrade` is narrower: the
+provided required workflow supports Ubuntu 24.04 only.
+
 `mode: upgrade` is a separate APM compatibility check. It reads both lockfiles
 and the trusted harness directly from exact event Git objects using plumbing
 commands under a sanitized environment. The protected workflow fetches those
@@ -760,9 +765,10 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 - The packed tarball was installed as a consumer dependency, then standard and
   portable `init` / `doctor` flows passed across 11 Git repository shapes from
   plain Git through Node, Python, Rust, Go, Maven, Gradle, Ruby, PHP, and .NET.
-- Linux CI on Node 20, 22, and 24, plus Node 22 portability jobs on macOS
-  and Windows.
-- The GitHub Action runs on Agent Vigil's own pull requests in CI.
+- The CI definition covers Linux on Node 20, 22, and 24, plus Node 22
+  CLI/package install, test, and build paths on macOS and Windows.
+- The composite Action runs in the Linux jobs and the macOS portability job.
+  Windows Action execution is intentionally outside the v0.17 support contract.
 - `npm run review:public` checks the public wording, links, accessible labels,
   reading measure, claim-count consistency, and rendered HTML against the
   [public release policy](docs/PUBLIC_RELEASE_POLICY.md). Agent Vigil does not

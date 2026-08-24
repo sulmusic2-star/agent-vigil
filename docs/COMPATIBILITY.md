@@ -126,7 +126,9 @@ integrity diff. Repairs now:
   therefore uses `go test -json ./...`.
 - Monorepos require an explicit command such as
   `npm --prefix packages/api test --silent`.
-- v0.4 passed hosted Windows and macOS portability jobs on Node 22. The v0.5
-  candidate's hosted result remains unverified until this branch is pushed and
-  CI completes.
+- The v0.17 workflow checks Node 22 CLI/package install, test, and build paths
+  on both macOS and Windows. Composite Action execution runs on Linux and
+  macOS; the v0.17 Action does not support Windows. Its `mode: upgrade` required
+  workflow supports Ubuntu 24.04 only. Exact hosted candidate results remain
+  unverified until this branch is pushed and CI completes.
 - Test execution runs repository code with the verifier's privileges.
