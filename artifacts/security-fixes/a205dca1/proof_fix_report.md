@@ -9,7 +9,10 @@
   `csf_326255bbf9c80a932119ad4b`, and
   `csf_004703302df3adfe21f66228`.
 - Exact clean base: `9d08e6fdc3832efa669003446f786966fa290af7`.
-- Implementation commit: `fb216ce2569b96679fe1021d43821c75c60a5a17`.
+- Foundational implementation commit:
+  `fb216ce2569b96679fe1021d43821c75c60a5a17`.
+- Independent-review follow-up implementation commit:
+  `2234444a2144dc7b2692357952b59d731a54b740`.
 - Branch: `codex/v017-proof-freshness-fix`.
 - Worktree:
   `/Users/timsullivan/LocalWorkspaces/agent-vigil-v017-proof-freshness-fix.nosync`.
@@ -84,6 +87,24 @@ cannot enter through the strict acquisition contract. An included row can be
 evaluated only after the exact server handle receives the separately signed
 adapter grant, preserving register-before-acquire ordering.
 
+Independent review found that adapter revocation could win after the
+application-level ACTIVE check but before the included-row insert. The D1
+guard correctly rejected the inclusion, but the original catch path returned
+an error and omitted the chronological attempt. The successor now retries the
+same authenticated request, canonical body hash, raw-event hash, server handle,
+and request ID exactly once as an adapter-null
+`MALFORMED_PREINSPECTION_RECORD` exclusion. The retry still crosses the D1
+publisher, sample-closure, global, channel, and per-publisher guards; only a
+real bounded refusal can prevent persistence.
+
+The same review found that an idempotent access-grant replay returned before
+rechecking current adapter status or grant freshness and repeated the
+`ADAPTER_MAY_ACQUIRE_AFTER_GRANT` label. Exact replays now recheck the current
+adapter and both the signed request and original-grant five-minute windows. A
+still-current replay returns only `HISTORICAL_GRANT_RECEIPT_ONLY`; revoked or
+expired replay returns a non-authorizing conflict and never renews acquisition
+authority.
+
 ### `csf_004703302df3adfe21f66228` — unbounded excluded rows and export
 
 Status: fixed.
@@ -142,9 +163,11 @@ The following bounded gates passed on the implementation commit:
   `76b6ae1a32ba1fbb011c3c95ebfecfdac036e50e724de6899db2e782636465ea`,
   `compatible: true`, and the empty corpus remained
   `INSUFFICIENT_DISTRIBUTION_VOLUME`.
+- `npm test -- --run test/worker.test.ts` from `services/proof-network` — PASS,
+  19/19 focused Worker/D1 tests.
 - `npm run check` from `services/proof-network` — PASS: Worker types,
-  TypeScript, 21/21 Worker/D1 tests, and Wrangler deploy dry-run. The bounded
-  bundle was 171.29 KiB, gzip 34.54 KiB; no deployment occurred.
+  TypeScript, 23/23 Worker/D1 tests, and Wrangler deploy dry-run. The bounded
+  bundle was 173.73 KiB, gzip 34.87 KiB; no deployment occurred.
 - Fresh local application of D1 migrations `0001` and `0002` — PASS;
   `PRAGMA foreign_key_check` returned no rows and all 15 frequency triggers
   were present.
@@ -153,10 +176,13 @@ The following bounded gates passed on the implementation commit:
 The adversarial matrix includes fresh ACTIVE positive control; current REVOKED
 quarantine; stale ACTIVE/new REVOKED mismatch; wrong key; future, expired, and
 rollback documents; missing adapter; signed inclusion without a trusted
-pre-inspection acquisition; after-close and post-inspection rows; concurrent
-quota exhaustion; and chunk omit, duplicate, reorder, and tamper cases. The
-frequency PASS/FAIL result remains separate from whether an otherwise valid
-fresh trust envelope is authorized for evaluation.
+pre-inspection acquisition; an exact adapter-revocation-before-insert
+interleave; duplicate adapter events; the same interleave at a real publisher
+cap; fresh, expired, and revoked access-grant replay; after-close and
+post-inspection rows; concurrent quota exhaustion; and chunk omit, duplicate,
+reorder, and tamper cases. The frequency PASS/FAIL result remains separate
+from whether an otherwise valid fresh trust envelope is authorized for
+evaluation.
 
 No dependency installation or full root-suite expansion was performed on the
 space-constrained host. Exact-lock dependency trees were temporarily reused by
@@ -166,9 +192,16 @@ commit.
 ## Independent review
 
 Independent exact-SHA review of
-`fb216ce2569b96679fe1021d43821c75c60a5a17` remains a required integration
+`fb216ce2569b96679fe1021d43821c75c60a5a17` returned NO-GO. It reproduced the
+adapter-revocation insert race that omitted a chronological row and the
+access-grant replay path that skipped current adapter/freshness checks. Both
+paths are changed in `2234444a2144dc7b2692357952b59d731a54b740`, with
+deterministic controls described above.
+
+Independent exact-SHA re-review of
+`2234444a2144dc7b2692357952b59d731a54b740` remains a required integration
 gate. This report does not treat the implementing lane's own review or its
-green tests as independent review evidence.
+green tests as independent closure evidence.
 
 ## Residual external prerequisites
 
