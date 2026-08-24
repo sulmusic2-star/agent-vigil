@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { runContinuityCommand } from "../src/continuity/cli.ts";
 import { sha256, type ContinuityEventDraft, type ContinuityPolicy, type ContinuityRoot } from "../src/continuity/contracts.ts";
 import { buildReport } from "../src/report.ts";
+import { generateSigningKey } from "../src/signature.ts";
 
 const BASE = "a".repeat(40);
 const HEAD = "b".repeat(40);
@@ -91,7 +92,7 @@ function fixture(): { root: string; chain: string; policyPath: string; continuit
       evidence: "fixture passed",
     }],
     policy: { minVerified: 1, strict: true, source: ".agent-vigil.json", sha256: sha256("policy") },
-    repository: { remote: "git@example.invalid:private/customer-repository.git", tree: TREE },
+    repository: { remote: "https://github.com/example/protected-repository.git", tree: TREE },
     reproduction: "secret command --token must-not-leak",
   });
   writeFileSync(receiptPath, `${JSON.stringify(report, null, 2)}\n`);
@@ -202,6 +203,53 @@ test("continuity CLI help is non-mutating and parser errors exit two", () => {
   assert.equal(silent(() => runContinuityCommand([
     "status", "--chain", ".", "--policy", "policy.json", "--repo", ".", "--policy-ref", "HEAD",
   ])), 2);
+});
+
+test("continuity CLI imports the current GitHub Actions event without a webhook secret", () => {
+  const value = fixture();
+  const privateKey = join(value.root, "actions-private.pem");
+  const publicKey = join(value.root, "actions-public.pem");
+  const eventPath = join(value.root, "github-event.json");
+  const outputPath = join(value.root, "github-import.json");
+  generateSigningKey(privateKey, publicKey);
+  const at = new Date(Date.now() - 30_000).toISOString();
+  writeFileSync(eventPath, JSON.stringify({
+    action: "closed",
+    repository: { full_name: "example/protected-repository" },
+    pull_request: {
+      number: 29,
+      state: "closed",
+      merged: true,
+      merged_at: at,
+      merge_commit_sha: "d".repeat(40),
+      base: { sha: BASE },
+      head: { sha: HEAD },
+      labels: [],
+    },
+  }));
+  const names = ["GITHUB_ACTIONS", "GITHUB_EVENT_PATH", "GITHUB_EVENT_NAME", "GITHUB_REPOSITORY"] as const;
+  const before = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    process.env.GITHUB_ACTIONS = "true";
+    process.env.GITHUB_EVENT_PATH = eventPath;
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+    process.env.GITHUB_REPOSITORY = "example/protected-repository";
+    const command = [
+      "import-github-actions", "--chain", value.chain, "--signing-key", privateKey,
+      "--format", "json", "--output", outputPath,
+    ];
+    assert.equal(silent(() => runContinuityCommand(command)), 0);
+    assert.equal(JSON.parse(readFileSync(outputPath, "utf8")).appended, true);
+    assert.equal(silent(() => runContinuityCommand(command)), 0);
+    assert.equal(JSON.parse(readFileSync(outputPath, "utf8")).appended, false);
+    process.env.GITHUB_EVENT_NAME = "issues";
+    assert.equal(silent(() => runContinuityCommand(command)), 2);
+  } finally {
+    for (const name of names) {
+      if (before[name] === undefined) delete process.env[name];
+      else process.env[name] = before[name];
+    }
+  }
 });
 
 test("continuity output cannot replace chain or policy inputs", () => {

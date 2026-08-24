@@ -14,6 +14,7 @@ export type ContinuityInstallResult = {
   created: string[];
   replaced: string[];
   actionCommit: string;
+  selfServe: boolean;
 };
 
 function repositoryRoot(path: string): string {
@@ -132,9 +133,11 @@ jobs:
             echo "The protected environment name is invalid." >&2
             exit 2
           fi
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "expected_head=$expected_head" >> "$GITHUB_OUTPUT"
-          echo "environment=$environment" >> "$GITHUB_OUTPUT"
+          {
+            echo "run_id=$run_id"
+            echo "expected_head=$expected_head"
+            echo "environment=$environment"
+          } >> "$GITHUB_OUTPUT"
       - name: Download the recorded continuity history
         uses: actions/download-artifact@${DOWNLOAD_COMMIT}
         with:
@@ -205,11 +208,92 @@ jobs:
 `;
 }
 
+function labWorkflow(actionCommit: string): string {
+  return `# agent-vigil-continuity-lab/v1
+name: Agent Vigil continuity lab
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demonstration:
+    name: Build the five-step evidence history
+    runs-on: ubuntu-latest
+    outputs:
+      revoked: \${{ steps.result.outputs.revoked }}
+      repaired: \${{ steps.result.outputs.repaired }}
+    steps:
+      - name: Check out the reviewed Agent Vigil source
+        uses: actions/checkout@${CHECKOUT_COMMIT}
+        with:
+          repository: sulmusic2-star/agent-vigil
+          ref: ${actionCommit}
+          path: agent-vigil-continuity-tool
+          persist-credentials: false
+      - id: result
+        name: Prove revocation and independent repair
+        env:
+          REPORT_PATH: \${{ runner.temp }}/agent-vigil-continuity-lab.json
+        run: |
+          node agent-vigil-continuity-tool/dist/cli.js continuity demo --format json --output "$REPORT_PATH" >/dev/null
+          node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, "utf8"));
+          const revoked = report.steps?.find((step) => step.step === 3)?.result;
+          const regreened = report.steps?.find((step) => step.step === 4)?.result;
+          const repaired = report.steps?.find((step) => step.step === 5)?.result;
+          if (revoked !== "REVOKED" || regreened !== "REVOKED" || repaired !== "CURRENT") {
+            throw new Error("The continuity lab did not reach the required states.");
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "revoked=" + revoked + "\\nrepaired=" + repaired + "\\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            "## Continuity Lab result",
+            "",
+            "Synthetic demonstration only. No software was deployed.",
+            "",
+            "| Later evidence | Permission to deploy |",
+            "|---|---|",
+            "| Verified merge and fresh check | Allowed |",
+            "| Authenticated revert | Stopped |",
+            "| Another ordinary green check | Still stopped |",
+            "| Independent signed repair | Allowed again |",
+            "",
+          ].join("\\n"));
+          NODE
+      - name: Retain the readable result
+        uses: actions/upload-artifact@${UPLOAD_COMMIT}
+        with:
+          name: agent-vigil-continuity-lab
+          path: \${{ runner.temp }}/agent-vigil-continuity-lab.json
+          retention-days: 7
+
+  blocked-deployment:
+    name: Deployment stays stopped after the revert
+    needs: demonstration
+    if: needs.demonstration.outputs.revoked == 'CURRENT'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This harmless placeholder should remain skipped."
+
+  repaired-action:
+    name: Independent repair restores permission
+    needs: demonstration
+    if: needs.demonstration.outputs.repaired == 'CURRENT'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Independent signed repair restored permission. No deployment was performed."
+`;
+}
+
 export function installContinuityAction(options: {
   repo: string;
   actionCommit: string;
   sourceWorkflow?: string;
   force?: boolean;
+  selfServe?: boolean;
 }): ContinuityInstallResult {
   if (!ACTION_COMMIT.test(options.actionCommit)) throw new Error("--action-ref must be a full lowercase 40-character commit ID");
   const sourceWorkflow = options.sourceWorkflow ?? "Agent Vigil";
@@ -218,8 +302,18 @@ export function installContinuityAction(options: {
   const files = [
     { path: ".agent-vigil-continuity.json", content: `${JSON.stringify(policyTemplate(), null, 2)}\n` },
     { path: ".github/workflows/agent-vigil-continuity.yml", content: workflow(options.actionCommit, sourceWorkflow) },
+    ...(options.selfServe ? [{
+      path: ".github/workflows/agent-vigil-continuity-lab.yml",
+      content: labWorkflow(options.actionCommit),
+    }] : []),
   ];
-  const result: ContinuityInstallResult = { repository: root, created: [], replaced: [], actionCommit: options.actionCommit };
+  const result: ContinuityInstallResult = {
+    repository: root,
+    created: [],
+    replaced: [],
+    actionCommit: options.actionCommit,
+    selfServe: Boolean(options.selfServe),
+  };
   if (!options.force) {
     const existing = files.find((file) => existsSync(resolve(root, file.path)));
     if (existing) throw new Error(`${existing.path} already exists; use --force only after reviewing the current file`);

@@ -6,7 +6,7 @@ import { appendContinuityEvent, initializeContinuityChain, verifyContinuityChain
 import { loadContinuityPolicy, loadEventDraft } from "./contracts.ts";
 import { renderContinuityDemo, runContinuityDemo } from "./demo.ts";
 import { evaluateContinuity } from "./decision.ts";
-import { githubRepositoryFromRemote, importGitHubOutcome } from "./github.ts";
+import { githubRepositoryFromRemote, importGitHubActionsOutcome, importGitHubOutcome } from "./github.ts";
 import { publicChainVerification, renderChainVerification, renderContinuityDecision } from "./presentation.ts";
 import { installContinuityAction } from "./workflow.ts";
 
@@ -17,7 +17,7 @@ const VALUE_FLAGS = new Set([
   "--action-ref", "--source-workflow",
   "--expected-github-repository",
 ]);
-const BOOLEAN_FLAGS = new Set(["--json", "--unavailable", "--force"]);
+const BOOLEAN_FLAGS = new Set(["--json", "--unavailable", "--force", "--self-serve"]);
 
 function usage(): string {
   return `Agent Vigil continuity — offline successor evidence for one exact receipt
@@ -27,8 +27,9 @@ Usage:
   vigil continuity append --chain <directory> --event <event.json> [--signing-key <private.pem>]
   vigil continuity import-github --chain <directory> --event <webhook.json> --delivery-id <uuid> --webhook-signature <sha256=...> --webhook-secret-file <file> [--signing-key <private.pem>]
   vigil continuity import-github --chain <directory> --unavailable --delivery-id <uuid> --observed-at <RFC3339> --signing-key <private.pem>
+  vigil continuity import-github-actions --chain <directory> --signing-key <private.pem>
   vigil continuity demo [--format text|json] [--output <file>]
-  vigil continuity install-action --repo <path> --action-ref <full-commit-sha> [--source-workflow <name>] [--force] [--format text|json]
+  vigil continuity install-action --repo <path> --action-ref <full-commit-sha> [--source-workflow <name>] [--self-serve] [--force] [--format text|json]
   vigil continuity verify --chain <directory> [--expected-head <sha>] [--public-key <public.pem>] [--format text|json] [--output <file>]
   vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
 
@@ -36,6 +37,7 @@ Examples:
   vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
   vigil continuity append --chain .agent-vigil/continuity --event refreshed.json --signing-key operator.pem
   vigil continuity import-github --chain .agent-vigil/continuity --event webhook.json --delivery-id <uuid> --webhook-signature <sha256=...> --webhook-secret-file webhook-secret.txt
+  vigil continuity import-github-actions --chain .agent-vigil/continuity --signing-key "$RUNNER_TEMP/outcome-recorder.pem"
   vigil continuity verify --chain .agent-vigil/continuity --json
   vigil continuity status --chain .agent-vigil/continuity --policy .agent-vigil-continuity.json --repo . --policy-ref <base-commit-sha> --environment production
 
@@ -45,6 +47,33 @@ Exit codes:
   2 usage or schema error
   3 HOLD
   4 EXPIRED`;
+}
+
+function runImportGitHubActions(args: string[]): number {
+  const parsed = parse(args);
+  allowed(parsed, ["--chain", "--signing-key", "--format", "--output"], ["--json"]);
+  if (parsed.positional.length) throw new Error("continuity import-github-actions accepts only named options");
+  const chain = required(parsed, "--chain");
+  const signingKey = required(parsed, "--signing-key");
+  protectOutput(parsed, chain, [signingKey, process.env.GITHUB_EVENT_PATH ?? ""]);
+  const receipt = importGitHubActionsOutcome({
+    chain: resolve(chain),
+    signingKeyPath: resolve(signingKey),
+  });
+  outputJson(parsed.values.get("--output"), receipt);
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
+  } else {
+    const label = receipt.kind.replaceAll("_", " ");
+    process.stdout.write([
+      receipt.appended ? `Recorded ${label} from GitHub Actions.` : `The ${label} event was already recorded; no duplicate was added.`,
+      `  history entries: ${receipt.sequence}`,
+      `  result: ${receipt.disposition}`,
+      `  record: ${receipt.eventHash}`,
+      "",
+    ].join("\n"));
+  }
+  return 0;
 }
 
 type Parsed = { positional: string[]; values: Map<string, string>; flags: Set<string> };
@@ -259,13 +288,14 @@ function runDemo(args: string[]): number {
 
 function runInstallAction(args: string[]): number {
   const parsed = parse(args);
-  allowed(parsed, ["--repo", "--action-ref", "--source-workflow", "--format"], ["--json", "--force"]);
+  allowed(parsed, ["--repo", "--action-ref", "--source-workflow", "--format"], ["--json", "--force", "--self-serve"]);
   if (parsed.positional.length) throw new Error("continuity install-action accepts only named options");
   const result = installContinuityAction({
     repo: resolve(required(parsed, "--repo")),
     actionCommit: required(parsed, "--action-ref"),
     ...(parsed.values.get("--source-workflow") ? { sourceWorkflow: parsed.values.get("--source-workflow")! } : {}),
     force: parsed.flags.has("--force"),
+    selfServe: parsed.flags.has("--self-serve"),
   });
   if (selectedFormat(parsed) === "json") {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -274,7 +304,8 @@ function runInstallAction(args: string[]): number {
       "Continuity deployment check installed locally.",
       ...result.created.map((path) => `  created: ${path}`),
       ...result.replaced.map((path) => `  replaced: ${path}`),
-      "  next: add trusted signing key IDs to the policy, review both files, and commit them",
+      ...(result.selfServe ? ["  test lab: installed; it uses synthetic evidence and cannot deploy"] : []),
+      "  next: add trusted signing key IDs to the policy, review the created files, and commit them",
       "  no deployment step was added",
       "",
     ].join("\n"));
@@ -292,6 +323,7 @@ export function runContinuityCommand(args: string[]): number {
     if (command === "init") return runInit(rest);
     if (command === "append") return runAppend(rest);
     if (command === "import-github") return runImportGitHub(rest);
+    if (command === "import-github-actions") return runImportGitHubActions(rest);
     if (command === "verify") return runVerify(rest);
     if (command === "status") return runStatus(rest);
     if (command === "demo") return runDemo(rest);

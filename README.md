@@ -600,6 +600,12 @@ incident can make it `REVOKED`. A later ordinary green check cannot erase that
 revocation; independent signed repair evidence can close it. Only `CURRENT`
 permits a protected action.
 
+To see that behavior without supplying a repository, key, or webhook, fork this
+repository and manually run **Agent Vigil continuity lab** in GitHub Actions.
+The revert deployment job is skipped; the independently repaired job runs. The
+lab uses synthetic evidence and never deploys software. See the
+[`Continuity Lab`](docs/CONTINUITY_LAB.md) for the exact expected result.
+
 ```bash
 vigil continuity demo
 vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
@@ -609,6 +615,9 @@ vigil continuity import-github \
   --delivery-id <github-delivery-uuid> \
   --webhook-signature <github-sha256-signature> \
   --webhook-secret-file webhook-secret.txt
+vigil continuity import-github-actions \
+  --chain .agent-vigil/continuity \
+  --signing-key "$RUNNER_TEMP/outcome-recorder.pem"
 vigil continuity status \
   --chain .agent-vigil/continuity \
   --policy .agent-vigil-continuity.json \
@@ -625,12 +634,13 @@ delivery IDs are safe to retry. An invalid signature, malformed event,
 repository mismatch, missing observation, or observer outage never becomes
 `CURRENT`.
 
-`vigil continuity install-action --repo . --action-ref <full-commit-sha>`
-creates a separate exact-commit deployment check. It starts with no trusted
-keys and contains no real deployment command. The repository owner must review
-the files, add approved key IDs, arrange upload of the continuity artifact, and
-replace the clearly marked deployment placeholder. There is no hosted
-collector, crawler, or GitHub App in this version. See
+`vigil continuity install-action --repo . --action-ref <full-commit-sha> --self-serve`
+creates a separate exact-commit deployment check and a manual, harmless lab.
+The production check starts with no trusted keys and contains no real
+deployment command. The repository owner must review the files, add approved
+key IDs, arrange upload of the continuity artifact, and replace the clearly
+marked deployment placeholder. There is no hosted collector, crawler, or
+GitHub App in this version. See
 [`docs/CONTINUITY.md`](docs/CONTINUITY.md) for the operator guide and
 security limits.
 
@@ -677,7 +687,8 @@ vigil maintainer --event <event.json> [--repo . --base <sha> --head <sha>]
 vigil merge-group --event <event.json> [--repo . --base <sha> --head <sha>]
 vigil continuity demo
 vigil continuity import-github --chain <directory> --event <webhook.json> [authenticated webhook options]
-vigil continuity install-action --repo . --action-ref <full-commit-sha>
+vigil continuity import-github-actions --chain <directory> --signing-key <private.pem>
+vigil continuity install-action --repo . --action-ref <full-commit-sha> --self-serve
 ```
 
 ## What it prevents

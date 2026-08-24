@@ -57,3 +57,31 @@ hashes, maintainer acceptance, or private rulesets. Those claims require
 separate public or consented owner evidence. Compatibility labs, fuzz cases,
 the project's own CI, and Tim Sullivan's other repositories remain product
 evidence, not external adoption.
+
+## Continuity product-learning signals
+
+Continuity uses an additional self-serve ladder. No email, sales call, written
+offer, or private repository access is required to cross these gates:
+
+1. **Lab present** — an external public repository contains the versioned
+   Continuity Lab marker. This shows product exploration, not production use.
+2. **Lab run observed** — GitHub lists a run for that lab workflow. This shows
+   the demonstration ran, not that a real change was protected.
+3. **Exact Action use** — an external workflow pins Agent Vigil to a full
+   40-character commit ID.
+4. **Continuity gate configured** — that exact Action use selects
+   `mode: continuity`.
+5. **Repeat workflow activity** — the current public run inventory contains at
+   least two runs for a configured workflow. It does not prove use on two
+   distinct days.
+6. **Revocation stopped an action** — a public or consented record binds a real
+   or safely planted revert, invalid attestation, or linked incident to a
+   skipped protected-action job that ordinary CI would have allowed.
+7. **Self-serve payment** — a completed payment record exists for a clearly
+   described Continuity product. A checkout page or abandoned checkout does
+   not count.
+
+The first demand gate is five externally owned repositories using the exact
+Action, three with repeat workflow activity, one evidenced revocation stop, and
+one self-serve payment. Until those facts exist, the lab and passing tests are
+product evidence only.

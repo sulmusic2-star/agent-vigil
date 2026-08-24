@@ -15,6 +15,11 @@
 - Add a five-step continuity demonstration and an optional exact-commit GitHub
   Action gate. The generated workflow allows only `CURRENT`, reads policy from
   the exact base commit, and contains no deployment command.
+- Add a signed GitHub Actions event importer, a manual fork-and-run Continuity
+  Lab, and `install-action --self-serve`. The lab uses synthetic evidence and
+  no secrets; the production policy still starts with empty trusted-key lists.
+- Extend the public census so exact-commit Action use, continuity gates, repeat
+  workflow runs, and Continuity Lab runs remain separate observable counts.
 
 ## 0.16.0 - 2026-08-23
 

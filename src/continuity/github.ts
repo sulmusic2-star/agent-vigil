@@ -45,6 +45,12 @@ type ImportOptions = {
   signingKeyPath?: string;
 };
 
+export type GitHubActionsImportOptions = {
+  chain: string;
+  signingKeyPath: string;
+  environment?: NodeJS.ProcessEnv;
+};
+
 type Outcome = {
   kind: ContinuityEventKind;
   disposition: ContinuityEventDraft["event"]["disposition"];
@@ -69,6 +75,13 @@ function normalizeDeliveryId(value: string): string {
   const normalized = value.toLowerCase();
   if (!UUID.test(normalized)) throw new Error("--delivery-id must be a canonical UUID");
   return normalized;
+}
+
+function uuidFromDigest(value: string): string {
+  const hexadecimal = value.replace(/^sha256:/, "");
+  if (!/^[0-9a-f]{64}$/.test(hexadecimal)) throw new Error("GitHub evidence identity is invalid");
+  const uuid = `${hexadecimal.slice(0, 8)}-${hexadecimal.slice(8, 12)}-5${hexadecimal.slice(13, 16)}-8${hexadecimal.slice(17, 20)}-${hexadecimal.slice(20, 32)}`;
+  return uuid;
 }
 
 export function githubRepositoryFromRemote(remote: unknown): string {
@@ -177,6 +190,13 @@ function classify(payload: any, root: ContinuityRoot, repository: string): Outco
   }
 
   throw new Error("GitHub evidence is not a supported merge, revert, hotfix, or linked incident event");
+}
+
+function eventNameFor(payload: any): "pull_request" | "issues" | "push" {
+  if (payload?.pull_request && typeof payload.pull_request === "object") return "pull_request";
+  if (payload?.issue && typeof payload.issue === "object" && !payload.issue.pull_request) return "issues";
+  if (Array.isArray(payload?.commits)) return "push";
+  throw new Error("GitHub Actions evidence is not a supported pull_request, issues, or push event");
 }
 
 function readSecret(path: string): string {
@@ -310,4 +330,73 @@ export function importGitHubOutcome(options: ImportOptions): GitHubImportReceipt
     privacyTier: "receipt",
   });
   return appendIdempotently(options.chain, draft, signingKeyPath);
+}
+
+export function importGitHubActionsOutcome(options: GitHubActionsImportOptions): GitHubImportReceipt {
+  const environment = options.environment ?? process.env;
+  if (environment.GITHUB_ACTIONS !== "true") {
+    throw new Error("GitHub Actions import must run inside GitHub Actions");
+  }
+  const eventPath = environment.GITHUB_EVENT_PATH;
+  const eventName = environment.GITHUB_EVENT_NAME;
+  const actionsRepository = environment.GITHUB_REPOSITORY?.toLowerCase();
+  if (!eventPath) throw new Error("GitHub Actions did not provide GITHUB_EVENT_PATH");
+  if (!eventName || !new Set(["pull_request", "issues", "push"]).has(eventName)) {
+    throw new Error("GitHub Actions event must be pull_request, issues, or push");
+  }
+  if (!actionsRepository || !REPOSITORY.test(actionsRepository)) {
+    throw new Error("GitHub Actions did not provide a valid GITHUB_REPOSITORY");
+  }
+  if (!options.signingKeyPath) throw new Error("GitHub Actions import requires --signing-key");
+
+  const verified = verifyContinuityChain(options.chain);
+  if (!verified.valid) throw new Error(`continuity chain is invalid: ${verified.errors.join("; ")}`);
+  const receiptRepository = githubRepositoryFromRemote(verified.report.repository.remote);
+  if (actionsRepository !== receiptRepository) {
+    throw new Error("GitHub Actions is running for a different repository than the original receipt");
+  }
+
+  const raw = readBoundedRegularFile(eventPath, MAX_GITHUB_EVENT_BYTES, "GitHub Actions event evidence");
+  let payload: any;
+  try { payload = JSON.parse(raw.toString("utf8")); }
+  catch { throw new Error("GitHub Actions event evidence is not valid JSON"); }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("GitHub Actions event evidence must be an object");
+  }
+  if (eventNameFor(payload) !== eventName) {
+    throw new Error("GITHUB_EVENT_NAME does not match the GitHub Actions event body");
+  }
+
+  const outcome = classify(payload, verified.root, receiptRepository);
+  const evidenceHash = buildGitHubWebhookEvidence(raw, new Date(outcome.effectiveAt)).evidenceHash;
+  const deliveryIdHash = canonicalSha256({
+    schemaVersion: "agent-vigil-github-actions-delivery/v1",
+    eventName,
+    repositoryHash: verified.root.subject.repositoryHash,
+    evidenceHash,
+  });
+  const issuer = signingIssuer(options.signingKeyPath);
+  const draft = validateEventDraft({
+    schemaVersion: "agent-vigil-continuity-event/v1",
+    eventId: `urn:uuid:${uuidFromDigest(deliveryIdHash)}`,
+    subject: verified.root.subject,
+    source: {
+      kind: "github-outcome",
+      issuer,
+      evidenceHash,
+      deliveryIdHash,
+    },
+    event: {
+      kind: outcome.kind,
+      disposition: outcome.disposition,
+      reasonCode: outcome.reasonCode,
+      targetHash: outcome.targetHash,
+      freshUntil: null,
+      supersedesEventId: null,
+    },
+    observedAt: outcome.effectiveAt,
+    effectiveAt: outcome.effectiveAt,
+    privacyTier: "receipt",
+  });
+  return appendIdempotently(options.chain, draft, options.signingKeyPath);
 }

@@ -10577,6 +10577,12 @@ function normalizeDeliveryId(value) {
   if (!UUID.test(normalized)) throw new Error("--delivery-id must be a canonical UUID");
   return normalized;
 }
+function uuidFromDigest(value) {
+  const hexadecimal = value.replace(/^sha256:/, "");
+  if (!/^[0-9a-f]{64}$/.test(hexadecimal)) throw new Error("GitHub evidence identity is invalid");
+  const uuid = `${hexadecimal.slice(0, 8)}-${hexadecimal.slice(8, 12)}-5${hexadecimal.slice(13, 16)}-8${hexadecimal.slice(17, 20)}-${hexadecimal.slice(20, 32)}`;
+  return uuid;
+}
 function githubRepositoryFromRemote(remote) {
   if (typeof remote !== "string" || !remote.trim()) throw new Error("the original receipt does not name a GitHub repository");
   const selected = remote.trim().replace(/^git\+/, "");
@@ -10669,6 +10675,12 @@ function classify(payload, root, repository2) {
     };
   }
   throw new Error("GitHub evidence is not a supported merge, revert, hotfix, or linked incident event");
+}
+function eventNameFor(payload) {
+  if (payload?.pull_request && typeof payload.pull_request === "object") return "pull_request";
+  if (payload?.issue && typeof payload.issue === "object" && !payload.issue.pull_request) return "issues";
+  if (Array.isArray(payload?.commits)) return "push";
+  throw new Error("GitHub Actions evidence is not a supported pull_request, issues, or push event");
 }
 function readSecret(path) {
   const raw = readBoundedRegularFile(path, MAX_SECRET_BYTES, "GitHub webhook secret").toString("utf8");
@@ -10791,6 +10803,74 @@ function importGitHubOutcome(options) {
     privacyTier: "receipt"
   });
   return appendIdempotently(options.chain, draft, signingKeyPath);
+}
+function importGitHubActionsOutcome(options) {
+  const environment = options.environment ?? process.env;
+  if (environment.GITHUB_ACTIONS !== "true") {
+    throw new Error("GitHub Actions import must run inside GitHub Actions");
+  }
+  const eventPath = environment.GITHUB_EVENT_PATH;
+  const eventName = environment.GITHUB_EVENT_NAME;
+  const actionsRepository = environment.GITHUB_REPOSITORY?.toLowerCase();
+  if (!eventPath) throw new Error("GitHub Actions did not provide GITHUB_EVENT_PATH");
+  if (!eventName || !(/* @__PURE__ */ new Set(["pull_request", "issues", "push"])).has(eventName)) {
+    throw new Error("GitHub Actions event must be pull_request, issues, or push");
+  }
+  if (!actionsRepository || !REPOSITORY.test(actionsRepository)) {
+    throw new Error("GitHub Actions did not provide a valid GITHUB_REPOSITORY");
+  }
+  if (!options.signingKeyPath) throw new Error("GitHub Actions import requires --signing-key");
+  const verified = verifyContinuityChain(options.chain);
+  if (!verified.valid) throw new Error(`continuity chain is invalid: ${verified.errors.join("; ")}`);
+  const receiptRepository = githubRepositoryFromRemote(verified.report.repository.remote);
+  if (actionsRepository !== receiptRepository) {
+    throw new Error("GitHub Actions is running for a different repository than the original receipt");
+  }
+  const raw = readBoundedRegularFile(eventPath, MAX_GITHUB_EVENT_BYTES, "GitHub Actions event evidence");
+  let payload;
+  try {
+    payload = JSON.parse(raw.toString("utf8"));
+  } catch {
+    throw new Error("GitHub Actions event evidence is not valid JSON");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("GitHub Actions event evidence must be an object");
+  }
+  if (eventNameFor(payload) !== eventName) {
+    throw new Error("GITHUB_EVENT_NAME does not match the GitHub Actions event body");
+  }
+  const outcome = classify(payload, verified.root, receiptRepository);
+  const evidenceHash = buildGitHubWebhookEvidence(raw, new Date(outcome.effectiveAt)).evidenceHash;
+  const deliveryIdHash = canonicalSha256({
+    schemaVersion: "agent-vigil-github-actions-delivery/v1",
+    eventName,
+    repositoryHash: verified.root.subject.repositoryHash,
+    evidenceHash
+  });
+  const issuer = signingIssuer(options.signingKeyPath);
+  const draft = validateEventDraft({
+    schemaVersion: "agent-vigil-continuity-event/v1",
+    eventId: `urn:uuid:${uuidFromDigest(deliveryIdHash)}`,
+    subject: verified.root.subject,
+    source: {
+      kind: "github-outcome",
+      issuer,
+      evidenceHash,
+      deliveryIdHash
+    },
+    event: {
+      kind: outcome.kind,
+      disposition: outcome.disposition,
+      reasonCode: outcome.reasonCode,
+      targetHash: outcome.targetHash,
+      freshUntil: null,
+      supersedesEventId: null
+    },
+    observedAt: outcome.effectiveAt,
+    effectiveAt: outcome.effectiveAt,
+    privacyTier: "receipt"
+  });
+  return appendIdempotently(options.chain, draft, options.signingKeyPath);
 }
 
 // src/continuity/demo.ts
@@ -11160,9 +11240,11 @@ jobs:
             echo "The protected environment name is invalid." >&2
             exit 2
           fi
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "expected_head=$expected_head" >> "$GITHUB_OUTPUT"
-          echo "environment=$environment" >> "$GITHUB_OUTPUT"
+          {
+            echo "run_id=$run_id"
+            echo "expected_head=$expected_head"
+            echo "environment=$environment"
+          } >> "$GITHUB_OUTPUT"
       - name: Download the recorded continuity history
         uses: actions/download-artifact@${DOWNLOAD_COMMIT}
         with:
@@ -11232,6 +11314,85 @@ jobs:
         run: echo "Continuity accepted. Add reviewed deployment steps here."
 `;
 }
+function labWorkflow(actionCommit) {
+  return `# agent-vigil-continuity-lab/v1
+name: Agent Vigil continuity lab
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demonstration:
+    name: Build the five-step evidence history
+    runs-on: ubuntu-latest
+    outputs:
+      revoked: \${{ steps.result.outputs.revoked }}
+      repaired: \${{ steps.result.outputs.repaired }}
+    steps:
+      - name: Check out the reviewed Agent Vigil source
+        uses: actions/checkout@${CHECKOUT_COMMIT}
+        with:
+          repository: sulmusic2-star/agent-vigil
+          ref: ${actionCommit}
+          path: agent-vigil-continuity-tool
+          persist-credentials: false
+      - id: result
+        name: Prove revocation and independent repair
+        env:
+          REPORT_PATH: \${{ runner.temp }}/agent-vigil-continuity-lab.json
+        run: |
+          node agent-vigil-continuity-tool/dist/cli.js continuity demo --format json --output "$REPORT_PATH" >/dev/null
+          node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, "utf8"));
+          const revoked = report.steps?.find((step) => step.step === 3)?.result;
+          const regreened = report.steps?.find((step) => step.step === 4)?.result;
+          const repaired = report.steps?.find((step) => step.step === 5)?.result;
+          if (revoked !== "REVOKED" || regreened !== "REVOKED" || repaired !== "CURRENT") {
+            throw new Error("The continuity lab did not reach the required states.");
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "revoked=" + revoked + "\\nrepaired=" + repaired + "\\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            "## Continuity Lab result",
+            "",
+            "Synthetic demonstration only. No software was deployed.",
+            "",
+            "| Later evidence | Permission to deploy |",
+            "|---|---|",
+            "| Verified merge and fresh check | Allowed |",
+            "| Authenticated revert | Stopped |",
+            "| Another ordinary green check | Still stopped |",
+            "| Independent signed repair | Allowed again |",
+            "",
+          ].join("\\n"));
+          NODE
+      - name: Retain the readable result
+        uses: actions/upload-artifact@${UPLOAD_COMMIT}
+        with:
+          name: agent-vigil-continuity-lab
+          path: \${{ runner.temp }}/agent-vigil-continuity-lab.json
+          retention-days: 7
+
+  blocked-deployment:
+    name: Deployment stays stopped after the revert
+    needs: demonstration
+    if: needs.demonstration.outputs.revoked == 'CURRENT'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This harmless placeholder should remain skipped."
+
+  repaired-action:
+    name: Independent repair restores permission
+    needs: demonstration
+    if: needs.demonstration.outputs.repaired == 'CURRENT'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Independent signed repair restored permission. No deployment was performed."
+`;
+}
 function installContinuityAction(options) {
   if (!ACTION_COMMIT.test(options.actionCommit)) throw new Error("--action-ref must be a full lowercase 40-character commit ID");
   const sourceWorkflow = options.sourceWorkflow ?? "Agent Vigil";
@@ -11240,9 +11401,19 @@ function installContinuityAction(options) {
   const files = [
     { path: ".agent-vigil-continuity.json", content: `${JSON.stringify(policyTemplate2(), null, 2)}
 ` },
-    { path: ".github/workflows/agent-vigil-continuity.yml", content: workflow2(options.actionCommit, sourceWorkflow) }
+    { path: ".github/workflows/agent-vigil-continuity.yml", content: workflow2(options.actionCommit, sourceWorkflow) },
+    ...options.selfServe ? [{
+      path: ".github/workflows/agent-vigil-continuity-lab.yml",
+      content: labWorkflow(options.actionCommit)
+    }] : []
   ];
-  const result5 = { repository: root, created: [], replaced: [], actionCommit: options.actionCommit };
+  const result5 = {
+    repository: root,
+    created: [],
+    replaced: [],
+    actionCommit: options.actionCommit,
+    selfServe: Boolean(options.selfServe)
+  };
   if (!options.force) {
     const existing = files.find((file) => existsSync9(resolve20(root, file.path)));
     if (existing) throw new Error(`${existing.path} already exists; use --force only after reviewing the current file`);
@@ -11279,7 +11450,7 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "--source-workflow",
   "--expected-github-repository"
 ]);
-var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["--json", "--unavailable", "--force"]);
+var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["--json", "--unavailable", "--force", "--self-serve"]);
 function usage2() {
   return `Agent Vigil continuity \u2014 offline successor evidence for one exact receipt
 
@@ -11288,8 +11459,9 @@ Usage:
   vigil continuity append --chain <directory> --event <event.json> [--signing-key <private.pem>]
   vigil continuity import-github --chain <directory> --event <webhook.json> --delivery-id <uuid> --webhook-signature <sha256=...> --webhook-secret-file <file> [--signing-key <private.pem>]
   vigil continuity import-github --chain <directory> --unavailable --delivery-id <uuid> --observed-at <RFC3339> --signing-key <private.pem>
+  vigil continuity import-github-actions --chain <directory> --signing-key <private.pem>
   vigil continuity demo [--format text|json] [--output <file>]
-  vigil continuity install-action --repo <path> --action-ref <full-commit-sha> [--source-workflow <name>] [--force] [--format text|json]
+  vigil continuity install-action --repo <path> --action-ref <full-commit-sha> [--source-workflow <name>] [--self-serve] [--force] [--format text|json]
   vigil continuity verify --chain <directory> [--expected-head <sha>] [--public-key <public.pem>] [--format text|json] [--output <file>]
   vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
 
@@ -11297,6 +11469,7 @@ Examples:
   vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
   vigil continuity append --chain .agent-vigil/continuity --event refreshed.json --signing-key operator.pem
   vigil continuity import-github --chain .agent-vigil/continuity --event webhook.json --delivery-id <uuid> --webhook-signature <sha256=...> --webhook-secret-file webhook-secret.txt
+  vigil continuity import-github-actions --chain .agent-vigil/continuity --signing-key "$RUNNER_TEMP/outcome-recorder.pem"
   vigil continuity verify --chain .agent-vigil/continuity --json
   vigil continuity status --chain .agent-vigil/continuity --policy .agent-vigil-continuity.json --repo . --policy-ref <base-commit-sha> --environment production
 
@@ -11306,6 +11479,33 @@ Exit codes:
   2 usage or schema error
   3 HOLD
   4 EXPIRED`;
+}
+function runImportGitHubActions(args) {
+  const parsed = parse4(args);
+  allowed(parsed, ["--chain", "--signing-key", "--format", "--output"], ["--json"]);
+  if (parsed.positional.length) throw new Error("continuity import-github-actions accepts only named options");
+  const chain = required(parsed, "--chain");
+  const signingKey = required(parsed, "--signing-key");
+  protectOutput(parsed, chain, [signingKey, process.env.GITHUB_EVENT_PATH ?? ""]);
+  const receipt = importGitHubActionsOutcome({
+    chain: resolve21(chain),
+    signingKeyPath: resolve21(signingKey)
+  });
+  outputJson(parsed.values.get("--output"), receipt);
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(receipt, null, 2)}
+`);
+  } else {
+    const label = receipt.kind.replaceAll("_", " ");
+    process.stdout.write([
+      receipt.appended ? `Recorded ${label} from GitHub Actions.` : `The ${label} event was already recorded; no duplicate was added.`,
+      `  history entries: ${receipt.sequence}`,
+      `  result: ${receipt.disposition}`,
+      `  record: ${receipt.eventHash}`,
+      ""
+    ].join("\n"));
+  }
+  return 0;
 }
 function allowed(parsed, values, flags = []) {
   for (const key of parsed.values.keys()) if (!values.includes(key)) throw new Error(`${key} is not valid for this continuity command`);
@@ -11519,13 +11719,14 @@ function runDemo2(args) {
 }
 function runInstallAction(args) {
   const parsed = parse4(args);
-  allowed(parsed, ["--repo", "--action-ref", "--source-workflow", "--format"], ["--json", "--force"]);
+  allowed(parsed, ["--repo", "--action-ref", "--source-workflow", "--format"], ["--json", "--force", "--self-serve"]);
   if (parsed.positional.length) throw new Error("continuity install-action accepts only named options");
   const result5 = installContinuityAction({
     repo: resolve21(required(parsed, "--repo")),
     actionCommit: required(parsed, "--action-ref"),
     ...parsed.values.get("--source-workflow") ? { sourceWorkflow: parsed.values.get("--source-workflow") } : {},
-    force: parsed.flags.has("--force")
+    force: parsed.flags.has("--force"),
+    selfServe: parsed.flags.has("--self-serve")
   });
   if (selectedFormat(parsed) === "json") {
     process.stdout.write(`${JSON.stringify(result5, null, 2)}
@@ -11535,7 +11736,8 @@ function runInstallAction(args) {
       "Continuity deployment check installed locally.",
       ...result5.created.map((path) => `  created: ${path}`),
       ...result5.replaced.map((path) => `  replaced: ${path}`),
-      "  next: add trusted signing key IDs to the policy, review both files, and commit them",
+      ...result5.selfServe ? ["  test lab: installed; it uses synthetic evidence and cannot deploy"] : [],
+      "  next: add trusted signing key IDs to the policy, review the created files, and commit them",
       "  no deployment step was added",
       ""
     ].join("\n"));
@@ -11552,6 +11754,7 @@ function runContinuityCommand(args) {
     if (command === "init") return runInit2(rest);
     if (command === "append") return runAppend(rest);
     if (command === "import-github") return runImportGitHub(rest);
+    if (command === "import-github-actions") return runImportGitHubActions(rest);
     if (command === "verify") return runVerify2(rest);
     if (command === "status") return runStatus(rest);
     if (command === "demo") return runDemo2(rest);
@@ -11600,7 +11803,7 @@ Usage:
   vigil gate <portable-receipt.json> [options]
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
-  vigil continuity <init|append|import-github|verify|status|demo|install-action> [options]
+  vigil continuity <init|append|import-github|import-github-actions|verify|status|demo|install-action> [options]
   vigil upgrade <init|doctor|check|verify|index> [options]
 
 Options:

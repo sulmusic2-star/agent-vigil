@@ -20,6 +20,27 @@ It shows one change moving through this exact sequence:
 
 The result lists all five recorded event types in order.
 
+## See the behavior in GitHub
+
+The repository includes a manual
+[`Agent Vigil continuity lab`](../.github/workflows/agent-vigil-continuity-lab.yml).
+It uses made-up evidence, has read-only permission, reads no secrets, and never
+deploys software.
+
+1. Fork the Agent Vigil repository.
+2. Open **Actions** in the fork and enable workflows if GitHub asks.
+3. Choose **Agent Vigil continuity lab**, then choose **Run workflow**.
+4. Open the run after its jobs stop.
+
+The run should show three jobs:
+
+- **Build the five-step evidence history** succeeds.
+- **Deployment stays stopped after the revert** is skipped.
+- **Independent repair restores permission** succeeds.
+
+The retained JSON file contains the same five readable decisions as the local
+command. This is a product demonstration, not evidence of use on a real change.
+
 ## The four results
 
 | Result | Meaning | Deployment |
@@ -105,6 +126,33 @@ vigil continuity import-github \
 
 An outage produces `HOLD`. It can never produce `CURRENT`.
 
+### Use the event GitHub Actions already provides
+
+A separate command reads the current workflow event directly. It does not need
+a webhook server or webhook secret:
+
+```bash
+umask 077
+printf '%s' "$AGENT_VIGIL_OUTCOME_PRIVATE_KEY" \
+  > "$RUNNER_TEMP/agent-vigil-outcome-private.pem"
+
+vigil continuity import-github-actions \
+  --chain .agent-vigil/continuity \
+  --signing-key "$RUNNER_TEMP/agent-vigil-outcome-private.pem"
+```
+
+The command runs only when GitHub Actions supplies the event file, event name,
+and repository identity. It checks all three against the original receipt. It
+then applies the same merge, revert, hotfix, and linked-incident rules as the
+webhook importer. Repeating the same event does not add a duplicate.
+
+The private signing key identifies the approved outcome-recording workflow. A
+production repository must keep that key away from pull-request code and from
+the change author when independent evidence is required. Run the import before
+checking out or executing untrusted code. Do not place the key in a workflow
+that forks can read. If the key is missing or the importer cannot run, record a
+signed coverage gap; do not assume the previous approval remains current.
+
 ## Add the deployment check
 
 This command creates a conservative policy and a separate GitHub workflow:
@@ -115,10 +163,24 @@ vigil continuity install-action \
   --action-ref <reviewed-full-Agent-Vigil-commit>
 ```
 
+To add the manual demonstration at the same time:
+
+```bash
+vigil continuity install-action \
+  --repo . \
+  --action-ref <reviewed-full-Agent-Vigil-commit> \
+  --self-serve
+```
+
 It creates:
 
 - `.agent-vigil-continuity.json`
 - `.github/workflows/agent-vigil-continuity.yml`
+
+`--self-serve` also creates
+`.github/workflows/agent-vigil-continuity-lab.yml`. That lab needs no key and
+cannot deploy. It gives a repository owner a safe way to see the decision
+change before configuring production evidence.
 
 The generated policy starts with empty trusted-key lists. It cannot allow a
 deployment until an operator adds the approved root and event signing key IDs,

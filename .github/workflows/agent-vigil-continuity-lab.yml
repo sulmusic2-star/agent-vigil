@@ -1,0 +1,74 @@
+# agent-vigil-continuity-lab/v1
+name: Agent Vigil continuity lab
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demonstration:
+    name: Build the five-step evidence history
+    runs-on: ubuntu-latest
+    outputs:
+      revoked: ${{ steps.result.outputs.revoked }}
+      repaired: ${{ steps.result.outputs.repaired }}
+    steps:
+      - name: Check out this exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: result
+        name: Prove revocation and independent repair
+        env:
+          REPORT_PATH: ${{ runner.temp }}/agent-vigil-continuity-lab.json
+        run: |
+          node dist/cli.js continuity demo --format json --output "$REPORT_PATH" >/dev/null
+          node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, "utf8"));
+          const revoked = report.steps?.find((step) => step.step === 3)?.result;
+          const regreened = report.steps?.find((step) => step.step === 4)?.result;
+          const repaired = report.steps?.find((step) => step.step === 5)?.result;
+          if (revoked !== "REVOKED" || regreened !== "REVOKED" || repaired !== "CURRENT") {
+            throw new Error("The continuity lab did not reach the required states.");
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `revoked=${revoked}\nrepaired=${repaired}\n`);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            "## Continuity Lab result",
+            "",
+            "Synthetic demonstration only. No software was deployed.",
+            "",
+            "| Later evidence | Permission to deploy |",
+            "|---|---|",
+            "| Verified merge and fresh check | Allowed |",
+            "| Authenticated revert | Stopped |",
+            "| Another ordinary green check | Still stopped |",
+            "| Independent signed repair | Allowed again |",
+            "",
+          ].join("\n"));
+          NODE
+      - name: Retain the readable result
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agent-vigil-continuity-lab
+          path: ${{ runner.temp }}/agent-vigil-continuity-lab.json
+          retention-days: 7
+
+  blocked-deployment:
+    name: Deployment stays stopped after the revert
+    needs: demonstration
+    if: needs.demonstration.outputs.revoked == 'CURRENT'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This harmless placeholder should remain skipped."
+
+  repaired-action:
+    name: Independent repair restores permission
+    needs: demonstration
+    if: needs.demonstration.outputs.repaired == 'CURRENT'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Independent signed repair restored permission. No deployment was performed."
