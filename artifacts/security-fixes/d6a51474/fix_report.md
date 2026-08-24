@@ -10,7 +10,9 @@ modified; its report SHA-256 remains
   `9b35891c3de71f54f79693b2fd56afa599641981`, then integrated over the frozen
   candidate.
 - [Team control-plane findings](./team_fix_report.md) were fixed in source
-  commit `32744c40836f5067cad22620f9b890b36b482404`, then integrated over the
+  commits `32744c40836f5067cad22620f9b890b36b482404`,
+  `a5c2dbf2afeed596482bd8f42497eea669d2964c`, and
+  `1b3a1411e1b7d8f79e9c44a7de07cb18436f35ce`, then integrated over the
   proof-network successor.
 
 These reports document local remediation and validation. They do not establish

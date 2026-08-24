@@ -5,7 +5,7 @@
 - Scan ID: `d6a51474-3449-46ff-8200-de72118224ec`
 - Reviewed range: `be3161fb7a85a4d69af6356e6c453ffd72ebac97..c7ac6e93bf1a73da28edb4cb0c0431209c2df903`
 - Remediation base: `c7ac6e93bf1a73da28edb4cb0c0431209c2df903`
-- Remediation implementation: `32744c40836f5067cad22620f9b890b36b482404`
+- Remediation implementation: `1b3a1411e1b7d8f79e9c44a7de07cb18436f35ce`
 - Scan manifest SHA-256: `aecb7f160dd4b8f086ef9a47e96fffcf82cf7a57d86f8035961d294db7d8377d`
 - Report SHA-256: `bc8cafd72b0e7d7628479b7db90f9b2220a681629dc88a35f706450566ddf2d0`
 - Findings SHA-256: `f786ff3b776da5e685ab3514bdf3a8eaba84f7a9c83999436dd356f783e72d7a`
@@ -34,8 +34,8 @@ The authoritative scan bundle was read only. This report is an add-only successo
 
 - Status: fixed.
 - Source and sink: an executor read before deletion could previously create a hosted Session and later expose its URL or permit a stale webhook to restore commercial state.
-- Enforced invariant: checkout execution uses exact expiring leases and affected-row checks. Deletion atomically cancels local prepared work and leases provider-created work for compensation. A losing executor expires and verifies the exact hosted Session, records compensation, and never returns its URL. Confirmed deletion is refused while a live subscription or unresolved hosted-charge compensation exists, and D1 triggers reject post-deletion provider events, billing accounts, entitlements, and checkout completion.
-- Verification: Worker/D1 race PoCs cover delete-before-create, create-before-delete, losing lease, failed compensation, exact Session expiry, concurrent deletion, and webhook/reconciliation refusal after confirmed deletion.
+- Enforced invariant: checkout execution uses exact expiring leases and affected-row checks. Deletion atomically cancels local prepared work and leases provider-created work for compensation. A losing executor expires and verifies the exact hosted Session, records compensation, and never returns its URL. Checkout completion requires an exactly active organization in Worker SQL and the D1 trigger. If completion reaches Stripe during the deletion freeze, its exact Session, customer, and subscription are atomically reserved for compensation; the executor immediately cancels that exact subscription and verifies `canceled`, customer, exact metadata, quantity, and Price before clearing the block. Confirmed deletion is refused while a live subscription or unresolved hosted-charge compensation exists, and D1 guards reject post-deletion provider writes.
+- Verification: Worker/D1 race PoCs cover delete-before-create, create-before-delete, losing lease, failed Session expiration, exact Session expiry, completion-before-expiry, no normal billing side effects during the freeze, failed/retired compensation leases, exact immediate subscription cancellation, concurrent deletion, and webhook/reconciliation refusal after confirmed deletion.
 
 ### `csf_4b95a05d8c83951fc7bb2276` — Refund reconciliation is not bound to the exact provider Refund
 
@@ -64,19 +64,25 @@ Active commercial secret duties are pairwise separated at runtime. The main Work
 
 ## Local verification
 
-- `npm run check`: generated Worker types current; all TypeScript targets passed; 4 test files and 39 tests passed.
-- Focused Worker/D1 suites: 2 test files and 25 tests passed after the final refund hardening.
+- `npm run check`: generated Worker types current; all TypeScript targets passed; 4 test files and 41 tests passed.
+- Focused Worker/D1 suites: 2 test files and 27 tests passed after the final refund and deletion-race hardening.
 - D1 migrations: fresh local `0001` through `0007` succeeded; repeat application reported no migrations; `PRAGMA integrity_check` returned `ok`; `PRAGMA foreign_key_check` returned no rows.
 - Worker builds: main, Stripe executor, and Stripe reconciler each passed `wrangler deploy --dry-run`; no deployment occurred.
 - Schemas: all 17 repository `schemas/*.json` documents parsed.
 - Dependency audits: service and repository root each reported zero vulnerabilities.
 - Bounded review: `git diff --check` passed; changed paths were confined to `services/team-control-plane/**`; secret-like literal scan returned no matches.
 
+## Independent review
+
+- Review of `bb6bdf087d7c38e12a2a3fb2482f2136a1adca6e` found that checkout completion could still bind a subscription during `deletion_pending`.
+- Review of the active-only follow-up `a5c2dbf2afeed596482bd8f42497eea669d2964c` found that a completed Session could not be expired and therefore lacked terminal provider compensation.
+- Read-only review of exact remediation implementation `1b3a1411e1b7d8f79e9c44a7de07cb18436f35ce` found no actionable issue in that closure. It confirmed exact frozen-completion reservation, exact immediate subscription cancellation, provider-response validation, affected-row chaining, retry-safe blocking, and preservation of normal active completion.
+
 ## Residual external prerequisites
 
 - Apply migration `0007` to the intended D1 environment before enabling any successor runtime.
-- Configure unique production secret values for every documented role, exact Stripe test/live mode and Price IDs, least-privilege executor/read-only keys, the Dahlia-version webhook event set including `refund.created`, and the GitHub App webhook secret/permissions.
-- Exercise provider compensation and webhook contracts in a non-production account before live commercial enablement.
-- Perform an independent review of the committed exact successor SHA before release.
+- Configure unique production secret values for every documented role, exact Stripe test/live mode and Price IDs, a least-privilege executor key that can expire Checkout Sessions and immediately cancel the exact completed-Checkout subscription, a read-only reconciliation key, the Dahlia-version webhook event set including `refund.created`, and the GitHub App webhook secret/permissions.
+- Exercise Session expiration, immediate subscription cancellation, refund policy for any already-settled initial invoice, and webhook contracts in a non-production account before live commercial enablement.
+- Repeat exact-SHA review after this successor is combined with any other remediation branch.
 
 These are release prerequisites, not evidence of a live deployment, payment path, or commercial activation.
