@@ -1,11 +1,14 @@
 {
   "schemaVersion": "agent-vigil-public-apm-runtime-proof/v1",
-  "evidenceStatus": "PRE_FINAL_RUNTIME",
-  "validatedCodeSha": "cb5a6bc55966bb4687d196ace7719f8fb41b5edb",
+  "evidenceStatus": "EXACT_RUNTIME_REPLAYED",
+  "validatedCodeSha": "72a14ac05397f8fc815fbba5d913693a1ca14bdc",
   "releaseReplay": {
     "required": true,
-    "completed": false,
-    "gate": "HOLD"
+    "completed": true,
+    "gate": "TECHNICAL_REPLAY_PASS",
+    "version": "0.17.0",
+    "releaseAuthorized": false,
+    "r0Started": false
   },
   "source": {
     "repository": "microsoft/apm",
@@ -57,9 +60,10 @@
   "outcome": {
     "verdict": "CHANGED",
     "reason": "MATERIAL_CHANGE_DETECTED",
-    "wrapperSha256": "sha256:6870faa9bf1688a4a3c483affac305ea92553084f487d39faed52e19201f02a2"
+    "wrapperSha256": "sha256:2d2df291eb73e93f431dd5742e9ab28905e63939351a7f5a04921e5e46ff9b88",
+    "nestedReceiptSha256": "sha256:12cea6f4e4a8a447b59d8af598ce94d8dd55168f746fcf054d52ca21071022c2"
   },
-  "elapsedSeconds": 8.55,
+  "elapsedSeconds": 8.423,
   "containment": {
     "localTransportAccepted": true,
     "exactImagePresent": true,
@@ -72,7 +76,8 @@
   "restoration": {
     "restored": true,
     "hostMutationAbsent": true,
-    "sessionRemoved": true
+    "sessionRemoved": true,
+    "residueAbsent": true
   },
   "validation": {
     "schema": {
@@ -83,14 +88,14 @@
       "exitCode": 0
     }
   },
-  "transientRetryDisclosure": {
-    "occurred": true,
-    "attempts": 2,
-    "boundedRetries": 1,
-    "firstAttemptVerdict": "HOLD",
-    "firstAttemptReason": "The contained amd64 probe exited 139 before canary trials.",
-    "firstAttemptCleanupVerified": true,
-    "doctorReadyBeforeRetry": true,
-    "finalAttemptUsed": true
+  "trialStability": {
+    "trialsPerSide": 2,
+    "current": ["PASS", "PASS"],
+    "candidate": ["PASS", "PASS"]
+  },
+  "retryDisclosure": {
+    "attempts": 1,
+    "retries": 0,
+    "flakinessObserved": false
   }
 }

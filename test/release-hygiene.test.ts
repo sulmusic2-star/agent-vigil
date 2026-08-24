@@ -10,7 +10,15 @@ const CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE_SHA = "820762786026740c76f36085b0efc47a31fe5020";
 const UPLOAD_ARTIFACT_SHA = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 const ATTEST_SHA = "1e69f48acb82d1966a394da916b4c1698aa569d6";
+const RUNTIME_SHA = "72a14ac05397f8fc815fbba5d913693a1ca14bdc";
 const OBSOLETE_RECEIPT_PATH = /^\s+(?:agent-vigil-report\.json|agent-vigil\.sarif|agent-vigil-value-card\.json|agent-vigil-github-evidence\.json)\s*$/m;
+
+function assertExactSelfAction(path: string): void {
+  assert.match(RUNTIME_SHA, /^[0-9a-f]{40}$/, "reviewed runtime must be an exact Git SHA");
+  const refs = [...source(path).matchAll(/uses:\s+sulmusic2-star\/agent-vigil@([^\s#]+)/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(refs, [RUNTIME_SHA], `${path} must use the one reviewed runtime SHA`);
+}
 
 test("CI pins third-party Actions and uploads dogfood runner-owned outputs", () => {
   const workflow = source(".github/workflows/ci.yml");
@@ -30,11 +38,20 @@ test("CI pins third-party Actions and uploads dogfood runner-owned outputs", () 
   assert.doesNotMatch(workflow, OBSOLETE_RECEIPT_PATH);
 });
 
-test("tracked evidence workflows retain the Action's emitted artifact paths", () => {
+test("high-trust workflows pin the exact runtime and retain emitted artifact paths", () => {
   const evidence = source(".github/workflows/agent-vigil.yml");
   const outcomes = source(".github/workflows/agent-vigil-outcomes.yml");
-  assert.match(evidence, /uses: sulmusic2-star\/agent-vigil@v0\.15\.0/);
-  assert.match(outcomes, /uses: sulmusic2-star\/agent-vigil@v0\.15\.0/);
+  const upgradeExample = source("examples/upgrade-guard/github-workflow.yml");
+  const installedUpgrade = source(".github/workflows/agent-vigil-upgrade.yml");
+  for (const path of [
+    ".github/workflows/agent-vigil.yml",
+    ".github/workflows/agent-vigil-outcomes.yml",
+    "examples/upgrade-guard/github-workflow.yml",
+    ".github/workflows/agent-vigil-upgrade.yml",
+  ]) assertExactSelfAction(path);
+  assert.equal(installedUpgrade, upgradeExample, "installed upgrade workflow must be byte-equivalent to its reviewed example");
+  assert.match(installedUpgrade, /pull_request_target:/);
+  assert.match(installedUpgrade, /runs-on: ubuntu-24\.04/);
   for (const output of ["report", "sarif", "value-card", "github-evidence"]) {
     assert.match(evidence, new RegExp(`\\$\\{\\{ steps\\.vigil\\.outputs\\.${output} \\}\\}`));
   }

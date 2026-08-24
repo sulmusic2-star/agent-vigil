@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const DEFAULT_PROOF_PATH = fileURLToPath(
-  new URL("./pre-final-v0.8.5-v0.8.6.json", import.meta.url),
+  new URL("./exact-runtime-v0.8.5-v0.8.6.json", import.meta.url),
 );
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
@@ -106,14 +106,23 @@ export function validatePublicApmRuntimeProof(input) {
   exactKeys(input, [
     "schemaVersion", "evidenceStatus", "validatedCodeSha", "releaseReplay", "source",
     "publicVersionSelections", "outcome", "elapsedSeconds", "containment", "restoration",
-    "validation", "transientRetryDisclosure",
+    "validation", "trialStability", "retryDisclosure",
   ], "public proof");
   assert.equal(input.schemaVersion, "agent-vigil-public-apm-runtime-proof/v1");
-  assert.equal(input.evidenceStatus, "PRE_FINAL_RUNTIME");
-  assert.equal(input.validatedCodeSha, "cb5a6bc55966bb4687d196ace7719f8fb41b5edb");
+  assert.equal(input.evidenceStatus, "EXACT_RUNTIME_REPLAYED");
+  assert.equal(input.validatedCodeSha, "72a14ac05397f8fc815fbba5d913693a1ca14bdc");
 
-  exactKeys(input.releaseReplay, ["required", "completed", "gate"], "releaseReplay");
-  assert.deepEqual(input.releaseReplay, { required: true, completed: false, gate: "HOLD" });
+  exactKeys(input.releaseReplay, [
+    "required", "completed", "gate", "version", "releaseAuthorized", "r0Started",
+  ], "releaseReplay");
+  assert.deepEqual(input.releaseReplay, {
+    required: true,
+    completed: true,
+    gate: "TECHNICAL_REPLAY_PASS",
+    version: "0.17.0",
+    releaseAuthorized: false,
+    r0Started: false,
+  });
 
   exactKeys(input.source, ["repository", "current", "candidate"], "source");
   assert.equal(input.source.repository, "microsoft/apm");
@@ -137,38 +146,42 @@ export function validatePublicApmRuntimeProof(input) {
     },
   ]);
 
-  exactKeys(input.outcome, ["verdict", "reason", "wrapperSha256"], "outcome");
+  exactKeys(input.outcome, ["verdict", "reason", "wrapperSha256", "nestedReceiptSha256"], "outcome");
+  assert.match(input.outcome.wrapperSha256, SHA256);
+  assert.match(input.outcome.nestedReceiptSha256, SHA256);
   assert.deepEqual(input.outcome, {
     verdict: "CHANGED",
     reason: "MATERIAL_CHANGE_DETECTED",
-    wrapperSha256: "sha256:6870faa9bf1688a4a3c483affac305ea92553084f487d39faed52e19201f02a2",
+    wrapperSha256: "sha256:2d2df291eb73e93f431dd5742e9ab28905e63939351a7f5a04921e5e46ff9b88",
+    nestedReceiptSha256: "sha256:12cea6f4e4a8a447b59d8af598ce94d8dd55168f746fcf054d52ca21071022c2",
   });
-  assert.equal(input.elapsedSeconds, 8.55);
+  assert.equal(input.elapsedSeconds, 8.423);
 
   exactBooleanMap(input.containment, [
     "localTransportAccepted", "exactImagePresent", "networkBlocked", "targetReadOnly",
     "rootReadOnly", "inheritedSecretAbsent", "proxiesCleared",
   ], "containment");
-  exactBooleanMap(input.restoration, ["restored", "hostMutationAbsent", "sessionRemoved"], "restoration");
+  exactBooleanMap(input.restoration, [
+    "restored", "hostMutationAbsent", "sessionRemoved", "residueAbsent",
+  ], "restoration");
 
   exactKeys(input.validation, ["schema", "verifier"], "validation");
   exactKeys(input.validation.schema, ["errors"], "validation.schema");
   exactKeys(input.validation.verifier, ["valid", "exitCode"], "validation.verifier");
   assert.deepEqual(input.validation, { schema: { errors: 0 }, verifier: { valid: true, exitCode: 0 } });
 
-  exactKeys(input.transientRetryDisclosure, [
-    "occurred", "attempts", "boundedRetries", "firstAttemptVerdict", "firstAttemptReason",
-    "firstAttemptCleanupVerified", "doctorReadyBeforeRetry", "finalAttemptUsed",
-  ], "transientRetryDisclosure");
-  assert.deepEqual(input.transientRetryDisclosure, {
-    occurred: true,
-    attempts: 2,
-    boundedRetries: 1,
-    firstAttemptVerdict: "HOLD",
-    firstAttemptReason: "The contained amd64 probe exited 139 before canary trials.",
-    firstAttemptCleanupVerified: true,
-    doctorReadyBeforeRetry: true,
-    finalAttemptUsed: true,
+  exactKeys(input.trialStability, ["trialsPerSide", "current", "candidate"], "trialStability");
+  assert.deepEqual(input.trialStability, {
+    trialsPerSide: 2,
+    current: ["PASS", "PASS"],
+    candidate: ["PASS", "PASS"],
+  });
+
+  exactKeys(input.retryDisclosure, ["attempts", "retries", "flakinessObserved"], "retryDisclosure");
+  assert.deepEqual(input.retryDisclosure, {
+    attempts: 1,
+    retries: 0,
+    flakinessObserved: false,
   });
   return input;
 }
