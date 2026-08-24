@@ -367,6 +367,126 @@ describe.sequential("separate Stripe executor and reconciler", () => {
     expect(deleted.meta.changes).toBe(1);
   });
 
+  it("immediately cancels the exact subscription when Checkout completes during deletion", async () => {
+    const commandId = "billing_command_completed_checkout_compensation";
+    const checkoutIntentId = "checkout_intent_completed_compensation";
+    const metadata = {
+      team_org_id: "org_main",
+      internal_price_id: "team_monthly_usd_v1",
+      provider_price_id: "price_team_monthly_test",
+      checkout_intent_id: checkoutIntentId,
+      contributor_limit: "15"
+    };
+    const command = {
+      schema_version: "checkout-command-v1",
+      command_id: commandId,
+      provider: "stripe",
+      operation: "create_checkout_session",
+      idempotency_key: "checkout_completed_compensation_idem",
+      parameters: {
+        mode: "subscription",
+        quantity: 1,
+        provider_price_id: "price_team_monthly_test",
+        internal_price_id: "team_monthly_usd_v1",
+        client_reference_id: "org_main",
+        metadata
+      },
+      expires_at: new Date(NOW - 30 * 60_000).toISOString()
+    };
+    await env.TEAM_CONTROL_DB.batch([
+      env.TEAM_CONTROL_DB.prepare(
+        `UPDATE organizations SET status = 'deletion_pending' WHERE id = 'org_main' AND status = 'active'`
+      ),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO checkout_intents
+          (id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
+           contributor_limit, status, provider_session_id, compensation_customer_id,
+           compensation_subscription_id, execution_lease_id, execution_lease_expires_at,
+           created_by, created_at, expires_at)
+         VALUES (?1, 'org_main', 'checkout_completed_compensation_idem', 'team_monthly_usd_v1',
+                 'month', 29900, 15, 'compensating', 'cs_completed', 'cus_completed',
+                 'sub_completed', 'checkout_old_lease', ?2, 'userp_test', ?2, ?3)`
+      ).bind(checkoutIntentId, new Date(NOW).toISOString(), command.expires_at),
+      env.TEAM_CONTROL_DB.prepare(
+        `INSERT INTO billing_commands
+          (id, org_id, command_type, idempotency_key, command_json, status,
+           execution_lease_id, execution_lease_expires_at, created_by, created_at)
+         VALUES (?1, 'org_main', 'create_checkout_session', 'checkout_completed_compensation_idem',
+                 ?2, 'compensating', 'checkout_old_lease', ?3, 'userp_test', ?3)`
+      ).bind(commandId, JSON.stringify(command), new Date(NOW).toISOString())
+    ]);
+
+    const fetchMock = vi.fn<StripeFetch>(async (input, init) => {
+      expect(new URL(input.toString()).pathname).toBe("/v1/subscriptions/sub_completed");
+      expect(init?.method).toBe("DELETE");
+      expect(new Headers(init?.headers).get("Idempotency-Key")).toBeNull();
+      expect(init?.body).toBeUndefined();
+      return stripeJson(
+        subscription({
+          id: "sub_completed",
+          customer: "cus_completed",
+          status: "canceled",
+          metadata
+        })
+      );
+    });
+    await expect(
+      handleExecution(
+        await signedRequest(
+          "/v1/execute",
+          {
+            schema_version: "stripe-command-execution-request-v1",
+            request_id: "request_completed_checkout_compensation",
+            org_id: "org_main",
+            command_id: commandId,
+            return_target: "team_billing_v1"
+          },
+          EXECUTOR_SECRET
+        ),
+        executorEnv(),
+        { stripeFetch: fetchMock, sleep: async () => undefined, now: () => NOW }
+      )
+    ).rejects.toMatchObject({ status: 409, code: "checkout_subscription_compensated_for_deletion" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const state = await env.TEAM_CONTROL_DB.prepare(
+      `SELECT i.status AS intent_status, i.compensation_customer_id, i.compensation_subscription_id,
+              i.compensated_at, c.status AS command_status, c.command_json,
+              (SELECT COUNT(*) FROM audit_events
+                WHERE action = 'billing.checkout.subscription_compensated'
+                  AND resource_id = ?2) AS compensation_audits
+         FROM checkout_intents i JOIN billing_commands c ON c.org_id = i.org_id
+        WHERE i.id = ?1 AND c.id = ?2`
+    )
+      .bind(checkoutIntentId, commandId)
+      .first<Record<string, unknown>>();
+    expect(state).toMatchObject({
+      intent_status: "canceled",
+      compensation_customer_id: null,
+      compensation_subscription_id: null,
+      command_status: "canceled",
+      compensation_audits: 1
+    });
+    expect(JSON.parse(String(state?.command_json))).toMatchObject({
+      provider_result: {
+        session_id: "cs_completed",
+        compensation: "completed_checkout_subscription_canceled",
+        provider_customer_id: "cus_completed",
+        provider_subscription_id: "sub_completed",
+        provider_status: "canceled"
+      }
+    });
+    const deleted = await env.TEAM_CONTROL_DB.prepare(
+      `UPDATE organizations SET status = 'deleted'
+        WHERE id = 'org_main' AND status = 'deletion_pending'
+          AND NOT EXISTS (
+            SELECT 1 FROM checkout_intents WHERE org_id = 'org_main'
+              AND status IN ('executing', 'provider_created', 'compensating')
+          )`
+    ).run();
+    expect(deleted.meta.changes).toBe(1);
+  });
+
   it("executes cancellation only against the tenant-bound subscription", async () => {
     await seedAccount();
     const commandId = "billing_command_cancel";

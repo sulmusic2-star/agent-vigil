@@ -17,6 +17,8 @@ CREATE TABLE checkout_intents (
     status IN ('prepared', 'executing', 'provider_created', 'compensating', 'completed', 'expired', 'canceled')
   ),
   provider_session_id TEXT,
+  compensation_customer_id TEXT,
+  compensation_subscription_id TEXT UNIQUE,
   execution_lease_id TEXT,
   execution_lease_expires_at TEXT,
   compensated_at TEXT,
@@ -28,16 +30,19 @@ CREATE TABLE checkout_intents (
     (status IN ('executing', 'compensating') AND execution_lease_id IS NOT NULL AND execution_lease_expires_at IS NOT NULL) OR
     (status NOT IN ('executing', 'compensating'))
   ),
-  CHECK (status <> 'compensating' OR provider_session_id IS NOT NULL)
+  CHECK (status <> 'compensating' OR provider_session_id IS NOT NULL),
+  CHECK ((compensation_customer_id IS NULL) = (compensation_subscription_id IS NULL)),
+  CHECK (compensation_subscription_id IS NULL OR status IN ('executing', 'compensating'))
 );
 
 INSERT INTO checkout_intents (
   id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
-  contributor_limit, status, provider_session_id, execution_lease_id,
+  contributor_limit, status, provider_session_id, compensation_customer_id,
+  compensation_subscription_id, execution_lease_id,
   execution_lease_expires_at, compensated_at, created_by, created_at, expires_at
 )
 SELECT id, org_id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
-       contributor_limit, status, provider_session_id, NULL, NULL, NULL,
+       contributor_limit, status, provider_session_id, NULL, NULL, NULL, NULL, NULL,
        'legacy_actor_redacted', created_at, expires_at
   FROM checkout_intents_v1;
 

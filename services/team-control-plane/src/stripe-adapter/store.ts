@@ -148,6 +148,8 @@ export async function checkoutIntent(
   internal_price_id: string;
   status: string;
   provider_session_id: string | null;
+  compensation_customer_id: string | null;
+  compensation_subscription_id: string | null;
   execution_lease_id: string | null;
   execution_lease_expires_at: string | null;
   expires_at: string;
@@ -155,6 +157,7 @@ export async function checkoutIntent(
   return db
     .prepare(
       `SELECT id, org_id, internal_price_id, status, provider_session_id,
+              compensation_customer_id, compensation_subscription_id,
               execution_lease_id, execution_lease_expires_at, expires_at
          FROM checkout_intents WHERE id = ?1 AND org_id = ?2`
     )
@@ -385,6 +388,76 @@ export async function markCheckoutCompensated(
   ]);
   if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) {
     throw new AdapterError(409, "checkout_compensation_not_recorded", "Checkout compensation could not be committed.");
+  }
+}
+
+export async function markCheckoutSubscriptionCompensated(
+  db: D1Database,
+  row: BillingCommandRow,
+  command: Record<string, unknown>,
+  checkoutIntentId: string,
+  providerSessionId: string,
+  providerCustomerId: string,
+  providerSubscriptionId: string,
+  leaseId: string,
+  compensatedAt: string
+): Promise<void> {
+  const stored = {
+    ...command,
+    provider_result: {
+      session_id: providerSessionId,
+      compensation: "completed_checkout_subscription_canceled",
+      provider_customer_id: providerCustomerId,
+      provider_subscription_id: providerSubscriptionId,
+      provider_status: "canceled",
+      compensated_at: compensatedAt
+    }
+  };
+  const results = await db.batch([
+    db.prepare(
+      `UPDATE checkout_intents
+          SET status = 'canceled', compensated_at = ?1,
+              compensation_customer_id = NULL, compensation_subscription_id = NULL,
+              execution_lease_id = NULL, execution_lease_expires_at = NULL
+        WHERE id = ?2 AND org_id = ?3 AND status = 'executing'
+          AND provider_session_id = ?4
+          AND compensation_customer_id = ?5 AND compensation_subscription_id = ?6
+          AND execution_lease_id = ?7
+          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?3 AND status = 'deletion_pending')`
+    ).bind(
+      compensatedAt,
+      checkoutIntentId,
+      row.org_id,
+      providerSessionId,
+      providerCustomerId,
+      providerSubscriptionId,
+      leaseId
+    ),
+    db.prepare(
+      `UPDATE billing_commands
+          SET status = 'canceled', command_json = ?1, compensated_at = ?2,
+              execution_lease_id = NULL, execution_lease_expires_at = NULL
+        WHERE id = ?3 AND org_id = ?4 AND status = 'executing' AND execution_lease_id = ?5
+          AND EXISTS (
+            SELECT 1 FROM checkout_intents
+             WHERE id = ?6 AND org_id = ?4 AND status = 'canceled'
+               AND provider_session_id = ?7 AND compensated_at = ?2
+               AND compensation_customer_id IS NULL AND compensation_subscription_id IS NULL
+          )`
+    ).bind(JSON.stringify(stored), compensatedAt, row.id, row.org_id, leaseId, checkoutIntentId, providerSessionId),
+    db.prepare(
+      `INSERT INTO audit_events
+        (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+       SELECT ?1, ?2, 'system', 'stripe-executor', 'billing.checkout.subscription_compensated',
+              'billing_command', ?3, '{}', ?4
+        WHERE EXISTS (
+          SELECT 1 FROM billing_commands
+           WHERE id = ?3 AND org_id = ?2 AND status = 'canceled' AND compensated_at = ?4
+        )`
+    ).bind(`audit_${crypto.randomUUID()}`, row.org_id, row.id, compensatedAt)
+  ]);
+  if (results.some((result) => (result.meta.changes ?? 0) !== 1)) {
+    throw new AdapterError(409, "checkout_compensation_not_recorded", "Checkout subscription compensation could not be committed.");
   }
 }
 

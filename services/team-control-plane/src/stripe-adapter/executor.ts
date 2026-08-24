@@ -32,6 +32,7 @@ import {
   executableCommand,
   markCheckoutAccepted,
   markCheckoutCompensated,
+  markCheckoutSubscriptionCompensated,
   markCommandAccepted,
   sourcePaymentContext
 } from "./store.ts";
@@ -90,8 +91,7 @@ function commandObject(row: BillingCommandRow, baseKeys: readonly string[]): Rec
 function checkoutCommand(
   row: BillingCommandRow,
   expectedOrgId: string,
-  env: ExecutorEnv,
-  now: number
+  env: ExecutorEnv
 ): ParsedCheckout {
   const command = commandObject(row, [
     "schema_version",
@@ -106,7 +106,7 @@ function checkoutCommand(
     throw new AdapterError(409, "command_binding_mismatch", "Stored checkout command schema is invalid.");
   }
   const expiresAt = Date.parse(string(command.expires_at, "expires_at", 64));
-  if (!Number.isFinite(expiresAt) || expiresAt < now) {
+  if (!Number.isFinite(expiresAt)) {
     throw new AdapterError(409, "checkout_command_expired", "Prepared checkout command has expired.");
   }
   const parameters = record(command.parameters, "parameters");
@@ -245,6 +245,32 @@ function matchesMetadata(value: unknown, expected: Record<string, string>): bool
   );
 }
 
+function validateCanceledCheckoutSubscription(
+  value: Record<string, unknown>,
+  subscriptionId: string,
+  customerId: string,
+  expectedPriceId: string,
+  expectedMetadata: Record<string, string>
+): void {
+  const items = record(value.items, "subscription.items");
+  const data = items.data;
+  if (
+    value.object !== "subscription" ||
+    value.id !== subscriptionId ||
+    value.customer !== customerId ||
+    value.status !== "canceled" ||
+    !matchesMetadata(value.metadata, expectedMetadata) ||
+    !Array.isArray(data) ||
+    data.length !== 1 ||
+    !isRecord(data[0]) ||
+    data[0].quantity !== 1 ||
+    !isRecord(data[0].price) ||
+    data[0].price.id !== expectedPriceId
+  ) {
+    throw new AdapterError(502, "checkout_subscription_compensation_unproven", "Stripe did not prove exact subscription cancellation.");
+  }
+}
+
 function validateSubscription(
   object: Record<string, unknown>,
   account: BillingAccountRow,
@@ -283,15 +309,22 @@ async function executeCheckout(
   stripe: StripeClient,
   now: number
 ): Promise<Response> {
-  const parsed = checkoutCommand(row, row.org_id, env, now);
+  const parsed = checkoutCommand(row, row.org_id, env);
   const intent = await checkoutIntent(env.TEAM_CONTROL_DB, parsed.checkoutIntentId, row.org_id);
   if (
     !intent ||
     intent.internal_price_id !== parsed.internalPriceId ||
-    !["prepared", "executing", "provider_created", "compensating"].includes(intent.status) ||
-    Date.parse(intent.expires_at) < now
+    !["prepared", "executing", "provider_created", "compensating"].includes(intent.status)
   ) {
     throw new AdapterError(409, "checkout_intent_mismatch", "Prepared checkout intent is not executable.");
+  }
+  const compensationCustomerId = intent.compensation_customer_id;
+  const compensationSubscriptionId = intent.compensation_subscription_id;
+  if ((compensationCustomerId === null) !== (compensationSubscriptionId === null)) {
+    throw new AdapterError(500, "checkout_compensation_binding_corrupt", "Checkout compensation binding is incomplete.");
+  }
+  if (!compensationSubscriptionId && Date.parse(intent.expires_at) < now) {
+    throw new AdapterError(409, "checkout_command_expired", "Prepared checkout command has expired.");
   }
   const leaseId = `checkout_lease_${crypto.randomUUID()}`;
   const leasedAt = new Date(now).toISOString();
@@ -304,6 +337,37 @@ async function executeCheckout(
     leasedAt,
     leaseExpiresAt
   );
+  if (compensationCustomerId && compensationSubscriptionId) {
+    if (!intent.provider_session_id) {
+      throw new AdapterError(500, "checkout_compensation_binding_corrupt", "Checkout compensation Session binding is missing.");
+    }
+    const canceled = await stripe.request(stripePath("subscriptions", compensationSubscriptionId), {
+      method: "DELETE"
+    });
+    validateCanceledCheckoutSubscription(
+      canceled,
+      compensationSubscriptionId,
+      compensationCustomerId,
+      parsed.providerPriceId,
+      parsed.metadata
+    );
+    await markCheckoutSubscriptionCompensated(
+      env.TEAM_CONTROL_DB,
+      row,
+      parsed.command,
+      parsed.checkoutIntentId,
+      intent.provider_session_id,
+      compensationCustomerId,
+      compensationSubscriptionId,
+      leaseId,
+      new Date(now).toISOString()
+    );
+    throw new AdapterError(
+      409,
+      "checkout_subscription_compensated_for_deletion",
+      "Completed Checkout subscription was canceled because organization deletion won the race."
+    );
+  }
   const urls = returnUrls(env);
   const form = new URLSearchParams();
   form.set("mode", "subscription");

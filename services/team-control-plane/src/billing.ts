@@ -752,6 +752,101 @@ export async function listBillingCommands(env: Env, auth: AuthContext): Promise<
   });
 }
 
+async function recordFrozenCheckoutCompletion(
+  env: Env,
+  summary: StripeSummary,
+  eventId: string,
+  at: string
+): Promise<void> {
+  if (!summary.checkoutIntentId || !summary.customerId || !summary.subscriptionId) {
+    throw new ApiError(400, "invalid_provider_event", "Frozen Checkout completion is missing provider identifiers.");
+  }
+  const leaseId = newId("checkout_subscription_compensation_lease");
+  const results = await env.TEAM_CONTROL_DB.batch([
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE checkout_intents
+          SET status = 'compensating', provider_session_id = ?1,
+              compensation_customer_id = ?2, compensation_subscription_id = ?3,
+              execution_lease_id = ?4, execution_lease_expires_at = ?5
+        WHERE id = ?6 AND org_id = ?7 AND internal_price_id = ?8
+          AND status IN ('prepared', 'executing', 'provider_created', 'compensating', 'canceled')
+          AND (provider_session_id IS NULL OR provider_session_id = ?1)
+          AND EXISTS (SELECT 1 FROM organizations WHERE id = ?7 AND status = 'deletion_pending')`
+    ).bind(
+      summary.objectId,
+      summary.customerId,
+      summary.subscriptionId,
+      leaseId,
+      at,
+      summary.checkoutIntentId,
+      summary.orgId,
+      summary.internalPriceId
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE billing_commands
+          SET status = 'compensating', execution_lease_id = ?1, execution_lease_expires_at = ?2
+        WHERE org_id = ?3 AND command_type = 'create_checkout_session'
+          AND status IN ('prepared', 'executing', 'provider_accepted', 'compensating', 'canceled')
+          AND json_extract(command_json, '$.parameters.metadata.checkout_intent_id') = ?4
+          AND EXISTS (
+            SELECT 1 FROM checkout_intents
+             WHERE id = ?4 AND org_id = ?3 AND status = 'compensating'
+               AND provider_session_id = ?5
+               AND compensation_customer_id = ?6 AND compensation_subscription_id = ?7
+               AND execution_lease_id = ?1 AND execution_lease_expires_at = ?2
+          )`
+    ).bind(
+      leaseId,
+      at,
+      summary.orgId,
+      summary.checkoutIntentId,
+      summary.objectId,
+      summary.customerId,
+      summary.subscriptionId
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `UPDATE provider_events SET status = 'rejected'
+        WHERE event_id = ?1 AND org_id = ?2 AND event_type = 'checkout.session.completed'
+          AND object_id = ?3 AND status = 'ignored'
+          AND EXISTS (
+            SELECT 1 FROM checkout_intents
+             WHERE id = ?4 AND org_id = ?2 AND status = 'compensating'
+               AND provider_session_id = ?3
+               AND compensation_customer_id = ?5 AND compensation_subscription_id = ?6
+          )`
+    ).bind(
+      eventId,
+      summary.orgId,
+      summary.objectId,
+      summary.checkoutIntentId,
+      summary.customerId,
+      summary.subscriptionId
+    ),
+    env.TEAM_CONTROL_DB.prepare(
+      `INSERT INTO audit_events
+        (id, org_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json, created_at)
+       SELECT ?1, ?2, 'stripe', 'stripe', 'billing.checkout.completion_requires_compensation',
+              'provider_event', ?3, '{}', ?4
+        WHERE EXISTS (
+          SELECT 1 FROM provider_events
+           WHERE event_id = ?3 AND org_id = ?2 AND status = 'rejected'
+        )
+          AND EXISTS (
+            SELECT 1 FROM checkout_intents
+             WHERE id = ?5 AND org_id = ?2 AND status = 'compensating'
+               AND compensation_subscription_id = ?6
+          )`
+    ).bind(newId("audit"), summary.orgId, eventId, at, summary.checkoutIntentId, summary.subscriptionId)
+  ]);
+  if (results.some((result) => (result.meta.changes ?? 0) !== 1)) {
+    throw new ApiError(
+      409,
+      "checkout_completion_compensation_conflict",
+      "Frozen Checkout completion could not reserve exact provider compensation."
+    );
+  }
+}
+
 export async function handleStripeWebhook(request: Request, env: Env): Promise<Response> {
   assertBillingDutySecretSeparation(env);
   const rawBody = await readBoundedText(request, WEBHOOK_BODY_LIMIT);
@@ -845,15 +940,11 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
   }
 
   if (eventType === "checkout.session.completed" && organization.status !== "active") {
-    await env.TEAM_CONTROL_DB.prepare(
-      `UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1 AND status = 'ignored'`
-    )
-      .bind(eventId)
-      .run();
+    await recordFrozenCheckoutCompletion(env, summary, eventId, at);
     throw new ApiError(
       409,
       "checkout_completion_frozen_for_deletion",
-      "Checkout completion cannot bind commercial state while organization deletion is pending."
+      "Checkout completion was reserved for exact subscription cancellation while organization deletion is pending."
     );
   }
 
@@ -1046,20 +1137,29 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
         throw new ApiError(410, "organization_deleted", "Provider events cannot mutate a deleted organization.");
       }
       if (current.status === "deletion_pending") {
-        await env.TEAM_CONTROL_DB.prepare(
-          `UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1 AND status = 'ignored'`
-        )
-          .bind(eventId)
-          .run();
+        await recordFrozenCheckoutCompletion(env, summary, eventId, at);
         throw new ApiError(
           409,
           "checkout_completion_frozen_for_deletion",
-          "Checkout completion cannot bind commercial state while organization deletion is pending."
+          "Checkout completion was reserved for exact subscription cancellation while organization deletion is pending."
         );
       }
       throw error;
     }
     if (completionResults.some((result) => (result.meta.changes ?? 0) !== 1)) {
+      const current = await env.TEAM_CONTROL_DB.prepare(
+        `SELECT status FROM organizations WHERE id = ?1`
+      )
+        .bind(summary.orgId)
+        .first<{ status: string }>();
+      if (current?.status === "deletion_pending") {
+        await recordFrozenCheckoutCompletion(env, summary, eventId, at);
+        throw new ApiError(
+          409,
+          "checkout_completion_frozen_for_deletion",
+          "Checkout completion was reserved for exact subscription cancellation while organization deletion is pending."
+        );
+      }
       await env.TEAM_CONTROL_DB.prepare(
         `UPDATE provider_events SET status = 'rejected' WHERE event_id = ?1 AND status = 'ignored'`
       )

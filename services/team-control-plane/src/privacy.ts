@@ -52,7 +52,9 @@ export async function exportOrganizationData(env: Env, auth: AuthContext): Promi
       allRows(
         db,
         `SELECT id, idempotency_key, internal_price_id, billing_interval, list_amount_cents,
-                contributor_limit, status, provider_session_id, created_by AS actor_pseudonym,
+                contributor_limit, status, provider_session_id,
+                compensation_customer_id, compensation_subscription_id,
+                created_by AS actor_pseudonym,
                 created_at, expires_at, compensated_at
            FROM checkout_intents WHERE org_id = ?1 ORDER BY created_at`,
         auth.orgId

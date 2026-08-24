@@ -7,7 +7,7 @@ const DEFAULT_TIMEOUT_MS = 8_000;
 const MAX_ATTEMPTS = 3;
 
 export interface StripeRequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "DELETE";
   form?: URLSearchParams;
   idempotencyKey?: string;
 }
@@ -99,6 +99,9 @@ export class StripeClient {
     const method = options.method ?? "GET";
     if (method === "POST" && !options.idempotencyKey) {
       throw new AdapterError(500, "missing_provider_idempotency", "Mutating Stripe request is missing idempotency.");
+    }
+    if (method === "DELETE" && options.idempotencyKey) {
+      throw new AdapterError(500, "invalid_provider_idempotency", "Stripe DELETE requests must not carry idempotency keys.");
     }
     if (options.idempotencyKey && options.idempotencyKey.length > 255) {
       throw new AdapterError(500, "invalid_provider_idempotency", "Stripe idempotency key is invalid.");

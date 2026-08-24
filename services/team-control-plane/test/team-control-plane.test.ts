@@ -512,6 +512,8 @@ describe.sequential("Team control plane", () => {
       `SELECT
          (SELECT status FROM organizations WHERE id = 'org_main') AS org_status,
          (SELECT status FROM checkout_intents WHERE id = ?1) AS checkout_status,
+         (SELECT compensation_customer_id FROM checkout_intents WHERE id = ?1) AS compensation_customer_id,
+         (SELECT compensation_subscription_id FROM checkout_intents WHERE id = ?1) AS compensation_subscription_id,
          (SELECT status FROM billing_commands WHERE id = ?2) AS command_status,
          (SELECT status FROM provider_events WHERE event_id = 'evt_checkout_completed_during_deletion') AS event_status,
          (SELECT COUNT(*) FROM billing_accounts
@@ -529,6 +531,8 @@ describe.sequential("Team control plane", () => {
     expect(state).toEqual({
       org_status: "deletion_pending",
       checkout_status: "compensating",
+      compensation_customer_id: "cus_frozen",
+      compensation_subscription_id: "sub_frozen",
       command_status: "compensating",
       event_status: "rejected",
       provider_bindings: 0,
