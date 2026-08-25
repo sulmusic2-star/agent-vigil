@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.19.0 - 2026-08-25
+
 - Add `vigil pr-receipt` for a read-only, no-workflow-change observation of a
   public GitHub pull request. It pins the verifier by full commit, optionally
   signs the normalized receipt with a customer-controlled Ed25519 key, retains
@@ -11,6 +13,8 @@
   coverage gaps instead of silently dropping missing review or check evidence.
 - State in the receipt that observed execution is not evidence that selected
   checks were sufficient.
+- Put the no-workflow command on the public install surface and add a dedicated
+  issue form for voluntary, evidence-linked receipt trials.
 
 ## 0.18.0 - 2026-08-25
 

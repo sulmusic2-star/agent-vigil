@@ -16,10 +16,13 @@ signed lifecycle receipt without opening a pull request, installing a GitHub
 Action, or changing the target repository:
 
 ```bash
-vigil pr-receipt https://github.com/OWNER/REPOSITORY/pull/123 \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz pr-receipt \
+  https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref <reviewed-full-Agent-Vigil-commit> \
   --signing-key operator-private.pem \
   --output pr-123.receipt.json
+
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz pr-receipt verify pr-123.receipt.json
 ```
 
 The command makes read-only requests to `api.github.com` for pull-request,
@@ -33,6 +36,8 @@ evidence at the observation time. The receipt always says that a protected
 action is **not authorized**: observing that checks ran is not proof that those
 checks were sufficient. See the precise
 [public PR receipt boundary](docs/PUBLIC_PR_RECEIPT.md).
+Self-serve trial reports have a dedicated
+[public receipt feedback form](https://github.com/sulmusic2-star/agent-vigil/issues/new?template=public-pr-receipt-feedback.yml).
 
 Agent Vigil checks an exact code change against the task, policy, tests, and
 recorded tool actions behind it. It returns **PASS**, **FAIL**, or
@@ -133,7 +138,7 @@ claim live model/provider behavior. See the precise
 It also adds the one-command protection profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz protect
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz protect
 ```
 
 `protect` discovers common test, typecheck, lint, and build commands; installs
@@ -264,8 +269,8 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 Until the npm registry package is current, use the verified GitHub release package:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz init
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz init
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz doctor
 ```
 
 `init` creates a small JSON policy, a privacy warning and transcript placeholder,
@@ -283,8 +288,8 @@ that disagree with GitHub's event payload.
 To add a GitHub/Sigstore signature to each receipt:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz init --attest
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz init --attest
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz doctor
 ```
 
 The generated workflow adds GitHub signing permissions but does not gain write
@@ -292,7 +297,7 @@ access to repository contents. After a run, download
 `agent-vigil-report.json` and verify it with:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz verify-attestation \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz verify-attestation \
   agent-vigil-report.json --repository OWNER/REPOSITORY
 ```
 
@@ -302,7 +307,7 @@ the code is correct.
 Maintainer profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz init --profile maintainer
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz init --profile maintainer
 ```
 
 This creates base-anchored file, line, test, and protected-path limits; an
@@ -315,7 +320,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz init --profile authority
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz init --profile authority
 ```
 
 Review the generated task ID, expiry, paths, and action classes, then merge the
@@ -423,7 +428,7 @@ Node 20 or newer is required. Run the published npm package without installing
 it globally:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz --help
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz --help
 ```
 
 Or work from source:
@@ -540,7 +545,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.18.0
+  - uses: sulmusic2-star/agent-vigil@v0.19.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -574,7 +579,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.18.0
+    uses: sulmusic2-star/agent-vigil@v0.19.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
