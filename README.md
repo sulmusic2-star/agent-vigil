@@ -162,6 +162,19 @@ a weaker sandbox, and a skipped test. It returns `PASS` only when every planted
 case produces the expected result and the temporary clone is removed. It does
 not change or push the source repository. See [Control Proof](docs/CONTROL_PROOF.md).
 
+Install a scheduled, keyless GitHub proof with one command:
+
+```bash
+vigil certify install-action --repo . --action-ref <reviewed-full-Agent-Vigil-commit>
+```
+
+The generated workflow pins Agent Vigil and its supporting Actions to full
+commits, runs weekly or on demand, uses GitHub OIDC to sign the exact proof, and
+retains the proof plus attestation bundle for 90 days. It needs no repository
+secret or long-lived signing key. Verification binds the proof file, its
+content hash, exact source commit, repository, signer workflow, and optional
+signer-workflow commit.
+
 Retain those results in a chained corpus and answer whether every policy-listed
 repository has passed its required challenges within seven days:
 

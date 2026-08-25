@@ -54,16 +54,62 @@ The Action can run the same proof on demand or on a schedule:
 
 ```yaml
 - id: control-proof
-  uses: sulmusic2-star/agent-vigil@v0.17.0
+  uses: sulmusic2-star/agent-vigil@<reviewed-full-commit>
   with:
     mode: prove
+    attest: true
     repo: .
     head: ${{ github.sha }}
 ```
 
-Retain `steps.control-proof.outputs.report` as an artifact. `HOLD` exits 2, so an
-unexpected decision or cleanup error fails the job.
-This feature ships in `v0.15.0`.
+`attest: true` uses GitHub's short-lived OIDC identity and Sigstore-backed
+artifact attestation. No repository signing secret is created. Retain
+`steps.control-proof.outputs.report` and
+`steps.control-proof.outputs.attestation-bundle` as artifacts. `HOLD` exits 2,
+so an unexpected decision or cleanup error fails the job.
+
+Install the weekly and manual workflow:
+
+```bash
+vigil certify install-action \
+  --repo . \
+  --action-ref <reviewed-full-Agent-Vigil-commit>
+```
+
+The installer creates `.github/workflows/agent-vigil-control-proof.yml`. It
+does not replace an existing file unless `--force` is supplied. The generated
+workflow has read-only repository permission plus the three GitHub permissions
+needed for attestation, pins all Actions to full commits, does not retain
+checkout credentials, and keeps the proof and attestation bundle for 90 days.
+
+Verify one downloaded proof:
+
+```bash
+vigil verify-control-attestation control-proof.json \
+  --repository OWNER/REPOSITORY \
+  --signer-workflow OWNER/REPOSITORY/.github/workflows/agent-vigil-control-proof.yml
+```
+
+Add `--signer-digest <full-workflow-commit>` when the signer is a separately
+controlled reusable workflow. Verification also pins the proof's source commit
+with GitHub CLI's `--source-digest` check and rejects self-hosted runners unless
+the verifier explicitly supplies `--allow-self-hosted`.
+
+The attestation establishes which GitHub workflow signed the file. The workflow
+can still choose what it signs. Protect the signing workflow from ordinary
+candidate changes, or move signing into a separately controlled reusable
+workflow and pin that workflow with `--signer-digest`, before treating this as
+independent approval.
+
+GitHub documents artifact attestations as available to public repositories on
+current plans; private and internal repository use requires GitHub Enterprise
+Cloud, and GitHub Enterprise Server is not supported. See
+[GitHub's artifact-attestation documentation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)
+and the
+[`gh attestation verify` trust options](https://cli.github.com/manual/gh_attestation_verify).
+
+The proof feature ships in `v0.15.0`. Keyless proof attestation and the
+installer are unreleased until their branch is merged and tagged.
 
 ## Seven-day certification status
 
@@ -124,3 +170,16 @@ This verifies structure, content integrity, signer identity, required challenge
 results, and freshness. It does not independently prove a vendor's private
 evidence, make the signer trustworthy, or show that a check is required by a
 live repository ruleset.
+
+## What keyless signing changes
+
+Keyless signing removes private-key creation, storage, rotation, and recovery
+from the installation. GitHub's certificate supplies the repository and
+workflow identity, while the custom predicate binds the exact source commit and
+control-proof decision. Agent Vigil checks both the signed subject digest and
+the proof's own content hash.
+
+It does not create outside adoption. A workflow installed only in an Agent
+Vigil-owned repository remains first-party product evidence. An external
+repository must voluntarily install and run it before the public adoption
+ledger can count that repository.

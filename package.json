@@ -93,6 +93,7 @@
     "docs/authority-plan-v1.schema.json",
     "docs/authority-plan-policy-v1.schema.json",
     "docs/ai-change-receipt-predicate-v1.schema.json",
+    "docs/control-proof-predicate-v1.schema.json",
     "docs/compatibility-entry-v1.schema.json",
     "docs/control-certificate-v1.schema.json",
     "docs/control-certificate-v2.schema.json",

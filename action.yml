@@ -170,10 +170,6 @@ runs:
           echo "agent-vigil: plan mode does not yet support attestation" >&2
           exit 2
         fi
-        if [[ "$VIGIL_MODE" == "prove" && "$VIGIL_ATTEST" == "true" ]]; then
-          echo "agent-vigil: prove mode does not yet support attestation" >&2
-          exit 2
-        fi
         if [[ "$VIGIL_MODE" == "continuity" && "$VIGIL_ATTEST" == "true" ]]; then
           echo "agent-vigil: continuity mode does not create a new attestation" >&2
           exit 2
@@ -451,20 +447,27 @@ runs:
         } >> "$GITHUB_OUTPUT"
         exit "$code"
     - id: prepare_attestation
-      name: Prepare privacy-reduced AI Change Receipt predicate
-      if: ${{ always() && inputs.mode != 'plan' && inputs.mode != 'prove' && inputs.mode != 'continuity' && inputs.attest == 'true' && steps.vigil.outputs.report != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+      name: Prepare privacy-reduced Agent Vigil predicate
+      if: ${{ always() && inputs.mode != 'plan' && inputs.mode != 'continuity' && inputs.attest == 'true' && steps.vigil.outputs.report != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
       shell: bash
       env:
         VIGIL_REPORT: ${{ steps.vigil.outputs.report }}
       run: |
         predicate="$RUNNER_TEMP/agent-vigil-attestation-predicate.json"
-        node "$GITHUB_ACTION_PATH/dist/cli.js" attest "$VIGIL_REPORT" --predicate-output "$predicate"
+        if [[ "${{ inputs.mode }}" == "prove" ]]; then
+          node "$GITHUB_ACTION_PATH/dist/cli.js" attest-control "$VIGIL_REPORT" --predicate-output "$predicate"
+          predicate_type="https://sulmusic2-star.github.io/agent-vigil/control-proof-predicate-v1.schema.json"
+        else
+          node "$GITHUB_ACTION_PATH/dist/cli.js" attest "$VIGIL_REPORT" --predicate-output "$predicate"
+          predicate_type="https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json"
+        fi
         echo "predicate=$predicate" >> "$GITHUB_OUTPUT"
+        echo "predicate_type=$predicate_type" >> "$GITHUB_OUTPUT"
     - id: github_attestation
-      name: Sign AI Change Receipt with GitHub
+      name: Sign Agent Vigil evidence with GitHub
       if: ${{ always() && inputs.attest == 'true' && steps.prepare_attestation.outputs.predicate != '' }}
-      uses: actions/attest@v4
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
       with:
         subject-path: ${{ steps.vigil.outputs.report }}
-        predicate-type: https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json
+        predicate-type: ${{ steps.prepare_attestation.outputs.predicate_type }}
         predicate-path: ${{ steps.prepare_attestation.outputs.predicate }}

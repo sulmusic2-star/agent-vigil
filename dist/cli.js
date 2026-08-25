@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash21 } from "node:crypto";
-import { execFileSync as execFileSync17 } from "node:child_process";
-import { existsSync as existsSync11, mkdirSync as mkdirSync8, readFileSync as readFileSync23, realpathSync as realpathSync13, statSync as statSync10, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname11, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve23 } from "node:path";
+import { createHash as createHash22 } from "node:crypto";
+import { execFileSync as execFileSync19 } from "node:child_process";
+import { existsSync as existsSync12, mkdirSync as mkdirSync9, readFileSync as readFileSync24, realpathSync as realpathSync13, statSync as statSync10, writeFileSync as writeFileSync8 } from "node:fs";
+import { dirname as dirname12, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve25 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -1705,9 +1705,9 @@ function buildReport(input) {
     ...input.policy?.source ? { source: input.policy.source } : {},
     sha256: input.policy?.sha256 ?? "sha256:unavailable"
   };
-  const count2 = (verdict) => input.results.filter((r) => r.verdict === verdict).length;
-  const contradicted = count2("contradicted");
-  const unverifiable = count2("unverifiable");
+  const count3 = (verdict) => input.results.filter((r) => r.verdict === verdict).length;
+  const contradicted = count3("contradicted");
+  const unverifiable = count3("unverifiable");
   const meaningfulVerified = input.results.filter(
     (r) => r.verdict === "verified" && r.contributesToPass !== false
   ).length;
@@ -1716,7 +1716,7 @@ function buildReport(input) {
   else if (meaningfulVerified < policy.minVerified || input.results.some((result5) => result5.verdict === "unverifiable" && result5.blocksPass) || policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
   else status = "PASS";
   const summary = {
-    verified: count2("verified"),
+    verified: count3("verified"),
     contradicted,
     unverifiable,
     meaningfulVerified,
@@ -2198,10 +2198,10 @@ function runDemo(run2) {
   git2(repo, "add", "README.md");
   git2(repo, "commit", "-qm", "head");
   const evidence = mkdtempSync(join2(tmpdir(), "agent-vigil-demo-evidence-"));
-  const count2 = join2(evidence, "false-count.md");
+  const count3 = join2(evidence, "false-count.md");
   const ghost = join2(evidence, "ghost-file.md");
   const loop = join2(evidence, "tool-loop.jsonl");
-  writeFileSync2(count2, "All 99 tests pass.\n");
+  writeFileSync2(count3, "All 99 tests pass.\n");
   writeFileSync2(ghost, "I created src/ghost.ts. The work is complete.\n");
   const rows = [
     { type: "assistant", message: { content: [{ type: "text", text: "The test suite passes." }] } },
@@ -2210,7 +2210,7 @@ function runDemo(run2) {
   writeFileSync2(loop, `${rows.map((row) => JSON.stringify(row)).join("\n")}
 `);
   const scenarios = [
-    ["claimed 99 tests; runner has 1", count2],
+    ["claimed 99 tests; runner has 1", count3],
     ["claimed a file that does not exist", ghost],
     ["repeated the identical tool call 3 times", loop]
   ];
@@ -3291,7 +3291,7 @@ function analyzeTrajectory(actions) {
     toolCalls: actions.length,
     failedToolCalls: actions.filter((action) => action.failed).length,
     maxIdenticalToolCalls: counts.length ? Math.max(...counts) : 0,
-    repeatedActionGroups: counts.filter((count2) => count2 > 1).length,
+    repeatedActionGroups: counts.filter((count3) => count3 > 1).length,
     maxConsecutiveFailedToolCalls: maxFailureStreak,
     progressBearingActions: actions.filter((action) => action.classes.some((item2) => progressClasses.has(item2))).length
   };
@@ -4136,12 +4136,12 @@ function buildPortableGateReport(receipt, options) {
 import { createHash as createHash8 } from "node:crypto";
 function consistencyErrors(report) {
   const errors = [];
-  const count2 = (verdict) => report.results.filter((row) => row.verdict === verdict).length;
+  const count3 = (verdict) => report.results.filter((row) => row.verdict === verdict).length;
   const meaningfulVerified = report.results.filter((row) => row.verdict === "verified" && row.contributesToPass !== false).length;
-  const expectedStatus = count2("contradicted") > 0 ? "FAIL" : meaningfulVerified < report.policy.minVerified || report.results.some((row) => row.verdict === "unverifiable" && row.blocksPass) || report.policy.strict && count2("unverifiable") > 0 ? "INCONCLUSIVE" : "PASS";
-  if (report.summary.verified !== count2("verified")) errors.push("verified count does not match results");
-  if (report.summary.contradicted !== count2("contradicted")) errors.push("contradicted count does not match results");
-  if (report.summary.unverifiable !== count2("unverifiable")) errors.push("unverifiable count does not match results");
+  const expectedStatus = count3("contradicted") > 0 ? "FAIL" : meaningfulVerified < report.policy.minVerified || report.results.some((row) => row.verdict === "unverifiable" && row.blocksPass) || report.policy.strict && count3("unverifiable") > 0 ? "INCONCLUSIVE" : "PASS";
+  if (report.summary.verified !== count3("verified")) errors.push("verified count does not match results");
+  if (report.summary.contradicted !== count3("contradicted")) errors.push("contradicted count does not match results");
+  if (report.summary.unverifiable !== count3("unverifiable")) errors.push("unverifiable count does not match results");
   if (report.summary.meaningfulVerified !== meaningfulVerified) errors.push("meaningfulVerified count does not match results");
   if (report.summary.status !== expectedStatus) errors.push(`status ${report.summary.status} should be ${expectedStatus}`);
   if (report.summary.pass !== (report.summary.status === "PASS")) errors.push("pass boolean does not match status");
@@ -9646,28 +9646,361 @@ function renderControlProof(report) {
   return lines.join("\n");
 }
 
+// src/control-proof-attestation.ts
+import { createHash as createHash18 } from "node:crypto";
+import { execFileSync as execFileSync14 } from "node:child_process";
+import { closeSync as closeSync2, constants as constants3, fstatSync as fstatSync2, lstatSync as lstatSync9, openSync as openSync2, readFileSync as readFileSync20 } from "node:fs";
+import { basename as basename6, resolve as resolve19 } from "node:path";
+var CONTROL_PROOF_ATTESTATION_PREDICATE_TYPE = "https://sulmusic2-star.github.io/agent-vigil/control-proof-predicate-v1.schema.json";
+var SHA2562 = /^sha256:[0-9a-f]{64}$/;
+var COMMIT = /^[0-9a-f]{40}$/;
+var PLAIN = /^[^\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]+$/u;
+var EXPECTED = /* @__PURE__ */ new Set(["PASS", "BLOCK", "HOLD"]);
+var ACTUAL = /* @__PURE__ */ new Set(["PASS", "BLOCK", "HOLD", "ERROR"]);
+function sha2563(value) {
+  return `sha256:${createHash18("sha256").update(value).digest("hex")}`;
+}
+function exactKeys3(value, expected) {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
+}
+function plain(value, label, maximum) {
+  if (typeof value !== "string" || !value || value.length > maximum || !PLAIN.test(value)) {
+    throw new Error(`${label} must be plain text between 1 and ${maximum} characters`);
+  }
+  return value;
+}
+function timestamp2(value, label) {
+  const selected = plain(value, label, 40);
+  const parsed = Date.parse(selected);
+  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== selected) throw new Error(`${label} must be canonical RFC3339 UTC`);
+  return selected;
+}
+function count2(value, label) {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error(`${label} must be a non-negative integer`);
+  return Number(value);
+}
+function validateControlProof(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("control proof must be an object");
+  const proof = value;
+  if (!exactKeys3(proof, ["schemaVersion", "vigilVersion", "status", "sourceCommit", "generatedAt", "receiptHash", "challenges", "summary", "reproduction", "limits"])) {
+    throw new Error("control proof has unsupported or missing fields");
+  }
+  if (proof.schemaVersion !== "agent-vigil-control-proof/v1") throw new Error("unsupported control proof schema");
+  const vigilVersion = plain(proof.vigilVersion, "control proof vigilVersion", 80);
+  if (proof.status !== "PASS" && proof.status !== "HOLD") throw new Error("control proof status must be PASS or HOLD");
+  const sourceCommit = plain(proof.sourceCommit, "control proof sourceCommit", 40);
+  if (!COMMIT.test(sourceCommit)) throw new Error("control proof sourceCommit must be a full lowercase commit SHA");
+  const generatedAt = timestamp2(proof.generatedAt, "control proof generatedAt");
+  if (!Array.isArray(proof.challenges) || proof.challenges.length < 1 || proof.challenges.length > 100) {
+    throw new Error("control proof must contain 1 to 100 challenges");
+  }
+  const ids = /* @__PURE__ */ new Set();
+  const challenges = proof.challenges.map((value2, index) => {
+    if (!value2 || typeof value2 !== "object" || Array.isArray(value2)) throw new Error(`control proof challenge ${index} must be an object`);
+    const item2 = value2;
+    if (!exactKeys3(item2, ["id", "claim", "expected", "actual", "passed", "base", "head", "evidence"])) {
+      throw new Error(`control proof challenge ${index} has unsupported or missing fields`);
+    }
+    const id = plain(item2.id, `control proof challenge ${index} id`, 80);
+    if (!/^[A-Za-z0-9_.-]+$/.test(id) || ids.has(id)) throw new Error(`control proof challenge ${index} id is invalid or duplicated`);
+    ids.add(id);
+    const claim = plain(item2.claim, `control proof challenge ${index} claim`, 400);
+    const evidence = plain(item2.evidence, `control proof challenge ${index} evidence`, 1e3);
+    if (!EXPECTED.has(item2.expected) || !ACTUAL.has(item2.actual)) {
+      throw new Error(`control proof challenge ${index} has an unsupported decision`);
+    }
+    if (typeof item2.passed !== "boolean" || item2.passed !== (item2.expected === item2.actual)) {
+      throw new Error(`control proof challenge ${index} has inconsistent decision fields`);
+    }
+    const base = plain(item2.base, `control proof challenge ${index} base`, 40);
+    const head = plain(item2.head, `control proof challenge ${index} head`, 40);
+    if (!COMMIT.test(base) || !COMMIT.test(head)) throw new Error(`control proof challenge ${index} must use full lowercase commit SHAs`);
+    return {
+      id,
+      claim,
+      expected: item2.expected,
+      actual: item2.actual,
+      passed: item2.passed,
+      base,
+      head,
+      evidence
+    };
+  });
+  if (!proof.summary || typeof proof.summary !== "object" || Array.isArray(proof.summary) || !exactKeys3(proof.summary, ["passed", "total"])) throw new Error("control proof summary is invalid");
+  const summary = proof.summary;
+  const passed = count2(summary.passed, "control proof summary.passed");
+  const total = count2(summary.total, "control proof summary.total");
+  if (passed !== challenges.filter((item2) => item2.passed).length || total !== challenges.length) throw new Error("control proof summary does not match its challenges");
+  if (proof.status !== (passed === total ? "PASS" : "HOLD")) throw new Error("control proof status does not match its challenges");
+  const reproduction = plain(proof.reproduction, "control proof reproduction", 400);
+  if (!Array.isArray(proof.limits) || proof.limits.length > 32) throw new Error("control proof limits must be an array with at most 32 entries");
+  const limits = proof.limits.map((item2, index) => plain(item2, `control proof limit ${index}`, 600));
+  const receiptHash = plain(proof.receiptHash, "control proof receiptHash", 71);
+  if (!SHA2562.test(receiptHash)) throw new Error("control proof receiptHash must be a lowercase SHA-256 identifier");
+  const parsed = {
+    schemaVersion: "agent-vigil-control-proof/v1",
+    vigilVersion,
+    status: proof.status,
+    sourceCommit,
+    generatedAt,
+    receiptHash,
+    challenges,
+    summary: { passed, total },
+    reproduction,
+    limits
+  };
+  const { receiptHash: _receiptHash, ...payload } = parsed;
+  if (sha2563(canonical(payload)) !== receiptHash) throw new Error("control proof content does not match receiptHash");
+  return parsed;
+}
+function loadControlProof(path) {
+  const absolute = resolve19(path);
+  const metadata = lstatSync9(absolute);
+  if (metadata.isSymbolicLink() || !metadata.isFile()) throw new Error("control proof must be a regular file, not a symbolic link");
+  if (metadata.size > 2 * 1024 * 1024) throw new Error("control proof exceeds the 2 MB attestation limit");
+  const descriptor = openSync2(absolute, constants3.O_RDONLY | (constants3.O_NOFOLLOW ?? 0));
+  let bytes;
+  try {
+    const opened = fstatSync2(descriptor);
+    if (!opened.isFile() || opened.size !== metadata.size) throw new Error("control proof changed while it was being opened");
+    bytes = readFileSync20(descriptor);
+    if (bytes.length !== opened.size) throw new Error("control proof changed while it was being read");
+  } finally {
+    closeSync2(descriptor);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new Error("control proof is not valid JSON");
+  }
+  return { proof: validateControlProof(parsed), bytes, fileSha256: sha2563(bytes) };
+}
+function challengeSetSha256(proof) {
+  return sha2563(canonical(proof.challenges.map(({ id, expected, actual, passed }) => ({ id, expected, actual, passed }))));
+}
+function buildControlProofPredicate(path) {
+  const { proof, fileSha256 } = loadControlProof(path);
+  return {
+    predicateVersion: "1",
+    proof: {
+      schemaVersion: "agent-vigil-control-proof/v1",
+      receiptHash: proof.receiptHash,
+      fileSha256,
+      status: proof.status,
+      sourceCommit: proof.sourceCommit,
+      generatedAt: proof.generatedAt,
+      vigilVersion: proof.vigilVersion,
+      passed: proof.summary.passed,
+      total: proof.summary.total,
+      challengeSetSha256: challengeSetSha256(proof)
+    },
+    privacy: { claimsIncluded: false, evidenceIncluded: false, repositoryPathIncluded: false }
+  };
+}
+function writeControlProofPredicate(path, output) {
+  const predicate = buildControlProofPredicate(path);
+  writePrivateFileAtomic(resolve19(output), `${JSON.stringify(predicate, null, 2)}
+`);
+  return predicate;
+}
+function statementsFromGh2(value) {
+  const roots = Array.isArray(value) ? value : [value];
+  const statements = [];
+  for (const root of roots) {
+    if (!root || typeof root !== "object") continue;
+    const record5 = root;
+    const verification2 = record5.verificationResult;
+    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record5.statement ?? record5;
+    if (statement && typeof statement === "object") statements.push(statement);
+  }
+  return statements;
+}
+function subjectMatches2(statement, expectedName, expectedDigest) {
+  const subjects = Array.isArray(statement.subject) ? statement.subject : [];
+  return subjects.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const subject = entry;
+    const digest7 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const name2 = String(subject.name ?? "");
+    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && `sha256:${String(digest7.sha256 ?? "")}` === expectedDigest;
+  });
+}
+function predicateMatches2(value, proof, fileSha256) {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value;
+  const body = candidate.proof;
+  const privacy = candidate.privacy;
+  return candidate.predicateVersion === "1" && exactKeys3(candidate, ["predicateVersion", "privacy", "proof"]) && Boolean(body) && exactKeys3(body, ["challengeSetSha256", "fileSha256", "generatedAt", "passed", "receiptHash", "schemaVersion", "sourceCommit", "status", "total", "vigilVersion"]) && Boolean(privacy) && exactKeys3(privacy, ["claimsIncluded", "evidenceIncluded", "repositoryPathIncluded"]) && body?.schemaVersion === "agent-vigil-control-proof/v1" && body.receiptHash === proof.receiptHash && body.fileSha256 === fileSha256 && body.status === proof.status && body.sourceCommit === proof.sourceCommit && body.generatedAt === proof.generatedAt && body.vigilVersion === proof.vigilVersion && body.passed === proof.summary.passed && body.total === proof.summary.total && body.challengeSetSha256 === challengeSetSha256(proof) && privacy?.claimsIncluded === false && privacy.evidenceIncluded === false && privacy.repositoryPathIncluded === false;
+}
+function verifyGhControlProofAttestationOutput(path, ghOutput) {
+  const { proof, fileSha256 } = loadControlProof(path);
+  const statements = statementsFromGh2(ghOutput);
+  let subjectDigestValid = false;
+  let predicateValid = false;
+  let matched;
+  for (const statement of statements) {
+    if (statement.predicateType !== CONTROL_PROOF_ATTESTATION_PREDICATE_TYPE) continue;
+    const subjectOk = subjectMatches2(statement, basename6(path), fileSha256);
+    const predicateOk = predicateMatches2(statement.predicate, proof, fileSha256);
+    subjectDigestValid ||= subjectOk;
+    predicateValid ||= predicateOk;
+    if (subjectOk && predicateOk) matched = statement.predicate;
+  }
+  const { receiptHash: _receiptHash, ...payload } = proof;
+  const proofHashValid = sha2563(canonical(payload)) === proof.receiptHash;
+  return {
+    valid: proofHashValid && subjectDigestValid && predicateValid && Boolean(matched),
+    proofHashValid,
+    subjectDigestValid,
+    predicateValid,
+    statementCount: statements.length,
+    ...matched ? { predicate: matched } : {}
+  };
+}
+var runGitHubCli2 = (args) => execFileSync14("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+function verifyGitHubControlProofAttestation(path, repository2, trust = {}, executeGh = runGitHubCli2) {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository2)) throw new Error("repository must be owner/name");
+  const signerWorkflow = trust.signerWorkflow ?? `${repository2}/.github/workflows/agent-vigil-control-proof.yml`;
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[A-Za-z0-9_./-]+\.ya?ml$/i.test(signerWorkflow)) {
+    throw new Error("signer workflow must be owner/name/.github/workflows/file.yml");
+  }
+  if (trust.signerDigest !== void 0 && !COMMIT.test(trust.signerDigest)) throw new Error("signer digest must be a full lowercase commit SHA");
+  const { proof } = loadControlProof(path);
+  const command = [
+    "attestation",
+    "verify",
+    resolve19(path),
+    "--repo",
+    repository2,
+    "--predicate-type",
+    CONTROL_PROOF_ATTESTATION_PREDICATE_TYPE,
+    "--signer-workflow",
+    signerWorkflow,
+    "--source-digest",
+    proof.sourceCommit,
+    ...trust.signerDigest ? ["--signer-digest", trust.signerDigest] : [],
+    "--format",
+    "json",
+    ...!trust.allowSelfHosted ? ["--deny-self-hosted-runners"] : []
+  ];
+  let raw;
+  try {
+    raw = executeGh(command);
+  } catch (error) {
+    const detail = error && typeof error === "object" && "stderr" in error ? String(error.stderr ?? "").trim() : "";
+    throw new Error(`GitHub control-proof attestation verification failed${detail ? `: ${detail}` : "; install and authenticate a current GitHub CLI"}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("GitHub CLI returned unreadable control-proof attestation JSON");
+  }
+  return verifyGhControlProofAttestationOutput(path, parsed);
+}
+
+// src/control-proof-workflow.ts
+import { execFileSync as execFileSync15 } from "node:child_process";
+import { existsSync as existsSync8, mkdirSync as mkdirSync6, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname10, resolve as resolve20 } from "node:path";
+var CHECKOUT_COMMIT = "11d5960a326750d5838078e36cf38b85af677262";
+var UPLOAD_COMMIT = "ea165f8d65b6e75b540449e92b4886f43607fa02";
+var FULL_COMMIT = /^[0-9a-f]{40}$/;
+function keylessControlProofWorkflow(actionCommit) {
+  return `# agent-vigil-keyless-control-proof/v1
+name: Agent Vigil control proof
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  prove:
+    name: Challenge the installed control
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the exact source commit
+        uses: actions/checkout@${CHECKOUT_COMMIT}
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: \${{ github.sha }}
+      - id: vigil
+        name: Run and sign the control proof
+        uses: sulmusic2-star/agent-vigil@${actionCommit}
+        with:
+          mode: prove
+          attest: true
+          repo: .
+          head: \${{ github.sha }}
+      - name: Retain the proof and GitHub attestation bundle
+        if: always() && steps.vigil.outputs.report != ''
+        uses: actions/upload-artifact@${UPLOAD_COMMIT}
+        with:
+          name: agent-vigil-control-proof-\${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            \${{ steps.vigil.outputs.report }}
+            \${{ steps.vigil.outputs.attestation-bundle }}
+`;
+}
+function assertRepository(root) {
+  try {
+    execFileSync15("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
+  } catch {
+    throw new Error(`not a Git repository: ${root}`);
+  }
+}
+function installKeylessControlProofAction(repo, actionCommit, force = false) {
+  const root = resolve20(repo);
+  assertRepository(root);
+  if (!FULL_COMMIT.test(actionCommit)) throw new Error("--action-ref must be a full lowercase Agent Vigil commit SHA");
+  const workflow3 = ".github/workflows/agent-vigil-control-proof.yml";
+  const target2 = resolve20(root, workflow3);
+  const result5 = { created: [], kept: [], actionCommit, workflow: workflow3 };
+  if (existsSync8(target2) && !force) {
+    result5.kept.push(workflow3);
+    return result5;
+  }
+  mkdirSync6(dirname10(target2), { recursive: true });
+  writeFileSync6(target2, keylessControlProofWorkflow(actionCommit));
+  result5.created.push(workflow3);
+  return result5;
+}
+
 // src/certification.ts
-import { createHash as createHash19 } from "node:crypto";
-import { existsSync as existsSync8, lstatSync as lstatSync9, readFileSync as readFileSync21 } from "node:fs";
+import { createHash as createHash20 } from "node:crypto";
+import { existsSync as existsSync9, lstatSync as lstatSync10, readFileSync as readFileSync22 } from "node:fs";
 
 // src/signed-control-proof.ts
 import {
-  createHash as createHash18,
+  createHash as createHash19,
   createPrivateKey as createPrivateKey4,
   createPublicKey as createPublicKey4,
   sign as sign4,
   verify as verify4
 } from "node:crypto";
-import { readFileSync as readFileSync20 } from "node:fs";
+import { readFileSync as readFileSync21 } from "node:fs";
 var SIGNED_CONTROL_PROOF_SCHEMA = "control-proof/signed-challenge-v1";
 function digest4(value) {
-  return `sha256:${createHash18("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash19("sha256").update(canonical(value)).digest("hex")}`;
 }
 function record3(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value;
 }
-function exactKeys3(value, keys, label) {
+function exactKeys4(value, keys, label) {
   const expected = [...keys].sort();
   if (canonical(Object.keys(value).sort()) !== canonical(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
 }
@@ -9682,14 +10015,14 @@ function name(value, label) {
   if (!/^[A-Za-z0-9_.-]+$/.test(parsed)) throw new Error(`${label} must contain only letters, numbers, dot, underscore, or hyphen`);
   return parsed;
 }
-function timestamp2(value, label) {
+function timestamp3(value, label) {
   const parsed = text2(value, label, 80);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(parsed) || !Number.isFinite(Date.parse(parsed))) {
     throw new Error(`${label} must be an RFC3339 UTC timestamp`);
   }
   return parsed;
 }
-function sha2563(value, label) {
+function sha2564(value, label) {
   const parsed = text2(value, label, 80);
   if (!/^sha256:[a-f0-9]{64}$/.test(parsed)) throw new Error(`${label} must be sha256:<64 lowercase hex characters>`);
   return parsed;
@@ -9708,15 +10041,15 @@ function base64(value, label, expectedBytes) {
 }
 function parsePayload(input) {
   const payload = record3(input, "signed proof payload");
-  exactKeys3(payload, ["control", "sourceCommit", "generatedAt", "status", "challenges", "summary", "limits"], "signed proof payload");
+  exactKeys4(payload, ["control", "sourceCommit", "generatedAt", "status", "challenges", "summary", "limits"], "signed proof payload");
   const control = record3(payload.control, "signed proof payload.control");
-  exactKeys3(control, ["vendor", "product", "version"], "signed proof payload.control");
+  exactKeys4(control, ["vendor", "product", "version"], "signed proof payload.control");
   if (payload.status !== "PASS" && payload.status !== "HOLD") throw new Error("signed proof payload.status must be PASS or HOLD");
   if (!Array.isArray(payload.challenges) || payload.challenges.length === 0 || payload.challenges.length > 100) throw new Error("signed proof payload.challenges must contain 1 to 100 items");
   const ids = /* @__PURE__ */ new Set();
   const challenges = payload.challenges.map((value, index) => {
     const item2 = record3(value, `signed proof payload.challenges[${index}]`);
-    exactKeys3(item2, ["id", "expected", "actual", "passed", "evidenceHash"], `signed proof payload.challenges[${index}]`);
+    exactKeys4(item2, ["id", "expected", "actual", "passed", "evidenceHash"], `signed proof payload.challenges[${index}]`);
     if (!(/* @__PURE__ */ new Set(["PASS", "BLOCK", "HOLD"])).has(String(item2.expected))) throw new Error(`signed proof payload.challenges[${index}].expected is invalid`);
     if (!(/* @__PURE__ */ new Set(["PASS", "BLOCK", "HOLD", "ERROR"])).has(String(item2.actual))) throw new Error(`signed proof payload.challenges[${index}].actual is invalid`);
     if (typeof item2.passed !== "boolean" || item2.passed !== (item2.actual === item2.expected)) throw new Error(`signed proof payload.challenges[${index}] has inconsistent decision fields`);
@@ -9728,11 +10061,11 @@ function parsePayload(input) {
       expected: item2.expected,
       actual: item2.actual,
       passed: item2.passed,
-      evidenceHash: sha2563(item2.evidenceHash, `signed proof payload.challenges[${index}].evidenceHash`)
+      evidenceHash: sha2564(item2.evidenceHash, `signed proof payload.challenges[${index}].evidenceHash`)
     };
   });
   const summary = record3(payload.summary, "signed proof payload.summary");
-  exactKeys3(summary, ["passed", "total"], "signed proof payload.summary");
+  exactKeys4(summary, ["passed", "total"], "signed proof payload.summary");
   const passed = challenges.filter((item2) => item2.passed).length;
   if (summary.passed !== passed || summary.total !== challenges.length) throw new Error("signed proof payload.summary does not match its challenges");
   if (payload.status !== (passed === challenges.length ? "PASS" : "HOLD")) throw new Error("signed proof payload.status does not match its challenges");
@@ -9744,7 +10077,7 @@ function parsePayload(input) {
       version: text2(control.version, "signed proof payload.control.version", 160)
     },
     sourceCommit: commitSha(payload.sourceCommit, "signed proof payload.sourceCommit"),
-    generatedAt: timestamp2(payload.generatedAt, "signed proof payload.generatedAt"),
+    generatedAt: timestamp3(payload.generatedAt, "signed proof payload.generatedAt"),
     status: payload.status,
     challenges,
     summary: { passed, total: challenges.length },
@@ -9763,7 +10096,7 @@ function ed25519PublicKey(der, label) {
 }
 function signControlProof(payloadInput, privateKeyPath) {
   const payload = parsePayload(payloadInput);
-  const privateKey = createPrivateKey4(readFileSync20(privateKeyPath));
+  const privateKey = createPrivateKey4(readFileSync21(privateKeyPath));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signed proof private key must be Ed25519");
   const der = publicKeyDer(createPublicKey4(privateKey));
   const payloadHash = digest4(payload);
@@ -9781,22 +10114,22 @@ function signControlProof(payloadInput, privateKeyPath) {
 }
 function verifySignedControlProof(input, pinnedPublicKeyPath) {
   const root = record3(input, "signed control proof");
-  exactKeys3(root, ["schemaVersion", "payload", "payloadHash", "signature"], "signed control proof");
+  exactKeys4(root, ["schemaVersion", "payload", "payloadHash", "signature"], "signed control proof");
   if (root.schemaVersion !== SIGNED_CONTROL_PROOF_SCHEMA) throw new Error(`signed control proof schemaVersion must be ${SIGNED_CONTROL_PROOF_SCHEMA}`);
   const payload = parsePayload(root.payload);
-  const payloadHash = sha2563(root.payloadHash, "signed control proof payloadHash");
+  const payloadHash = sha2564(root.payloadHash, "signed control proof payloadHash");
   if (digest4(payload) !== payloadHash) throw new Error("signed control proof payload hash is invalid");
   const signature = record3(root.signature, "signed control proof signature");
-  exactKeys3(signature, ["algorithm", "keyId", "publicKey", "value"], "signed control proof signature");
+  exactKeys4(signature, ["algorithm", "keyId", "publicKey", "value"], "signed control proof signature");
   if (signature.algorithm !== "Ed25519") throw new Error("signed control proof signature algorithm must be Ed25519");
   const embeddedDer = base64(signature.publicKey, "signed control proof signature.publicKey");
   const embedded = ed25519PublicKey(embeddedDer, "signed control proof embedded key");
   const embeddedId = signingKeyId(publicKeyDer(embedded));
-  const keyId = sha2563(signature.keyId, "signed control proof signature.keyId");
+  const keyId = sha2564(signature.keyId, "signed control proof signature.keyId");
   if (embeddedId !== keyId) throw new Error("signed control proof key ID does not match its embedded key");
   let selected = embedded;
   if (pinnedPublicKeyPath) {
-    selected = createPublicKey4(readFileSync20(pinnedPublicKeyPath));
+    selected = createPublicKey4(readFileSync21(pinnedPublicKeyPath));
     if (selected.asymmetricKeyType !== "ed25519") throw new Error("pinned signed proof public key must be Ed25519");
     if (signingKeyId(publicKeyDer(selected)) !== keyId) throw new Error("signed control proof signer does not match the pinned public key");
   }
@@ -9833,13 +10166,13 @@ var CONTROL_POLICY_PACKS = {
   ]
 };
 function digest5(value) {
-  return `sha256:${createHash19("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash20("sha256").update(canonical(value)).digest("hex")}`;
 }
 function record4(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value;
 }
-function exactKeys4(value, keys, label) {
+function exactKeys5(value, keys, label) {
   const expected = [...keys].sort();
   const actual = Object.keys(value).sort();
   if (canonical(actual) !== canonical(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
@@ -9858,14 +10191,14 @@ function repositoryName(value, label = "repository") {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed)) throw new Error(`${label} must be owner/name`);
   return parsed;
 }
-function timestamp3(value, label) {
+function timestamp4(value, label) {
   const parsed = text3(value, label, 80);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(parsed) || !Number.isFinite(Date.parse(parsed))) {
     throw new Error(`${label} must be an RFC3339 UTC timestamp`);
   }
   return parsed;
 }
-function sha2564(value, label) {
+function sha2565(value, label) {
   const parsed = text3(value, label, 80);
   if (!/^sha256:[a-f0-9]{64}$/.test(parsed)) throw new Error(`${label} must be sha256:<64 lowercase hex characters>`);
   return parsed;
@@ -9877,7 +10210,7 @@ function commitSha2(value, label) {
 }
 function challenge(value, index) {
   const item2 = record4(value, `proof.challenges[${index}]`);
-  exactKeys4(item2, ["id", "expected", "actual", "passed"], `proof.challenges[${index}]`);
+  exactKeys5(item2, ["id", "expected", "actual", "passed"], `proof.challenges[${index}]`);
   const expected = item2.expected;
   const actual = item2.actual;
   if (!(/* @__PURE__ */ new Set(["PASS", "BLOCK", "HOLD"])).has(String(expected))) throw new Error(`proof.challenges[${index}].expected is invalid`);
@@ -9893,12 +10226,12 @@ function challenge(value, index) {
 }
 function verifyControlProof(input) {
   const proof = record4(input, "control proof");
-  exactKeys4(proof, ["schemaVersion", "vigilVersion", "status", "sourceCommit", "generatedAt", "receiptHash", "challenges", "summary", "reproduction", "limits"], "control proof");
+  exactKeys5(proof, ["schemaVersion", "vigilVersion", "status", "sourceCommit", "generatedAt", "receiptHash", "challenges", "summary", "reproduction", "limits"], "control proof");
   if (proof.schemaVersion !== "agent-vigil-control-proof/v1") throw new Error("only the verified Agent Vigil control-proof/v1 adapter is currently supported");
-  const receiptHash = sha2564(proof.receiptHash, "control proof receiptHash");
+  const receiptHash = sha2565(proof.receiptHash, "control proof receiptHash");
   const { receiptHash: _receiptHash, ...payload } = proof;
   if (digest5(payload) !== receiptHash) throw new Error("control proof receipt hash is invalid");
-  const generatedAt = timestamp3(proof.generatedAt, "control proof generatedAt");
+  const generatedAt = timestamp4(proof.generatedAt, "control proof generatedAt");
   const sourceCommit = commitSha2(proof.sourceCommit, "control proof sourceCommit");
   const vigilVersion = identifier(proof.vigilVersion, "control proof vigilVersion");
   const reproduction = text3(proof.reproduction, "control proof reproduction", 1e3);
@@ -9910,7 +10243,7 @@ function verifyControlProof(input) {
   const parsedChallenges = [];
   for (const [index, raw] of proof.challenges.entries()) {
     const full = record4(raw, `control proof challenges[${index}]`);
-    exactKeys4(full, ["id", "claim", "expected", "actual", "passed", "base", "head", "evidence"], `control proof challenges[${index}]`);
+    exactKeys5(full, ["id", "claim", "expected", "actual", "passed", "base", "head", "evidence"], `control proof challenges[${index}]`);
     const parsed = challenge({ id: full.id, expected: full.expected, actual: full.actual, passed: full.passed }, index);
     if (ids.has(parsed.id)) throw new Error(`duplicate control proof challenge: ${parsed.id}`);
     if (parsed.passed !== (parsed.actual === parsed.expected)) throw new Error(`control proof challenge ${parsed.id} has inconsistent decision fields`);
@@ -9925,7 +10258,7 @@ function verifyControlProof(input) {
     parsedChallenges.push(enriched);
   }
   const summary = record4(proof.summary, "control proof summary");
-  exactKeys4(summary, ["passed", "total"], "control proof summary");
+  exactKeys5(summary, ["passed", "total"], "control proof summary");
   const passed = parsedChallenges.filter((item2) => item2.passed).length;
   if (summary.passed !== passed || summary.total !== parsedChallenges.length) throw new Error("control proof summary does not match its challenges");
   if (proof.status !== decideControlProof(parsedChallenges)) throw new Error("control proof status does not match its challenge decisions");
@@ -9961,10 +10294,10 @@ function createCertificate(input) {
 }
 function validateCertificate(input) {
   const root = record4(input, "certificate");
-  exactKeys4(root, ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"], "certificate");
+  exactKeys5(root, ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"], "certificate");
   if (root.schemaVersion !== CERTIFICATE_SCHEMA) throw new Error(`certificate schemaVersion must be ${CERTIFICATE_SCHEMA}`);
   const control = record4(root.control, "certificate.control");
-  exactKeys4(control, ["vendor", "product", "adapter", "version"], "certificate.control");
+  exactKeys5(control, ["vendor", "product", "adapter", "version"], "certificate.control");
   const proof = verifyControlProof(root.proof);
   if (control.adapter !== "agent-vigil/control-proof-v1") throw new Error("certificate adapter and proof schema are not supported");
   if (control.vendor !== "sulmusic2-star" || control.product !== "agent-vigil") throw new Error("certificate control identity does not match its verified adapter");
@@ -9982,7 +10315,7 @@ function validateCertificate(input) {
     proof
   };
   if (parsed.control.version !== proof.vigilVersion) throw new Error("certificate control version does not match its proof");
-  const certificateHash = sha2564(root.certificateHash, "certificate.certificateHash");
+  const certificateHash = sha2565(root.certificateHash, "certificate.certificateHash");
   if (digest5(parsed) !== certificateHash) throw new Error("certificate hash is invalid");
   return { ...parsed, certificateHash };
 }
@@ -10006,10 +10339,10 @@ function createSignedCertificate(input) {
 }
 function validateSignedCertificate(input) {
   const root = record4(input, "signed certificate");
-  exactKeys4(root, ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"], "signed certificate");
+  exactKeys5(root, ["schemaVersion", "organization", "repository", "requiredCheck", "control", "proof", "certificateHash"], "signed certificate");
   if (root.schemaVersion !== SIGNED_CERTIFICATE_SCHEMA) throw new Error(`signed certificate schemaVersion must be ${SIGNED_CERTIFICATE_SCHEMA}`);
   const control = record4(root.control, "signed certificate.control");
-  exactKeys4(control, ["vendor", "product", "adapter", "version", "keyId"], "signed certificate.control");
+  exactKeys5(control, ["vendor", "product", "adapter", "version", "keyId"], "signed certificate.control");
   const proof = verifySignedControlProof(root.proof);
   if (control.adapter !== "signed-control-proof/v1") throw new Error("signed certificate adapter is not supported");
   const parsed = {
@@ -10022,14 +10355,14 @@ function validateSignedCertificate(input) {
       product: identifier(control.product, "signed certificate.control.product"),
       adapter: identifier(control.adapter, "signed certificate.control.adapter"),
       version: identifier(control.version, "signed certificate.control.version"),
-      keyId: sha2564(control.keyId, "signed certificate.control.keyId")
+      keyId: sha2565(control.keyId, "signed certificate.control.keyId")
     },
     proof
   };
   if (parsed.control.vendor !== proof.payload.control.vendor || parsed.control.product !== proof.payload.control.product || parsed.control.version !== proof.payload.control.version || parsed.control.keyId !== proof.signature.keyId) {
     throw new Error("signed certificate control identity does not match its verified proof");
   }
-  const certificateHash = sha2564(root.certificateHash, "signed certificate.certificateHash");
+  const certificateHash = sha2565(root.certificateHash, "signed certificate.certificateHash");
   if (digest5(parsed) !== certificateHash) throw new Error("signed certificate hash is invalid");
   return { ...parsed, certificateHash };
 }
@@ -10048,13 +10381,13 @@ function parseCorpus(content) {
   for (const [index, line] of lines.entries()) {
     if (Buffer.byteLength(line) > 2 * 1024 * 1024) throw new Error(`corpus line ${index + 1} exceeds 2 MiB`);
     const root = record4(JSON.parse(line), `corpus line ${index + 1}`);
-    exactKeys4(root, ["schemaVersion", "sequence", "previousEntryHash", "certificate", "entryHash"], `corpus line ${index + 1}`);
+    exactKeys5(root, ["schemaVersion", "sequence", "previousEntryHash", "certificate", "entryHash"], `corpus line ${index + 1}`);
     if (root.schemaVersion !== CORPUS_ENTRY_SCHEMA && root.schemaVersion !== SIGNED_CORPUS_ENTRY_SCHEMA || root.sequence !== index + 1 || root.previousEntryHash !== previous) throw new Error(`corpus chain is invalid at line ${index + 1}`);
     const certificate = validateAnyCertificate(root.certificate);
     if (root.schemaVersion === CORPUS_ENTRY_SCHEMA !== (certificate.schemaVersion === CERTIFICATE_SCHEMA)) throw new Error(`corpus entry and certificate versions do not match at line ${index + 1}`);
     if (certificates.has(certificate.certificateHash)) throw new Error(`duplicate certificate at corpus line ${index + 1}`);
     const payload = { schemaVersion: root.schemaVersion, sequence: index + 1, previousEntryHash: previous, certificate };
-    const entryHash = sha2564(root.entryHash, `corpus line ${index + 1} entryHash`);
+    const entryHash = sha2565(root.entryHash, `corpus line ${index + 1} entryHash`);
     if (digest5(payload) !== entryHash) throw new Error(`corpus entry hash is invalid at line ${index + 1}`);
     entries.push({ ...payload, entryHash });
     certificates.add(certificate.certificateHash);
@@ -10077,22 +10410,22 @@ function appendCorpusEntry(content, certificateInput) {
 ` };
 }
 function loadCorpus(path) {
-  if (!existsSync8(path)) return [];
-  const status = lstatSync9(path);
+  if (!existsSync9(path)) return [];
+  const status = lstatSync10(path);
   if (status.isSymbolicLink() || !status.isFile()) throw new Error("certification corpus must be a regular non-symbolic-link file");
   if (status.size > 64 * 1024 * 1024) throw new Error("certification corpus exceeds 64 MiB");
-  return parseCorpus(readFileSync21(path, "utf8"));
+  return parseCorpus(readFileSync22(path, "utf8"));
 }
 function validatePolicy3(input) {
   const root = record4(input, "certification policy");
-  exactKeys4(root, ["schemaVersion", "policyId", "organization", "maxAgeHours", "repositories"], "certification policy");
+  exactKeys5(root, ["schemaVersion", "policyId", "organization", "maxAgeHours", "repositories"], "certification policy");
   if (root.schemaVersion !== POLICY_SCHEMA) throw new Error(`certification policy schemaVersion must be ${POLICY_SCHEMA}`);
   if (!Number.isInteger(root.maxAgeHours) || Number(root.maxAgeHours) < 1 || Number(root.maxAgeHours) > 8760) throw new Error("maxAgeHours must be an integer from 1 to 8760");
   if (!Array.isArray(root.repositories) || root.repositories.length === 0 || root.repositories.length > 1e4) throw new Error("repositories must contain 1 to 10000 entries");
   const seen = /* @__PURE__ */ new Set();
   const repositories = root.repositories.map((value, index) => {
     const item2 = record4(value, `repositories[${index}]`);
-    exactKeys4(item2, ["repository", "requiredCheck", "allowedControls", "requiredChallenges"], `repositories[${index}]`);
+    exactKeys5(item2, ["repository", "requiredCheck", "allowedControls", "requiredChallenges"], `repositories[${index}]`);
     const repository2 = repositoryName(item2.repository, `repositories[${index}].repository`);
     const requiredCheck = identifier(item2.requiredCheck, `repositories[${index}].requiredCheck`);
     if (seen.has(repository2)) throw new Error(`duplicate policy repository: ${repository2}`);
@@ -10139,7 +10472,7 @@ function certificateProof(certificate) {
 }
 function buildStatusReport(policyInput, entries, asOfInput) {
   const policy = validatePolicy3(policyInput);
-  const asOf = timestamp3(asOfInput, "asOf");
+  const asOf = timestamp4(asOfInput, "asOf");
   const asOfMs = Date.parse(asOf);
   const repositories = policy.repositories.map((requirement) => {
     const matches = entries.map((entry) => entry.certificate).filter((certificate) => certificate.organization === policy.organization && certificate.repository === requirement.repository && certificate.requiredCheck === requirement.requiredCheck).sort((left, right) => Date.parse(certificateProof(right).generatedAt) - Date.parse(certificateProof(left).generatedAt));
@@ -10180,26 +10513,26 @@ function renderStatusReport(report) {
 }
 
 // src/continuity/cli.ts
-import { isAbsolute as isAbsolute10, relative as relative13, resolve as resolve22 } from "node:path";
+import { isAbsolute as isAbsolute10, relative as relative13, resolve as resolve24 } from "node:path";
 
 // src/continuity/chain.ts
 import {
   chmodSync as chmodSync3,
-  existsSync as existsSync9,
-  lstatSync as lstatSync11,
-  mkdirSync as mkdirSync6,
+  existsSync as existsSync10,
+  lstatSync as lstatSync12,
+  mkdirSync as mkdirSync7,
   readdirSync as readdirSync2,
   realpathSync as realpathSync11
 } from "node:fs";
-import { execFileSync as execFileSync15 } from "node:child_process";
+import { execFileSync as execFileSync17 } from "node:child_process";
 import { createPrivateKey as createPrivateKey5, createPublicKey as createPublicKey5, sign as sign5, verify as verify5 } from "node:crypto";
-import { basename as basename6, join as join9, parse as parse3, resolve as resolve20, sep as sep12 } from "node:path";
+import { basename as basename7, join as join9, parse as parse3, resolve as resolve22, sep as sep12 } from "node:path";
 
 // src/continuity/contracts.ts
-import { execFileSync as execFileSync14 } from "node:child_process";
-import { constants as constants3, closeSync as closeSync2, fstatSync as fstatSync2, lstatSync as lstatSync10, openSync as openSync2, readFileSync as readFileSync22 } from "node:fs";
-import { isAbsolute as isAbsolute9, resolve as resolve19 } from "node:path";
-import { createHash as createHash20 } from "node:crypto";
+import { execFileSync as execFileSync16 } from "node:child_process";
+import { constants as constants4, closeSync as closeSync3, fstatSync as fstatSync3, lstatSync as lstatSync11, openSync as openSync3, readFileSync as readFileSync23 } from "node:fs";
+import { isAbsolute as isAbsolute9, resolve as resolve21 } from "node:path";
+import { createHash as createHash21 } from "node:crypto";
 var CONTINUITY_EVENT_KINDS = [
   "merge_observed",
   "deployment_observed",
@@ -10220,7 +10553,7 @@ var CONTINUITY_EVENT_KINDS = [
 ];
 var CONTINUITY_DISPOSITIONS = ["affirm", "hold", "revoke", "observe"];
 var CONTINUITY_PRIVACY_TIERS = ["receipt", "metadata", "full-local"];
-var SHA2562 = /^sha256:[0-9a-f]{64}$/;
+var SHA2563 = /^sha256:[0-9a-f]{64}$/;
 var GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 var UUID_URN = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var SAFE_IDENTIFIER = /^[a-z0-9][a-z0-9._-]{0,79}$/;
@@ -10233,7 +10566,7 @@ function object2(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value;
 }
-function exactKeys5(record5, expected, label) {
+function exactKeys6(record5, expected, label) {
   const actual = Object.keys(record5).sort();
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
@@ -10247,7 +10580,7 @@ function string(value, label, maximum = 240) {
 }
 function digest6(value, label) {
   const selected = string(value, label, 71);
-  if (!SHA2562.test(selected)) throw new Error(`${label} must be a lowercase SHA-256 identifier`);
+  if (!SHA2563.test(selected)) throw new Error(`${label} must be a lowercase SHA-256 identifier`);
   return selected;
 }
 function gitSha(value, label) {
@@ -10255,14 +10588,14 @@ function gitSha(value, label) {
   if (!GIT_SHA.test(selected)) throw new Error(`${label} must be a full lowercase Git object ID`);
   return selected;
 }
-function timestamp4(value, label) {
+function timestamp5(value, label) {
   const selected = string(value, label, 40);
   const parsed = Date.parse(selected);
   if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== selected) throw new Error(`${label} must be canonical RFC3339 UTC`);
   return selected;
 }
 function nullableTimestamp(value, label) {
-  return value === null ? null : timestamp4(value, label);
+  return value === null ? null : timestamp5(value, label);
 }
 function nullableDigest(value, label) {
   return value === null ? null : digest6(value, label);
@@ -10311,7 +10644,7 @@ function stringArray2(value, label, validator) {
 }
 function validateContinuitySubject(value) {
   const selected = object2(value, "subject");
-  exactKeys5(selected, ["episodeReceiptHash", "repositoryHash", "baseSha", "headSha"], "subject");
+  exactKeys6(selected, ["episodeReceiptHash", "repositoryHash", "baseSha", "headSha"], "subject");
   return {
     episodeReceiptHash: digest6(selected.episodeReceiptHash, "subject.episodeReceiptHash"),
     repositoryHash: digest6(selected.repositoryHash, "subject.repositoryHash"),
@@ -10321,15 +10654,15 @@ function validateContinuitySubject(value) {
 }
 function validateEventDraft(value) {
   const selected = object2(value, "continuity event draft");
-  exactKeys5(selected, ["schemaVersion", "eventId", "subject", "source", "event", "observedAt", "effectiveAt", "privacyTier"], "continuity event draft");
+  exactKeys6(selected, ["schemaVersion", "eventId", "subject", "source", "event", "observedAt", "effectiveAt", "privacyTier"], "continuity event draft");
   if (selected.schemaVersion !== "agent-vigil-continuity-event/v1") throw new Error("unsupported continuity event schema");
   const eventId = string(selected.eventId, "eventId", 45);
   if (!UUID_URN.test(eventId)) throw new Error("eventId must be a lowercase UUID URN");
   const source = object2(selected.source, "source");
-  exactKeys5(source, ["kind", "issuer", "evidenceHash", "deliveryIdHash"], "source");
+  exactKeys6(source, ["kind", "issuer", "evidenceHash", "deliveryIdHash"], "source");
   const deliveryIdHash = nullableDigest(source.deliveryIdHash, "source.deliveryIdHash");
   const event2 = object2(selected.event, "event");
-  exactKeys5(event2, ["kind", "disposition", "reasonCode", "targetHash", "freshUntil", "supersedesEventId"], "event");
+  exactKeys6(event2, ["kind", "disposition", "reasonCode", "targetHash", "freshUntil", "supersedesEventId"], "event");
   const eventKind = oneOf(event2.kind, CONTINUITY_EVENT_KINDS, "event.kind");
   const eventDisposition = oneOf(event2.disposition, CONTINUITY_DISPOSITIONS, "event.disposition");
   return {
@@ -10350,15 +10683,15 @@ function validateEventDraft(value) {
       freshUntil: nullableTimestamp(event2.freshUntil, "event.freshUntil"),
       supersedesEventId: nullableUuid(event2.supersedesEventId, "event.supersedesEventId")
     },
-    observedAt: timestamp4(selected.observedAt, "observedAt"),
-    effectiveAt: timestamp4(selected.effectiveAt, "effectiveAt"),
+    observedAt: timestamp5(selected.observedAt, "observedAt"),
+    effectiveAt: timestamp5(selected.effectiveAt, "effectiveAt"),
     privacyTier: oneOf(selected.privacyTier, CONTINUITY_PRIVACY_TIERS, "privacyTier")
   };
 }
 function validateSignature(value) {
   if (value === null) return null;
   const selected = object2(value, "signature");
-  exactKeys5(selected, ["algorithm", "keyId", "publicKey", "value"], "signature");
+  exactKeys6(selected, ["algorithm", "keyId", "publicKey", "value"], "signature");
   if (selected.algorithm !== "Ed25519") throw new Error("signature.algorithm must be Ed25519");
   const publicKey = string(selected.publicKey, "signature.publicKey", 256);
   const signatureValue = string(selected.value, "signature.value", 128);
@@ -10372,7 +10705,7 @@ function validateSignature(value) {
 }
 function validateStoredEvent(value) {
   const selected = object2(value, "stored continuity event");
-  exactKeys5(selected, [
+  exactKeys6(selected, [
     "schemaVersion",
     "eventId",
     "subject",
@@ -10397,7 +10730,7 @@ function validateStoredEvent(value) {
 }
 function validateContinuityRoot(value) {
   const selected = object2(value, "continuity root");
-  exactKeys5(selected, ["schemaVersion", "receiptFileSha256", "receiptHash", "rootHash", "subject", "historicalVerification", "createdAt"], "continuity root");
+  exactKeys6(selected, ["schemaVersion", "receiptFileSha256", "receiptHash", "rootHash", "subject", "historicalVerification", "createdAt"], "continuity root");
   if (selected.schemaVersion !== "agent-vigil-continuity-root/v1") throw new Error("unsupported continuity root schema");
   return {
     schemaVersion: "agent-vigil-continuity-root/v1",
@@ -10406,12 +10739,12 @@ function validateContinuityRoot(value) {
     rootHash: digest6(selected.rootHash, "rootHash"),
     subject: validateContinuitySubject(selected.subject),
     historicalVerification: oneOf(selected.historicalVerification, ["PASS", "FAIL", "INCONCLUSIVE"], "historicalVerification"),
-    createdAt: timestamp4(selected.createdAt, "createdAt")
+    createdAt: timestamp5(selected.createdAt, "createdAt")
   };
 }
 function validateContinuityPolicy(value) {
   const selected = object2(value, "continuity policy");
-  exactKeys5(selected, [
+  exactKeys6(selected, [
     "schemaVersion",
     "requiredSources",
     "maxAgeSeconds",
@@ -10448,27 +10781,27 @@ function validateContinuityPolicy(value) {
     maxClockSkewSeconds: integer3(selected.maxClockSkewSeconds, "maxClockSkewSeconds", 0, 86400)
   };
 }
-function sha2565(value) {
-  return `sha256:${createHash20("sha256").update(value).digest("hex")}`;
+function sha2566(value) {
+  return `sha256:${createHash21("sha256").update(value).digest("hex")}`;
 }
 function canonicalSha256(value) {
-  return sha2565(canonical(value));
+  return sha2566(canonical(value));
 }
 function readBoundedRegularFile(path, maximumBytes, label) {
-  const absolute = resolve19(path);
-  const expected = lstatSync10(absolute);
+  const absolute = resolve21(path);
+  const expected = lstatSync11(absolute);
   if (expected.isSymbolicLink() || !expected.isFile()) throw new Error(`${label} must be a regular file, not a symbolic link`);
   if (expected.size > maximumBytes) throw new Error(`${label} exceeds the ${maximumBytes} byte limit`);
-  const noFollow = typeof constants3.O_NOFOLLOW === "number" ? constants3.O_NOFOLLOW : 0;
-  const descriptor = openSync2(absolute, constants3.O_RDONLY | noFollow);
+  const noFollow = typeof constants4.O_NOFOLLOW === "number" ? constants4.O_NOFOLLOW : 0;
+  const descriptor = openSync3(absolute, constants4.O_RDONLY | noFollow);
   try {
-    const opened = fstatSync2(descriptor);
+    const opened = fstatSync3(descriptor);
     if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size) {
       throw new Error(`${label} changed while being read`);
     }
-    return readFileSync22(descriptor);
+    return readFileSync23(descriptor);
   } finally {
-    closeSync2(descriptor);
+    closeSync3(descriptor);
   }
 }
 function readBoundedJson2(path, maximumBytes, label) {
@@ -10492,9 +10825,9 @@ function loadContinuityPolicy(options) {
     if (isAbsolute9(options.path) || options.path.includes("\\") || pathParts.some((part) => !part || part === "." || part === "..")) {
       throw new Error("a Git-anchored continuity policy must use a repository-relative POSIX path");
     }
-    const repo = resolve19(options.repo);
+    const repo = resolve21(options.repo);
     try {
-      raw = execFileSync14("git", ["show", `${options.ref}:${options.path}`], {
+      raw = execFileSync16("git", ["show", `${options.ref}:${options.path}`], {
         cwd: repo,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -10506,7 +10839,7 @@ function loadContinuityPolicy(options) {
     source = `${options.path}@${options.ref}`;
   } else {
     raw = readBoundedRegularFile(options.path, MAX_POLICY_BYTES, "continuity policy").toString("utf8");
-    source = resolve19(options.path);
+    source = resolve21(options.path);
   }
   let parsed;
   try {
@@ -10515,7 +10848,7 @@ function loadContinuityPolicy(options) {
     throw new Error("continuity policy is not valid JSON");
   }
   const value = validateContinuityPolicy(parsed);
-  return { value, source, sha256: sha2565(raw) };
+  return { value, source, sha256: sha2566(raw) };
 }
 
 // src/continuity/chain.ts
@@ -10528,20 +10861,20 @@ function isMissing2(error) {
   return error?.code === "ENOENT";
 }
 function ensurePrivateDirectory2(requested, mustBeNew = false) {
-  const absolute = resolve20(requested);
+  const absolute = resolve22(requested);
   const root = parse3(absolute).root;
-  const rootStatus = lstatSync11(root);
+  const rootStatus = lstatSync12(root);
   let current = root;
   const components = absolute.slice(root.length).split(sep12).filter(Boolean);
   for (const [index, component] of components.entries()) {
     const next = join9(current, component);
     try {
-      const status = lstatSync11(next);
+      const status = lstatSync12(next);
       if (status.isSymbolicLink()) {
         const trustedRootAlias = index === 0 && status.uid === rootStatus.uid && (rootStatus.mode & 18) === 0;
         if (!trustedRootAlias) throw new Error("continuity directory may not traverse a symbolic link");
         const canonical3 = realpathSync11(next);
-        if (!lstatSync11(canonical3).isDirectory()) throw new Error("continuity directory parent is not a directory");
+        if (!lstatSync12(canonical3).isDirectory()) throw new Error("continuity directory parent is not a directory");
         current = canonical3;
         continue;
       }
@@ -10550,7 +10883,7 @@ function ensurePrivateDirectory2(requested, mustBeNew = false) {
       current = next;
     } catch (error) {
       if (!isMissing2(error)) throw error;
-      mkdirSync6(next, { mode: 448 });
+      mkdirSync7(next, { mode: 448 });
       chmodSync3(next, 448);
       current = next;
     }
@@ -10578,10 +10911,10 @@ function parseReport(bytes) {
   if (!/^sha256:[0-9a-f]{64}$/.test(report.receiptHash) || recomputeReceiptHash(report) !== report.receiptHash) {
     throw new Error("Agent Vigil receipt hash is invalid");
   }
-  const count2 = (verdict) => report.results.filter((result5) => result5.verdict === verdict).length;
+  const count3 = (verdict) => report.results.filter((result5) => result5.verdict === verdict).length;
   const meaningfulVerified = report.results.filter((result5) => result5.verdict === "verified" && result5.contributesToPass !== false).length;
-  const expectedStatus = count2("contradicted") > 0 ? "FAIL" : meaningfulVerified < report.policy.minVerified || report.results.some((result5) => result5.verdict === "unverifiable" && result5.blocksPass) || report.policy.strict && count2("unverifiable") > 0 ? "INCONCLUSIVE" : "PASS";
-  if (report.summary.verified !== count2("verified") || report.summary.contradicted !== count2("contradicted") || report.summary.unverifiable !== count2("unverifiable") || report.summary.meaningfulVerified !== meaningfulVerified || report.summary.status !== expectedStatus || report.summary.pass !== (report.summary.status === "PASS")) {
+  const expectedStatus = count3("contradicted") > 0 ? "FAIL" : meaningfulVerified < report.policy.minVerified || report.results.some((result5) => result5.verdict === "unverifiable" && result5.blocksPass) || report.policy.strict && count3("unverifiable") > 0 ? "INCONCLUSIVE" : "PASS";
+  if (report.summary.verified !== count3("verified") || report.summary.contradicted !== count3("contradicted") || report.summary.unverifiable !== count3("unverifiable") || report.summary.meaningfulVerified !== meaningfulVerified || report.summary.status !== expectedStatus || report.summary.pass !== (report.summary.status === "PASS")) {
     throw new Error("Agent Vigil receipt summary is internally inconsistent");
   }
   return report;
@@ -10595,14 +10928,14 @@ function subjectFor(report) {
   };
 }
 function rootHash(report) {
-  return sha2565(`${ROOT_DOMAIN}${canonical(report)}`);
+  return sha2566(`${ROOT_DOMAIN}${canonical(report)}`);
 }
 function unsignedEventPayload(event2) {
   const { eventHash: _eventHash, signature: _signature, ...payload } = event2;
   return payload;
 }
 function computeEventHash(event2) {
-  return sha2565(`${EVENT_DOMAIN}${event2.predecessorHash}${canonical(unsignedEventPayload(event2))}`);
+  return sha2566(`${EVENT_DOMAIN}${event2.predecessorHash}${canonical(unsignedEventPayload(event2))}`);
 }
 function sameSubject(left, right) {
   return canonical(left) === canonical(right);
@@ -10674,7 +11007,7 @@ function initializeContinuityChain(receiptPath, outputDirectory, now = /* @__PUR
   const eventsDirectory = ensurePrivateDirectory2(join9(directory, "events"), true);
   const root = {
     schemaVersion: "agent-vigil-continuity-root/v1",
-    receiptFileSha256: sha2565(receiptBytes),
+    receiptFileSha256: sha2566(receiptBytes),
     receiptHash: report.receiptHash,
     rootHash: rootHash(report),
     subject: subjectFor(report),
@@ -10690,10 +11023,10 @@ function initializeContinuityChain(receiptPath, outputDirectory, now = /* @__PUR
   return root;
 }
 function readChainFiles(chainDirectory) {
-  const directory = resolve20(chainDirectory);
+  const directory = resolve22(chainDirectory);
   let status;
   try {
-    status = lstatSync11(directory);
+    status = lstatSync12(directory);
   } catch {
     throw new Error("continuity chain directory is missing or unreadable");
   }
@@ -10701,7 +11034,7 @@ function readChainFiles(chainDirectory) {
   const entries = readdirSync2(directory).sort();
   if (canonical(entries) !== canonical(["events", "receipt.json", "root.json", "tip.json"])) throw new Error("continuity chain directory contains unsupported or missing entries");
   const eventsDirectory = join9(directory, "events");
-  const eventsStatus = lstatSync11(eventsDirectory);
+  const eventsStatus = lstatSync12(eventsDirectory);
   if (eventsStatus.isSymbolicLink() || !eventsStatus.isDirectory()) throw new Error("continuity events must be stored in a regular directory");
   const root = validateContinuityRoot(readBoundedJson2(join9(directory, "root.json"), MAX_EVENT_BYTES2, "continuity root"));
   const storedTip = validateTip(readBoundedJson2(join9(directory, "tip.json"), MAX_EVENT_BYTES2, "continuity tip"));
@@ -10718,7 +11051,7 @@ function verifyContinuityChain(chainDirectory, options = {}) {
   const now = options.now ?? /* @__PURE__ */ new Date();
   const maximumFuture = now.getTime() + (options.maxClockSkewSeconds ?? 300) * 1e3;
   const { root, report, events, receiptBytes, tip: storedTip } = readChainFiles(chainDirectory);
-  if (root.receiptFileSha256 !== sha2565(receiptBytes)) errors.push("original receipt bytes no longer match the continuity root");
+  if (root.receiptFileSha256 !== sha2566(receiptBytes)) errors.push("original receipt bytes no longer match the continuity root");
   if (root.receiptHash !== report.receiptHash) errors.push("original receipt identity no longer matches the continuity root");
   if (root.rootHash !== rootHash(report)) errors.push("original receipt content no longer matches the continuity root hash");
   if (!sameSubject(root.subject, subjectFor(report))) errors.push("continuity root subject does not match the original receipt");
@@ -10732,20 +11065,20 @@ function verifyContinuityChain(chainDirectory, options = {}) {
   }
   if (options.repo) {
     try {
-      const head = execFileSync15("git", ["rev-parse", "--verify", `${root.subject.headSha}^{commit}`], {
-        cwd: resolve20(options.repo),
+      const head = execFileSync17("git", ["rev-parse", "--verify", `${root.subject.headSha}^{commit}`], {
+        cwd: resolve22(options.repo),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"]
       }).trim();
-      const tree = execFileSync15("git", ["rev-parse", "--verify", `${root.subject.headSha}^{tree}`], {
-        cwd: resolve20(options.repo),
+      const tree = execFileSync17("git", ["rev-parse", "--verify", `${root.subject.headSha}^{tree}`], {
+        cwd: resolve22(options.repo),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"]
       }).trim();
       if (head !== root.subject.headSha) errors.push("repository resolved the recorded head to a different commit");
       if (tree !== report.repository.tree) errors.push("repository head tree does not match the original receipt");
-      execFileSync15("git", ["merge-base", "--is-ancestor", root.subject.baseSha, root.subject.headSha], {
-        cwd: resolve20(options.repo),
+      execFileSync17("git", ["merge-base", "--is-ancestor", root.subject.baseSha, root.subject.headSha], {
+        cwd: resolve22(options.repo),
         stdio: ["ignore", "ignore", "ignore"]
       });
     } catch {
@@ -10854,9 +11187,9 @@ function appendContinuityEvent(chainDirectory, draft, privateKeyPath) {
   if (!verified.valid) throw new Error(`continuity chain is invalid: ${verified.errors.join("; ")}`);
   const event2 = createStoredEvent(draft, verified.root, verified.events, privateKeyPath);
   const file = `${String(event2.sequence).padStart(8, "0")}.json`;
-  writePrivateFileExclusive(join9(resolve20(chainDirectory), "events", file), `${JSON.stringify(event2, null, 2)}
+  writePrivateFileExclusive(join9(resolve22(chainDirectory), "events", file), `${JSON.stringify(event2, null, 2)}
 `);
-  writePrivateFileAtomic(join9(resolve20(chainDirectory), "tip.json"), `${JSON.stringify(tip(event2.sequence, event2.eventHash, event2.observedAt), null, 2)}
+  writePrivateFileAtomic(join9(resolve22(chainDirectory), "tip.json"), `${JSON.stringify(tip(event2.sequence, event2.eventHash, event2.observedAt), null, 2)}
 `);
   const after = verifyContinuityChain(chainDirectory);
   if (!after.valid) throw new Error(`appended continuity event did not verify: ${after.errors.join("; ")}`);
@@ -10865,7 +11198,7 @@ function appendContinuityEvent(chainDirectory, draft, privateKeyPath) {
 
 // src/continuity/demo.ts
 import { createHmac as createHmac2 } from "node:crypto";
-import { mkdtempSync as mkdtempSync4, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "node:fs";
+import { mkdtempSync as mkdtempSync4, rmSync as rmSync3, writeFileSync as writeFileSync7 } from "node:fs";
 import { tmpdir as tmpdir4 } from "node:os";
 import { join as join10 } from "node:path";
 
@@ -11068,7 +11401,7 @@ function linked(labelsValue, head) {
   return labelsValue.some((label) => label.toLowerCase() === wanted);
 }
 function target(kind, repository2, identifier2) {
-  return sha2565(`agent-vigil-github-target/v1\0${kind}\0${repository2}\0${identifier2}`);
+  return sha2566(`agent-vigil-github-target/v1\0${kind}\0${repository2}\0${identifier2}`);
 }
 function classify(payload, root, repository2) {
   const payloadRepository = payload?.repository?.full_name;
@@ -11194,7 +11527,7 @@ function appendIdempotently(chain, draft, signingKeyPath) {
 }
 function importGitHubOutcome(options) {
   const deliveryId = normalizeDeliveryId(options.deliveryId);
-  const deliveryIdHash = sha2565(`agent-vigil-github-delivery/v1\0${deliveryId}`);
+  const deliveryIdHash = sha2566(`agent-vigil-github-delivery/v1\0${deliveryId}`);
   const verified = verifyContinuityChain(options.chain);
   if (!verified.valid) throw new Error(`continuity chain is invalid: ${verified.errors.join("; ")}`);
   const signingKeyPath = options.signingKeyPath;
@@ -11246,7 +11579,7 @@ function importGitHubOutcome(options) {
   const repository2 = githubRepositoryFromRemote(verified.report.repository.remote);
   const outcome = classify(payload, verified.root, repository2);
   const evidence = buildGitHubWebhookEvidence(raw, new Date(outcome.effectiveAt));
-  const issuer = signingKeyPath ? signingIssuer(signingKeyPath) : sha2565("agent-vigil-github-authenticated-source/v1");
+  const issuer = signingKeyPath ? signingIssuer(signingKeyPath) : sha2566("agent-vigil-github-authenticated-source/v1");
   const draft = validateEventDraft({
     schemaVersion: "agent-vigil-continuity-event/v1",
     eventId: `urn:uuid:${deliveryId}`,
@@ -11361,15 +11694,15 @@ function event(root, sequence, at) {
     subject: root.subject,
     source: {
       kind: "verification",
-      issuer: sha2565(`demo-verifier-${sequence}`),
-      evidenceHash: sha2565(`demo-evidence-${sequence}`),
+      issuer: sha2566(`demo-verifier-${sequence}`),
+      evidenceHash: sha2566(`demo-evidence-${sequence}`),
       deliveryIdHash: null
     },
     event: {
       kind: "verification_refreshed",
       disposition: "affirm",
       reasonCode: "verification.passed",
-      targetHash: sha2565(`demo-verification-target-${sequence}`),
+      targetHash: sha2566(`demo-verification-target-${sequence}`),
       freshUntil: "2026-08-23T13:00:00.000Z",
       supersedesEventId: null
     },
@@ -11380,7 +11713,7 @@ function event(root, sequence, at) {
 }
 function signedWebhook(path, payload, secret) {
   const bytes = Buffer.from(JSON.stringify(payload));
-  writeFileSync6(path, bytes, { mode: 384 });
+  writeFileSync7(path, bytes, { mode: 384 });
   return {
     path,
     deliverySignature: `sha256=${createHmac2("sha256", secret).update(bytes).digest("hex")}`
@@ -11402,18 +11735,18 @@ function runContinuityDemo() {
     };
     const report = signReport(buildReport({
       transcript: "private/session.jsonl",
-      transcriptSha256: sha2565("private demonstration transcript"),
+      transcriptSha256: sha2566("private demonstration transcript"),
       transcriptFormat: "codex",
       repo: "/private/demonstration-repository",
       base: BASE,
       head: HEAD,
       results: [check],
-      policy: { minVerified: 1, strict: true, source: ".agent-vigil.json", sha256: sha2565("demonstration receipt policy") },
+      policy: { minVerified: 1, strict: true, source: ".agent-vigil.json", sha256: sha2566("demonstration receipt policy") },
       repository: { remote: "https://github.com/example/demonstration.git", tree: TREE },
       reproduction: "private demonstration command"
     }), rootPrivate);
     const receiptPath = join10(directory, "receipt.json");
-    writeFileSync6(receiptPath, `${JSON.stringify(report, null, 2)}
+    writeFileSync7(receiptPath, `${JSON.stringify(report, null, 2)}
 `, { mode: 384 });
     const chain = join10(directory, "chain");
     const root = initializeContinuityChain(receiptPath, chain, new Date(TIMES[0]));
@@ -11443,7 +11776,7 @@ function runContinuityDemo() {
     appendContinuityEvent(chain, event(root, 1, TIMES[0]));
     const secret = "demonstration-only-webhook-secret";
     const secretPath = join10(directory, "webhook-secret.txt");
-    writeFileSync6(secretPath, secret, { mode: 384 });
+    writeFileSync7(secretPath, secret, { mode: 384 });
     const merge = signedWebhook(join10(directory, "merge.json"), {
       action: "closed",
       repository: { full_name: "example/demonstration" },
@@ -11489,14 +11822,14 @@ function runContinuityDemo() {
       source: {
         kind: "verification",
         issuer: publicKeyId(repairPublic),
-        evidenceHash: sha2565("independent repair evidence"),
+        evidenceHash: sha2566("independent repair evidence"),
         deliveryIdHash: null
       },
       event: {
         kind: "remediation_verified",
         disposition: "affirm",
         reasonCode: "repair.independently.verified",
-        targetHash: sha2565("verified repaired change"),
+        targetHash: sha2566("verified repaired change"),
         freshUntil: "2026-08-23T13:04:00.000Z",
         supersedesEventId: revokedRecord.eventId
       },
@@ -11585,18 +11918,18 @@ function renderContinuityDecision(value) {
 }
 
 // src/continuity/workflow.ts
-import { execFileSync as execFileSync16 } from "node:child_process";
-import { existsSync as existsSync10, lstatSync as lstatSync12, mkdirSync as mkdirSync7, realpathSync as realpathSync12 } from "node:fs";
-import { join as join11, resolve as resolve21, sep as sep13 } from "node:path";
+import { execFileSync as execFileSync18 } from "node:child_process";
+import { existsSync as existsSync11, lstatSync as lstatSync13, mkdirSync as mkdirSync8, realpathSync as realpathSync12 } from "node:fs";
+import { join as join11, resolve as resolve23, sep as sep13 } from "node:path";
 var ACTION_COMMIT = /^[0-9a-f]{40}$/;
-var CHECKOUT_COMMIT = "3d3c42e5aac5ba805825da76410c181273ba90b1";
+var CHECKOUT_COMMIT2 = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 var DOWNLOAD_COMMIT = "634f93cb2916e3fdff6788551b99b062d0335ce0";
-var UPLOAD_COMMIT = "ea165f8d65b6e75b540449e92b4886f43607fa02";
+var UPLOAD_COMMIT2 = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 function repositoryRoot(path) {
   let root;
   try {
-    root = execFileSync16("git", ["rev-parse", "--show-toplevel"], {
-      cwd: resolve21(path),
+    root = execFileSync18("git", ["rev-parse", "--show-toplevel"], {
+      cwd: resolve23(path),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
     }).trim();
@@ -11604,7 +11937,7 @@ function repositoryRoot(path) {
     throw new Error("--repo must name a Git repository");
   }
   const canonical3 = realpathSync12(root);
-  if (!lstatSync12(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
+  if (!lstatSync13(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
   return canonical3;
 }
 function ensureSafeParent(root, target2) {
@@ -11612,11 +11945,11 @@ function ensureSafeParent(root, target2) {
   let current = root;
   for (const part of relative15) {
     current = join11(current, part);
-    if (existsSync10(current)) {
-      const status = lstatSync12(current);
+    if (existsSync11(current)) {
+      const status = lstatSync13(current);
       if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("continuity setup refuses symbolic-link or non-directory parents");
     } else {
-      mkdirSync7(current, { mode: 448 });
+      mkdirSync8(current, { mode: 448 });
     }
   }
 }
@@ -11739,7 +12072,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, "base=" + root.subject.baseSha + "\\nhead=" + root.subject.headSha + "\\n");
           NODE
       - name: Check out the exact reviewed commit without stored credentials
-        uses: actions/checkout@${CHECKOUT_COMMIT}
+        uses: actions/checkout@${CHECKOUT_COMMIT2}
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -11757,7 +12090,7 @@ jobs:
           head: \${{ steps.identity.outputs.head }}
       - name: Retain the decision
         if: always() && steps.vigil.outputs.report != ''
-        uses: actions/upload-artifact@${UPLOAD_COMMIT}
+        uses: actions/upload-artifact@${UPLOAD_COMMIT2}
         with:
           name: agent-vigil-continuity-decision-\${{ steps.source.outputs.run_id }}
           path: \${{ steps.vigil.outputs.report }}
@@ -11772,7 +12105,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@${CHECKOUT_COMMIT}
+      - uses: actions/checkout@${CHECKOUT_COMMIT2}
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -11800,7 +12133,7 @@ jobs:
       repaired: \${{ steps.result.outputs.repaired }}
     steps:
       - name: Check out the reviewed Agent Vigil source
-        uses: actions/checkout@${CHECKOUT_COMMIT}
+        uses: actions/checkout@${CHECKOUT_COMMIT2}
         with:
           repository: sulmusic2-star/agent-vigil
           ref: ${actionCommit}
@@ -11837,7 +12170,7 @@ jobs:
           ].join("\\n"));
           NODE
       - name: Retain the readable result
-        uses: actions/upload-artifact@${UPLOAD_COMMIT}
+        uses: actions/upload-artifact@${UPLOAD_COMMIT2}
         with:
           name: agent-vigil-continuity-lab
           path: \${{ runner.temp }}/agent-vigil-continuity-lab.json
@@ -11882,13 +12215,13 @@ function installContinuityAction(options) {
     selfServe: Boolean(options.selfServe)
   };
   if (!options.force) {
-    const existing = files.find((file) => existsSync10(resolve21(root, file.path)));
+    const existing = files.find((file) => existsSync11(resolve23(root, file.path)));
     if (existing) throw new Error(`${existing.path} already exists; use --force only after reviewing the current file`);
   }
   for (const file of files) {
-    const destination = resolve21(root, file.path);
+    const destination = resolve23(root, file.path);
     ensureSafeParent(root, destination);
-    const replaced = existsSync10(destination);
+    const replaced = existsSync11(destination);
     writePrivateFileAtomic(destination, file.content);
     (replaced ? result5.replaced : result5.created).push(file.path);
   }
@@ -11955,8 +12288,8 @@ function runImportGitHubActions(args) {
   const signingKey = required(parsed, "--signing-key");
   protectOutput(parsed, chain, [signingKey, process.env.GITHUB_EVENT_PATH ?? ""]);
   const receipt = importGitHubActionsOutcome({
-    chain: resolve22(chain),
-    signingKeyPath: resolve22(signingKey)
+    chain: resolve24(chain),
+    signingKeyPath: resolve24(signingKey)
   });
   outputJson(parsed.values.get("--output"), receipt);
   if (selectedFormat(parsed) === "json") {
@@ -11981,13 +12314,13 @@ function allowed(parsed, values, flags = []) {
 function protectOutput(parsed, chain, inputs = []) {
   const output = parsed.values.get("--output");
   if (!output) return;
-  const selected = resolve22(output);
-  const chainRoot = resolve22(chain);
+  const selected = resolve24(output);
+  const chainRoot = resolve24(chain);
   const fromChain = relative13(chainRoot, selected);
   if (!fromChain || !fromChain.startsWith("..") && !isAbsolute10(fromChain)) {
     throw new Error("--output must be outside the continuity chain directory");
   }
-  if (inputs.some((input) => input && resolve22(input) === selected)) throw new Error("--output must not replace a continuity input");
+  if (inputs.some((input) => input && resolve24(input) === selected)) throw new Error("--output must not replace a continuity input");
 }
 function parse4(args) {
   const positional2 = [];
@@ -12031,7 +12364,7 @@ function selectedNow(parsed) {
   return new Date(epoch);
 }
 function outputJson(path, value) {
-  if (path) writePrivateFileAtomic(resolve22(path), `${JSON.stringify(value, null, 2)}
+  if (path) writePrivateFileAtomic(resolve24(path), `${JSON.stringify(value, null, 2)}
 `);
 }
 function runInit2(args) {
@@ -12039,7 +12372,7 @@ function runInit2(args) {
   allowed(parsed, ["--output"]);
   if (parsed.positional.length !== 1) throw new Error("continuity init requires exactly one Agent Vigil receipt path");
   const output = required(parsed, "--output");
-  const root = initializeContinuityChain(resolve22(parsed.positional[0]), resolve22(output));
+  const root = initializeContinuityChain(resolve24(parsed.positional[0]), resolve24(output));
   process.stdout.write([
     "Agent Vigil continuity chain initialized",
     `  historical verification: ${root.historicalVerification}`,
@@ -12056,8 +12389,8 @@ function runAppend(args) {
   if (parsed.positional.length) throw new Error("continuity append accepts only named options");
   const chain = required(parsed, "--chain");
   const eventPath = required(parsed, "--event");
-  const draft = loadEventDraft(resolve22(eventPath));
-  const event2 = appendContinuityEvent(resolve22(chain), draft, parsed.values.get("--signing-key") ? resolve22(parsed.values.get("--signing-key")) : void 0);
+  const draft = loadEventDraft(resolve24(eventPath));
+  const event2 = appendContinuityEvent(resolve24(chain), draft, parsed.values.get("--signing-key") ? resolve24(parsed.values.get("--signing-key")) : void 0);
   process.stdout.write([
     "Agent Vigil continuity event appended",
     `  sequence: ${event2.sequence}`,
@@ -12075,8 +12408,8 @@ function runVerify2(args) {
   if (parsed.positional.length) throw new Error("continuity verify accepts only named options");
   const chain = required(parsed, "--chain");
   protectOutput(parsed, chain, [parsed.values.get("--public-key") ?? ""]);
-  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve22(parsed.values.get("--public-key")))] : void 0;
-  const verified = verifyContinuityChain(resolve22(chain), {
+  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve24(parsed.values.get("--public-key")))] : void 0;
+  const verified = verifyContinuityChain(resolve24(chain), {
     pinnedEventKeyIds: pinned,
     ...parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head") } : {}
   });
@@ -12105,13 +12438,13 @@ function runImportGitHub(args) {
   const inputs = ["--event", "--webhook-secret-file", "--signing-key"].map((name2) => parsed.values.get(name2) ?? "");
   protectOutput(parsed, chain, inputs);
   const receipt = importGitHubOutcome({
-    chain: resolve22(chain),
+    chain: resolve24(chain),
     deliveryId: required(parsed, "--delivery-id"),
-    ...parsed.values.get("--event") ? { eventPath: resolve22(parsed.values.get("--event")) } : {},
+    ...parsed.values.get("--event") ? { eventPath: resolve24(parsed.values.get("--event")) } : {},
     ...parsed.values.get("--webhook-signature") ? { webhookSignature: parsed.values.get("--webhook-signature") } : {},
-    ...parsed.values.get("--webhook-secret-file") ? { webhookSecretPath: resolve22(parsed.values.get("--webhook-secret-file")) } : {},
+    ...parsed.values.get("--webhook-secret-file") ? { webhookSecretPath: resolve24(parsed.values.get("--webhook-secret-file")) } : {},
     ...parsed.values.get("--observed-at") ? { observedAt: parsed.values.get("--observed-at") } : {},
-    ...parsed.values.get("--signing-key") ? { signingKeyPath: resolve22(parsed.values.get("--signing-key")) } : {},
+    ...parsed.values.get("--signing-key") ? { signingKeyPath: resolve24(parsed.values.get("--signing-key")) } : {},
     unavailable: parsed.flags.has("--unavailable")
   });
   outputJson(parsed.values.get("--output"), receipt);
@@ -12140,14 +12473,14 @@ function runStatus(args) {
   const policyRef = parsed.values.get("--policy-ref");
   const repo = parsed.values.get("--repo");
   if (Boolean(policyRef) !== Boolean(repo)) throw new Error("--policy-ref and --repo must be provided together");
-  const policy = loadContinuityPolicy({ path: policyPath, ...repo ? { repo: resolve22(repo) } : {}, ...policyRef ? { ref: policyRef } : {} });
+  const policy = loadContinuityPolicy({ path: policyPath, ...repo ? { repo: resolve24(repo) } : {}, ...policyRef ? { ref: policyRef } : {} });
   const now = selectedNow(parsed);
-  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve22(parsed.values.get("--public-key")))] : void 0;
-  const verified = verifyContinuityChain(resolve22(chain), {
+  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve24(parsed.values.get("--public-key")))] : void 0;
+  const verified = verifyContinuityChain(resolve24(chain), {
     now,
     maxClockSkewSeconds: policy.value.maxClockSkewSeconds,
     pinnedEventKeyIds: pinned,
-    ...repo ? { repo: resolve22(repo) } : {},
+    ...repo ? { repo: resolve24(repo) } : {},
     ...policyRef ? { expectedBase: policyRef } : {},
     ...parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head") } : {}
   });
@@ -12189,7 +12522,7 @@ function runInstallAction(args) {
   allowed(parsed, ["--repo", "--action-ref", "--source-workflow", "--format"], ["--json", "--force", "--self-serve"]);
   if (parsed.positional.length) throw new Error("continuity install-action accepts only named options");
   const result5 = installContinuityAction({
-    repo: resolve22(required(parsed, "--repo")),
+    repo: resolve24(required(parsed, "--repo")),
     actionCommit: required(parsed, "--action-ref"),
     ...parsed.values.get("--source-workflow") ? { sourceWorkflow: parsed.values.get("--source-workflow") } : {},
     force: parsed.flags.has("--force"),
@@ -12251,6 +12584,7 @@ Usage:
   vigil certify add <certificate.json> --corpus <corpus.jsonl>
   vigil certify status --corpus <corpus.jsonl> --policy <policy.json> [--as-of <time>] [--format text|json] [--output <path>]
   vigil certify policy --organization <name> --repository <owner/name> --required-check <name> --pack baseline|authority --output <path>
+  vigil certify install-action --repo <path> --action-ref <full-commit-sha> [--force]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
@@ -12259,6 +12593,8 @@ Usage:
   vigil verify <receipt.json> [--public-key <path>]
   vigil attest <receipt.json> --predicate-output <path>
   vigil verify-attestation <receipt.json> --repository <owner/name> [--signer-workflow <path>] [--allow-self-hosted]
+  vigil attest-control <control-proof.json> --predicate-output <path>
+  vigil verify-control-attestation <control-proof.json> --repository <owner/name> [--signer-workflow <path>] [--signer-digest <sha>] [--allow-self-hosted]
   vigil notary <receipt.json> --repository <owner/name> --head <sha> --policy-sha256 <digest> [--signer-workflow <path>] [--allow-self-hosted] [--output <path>]
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
@@ -12322,15 +12658,15 @@ function runProve(args) {
         index += 1;
       }
     }
-    const repo = resolve23(optionValue(args, "--repo") ?? ".");
+    const repo = resolve25(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_SHA ?? "HEAD";
-    if (!existsSync11(repo)) throw new Error(`repository not found: ${repo}`);
+    if (!existsSync12(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef)) throw new Error(`invalid Git commit ${baseRef}`);
     const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
     if (!(/* @__PURE__ */ new Set(["text", "json"])).has(format)) throw new Error("prove --format must be text or json");
     const report = buildControlProof(repo, baseRef, VERSION);
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve23(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve25(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderControlProof(report));
     return report.status === "PASS" ? 0 : 2;
@@ -12342,6 +12678,18 @@ function runProve(args) {
 function runCertify(args) {
   try {
     const command = args[1];
+    if (command === "install-action") {
+      const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--repo", "--action-ref"]), /* @__PURE__ */ new Set(["--force"]));
+      const repo = parsed.values.get("--repo") ?? ".";
+      const actionRef = parsed.values.get("--action-ref");
+      if (parsed.positional.length || !actionRef) throw new Error("certify install-action requires --action-ref <full-commit-sha> and accepts optional --repo <path> and --force");
+      const installed = installKeylessControlProofAction(repo, actionRef, parsed.flags.has("--force"));
+      for (const path of installed.created) console.log(`Created ${path}`);
+      for (const path of installed.kept) console.log(`Kept existing ${path}`);
+      console.log(`Agent Vigil control proof is pinned to ${installed.actionCommit}.`);
+      console.log("No private signing key is required. GitHub OIDC signs each proof, and the workflow retains the proof and bundle for 90 days.");
+      return 0;
+    }
     if (command === "record") {
       const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--organization", "--repository", "--required-check", "--output"]));
       if (parsed.positional.length !== 1) throw new Error("certify record requires exactly one control-proof JSON path");
@@ -12350,9 +12698,9 @@ function runCertify(args) {
       const requiredCheck = parsed.values.get("--required-check");
       const output = parsed.values.get("--output");
       if (!organization || !repository2 || !requiredCheck || !output) throw new Error("certify record requires --organization, --repository, --required-check, and --output");
-      const proof = readBoundedJson(resolve23(parsed.positional[0]), 2 * 1024 * 1024, "control proof");
+      const proof = readBoundedJson(resolve25(parsed.positional[0]), 2 * 1024 * 1024, "control proof");
       const certificate = createCertificate({ proof, organization, repository: repository2, requiredCheck });
-      writePrivateFileAtomic(resolve23(output), `${JSON.stringify(certificate, null, 2)}
+      writePrivateFileAtomic(resolve25(output), `${JSON.stringify(certificate, null, 2)}
 `);
       console.log(`Control certificate: ${certificate.proof.status} \xB7 ${certificate.certificateHash}`);
       return certificate.proof.status === "PASS" ? 0 : 2;
@@ -12362,8 +12710,8 @@ function runCertify(args) {
       const privateKey = parsed.values.get("--private-key");
       const output = parsed.values.get("--output");
       if (parsed.positional.length !== 1 || !privateKey || !output) throw new Error("certify sign requires <proof-payload.json> --private-key <pem> --output <path>");
-      const proof = signControlProof(readBoundedJson(resolve23(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve23(privateKey));
-      writePrivateFileAtomic(resolve23(output), `${JSON.stringify(proof, null, 2)}
+      const proof = signControlProof(readBoundedJson(resolve25(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve25(privateKey));
+      writePrivateFileAtomic(resolve25(output), `${JSON.stringify(proof, null, 2)}
 `);
       console.log(`Signed control proof: ${proof.payload.status}`);
       console.log(`Control identity: ${signedControlIdentity(proof)}`);
@@ -12378,13 +12726,13 @@ function runCertify(args) {
       const output = parsed.values.get("--output");
       if (parsed.positional.length !== 1 || !publicKeyPath || !organization || !repository2 || !requiredCheck || !output) throw new Error("certify record-signed requires <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>");
       const certificate = createSignedCertificate({
-        proof: readBoundedJson(resolve23(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
-        publicKeyPath: resolve23(publicKeyPath),
+        proof: readBoundedJson(resolve25(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
+        publicKeyPath: resolve25(publicKeyPath),
         organization,
         repository: repository2,
         requiredCheck
       });
-      writePrivateFileAtomic(resolve23(output), `${JSON.stringify(certificate, null, 2)}
+      writePrivateFileAtomic(resolve25(output), `${JSON.stringify(certificate, null, 2)}
 `);
       console.log(`Signed control certificate: ${certificate.proof.payload.status} \xB7 ${certificate.certificateHash}`);
       console.log(`Control identity: ${signedControlIdentity(certificate.proof)}`);
@@ -12394,8 +12742,8 @@ function runCertify(args) {
       const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--corpus"]));
       const corpus = parsed.values.get("--corpus");
       if (parsed.positional.length !== 1 || !corpus) throw new Error("certify add requires <certificate.json> --corpus <corpus.jsonl>");
-      const certificate = validateAnyCertificate(readBoundedJson(resolve23(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
-      const corpusPath = resolve23(corpus);
+      const certificate = validateAnyCertificate(readBoundedJson(resolve25(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
+      const corpusPath = resolve25(corpus);
       const current = loadCorpus(corpusPath).map((entry2) => JSON.stringify(entry2)).join("\n");
       const { entry, line } = appendCorpusEntry(current, certificate);
       appendPrivateFileAtomic(corpusPath, line);
@@ -12409,12 +12757,12 @@ function runCertify(args) {
       if (!corpus || !policy || parsed.positional.length) throw new Error("certify status requires --corpus <corpus.jsonl> --policy <policy.json>");
       const format = parsed.values.get("--format") ?? "text";
       if (format !== "text" && format !== "json") throw new Error("certify status --format must be text or json");
-      const report = buildStatusReport(loadPolicy2(resolve23(policy)), loadCorpus(resolve23(corpus)), parsed.values.get("--as-of") ?? (/* @__PURE__ */ new Date()).toISOString());
+      const report = buildStatusReport(loadPolicy2(resolve25(policy)), loadCorpus(resolve25(corpus)), parsed.values.get("--as-of") ?? (/* @__PURE__ */ new Date()).toISOString());
       const rendered = format === "json" ? `${JSON.stringify(report, null, 2)}
 ` : `${renderStatusReport(report)}
 `;
       const output = parsed.values.get("--output");
-      if (output) writePrivateFileAtomic(resolve23(output), `${JSON.stringify(report, null, 2)}
+      if (output) writePrivateFileAtomic(resolve25(output), `${JSON.stringify(report, null, 2)}
 `);
       process.stdout.write(rendered);
       return report.status === "PASS" ? 0 : 2;
@@ -12431,7 +12779,7 @@ function runCertify(args) {
       const maxAgeRaw = parsed.values.get("--max-age-hours");
       const maxAgeHours = maxAgeRaw === void 0 ? void 0 : Number(maxAgeRaw);
       const generated = createSingleRepositoryPolicy({ organization, repository: repository2, requiredCheck, pack, ...maxAgeHours === void 0 ? {} : { maxAgeHours } });
-      writePrivateFileAtomic(resolve23(output), `${JSON.stringify(generated, null, 2)}
+      writePrivateFileAtomic(resolve25(output), `${JSON.stringify(generated, null, 2)}
 `);
       console.log(`Created ${pack} control policy with a ${generated.maxAgeHours}-hour proof window.`);
       return 0;
@@ -12454,10 +12802,10 @@ function runPlan(args) {
         index += 1;
       }
     }
-    const repo = resolve23(optionValue(args, "--repo") ?? ".");
+    const repo = resolve25(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_BASE_SHA ?? "HEAD~1";
     const headRef = optionValue(args, "--head") ?? process.env.GITHUB_HEAD_SHA ?? "HEAD";
-    if (!existsSync11(repo)) throw new Error(`repository not found: ${repo}`);
+    if (!existsSync12(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef) || !gitRefExists(repo, headRef)) throw new Error(`invalid git range ${baseRef}..${headRef}`);
     const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
     if (!(/* @__PURE__ */ new Set(["text", "json", "markdown"])).has(format)) throw new Error("plan --format must be text, json, or markdown");
@@ -12470,13 +12818,13 @@ function runPlan(args) {
 ` : format === "markdown" ? renderAuthorityPlanMarkdown(report) : `${renderAuthorityPlan(report)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve23(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve25(output), `${JSON.stringify(report, null, 2)}
 `);
     else process.stdout.write(rendered);
     if (args.includes("--github-summary")) {
       const summaryPath = process.env.GITHUB_STEP_SUMMARY;
       if (!summaryPath) throw new Error("--github-summary requires GITHUB_STEP_SUMMARY");
-      appendPrivateFileAtomic(resolve23(summaryPath), renderAuthorityPlanMarkdown(report));
+      appendPrivateFileAtomic(resolve25(summaryPath), renderAuthorityPlanMarkdown(report));
     }
     return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
   } catch (error) {
@@ -12488,10 +12836,10 @@ function runProofComment(args) {
   try {
     const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--verify-url", "--output"]));
     if (parsed.positional.length !== 1) throw new Error("proof-comment requires exactly one full receipt JSON path");
-    const { report } = loadReceipt(resolve23(parsed.positional[0]));
+    const { report } = loadReceipt(resolve25(parsed.positional[0]));
     const rendered = renderProofComment(report, { verifyUrl: parsed.values.get("--verify-url") });
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve23(output), rendered);
+    if (output) writePrivateFileAtomic(resolve25(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -12559,7 +12907,7 @@ function optionValue(args, name2) {
 }
 function runInit3(args) {
   try {
-    const repo = resolve23(optionValue(args, "--repo") ?? ".");
+    const repo = resolve25(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
     const profile = optionValue(args, "--profile") ?? "default";
@@ -12568,7 +12916,7 @@ function runInit3(args) {
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve23(publicKey)) : void 0, profile, attest);
+    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve25(publicKey)) : void 0, profile, attest);
     console.log("Agent Vigil initialized.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
     for (const path of result5.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -12590,7 +12938,7 @@ function runProtect(args) {
       if (!allowed2.has(arg)) throw new Error(`unknown protect argument: ${arg}`);
       if (arg === "--repo") index += 1;
     }
-    const repo = resolve23(optionValue(args, "--repo") ?? ".");
+    const repo = resolve25(optionValue(args, "--repo") ?? ".");
     const result5 = initRepository(repo, args.includes("--force"), void 0, "protect", args.includes("--attest"));
     console.log("Agent Vigil protection installed.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
@@ -12622,8 +12970,8 @@ function runMaintainer(args) {
     const eventOption = optionValue(args, "--event");
     if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
     const options = parseArgs(withoutOption(args.slice(1), "--event"));
-    const repo = resolve23(options.repo);
-    const eventPath = resolve23(eventOption);
+    const repo = resolve25(options.repo);
+    const eventPath = resolve25(eventOption);
     const policy = loadPolicy(repo, options.policy, options.policyRef);
     if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -12646,8 +12994,8 @@ function runMaintainer(args) {
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
-    const rawEvent = readFileSync23(eventPath);
-    const eventHash = `sha256:${createHash21("sha256").update(rawEvent).digest("hex")}`;
+    const rawEvent = readFileSync24(eventPath);
+    const eventHash = `sha256:${createHash22("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative14(repo, policy.path) : void 0;
     const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git9(repo, ["rev-parse", `${head}^{tree}`]);
@@ -12709,7 +13057,7 @@ function runMergeGroup(args) {
 }
 function runDoctor2(args) {
   try {
-    const repo = resolve23(optionValue(args, "--repo") ?? ".");
+    const repo = resolve25(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -12723,9 +13071,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve23(privatePath), resolve23(publicPath));
+    generateSigningKey(resolve25(privatePath), resolve25(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve23(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve25(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -12743,10 +13091,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve23(options.repo, receiptPath);
-    const receipt = JSON.parse(readFileSync23(absoluteReceipt, "utf8"));
+    const absoluteReceipt = resolve25(options.repo, receiptPath);
+    const receipt = JSON.parse(readFileSync24(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve23(options.repo),
+      repo: resolve25(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -12765,10 +13113,10 @@ function runVerify3(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync23(resolve23(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync24(resolve25(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result5 = verifyReport(report, publicKey ? resolve23(publicKey) : void 0);
+    const result5 = verifyReport(report, publicKey ? resolve25(publicKey) : void 0);
     console.log(`Receipt hash: ${result5.hashValid ? "VALID" : "INVALID"}`);
     if (result5.signatureValid !== void 0) {
       console.log(`Ed25519 signature: ${result5.signatureValid ? "VALID" : "INVALID"} \xB7 ${result5.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
@@ -12812,7 +13160,7 @@ function runAttest(args) {
     const predicateOutput = parsed.values.get("--predicate-output");
     if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest requires <receipt.json> and --predicate-output <path>");
     const receiptPath = parsed.positional[0];
-    const predicate = writeAttestationPredicate(resolve23(receiptPath), resolve23(predicateOutput));
+    const predicate = writeAttestationPredicate(resolve25(receiptPath), resolve25(predicateOutput));
     console.log("Agent Vigil attestation predicate prepared.");
     console.log(`  receipt:  ${predicate.receipt.receiptHash}`);
     console.log(`  decision: ${predicate.receipt.status}`);
@@ -12833,8 +13181,8 @@ function runVerifyAttestation(args) {
     if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-attestation requires <receipt.json> and --repository <owner/name>");
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve23(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const { report } = loadReceipt(resolve23(receiptPath));
+    const verification2 = verifyGitHubAttestation(resolve25(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const { report } = loadReceipt(resolve25(receiptPath));
     console.log(`GitHub attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
     console.log(`Receipt file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
     console.log(`Receipt contents: ${verification2.receiptHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
@@ -12842,6 +13190,53 @@ function runVerifyAttestation(args) {
     console.log(`Change: ${report.base}..${report.head}`);
     console.log(`Receipt: ${report.receiptHash}`);
     console.log(`Signer workflow: ${signerWorkflow}`);
+    return verification2.valid ? 0 : 1;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runAttestControl(args) {
+  try {
+    const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--predicate-output"]));
+    const predicateOutput = parsed.values.get("--predicate-output");
+    if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest-control requires <control-proof.json> and --predicate-output <path>");
+    const proofPath = parsed.positional[0];
+    const predicate = writeControlProofPredicate(resolve25(proofPath), resolve25(predicateOutput));
+    console.log("Agent Vigil control-proof attestation predicate prepared.");
+    console.log(`  proof:    ${predicate.proof.receiptHash}`);
+    console.log(`  decision: ${predicate.proof.status}`);
+    console.log(`  source:   ${predicate.proof.sourceCommit}`);
+    console.log(`  output:   ${predicateOutput}`);
+    console.log(`  type:     ${CONTROL_PROOF_ATTESTATION_PREDICATE_TYPE}`);
+    console.log("The predicate contains hashes, the exact source commit, counts, and the decision. It does not contain repository paths, claims, or evidence text.");
+    return 0;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runVerifyControlAttestation(args) {
+  try {
+    const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--repository", "--signer-workflow", "--signer-digest"]), /* @__PURE__ */ new Set(["--allow-self-hosted"]));
+    const repository2 = parsed.values.get("--repository") ?? process.env.GITHUB_REPOSITORY;
+    if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-control-attestation requires <control-proof.json> and --repository <owner/name>");
+    const proofPath = parsed.positional[0];
+    const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil-control-proof.yml`;
+    const verification2 = verifyGitHubControlProofAttestation(resolve25(proofPath), repository2, {
+      signerWorkflow,
+      ...parsed.values.get("--signer-digest") ? { signerDigest: parsed.values.get("--signer-digest") } : {},
+      allowSelfHosted: parsed.flags.has("--allow-self-hosted")
+    });
+    const { proof } = loadControlProof(resolve25(proofPath));
+    console.log(`GitHub control-proof attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
+    console.log(`Proof file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
+    console.log(`Proof contents: ${verification2.proofHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
+    console.log(`Decision: ${proof.status}`);
+    console.log(`Source commit: ${proof.sourceCommit}`);
+    console.log(`Proof: ${proof.receiptHash}`);
+    console.log(`Signer workflow: ${signerWorkflow}`);
+    if (parsed.values.get("--signer-digest")) console.log(`Signer digest: ${parsed.values.get("--signer-digest")}`);
     return verification2.valid ? 0 : 1;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -12860,12 +13255,12 @@ function runNotary(args) {
     }
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve23(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const payload = buildNotaryCheck(resolve23(receiptPath), verification2, head, policySha256);
+    const verification2 = verifyGitHubAttestation(resolve25(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const payload = buildNotaryCheck(resolve25(receiptPath), verification2, head, policySha256);
     const rendered = `${JSON.stringify(payload, null, 2)}
 `;
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve23(output), rendered);
+    if (output) writePrivateFileAtomic(resolve25(output), rendered);
     else process.stdout.write(rendered);
     return payload.conclusion === "success" ? 0 : payload.conclusion === "failure" ? 1 : 2;
   } catch (error) {
@@ -12879,15 +13274,15 @@ function runCompare(args) {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync23(resolve23(values[0]), "utf8"));
-    const after = JSON.parse(readFileSync23(resolve23(values[1]), "utf8"));
+    const before = JSON.parse(readFileSync24(resolve25(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync24(resolve25(values[1]), "utf8"));
     if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
 ` : `${renderReceiptDelta(delta)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve23(output), rendered);
+    if (output) writePrivateFileAtomic(resolve25(output), rendered);
     else process.stdout.write(rendered);
     return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
   } catch (error) {
@@ -12974,28 +13369,28 @@ function parseValueArgs(args) {
 function readBoundedFile(path, maximumBytes, label) {
   const size = statSync10(path).size;
   if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
-  return readFileSync23(path);
+  return readFileSync24(path);
 }
 function runValue(args) {
   try {
     const options = parseValueArgs(args);
-    const receiptPath = resolve23(options.receipt);
+    const receiptPath = resolve25(options.receipt);
     const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
     const report = JSON.parse(rawReceipt.toString("utf8"));
     if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
       throw new Error("value requires a full Agent Vigil receipt schema 2");
     }
-    const verification2 = verifyReport(report, options.publicKey ? resolve23(options.publicKey) : void 0);
+    const verification2 = verifyReport(report, options.publicKey ? resolve25(options.publicKey) : void 0);
     if (!verification2.hashValid) throw new Error("value receipt hash is invalid");
     if (verification2.signatureValid === false) throw new Error("value receipt signature is invalid");
     let transcriptPath;
-    if (options.transcript) transcriptPath = resolve23(options.transcript);
+    if (options.transcript) transcriptPath = resolve25(options.transcript);
     else if ((/* @__PURE__ */ new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"])).has(report.transcriptFormat)) {
       const candidates = [
-        resolve23(dirname11(receiptPath), report.transcript),
-        ...isAbsolute11(report.repo) ? [resolve23(report.repo, report.transcript)] : []
+        resolve25(dirname12(receiptPath), report.transcript),
+        ...isAbsolute11(report.repo) ? [resolve25(report.repo, report.transcript)] : []
       ];
-      transcriptPath = candidates.find((candidate) => existsSync11(candidate));
+      transcriptPath = candidates.find((candidate) => existsSync12(candidate));
     }
     let loaded;
     if (transcriptPath) {
@@ -13004,11 +13399,11 @@ function runValue(args) {
     }
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
-      const evidence = readBoundedFile(resolve23(path), 64 * 1024 * 1024, label);
-      return `sha256:${createHash21("sha256").update(evidence).digest("hex")}`;
+      const evidence = readBoundedFile(resolve25(path), 64 * 1024 * 1024, label);
+      return `sha256:${createHash22("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
-    const github = options.githubEvidence ? loadGitHubEvidence(resolve23(options.githubEvidence)) : void 0;
+    const github = options.githubEvidence ? loadGitHubEvidence(resolve25(options.githubEvidence)) : void 0;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;
     const inferredOutcome = options.outcome ?? github?.inference.outcome;
     const inferredOutcomeAsOf = options.outcomeAsOf ?? github?.inference.outcomeAsOf;
@@ -13050,7 +13445,7 @@ function runValue(args) {
     });
     const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}
 ` : options.format === "markdown" ? renderValueCardMarkdown(card) : options.format === "html" ? renderValueCardHtml(card) : renderValueCardText(card);
-    if (options.output) writePrivateFileAtomic(resolve23(options.output), rendered);
+    if (options.output) writePrivateFileAtomic(resolve25(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
   } catch (error) {
@@ -13091,7 +13486,7 @@ function runGitHubEvidence(args) {
     const bundle = buildGitHubEvidence(inputs);
     const rendered = `${JSON.stringify(bundle, null, 2)}
 `;
-    if (output) writePrivateFileAtomic(resolve23(output), rendered);
+    if (output) writePrivateFileAtomic(resolve25(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -13121,7 +13516,7 @@ function runCompareValue(args) {
     const comparison = compareValueCards(cards, paths.length);
     const rendered = format === "json" ? `${JSON.stringify(comparison, null, 2)}
 ` : format === "html" ? renderValueComparisonHtml(comparison) : renderValueComparisonText(comparison);
-    if (output) writePrivateFileAtomic(resolve23(output), rendered);
+    if (output) writePrivateFileAtomic(resolve25(output), rendered);
     else process.stdout.write(rendered);
     return comparison.status === "COMPARABLE" ? 0 : 2;
   } catch (error) {
@@ -13134,11 +13529,11 @@ function runAudit(args) {
     const options = parseArgs(args.slice(1));
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
-    const absolute = resolve23(diffPath);
-    const raw = readFileSync23(absolute);
+    const absolute = resolve25(diffPath);
+    const raw = readFileSync24(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest7 = `sha256:${createHash21("sha256").update(raw).digest("hex")}`;
+    const digest7 = `sha256:${createHash22("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -13157,7 +13552,7 @@ function runAudit(args) {
       head: digest7,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash21("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash22("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -13171,7 +13566,7 @@ function runAudit(args) {
 function runTestIntegrity(args) {
   try {
     const options = parseArgs(args.slice(1));
-    const repo = resolve23(options.repo);
+    const repo = resolve25(options.repo);
     if (!gitRefExists(repo, options.base) || options.head !== "WORKTREE" && !gitRefExists(repo, options.head)) {
       throw new Error(`invalid git range ${options.base}..${options.head}`);
     }
@@ -13192,8 +13587,8 @@ function runTestIntegrity(args) {
       if (check.ruleId === "integrity-scan" && check.verdict === "verified") check.contributesToPass = true;
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
-    const diff = execFileSync17("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    const digest7 = `sha256:${createHash21("sha256").update(diff).digest("hex")}`;
+    const diff = execFileSync19("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const digest7 = `sha256:${createHash22("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
       transcript: `${base}..${head}`,
@@ -13208,7 +13603,7 @@ function runTestIntegrity(args) {
         minVerified: 1,
         strict: true,
         source: policyName,
-        sha256: `sha256:${createHash21("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
+        sha256: `sha256:${createHash22("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
       },
       repository: {
         ...git9(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git9(repo, ["config", "--get", "remote.origin.url"]) } : {},
@@ -13230,7 +13625,7 @@ function runAuthority(args) {
       const output = optionValue(args, "--output");
       const rendered = authorityContractTemplate();
       if (output) {
-        writePrivateFileAtomic(resolve23(output), rendered);
+        writePrivateFileAtomic(resolve25(output), rendered);
         console.log(`Created task-scoped authority contract ${output}. Review every allowed action and replace the task ID before use.`);
       } else process.stdout.write(rendered);
       return 0;
@@ -13243,12 +13638,12 @@ function runAuthority(args) {
     const options = parseArgs(stripped);
     const transcriptOption = options.transcript;
     if (!transcriptOption) throw new Error("authority requires a structured agent transcript");
-    const repo = resolve23(options.repo);
+    const repo = resolve25(options.repo);
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
     const base = resolveGitRef(repo, options.base);
     const head = resolveGitRef(repo, options.head);
-    const transcriptPath = isAbsolute11(transcriptOption) ? transcriptOption : resolve23(repo, transcriptOption);
-    if (!existsSync11(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
+    const transcriptPath = isAbsolute11(transcriptOption) ? transcriptOption : resolve25(repo, transcriptOption);
+    if (!existsSync12(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
     const contract = loadAuthorityContract(repo, contractOption, contractRef);
     const loaded = loadTranscript(transcriptPath);
     const inputs = [transcriptPath, ...contract.path ? [contract.path] : []];
@@ -13292,7 +13687,7 @@ function runAuthority(args) {
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve23(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve25(options.signingKey));
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
@@ -13303,7 +13698,7 @@ function runAuthority(args) {
 }
 function git9(repo, args) {
   try {
-    return execFileSync17("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync19("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -13327,6 +13722,8 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "verify") return runVerify3(argv);
   if (argv[0] === "attest") return runAttest(argv);
   if (argv[0] === "verify-attestation") return runVerifyAttestation(argv);
+  if (argv[0] === "attest-control") return runAttestControl(argv);
+  if (argv[0] === "verify-control-attestation") return runVerifyControlAttestation(argv);
   if (argv[0] === "notary") return runNotary(argv);
   if (argv[0] === "compare") return runCompare(argv);
   if (argv[0] === "github-evidence") return runGitHubEvidence(argv);
@@ -13354,7 +13751,7 @@ function run(argv = process.argv.slice(2)) {
 ${usage3()}`);
     return 2;
   }
-  const repo = resolve23(options.repo);
+  const repo = resolve25(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -13371,15 +13768,15 @@ ${usage3()}`);
     console.error(usage3());
     return 2;
   }
-  const transcriptPath = isAbsolute11(transcript) ? transcript : resolve23(repo, transcript);
+  const transcriptPath = isAbsolute11(transcript) ? transcript : resolve25(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
-  if (!existsSync11(transcriptPath)) {
+  if (!existsSync12(transcriptPath)) {
     console.error(`agent-vigil: transcript not found: ${transcriptPath}`);
     return 2;
   }
-  if (!existsSync11(repo)) {
+  if (!existsSync12(repo)) {
     console.error(`agent-vigil: repository not found: ${repo}`);
     return 2;
   }
@@ -13398,8 +13795,8 @@ ${usage3()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve23(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve23(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve25(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve25(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -13449,13 +13846,13 @@ ${usage3()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve23(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve25(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve23(options.signingKey));
-      const portablePath = resolve23(repo, options.portableOutput);
-      mkdirSync8(dirname11(portablePath), { recursive: true });
-      writeFileSync7(portablePath, `${JSON.stringify(portable, null, 2)}
+      const portable = createPortableReceipt(report, resolve25(options.signingKey));
+      const portablePath = resolve25(repo, options.portableOutput);
+      mkdirSync9(dirname12(portablePath), { recursive: true });
+      writeFileSync8(portablePath, `${JSON.stringify(portable, null, 2)}
 `);
     }
     printReport(report, options);

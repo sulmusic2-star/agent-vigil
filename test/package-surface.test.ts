@@ -35,6 +35,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/PROOF_COMMENT.md",
     "docs/PUBLIC_RELEASE_POLICY.md",
     "docs/ai-change-receipt-predicate-v1.schema.json",
+    "docs/control-proof-predicate-v1.schema.json",
     "docs/authority-plan-v1.schema.json",
     "docs/notary-app-manifest.example.json",
     "docs/UPGRADE_GUARD.md",

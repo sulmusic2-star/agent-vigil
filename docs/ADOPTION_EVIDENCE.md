@@ -85,3 +85,9 @@ The first demand gate is five externally owned repositories using the exact
 Action, three with repeat workflow activity, one evidenced revocation stop, and
 one self-serve payment. Until those facts exist, the lab and passing tests are
 product evidence only.
+
+The census also reports the versioned
+`agent-vigil-keyless-control-proof/v1` workflow separately. A configured
+external workflow and an observed run show that GitHub produced activity for
+the keyless proof path. They do not show that the proof passed, that its check
+was required, that the repository retained it, or that anyone paid.

@@ -24,6 +24,7 @@ ACTION_RE = re.compile(r"uses:\s*sulmusic2-star/agent-vigil@[^\s#]+", re.I)
 EXACT_ACTION_RE = re.compile(r"uses:\s*sulmusic2-star/agent-vigil@[0-9a-f]{40}(?:\s|#|$)", re.I)
 CONTINUITY_MODE_RE = re.compile(r"^\s*mode:\s*['\"]?continuity['\"]?\s*(?:#.*)?$", re.I | re.M)
 CONTINUITY_LAB_RE = re.compile(r"agent-vigil-continuity-lab/v1", re.I)
+KEYLESS_CONTROL_PROOF_RE = re.compile(r"agent-vigil-keyless-control-proof/v1", re.I)
 WORKFLOW_RE = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$", re.I)
 EXCLUDED_OWNERS = {"sulmusic2-star"}
 
@@ -80,6 +81,7 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
     continuity_gates: set[str] = set()
     exact_action_repositories: set[str] = set()
     lab_repositories: dict[str, dict[str, Any]] = {}
+    keyless_control_proof_repositories: dict[str, dict[str, Any]] = {}
     for row in source.get("references", []):
         repository = str(row.get("repository", ""))
         path = str(row.get("path", ""))
@@ -91,6 +93,7 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
         exact_commit_use = bool(EXACT_ACTION_RE.search(content))
         continuity_gate = exact_action_use and bool(CONTINUITY_MODE_RE.search(content))
         continuity_lab = bool(CONTINUITY_LAB_RE.search(content))
+        keyless_control_proof = exact_commit_use and bool(KEYLESS_CONTROL_PROOF_RE.search(content))
         state = "configured" if external and workflow and exact_action_use else (
             "continuity-lab" if external and workflow and continuity_lab else "reference-only"
         )
@@ -102,6 +105,7 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
             "workflow_runs": row.get("workflow_runs"),
             "exact_commit_action": exact_commit_use,
             "continuity_gate": continuity_gate,
+            "keyless_control_proof": keyless_control_proof,
         })
         if state == "configured":
             configured.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False})
@@ -115,6 +119,13 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
                 exact_action_repositories.add(repository)
             if continuity_gate:
                 continuity_gates.add(repository)
+            if keyless_control_proof:
+                keyless_control_proof_repositories.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False})
+                keyless_control_proof_repositories[repository]["paths"].append(path)
+                if runs is None:
+                    keyless_control_proof_repositories[repository]["workflow_runs_unknown"] = True
+                else:
+                    keyless_control_proof_repositories[repository]["workflow_runs_observed"] += int(runs)
         elif state == "continuity-lab":
             lab_repositories.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False})
             lab_repositories[repository]["paths"].append(path)
@@ -136,6 +147,7 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
     run_observed = sum(1 for value in configured.values() if value["workflow_runs_observed"] > 0)
     repeat_action = sum(1 for value in configured.values() if value["workflow_runs_observed"] >= 2)
     lab_run_observed = sum(1 for value in lab_repositories.values() if value["workflow_runs_observed"] > 0)
+    keyless_proof_run_observed = sum(1 for value in keyless_control_proof_repositories.values() if value["workflow_runs_observed"] > 0)
     return {
         "schema_version": 1,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -146,6 +158,7 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
             "required_check_detection": "not observable from the public code-search census",
             "continuity_lab_is_product_exploration_not_production_adoption": True,
             "repeat_use_means_two_or_more_current_workflow_runs_not_two_distinct_days": True,
+            "keyless_control_proof_is_signed_product_evidence_not_required_check_or_adoption_by_itself": True,
         },
         "counts": {
             "external_repositories_configured": len(configured),
@@ -157,9 +170,12 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
             "external_repositories_with_repeat_workflow_runs": repeat_action,
             "external_repositories_with_continuity_lab": len(lab_repositories),
             "external_continuity_labs_with_runs_observed": lab_run_observed,
+            "external_repositories_with_keyless_control_proof": len(keyless_control_proof_repositories),
+            "external_keyless_control_proofs_with_runs_observed": keyless_proof_run_observed,
         },
         "configured_repositories": configured,
         "continuity_lab_repositories": lab_repositories,
+        "keyless_control_proof_repositories": keyless_control_proof_repositories,
         "references": references,
     }
 

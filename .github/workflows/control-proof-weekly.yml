@@ -7,6 +7,9 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 jobs:
   certify:
@@ -23,6 +26,20 @@ jobs:
       - run: npm run build
       - name: Challenge the installed control
         run: node dist/cli.js prove --repo . --base "$GITHUB_SHA" --output "$RUNNER_TEMP/control-proof.json"
+      - id: predicate
+        name: Prepare the privacy-reduced control-proof predicate
+        if: always()
+        run: |
+          node dist/cli.js attest-control "$RUNNER_TEMP/control-proof.json" --predicate-output "$RUNNER_TEMP/control-proof-predicate.json"
+          echo "path=$RUNNER_TEMP/control-proof-predicate.json" >> "$GITHUB_OUTPUT"
+      - id: attestation
+        name: Sign the exact control proof with GitHub OIDC
+        if: always() && steps.predicate.outputs.path != ''
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ runner.temp }}/control-proof.json
+          predicate-type: https://sulmusic2-star.github.io/agent-vigil/control-proof-predicate-v1.schema.json
+          predicate-path: ${{ steps.predicate.outputs.path }}
       - name: Build the weekly certificate bundle
         run: |
           node dist/cli.js certify record "$RUNNER_TEMP/control-proof.json" --organization sulmusic2-star --repository sulmusic2-star/agent-vigil --required-check "Agent Vigil evidence" --output "$RUNNER_TEMP/control-certificate.json"
@@ -36,6 +53,8 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ runner.temp }}/control-proof.json
+            ${{ runner.temp }}/control-proof-predicate.json
+            ${{ steps.attestation.outputs.bundle-path }}
             ${{ runner.temp }}/control-certificate.json
             ${{ runner.temp }}/control-corpus.jsonl
             ${{ runner.temp }}/control-policy.json
