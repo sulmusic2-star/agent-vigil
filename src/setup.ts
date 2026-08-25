@@ -6,7 +6,7 @@ import { inferTestCommand } from "./detectors/reality.ts";
 import { loadTranscript } from "./transcript.ts";
 // Generated hosted workflows resolve to the matching stable Action tag. Change
 // this only as part of an exact-version release candidate.
-const PUBLISHED_ACTION_VERSION = "0.18.0";
+const PUBLISHED_ACTION_VERSION = "0.19.0";
 import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts";
 
 type InitResult = { created: string[]; kept: string[] };

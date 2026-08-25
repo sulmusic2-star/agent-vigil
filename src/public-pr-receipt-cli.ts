@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { writePrivateFileAtomic } from "./safe-output.ts";
 import { readBoundedJson } from "./upgrade/contracts.ts";
+import { VERSION } from "./report.ts";
 import {
   PUBLIC_PR_RECEIPT_SCHEMA,
   buildPublicPrReceipt,
@@ -135,7 +136,7 @@ export async function runPublicPrReceiptCommand(
     let receipt = buildPublicPrReceipt(snapshot, parsed.positional[0], {
       generatedAt: selectedTime(parsed.values.get("--as-of")),
       maxAgeHours: selectedAge(parsed.values.get("--max-age-hours")),
-      toolVersion: options.toolVersion ?? "0.18.0",
+      toolVersion: options.toolVersion ?? VERSION,
       toolCommit,
     });
     if (signingKey) receipt = signPublicPrReceipt(receipt, resolve(signingKey));

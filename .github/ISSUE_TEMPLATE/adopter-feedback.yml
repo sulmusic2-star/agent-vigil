@@ -8,6 +8,8 @@ body:
     attributes:
       label: Installation state
       options:
+        - Public PR receipt created
+        - Public PR receipt verified offline
         - Evaluating
         - Installed locally
         - Running in CI
@@ -22,6 +24,7 @@ body:
     attributes:
       label: Evidence mode
       options:
+        - Public PR receipt
         - Full transcript or summary
         - Portable receipt
         - Not installed

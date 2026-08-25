@@ -1,0 +1,55 @@
+name: Public PR receipt feedback
+description: Report a self-serve public pull-request receipt trial.
+title: "[public-pr-receipt] "
+labels: ["adoption"]
+body:
+  - type: dropdown
+    id: state
+    attributes:
+      label: Trial state
+      options:
+        - Receipt created and verified
+        - Receipt created but verification failed
+        - Receipt command returned HOLD
+        - Receipt command returned EXPIRED
+        - Receipt command returned REVOKED
+        - Installation or command failed
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Agent Vigil version or exact release URL
+      placeholder: "0.19.0"
+    validations:
+      required: true
+  - type: input
+    id: public_pr
+    attributes:
+      label: Public pull-request URL
+      description: Do not submit a private repository URL or credential.
+      placeholder: "https://github.com/OWNER/REPOSITORY/pull/123"
+    validations:
+      required: false
+  - type: input
+    id: receipt_hash
+    attributes:
+      label: Receipt content hash
+      description: Share only the receipt hash if you do not want to attach the receipt.
+      placeholder: "sha256:..."
+    validations:
+      required: false
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened and what did you expect?
+      description: Include the exit code and sanitized error. Do not include tokens, source, prompts, transcripts, review text, or check logs.
+    validations:
+      required: true
+  - type: textarea
+    id: next_job
+    attributes:
+      label: What would make this useful again?
+      description: Name the workflow or trust boundary, not a generic feature request.
+    validations:
+      required: true

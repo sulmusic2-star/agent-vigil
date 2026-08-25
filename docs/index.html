@@ -155,6 +155,26 @@
         <div><b class="warn">INCONCLUSIVE</b>There is not enough reliable evidence to approve the change.</div>
       </div>
 
+      <section id="observe">
+        <p class="eyebrow">No workflow changes</p>
+        <h2>Paste one public pull request and keep the receipt.</h2>
+        <p class="section-lead">The read-only command observes public GitHub metadata. It does not fetch source, add an app, change the repository, or authorize deployment.</p>
+        <div class="terminal" aria-label="Public pull-request receipt commands">
+          <header>public PR receipt / no repository write</header>
+          <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz pr-receipt \
+  https://github.com/OWNER/REPOSITORY/pull/123 \
+  --tool-ref FULL_AGENT_VIGIL_COMMIT \
+  --output pr-123.receipt.json
+
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz pr-receipt verify pr-123.receipt.json</pre>
+        </div>
+        <div class="actions">
+          <a class="button" href="PUBLIC_PR_RECEIPT.md">Read the receipt boundary</a>
+          <a class="button secondary" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=public-pr-receipt-feedback.yml">Report a public receipt trial</a>
+        </div>
+        <p class="fine">Missing or failed evidence returns HOLD. CURRENT still leaves every protected action unauthorized.</p>
+      </section>
+
       <section id="protect">
         <p class="eyebrow">One-command protection</p>
         <h2>Install the gate without sending us your code or transcript.</h2>
@@ -266,9 +286,9 @@
       <section id="install" class="install">
         <div><p class="eyebrow">Install</p><h2>Protect a repository, then read the commands it found.</h2><p class="section-lead">The protection profile works without an agent transcript. It installs the required-check workflow, calibrated Test Integrity Guard, receipt retention, and outcome observer.</p></div>
         <div>
-          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz protect --attest</code>
-          <p>Then run <code>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz doctor</code>. Review the discovered commands and limits before merging the setup.</p>
-          <p>GitHub Action: <code>sulmusic2-star/agent-vigil@v0.18.0</code>.</p>
+          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz protect --attest</code>
+          <p>Then run <code>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz doctor</code>. Review the discovered commands and limits before merging the setup.</p>
+          <p>GitHub Action: <code>sulmusic2-star/agent-vigil@v0.19.0</code>.</p>
           <p class="fine">The scoped package prevents confusion with the separate <code>agentvigil</code> project. Agent Vigil reconciles observed evidence after execution; it is not a sandbox or proof that no unlogged action occurred.</p>
           <div class="actions">
             <a class="button" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml">Report a real trial</a>

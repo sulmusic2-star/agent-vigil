@@ -4,7 +4,8 @@
 target repository:
 
 ```bash
-vigil pr-receipt https://github.com/OWNER/REPOSITORY/pull/123 \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz pr-receipt \
+  https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref <reviewed-full-Agent-Vigil-commit> \
   --signing-key operator-private.pem \
   --output pr-123.receipt.json
@@ -87,7 +88,7 @@ change to the normalized receipt invalidates the content hash and signature.
 Verify a saved receipt locally without network access:
 
 ```bash
-vigil pr-receipt verify pr-123.receipt.json
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz pr-receipt verify pr-123.receipt.json
 ```
 
 Verification returns `VALID` only when the content hash is valid and, if a
@@ -98,3 +99,8 @@ authorize a protected action.
 
 The public contract is
 [`public-pr-receipt-v1.schema.json`](public-pr-receipt-v1.schema.json).
+
+Report an outside trial through the
+[public receipt feedback form](https://github.com/sulmusic2-star/agent-vigil/issues/new?template=public-pr-receipt-feedback.yml).
+The form asks for the version, exit code, and receipt hash. It asks users not
+to include credentials, source, prompts, transcripts, review text, or logs.
