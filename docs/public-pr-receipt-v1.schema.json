@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/public-pr-receipt-v1.schema.json",
+  "title": "Agent Vigil public PR receipt v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "generatedAt",
+    "tool",
+    "subject",
+    "observation",
+    "decision",
+    "claimBoundary",
+    "privacy",
+    "integration",
+    "evidence",
+    "receiptHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-public-pr-receipt/v1" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version", "commit"],
+      "properties": {
+        "name": { "const": "@sulmusic/agent-vigil" },
+        "version": { "type": "string", "minLength": 1 },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" }
+      },
+      "additionalProperties": false
+    },
+    "subject": {
+      "type": "object",
+      "required": ["url", "repository", "number", "baseSha", "headSha"],
+      "properties": {
+        "url": { "type": "string", "pattern": "^https://github\\.com/[^/]+/[^/]+/pull/[1-9][0-9]*$" },
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "number": { "type": "integer", "minimum": 1 },
+        "baseSha": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" },
+        "headSha": { "type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$" }
+      },
+      "additionalProperties": false
+    },
+    "observation": { "type": "object" },
+    "decision": {
+      "type": "object",
+      "required": ["continuity", "allowsProtectedAction", "reasonCodes", "summary", "nextAction"],
+      "properties": {
+        "continuity": { "enum": ["CURRENT", "HOLD", "EXPIRED", "REVOKED"] },
+        "allowsProtectedAction": { "const": false },
+        "reasonCodes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "summary": { "type": "string", "minLength": 1 },
+        "nextAction": { "type": "string", "minLength": 1 }
+      }
+    },
+    "claimBoundary": { "type": "object" },
+    "privacy": { "type": "object" },
+    "integration": { "type": "object" },
+    "evidence": { "type": "object" },
+    "receiptHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "signature": { "type": "object" }
+  },
+  "additionalProperties": false
+}
