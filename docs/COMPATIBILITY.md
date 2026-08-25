@@ -6,13 +6,13 @@ payment, or revenue evidence.
 
 ## v0.20.0 source-suite snapshot
 
-On 2026-08-25, the frozen v0.20.0 candidate source ran the ordinary local
-suite once. `npm test` executes **590 tests** in that snapshot: 577 passed and
+On 2026-08-25, the post-pin v0.20.0 candidate source ran the ordinary local
+suite once. `npm test` executes **637 tests** in that snapshot: 624 passed and
 13 opt-in or platform-specific tests skipped. A separate local coverage run
-also contained 590 tests: 569 passed and 21 skipped because coverage mode adds
-its own coverage-specific skips. Both numbers describe those exact local runs;
-the integrated release commit must be rerun before release and may have a
-different count.
+contained the same 637 tests: 616 passed and 21 skipped because coverage mode
+adds its own coverage-specific skips. It reached 92.67% lines, 81.88% branches,
+and 96.36% functions. These numbers describe those exact local candidate runs,
+not hosted CI, a published release, adoption, payment, or revenue.
 
 The durable generated-repository laboratory covers 18 output families:
 

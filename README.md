@@ -786,15 +786,15 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 590 tests, including adversarial candidate-runtime, exact-event, diff-parser,
+- 637 tests, including adversarial candidate-runtime, exact-event, diff-parser,
   authority-classification, bounded-reader, filesystem, output, adapter,
-  continuity, and receipt cases. In the 2026-08-25 frozen v0.20.0 candidate
-  source run, 577 passed and 13 opt-in or platform-specific tests skipped.
+  continuity, and receipt cases. In the 2026-08-25 post-pin v0.20.0 candidate
+  source run, 624 passed and 13 opt-in or platform-specific tests skipped.
   This is local source evidence, not a hosted or released result.
-- The separate 2026-08-25 coverage run contained the same 590 tests: 569 passed
-  and 21 skipped because coverage mode adds coverage-specific skips. The
-  integrated release commit must be rerun before release; these are not
-  forecasts of its final counts.
+- The separate 2026-08-25 coverage run contained the same 637 tests: 616 passed
+  and 21 skipped because coverage mode adds coverage-specific skips. Coverage
+  reached 92.67% lines, 81.88% branches, and 96.36% functions. These are local
+  candidate results, not hosted or released evidence.
 - The broader local compatibility lab retains historical runner-output and
   ecosystem evidence. Generated v0.20.0 hosted execution is deliberately
   narrower: plain Git or root Node/npm with direct `node --test`. Local CLI

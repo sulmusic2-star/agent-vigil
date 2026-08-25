@@ -414,7 +414,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "071524233021dd1b26776277908675d3c29929f0bba92fac21cffe3651e64438",
+    "control-proof-weekly.yml": "5430351832b9faa55fba04ac9c93a450460f4f2307df5c9e5055e109941ca1b9",
     "publish.yml": "a2a2f5326a2bed0621bc15a18245c93512135534e0a033b84293612fdaf6f7bb",
   };
 
@@ -515,7 +515,7 @@ test("privileged workflows bind event identity and validate bounded artifacts", 
   assert.doesNotMatch(controlProof, /workflow_dispatch|npm\s|dist\/cli\.js|control-certificate|control-corpus|control-policy|control-status/);
   const unprivilegedControlProof = controlProof.slice(controlProof.indexOf("  build-proof:"), controlProof.indexOf("  attest-proof:"));
   assert.match(unprivilegedControlProof, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
-  assert.match(unprivilegedControlProof, new RegExp(`sulmusic2-star/agent-vigil@${REVIEWED_RUNTIME_PLACEHOLDER}`));
+  assert.match(unprivilegedControlProof, /sulmusic2-star\/agent-vigil@[0-9a-f]{40}/);
   assert.match(unprivilegedControlProof, /mode:\s*prove/);
   assert.match(unprivilegedControlProof, /attest:\s*false/);
   const privilegedControlProof = controlProof.slice(controlProof.indexOf("  attest-proof:"));
