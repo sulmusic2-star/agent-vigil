@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,12 +15,13 @@ import {
 } from "../src/authority.ts";
 import { loadTranscript } from "../src/transcript.ts";
 import { run } from "../src/cli.ts";
+import { compositeActionIsolationUnavailable, compositeActionScript } from "./action-runtime-fixture.ts";
 
 function git(repo: string, args: string[]): string {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture(options: { headPath?: string; headContent?: string; transcript?: unknown[]; contract?: Partial<AuthorityContract> } = {}) {
+function fixture(options: { headPath?: string; headContent?: string; transcript?: unknown[]; contract?: Partial<AuthorityContract>; policyMinVerified?: number } = {}) {
   const repo = mkdtempSync(join(tmpdir(), "vigil-authority-"));
   git(repo, ["init", "-q"]);
   git(repo, ["config", "user.email", "vigil@example.test"]);
@@ -28,7 +29,7 @@ function fixture(options: { headPath?: string; headContent?: string; transcript?
   mkdirSync(join(repo, "src"), { recursive: true });
   mkdirSync(join(repo, "test"), { recursive: true });
   writeFileSync(join(repo, "src", "value.ts"), "export const value = 1;\n");
-  writeFileSync(join(repo, "test", "value.test.ts"), "// base\n");
+  writeFileSync(join(repo, "test", "value.test.ts"), "import test from 'node:test';import assert from 'node:assert/strict';test('value',()=>assert.equal(1,1));\n");
   const contract: AuthorityContract = {
     schemaVersion: 1,
     taskId: "AV-42",
@@ -39,7 +40,25 @@ function fixture(options: { headPath?: string; headContent?: string; transcript?
     expiresAt: "2099-01-01T00:00:00.000Z",
     ...options.contract,
   };
+  const rows = options.transcript ?? [
+    { type: "session_meta", payload: { id: "session-1" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "read", name: "exec_command", arguments: JSON.stringify({ cmd: "git status --short" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "read", output: JSON.stringify({ exit_code: 0, output: "" }) } },
+    { type: "response_item", payload: { type: "function_call", call_id: "write", name: "apply_patch", arguments: "*** Begin Patch\n*** Update File: src/value.ts\n@@\n-old\n+new\n*** End Patch" } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "write", output: "Done" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "test", name: "exec_command", arguments: JSON.stringify({ cmd: "node --test test/value.test.ts" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "test", output: JSON.stringify({ exit_code: 0, output: "pass" }) } },
+  ];
+  const transcriptPath = join(repo, ".agent-session.jsonl");
   writeFileSync(join(repo, ".agent-vigil-authority.json"), `${JSON.stringify(contract, null, 2)}\n`);
+  writeFileSync(join(repo, ".agent-vigil.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    strict: true,
+    minVerified: options.policyMinVerified ?? 1,
+    testCommand: "node --test test/*.test.ts",
+    integrityMode: "calibrated",
+  }, null, 2)}\n`);
+  writeFileSync(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
   git(repo, ["add", "."]);
   git(repo, ["commit", "-qm", "base"]);
   const base = git(repo, ["rev-parse", "HEAD"]);
@@ -49,17 +68,6 @@ function fixture(options: { headPath?: string; headContent?: string; transcript?
   git(repo, ["add", "."]);
   git(repo, ["commit", "-qm", "head"]);
   const head = git(repo, ["rev-parse", "HEAD"]);
-  const transcriptPath = join(repo, ".agent-session.jsonl");
-  const rows = options.transcript ?? [
-    { type: "session_meta", payload: { id: "session-1" } },
-    { type: "response_item", payload: { type: "function_call", call_id: "read", name: "exec_command", arguments: JSON.stringify({ cmd: "git status --short" }) } },
-    { type: "response_item", payload: { type: "function_call_output", call_id: "read", output: JSON.stringify({ exit_code: 0, output: "" }) } },
-    { type: "response_item", payload: { type: "function_call", call_id: "write", name: "apply_patch", arguments: "patch" } },
-    { type: "response_item", payload: { type: "function_call_output", call_id: "write", output: "Done" } },
-    { type: "response_item", payload: { type: "function_call", call_id: "test", name: "exec_command", arguments: JSON.stringify({ cmd: "npm test" }) } },
-    { type: "response_item", payload: { type: "function_call_output", call_id: "test", output: JSON.stringify({ exit_code: 0, output: "pass" }) } },
-  ];
-  writeFileSync(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
   return { repo, base, head, transcriptPath, contractPath: ".agent-vigil-authority.json" };
 }
 
@@ -80,7 +88,7 @@ test("shell splitting handles compounds while preserving quoted separators", () 
 test("cross-agent transcript actions classify dangerous side effects", () => {
   const fx = fixture({ transcript: [
     { type: "session_meta", payload: { id: "s" } },
-    { type: "response_item", payload: { type: "function_call", call_id: "x", name: "exec_command", arguments: JSON.stringify({ cmd: "npm test && git push && gh release create v1" }) } },
+    { type: "response_item", payload: { type: "function_call", call_id: "x", name: "exec_command", arguments: JSON.stringify({ cmd: "node --test test/value.test.ts && git push && gh release create v1" }) } },
     { type: "response_item", payload: { type: "function_call_output", call_id: "x", output: JSON.stringify({ exit_code: 0 }) } },
   ] });
   const actions = classifyTranscriptActions(loadTranscript(fx.transcriptPath));
@@ -113,6 +121,148 @@ test("classifier covers the high-risk commercial action taxonomy", () => {
   for (const expected of ["dependency_install", "destructive_filesystem", "git_commit", "pull_request_write", "release_publish", "deploy", "network_read", "external_write", "credential_access", "task_create"] as const) {
     assert.equal(classes.has(expected), true, expected);
   }
+});
+
+test("structured file and browser tools fail closed on external, sensitive, or stateful resources", () => {
+  const fx = fixture();
+  const rows = [
+    { type: "session_meta", payload: { id: "s" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "inside", name: "read_file", arguments: JSON.stringify({ path: join(fx.repo, "src/value.ts") }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "inside", output: "ok" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "secret", name: "read_file", arguments: JSON.stringify({ path: "/home/runner/.ssh/id_ed25519" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "secret", output: "denied" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "traversal", name: "read_file", arguments: JSON.stringify({ path: "../outside.txt" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "traversal", output: "denied" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "outside", name: "apply_patch", arguments: "*** Begin Patch\n*** Update File: /tmp/outside.txt\n@@\n-old\n+new\n*** End Patch" } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "outside", output: "denied" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "move-outside", name: "apply_patch", arguments: "*** Begin Patch\n*** Update File: src/value.ts\n*** Move to: ../outside.txt\n@@\n-old\n+new\n*** End Patch" } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "move-outside", output: "denied" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "click", name: "browser", arguments: JSON.stringify({ action: "click", selector: "#submit" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "click", output: "ok" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "submit", name: "web_run", arguments: JSON.stringify({ submit: [{ form: "purchase" }] }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "submit", output: "ok" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "nested-submit", name: "browser", arguments: JSON.stringify({ steps: [{ kind: "submit", target: "purchase" }] }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "nested-submit", output: "ok" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "outside-cwd", name: "exec_command", arguments: JSON.stringify({ cmd: "cat passwd", workdir: "/etc" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "outside-cwd", output: "denied" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "inside-cwd", name: "exec_command", arguments: JSON.stringify({ cmd: "cat value.ts", workdir: join(fx.repo, "src") }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "inside-cwd", output: "ok" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "ambiguous-browser", name: "browser", arguments: JSON.stringify({ action: "tap", query: "x" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "ambiguous-browser", output: "ok" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "compound-read-delete", name: "read_file_and_delete", arguments: JSON.stringify({ path: "src/value.ts" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "compound-read-delete", output: "ok" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "compound-task-publish", name: "create_thread_and_publish", arguments: "{}" } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "compound-task-publish", output: "ok" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "json-string-read", name: "read_file", arguments: JSON.stringify("/etc/passwd") } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "json-string-read", output: "denied" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "json-array-read", name: "read_file", arguments: JSON.stringify(["/etc/passwd"]) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "json-array-read", output: "denied" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "compound-rm", name: "read_file_and_rm", arguments: JSON.stringify({ path: "src/value.ts" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "compound-rm", output: "denied" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "compound-unlink", name: "read_file_and_unlink", arguments: JSON.stringify({ path: "src/value.ts" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "compound-unlink", output: "denied" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "glob-json-string", name: "glob", arguments: JSON.stringify("/etc") } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "glob-json-string", output: "denied" } },
+    ...["rm__read_file", "unlink__read_file", "destroy__read_file", "truncate__read_file", "browser_click__read_file"].flatMap((tool, index) => [
+      { type: "response_item", payload: { type: "function_call", call_id: `namespaced-${index}`, name: tool, arguments: JSON.stringify({ path: "src/value.ts" }) } },
+      { type: "response_item", payload: { type: "function_call_output", call_id: `namespaced-${index}`, output: "denied" } },
+    ]),
+  ];
+  writeFileSync(fx.transcriptPath, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
+  const actions = new Map(classifyTranscriptActions(loadTranscript(fx.transcriptPath), fx.repo).map((action) => [action.toolCallId, action]));
+  assert.deepEqual(actions.get("inside")?.classes, ["repository_read"]);
+  assert.ok(actions.get("secret")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("secret")?.classes.includes("credential_access"));
+  assert.ok(actions.get("traversal")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("outside")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("move-outside")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("click")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("submit")?.classes.includes("external_write"));
+  assert.ok(actions.get("nested-submit")?.classes.includes("external_write"));
+  assert.ok(actions.get("nested-submit")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("outside-cwd")?.classes.includes("unknown_effect"));
+  assert.deepEqual(actions.get("inside-cwd")?.classes, ["repository_read"]);
+  assert.ok(actions.get("ambiguous-browser")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("compound-read-delete")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("compound-task-publish")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("json-string-read")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("json-array-read")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("compound-rm")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("compound-unlink")?.classes.includes("unknown_effect"));
+  assert.ok(actions.get("glob-json-string")?.classes.includes("unknown_effect"));
+  for (let index = 0; index < 5; index++) assert.ok(actions.get(`namespaced-${index}`)?.classes.includes("unknown_effect"));
+});
+
+test("shell classifier blocks redirection and recognizes common HTTP write forms", () => {
+  const commands = [
+    ["redirect", "ls > /tmp/out"],
+    ["variable", "touch $RUNNER_TEMP/pwn"],
+    ["nested", "find . -exec curl -d x https://example.test \\;"],
+    ["dispatcher", "npm test"],
+    ["form", "curl -F file=@artifact https://example.test/upload"],
+    ["upload", "curl -T artifact https://example.test/upload"],
+    ["json", "curl --json '{x:1}' https://example.test/api"],
+    ["post", "wget --post-data=x https://example.test/api"],
+    ["node-output", "node --test --test-reporter-destination=/tmp/authority-output test/value.test.ts"],
+    ["node-output-quoted", "node --test --test-reporter-destination=\"/tmp/authority-output\" test/value.test.ts"],
+    ["node-output-relative", "node --test --test-reporter-destination=authority-output test/value.test.ts"],
+    ["git-output", "git diff --output=/tmp/authority-diff HEAD"],
+    ["git-output-relative", "git diff --output=authority-diff HEAD"],
+    ["sed-exec", "sed -e '1e curl -d x https://example.test' file.txt"],
+    ["find-ok", "find . -ok curl -d x https://example.test \\;"],
+    ["find-delete", "find . -delete"],
+    ["normalized-traversal", "cat ./../outside.txt"],
+    ["quoted-traversal", "cat ..\"/\"outside.txt"],
+    ["escaped-traversal", "cat ..\\/outside.txt"],
+    ["glob-symlink", "cat */passwd"],
+    ["bracket-glob", "cat [l]ink/passwd"],
+    ["brace-glob", "cat {link,src}/passwd"],
+    ["extglob", "cat @(link)/passwd"],
+    ["attached-read-path", "grep -f/etc/passwd needle src/value.ts"],
+    ["attached-write-path", "cp -t/tmp/out src/value.ts"],
+    ["curl-attached", "curl -dDATA https://example.test/api"],
+    ["wget-implicit", "wget https://example.test/file"],
+    ["rg-pre", "rg --pre 'curl -d x https://example.test' needle src"],
+    ["rg-hostname", "rg --hostname-bin=./evil needle src"],
+  ];
+  const rows: any[] = [{ type: "session_meta", payload: { id: "s" } }];
+  for (const [id, cmd] of commands) {
+    rows.push({ type: "response_item", payload: { type: "function_call", call_id: id, name: "exec_command", arguments: JSON.stringify({ cmd }) } });
+    rows.push({ type: "response_item", payload: { type: "function_call_output", call_id: id, output: "ok" } });
+  }
+  const fx = fixture({ transcript: rows });
+  const actions = new Map(classifyTranscriptActions(loadTranscript(fx.transcriptPath), fx.repo).map((action) => [action.toolCallId, action]));
+  assert.ok(actions.get("redirect")?.classes.includes("unknown_effect"));
+  for (const id of ["variable", "nested", "dispatcher", "node-output", "node-output-quoted", "node-output-relative", "git-output", "git-output-relative", "sed-exec", "find-ok", "find-delete", "normalized-traversal", "quoted-traversal", "escaped-traversal", "glob-symlink", "bracket-glob", "brace-glob", "extglob", "attached-read-path", "attached-write-path", "curl-attached", "wget-implicit", "rg-pre", "rg-hostname"]) {
+    assert.ok(actions.get(id)?.classes.includes("unknown_effect"), id);
+  }
+  for (const id of ["form", "upload", "json", "post"]) {
+    assert.ok(actions.get(id)?.classes.includes("network_read"), id);
+    assert.ok(actions.get(id)?.classes.includes("external_write"), id);
+  }
+  const contract = {
+    ...loadAuthorityContract(fx.repo, fx.contractPath, fx.base).value,
+    allowedActions: ["repository_read", "network_read", "external_write"] as AuthorityContract["allowedActions"],
+  };
+  const checked = buildAuthorityChecks(fx.repo, fx.base, fx.head, loadTranscript(fx.transcriptPath), contract);
+  const boundary = checked.results.find((item) => item.ruleId === "authorized-action-classes");
+  assert.equal(boundary?.verdict, "contradicted");
+  assert.match(boundary?.evidence ?? "", /unknown_effect/);
+});
+
+test("authority receipts cannot launder a bracket glob through an external symlink", { skip: process.platform === "win32" }, () => {
+  const rows = [
+    { type: "session_meta", payload: { id: "session-1" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "escape", name: "exec_command", arguments: JSON.stringify({ cmd: "cat [l]ink/passwd" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "escape", output: "external bytes" } },
+  ];
+  const fx = fixture({ transcript: rows });
+  symlinkSync("/etc", join(fx.repo, "link"), "dir");
+  const loaded = loadTranscript(fx.transcriptPath);
+  const action = classifyTranscriptActions(loaded, fx.repo)[0];
+  assert.ok(action.classes.includes("unknown_effect"));
+  const checked = buildAuthorityChecks(fx.repo, fx.base, fx.head, loaded, loadAuthorityContract(fx.repo, fx.contractPath, fx.base).value);
+  assert.equal(checked.results.find((item) => item.ruleId === "authorized-action-classes")?.verdict, "contradicted");
 });
 
 test("allowed paths and observed actions pass", () => {
@@ -249,34 +399,68 @@ test("authority CLI emits PASS JSON and SARIF from a base-anchored contract", ()
   assert.equal(JSON.parse(readFileSync(sarif, "utf8")).version, "2.1.0");
 });
 
-test("composite Action routes authority mode with a base-anchored contract", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
+test("authority CLI executes a base-policy fresh test even when the transcript makes no test claim", () => {
+  const fx = fixture({ transcript: [
+    { type: "session_meta", payload: { id: "s" } },
+    { type: "response_item", payload: { type: "function_call", call_id: "read", name: "exec_command", arguments: JSON.stringify({ cmd: "git status --short" }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "read", output: JSON.stringify({ exit_code: 0 }) } },
+    { type: "response_item", payload: { type: "function_call", call_id: "write", name: "apply_patch", arguments: "patch" } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "write", output: "Done" } },
+  ] });
+  const report = join(tmpdir(), `authority-policy-test-${Date.now()}.json`);
+  const exit = run([
+    "authority", fx.transcriptPath, "--contract", fx.contractPath, "--contract-ref", fx.base,
+    "--policy", ".agent-vigil.json", "--policy-ref", fx.base,
+    "--repo", fx.repo, "--base", fx.base, "--head", fx.head, "--output", report, "--format", "json",
+  ]);
+  assert.equal(exit, 0);
+  const parsed = JSON.parse(readFileSync(report, "utf8"));
+  assert.ok(parsed.results.some((check: { ruleId: string; verdict: string }) => check.ruleId === "tests-pass" && check.verdict === "verified"));
+  assert.ok(parsed.results.some((check: { ruleId: string }) => check.ruleId === "authority-verification-policy"));
+});
+
+test("authority CLI preserves a stronger base-policy evidence minimum", () => {
+  const fx = fixture({ policyMinVerified: 99 });
+  const report = join(tmpdir(), `authority-policy-minimum-${Date.now()}.json`);
+  const exit = run([
+    "authority", fx.transcriptPath, "--contract", fx.contractPath, "--contract-ref", fx.base,
+    "--policy", ".agent-vigil.json", "--policy-ref", fx.base,
+    "--repo", fx.repo, "--base", fx.base, "--head", fx.head, "--output", report, "--format", "json",
+  ]);
+  assert.equal(exit, 2);
+  const parsed = JSON.parse(readFileSync(report, "utf8"));
+  assert.equal(parsed.policy.minVerified, 99);
+  assert.equal(parsed.summary.status, "INCONCLUSIVE");
+});
+
+test("composite Action routes authority mode with a base-anchored contract", { skip: compositeActionIsolationUnavailable }, () => {
   const fx = fixture();
   const event = join(mkdtempSync(join(tmpdir(), "vigil-authority-event-")), "event.json");
   writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: fx.base }, head: { sha: fx.head } } }));
-  const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
-  assert.ok(block);
   const aux = mkdtempSync(join(tmpdir(), "vigil-action-authority-"));
   const script = join(aux, "run.sh");
   const output = join(aux, "output");
   const summary = join(aux, "summary");
   const runner = join(aux, "runner");
-  writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
+  writeFileSync(script, compositeActionScript());
   writeFileSync(output, "");
   writeFileSync(summary, "");
   mkdirSync(runner);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    GITHUB_ACTION_PATH: process.cwd(), GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: runner,
-    VIGIL_TRANSCRIPT: fx.transcriptPath, VIGIL_RECEIPT: "", VIGIL_MODE: "",
-    VIGIL_AUTHORITY_CONTRACT: fx.contractPath, VIGIL_AUTHORITY_CONTRACT_REF: fx.base,
-    VIGIL_REPO: fx.repo, VIGIL_BASE: fx.base, VIGIL_HEAD: fx.head, VIGIL_TEST_CMD: "",
+    GITHUB_ACTION_PATH: process.cwd(), GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "pull_request_target", GITHUB_EVENT_PATH: event,
+    GITHUB_OUTPUT: output, GITHUB_REPOSITORY: "owner/repository", GITHUB_STEP_SUMMARY: summary,
+    GITHUB_WORKSPACE: realpathSync(fx.repo), RUNNER_ENVIRONMENT: "github-hosted", RUNNER_OS: "Linux", RUNNER_TEMP: realpathSync(runner),
+    VIGIL_ATTEST: "false", VIGIL_TRANSCRIPT: ".agent-session.jsonl", VIGIL_RECEIPT: "", VIGIL_MODE: "",
+    VIGIL_AUTHORITY_CONTRACT: ".agent-vigil-authority.json", VIGIL_AUTHORITY_CONTRACT_REF: fx.base,
+    VIGIL_CONTINUITY_CHAIN: "", VIGIL_CONTINUITY_ENVIRONMENT: "production", VIGIL_OUTCOME_RECEIPT: "", VIGIL_ACTIONS_RUN_ID: "",
+    VIGIL_REPO: realpathSync(fx.repo), VIGIL_BASE: fx.base, VIGIL_HEAD: fx.head, VIGIL_TEST_CMD: "",
+    VIGIL_ISOLATE_CANDIDATE: "true", VIGIL_CANDIDATE_SETUP_COMMAND: "",
     VIGIL_POLICY: ".agent-vigil.json", VIGIL_POLICY_REF: fx.base, VIGIL_STRICT: "true", VIGIL_MIN_VERIFIED: "1",
+    VIGIL_GITHUB_TOKEN: "", VIGIL_HAS_GITHUB_TOKEN: "false", VIGIL_VALUE_TASK_CLASS: "", VIGIL_VALUE_BUDGET_USD: "",
+    VIGIL_VALUE_COST_USD: "", VIGIL_VALUE_COST_SOURCE: "", VIGIL_VALUE_COST_EVIDENCE: "", VIGIL_VALUE_REVIEW_MINUTES: "",
+    VIGIL_REVERT_EVIDENCE: "", VIGIL_HOTFIX_EVIDENCE: "", VIGIL_INCIDENT_EVIDENCE: "",
   };
-  // The base fixture has no ordinary policy file; the authority PR path does
-  // not consume it. Keep event trust checks inactive for that unused input.
-  env.VIGIL_POLICY = "";
-  env.VIGIL_POLICY_REF = "";
   delete env.NODE_V8_COVERAGE;
   delete env.NODE_TEST_CONTEXT;
   const completed = spawnSync("bash", [script], { cwd: fx.repo, encoding: "utf8", env });
@@ -284,9 +468,14 @@ test("composite Action routes authority mode with a base-anchored contract", { s
   assert.match(readFileSync(output, "utf8"), /^status=PASS$/m);
   assert.match(readFileSync(output, "utf8"), /^value_card=.+agent-vigil-value-card\.json$/m);
   assert.match(readFileSync(output, "utf8"), /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
-  assert.equal(JSON.parse(readFileSync(join(fx.repo, "agent-vigil-report.json"), "utf8")).transcriptFormat, "authority/codex");
-  assert.equal(JSON.parse(readFileSync(join(fx.repo, "agent-vigil-value-card.json"), "utf8")).schemaVersion, "agent-vigil-value-card/v1");
-  assert.equal(JSON.parse(readFileSync(join(fx.repo, "agent-vigil-github-evidence.json"), "utf8")).schemaVersion, "agent-vigil-github-evidence/v1");
+  const outputs = readFileSync(output, "utf8");
+  const reportPath = outputs.match(/^report=(.+)$/m)?.[1];
+  const valueCardPath = outputs.match(/^value_card=(.+)$/m)?.[1];
+  const githubEvidencePath = outputs.match(/^github_evidence=(.+)$/m)?.[1];
+  assert.ok(reportPath && valueCardPath && githubEvidencePath);
+  assert.equal(JSON.parse(readFileSync(reportPath, "utf8")).transcriptFormat, "authority/codex");
+  assert.equal(JSON.parse(readFileSync(valueCardPath, "utf8")).schemaVersion, "agent-vigil-value-card/v1");
+  assert.equal(JSON.parse(readFileSync(githubEvidencePath, "utf8")).schemaVersion, "agent-vigil-github-evidence/v1");
 });
 
 test("authority init emits a conservative valid template", () => {

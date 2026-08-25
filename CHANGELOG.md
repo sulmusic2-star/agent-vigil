@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+## 0.20.0 - 2026-08-25
+
+### Breaking security migration
+
+- Require `--action-sha <reviewed-full-commit>` for every `vigil init` and
+  `vigil protect` installation. Generated evidence and outcome workflows pin
+  Agent Vigil and supporting Actions to immutable full commits.
+- Replace candidate-selected `pull_request` evidence with a base-selected
+  `pull_request_target` workflow. The job checks out the event's exact pull
+  request head without persisted credentials, validates the base, head, policy,
+  event, Action, and workspace bindings, and runs repository-controlled setup
+  and tests only inside the fixed Linux hosted Docker boundary.
+- Remove candidate-workflow receipt attestation. `init --attest` and
+  `protect --attest` now fail closed. Keyless signing remains available only to
+  the separate, non-candidate Control Proof workflow; candidate evidence has no
+  GitHub token input, OIDC grant, signing authority, or write permission.
+- Limit generated hosted execution to plain repositories and supported root
+  Node/npm repositories. A hosted test must be one bounded direct
+  `node --test` command from `scripts.test` or
+  `agentVigil.hostedTestCommand`. Root npm installs use base-owned
+  `npm ci --ignore-scripts`; unsupported package managers, layouts,
+  toolchains, or indirection fail closed. The local CLI retains broader
+  inference, but runs with the local operator's host privileges and is not a
+  sandbox.
+- Stop generating or accepting a repository-owned `merge_group` evidence path.
+  GitHub's ordinary required-status-check selection binds a context or job name,
+  not the expected workflow and event identity. A candidate can therefore
+  imitate the name. Enforceable pull-request and merge-queue policy requires an
+  organization or enterprise required-workflow ruleset, or an external GitHub
+  App that validates the exact head and expected evidence source.
+- Reduce the generated outcome observer to a read-only `workflow_run` handler
+  for the completed evidence run. It snapshots that run's retained receipt,
+  Actions records, and pull-request state without checking out or executing
+  candidate code. It does not claim continuous close, merge, revert, incident,
+  adoption, payment, or revenue observation.
+- Harden diff parsing, evidence snapshots, filesystem handling, command and
+  authority classification, candidate clone isolation, Docker invocation,
+  bounded readers, output identity, and cleanup so malformed, ambiguous, or
+  mutable inputs fail closed.
+- Validate full Trust Reports recursively before signing, comparing, sealing a
+  portable receipt, building continuity evidence, or rendering proof output.
+  Unknown fields, malformed summaries, stale hashes, unsafe key/receipt paths,
+  and internally inconsistent reports now fail closed.
+- Make the public pull-request receipt bind the oldest decisive evidence time,
+  public-repository status, freshness policy, and decisive review state.
+  Comment-only reviews cannot erase a change request, ambient GitHub tokens are
+  not consumed, reads have deadlines and byte limits, and impossible freshness
+  receipts cannot verify.
+- Split scheduled Control Proof into an unprivileged proof job and a separate
+  no-checkout OIDC signer. The signer accepts only a bounded proof/predicate
+  artifact and verifies their exact content, source, and hash binding before
+  attestation; the generated workflow has no manual or candidate trigger.
+- Split npm release verification and packing from the minimal OIDC publish job.
+  Publishing is release-event-only, consumes a bounded hash-bound tarball, and
+  requires the separately protected `npm-publish` GitHub environment and npm
+  Trusted Publisher authorization before it can be considered live.
+
 ## 0.19.0 - 2026-08-25
 
 - Add `vigil pr-receipt` for a read-only, no-workflow-change observation of a

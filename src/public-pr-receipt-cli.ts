@@ -1,13 +1,13 @@
 import { resolve } from "node:path";
 import { writePrivateFileAtomic } from "./safe-output.ts";
-import { readBoundedJson } from "./upgrade/contracts.ts";
+import { readBoundedJson } from "./continuity/contracts.ts";
 import { VERSION } from "./report.ts";
 import {
-  PUBLIC_PR_RECEIPT_SCHEMA,
   buildPublicPrReceipt,
   collectPublicPrSnapshot,
   renderPublicPrReceipt,
   signPublicPrReceipt,
+  validatePublicPrReceipt,
   validateToolCommit,
   verifyPublicPrReceipt,
   type PublicPrReceipt,
@@ -43,14 +43,7 @@ Exit codes: 0 CURRENT · 1 REVOKED · 2 usage/network error · 3 HOLD · 4 EXPIR
 }
 
 function selectedReceipt(value: unknown): PublicPrReceipt {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("public PR receipt must be a JSON object");
-  const receipt = value as Record<string, unknown>;
-  if (receipt.schemaVersion !== PUBLIC_PR_RECEIPT_SCHEMA) throw new Error(`public PR receipt must use ${PUBLIC_PR_RECEIPT_SCHEMA}`);
-  if (typeof receipt.receiptHash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(receipt.receiptHash)) throw new Error("public PR receipt hash is invalid");
-  if (receipt.signature !== undefined && (!receipt.signature || typeof receipt.signature !== "object" || Array.isArray(receipt.signature))) {
-    throw new Error("public PR receipt signature is invalid");
-  }
-  return value as PublicPrReceipt;
+  return validatePublicPrReceipt(value);
 }
 
 function verifyReceipt(path: string, format: string): number {
@@ -131,7 +124,7 @@ export async function runPublicPrReceiptCommand(
     if (signingKey && output && resolve(signingKey) === resolve(output)) throw new Error("--output must not replace the signing key");
     const snapshot = await collectPublicPrSnapshot(parsed.positional[0], {
       ...(options.transport ? { transport: options.transport } : {}),
-      token: options.token ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN,
+      ...(options.token ? { token: options.token } : {}),
     });
     let receipt = buildPublicPrReceipt(snapshot, parsed.positional[0], {
       generatedAt: selectedTime(parsed.values.get("--as-of")),

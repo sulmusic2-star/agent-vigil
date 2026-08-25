@@ -1,48 +1,56 @@
 name: Agent Vigil
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-  merge_group:
-    types: [checks_requested]
+  # The base branch selects these workflow bytes. Candidate code is checked out
+  # only after the job has entered the credential-free isolation contract.
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
   pull-requests: read
-  id-token: write
-  attestations: write
-  artifact-metadata: write
 
 jobs:
   evidence:
     name: Agent Vigil evidence
-    runs-on: ubuntu-latest
+    if: github.event.pull_request.state == 'open'
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out the exact candidate revision without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      - name: Install dependencies for fresh verification
-        run: npm ci --ignore-scripts
-      - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.12.0
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - name: Select the trusted host Node.js runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          attest: true
+          node-version: 22
+          package-manager-cache: false
+      - id: vigil
+        name: Verify in the candidate-only Docker contract
+        # Release gate: replace this literal with the reviewed 40-hex runtime
+        # commit only after source/dist identity is frozen and reviewed.
+        uses: sulmusic2-star/agent-vigil@REVIEWED_40_HEX_AGENT_VIGIL_COMMIT
+        with:
           mode: maintainer
           policy: .agent-vigil.json
-          policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          policy-ref: ${{ github.event.pull_request.base.sha }}
           repo: .
-          base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-          github-token: ${{ github.token }}
-      - name: Retain auditable Agent Vigil receipt
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          isolate-candidate: true
+          candidate-setup-cmd: npm ci --ignore-scripts
+      - name: Retain only the Action-declared evidence outputs
         if: always() && steps.vigil.outputs.report != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: agent-vigil-receipt
           path: |
-            agent-vigil-report.json
-            agent-vigil.sarif
-            agent-vigil-value-card.json
-            agent-vigil-github-evidence.json
+            ${{ steps.vigil.outputs.report }}
+            ${{ steps.vigil.outputs.sarif }}
+            ${{ steps.vigil.outputs.value-card }}
+            ${{ steps.vigil.outputs.github-evidence }}
+          if-no-files-found: error
           retention-days: 30

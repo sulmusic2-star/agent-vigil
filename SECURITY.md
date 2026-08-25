@@ -18,6 +18,22 @@ worktree protects commit identity; it is not a security sandbox. Run untrusted
 code on an isolated runner with read-only GitHub permissions and no deployment,
 package, cloud, or signing credentials.
 
+The v0.20.0 generated hosted lane is narrower. It is selected from the base
+branch through `pull_request_target`, checks out the exact pull-request head
+without persisted credentials, and passes no token, OIDC, signing, or write
+authority to candidate verification. Repository-controlled setup and tests run
+only on a GitHub-hosted Linux runner in the fixed candidate-only Docker path.
+Setup receives network only for base-owned `npm ci --ignore-scripts`; tests use
+a read-only source mount and no network. Docker, the runner, the pinned image,
+the reviewed Action commit, GitHub's event payload, and the base branch remain
+trusted.
+
+Generated `init` and `protect` workflows require
+`--action-sha <reviewed-full-commit>` and support only plain repositories or
+root Node/npm repositories with a bounded direct `node --test` command.
+Unsupported hosted shapes fail closed. See the
+[hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md).
+
 Receipt, SARIF, and GitHub-summary output refuses symbolic links, symlinked
 untrusted parent components, and non-regular destinations. Output is prepared
 in an exclusive temporary file and atomically replaces the final path. POSIX
@@ -25,9 +41,27 @@ files use mode `0600`; Windows files inherit the destination directory ACL, so
 sensitive output needs a private directory. This protects the output boundary;
 it does not sandbox repository code.
 
+## GitHub enforcement and signing boundary
+
+Candidate-executing workflows cannot use receipt attestation in v0.20.0.
+`init --attest` and `protect --attest` fail closed. Keyless signing is confined
+to the separate Control Proof workflow, which runs planted non-candidate
+challenges and does not execute pull-request code.
+
+A plain required status check binds a context or job name, not the expected
+workflow and event identity. A candidate can imitate that name. Requiring
+`Agent Vigil evidence` by name alone is therefore not an enforceable security
+boundary. Use an organization or enterprise required-workflow ruleset, or an
+external GitHub App exact-head check. The generated repository workflow does
+not claim `merge_group` enforcement.
+
+The generated outcome workflow is read-only and executes no candidate code. It
+records only a completed `workflow_run` snapshot. It does not guarantee later
+merge, close, revert, incident, payment, or revenue observation.
+
 ## Upgrade Guard containment
 
-The unreleased `vigil upgrade` lane is separate from repository test execution.
+The `vigil upgrade` lane is separate from repository test execution.
 It accepts only exact-digest OCI runner identities already present locally and
 uses fixed Docker argv with no shell, no network, read-only target, canary, and
 root filesystems, dropped capabilities, `no-new-privileges`, non-root

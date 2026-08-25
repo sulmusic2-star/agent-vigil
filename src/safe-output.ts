@@ -6,6 +6,7 @@ import {
   fstatSync,
   fsyncSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readFileSync,
   realpathSync,
@@ -13,7 +14,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, parse, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, parse, relative, resolve, sep, win32 } from "node:path";
 
 function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
@@ -163,6 +164,48 @@ export function writePrivateFileAtomic(destination: string, content: string): vo
     }
   }
   if (failure !== undefined) throw failure;
+}
+
+/**
+ * Create a repository-relative private output without traversing a symlinked
+ * parent. This is intentionally separate from the generic atomic writer:
+ * most output commands require an existing parent, while portable receipts
+ * need to create their conventional `.agent-vigil` directory on first use.
+ */
+export function writePrivateFileAtomicWithin(root: string, destination: string, content: string): void {
+  if (!destination || destination.includes("\0") || isAbsolute(destination) || win32.isAbsolute(destination)) {
+    throw new Error(`Private repository output must be a relative path: ${destination}`);
+  }
+  const canonicalRoot = realpathSync(resolve(root));
+  const rootStatus = lstatSync(canonicalRoot, { bigint: true });
+  if (!rootStatus.isDirectory() || rootStatus.isSymbolicLink()) {
+    throw new Error(`Private repository output root must be a non-symlink directory: ${canonicalRoot}`);
+  }
+  const target = resolve(canonicalRoot, normalize(destination));
+  const repositoryPath = relative(canonicalRoot, target);
+  if (!repositoryPath || repositoryPath === ".." || repositoryPath.startsWith(`..${sep}`) || isAbsolute(repositoryPath)) {
+    throw new Error(`Private repository output escapes its repository: ${destination}`);
+  }
+
+  let current = canonicalRoot;
+  for (const component of dirname(repositoryPath).split(sep).filter((item) => item && item !== ".")) {
+    const next = join(current, component);
+    try {
+      const status = lstatSync(next);
+      if (status.isSymbolicLink() || !status.isDirectory()) {
+        throw new Error(`Refusing to traverse unsafe private output parent: ${next}`);
+      }
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+      mkdirSync(next, { mode: 0o700 });
+      const status = lstatSync(next);
+      if (status.isSymbolicLink() || !status.isDirectory()) {
+        throw new Error(`Refusing to traverse unsafe private output parent: ${next}`);
+      }
+    }
+    current = next;
+  }
+  writePrivateFileAtomic(target, content);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync, mkdirSync, readFileSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -16,6 +16,8 @@ import {
 } from "../src/transcript.ts";
 import {
   checkCompletion,
+  classifyCandidateTestOutcome,
+  changedPaths,
   checkFilesChanged,
   checkIntegrity,
   checkIntegrityDiff,
@@ -57,7 +59,11 @@ test("extracts root-level changed files", () => {
 });
 
 test("does not treat ordinary dotted words as repository paths", () => {
-  assert.equal(extractClaims("The test suite passes on Node.js against example.com").filter((c) => c.kind === "path_exists").length, 0);
+  const claims = extractClaims("The test suite passes on Node.js against example.com");
+  assert.equal(claims.filter((c) => c.kind === "path_exists").length, 0);
+  const testClaim = claims.find((claim) => claim.kind === "tests_pass");
+  assert.ok(testClaim);
+  assert.equal(Object.hasOwn(testClaim, "expectedCount"), false);
 });
 
 test("extracts paths only from explicit path contexts", () => {
@@ -165,6 +171,18 @@ test("fresh verification cannot silently mutate tracked inputs", () => {
   assert.equal(check.blocksPass, true);
 });
 
+test("fresh verification cannot hide a tracked deletion by renaming it to an ignored evidence path", () => {
+  const repo = initRepo();
+  git(repo, "mv", "README.md", "session.md");
+  const renameAware = execFileSync("git", ["diff", "HEAD", "--name-only", "-z"], { cwd: repo, encoding: "utf8" })
+    .split("\0").filter(Boolean);
+  assert.deepEqual(renameAware, ["session.md"], "the regression must exercise Git's destination-only rename view");
+  const check = checkWorkspaceMutation(repo, ["session.md"])[0];
+  assert.equal(check.ruleId, "workspace-mutated");
+  assert.equal(check.blocksPass, true);
+  assert.match(check.evidence, /README\.md/);
+});
+
 test("three identical tool calls are a contradiction", () => {
   const calls = [0, 1, 2].map((sequence) => ({ id: String(sequence), name: "Read", input: "a", sequence }));
   assert.equal(checkStepRepetition(calls)[0].verdict, "contradicted");
@@ -254,6 +272,17 @@ test("unquantified passing test claim verifies", () => {
   const claim = { kind: "tests_pass" as const, quote: "tests pass", subject: "test suite" };
   assert.equal(checkTestsPass([claim], repo)[0].verdict, "verified");
 });
+test("zero-test success cannot verify a passing-test claim", () => {
+  const claim = { kind: "tests_pass" as const, quote: "tests pass", subject: "test suite" };
+  const [result] = classifyCandidateTestOutcome([claim], "node --test", {
+    status: 0,
+    signal: null,
+    output: "# tests 0\n# pass 0\n# fail 0\n",
+  });
+  assert.equal(result.verdict, "unverifiable");
+  assert.equal(result.ruleId, "tests-empty");
+  assert.equal(result.blocksPass, true);
+});
 
 test("integrity scan catches skipped test added", () => {
   const repo = initRepo(); mkdirSync(join(repo, "test")); writeFileSync(join(repo, "test", "a.test.ts"), "test('a',()=>{})\n"); commit(repo, "test");
@@ -265,18 +294,212 @@ test("integrity scan catches test count drop", () => {
   writeFileSync(join(repo, "test", "a.test.ts"), "test('a',()=>{})\n"); commit(repo, "drop");
   assert.ok(checkIntegrity(repo, "HEAD~1", "HEAD").some((r) => r.ruleId === "test-count-drop"));
 });
+test("integrity scan blocks deletion of an aliased test file without an exact replacement", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test"));
+  writeFileSync(join(repo, "test", "security.test.js"), "const check = require('node:test');\nconst assert = require('node:assert');\ncheck('security', () => assert.ok(true));\n");
+  commit(repo, "aliased test");
+  git(repo, "rm", "-q", "test/security.test.js"); commit(repo, "delete aliased test");
+  const result = checkIntegrity(repo, "HEAD~1", "HEAD").find((candidate) => candidate.ruleId === "test-file-deleted");
+  assert.equal(result?.verdict, "contradicted");
+});
+test("integrity scan permits a byte-identical test-file move", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test"));
+  writeFileSync(join(repo, "test", "before.test.js"), "test('security', () => assert.ok(true));\n");
+  commit(repo, "test before move");
+  git(repo, "mv", "test/before.test.js", "test/after.test.js"); commit(repo, "move test");
+  const results = checkIntegrity(repo, "HEAD~1", "HEAD");
+  assert.equal(results.some((candidate) => candidate.ruleId === "test-file-deleted"), false);
+  assert.equal(results.some((candidate) => candidate.verdict === "contradicted"), false);
+});
+test("integrity scan keeps large byte-identical non-test moves within the bounded diff", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "assets"));
+  writeFileSync(join(repo, "assets", "before.fixture"), "x".repeat(5 * 1024 * 1024));
+  commit(repo, "large fixture before move");
+  git(repo, "mv", "assets/before.fixture", "assets/after.fixture"); commit(repo, "move large fixture");
+  const results = checkIntegrity(repo, "HEAD~1", "HEAD");
+  assert.equal(results.some((candidate) => candidate.ruleId === "diff-unreadable"), false);
+  assert.equal(results.some((candidate) => candidate.verdict === "contradicted" || candidate.verdict === "unverifiable"), false);
+});
+test("integrity scan routes both sides of a content-changing rename", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test")); mkdirSync(join(repo, "src"));
+  const context = Array.from({ length: 20 }, (_, index) => `const fixture${index} = ${index};`);
+  writeFileSync(join(repo, "test", "before.test.ts"), `${context.join("\n")}\nexpect(value()).toBe(2);\n`);
+  commit(repo, "test before renamed weakening");
+  git(repo, "mv", "test/before.test.ts", "src/value.ts");
+  writeFileSync(join(repo, "src", "value.ts"), `${context.join("\n")}\nexpect(value()).toBeGreaterThan(0);\n`);
+  commit(repo, "rename and weaken test");
+  const results = checkIntegrity(repo, "HEAD~1", "HEAD");
+  assert.equal(results.some((candidate) => candidate.ruleId === "diff-unparseable"), false);
+  assert.ok(results.some((candidate) => candidate.ruleId === "test-file-deleted"));
+});
+test("integrity scan does not collapse distinct invalid UTF-8 test replacements", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test"));
+  const prefix = Buffer.from("const check = require('node:test'); check('security', () => {}); // ");
+  writeFileSync(join(repo, "test", "before.test.js"), Buffer.concat([prefix, Buffer.from([0xe9])]));
+  commit(repo, "non-UTF8 test baseline");
+  git(repo, "rm", "-q", "test/before.test.js");
+  mkdirSync(join(repo, "test"));
+  writeFileSync(join(repo, "test", "after.test.js"), Buffer.concat([prefix, Buffer.from([0xe8])]));
+  commit(repo, "different non-UTF8 replacement");
+  const result = checkIntegrity(repo, "HEAD~1", "HEAD").find((candidate) => candidate.ruleId === "test-file-deleted");
+  assert.equal(result?.verdict, "contradicted");
+});
+test("integrity scan rejects a symlink as an exact test replacement", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test"));
+  writeFileSync(join(repo, "test", "before.test.js"), "no-test.js");
+  commit(repo, "regular test-shaped baseline");
+  git(repo, "rm", "-q", "test/before.test.js");
+  mkdirSync(join(repo, "test"));
+  symlinkSync("no-test.js", join(repo, "test", "after.test.js"));
+  commit(repo, "symlink replacement");
+  const result = checkIntegrity(repo, "HEAD~1", "HEAD")[0];
+  assert.equal(result.ruleId, "integrity-unreadable");
+  assert.match(result.evidence, /not one exact regular Git blob/);
+});
+test("integrity scan consumes exact test replacements one-to-one", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test"));
+  const content = "const check = require('node:test');\ncheck('security', () => require('node:assert').ok(true));\n";
+  writeFileSync(join(repo, "test", "first.test.js"), content);
+  writeFileSync(join(repo, "test", "second.test.js"), content);
+  commit(repo, "duplicate aliased tests");
+  git(repo, "rm", "-q", "test/first.test.js", "test/second.test.js");
+  mkdirSync(join(repo, "test"));
+  writeFileSync(join(repo, "test", "only-one.test.js"), content);
+  commit(repo, "collapse duplicate tests");
+  const result = checkIntegrity(repo, "HEAD~1", "HEAD").find((candidate) => candidate.ruleId === "test-file-deleted");
+  assert.equal(result?.verdict, "contradicted");
+  assert.match(result?.evidence ?? "", /1 deleted test file/);
+});
+test("WORKTREE path inventory preserves both sides of a rename", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test"));
+  writeFileSync(join(repo, "test", "before.test.js"), "test('security', () => assert.ok(true));\n");
+  commit(repo, "test before worktree move");
+  git(repo, "mv", "test/before.test.js", "test/after.test.js");
+  assert.deepEqual([...changedPaths(repo, "HEAD", "WORKTREE")].sort(), ["test/after.test.js", "test/before.test.js"]);
+  assert.equal(checkIntegrity(repo, "HEAD", "WORKTREE").some((candidate) => candidate.ruleId === "test-file-deleted"), false);
+});
 test("clean integrity scan is passive", () => {
   const repo = initRepo(); writeFileSync(join(repo, "README.md"), "changed\n"); commit(repo, "docs");
   const check = checkIntegrity(repo, "HEAD~1", "HEAD")[0];
   assert.equal(check.verdict, "verified"); assert.equal(check.contributesToPass, false);
 });
 
+test("integrity scan blocks when changed paths cannot be enumerated", () => {
+  const result = checkIntegrity(initRepo(), "missing-base", "HEAD")[0];
+  assert.equal(result.ruleId, "integrity-unreadable");
+  assert.equal(result.verdict, "unverifiable");
+  assert.equal(result.blocksPass, true);
+});
+
+test("integrity scan blocks when the bounded unified diff cannot be read", () => {
+  const repo = initRepo();
+  writeFileSync(join(repo, "large.ts"), `${"a".repeat(5 * 1024 * 1024)}\n`); commit(repo, "large baseline");
+  writeFileSync(join(repo, "large.ts"), `${"b".repeat(5 * 1024 * 1024)}\n`); commit(repo, "large change");
+  const result = checkIntegrity(repo, "HEAD~1", "HEAD")[0];
+  assert.equal(result.ruleId, "diff-unreadable");
+  assert.equal(result.verdict, "unverifiable");
+  assert.equal(result.blocksPass, true);
+});
+
+test("integrity scan blocks when a required changed-test blob exceeds its read limit", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test"));
+  const path = join(repo, "test", "large.test.ts");
+  writeFileSync(path, `${"// baseline fixture\n".repeat(240_000)}\n`); commit(repo, "large test baseline");
+  writeFileSync(path, `${readFileSync(path, "utf8")}test('added', () => {});\n`); commit(repo, "touch large test");
+  const result = checkIntegrity(repo, "HEAD~1", "HEAD")[0];
+  assert.equal(result.ruleId, "integrity-unreadable");
+  assert.equal(result.verdict, "unverifiable");
+  assert.equal(result.blocksPass, true);
+});
+
+test("integrity scan forces text patches despite candidate diff attributes", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "src"));
+  writeFileSync(join(repo, "src", "value.ts"), "return value;\n"); commit(repo, "attribute baseline");
+  writeFileSync(join(repo, ".gitattributes"), "*.ts -diff\n");
+  writeFileSync(join(repo, "src", "value.ts"), "if (false) return fallback;\nreturn value;\n"); commit(repo, "hidden bypass");
+  const result = checkIntegrity(repo, "HEAD~1", "HEAD").find((candidate) => candidate.ruleId === "dead-branch-added");
+  assert.equal(result?.verdict, "contradicted");
+});
+
+test("integrity scan fails closed on Git-quoted changed paths", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "src"));
+  const path = join(repo, "src", "evil\\name.ts");
+  writeFileSync(path, "return value;\n"); commit(repo, "quoted path baseline");
+  writeFileSync(path, "if (false) return fallback;\nreturn value;\n"); commit(repo, "quoted path change");
+  const result = checkIntegrity(repo, "HEAD~1", "HEAD")[0];
+  assert.equal(result.ruleId, "diff-unparseable");
+  assert.equal(result.verdict, "unverifiable");
+  assert.equal(result.blocksPass, true);
+  assert.match(result.evidence, /quoted unified-diff (?:old )?path header/);
+});
+
+test("integrity scan size-checks required worktree test blobs before reading", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test"));
+  const path = join(repo, "test", "large.test.ts");
+  writeFileSync(path, "test('baseline', () => {});\n"); commit(repo, "test baseline");
+  writeFileSync(path, `${"x".repeat(5 * 1024 * 1024)}\n`);
+  const result = checkIntegrity(repo, "HEAD", "WORKTREE")[0];
+  assert.equal(result.ruleId, "integrity-unreadable");
+  assert.equal(result.verdict, "unverifiable");
+  assert.equal(result.blocksPass, true);
+  assert.match(result.evidence, /exceeds the 4 MiB limit/);
+});
+
+test("integrity scan refuses symlinked worktree test blobs", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "test"));
+  const path = join(repo, "test", "linked.test.ts");
+  writeFileSync(path, "test('baseline', () => {});\n"); commit(repo, "test baseline");
+  unlinkSync(path); symlinkSync(join(repo, "README.md"), path);
+  const result = checkIntegrity(repo, "HEAD", "WORKTREE")[0];
+  assert.equal(result.ruleId, "integrity-unreadable");
+  assert.equal(result.verdict, "unverifiable");
+  assert.equal(result.blocksPass, true);
+  assert.match(result.evidence, /not a regular (?:non-symbolic-link|no-symlink) file/);
+});
+
+test("WORKTREE integrity fails closed for unsafe untracked evidence", () => {
+  const fixtures: Array<{ name: string; create(repo: string, path: string): void; evidence: RegExp }> = [
+    {
+      name: "oversized",
+      create: (_repo, path) => writeFileSync(path, "x".repeat(5 * 1024 * 1024)),
+      evidence: /exceeds the 4 MiB limit/,
+    },
+    {
+      name: "binary",
+      create: (_repo, path) => writeFileSync(path, Buffer.from([0, 1, 2, 3])),
+      evidence: /is binary/,
+    },
+    {
+      name: "symlink",
+      create: (repo, path) => symlinkSync(join(repo, "README.md"), path),
+      evidence: /not a regular (?:non-symbolic-link|no-symlink) file/,
+    },
+    {
+      name: "unreadable",
+      create: (_repo, path) => { writeFileSync(path, "unreadable\n"); chmodSync(path, 0); },
+      evidence: /could not be read/,
+    },
+  ];
+  for (const fixture of fixtures) {
+    const repo = initRepo(); mkdirSync(join(repo, "test"));
+    const path = join(repo, "test", `${fixture.name}.test.js`);
+    fixture.create(repo, path);
+    const result = checkIntegrity(repo, "HEAD", "WORKTREE")[0];
+    assert.equal(result.ruleId, "integrity-unreadable", fixture.name);
+    assert.equal(result.blocksPass, true, fixture.name);
+    assert.match(result.evidence, fixture.evidence, fixture.name);
+    if (fixture.name === "unreadable") chmodSync(path, 0o600);
+  }
+});
+
 function unifiedDiff(path: string, removed: string[], added: string[]): string {
+  const oldRange = removed.length === 0 ? "0,0" : `1,${removed.length}`;
+  const newRange = added.length === 0 ? "0,0" : `1,${added.length}`;
   return [
     `diff --git a/${path} b/${path}`,
     `--- a/${path}`,
     `+++ b/${path}`,
-    `@@ -1,${Math.max(1, removed.length)} +1,${Math.max(1, added.length)} @@`,
+    `@@ -${oldRange} +${newRange} @@`,
     ...removed.map((line) => `-${line}`),
     ...added.map((line) => `+${line}`),
     "",
@@ -293,6 +516,105 @@ test("static diff audit is inconclusive for non-diff input", () => {
   const result = checkIntegrityDiff("not a diff")[0];
   assert.equal(result.verdict, "unverifiable");
   assert.equal(result.blocksPass, true);
+});
+
+test("static diff audit rejects quoted path headers it cannot bind exactly", () => {
+  const result = checkIntegrityDiff([
+    'diff --git "a/src/evil\\\\name.ts" "b/src/evil\\\\name.ts"',
+    '--- "a/src/evil\\\\name.ts"',
+    '+++ "b/src/evil\\\\name.ts"',
+    "@@ -1 +1 @@",
+    "-return value;",
+    "+if (false) return fallback;",
+    "",
+  ].join("\n"))[0];
+  assert.equal(result.ruleId, "diff-unparseable");
+  assert.equal(result.blocksPass, true);
+});
+
+test("static diff audit rejects malformed, under-counted, and truncated hunks", () => {
+  const clean = unifiedDiff("src/clean.ts", ["return 1;"], ["return 2;"]);
+  const malformed = [
+    clean,
+    "diff --git a/src/hidden.ts b/src/hidden.ts",
+    "--- a/src/hidden.ts",
+    "+++ b/src/hidden.ts",
+    "@@ malformed @@",
+    "+if (false) return bypass;",
+    "",
+  ].join("\n");
+  const underCounted = [
+    "diff --git a/src/hidden.ts b/src/hidden.ts",
+    "--- a/src/hidden.ts",
+    "+++ b/src/hidden.ts",
+    "@@ -0,0 +1,1 @@",
+    "+return value;",
+    "+if (false) return bypass;",
+    "",
+  ].join("\n");
+  const truncated = [
+    "diff --git a/src/hidden.ts b/src/hidden.ts",
+    "--- a/src/hidden.ts",
+    "+++ b/src/hidden.ts",
+    "@@ -1,2 +1,2 @@",
+    "-return old;",
+    "+return next;",
+  ].join("\n");
+  const renamedAcrossScopes = [
+    "diff --git a/test/value.test.ts b/src/value.ts",
+    "--- a/test/value.test.ts",
+    "+++ b/src/value.ts",
+    "@@ -1 +1 @@",
+    "-expect(value()).toBe(2);",
+    "+expect(value()).toBeGreaterThan(0);",
+    "",
+  ].join("\n");
+  const empty = [
+    "diff --git a/src/value.ts b/src/value.ts",
+    "--- a/src/value.ts",
+    "+++ b/src/value.ts",
+    "@@ -0,0 +0,0 @@",
+    "",
+  ].join("\n");
+  const missingNewHeader = [
+    clean,
+    "--- a/test/hidden.test.ts",
+    "@@ -1 +0,0 @@",
+    "-expect(value()).toBe(2);",
+    "",
+  ].join("\n");
+  const duplicateNewHeader = [
+    "diff --git a/src/value.ts b/src/value.ts",
+    "--- /dev/null",
+    "+++ b/src/value.ts",
+    "+++ b/docs/value.md",
+    "@@ -0,0 +1 @@",
+    "+if (false) return bypass;",
+    "",
+  ].join("\n");
+  const mismatchedIdentity = [
+    "diff --git a/src/value.ts b/src/value.ts",
+    "--- a/docs/value.md",
+    "+++ b/docs/value.md",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n");
+  const headerlessThenDangling = [
+    "--- a/docs/value.md",
+    "+++ b/docs/value.md",
+    "@@ -1 +1 @@",
+    "-test('security', () => {});",
+    "+test.skip('security', () => {});",
+    "diff --git a/test/value.test.ts b/test/value.test.ts",
+    "",
+  ].join("\n");
+  for (const diff of [malformed, underCounted, truncated, renamedAcrossScopes, empty, missingNewHeader, duplicateNewHeader, mismatchedIdentity, headerlessThenDangling]) {
+    const result = checkIntegrityDiff(diff)[0];
+    assert.equal(result.ruleId, "diff-unparseable");
+    assert.equal(result.blocksPass, true);
+  }
 });
 
 test("static diff audit catches relaxed assertions and self-fulfilling mocks", () => {
@@ -317,6 +639,22 @@ test("static diff audit catches error swallowing, lost context, dead branches, s
   for (const rule of ["error-swallowed", "exception-context-lost", "dead-branch-added", "suppression-added", "no-op-code-change"]) {
     assert.ok(rules.has(rule), `missing ${rule}`);
   }
+});
+
+test("static diff audit treats in-hunk triple-prefix lines as code rather than file headers", () => {
+  const addedPrefixCollision = unifiedDiff(
+    "src/counter.ts",
+    ["return value;"],
+    ["++ counter;", "if (false) return fallback;", "return value;"],
+  );
+  const removedPrefixCollision = unifiedDiff(
+    "test/counter.test.ts",
+    ["-- counter;", "expect(value()).toBe(2);"],
+    ["-- counter;"],
+  );
+  const results = checkIntegrityDiff(`${addedPrefixCollision}${removedPrefixCollision}`);
+  assert.ok(results.some((result) => result.ruleId === "dead-branch-added"));
+  assert.ok(results.some((result) => result.ruleId === "assertion-drop"));
 });
 
 test("static diff audit catches a stale caller after a symbol rename", () => {
@@ -372,4 +710,24 @@ test("completion with objective evidence verifies", () => {
   const repo = initRepo(); writeFileSync(join(repo, "README.md"), "changed\n"); commit(repo, "docs");
   const claim = { kind: "work_complete" as const, quote: "done", subject: "completion claim" };
   assert.equal(checkCompletion([claim], repo, "HEAD~1", "HEAD", [result("verified")])[0].verdict, "verified");
+});
+test("completion marker scan forces text despite candidate diff attributes", () => {
+  const repo = initRepo(); mkdirSync(join(repo, "src")); writeFileSync(join(repo, "src", "value.ts"), "return 1;\n"); commit(repo, "source baseline");
+  writeFileSync(join(repo, ".gitattributes"), "*.ts -diff\n");
+  writeFileSync(join(repo, "src", "value.ts"), "// TODO: implement the trusted behavior\nreturn 1;\n");
+  commit(repo, "hide unfinished marker");
+  const claim = { kind: "work_complete" as const, quote: "done", subject: "completion claim" };
+  const check = checkCompletion([claim], repo, "HEAD~1", "HEAD", [result("verified")])[0];
+  assert.equal(check.ruleId, "completion-marker");
+  assert.equal(check.verdict, "contradicted");
+});
+test("completion scan blocks when its bounded diff cannot be read", () => {
+  const repo = initRepo();
+  writeFileSync(join(repo, "large.ts"), `${"a".repeat(5 * 1024 * 1024)}\n`); commit(repo, "completion large baseline");
+  writeFileSync(join(repo, "large.ts"), `${"b".repeat(5 * 1024 * 1024)}\n`); commit(repo, "completion large change");
+  const claim = { kind: "work_complete" as const, quote: "done", subject: "completion claim" };
+  const check = checkCompletion([claim], repo, "HEAD~1", "HEAD", [result("verified")])[0];
+  assert.equal(check.ruleId, "completion-unreadable");
+  assert.equal(check.verdict, "unverifiable");
+  assert.equal(check.blocksPass, true);
 });

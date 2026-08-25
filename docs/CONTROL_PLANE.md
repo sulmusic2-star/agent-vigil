@@ -1,6 +1,6 @@
 # Organization control plane: gated design
 
-**State:** design only. No hosted service or GitHub App is deployed in v0.11.0.
+**State:** design only. No hosted service or GitHub App is deployed in v0.20.0.
 
 The open verifier is the product wedge. A hosted control plane becomes justified
 only after external repositories demonstrate that the receipt is useful enough
@@ -20,6 +20,10 @@ one check name, `Agent Vigil evidence`, and use these permissions:
 
 No administration, issues, members, secrets, deployments, or write-to-code
 permission belongs in the default installation.
+
+A plain job-name requirement without an App source restriction does not bind
+the result to the intended workflow or event. It is not an enforceable Agent
+Vigil security boundary.
 
 Reference: [GitHub ruleset status-check source restrictions](https://docs.github.com/en/enterprise-cloud%40latest/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-status-checks-to-pass-before-merging).
 

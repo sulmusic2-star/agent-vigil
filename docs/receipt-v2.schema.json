@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.11.0/docs/receipt-v2.schema.json",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.20.0/docs/receipt-v2.schema.json",
   "title": "Agent Vigil AI Change Receipt v2",
   "type": "object",
   "additionalProperties": false,
@@ -13,21 +13,26 @@
     "schemaVersion": { "const": "2" },
     "vigilVersion": { "type": "string" },
     "transcript": { "type": "string" },
-    "transcriptSha256": { "$ref": "#/$defs/sha256" },
+    "transcriptSha256": { "$ref": "#/$defs/sha256OrUnavailable" },
     "transcriptFormat": {
-      "enum": ["claude-code", "codex", "cursor", "gemini-cli", "github-copilot-cli", "opencode", "aider", "markdown", "portable-receipt", "pull-request-evidence", "unified-git-diff"]
+      "enum": [
+        "claude-code", "codex", "cursor", "gemini-cli", "github-copilot-cli", "opencode", "aider", "markdown",
+        "portable-receipt", "pull-request-evidence", "unified-git-diff", "test-integrity-diff", "github-merge-group-event",
+        "authority/claude-code", "authority/codex", "authority/cursor", "authority/gemini-cli",
+        "authority/github-copilot-cli", "authority/opencode", "authority/aider", "authority/markdown"
+      ]
     },
     "repo": { "type": "string" },
     "base": { "type": "string" },
     "head": { "type": "string" },
-    "generatedAt": { "type": "string", "format": "date-time" },
+    "generatedAt": { "$ref": "#/$defs/canonicalTimestamp" },
     "receiptHash": { "$ref": "#/$defs/sha256" },
     "repository": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "remote": { "type": "string" },
-        "tree": { "type": "string" }
+        "tree": { "$ref": "#/$defs/gitObjectId" }
       }
     },
     "reproduction": { "type": "string" },
@@ -38,24 +43,32 @@
       "properties": {
         "algorithm": { "const": "Ed25519" },
         "keyId": { "$ref": "#/$defs/sha256" },
-        "publicKey": { "type": "string", "contentEncoding": "base64" },
-        "value": { "type": "string", "contentEncoding": "base64" }
+        "publicKey": { "$ref": "#/$defs/base64" },
+        "value": { "$ref": "#/$defs/base64" }
       }
     },
     "results": {
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["claim", "verdict", "evidence"],
         "properties": {
           "claim": {
             "type": "object",
+            "additionalProperties": false,
             "required": ["kind", "quote", "subject"],
             "properties": {
-              "kind": { "type": "string" },
+              "kind": {
+                "enum": [
+                  "tests_pass", "file_changed", "path_exists", "command_ran", "work_complete", "session_behavior",
+                  "integrity", "policy_attestation", "change_scope", "differential_test", "authority_scope",
+                  "authority_action", "telemetry"
+                ]
+              },
               "quote": { "type": "string" },
               "subject": { "type": "string" },
-              "expectedCount": { "type": "integer", "minimum": 0 }
+              "expectedCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
             }
           },
           "verdict": { "enum": ["verified", "contradicted", "unverifiable"] },
@@ -72,28 +85,48 @@
     },
     "summary": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["verified", "contradicted", "unverifiable", "meaningfulVerified", "status", "pass"],
       "properties": {
-        "verified": { "type": "integer", "minimum": 0 },
-        "contradicted": { "type": "integer", "minimum": 0 },
-        "unverifiable": { "type": "integer", "minimum": 0 },
-        "meaningfulVerified": { "type": "integer", "minimum": 0 },
+        "verified": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "contradicted": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "unverifiable": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "meaningfulVerified": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
         "status": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
         "pass": { "type": "boolean" }
       }
     },
     "policy": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["minVerified", "strict", "sha256"],
       "properties": {
-        "minVerified": { "type": "integer", "minimum": 1 },
+        "minVerified": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "strict": { "type": "boolean" },
         "source": { "type": "string" },
-        "sha256": { "$ref": "#/$defs/sha256" }
+        "sha256": { "$ref": "#/$defs/sha256OrUnavailable" }
       }
     }
   },
   "$defs": {
-    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "sha256OrUnavailable": {
+      "oneOf": [
+        { "$ref": "#/$defs/sha256" },
+        { "const": "sha256:unavailable" }
+      ]
+    },
+    "gitObjectId": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "canonicalTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "base64": {
+      "type": "string",
+      "minLength": 1,
+      "contentEncoding": "base64",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    }
   }
 }

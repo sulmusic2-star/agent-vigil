@@ -18,8 +18,8 @@ Markdown, SARIF, a deterministic hash, and optional Ed25519 signing.
 ## Install the authority profile
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz \
-  init --profile authority
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz \
+  init --profile authority --action-sha <reviewed-full-commit>
 ```
 
 This creates `.agent-vigil-authority.json`, the ordinary base policy, a private
@@ -27,6 +27,11 @@ transcript placeholder, and a GitHub workflow. Review and commit the contract
 before opening the code pull request. The generated workflow loads the contract
 from the pull request base SHA; the candidate cannot grant itself permission by
 widening its worktree copy.
+
+The generated workflow is pull-request-target-only, credential-free, and
+limited to the v0.20.0 hosted Node contract. Local reconciliation below runs
+with the local process's host privileges and is not a sandbox. See the
+[hosted security contract](HOSTED_SECURITY_CONTRACT.md).
 
 Local reconciliation:
 

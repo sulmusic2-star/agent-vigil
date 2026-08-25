@@ -9,7 +9,7 @@ import {
 import { execFileSync } from "node:child_process";
 import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
 import { basename, join, parse, resolve, sep } from "node:path";
-import { canonical, recomputeReceiptHash, type TrustReport } from "../report.ts";
+import { canonical, recomputeReceiptHash, validateTrustReport, type TrustReport } from "../report.ts";
 import { publicKeyDer, signingKeyId } from "../signature.ts";
 import { writePrivateFileAtomic, writePrivateFileExclusive } from "../safe-output.ts";
 import {
@@ -94,11 +94,7 @@ function parseReport(bytes: Buffer): TrustReport {
   let value: unknown;
   try { value = JSON.parse(bytes.toString("utf8")); }
   catch { throw new Error("Agent Vigil receipt is not valid JSON"); }
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Agent Vigil receipt must be an object");
-  const report = value as TrustReport;
-  if (report.schemaVersion !== "2") throw new Error("Agent Vigil receipt schema must be version 2");
-  if (!report.summary || !new Set(["PASS", "FAIL", "INCONCLUSIVE"]).has(report.summary.status)) throw new Error("Agent Vigil receipt status is invalid");
-  if (!Array.isArray(report.results) || !report.policy || !report.repository) throw new Error("Agent Vigil receipt is incomplete");
+  const report = validateTrustReport(value);
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(report.base) || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(report.head)) {
     throw new Error("continuity requires full base and head Git object IDs");
   }
@@ -107,23 +103,6 @@ function parseReport(bytes: Buffer): TrustReport {
   }
   if (!/^sha256:[0-9a-f]{64}$/.test(report.receiptHash) || recomputeReceiptHash(report) !== report.receiptHash) {
     throw new Error("Agent Vigil receipt hash is invalid");
-  }
-  const count = (verdict: string) => report.results.filter((result) => result.verdict === verdict).length;
-  const meaningfulVerified = report.results.filter((result) => result.verdict === "verified" && result.contributesToPass !== false).length;
-  const expectedStatus = count("contradicted") > 0
-    ? "FAIL"
-    : meaningfulVerified < report.policy.minVerified
-      || report.results.some((result) => result.verdict === "unverifiable" && result.blocksPass)
-      || (report.policy.strict && count("unverifiable") > 0)
-      ? "INCONCLUSIVE"
-      : "PASS";
-  if (report.summary.verified !== count("verified")
-    || report.summary.contradicted !== count("contradicted")
-    || report.summary.unverifiable !== count("unverifiable")
-    || report.summary.meaningfulVerified !== meaningfulVerified
-    || report.summary.status !== expectedStatus
-    || report.summary.pass !== (report.summary.status === "PASS")) {
-    throw new Error("Agent Vigil receipt summary is internally inconsistent");
   }
   return report;
 }

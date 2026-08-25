@@ -4,8 +4,6 @@ on:
   workflow_run:
     workflows: [Agent Vigil]
     types: [completed]
-  pull_request:
-    types: [closed]
 
 permissions:
   actions: read
@@ -14,49 +12,44 @@ permissions:
 
 jobs:
   outcome:
-    if: github.event_name == 'pull_request' || github.event.workflow_run.event == 'pull_request'
-    runs-on: ubuntu-latest
+    if: github.event.workflow_run.event == 'pull_request_target'
+    runs-on: ubuntu-24.04
     steps:
       - id: source
-        name: Locate the completed evidence run
+        name: Bind the completed evidence run ID
         env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
           EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
-            run_id="$EVENT_RUN_ID"
-          else
-            run_id=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs" \
-              -f head_sha="$HEAD_SHA" -f event=pull_request -f status=completed \
-              --jq '.workflow_runs | map(select(.name == "Agent Vigil")) | sort_by(.created_at) | reverse | .[0].id // empty')
-          fi
+          set -euo pipefail
+          run_id="$EVENT_RUN_ID"
           if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
-            echo "No completed Agent Vigil receipt run is available for this outcome." >&2
+            echo "The completed Agent Vigil evidence run ID is invalid." >&2
             exit 2
           fi
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
       - name: Download the immutable receipt artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: agent-vigil-receipt
           path: .agent-vigil-prior
           github-token: ${{ github.token }}
           run-id: ${{ steps.source.outputs.run_id }}
       - id: outcome
-        uses: sulmusic2-star/agent-vigil@v0.11.2
+        name: Observe the post-run outcome without signing
+        # This exact runtime must match the reviewed evidence runtime above.
+        uses: sulmusic2-star/agent-vigil@REVIEWED_40_HEX_AGENT_VIGIL_COMMIT
         with:
           mode: outcome
           outcome-receipt: .agent-vigil-prior/agent-vigil-report.json
           actions-run-id: ${{ steps.source.outputs.run_id }}
           github-token: ${{ github.token }}
-      - name: Retain the post-run Value Card
+      - name: Retain only the Action-declared outcome outputs
         if: always() && steps.outcome.outputs.value-card != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: agent-vigil-outcome-${{ steps.source.outputs.run_id }}
           path: |
             ${{ steps.outcome.outputs.value-card }}
             ${{ steps.outcome.outputs.github-evidence }}
+          if-no-files-found: error
           retention-days: 30

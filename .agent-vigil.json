@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "integrityMode": "advisory",
-  "testCommand": "npm test --silent",
+  "integrityMode": "calibrated",
+  "testCommand": "node --test test/*.test.ts",
   "strict": true,
   "minVerified": 1,
   "maintainer": {
@@ -9,11 +9,20 @@
     "requireHumanAttestation": false,
     "requireLinkedIssue": true,
     "requireAiDisclosure": true,
-    "maxChangedFiles": 30,
-    "maxChangedLines": 1200,
-    "requireTestChange": false,
+    "maxChangedFiles": 20,
+    "maxChangedLines": 800,
+    "requireTestChange": true,
     "protectedPaths": [
-      ".agent-vigil.json"
+      ".github/workflows/**",
+      ".agent-vigil.json",
+      "action.yml",
+      "dist/cli.js",
+      "package.json",
+      "package-lock.json",
+      "npm-shrinkwrap.json",
+      ".npmrc",
+      "tsconfig*.json",
+      "test/package-surface.test.ts"
     ],
     "testPathPatterns": [
       "test/**",
@@ -25,15 +34,15 @@
     "automatedReview": {
       "setupCommand": "npm ci --ignore-scripts",
       "commands": [
-        "npm run typecheck",
-        "npm run build",
-        "npm test --silent",
-        "npm run smoke",
-        "npm run review:public",
-        "npm audit --omit=dev",
-        "npm pack --dry-run"
+        "node --test test/*.test.ts"
       ],
-      "timeoutSeconds": 900
+      "timeoutSeconds": 300
+    },
+    "differentialTest": {
+      "command": "node --test test/*.test.ts",
+      "setupCommand": "npm ci --ignore-scripts",
+      "timeoutSeconds": 300,
+      "overlayChangedTests": true
     }
   }
 }

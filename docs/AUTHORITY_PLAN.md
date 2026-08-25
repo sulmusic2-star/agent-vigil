@@ -24,9 +24,11 @@ Change: 2e94a91e5f64 -> 1a0d6cf8238b
 3 authority change(s), 3 blocking, 0 uncertain
 ```
 
-The `protect` and maintainer profiles include the same check in the required
-pull-request and merge-queue receipt. The full plan stays in the retained JSON
-evidence; the pull-request summary lists the blocking items in ordinary terms.
+The `protect` and maintainer profiles include the same check in the generated
+pull-request receipt. The full plan stays in the retained JSON evidence; the
+pull-request summary lists blocking items in ordinary terms. The generated
+repository workflow is not a merge-queue or enforceable required-workflow
+claim. See [the hosted security contract](HOSTED_SECURITY_CONTRACT.md).
 
 ## Supported configuration
 

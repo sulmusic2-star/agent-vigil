@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,6 +8,7 @@ import { appendContinuityEvent, initializeContinuityChain } from "../src/continu
 import { sha256, type ContinuityEventDraft, type ContinuityPolicy, type ContinuityRoot } from "../src/continuity/contracts.ts";
 import { buildReport, type CheckResult } from "../src/report.ts";
 import { generateSigningKey, publicKeyId, signReport } from "../src/signature.ts";
+import { compositeActionRuntimeUnavailable, compositeActionScript } from "./action-runtime-fixture.ts";
 
 function git(repo: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -98,12 +99,8 @@ function fixture(options: { includeMerge?: boolean; maxAgeSeconds?: number } = {
 }
 
 function actionScript(root: string): string {
-  const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/    - id: vigil[\s\S]+?      run: \|\n([\s\S]+?)    - id: prepare_attestation/)?.[1];
-  assert.ok(block, "composite Action continuity script is present");
-  const scriptText = block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n");
   const script = join(root, "run.sh");
-  writeFileSync(script, scriptText);
+  writeFileSync(script, compositeActionScript());
   return script;
 }
 
@@ -117,10 +114,11 @@ function runAction(value: ReturnType<typeof fixture>, script: string, root: stri
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GITHUB_ACTION_PATH: process.cwd(),
+    GITHUB_ACTIONS: "true",
     GITHUB_REPOSITORY: githubRepository,
     GITHUB_OUTPUT: output,
     GITHUB_STEP_SUMMARY: summary,
-    RUNNER_TEMP: runner,
+    RUNNER_TEMP: realpathSync(runner),
     VIGIL_MODE: "continuity",
     VIGIL_CONTINUITY_CHAIN: value.chain,
     VIGIL_CONTINUITY_ENVIRONMENT: "production",
@@ -137,9 +135,12 @@ function runAction(value: ReturnType<typeof fixture>, script: string, root: stri
     VIGIL_OUTCOME_RECEIPT: "",
     VIGIL_ACTIONS_RUN_ID: "",
     VIGIL_TEST_CMD: "",
+    VIGIL_ISOLATE_CANDIDATE: "false",
+    VIGIL_CANDIDATE_SETUP_COMMAND: "",
     VIGIL_STRICT: "true",
     VIGIL_MIN_VERIFIED: "1",
     VIGIL_GITHUB_TOKEN: "",
+    VIGIL_HAS_GITHUB_TOKEN: "false",
     VIGIL_VALUE_TASK_CLASS: "",
     VIGIL_VALUE_BUDGET_USD: "",
     VIGIL_VALUE_COST_USD: "",
@@ -155,7 +156,7 @@ function runAction(value: ReturnType<typeof fixture>, script: string, root: stri
   return spawnSync("bash", [script], { cwd: value.repo, encoding: "utf8", env });
 }
 
-test("the GitHub Action permits only the exact current change and emits a private short explanation", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
+test("the GitHub Action permits only the exact current change and emits a private short explanation", { skip: compositeActionRuntimeUnavailable }, () => {
   const value = fixture();
   const root = mkdtempSync(join(tmpdir(), "vigil-continuity-action-"));
   const script = actionScript(root);
@@ -186,7 +187,7 @@ test("the GitHub Action permits only the exact current change and emits a privat
   assert.equal(readFileSync(protectedFile, "utf8"), "unchanged\n");
 });
 
-test("the GitHub Action stops both missing and expired evidence", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
+test("the GitHub Action stops both missing and expired evidence", { skip: compositeActionRuntimeUnavailable }, () => {
   const root = mkdtempSync(join(tmpdir(), "vigil-continuity-action-denials-"));
   const script = actionScript(root);
 

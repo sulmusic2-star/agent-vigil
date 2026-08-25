@@ -22,28 +22,34 @@ tarball, its SHA-256 checksum, and `proof/results.json`.
 ## npm
 
 The package publishes from `.github/workflows/publish.yml` through npm trusted
-publishing. The workflow uses GitHub's short-lived OIDC identity; it does not
-store an npm write token. Configure the npm package with these exact values:
+publishing. Verification and packing must run in a job with no OIDC or registry
+write authority. A separate minimal publish job receives only the hash-bound
+tarball, verifies its digest and version with lifecycle scripts disabled, and
+then obtains GitHub's short-lived OIDC identity for `npm publish`. Repository
+code must not execute after that job receives publishing authority. The
+workflow stores no npm write token. Configure the npm package with these exact
+values:
 
 - provider: GitHub Actions;
 - organization or user: `sulmusic2-star`;
 - repository: `agent-vigil`;
 - workflow filename: `publish.yml`;
+- environment: `npm-publish`, restricted in GitHub to protected release tags;
 - allowed action: `npm publish`.
 
-The workflow normally runs when a stable GitHub release is published. Use its
-manual `tag` input only to publish an existing release whose registry step was
-missed. It checks out that exact tag, requires the package version to match,
-runs the release checks, and compares package integrity before accepting an
-already-published version.
+The workflow runs only when a stable GitHub release is published. Retry a
+failed registry step by rerunning that same release workflow; there is no
+branch-selectable manual publish trigger. It checks out the release event's
+exact commit, requires the package version to match, runs the release checks,
+and compares package integrity before accepting an already-published version.
 
 Verify each release independently:
 
 ```bash
 npm whoami
 npm view @sulmusic/agent-vigil version dist-tags.latest
-npm view @sulmusic/agent-vigil@0.14.0 dist.integrity
-npx --yes @sulmusic/agent-vigil@0.14.0 doctor
+npm view @sulmusic/agent-vigil@0.20.0 dist.integrity
+npx --yes @sulmusic/agent-vigil@0.20.0 doctor
 ```
 
 The canonical npm name is scoped because npm rejected the unscoped

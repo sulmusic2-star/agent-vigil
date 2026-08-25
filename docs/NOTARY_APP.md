@@ -1,11 +1,13 @@
 # Agent Vigil Notary App
 
 **State:** runnable verification core and GitHub App contract. No hosted Agent
-Vigil App is deployed in version 0.12.0.
+Vigil App is deployed in version 0.20.0.
 
 The Notary App is deliberately narrow. Customer code and test execution stay in
-the customer's GitHub runner. The App verifies the resulting GitHub attestation
-and posts one check for the exact commit.
+the customer's credential-free runner. A future App must verify an independently
+signed receipt and its expected workflow source, then post one check for the
+exact commit. Candidate receipt signing is not performed by the generated
+v0.20.0 evidence job.
 
 ## Decision rule
 
@@ -35,6 +37,11 @@ Pinning a workflow path does not prove that the workflow file itself was
 unchanged. Repositories that let a pull request edit the signing workflow need a
 separately controlled signing workflow before treating the notary check as a
 high-assurance approval.
+
+The App-owned check is also the enforcement boundary GitHub's plain job-name
+requirement lacks. A ruleset must restrict the accepted status source to this
+installed App, and the App must reject a head, event, or evidence-source
+mismatch. No deployed service currently provides that check.
 
 ## Minimum GitHub App permissions
 

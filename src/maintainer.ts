@@ -1,9 +1,11 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, type Stats } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, normalize, relative, resolve, sep } from "node:path";
+import { runCandidateCommand, type CandidateCommandOutcome } from "./candidate-command.ts";
 import type { MaintainerPolicy } from "./config.ts";
+import { checkTestHarnessBinding, classifyCandidateTestOutcome } from "./detectors/reality.ts";
 import type { CheckResult, ClaimKind, Verdict } from "./report.ts";
+import { trustedGit } from "./trusted-git.ts";
 
 export type PullRequestEvidence = {
   author: string;
@@ -13,43 +15,6 @@ export type PullRequestEvidence = {
 };
 
 const DEFAULT_TEST_PATTERNS = ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
-const MAX_COMMAND_OUTPUT = 12_000;
-const TIMEOUT_MARKER = "[agent-vigil-command-timeout]";
-const ABNORMAL_MARKER = "[agent-vigil-command-abnormal]";
-const COMMAND_WRAPPER = String.raw`
-const { execFile, spawn } = require("node:child_process");
-const command = process.env.VIGIL_WRAPPED_COMMAND;
-const timeout = Number(process.env.VIGIL_WRAPPED_TIMEOUT_MS);
-const child = spawn(command, { shell: true, env: process.env, detached: process.platform !== "win32" });
-child.stdout.pipe(process.stdout);
-child.stderr.pipe(process.stderr);
-let timedOut = false;
-const timer = setTimeout(() => {
-  timedOut = true;
-  process.stderr.write("${TIMEOUT_MARKER}\\n");
-  if (process.platform === "win32") {
-    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => process.exit(124));
-  } else {
-    try { process.kill(-child.pid, "SIGKILL"); } catch {}
-    setTimeout(() => process.exit(124), 50);
-  }
-}, timeout);
-child.on("error", (error) => {
-  clearTimeout(timer);
-  process.stderr.write("${ABNORMAL_MARKER} " + error.message + "\\n");
-  process.exit(125);
-});
-child.on("close", (code, signal) => {
-  if (timedOut) return;
-  clearTimeout(timer);
-  if (signal || code === null) {
-    process.stderr.write("${ABNORMAL_MARKER} signal=" + (signal || "unknown") + "\\n");
-    process.exit(125);
-  }
-  process.exit(code);
-});
-`;
-
 function result(kind: ClaimKind, ruleId: string, subject: string, quote: string, verdict: Verdict, evidence: string, options: Pick<CheckResult, "contributesToPass" | "blocksPass"> = {}): CheckResult {
   return { claim: { kind, subject, quote }, ruleId, verdict, evidence, ...options };
 }
@@ -116,7 +81,11 @@ export function checkAttestations(evidence: PullRequestEvidence, policy: Maintai
 }
 
 function git(repo: string, args: string[]): string {
-  return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 }).trim();
+  return trustedGit(repo, args, 8 * 1024 * 1024).trim();
+}
+
+function gitRaw(repo: string, args: string[]): string {
+  return trustedGit(repo, args, 8 * 1024 * 1024);
 }
 
 function globRegex(pattern: string): RegExp {
@@ -134,7 +103,7 @@ function globRegex(pattern: string): RegExp {
 }
 
 export function pathMatches(path: string, patterns: string[]): boolean {
-  const clean = path.replaceAll("\\", "/").replace(/^\.\//, "");
+  const clean = path.replace(/^\.\//, "");
   return patterns.some((pattern) => globRegex(pattern.replaceAll("\\", "/").replace(/^\.\//, "")).test(clean));
 }
 
@@ -146,17 +115,26 @@ export type DiffEvidence = {
 };
 
 export function collectDiffEvidence(repo: string, base: string, head: string, testPathPatterns = DEFAULT_TEST_PATTERNS): DiffEvidence {
-  const paths = git(repo, ["diff", "--name-only", "--diff-filter=ACMR", `${base}..${head}`]).split("\n").filter(Boolean);
+  const paths = gitRaw(repo, ["diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMRD", `${base}..${head}`]).split("\0").filter(Boolean);
+  const overlayablePaths = gitRaw(repo, ["diff", "--no-renames", "--name-only", "-z", "--diff-filter=ACMR", `${base}..${head}`]).split("\0").filter(Boolean);
   const binaryPaths: string[] = [];
   let changedLines = 0;
-  const numstat = git(repo, ["diff", "--numstat", `${base}..${head}`]);
-  for (const line of numstat.split("\n").filter(Boolean)) {
-    const [added, removed, ...pathParts] = line.split("\t");
-    const path = pathParts.join("\t");
+  const numstat = gitRaw(repo, ["diff", "--no-renames", "--numstat", "-z", `${base}..${head}`]);
+  for (const record of numstat.split("\0").filter(Boolean)) {
+    const firstTab = record.indexOf("\t");
+    const secondTab = firstTab < 0 ? -1 : record.indexOf("\t", firstTab + 1);
+    if (firstTab < 1 || secondTab < firstTab + 2 || secondTab === record.length - 1) {
+      binaryPaths.push("[unparseable Git numstat record]");
+      continue;
+    }
+    const added = record.slice(0, firstTab);
+    const removed = record.slice(firstTab + 1, secondTab);
+    const path = record.slice(secondTab + 1);
     if (added === "-" || removed === "-") binaryPaths.push(path);
-    else changedLines += Number(added) + Number(removed);
+    else if (/^\d+$/.test(added) && /^\d+$/.test(removed)) changedLines += Number(added) + Number(removed);
+    else binaryPaths.push(`[unparseable Git numstat count for ${path}]`);
   }
-  return { paths, testPaths: paths.filter((path) => pathMatches(path, testPathPatterns)), ...(binaryPaths.length ? {} : { changedLines }), binaryPaths };
+  return { paths, testPaths: overlayablePaths.filter((path) => pathMatches(path, testPathPatterns)), ...(binaryPaths.length ? {} : { changedLines }), binaryPaths };
 }
 
 export function checkChangeScope(diff: DiffEvidence, policy: MaintainerPolicy): CheckResult[] {
@@ -182,44 +160,111 @@ export function checkChangeScope(diff: DiffEvidence, policy: MaintainerPolicy): 
   return out;
 }
 
-type CommandOutcome = { status: number | null; signal: string | null; output: string; error?: string };
-
-function shell(command: string, cwd: string, timeoutMs: number): CommandOutcome {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    CI: "true",
-    VIGIL_WRAPPED_COMMAND: command,
-    VIGIL_WRAPPED_TIMEOUT_MS: String(timeoutMs),
-  };
-  delete env.NODE_TEST_CONTEXT;
-  const execution = spawnSync(process.execPath, ["-e", COMMAND_WRAPPER], {
-    cwd, encoding: "utf8", timeout: timeoutMs + 10_000, maxBuffer: 4 * 1024 * 1024, env,
-  });
-  const full = `${execution.stdout ?? ""}${execution.stderr ?? ""}`;
-  const output = full.length > MAX_COMMAND_OUTPUT ? `${full.slice(0, MAX_COMMAND_OUTPUT)}\n[output truncated]` : full;
-  const wrapperError = full.includes(TIMEOUT_MARKER)
-    ? `command timed out after ${timeoutMs} ms`
-    : full.includes(ABNORMAL_MARKER)
-    ? "command ended abnormally"
-    : execution.error?.message;
-  return { status: execution.status, signal: execution.signal, output, ...(wrapperError ? { error: wrapperError } : {}) };
-}
+type CommandOutcome = CandidateCommandOutcome;
 
 function unsafeOverlayPath(path: string): boolean {
   const clean = normalize(path);
   return clean === ".." || clean.startsWith(`..${sep}`) || resolve("/safe", clean) === "/safe";
 }
 
+type OverlayPlan = { path: string; source: string; target: string };
+
+function lstatIfPresent(path: string): Stats | undefined {
+  try { return lstatSync(path); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+function validateOverlayRoot(root: string, role: "source" | "target"): string | undefined {
+  const stats = lstatIfPresent(root);
+  if (!stats || stats.isSymbolicLink() || !stats.isDirectory()) return `unsafe ${role} worktree root for differential test overlay`;
+  return undefined;
+}
+
+function validateOverlayAncestors(root: string, leaf: string, role: "source" | "target", path: string): string | undefined {
+  const parts = relative(root, leaf).split(sep).filter(Boolean);
+  let current = root;
+  for (const part of parts.slice(0, -1)) {
+    current = join(current, part);
+    const stats = lstatIfPresent(current);
+    if (!stats) return undefined;
+    if (stats.isSymbolicLink()) return `refusing to overlay through symlink ${role} ancestor: ${path}`;
+    if (!stats.isDirectory()) return `refusing to overlay through non-directory ${role} ancestor: ${path}`;
+  }
+  return undefined;
+}
+
+function validateOverlayLeaf(leaf: string, role: "source" | "target", path: string): string | undefined {
+  const stats = lstatIfPresent(leaf);
+  if (!stats) return undefined;
+  if (stats.isSymbolicLink()) return role === "source"
+    ? `refusing to overlay symlink test path: ${path}`
+    : `refusing to replace symlink test path: ${path}`;
+  if (!stats.isFile()) return role === "source"
+    ? `refusing to overlay non-regular test path: ${path}`
+    : `refusing to replace non-regular test path: ${path}`;
+  return undefined;
+}
+
+function ensureOverlayDirectories(root: string, leaf: string, path: string): string | undefined {
+  const parts = relative(root, dirname(leaf)).split(sep).filter(Boolean);
+  let current = root;
+  for (const part of parts) {
+    current = join(current, part);
+    let stats = lstatIfPresent(current);
+    if (!stats) {
+      try { mkdirSync(current); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      stats = lstatIfPresent(current);
+    }
+    if (!stats || stats.isSymbolicLink()) return `refusing to overlay through symlink target ancestor: ${path}`;
+    if (!stats.isDirectory()) return `refusing to overlay through non-directory target ancestor: ${path}`;
+  }
+  return undefined;
+}
+
 function overlayTests(headWorktree: string, baseWorktree: string, paths: string[]): string | undefined {
+  const sourceRoot = resolve(headWorktree);
+  const targetRoot = resolve(baseWorktree);
+  const sourceRootError = validateOverlayRoot(sourceRoot, "source");
+  if (sourceRootError) return sourceRootError;
+  const targetRootError = validateOverlayRoot(targetRoot, "target");
+  if (targetRootError) return targetRootError;
+  const plan: OverlayPlan[] = [];
+
   for (const path of paths) {
     if (unsafeOverlayPath(path)) return `unsafe overlay path: ${path}`;
-    const source = resolve(headWorktree, path);
-    const target = resolve(baseWorktree, path);
-    if (!source.startsWith(`${resolve(headWorktree)}${sep}`) || !target.startsWith(`${resolve(baseWorktree)}${sep}`)) return `overlay escaped worktree: ${path}`;
-    if (!existsSync(source)) continue;
-    if (lstatSync(source).isSymbolicLink()) return `refusing to overlay symlink test path: ${path}`;
-    mkdirSync(dirname(target), { recursive: true });
-    cpSync(source, target, { recursive: true, force: true });
+    const source = resolve(sourceRoot, path);
+    const target = resolve(targetRoot, path);
+    if (!source.startsWith(`${sourceRoot}${sep}`) || !target.startsWith(`${targetRoot}${sep}`)) return `overlay escaped worktree: ${path}`;
+    const sourceAncestorError = validateOverlayAncestors(sourceRoot, source, "source", path);
+    if (sourceAncestorError) return sourceAncestorError;
+    const sourceError = validateOverlayLeaf(source, "source", path);
+    if (sourceError) return sourceError;
+    if (!lstatIfPresent(source)) return `overlay source is missing: ${path}`;
+    const targetAncestorError = validateOverlayAncestors(targetRoot, target, "target", path);
+    if (targetAncestorError) return targetAncestorError;
+    const targetError = validateOverlayLeaf(target, "target", path);
+    if (targetError) return targetError;
+    plan.push({ path, source, target });
+  }
+
+  for (const item of plan) {
+    const directoryError = ensureOverlayDirectories(targetRoot, item.target, item.path);
+    if (directoryError) return directoryError;
+    const sourceAncestorError = validateOverlayAncestors(sourceRoot, item.source, "source", item.path);
+    if (sourceAncestorError) return sourceAncestorError;
+    const sourceError = validateOverlayLeaf(item.source, "source", item.path);
+    if (sourceError || !lstatIfPresent(item.source)) return sourceError ?? `overlay source disappeared before copy: ${item.path}`;
+    const targetAncestorError = validateOverlayAncestors(targetRoot, item.target, "target", item.path);
+    if (targetAncestorError) return targetAncestorError;
+    const targetError = validateOverlayLeaf(item.target, "target", item.path);
+    if (targetError) return targetError;
+    cpSync(item.source, item.target, { force: true });
   }
   return undefined;
 }
@@ -238,7 +283,7 @@ function trackedStatus(repo: string): string {
  * of the exact candidate commit. This replaces a ceremonial checkbox with
  * reproducible evidence; it does not claim human understanding or ownership.
  */
-export function checkAutomatedReview(repo: string, head: string, policy: NonNullable<MaintainerPolicy["automatedReview"]>): CheckResult[] {
+export function checkAutomatedReview(repo: string, head: string, policy: NonNullable<MaintainerPolicy["automatedReview"]>, testCommand?: string): CheckResult[] {
   const out: CheckResult[] = [result(
     "policy_attestation",
     "automated-review-mode",
@@ -254,7 +299,7 @@ export function checkAutomatedReview(repo: string, head: string, policy: NonNull
   const timeoutMs = (policy.timeoutSeconds ?? 300) * 1000;
   let worktreeAdded = false;
   try {
-    execFileSync("git", ["worktree", "add", "--detach", candidate, expectedHead], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    trustedGit(repo, ["worktree", "add", "--detach", candidate, expectedHead]);
     worktreeAdded = true;
     const initialHead = git(candidate, ["rev-parse", "HEAD"]);
     if (initialHead !== expectedHead) {
@@ -263,7 +308,7 @@ export function checkAutomatedReview(repo: string, head: string, policy: NonNull
       return out;
     }
     if (policy.setupCommand) {
-      const setup = shell(policy.setupCommand, candidate, timeoutMs);
+      const setup = runCandidateCommand(policy.setupCommand, candidate, timeoutMs, { allowNetwork: true, trustedSourceWorktree: true });
       if (setup.status === null || setup.signal || setup.error) {
         out.push(result("command_ran", "automated-review-setup", "automated review setup", policy.setupCommand, "unverifiable",
           `setup did not terminate normally; ${summarize(setup)}`, { blocksPass: true }));
@@ -290,7 +335,14 @@ export function checkAutomatedReview(repo: string, head: string, policy: NonNull
       return out;
     }
     for (const [index, command] of policy.commands.entries()) {
-      const outcome = shell(command, candidate, timeoutMs);
+      const outcome = runCandidateCommand(command, candidate, timeoutMs, { trustedSourceWorktree: true });
+      if (command === testCommand) {
+        out.push(...classifyCandidateTestOutcome([{
+          kind: "tests_pass",
+          quote: "base policy requires the candidate test suite to pass",
+          subject: "fresh candidate test suite",
+        }], command, outcome));
+      }
       const observedHead = git(candidate, ["rev-parse", "HEAD"]);
       const observedStatus = trackedStatus(candidate);
       const label = `automated review command ${index + 1}`;
@@ -323,7 +375,7 @@ export function checkAutomatedReview(repo: string, head: string, policy: NonNull
       `could not run isolated automated review: ${(error as Error).message}`, { blocksPass: true }));
     return out;
   } finally {
-    if (worktreeAdded) { try { execFileSync("git", ["worktree", "remove", "--force", candidate], { cwd: repo, stdio: "ignore" }); } catch {} }
+    if (worktreeAdded) { try { trustedGit(repo, ["worktree", "remove", "--force", candidate]); } catch {} }
     rmSync(root, { recursive: true, force: true });
   }
 }
@@ -339,22 +391,26 @@ export function checkDifferentialTest(repo: string, base: string, head: string, 
   let baseAdded = false;
   let headAdded = false;
   try {
-    execFileSync("git", ["worktree", "add", "--detach", baseWorktree, base], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] }); baseAdded = true;
-    execFileSync("git", ["worktree", "add", "--detach", headWorktree, head], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] }); headAdded = true;
+    trustedGit(repo, ["worktree", "add", "--detach", baseWorktree, base]); baseAdded = true;
+    trustedGit(repo, ["worktree", "add", "--detach", headWorktree, head]); headAdded = true;
     if (policy.overlayChangedTests !== false) {
       const error = overlayTests(headWorktree, baseWorktree, testPaths);
       if (error) return result("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "unverifiable", error, { blocksPass: true });
     }
     if (policy.setupCommand) {
-      const headSetup = shell(policy.setupCommand, headWorktree, timeoutMs);
-      const baseSetup = shell(policy.setupCommand, baseWorktree, timeoutMs);
-      if (headSetup.status !== 0 || baseSetup.status !== 0) {
+      const headSetup = runCandidateCommand(policy.setupCommand, headWorktree, timeoutMs, { allowNetwork: true, trustedSourceWorktree: true });
+      const baseSetup = runCandidateCommand(policy.setupCommand, baseWorktree, timeoutMs, {
+        allowNetwork: true, trustedSourceWorktree: true, overlayPaths: testPaths,
+      });
+      if (headSetup.status !== 0 || baseSetup.status !== 0 || headSetup.signal || baseSetup.signal || headSetup.error || baseSetup.error) {
         return result("differential_test", "differential-setup", "isolated differential setup", policy.setupCommand, "unverifiable",
           `setup did not succeed in both isolated worktrees; head ${summarize(headSetup)}; base ${summarize(baseSetup)}`, { blocksPass: true });
       }
     }
-    const headOutcome = shell(policy.command, headWorktree, timeoutMs);
-    const baseOutcome = shell(policy.command, baseWorktree, timeoutMs);
+    const headOutcome = runCandidateCommand(policy.command, headWorktree, timeoutMs, { trustedSourceWorktree: true });
+    const baseOutcome = runCandidateCommand(policy.command, baseWorktree, timeoutMs, {
+      trustedSourceWorktree: true, overlayPaths: testPaths,
+    });
     if (headOutcome.status === null || baseOutcome.status === null || headOutcome.signal || baseOutcome.signal || headOutcome.error || baseOutcome.error) {
       return result("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "unverifiable",
         `command did not terminate normally in both worktrees; head ${summarize(headOutcome)}; base ${summarize(baseOutcome)}`, { blocksPass: true });
@@ -375,17 +431,38 @@ export function checkDifferentialTest(repo: string, base: string, head: string, 
   } catch (error) {
     return result("differential_test", "differential-test", "base-fail/head-pass regression proof", policy.command, "unverifiable", `could not create isolated Git worktrees: ${(error as Error).message}`, { blocksPass: true });
   } finally {
-    if (headAdded) { try { execFileSync("git", ["worktree", "remove", "--force", headWorktree], { cwd: repo, stdio: "ignore" }); } catch {} }
-    if (baseAdded) { try { execFileSync("git", ["worktree", "remove", "--force", baseWorktree], { cwd: repo, stdio: "ignore" }); } catch {} }
+    if (headAdded) { try { trustedGit(repo, ["worktree", "remove", "--force", headWorktree]); } catch {} }
+    if (baseAdded) { try { trustedGit(repo, ["worktree", "remove", "--force", baseWorktree]); } catch {} }
     rmSync(root, { recursive: true, force: true });
   }
 }
 
-export function buildMaintainerChecks(repo: string, base: string, head: string, evidence: PullRequestEvidence, policy: MaintainerPolicy): CheckResult[] {
+export function buildMaintainerChecks(repo: string, base: string, head: string, evidence: PullRequestEvidence, policy: MaintainerPolicy, testCommand?: string): CheckResult[] {
   const patterns = policy.testPathPatterns ?? DEFAULT_TEST_PATTERNS;
   const diff = collectDiffEvidence(repo, base, head, patterns);
   const checks = [...checkAttestations(evidence, policy), ...checkChangeScope(diff, policy)];
+  if (policy.differentialTest || (policy.reviewMode === "automated" && policy.automatedReview)) {
+    const harnessCommands = [
+      ...(policy.differentialTest ? [policy.differentialTest.command] : []),
+      ...(policy.reviewMode === "automated" && policy.automatedReview ? policy.automatedReview.commands : []),
+      ...(testCommand ? [testCommand] : []),
+    ];
+    const setupCommands = [
+      ...(policy.differentialTest?.setupCommand ? [policy.differentialTest.setupCommand] : []),
+      ...(policy.reviewMode === "automated" && policy.automatedReview?.setupCommand ? [policy.automatedReview.setupCommand] : []),
+    ];
+    const harness = checkTestHarnessBinding(
+      repo,
+      base,
+      head,
+      [...new Set(harnessCommands)],
+      process.env.AGENT_VIGIL_INTERNAL_ISOLATE_CANDIDATE === "true",
+      [...new Set(setupCommands)],
+    );
+    checks.push(harness);
+    if (harness.verdict !== "verified") return checks;
+  }
   if (policy.differentialTest) checks.push(checkDifferentialTest(repo, base, head, diff.testPaths, policy.differentialTest));
-  if (policy.reviewMode === "automated" && policy.automatedReview) checks.push(...checkAutomatedReview(repo, head, policy.automatedReview));
+  if (policy.reviewMode === "automated" && policy.automatedReview) checks.push(...checkAutomatedReview(repo, head, policy.automatedReview, testCommand));
   return checks;
 }

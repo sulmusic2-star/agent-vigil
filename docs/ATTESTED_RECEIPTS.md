@@ -1,108 +1,98 @@
-# GitHub-attested receipts
+# Attestation boundaries
 
-An Agent Vigil receipt records what was checked for one exact code change. A
-GitHub attestation lets another person verify that the receipt came from a
-specific GitHub Actions run and has not been replaced.
+Agent Vigil v0.20.0 keeps signing authority out of candidate-executing evidence
+jobs. A signature can prove the origin and integrity of a file. It does not
+prove that candidate code is correct or that a live repository requires the
+check.
 
-It does not prove that the code is correct. It proves the origin and integrity
-of the evidence record.
+## Candidate receipts are not signed in the generated job
 
-## Install with attestation enabled
+`vigil init --attest` and `vigil protect --attest` are disabled. They fail
+closed because the generated evidence job checks out and executes candidate
+repository code. That job receives no OIDC grant, attestation permission,
+write permission, or explicit GitHub token input.
 
-```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz init --attest
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz doctor
-```
-
-The generated workflow grants these additional permissions:
-
-```yaml
-permissions:
-  contents: read
-  pull-requests: read
-  id-token: write
-  attestations: write
-  artifact-metadata: write
-```
-
-It does not grant write access to repository contents.
-
-Private and internal repository attestations require a GitHub plan that supports
-them. Fork pull requests do not receive an attestation because GitHub withholds
-the signing permissions from untrusted fork workflows.
-
-## Verify a receipt
-
-Download `agent-vigil-report.json` from the workflow artifact, authenticate the
-GitHub CLI, then run:
+Install the credential-free evidence workflow from a reviewed exact commit:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz verify-attestation \
-  agent-vigil-report.json \
-  --repository OWNER/REPOSITORY
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz \
+  init --action-sha <reviewed-full-commit>
+
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz \
+  doctor
 ```
 
-Agent Vigil asks `gh attestation verify` to verify the GitHub/Sigstore signature.
-It then checks that the signed subject digest and privacy-reduced predicate match
-the full receipt, exact head SHA, policy digest, counts, and decision.
+If independent candidate-receipt signing is required, place it in a separately
+controlled workflow or service that never checks out or runs candidate code.
+That signer must independently bind the exact receipt digest, base, head,
+policy, repository, and expected evidence source. Agent Vigil v0.20.0 does not
+generate that signer.
 
-By default, verification also requires the signer to be
-`OWNER/REPOSITORY/.github/workflows/agent-vigil.yml` and rejects attestations
-from self-hosted runners. If the calling workflow has a different path, pin it
-explicitly:
+## Control Proof signing is separate
+
+The non-candidate Control Proof workflow may use GitHub's short-lived OIDC
+identity and Sigstore-backed artifact attestation. Its first job runs planted
+challenges against the reviewed Agent Vigil runtime without OIDC. A separate
+signer job checks out no repository code, accepts only the bounded proof and
+predicate artifact, validates their exact binding, and then receives signing
+permission. Neither job checks out or executes a pull-request candidate.
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz verify-attestation \
-  agent-vigil-report.json \
+vigil certify install-action \
+  --repo . \
+  --action-ref <reviewed-full-commit>
+```
+
+Verify one downloaded proof with:
+
+```bash
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz \
+  verify-control-attestation control-proof.json \
   --repository OWNER/REPOSITORY \
-  --signer-workflow OWNER/REPOSITORY/.github/workflows/custom-vigil.yml
+  --signer-workflow OWNER/REPOSITORY/.github/workflows/agent-vigil-control-proof.yml
 ```
 
-Use `--allow-self-hosted` only when the runner itself is inside your trust
-boundary.
+Add `--signer-digest <full-workflow-commit>` when the signer is a separately
+controlled reusable workflow. The verifier also checks the proof subject,
+content hash, exact source commit, repository, and signer identity. Self-hosted
+runners are rejected unless the verifier explicitly accepts one.
 
-## Workflow trust limit
+This signature proves which workflow signed the proof file. It does not prove
+that branch protection requires Agent Vigil, that an administrator cannot
+change a ruleset, or that the control covers every detector. See
+[Control Proof](CONTROL_PROOF.md).
 
-The signed predicate is data supplied by the workflow. A person who can replace
-that workflow can sign false data under the same repository name and path.
-Review and protect changes under `.github/workflows`. Where that risk is not
-acceptable, run signing from a separately controlled reusable workflow. Version
-0.12.0 does not include that isolated builder.
+## Existing full-receipt attestation commands
 
-GitHub CLI gives the same warning in its
-[`gh attestation verify` documentation](https://cli.github.com/manual/gh_attestation_verify):
-predicate data is controlled by the workflow, so sensitive policy checks should
-pin a trusted signer workflow. Agent Vigil does not describe provenance alone as
-proof that code is correct.
-
-## What becomes public
-
-For a public repository, the Sigstore transparency log receives:
-
-- the receipt file digest;
-- exact base and head SHAs;
-- the policy digest;
-- PASS, FAIL, or INCONCLUSIVE;
-- evidence counts;
-- the Agent Vigil version;
-- GitHub's workflow identity.
-
-The predicate does not include source code, prompts, transcript text, claim text,
-file paths, or test output. The full receipt remains a GitHub Actions artifact
-under the repository's retention policy.
-
-The schema is
-[`ai-change-receipt-predicate-v1.schema.json`](ai-change-receipt-predicate-v1.schema.json).
-
-## Prepare the predicate without GitHub Actions
+The CLI still understands the v1 full-receipt predicate and can verify an
+already signed receipt. Predicate preparation does not sign anything:
 
 ```bash
 vigil attest agent-vigil-report.json \
   --predicate-output agent-vigil-attestation-predicate.json
+
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz \
+  verify-attestation agent-vigil-report.json \
+  --repository OWNER/REPOSITORY \
+  --signer-workflow OWNER/REPOSITORY/.github/workflows/separate-receipt-signer.yml
 ```
 
-This command prepares the custom predicate. It does not sign anything by itself.
-Signing is performed by GitHub's official
-[`actions/attest`](https://github.com/actions/attest) Action. GitHub's
-[verification guide](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations)
-documents the `gh attestation verify` trust check used here.
+Verification asks GitHub CLI to validate the GitHub/Sigstore signature, then
+checks the subject digest and privacy-reduced predicate against the receipt's
+exact head, Git tree, policy digest, counts, and decision.
+
+The predicate can expose the receipt digest, exact base and head commits,
+policy digest, result, evidence counts, Agent Vigil version, and workflow
+identity. It omits source, prompts, transcript text, claim text, file paths,
+and test output. The schema is
+[`ai-change-receipt-predicate-v1.schema.json`](ai-change-receipt-predicate-v1.schema.json).
+
+GitHub warns that predicate data is controlled by the signing workflow. Protect
+or externally control that workflow before treating it as independent approval.
+See the
+[`gh attestation verify` trust options](https://cli.github.com/manual/gh_attestation_verify)
+and GitHub's
+[artifact-attestation verification guide](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/verify-attestations).
+
+The complete hosted boundary is in
+[Hosted evidence security contract](HOSTED_SECURITY_CONTRACT.md).

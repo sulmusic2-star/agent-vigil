@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { loadPolicy } from "./config.ts";
@@ -14,6 +13,7 @@ import {
 import { routeIntegrity } from "./integrity-policy.ts";
 import { buildReport, VERSION, type CheckResult, type Claim, type TrustReport } from "./report.ts";
 import { authorityPlanChecks, buildAuthorityPlan } from "./authority-plan.ts";
+import { trustedGitOptional } from "./trusted-git.ts";
 
 type MergeGroupPayload = {
   action?: string;
@@ -48,8 +48,7 @@ export function loadMergeGroupEvent(path: string): MergeGroupPayload & {
 }
 
 function git(repo: string, args: string[]): string | undefined {
-  try { return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
-  catch { return undefined; }
+  return trustedGitOptional(repo, args)?.trim();
 }
 
 function result(subject: string, verdict: CheckResult["verdict"], evidence: string, ruleId: string, blocksPass = false): CheckResult {
@@ -110,7 +109,7 @@ export function buildMergeGroupReport(options: MergeGroupOptions): TrustReport {
     quote: "trusted base policy verification passes on the composed merge-group commit",
     subject: "merge-group test command",
   };
-  results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand));
+  results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand, undefined, base, head));
   results.push(...checkWorkspaceMutation(repo, inputs, head));
   const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);

@@ -1,4 +1,4 @@
-import type { CheckResult, TrustReport } from "./report.ts";
+import { validateTrustReport, type CheckResult } from "./report.ts";
 import { verifyReport } from "./signature.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
 
@@ -28,7 +28,8 @@ function verifiedUrl(raw: string | undefined): string | undefined {
   return value.toString();
 }
 
-export function renderProofComment(report: TrustReport, options: ProofCommentOptions = {}): string {
+export function renderProofComment(value: unknown, options: ProofCommentOptions = {}): string {
+  const report = validateTrustReport(value);
   const verification = verifyReport(report);
   if (!verification.hashValid) throw new Error("proof comment receipt content does not match receiptHash");
   if (verification.signatureValid === false) throw new Error("proof comment receipt signature is invalid");

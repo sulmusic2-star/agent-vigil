@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync } from "node:fs";
+import { constants, closeSync, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { canonical } from "../report.ts";
@@ -352,17 +352,40 @@ export function canonicalSha256(value: unknown): string {
 
 export function readBoundedRegularFile(path: string, maximumBytes: number, label: string): Buffer {
   const absolute = resolve(path);
-  const expected = lstatSync(absolute);
+  const expected = lstatSync(absolute, { bigint: true });
   if (expected.isSymbolicLink() || !expected.isFile()) throw new Error(`${label} must be a regular file, not a symbolic link`);
-  if (expected.size > maximumBytes) throw new Error(`${label} exceeds the ${maximumBytes} byte limit`);
+  if (expected.size > BigInt(maximumBytes)) throw new Error(`${label} exceeds the ${maximumBytes} byte limit`);
   const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
-  const descriptor = openSync(absolute, constants.O_RDONLY | noFollow);
+  const nonBlock = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0;
+  const descriptor = openSync(absolute, constants.O_RDONLY | noFollow | nonBlock);
   try {
-    const opened = fstatSync(descriptor);
-    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size) {
+    const opened = fstatSync(descriptor, { bigint: true });
+    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size
+      || opened.mtimeNs !== expected.mtimeNs || opened.ctimeNs !== expected.ctimeNs) {
       throw new Error(`${label} changed while being read`);
     }
-    return readFileSync(descriptor);
+    const bytes = Buffer.alloc(Number(opened.size));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(descriptor, bytes, offset, bytes.length - offset, offset);
+      if (count === 0) throw new Error(`${label} changed while being read`);
+      offset += count;
+    }
+    const after = fstatSync(descriptor, { bigint: true });
+    let finalPath: ReturnType<typeof lstatSync>;
+    try {
+      finalPath = lstatSync(absolute, { bigint: true });
+    } catch {
+      throw new Error(`${label} changed while being read`);
+    }
+    if (!after.isFile() || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
+      || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs
+      || finalPath.isSymbolicLink() || !finalPath.isFile()
+      || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size
+      || finalPath.mtimeNs !== opened.mtimeNs || finalPath.ctimeNs !== opened.ctimeNs) {
+      throw new Error(`${label} changed while being read`);
+    }
+    return bytes;
   } finally {
     closeSync(descriptor);
   }

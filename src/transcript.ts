@@ -505,7 +505,7 @@ export function extractClaims(narrative: string): Claim[] {
       kind: "tests_pass",
       quote: snippet(narrative, match.index ?? 0),
       subject: expectedCount ? `${expectedCount} tests` : "test suite",
-      expectedCount,
+      ...(expectedCount !== undefined ? { expectedCount } : {}),
     });
   }
   for (const match of narrative.matchAll(FILE_CHANGED_RE)) {

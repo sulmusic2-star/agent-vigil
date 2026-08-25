@@ -1,6 +1,6 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Fail-closed change control, upgrade preflight, and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
@@ -49,6 +49,9 @@
   "engines": {
     "node": ">=20"
   },
+  "agentVigil": {
+    "hostedTestCommand": "node --test test/*.test.ts"
+  },
   "files": [
     "dist",
     "action.yml",
@@ -77,6 +80,7 @@
     "docs/CONTINUITY_LAB.md",
     "docs/CONTROL_PROOF.md",
     "docs/GITHUB_OUTCOME_EVIDENCE.md",
+    "docs/HOSTED_SECURITY_CONTRACT.md",
     "docs/MERGE_QUEUES.md",
     "docs/NOTARY_APP.md",
     "docs/OUTCOME_OBSERVER.md",

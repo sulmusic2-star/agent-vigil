@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,7 +15,7 @@ import {
   writeAttestationPredicate,
 } from "../src/attestation.ts";
 import { buildReport, recomputeReceiptHash, type CheckResult, type ReportStatus, type TrustReport } from "../src/report.ts";
-import { initRepository, doctorRepository } from "../src/setup.ts";
+import { initRepository } from "../src/setup.ts";
 import { execFileSync } from "node:child_process";
 import { run } from "../src/cli.ts";
 
@@ -23,6 +23,7 @@ const BASE = "1".repeat(40);
 const HEAD = "2".repeat(40);
 const TREE = "3".repeat(40);
 const POLICY = `sha256:${"4".repeat(64)}`;
+const ACTION_SHA = "a".repeat(40);
 
 function result(status: ReportStatus): CheckResult {
   return {
@@ -95,7 +96,7 @@ test("attestation preparation rejects a tampered receipt", () => {
   const altered = JSON.parse(readFileSync(fixture.path, "utf8"));
   altered.summary.status = "FAIL";
   writeFileSync(fixture.path, JSON.stringify(altered));
-  assert.throws(() => buildAttestationPredicate(fixture.path), /does not match receiptHash/);
+  assert.throws(() => buildAttestationPredicate(fixture.path), /summary\.status does not match results and policy/);
 });
 
 test("GitHub attestation verification binds subject digest and privacy-reduced predicate", () => {
@@ -143,12 +144,12 @@ test("attestation preparation refuses a receipt without a committed Git tree", (
 test("attestation preparation rejects malformed and oversized receipt files", () => {
   const cases: Array<[string, (report: any) => void, RegExp]> = [
     ["schema", (report) => { report.schemaVersion = "1"; }, /unsupported receipt schema/],
-    ["status", (report) => { report.summary.status = "MAYBE"; }, /invalid status/],
-    ["count", (report) => { report.summary.verified = -1; }, /invalid evidence counts/],
+    ["status", (report) => { report.summary.status = "MAYBE"; }, /summary\.status has an unsupported value/],
+    ["count", (report) => { report.summary.verified = -1; }, /summary\.verified must be a non-negative integer/],
     ["base", (report) => { report.base = "short"; }, /full base and head/],
-    ["tree", (report) => { report.repository.tree = "short"; }, /exact committed Git tree/],
-    ["policy", (report) => { report.policy.sha256 = "unavailable"; }, /SHA-256 policy digest/],
-    ["hash", (report) => { report.receiptHash = "sha256:short"; }, /invalid receiptHash/],
+    ["tree", (report) => { report.repository.tree = "short"; }, /repository\.tree must be a full lowercase Git object ID/],
+    ["policy", (report) => { report.policy.sha256 = "unavailable"; }, /policy\.sha256 must be a lowercase SHA-256 identifier/],
+    ["hash", (report) => { report.receiptHash = "sha256:short"; }, /receiptHash must be a lowercase SHA-256 identifier/],
   ];
   for (const [name, alter, message] of cases) {
     const fixture = receipt();
@@ -159,9 +160,12 @@ test("attestation preparation rejects malformed and oversized receipt files", ()
   }
   const fixture = receipt();
   assert.throws(() => loadReceipt(fixture.root), /regular file/);
+  const linked = join(fixture.root, "linked-receipt.json");
+  symlinkSync(fixture.path, linked);
+  assert.throws(() => loadReceipt(linked), /regular file, not a symbolic link/);
   const large = join(fixture.root, "large.json");
   writeFileSync(large, Buffer.alloc(16 * 1024 * 1024 + 1));
-  assert.throws(() => loadReceipt(large), /16 MB/);
+  assert.throws(() => loadReceipt(large), /16777216 byte limit/);
 });
 
 test("attestation verification rejects extra fields and misleading subject names", () => {
@@ -215,21 +219,17 @@ test("GitHub webhook signatures use HMAC-SHA256 and constant-length comparison",
   assert.equal(verifyWebhookSignature(secret, body, undefined), false);
 });
 
-test("attested init grants only the permissions needed for GitHub signing", () => {
-  const root = mkdtempSync(join(tmpdir(), "vigil-attested-init-"));
-  execFileSync("git", ["init", "-q"], { cwd: root });
-  writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
-  initRepository(root, false, undefined, "default", true);
-  const workflow = readFileSync(join(root, ".github/workflows/agent-vigil.yml"), "utf8");
-  assert.match(workflow, /attest: true/);
-  assert.match(workflow, /id-token: write/);
-  assert.match(workflow, /attestations: write/);
-  assert.match(workflow, /artifact-metadata: write/);
-  assert.doesNotMatch(workflow, /contents: write/);
-  assert.equal(doctorRepository(root).find((check) => check.label === "GitHub attestation")?.status, "PASS");
-
-  writeFileSync(join(root, ".github/workflows/agent-vigil.yml"), workflow.replace("contents: read", "contents: write"));
-  assert.equal(doctorRepository(root).find((check) => check.label === "GitHub attestation")?.status, "WARN");
+test("candidate-executing init profiles refuse attestation until a separate signer exists", () => {
+  for (const profile of ["default", "maintainer", "authority", "protect"] as const) {
+    const root = mkdtempSync(join(tmpdir(), `vigil-attested-${profile}-`));
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+    assert.throws(
+      () => initRepository(root, false, undefined, profile, true, ACTION_SHA),
+      /--attest is disabled for candidate-executing workflows until a separately controlled signer is available/,
+    );
+    assert.equal(existsSync(join(root, ".github/workflows/agent-vigil.yml")), false);
+  }
 });
 
 test("CLI prepares, verifies, and notarizes one exact receipt", () => {

@@ -1,7 +1,25 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
-import { buildReport, recomputeReceiptHash, type CheckResult } from "../src/report.ts";
+import { buildReport, canonical, type CheckResult } from "../src/report.ts";
 import { compareReceipts } from "../src/receipt-diff.ts";
+
+const POLICY = `sha256:${"1".repeat(64)}`;
+const STRONG_POLICY = `sha256:${"2".repeat(64)}`;
+const WEAK_POLICY = `sha256:${"3".repeat(64)}`;
+const OTHER_POLICY = `sha256:${"4".repeat(64)}`;
+
+function attackerRehash(value: any): string {
+  const {
+    transcript: _transcript,
+    repo: _repo,
+    generatedAt: _generatedAt,
+    receiptHash: _receiptHash,
+    signature: _signature,
+    ...payload
+  } = value;
+  return `sha256:${createHash("sha256").update(canonical(payload)).digest("hex")}`;
+}
 
 const verified = (ruleId: string, subject = ruleId, contributesToPass = true): CheckResult => ({
   claim: { kind: "integrity", quote: "check", subject },
@@ -20,7 +38,7 @@ function report(results: CheckResult[], head: string, overrides: { base?: string
     head,
     results,
     advisories: overrides.advisories,
-    policy: overrides.policy ?? { minVerified: 1, strict: true, sha256: "sha256:policy" },
+    policy: overrides.policy ?? { minVerified: 1, strict: true, sha256: POLICY },
   });
 }
 
@@ -46,8 +64,8 @@ test("receipt delta fails on a disappeared invariant and new contradiction", () 
 });
 
 test("receipt delta fails closed on tampering and weaker policy", () => {
-  const before = report([verified("tests-pass")], "head-1", { policy: { minVerified: 2, strict: true, sha256: "sha256:strong" } });
-  const after = report([verified("tests-pass")], "head-2", { policy: { minVerified: 1, strict: false, sha256: "sha256:weak" } });
+  const before = report([verified("tests-pass")], "head-1", { policy: { minVerified: 2, strict: true, sha256: STRONG_POLICY } });
+  const after = report([verified("tests-pass")], "head-2", { policy: { minVerified: 1, strict: false, sha256: WEAK_POLICY } });
   after.results[0].evidence = "tampered";
   const delta = compareReceipts(before, after);
   assert.equal(delta.status, "FAIL");
@@ -60,17 +78,13 @@ test("receipt delta rejects a rehashed receipt with forged summary counts", () =
   const after = report([verified("tests-pass")], "head-2");
   after.summary.status = "FAIL";
   after.summary.pass = false;
-  after.receiptHash = recomputeReceiptHash(after);
-  const delta = compareReceipts(before, after);
-  assert.equal(delta.after.hashValid, true);
-  assert.equal(delta.after.internallyConsistent, false);
-  assert.equal(delta.status, "FAIL");
-  assert.ok(delta.regressions.some((row) => row.ruleId === "receipt-consistency"));
+  after.receiptHash = attackerRehash(after);
+  assert.throws(() => compareReceipts(before, after), /summary\.status does not match results and policy/);
 });
 
 test("receipt delta is inconclusive across unrelated ranges or changed policies without regression", () => {
   const before = report([verified("tests-pass")], "head-1");
-  const after = report([verified("tests-pass")], "other-head", { base: "other-base", policy: { minVerified: 1, strict: true, sha256: "sha256:other" } });
+  const after = report([verified("tests-pass")], "other-head", { base: "other-base", policy: { minVerified: 1, strict: true, sha256: OTHER_POLICY } });
   const delta = compareReceipts(before, after);
   assert.equal(delta.status, "INCONCLUSIVE");
   assert.equal(delta.range.relationship, "unrelated");

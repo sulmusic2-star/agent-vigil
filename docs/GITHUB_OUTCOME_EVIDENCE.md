@@ -1,6 +1,6 @@
 # GitHub outcome evidence v1
 
-**State:** Agent Vigil v0.11 contract
+**State:** Agent Vigil v0.20.0 contract
 
 `vigil github-evidence` converts bounded GitHub event and REST API exports into
 a privacy-reduced, hash-bound bundle. `vigil value --github-evidence` can then
@@ -27,24 +27,30 @@ vigil value agent-vigil-report.json \
   --format json --output agent-vigil-value-card.json
 ```
 
-The GitHub Action collects the current pull request, reviews, and review
-comments with the job's read-only `github.token` when `gh` is available. It
-always attempts to normalize the event payload and retains both the bundle and
-the Value Card in the generated workflow's 30-day artifact.
+The standalone command normalizes operator-supplied exports. In the generated
+v0.20.0 hosted path, the credential-free candidate evidence job does not
+receive a GitHub token. The separate read-only outcome workflow collects the
+official API records after the evidence run completes and retains the bundle
+and Value Card in its 30-day artifact.
 
-`vigil init` also installs a separate `Agent Vigil outcomes` workflow. It:
+`vigil init --action-sha <reviewed-full-commit>` and
+`vigil protect --action-sha <reviewed-full-commit>` also prepare a separate
+`Agent Vigil outcomes` workflow. It:
 
-- runs after the required check completes and again when the PR closes;
-- downloads the prior receipt artifact by run ID;
+- handles a completed `workflow_run` whose source event was
+  `pull_request_target`;
+- downloads that exact run's receipt artifact by run ID;
 - never checks out or executes candidate repository code;
 - imports the finished run and job records with `actions: read`;
-- refreshes PR, reviews, comments, and merge/closed state; and
-- retains the closed Value Card and normalized evidence for 30 days.
+- snapshots PR, reviews, comments, and any merge state visible at that time;
+  and
+- retains the completed-run Value Card and normalized evidence for 30 days.
 
-The closed-event path locates the latest finished `Agent Vigil` run for the
-exact PR head SHA. That keeps merge observation separate from verification and
-avoids paying to rerun the repository's tests after merge merely to learn the
-outcome.
+The generated workflow does not subscribe to a later pull-request close event.
+It therefore does not claim eventual merge, close, revert, hotfix, or incident
+observation. Those transitions require a separate authenticated observer. The
+snapshot keeps outcome collection separate from verification and avoids
+rerunning candidate tests merely to record the completed Actions run.
 
 ## Conservative inference
 
@@ -65,8 +71,8 @@ outcome.
 The bundle records each source basename, size, and SHA-256, but not its body.
 Its stable evidence hash excludes render time. Inputs are capped at 32 MiB per
 source; malformed, oversized, or tampered bundles fail closed.
-When the generated workflow has a GitHub token, an API collection failure also
-fails the evidence step instead of silently emitting a partial success.
+In the generated outcome workflow, an API collection failure fails the snapshot
+instead of silently emitting a partial success.
 
 ## Actions usage boundary
 
@@ -74,8 +80,8 @@ GitHub run and job exports can establish status, conclusion, attempt, elapsed
 run time, aggregate job time, and failed-job count. The schema deliberately
 sets Actions billing to `UNAVAILABLE`.
 
-The required check cannot know its own final duration while it is still
-running. The generated post-run observer closes that duration later. GitHub
+The evidence job cannot know its own final duration while it is still running.
+The generated post-run snapshot closes that duration after completion. GitHub
 does not provide one universal, durable per-run USD amount through the
 workflow-run object, so minutes and attributed dollars remain separate facts.
 Agent Vigil does not multiply runner minutes by a guessed price and call that
@@ -84,10 +90,11 @@ billed cost.
 ## Trust boundary
 
 A source hash proves which bytes were used; it does not prove that a locally
-supplied JSON file came from GitHub. The generated Action has stronger
+supplied JSON file came from GitHub. The generated outcome workflow has stronger
 provenance because it fetches PR records through GitHub's authenticated REST API
-inside the run. Standalone users should preserve the API response or attestation
-that establishes origin.
+with read-only permissions. Standalone users should preserve the API response
+or attestation that establishes origin. A bundle is not evidence of adoption,
+payment, or revenue.
 
 Official API references:
 

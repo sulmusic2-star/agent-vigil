@@ -1,9 +1,9 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { readBoundedRegularFile } from "./continuity/contracts.ts";
 import type { ReportStatus, TrustReport } from "./report.ts";
-import { recomputeReceiptHash } from "./report.ts";
+import { recomputeReceiptHash, validateTrustReport } from "./report.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
 
 export const ATTESTATION_PREDICATE_TYPE = "https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json";
@@ -70,22 +70,10 @@ function exactKeys(value: object, expected: string[]): boolean {
   return actual.length === expected.length && actual.every((key, index) => key === [...expected].sort()[index]);
 }
 
-function evidenceCount(value: unknown): value is number {
-  return Number.isSafeInteger(value) && Number(value) >= 0;
-}
-
 export function loadReceipt(path: string): { report: TrustReport; bytes: Buffer; fileSha256: string } {
   const absolute = resolve(path);
-  const metadata = statSync(absolute);
-  if (!metadata.isFile()) throw new Error("receipt must be a regular file");
-  if (metadata.size > 16 * 1024 * 1024) throw new Error("receipt exceeds the 16 MB attestation limit");
-  const bytes = readFileSync(absolute);
-  const report = JSON.parse(bytes.toString("utf8")) as TrustReport;
-  if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
-  if (!new Set(["PASS", "FAIL", "INCONCLUSIVE"]).has(report.summary?.status)) throw new Error("receipt has an invalid status");
-  if (!evidenceCount(report.summary?.verified) || !evidenceCount(report.summary?.contradicted) || !evidenceCount(report.summary?.unverifiable)) {
-    throw new Error("receipt has invalid evidence counts");
-  }
+  const bytes = readBoundedRegularFile(absolute, 16 * 1024 * 1024, "receipt");
+  const report = validateTrustReport(JSON.parse(bytes.toString("utf8")));
   if (!fullGitHash(report.base) || !fullGitHash(report.head)) throw new Error("attestation requires full base and head commit SHAs");
   if (!fullGitHash(report.repository?.tree)) throw new Error("attestation requires the exact committed Git tree");
   if (!/^sha256:[0-9a-f]{64}$/i.test(report.policy?.sha256)) throw new Error("attestation requires a SHA-256 policy digest");

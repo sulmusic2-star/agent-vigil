@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,7 @@ import {
 } from "../src/continuity/chain.ts";
 import {
   canonicalSha256,
+  readBoundedRegularFile,
   sha256,
   validateContinuityPolicy,
   validateEventDraft,
@@ -138,6 +140,47 @@ function appendCurrentEvidence(value: ReturnType<typeof fixture>): void {
 function verification(value: ReturnType<typeof fixture>, now = NOW): ChainVerification {
   return verifyContinuityChain(value.chain, { now, maxClockSkewSeconds: 300 });
 }
+
+test("bounded regular-file snapshots preserve exact bytes and reject symbolic links", (context) => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-bounded-read-"));
+  const source = join(root, "source.txt");
+  const linked = join(root, "linked.txt");
+  const expected = Buffer.from("bounded evidence\n");
+  writeFileSync(source, expected);
+  assert.deepEqual(readBoundedRegularFile(source, expected.length, "evidence"), expected);
+  try { symlinkSync(source, linked); }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (["EPERM", "EACCES", "UNKNOWN"].includes(code ?? "")) {
+      context.skip(`host does not permit symlinks (${code})`);
+      return;
+    }
+    throw error;
+  }
+  assert.throws(() => readBoundedRegularFile(linked, 1024, "evidence"), /regular file, not a symbolic link/);
+});
+
+test("bounded regular-file snapshots reject named pipes without blocking", (context) => {
+  if (process.platform === "win32") {
+    context.skip("POSIX named pipes are unavailable on Windows");
+    return;
+  }
+  const root = mkdtempSync(join(tmpdir(), "vigil-bounded-fifo-"));
+  const fifo = join(root, "evidence.fifo");
+  execFileSync("mkfifo", [fifo]);
+  assert.throws(() => readBoundedRegularFile(fifo, 1024, "evidence"), /regular file, not a symbolic link/);
+});
+
+test("bounded regular-file implementation binds the fixed-size read and final path snapshot", () => {
+  const source = readFileSync(new URL("../src/continuity/contracts.ts", import.meta.url), "utf8");
+  const implementation = source.match(/export function readBoundedRegularFile[\s\S]*?(?=\nexport function readBoundedJson)/)?.[0];
+  assert.ok(implementation);
+  assert.match(implementation, /O_RDONLY \| noFollow \| nonBlock/);
+  assert.match(implementation, /Buffer\.alloc\(Number\(opened\.size\)\)/);
+  assert.match(implementation, /readSync\(descriptor, bytes,/);
+  assert.match(implementation, /opened\.mtimeNs !== expected\.mtimeNs \|\| opened\.ctimeNs !== expected\.ctimeNs/);
+  assert.match(implementation, /finalPath\.dev !== opened\.dev \|\| finalPath\.ino !== opened\.ino/);
+});
 
 test("initializes an owner-only chain without changing original receipt bytes or verdict", () => {
   const value = fixture();

@@ -9,95 +9,106 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  candidate-ci:
+    name: Candidate CI (not trusted evidence) / Node ${{ matrix.node }}
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         node: [20, 22, 24]
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out the candidate revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@v7
+          persist-credentials: false
+      - name: Select Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - run: npm test
-      - name: Enforce coverage floor
+          package-manager-cache: false
+      - name: Install without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Type-check
+        run: npm run typecheck
+      - name: Build the candidate bundle
+        run: npm run build
+      - name: Run the candidate test suite
+        run: npm test
+      - name: Enforce the coverage floor
         if: matrix.node == 22
         run: npm run test:coverage
-      - run: npm pack --dry-run
-      - name: Check public wording and typography
+      - name: Check the public surface
         if: matrix.node == 22
         run: npm run review:public
-      - name: Install packed package across repository shapes
+      - name: Exercise the packed package
         if: matrix.node == 22
         run: npm run test:package
       - name: Replay public historical failures
         if: matrix.node == 22
         run: npm run proof:historical
-      - name: Dogfood Agent Vigil
-        uses: ./
-        with:
-          transcript: examples/demo-pass.md
-          repo: .
-          base: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
-          head: ${{ github.event.pull_request.head.sha || 'HEAD' }}
-          strict: true
-      - name: Dogfood malformed-transcript failure
-        id: malformed
-        continue-on-error: true
-        uses: ./
-        with:
-          transcript: examples/malformed.jsonl
-          repo: .
-          base: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
-          head: ${{ github.event.pull_request.head.sha || 'HEAD' }}
-          strict: true
-      - name: Assert malformed transcript failed closed
-        if: always()
-        env:
-          STEP_OUTCOME: ${{ steps.malformed.outcome }}
-          VIGIL_STATUS: ${{ steps.malformed.outputs.status }}
-        run: test "$STEP_OUTCOME" = "failure" && test "$VIGIL_STATUS" = "INCONCLUSIVE"
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: agent-vigil-receipt-node-${{ matrix.node }}
-          path: |
-            agent-vigil-report.json
-            agent-vigil.sarif
-            agent-vigil-github-evidence.json
-            agent-vigil-value-card.json
-          if-no-files-found: warn
+      - name: Verify the failure-pattern corpus
+        if: matrix.node == 22
+        run: npm run proof:failure-corpus
+      - name: Rehearse the npm package without lifecycle scripts
+        if: matrix.node == 22
+        run: npm pack --ignore-scripts --dry-run
 
   portability:
+    name: Candidate portability (not trusted evidence) / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        os: [macos-14, windows-2022]
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out the candidate revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@v7
+          persist-credentials: false
+      - name: Select Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - name: Dogfood Agent Vigil
-        uses: ./
+          package-manager-cache: false
+      - name: Install without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Type-check
+        run: npm run typecheck
+      - name: Build the candidate bundle
+        run: npm run build
+      - name: Run the candidate test suite
+        run: npm test
+
+  candidate-isolation-regression:
+    name: Candidate Docker isolation regression (not trusted evidence)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the candidate revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          transcript: examples/demo-pass.md
-          repo: .
-          base: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
-          head: ${{ github.event.pull_request.head.sha || 'HEAD' }}
-          strict: true
-      - run: npm run build
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Select Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Install without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Preload and inspect the exact candidate sandbox image
+        env:
+          CANDIDATE_IMAGE: node@sha256:46e94f8cf91baab69a2deb3153e74eeffd73c20c7cc1d8432f5b96469eaa0322
+        run: |
+          set -euo pipefail
+          docker pull "$CANDIDATE_IMAGE"
+          docker image inspect --format '{{json .RepoDigests}}' "$CANDIDATE_IMAGE" \
+            | grep -F -- "\"$CANDIDATE_IMAGE\""
+      - name: Run the real-Docker escape regression
+        env:
+          AGENT_VIGIL_REQUIRE_REAL_DOCKER: "true"
+        run: node --import tsx --test test/action-runtime-security.test.ts

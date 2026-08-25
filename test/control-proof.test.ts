@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +10,7 @@ import {
   renderControlProof,
   type ControlProofChallenge,
 } from "../src/control-proof.ts";
+import { compositeActionRuntimeUnavailable, compositeActionScript } from "./action-runtime-fixture.ts";
 
 function git(repo: string, args: string[]): string {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -95,28 +96,27 @@ test("control proof rendering escapes terminal control characters", () => {
   assert.match(rendered, /\\u\{001B\}|\\u\{202E\}/);
 });
 
-test("composite Action prove mode returns the control receipt without synthetic Value Card output", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
+test("composite Action prove mode always returns its control receipt and privacy-reduced predicate", { skip: compositeActionRuntimeUnavailable }, () => {
   const repo = fixture();
   const aux = mkdtempSync(join(tmpdir(), "vigil-control-proof-action-"));
   try {
-    const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-    const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
-    assert.ok(block);
     const script = join(aux, "run.sh");
     const output = join(aux, "output");
     const summary = join(aux, "summary");
     const runner = join(aux, "runner");
     mkdirSync(runner);
-    writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
+    writeFileSync(script, compositeActionScript());
     writeFileSync(output, "");
     writeFileSync(summary, "");
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       GITHUB_ACTION_PATH: process.cwd(),
+      GITHUB_ACTIONS: "true",
       GITHUB_EVENT_PATH: "",
       GITHUB_OUTPUT: output,
       GITHUB_STEP_SUMMARY: summary,
-      RUNNER_TEMP: runner,
+      RUNNER_TEMP: realpathSync(runner),
+      VIGIL_ATTEST: "false",
       VIGIL_TRANSCRIPT: "",
       VIGIL_RECEIPT: "",
       VIGIL_AUTHORITY_CONTRACT: "",
@@ -128,11 +128,14 @@ test("composite Action prove mode returns the control receipt without synthetic 
       VIGIL_BASE: "HEAD~1",
       VIGIL_HEAD: "HEAD",
       VIGIL_TEST_CMD: "",
+      VIGIL_ISOLATE_CANDIDATE: "false",
+      VIGIL_CANDIDATE_SETUP_COMMAND: "",
       VIGIL_POLICY: "",
       VIGIL_POLICY_REF: "",
       VIGIL_STRICT: "true",
       VIGIL_MIN_VERIFIED: "1",
       VIGIL_GITHUB_TOKEN: "",
+      VIGIL_HAS_GITHUB_TOKEN: "false",
       VIGIL_VALUE_TASK_CLASS: "",
       VIGIL_VALUE_BUDGET_USD: "",
       VIGIL_VALUE_COST_USD: "",
@@ -151,8 +154,29 @@ test("composite Action prove mode returns the control receipt without synthetic 
     assert.match(outputs, /^status=PASS$/m);
     assert.match(outputs, /^sarif=$/m);
     assert.match(outputs, /^value_card=$/m);
-    assert.equal(JSON.parse(readFileSync(join(repo, "agent-vigil-report.json"), "utf8")).status, "PASS");
+    const reportPath = outputs.match(/^report=(.+)$/m)?.[1];
+    assert.ok(reportPath, "prove mode emits its private report path");
+    assert.equal(JSON.parse(readFileSync(reportPath, "utf8")).status, "PASS");
+    const unsignedPredicatePath = outputs.match(/^attestation_predicate=(.+)$/m)?.[1];
+    assert.ok(unsignedPredicatePath, "prove mode prepares its predicate even when attest is false");
+    const unsignedPredicate = JSON.parse(readFileSync(unsignedPredicatePath, "utf8"));
+    assert.equal(unsignedPredicate.predicateVersion, "1");
+    assert.equal(unsignedPredicate.proof.schemaVersion, "agent-vigil-control-proof/v1");
     assert.equal(existsInOutput(outputs, "agent-vigil-value-card.json"), false);
+
+    writeFileSync(output, "");
+    const attested = spawnSync("bash", [script], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...env, VIGIL_ATTEST: "true" },
+    });
+    assert.equal(attested.status, 0, `${attested.stdout}\n${attested.stderr}`);
+    const attestedOutputs = readFileSync(output, "utf8");
+    const predicatePath = attestedOutputs.match(/^attestation_predicate=(.+)$/m)?.[1];
+    assert.ok(predicatePath, "prove attestation receives a predicate prepared inside the checkpointed verifier step");
+    const predicate = JSON.parse(readFileSync(predicatePath, "utf8"));
+    assert.equal(predicate.predicateVersion, "1");
+    assert.equal(predicate.proof.schemaVersion, "agent-vigil-control-proof/v1");
 
     const conflicting = spawnSync("bash", [script], {
       cwd: repo,
@@ -165,6 +189,15 @@ test("composite Action prove mode returns the control receipt without synthetic 
     rmSync(repo, { recursive: true, force: true });
     rmSync(aux, { recursive: true, force: true });
   }
+});
+
+test("composite Action exposes prove predicates while keeping GitHub signing opt-in", () => {
+  const action = readFileSync(new URL("../action.yml", import.meta.url), "utf8");
+  assert.match(action, /control-proof-predicate:\n    description:[^\n]+\n    value: \$\{\{ steps\.vigil\.outputs\.attestation_predicate \}\}/);
+  assert.match(action, /if \[\[ "\$VIGIL_MODE" == "prove" \]\]; then\n            VIGIL_REPORT=/);
+  assert.doesNotMatch(action, /if \[\[ "\$VIGIL_MODE" == "prove" && "\$VIGIL_ATTEST" == "true" \]\]; then/);
+  assert.match(action, /- id: prepare_attestation[\s\S]*?if: \$\{\{[^\n]*inputs\.attest == 'true'[^\n]*\}\}/);
+  assert.match(action, /- id: github_attestation[\s\S]*?if: \$\{\{[^\n]*inputs\.attest == 'true'[^\n]*\}\}[\s\S]*?uses: actions\/attest@[0-9a-f]{40}/);
 });
 
 function existsInOutput(output: string, name: string): boolean {

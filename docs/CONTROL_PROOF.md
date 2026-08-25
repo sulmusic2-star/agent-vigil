@@ -50,25 +50,22 @@ workflow policy, or agent configuration.
 
 ## GitHub Action
 
-The Action can run the same proof on demand or on a schedule:
+The generated v0.20.0 workflow is schedule-only. It is separate from
+pull-request evidence and executes planted Control Proof challenges, not
+candidate repository code. The Action's `mode: prove` step runs with
+`attest: false` and always prepares two outputs: the full proof and its
+privacy-reduced attestation predicate. `HOLD` exits 2, so an unexpected decision
+or cleanup error fails that proof job.
 
-```yaml
-- id: control-proof
-  uses: sulmusic2-star/agent-vigil@<reviewed-full-commit>
-  with:
-    mode: prove
-    attest: true
-    repo: .
-    head: ${{ github.sha }}
-```
+Signing is a separate job. The proof job has no OIDC or attestation permission;
+it uploads only the proof and predicate as a one-day artifact. The signer job
+does not check out repository code or run Agent Vigil. It downloads exactly
+those two files, applies byte limits, validates the full proof content hash and
+the predicate's binding to that exact proof and scheduled source commit, and
+only then uses GitHub's short-lived OIDC identity for artifact attestation.
+No repository signing secret is created.
 
-`attest: true` uses GitHub's short-lived OIDC identity and Sigstore-backed
-artifact attestation. No repository signing secret is created. Retain
-`steps.control-proof.outputs.report` and
-`steps.control-proof.outputs.attestation-bundle` as artifacts. `HOLD` exits 2,
-so an unexpected decision or cleanup error fails the job.
-
-Install the weekly and manual workflow:
+Install the weekly workflow:
 
 ```bash
 vigil certify install-action \
@@ -77,10 +74,19 @@ vigil certify install-action \
 ```
 
 The installer creates `.github/workflows/agent-vigil-control-proof.yml`. It
-does not replace an existing file unless `--force` is supplied. The generated
-workflow has read-only repository permission plus the three GitHub permissions
-needed for attestation, pins all Actions to full commits, does not retain
-checkout credentials, and keeps the proof and attestation bundle for 90 days.
+does not replace an existing regular file unless `--force` is supplied and it
+refuses symlinked output paths or parents. The generated workflow runs from the
+default branch every Monday and has no manual, pull-request, or push trigger.
+It pins every Action to a full commit, checks out the scheduled revision without
+credentials only in the unprivileged proof job, and keeps the final proof,
+predicate, and attestation bundle for 90 days. Do not add a candidate trigger,
+candidate checkout, or repository-code step to the signing job.
+
+An older Agent Vigil-managed workflow that does not exactly match this split
+topology causes the installer to stop with a migration error. Review the diff,
+then rerun the same command with `--force` to replace that managed file.
+Unmarked maintainer-owned workflows are kept unless replacement is explicitly
+requested.
 
 Verify one downloaded proof:
 
@@ -137,12 +143,15 @@ storage. The current adapter verifies Agent Vigil receipt structure and content
 hashes. It does not establish who ran the proof, verify a live GitHub ruleset,
 or turn local evidence into external adoption.
 
-The repository's `Weekly control proof` workflow runs the authority pack every
-Monday and retains its proof, certificate, policy, corpus entry, and status for
-90 days. Each run is a self-contained dogfood bundle. Organizations that need a
-single historical ledger should append those certificates to durable,
-access-controlled corpus storage. The four V1 JSON schemas in `docs/` define
-the original interchange contract; unsupported adapters remain fail-closed.
+The repository's `Weekly control proof` workflow uses the reviewed remote Agent
+Vigil runtime every Monday and retains its proof, predicate, and GitHub
+attestation bundle for 90 days. It does not install dependencies, build, or run
+repository-owned CLI bytes before producing the artifact that reaches the
+signer. Organizations that need a historical certification ledger can verify
+the downloaded attestation, then record the proof and append that certificate
+to durable, access-controlled corpus storage. The four V1 JSON schemas in
+`docs/` define the original interchange contract; unsupported adapters remain
+fail-closed.
 
 ## Signed proofs from other controls
 
