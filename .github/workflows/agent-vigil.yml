@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  issues: read
   pull-requests: read
   id-token: write
   attestations: write
@@ -27,7 +26,6 @@ jobs:
         run: npm ci --ignore-scripts
       - id: vigil
         uses: sulmusic2-star/agent-vigil@v0.12.0
-        continue-on-error: true
         with:
           attest: true
           mode: maintainer
@@ -37,75 +35,6 @@ jobs:
           base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
           github-token: ${{ github.token }}
-      - name: Enforce the evidence result or the exact approved exception
-        env:
-          VIGIL_STEP_OUTCOME: ${{ steps.vigil.outcome }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-          REPOSITORY: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          if [ "$VIGIL_STEP_OUTCOME" = "success" ]; then
-            exit 0
-          fi
-
-          node --input-type=module <<'NODE'
-          import { readFileSync } from "node:fs";
-
-          const expected = {
-            event: "pull_request",
-            pullRequest: "78",
-            issue: 82,
-            label: "scope-exception-approved",
-          };
-          const fail = (message) => {
-            console.error(`Agent Vigil evidence failed and no exact approved exception applies: ${message}`);
-            process.exit(1);
-          };
-          if (process.env.EVENT_NAME !== expected.event) fail("unsupported event");
-          if (process.env.PR_NUMBER !== expected.pullRequest) fail("pull request mismatch");
-          if (!/^[0-9a-f]{40}$/.test(process.env.HEAD_SHA || "")) fail("invalid head commit");
-          if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(process.env.REPOSITORY || "")) fail("invalid repository");
-
-          let report;
-          try {
-            report = JSON.parse(readFileSync("agent-vigil-report.json", "utf8"));
-          } catch (error) {
-            fail(`could not read the evidence report: ${error.message}`);
-          }
-          const exceptions = (report.results || []).filter(
-            (result) => result.ruleId === "changed-line-budget" && result.verdict === "contradicted",
-          );
-          const unexpected = (report.results || []).filter(
-            (result) => result.verdict !== "verified"
-              && !(result.ruleId === "changed-line-budget" && result.verdict === "contradicted"),
-          );
-          if (exceptions.length !== 1) fail("the changed-line exception is not the sole expected failure");
-          if (unexpected.length !== 0) {
-            fail(`unexpected evidence failures: ${unexpected.map((result) => result.ruleId).join(", ")}`);
-          }
-
-          const response = await fetch(
-            `https://api.github.com/repos/${process.env.REPOSITORY}/issues/${expected.issue}`,
-            {
-              headers: {
-                Accept: "application/vnd.github+json",
-                Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-                "X-GitHub-Api-Version": "2022-11-28",
-              },
-            },
-          );
-          if (!response.ok) fail(`exception issue returned HTTP ${response.status}`);
-          const issue = await response.json();
-          const labels = new Set((issue.labels || []).map((label) => typeof label === "string" ? label : label.name));
-          if (issue.state !== "open") fail("exception issue is not open");
-          if (issue.author_association !== "OWNER") fail("exception was not recorded by the repository owner");
-          if (!labels.has(expected.label)) fail("approval label is missing");
-          if (!(issue.body || "").includes(`\`${process.env.HEAD_SHA}\``)) fail("exact head commit is not approved");
-          if (!/(?:pull request|PR) #78\b/i.test(issue.body || "")) fail("pull request number is not approved");
-          console.log(`Applied the one-time exact scope exception in issue #${expected.issue}.`);
-          NODE
       - name: Retain auditable Agent Vigil receipt
         if: always() && steps.vigil.outputs.report != ''
         uses: actions/upload-artifact@v4
