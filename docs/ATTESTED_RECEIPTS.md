@@ -10,8 +10,8 @@ of the evidence record.
 ## Install with attestation enabled
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz init --attest
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz init --attest
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz doctor
 ```
 
 The generated workflow grants these additional permissions:
@@ -37,7 +37,7 @@ Download `agent-vigil-report.json` from the workflow artifact, authenticate the
 GitHub CLI, then run:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz verify-attestation \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz verify-attestation \
   agent-vigil-report.json \
   --repository OWNER/REPOSITORY
 ```
@@ -52,7 +52,7 @@ from self-hosted runners. If the calling workflow has a different path, pin it
 explicitly:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.17.0/sulmusic-agent-vigil-0.17.0.tgz verify-attestation \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.18.0/sulmusic-agent-vigil-0.18.0.tgz verify-attestation \
   agent-vigil-report.json \
   --repository OWNER/REPOSITORY \
   --signer-workflow OWNER/REPOSITORY/.github/workflows/custom-vigil.yml

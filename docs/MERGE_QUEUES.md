@@ -25,7 +25,7 @@ steps:
     with:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-  - uses: sulmusic2-star/agent-vigil@v0.17.0
+  - uses: sulmusic2-star/agent-vigil@v0.18.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
