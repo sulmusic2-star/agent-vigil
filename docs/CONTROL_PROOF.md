@@ -108,8 +108,8 @@ Cloud, and GitHub Enterprise Server is not supported. See
 and the
 [`gh attestation verify` trust options](https://cli.github.com/manual/gh_attestation_verify).
 
-The proof feature ships in `v0.15.0`. Keyless proof attestation and the
-installer are unreleased until their branch is merged and tagged.
+The original proof feature shipped in `v0.15.0`. Keyless proof attestation
+and the installer ship in `v0.18.0`.
 
 ## Seven-day certification status
 

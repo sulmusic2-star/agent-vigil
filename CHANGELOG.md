@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.18.0 - 2026-08-25
+
 - Extend Test Integrity Guard with eight reconciled agent-change checks for
   hidden Unicode, falsified assertions, pytest collection filtering, disabled
   harness steps, new suppressions, distinctive test-oracle matches, lookalike
