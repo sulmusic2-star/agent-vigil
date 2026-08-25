@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -79,6 +79,38 @@ test("CLI writes JSON receipt", () => {
   assert.equal(receipt.summary.status, "PASS");
   assert.match(receipt.reproduction, /--test-cmd 'npm test --silent'/);
   assert.match(receipt.reproduction, /--min-verified 1/);
+});
+
+test("CLI guard-compat writes a process-only HOLD receipt", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-guard-compat-cli-"));
+  const script = join(root, "control.mjs");
+  const argumentsPath = join(root, "args.json");
+  const policy = join(root, "policy.json");
+  const configuration = join(root, "configuration.json");
+  const output = join(root, "receipt.json");
+  writeFileSync(script, `#!/usr/bin/env node
+import { readFileSync } from "node:fs";
+const data = JSON.parse(readFileSync(0, "utf8"));
+const deny = data.tool_input.command.includes("PROCESS_CONFORMANCE_DENY");
+console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: deny ? "deny" : "allow" } }));
+`);
+  chmodSync(script, 0o700);
+  writeFileSync(argumentsPath, JSON.stringify([script]));
+  writeFileSync(policy, '{"deny":"PROCESS_CONFORMANCE_DENY"}\n');
+  writeFileSync(configuration, '{"event":"PreToolUse"}\n');
+  assert.equal(run([
+    "guard-compat", "--host", "codex", "--host-version", "0.149.1", "--host-executable", process.execPath,
+    "--control-name", "fixture", "--control-version", "1", "--control-executable", process.execPath,
+    "--control-artifact", script, "--control-args", argumentsPath, "--policy", policy,
+    "--configuration", configuration, "--format", "json", "--output", output,
+  ]), 0);
+  const receipt = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(receipt.schemaVersion, "agent-vigil-guard-compatibility/v1");
+  assert.equal(receipt.status, "PASS");
+  assert.equal(receipt.deployment.state, "HOLD");
+  assert.deepEqual(receipt.deployment.reasonCodes, ["LIVE_HOST_ROUTE_NOT_PROVEN"]);
+  assert.equal(JSON.stringify(receipt).includes(root), false);
+  assert.equal(run(["guard-compat", "--host", "cursor"]), 2);
 });
 
 test("CLI init and doctor provide a working exact-SHA scaffold", () => {

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shutil
 import subprocess
 import tempfile
 
@@ -33,6 +34,35 @@ def main() -> int:
     demo_value = json.loads(continuity_demo.stdout)
     if [step.get("result") for step in demo_value.get("steps", [])] != ["PASS", "CURRENT", "REVOKED", "REVOKED", "CURRENT"]:
         raise RuntimeError(f"packed continuity demonstration is incorrect: {continuity_demo.stdout}\n{continuity_demo.stderr}")
+    node = shutil.which("node")
+    if not node:
+        raise RuntimeError("node executable is unavailable for the packed guard compatibility check")
+    guard_script = lab / "guard-control.mjs"
+    guard_args = lab / "guard-args.json"
+    guard_policy = lab / "guard-policy.json"
+    guard_configuration = lab / "guard-configuration.json"
+    guard_output = lab / "guard-compatibility.json"
+    guard_script.write_text(
+        'import { readFileSync } from "node:fs";\n'
+        'const data=JSON.parse(readFileSync(0,"utf8"));\n'
+        'const deny=data.tool_input.command.includes("PROCESS_CONFORMANCE_DENY");\n'
+        'console.log(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:deny?"deny":"allow"}}));\n'
+    )
+    guard_args.write_text(json.dumps([str(guard_script)]))
+    guard_policy.write_text('{"deny":"PROCESS_CONFORMANCE_DENY"}\n')
+    guard_configuration.write_text('{"event":"PreToolUse"}\n')
+    guard_check = run([
+        str(vigil), "guard-compat", "--host", "codex", "--host-version", "package-fixture",
+        "--host-executable", node, "--control-name", "package fixture", "--control-version", "1",
+        "--control-executable", node, "--control-artifact", str(guard_script),
+        "--control-args", str(guard_args), "--policy", str(guard_policy),
+        "--configuration", str(guard_configuration), "--format", "json", "--output", str(guard_output),
+    ], consumer)
+    guard_receipt = json.loads(guard_output.read_text())
+    if guard_receipt.get("status") != "PASS" or guard_receipt.get("deployment") != {
+        "state": "HOLD", "reasonCodes": ["LIVE_HOST_ROUTE_NOT_PROVEN"]
+    }:
+        raise RuntimeError(f"packed guard compatibility check is incorrect: {guard_check.stdout}\n{guard_check.stderr}")
     private_key = lab / "operator.pem"
     public_key = lab / "operator.pub"
     run([str(vigil), "keygen", "--private", str(private_key), "--public", str(public_key)], consumer)
@@ -144,6 +174,8 @@ def main() -> int:
         "controlProof": control_proof_result,
         "continuityHelpExit": continuity_help.returncode,
         "continuityDemoExit": continuity_demo.returncode,
+        "guardCompatibilityExit": guard_check.returncode,
+        "guardDeploymentState": guard_receipt["deployment"]["state"],
         "passed": len(results),
         "results": results,
     }, indent=2))

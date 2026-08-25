@@ -24,7 +24,7 @@ forms, semantic tool-loop fingerprints, and documentation false positives.
 
 Current durable result: **80/80 compatibility scenarios pass**. Combined with
 the core, CLI, adapter, setup, policy-anchor, signing, attestation,
-workspace-binding, remediation, and continuity suite, `npm test` executes **494 tests**:
+workspace-binding, remediation, continuity, and guard-compatibility suite, `npm test` executes **515 tests**:
 489 pass and five opt-in Docker tests skip in
 the ordinary suite. The combined 13-test real-Docker containment,
 timeout-cleanup, verdict, signing, and index suite passes against the selected

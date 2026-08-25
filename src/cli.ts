@@ -80,6 +80,12 @@ import { signControlProof, signedControlIdentity } from "./signed-control-proof.
 import { readBoundedJson } from "./upgrade/contracts.ts";
 import { runContinuityCommand } from "./continuity/cli.ts";
 import { runPublicPrReceiptCommand } from "./public-pr-receipt-cli.ts";
+import {
+  loadControlArguments,
+  renderGuardCompatibility,
+  runGuardCompatibility,
+  type GuardHost,
+} from "./guard-compat.ts";
 
 type Options = {
   transcript?: string;
@@ -110,6 +116,7 @@ Usage:
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
+  vigil guard-compat --host claude|codex --host-version <version> --host-executable <path> --control-name <name> --control-version <version> --control-executable <path> --policy <path> --configuration <path> [options]
   vigil certify record <control-proof.json> --organization <name> --repository <owner/name> --required-check <name> --output <path>
   vigil certify sign <proof-payload.json> --private-key <pem> --output <path>
   vigil certify record-signed <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>
@@ -179,6 +186,76 @@ Value options:
   --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS · 1 FAIL · 2 INCONCLUSIVE or usage error`;
+}
+
+function guardCompatibilityUsage(): string {
+  return `Agent Vigil guard compatibility
+
+Usage:
+  vigil guard-compat \\
+    --host claude|codex \\
+    --host-version <version> \\
+    --host-executable <path> \\
+    --control-name <name> \\
+    --control-version <version> \\
+    --control-executable <path> \\
+    --policy <path> \\
+    --configuration <path> \\
+    [--control-artifact <path>] \\
+    [--control-args <json-array-file>] \\
+    [--timeout-ms <50-60000>] \\
+    [--format text|json] \\
+    [--output <path>]
+
+The two built-in Bash canaries only print distinct allow and deny markers.
+The control command is executed directly, without a shell. A process PASS
+still leaves deployment on HOLD until a separate live-host routing test passes.`;
+}
+
+function runGuardCompatibilityCommand(args: string[]): number {
+  try {
+    if (args.includes("--help")) { console.log(guardCompatibilityUsage()); return 0; }
+    const parsed = parseCommandArgs(args, new Set([
+      "--host", "--host-version", "--host-executable", "--control-name", "--control-version",
+      "--control-executable", "--control-artifact", "--control-args", "--policy", "--configuration",
+      "--timeout-ms", "--format", "--output",
+    ]));
+    if (parsed.positional.length) throw new Error("guard-compat accepts options only");
+    const required = (name: string): string => {
+      const value = parsed.values.get(name);
+      if (!value) throw new Error(`guard-compat requires ${name} <value>`);
+      return value;
+    };
+    const host = required("--host") as GuardHost;
+    if (host !== "claude" && host !== "codex") throw new Error("guard-compat --host must be claude or codex");
+    const format = parsed.values.get("--format") ?? "text";
+    if (format !== "text" && format !== "json") throw new Error("guard-compat --format must be text or json");
+    const timeoutValue = parsed.values.get("--timeout-ms");
+    const timeoutMs = timeoutValue === undefined ? undefined : Number(timeoutValue);
+    if (timeoutValue !== undefined && !Number.isInteger(timeoutMs)) throw new Error("guard-compat --timeout-ms must be an integer");
+    const argumentsPath = parsed.values.get("--control-args");
+    const report = runGuardCompatibility({
+      host,
+      hostVersion: required("--host-version"),
+      hostExecutable: resolve(required("--host-executable")),
+      controlName: required("--control-name"),
+      controlVersion: required("--control-version"),
+      controlExecutable: resolve(required("--control-executable")),
+      ...(parsed.values.get("--control-artifact") ? { controlArtifact: resolve(parsed.values.get("--control-artifact")!) } : {}),
+      ...(argumentsPath ? { controlArguments: loadControlArguments(resolve(argumentsPath)) } : {}),
+      policyPath: resolve(required("--policy")),
+      configurationPath: resolve(required("--configuration")),
+      vigilVersion: VERSION,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    });
+    const output = parsed.values.get("--output");
+    if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
+    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardCompatibility(report));
+    return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${(error as Error).message}\n\n${guardCompatibilityUsage()}`);
+    return 2;
+  }
 }
 
 function runProve(args: string[]): number {
@@ -1180,6 +1257,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
   if (argv[0] === "prove") return runProve(argv);
+  if (argv[0] === "guard-compat") return runGuardCompatibilityCommand(argv);
   if (argv[0] === "certify") return runCertify(argv);
   if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "proof-comment") return runProofComment(argv);

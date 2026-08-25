@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `vigil guard-compat` for process-only Claude Code and Codex control
+  checks. It uses one harmless allow marker and one harmless deny marker,
+  records `ALLOW`, `DENY`, `DEFER`, `ERROR`, or `UNKNOWN`, binds the receipt to
+  exact host and control files, policy, configuration, arguments, and operating
+  system, and keeps deployment on `HOLD` until live-host routing is proven.
+
 ## 0.19.0 - 2026-08-25
 
 - Add `vigil pr-receipt` for a read-only, no-workflow-change observation of a

@@ -192,6 +192,29 @@ a weaker sandbox, and a skipped test. It returns `PASS` only when every planted
 case produces the expected result and the temporary clone is removed. It does
 not change or push the source repository. See [Control Proof](docs/CONTROL_PROOF.md).
 
+To check one installed Claude Code or Codex control process with harmless
+markers, run:
+
+```bash
+vigil guard-compat \
+  --host codex \
+  --host-version <exact-version> \
+  --host-executable <codex-path> \
+  --control-name <name> \
+  --control-version <version> \
+  --control-executable <direct-executable> \
+  --policy <policy-file> \
+  --configuration <host-hook-configuration> \
+  --output guard-compatibility.json
+```
+
+The check sends one printable allow marker and one printable deny marker in the
+host's `PreToolUse` format. It records five explicit outcomes and binds the
+receipt to the selected host and control files, policy, configuration,
+arguments, and operating system. A process `PASS` still leaves deployment on
+`HOLD` because the command does not prove that a live host routed a real tool
+call through the control. See [Guard Compatibility](docs/GUARD_COMPATIBILITY.md).
+
 Install a scheduled, keyless GitHub proof with one command:
 
 ```bash
@@ -789,8 +812,8 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 494 tests, including 80 generated-repository compatibility scenarios across
-  18 runner-output families. In the 2026-08-24 local run, 489
+- 515 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families. In the 2026-08-25 local run, 510
   passed and five opt-in Docker tests skipped in the ordinary suite. With Docker enabled, the
   combined 13-test containment, timeout-cleanup, verdict, signing, and index
   suite passed against the selected local test daemon with no residual Upgrade
