@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add `vigil pr-receipt` for a read-only, no-workflow-change observation of a
+  public GitHub pull request. It pins the verifier by full commit, optionally
+  signs the normalized receipt with a customer-controlled Ed25519 key, retains
+  no source, prompt, transcript, review text, check log, or token, and reports
+  `CURRENT`, `HOLD`, `EXPIRED`, or `REVOKED` without authorizing deployment.
+- Make secondary GitHub API failures and incomplete pagination explicit
+  coverage gaps instead of silently dropping missing review or check evidence.
+- State in the receipt that observed execution is not evidence that selected
+  checks were sufficient.
+
 ## 0.18.0 - 2026-08-25
 
 - Extend Test Integrity Guard with eight reconciled agent-change checks for

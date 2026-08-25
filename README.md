@@ -9,6 +9,31 @@
 
 **Require evidence before an AI-made change can merge.**
 
+## No-workflow-change PR receipt
+
+Paste a public GitHub pull-request URL to receive a normalized, optionally
+signed lifecycle receipt without opening a pull request, installing a GitHub
+Action, or changing the target repository:
+
+```bash
+vigil pr-receipt https://github.com/OWNER/REPOSITORY/pull/123 \
+  --tool-ref <reviewed-full-Agent-Vigil-commit> \
+  --signing-key operator-private.pem \
+  --output pr-123.receipt.json
+```
+
+The command makes read-only requests to `api.github.com` for pull-request,
+review, check-run, and commit-status metadata. It does not request source code,
+send request bodies, or retain prompts, transcripts, logs, review text, or the
+GitHub token. The target repository grants no permission and receives no
+workflow commit.
+
+`CURRENT`, `HOLD`, `EXPIRED`, and `REVOKED` describe the selected public
+evidence at the observation time. The receipt always says that a protected
+action is **not authorized**: observing that checks ran is not proof that those
+checks were sufficient. See the precise
+[public PR receipt boundary](docs/PUBLIC_PR_RECEIPT.md).
+
 Agent Vigil checks an exact code change against the task, policy, tests, and
 recorded tool actions behind it. It returns **PASS**, **FAIL**, or
 **INCONCLUSIVE**. Missing evidence never becomes a green check.

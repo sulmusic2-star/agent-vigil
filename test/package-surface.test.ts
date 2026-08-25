@@ -33,6 +33,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/CONTINUITY_LAB.md",
     "docs/NOTARY_APP.md",
     "docs/PROOF_COMMENT.md",
+    "docs/PUBLIC_PR_RECEIPT.md",
     "docs/PUBLIC_RELEASE_POLICY.md",
     "docs/ai-change-receipt-predicate-v1.schema.json",
     "docs/control-proof-predicate-v1.schema.json",
@@ -46,6 +47,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/compatibility-entry-v1.schema.json",
     "docs/continuity-event-v1.schema.json",
     "docs/continuity-policy-v1.schema.json",
+    "docs/public-pr-receipt-v1.schema.json",
     "proof/README.md",
     "proof/cases",
   ]) {

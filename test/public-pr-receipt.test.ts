@@ -15,6 +15,7 @@ import {
   type PublicPrTransport,
 } from "../src/public-pr-receipt.ts";
 import { generateSigningKey } from "../src/signature.ts";
+import { runPublicPrReceiptCommand } from "../src/public-pr-receipt-cli.ts";
 
 const BASE = "1".repeat(40);
 const HEAD = "2".repeat(40);
@@ -159,6 +160,20 @@ test("customer-controlled Ed25519 signing never embeds the private key or its pa
   });
   signed.decision.summary = "tampered";
   assert.equal(verifyPublicPrReceipt(signed).hashValid, false);
+});
+
+test("offline CLI verification accepts a valid receipt and rejects tampering", async () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-public-pr-verify-"));
+  const privateKey = join(root, "operator-private.pem");
+  const publicKey = join(root, "operator-public.pem");
+  const receiptPath = join(root, "receipt.json");
+  generateSigningKey(privateKey, publicKey);
+  const signed = signPublicPrReceipt(build(), privateKey);
+  writeFileSync(receiptPath, JSON.stringify(signed));
+  assert.equal(await runPublicPrReceiptCommand(["verify", receiptPath, "--format", "json"]), 0);
+  signed.decision.summary = "tampered";
+  writeFileSync(receiptPath, JSON.stringify(signed));
+  assert.equal(await runPublicPrReceiptCommand(["verify", receiptPath]), 1);
 });
 
 test("collector uses only read-only api.github.com metadata endpoints and retains no response text", async () => {
