@@ -79,6 +79,7 @@ import {
 import { signControlProof, signedControlIdentity } from "./signed-control-proof.ts";
 import { readBoundedJson } from "./upgrade/contracts.ts";
 import { runContinuityCommand } from "./continuity/cli.ts";
+import { runPublicPrReceiptCommand } from "./public-pr-receipt-cli.ts";
 
 type Options = {
   transcript?: string;
@@ -138,6 +139,8 @@ Usage:
   vigil maintainer --event <event.json> [options]
   vigil merge-group --event <event.json> [options]
   vigil continuity <init|append|import-github|import-github-actions|verify|status|demo|install-action> [options]
+  vigil pr-receipt <https://github.com/owner/repo/pull/number> --tool-ref <full-commit-sha> [--signing-key <private.pem>] [--output <receipt.json>]
+  vigil pr-receipt verify <receipt.json> [--format text|json]
   vigil upgrade <init|doctor|check|verify|index> [options]
 
 Options:
@@ -1305,4 +1308,9 @@ function isMainModule(): boolean {
   catch { return false; }
 }
 
-if (isMainModule()) process.exit(run());
+if (isMainModule()) {
+  const argv = process.argv.slice(2);
+  if (argv[0] === "pr-receipt") {
+    void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION }).then((code) => process.exit(code));
+  } else process.exit(run(argv));
+}
