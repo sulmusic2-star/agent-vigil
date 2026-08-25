@@ -26,7 +26,7 @@ export type GuardHost = "claude" | "codex";
 export type GuardDecision = "ALLOW" | "DENY" | "DEFER" | "ERROR" | "UNKNOWN";
 export type GuardCheckStatus = "PASS" | "FAIL" | "INCONCLUSIVE";
 
-type FileIdentity = {
+export type FileIdentity = {
   realPath: string;
   sha256: string;
   device: bigint;
@@ -132,6 +132,8 @@ function digest(value: string | Buffer | object): string {
   return `sha256:${createHash("sha256").update(body).digest("hex")}`;
 }
 
+export const guardDigest = digest;
+
 function modifiedNanoseconds(status: BigIntStats): bigint {
   return status.mtimeNs;
 }
@@ -170,6 +172,8 @@ function hashRegularFile(requestedPath: string, label: string): FileIdentity {
   }
 }
 
+export const hashGuardFile = hashRegularFile;
+
 function assertFileUnchanged(identity: FileIdentity, label: string): void {
   const status = lstatSync(identity.realPath, { bigint: true });
   if (
@@ -183,6 +187,8 @@ function assertFileUnchanged(identity: FileIdentity, label: string): void {
     throw new Error(`${label} content changed during the process-conformance check`);
   }
 }
+
+export const assertGuardFileUnchanged = assertFileUnchanged;
 
 function validateText(value: string, label: string, maximum = 200): string {
   const trimmed = value.trim();

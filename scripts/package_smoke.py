@@ -63,6 +63,37 @@ def main() -> int:
         "state": "HOLD", "reasonCodes": ["LIVE_HOST_ROUTE_NOT_PROVEN"]
     }:
         raise RuntimeError(f"packed guard compatibility check is incorrect: {guard_check.stdout}\n{guard_check.stderr}")
+    route_profile = lab / "route-profile"
+    route_profile.mkdir(mode=0o700)
+    (route_profile / ".agent-vigil-disposable-profile").write_text("agent-vigil disposable host profile v1\n")
+    route_host = lab / "route-host.mjs"
+    route_output = lab / "live-host-route.json"
+    route_host.write_text(
+        "#!/usr/bin/env node\n"
+        'import { spawnSync } from "node:child_process";\n'
+        'import { writeFileSync } from "node:fs";\n'
+        "const hook=process.env.AGENT_VIGIL_ROUTE_HOOK_PATH;\n"
+        "const allow=process.env.AGENT_VIGIL_ROUTE_ALLOW_COMMAND;\n"
+        "const deny=process.env.AGENT_VIGIL_ROUTE_DENY_COMMAND;\n"
+        "const invoke=(command,id)=>JSON.parse(spawnSync(process.execPath,[hook],{input:JSON.stringify({session_id:'package-route',turn_id:'package-turn',transcript_path:null,cwd:process.cwd(),hook_event_name:'PreToolUse',model:'fixture',permission_mode:'dontAsk',tool_name:'Bash',tool_input:{command},tool_use_id:id}),encoding:'utf8'}).stdout).hookSpecificOutput.permissionDecision;\n"
+        "const token=(command)=>command.match(/'([^']+)' > /)[1];\n"
+        "if(invoke(allow,'package-allow')==='allow')writeFileSync(process.env.AGENT_VIGIL_ROUTE_ALLOW_FILE,token(allow)+'\\n');\n"
+        "invoke(deny,'package-deny');\n"
+        "process.stdout.write(JSON.stringify({result:'ROUTE_DRILL_COMPLETE'}));\n"
+    )
+    route_host.chmod(0o700)
+    route_check = run([
+        str(vigil), "guard-route", "--host", "codex", "--host-version", "package-fixture",
+        "--host-executable", str(route_host), "--profile-home", str(route_profile),
+        "--timeout-ms", "5000", "--format", "json", "--output", str(route_output),
+    ], consumer)
+    route_receipt = json.loads(route_output.read_text())
+    if route_receipt.get("status") != "PASS" or route_receipt.get("summary") != {
+        "passed": 2, "total": 2, "routedCalls": 2, "unexpectedCalls": 0
+    } or route_receipt.get("deployment", {}).get("state") != "HOLD":
+        raise RuntimeError(f"packed live-host route check is incorrect: {route_check.stdout}\n{route_check.stderr}")
+    if (route_profile / "hooks.json").exists() or (route_profile / "config.toml").exists():
+        raise RuntimeError("packed live-host route check left temporary host configuration behind")
     private_key = lab / "operator.pem"
     public_key = lab / "operator.pub"
     run([str(vigil), "keygen", "--private", str(private_key), "--public", str(public_key)], consumer)
@@ -176,6 +207,9 @@ def main() -> int:
         "continuityDemoExit": continuity_demo.returncode,
         "guardCompatibilityExit": guard_check.returncode,
         "guardDeploymentState": guard_receipt["deployment"]["state"],
+        "liveHostRouteExit": route_check.returncode,
+        "liveHostRouteStatus": route_receipt["status"],
+        "liveHostRouteDeploymentState": route_receipt["deployment"]["state"],
         "passed": len(results),
         "results": results,
     }, indent=2))

@@ -7,6 +7,11 @@
   records `ALLOW`, `DENY`, `DEFER`, `ERROR`, or `UNKNOWN`, binds the receipt to
   exact host and control files, policy, configuration, arguments, and operating
   system, and keeps deployment on `HOLD` until live-host routing is proven.
+- Add `vigil guard-route` for a disposable, real-host `PreToolUse` drill. It
+  requires one exact allowed `printf` call, one exact denied call, distinct
+  host-owned call identifiers, no unexpected routed calls, removed temporary
+  configuration, and unchanged ordinary user configuration. One host passing
+  cannot stand in for the other, and deployment remains on `HOLD`.
 
 ## 0.19.0 - 2026-08-25
 

@@ -86,6 +86,7 @@ import {
   runGuardCompatibility,
   type GuardHost,
 } from "./guard-compat.ts";
+import { renderGuardRoute, runGuardRoute } from "./guard-route.ts";
 
 type Options = {
   transcript?: string;
@@ -117,6 +118,7 @@ Usage:
   vigil protect [--repo <path>] [--force] [--attest]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil guard-compat --host claude|codex --host-version <version> --host-executable <path> --control-name <name> --control-version <version> --control-executable <path> --policy <path> --configuration <path> [options]
+  vigil guard-route --host claude|codex --host-version <version> --host-executable <path> --profile-home <disposable-path> [options]
   vigil certify record <control-proof.json> --organization <name> --repository <owner/name> --required-check <name> --output <path>
   vigil certify sign <proof-payload.json> --private-key <pem> --output <path>
   vigil certify record-signed <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>
@@ -254,6 +256,65 @@ function runGuardCompatibilityCommand(args: string[]): number {
     return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
   } catch (error) {
     console.error(`agent-vigil: ${(error as Error).message}\n\n${guardCompatibilityUsage()}`);
+    return 2;
+  }
+}
+
+function guardRouteUsage(): string {
+  return `Agent Vigil live-host routing drill
+
+Usage:
+  vigil guard-route \\
+    --host claude|codex \\
+    --host-version <version> \\
+    --host-executable <path> \\
+    --profile-home <disposable-path> \\
+    [--timeout-ms <1000-300000>] \\
+    [--format text|json] \\
+    [--output <path>]
+
+The profile directory must contain a file named
+.agent-vigil-disposable-profile with the exact documented marker. The drill
+temporarily installs one fail-closed hook, runs only two harmless printf
+canaries in an empty workspace, removes its host configuration, and leaves
+the marked authentication profile for the operator to delete. A one-host
+PASS does not permit deployment or satisfy the two-host next-ticket gate.`;
+}
+
+function runGuardRouteCommand(args: string[]): number {
+  try {
+    if (args.includes("--help")) { console.log(guardRouteUsage()); return 0; }
+    const parsed = parseCommandArgs(args, new Set([
+      "--host", "--host-version", "--host-executable", "--profile-home",
+      "--timeout-ms", "--format", "--output",
+    ]));
+    if (parsed.positional.length) throw new Error("guard-route accepts options only");
+    const required = (name: string): string => {
+      const value = parsed.values.get(name);
+      if (!value) throw new Error(`guard-route requires ${name} <value>`);
+      return value;
+    };
+    const host = required("--host") as GuardHost;
+    if (host !== "claude" && host !== "codex") throw new Error("guard-route --host must be claude or codex");
+    const format = parsed.values.get("--format") ?? "text";
+    if (format !== "text" && format !== "json") throw new Error("guard-route --format must be text or json");
+    const timeoutValue = parsed.values.get("--timeout-ms");
+    const timeoutMs = timeoutValue === undefined ? undefined : Number(timeoutValue);
+    if (timeoutValue !== undefined && !Number.isInteger(timeoutMs)) throw new Error("guard-route --timeout-ms must be an integer");
+    const report = runGuardRoute({
+      host,
+      hostVersion: required("--host-version"),
+      hostExecutable: resolve(required("--host-executable")),
+      profileHome: resolve(required("--profile-home")),
+      vigilVersion: VERSION,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    });
+    const output = parsed.values.get("--output");
+    if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
+    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardRoute(report));
+    return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${(error as Error).message}\n\n${guardRouteUsage()}`);
     return 2;
   }
 }
@@ -1258,6 +1319,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "protect") return runProtect(argv);
   if (argv[0] === "prove") return runProve(argv);
   if (argv[0] === "guard-compat") return runGuardCompatibilityCommand(argv);
+  if (argv[0] === "guard-route") return runGuardRouteCommand(argv);
   if (argv[0] === "certify") return runCertify(argv);
   if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "proof-comment") return runProofComment(argv);

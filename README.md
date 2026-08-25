@@ -208,6 +208,22 @@ vigil guard-compat \
   --output guard-compatibility.json
 ```
 
+When the direct process check passes, run the separate real-host drill in a
+marked disposable Claude Code or Codex profile:
+
+```bash
+vigil guard-route \
+  --host codex \
+  --host-version 0.149.1 \
+  --host-executable /exact/path/to/codex \
+  --profile-home /exact/path/to/disposable-codex-profile \
+  --output codex-live-route.json
+```
+
+The live drill permits only two harmless `printf` calls in an empty temporary
+workspace. One host passing cannot stand in for the other, and deployment stays
+on `HOLD`. See [the live-host route contract](docs/LIVE_HOST_ROUTE.md).
+
 The check sends one printable allow marker and one printable deny marker in the
 host's `PreToolUse` format. It records five explicit outcomes and binds the
 receipt to the selected host and control files, policy, configuration,
