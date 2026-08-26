@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/continuity-staple-v1.schema.json",
+  "title": "Agent Vigil Continuity Staple v1",
+  "description": "A short-lived signed status statement for one exact Agent Vigil continuity subject, policy, environment, and chain tip.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "payload", "payloadHash", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-continuity-staple/v1" },
+    "payload": { "$ref": "#/$defs/payload" },
+    "payloadHash": { "$ref": "#/$defs/sha256" },
+    "signature": { "$ref": "#/$defs/signature" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "safeName": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$"
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["episodeReceiptHash", "repositoryHash", "baseSha", "headSha"],
+      "properties": {
+        "episodeReceiptHash": { "$ref": "#/$defs/sha256" },
+        "repositoryHash": { "$ref": "#/$defs/sha256" },
+        "baseSha": { "$ref": "#/$defs/gitSha" },
+        "headSha": { "$ref": "#/$defs/gitSha" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["continuity", "allowsProtectedAction", "evaluatedAt", "decisionHash"],
+      "properties": {
+        "continuity": { "enum": ["CURRENT", "HOLD", "EXPIRED", "REVOKED"] },
+        "allowsProtectedAction": { "type": "boolean" },
+        "evaluatedAt": { "$ref": "#/$defs/timestamp" },
+        "decisionHash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rootHash", "chainTip", "sequence", "eventCount"],
+      "properties": {
+        "rootHash": { "$ref": "#/$defs/sha256" },
+        "chainTip": { "$ref": "#/$defs/sha256" },
+        "sequence": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "eventCount": { "type": "integer", "minimum": 0, "maximum": 100000 }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceHash", "sha256"],
+      "properties": {
+        "sourceHash": { "$ref": "#/$defs/sha256" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "subject", "decision", "evidence", "policy", "environment", "issuedAt", "expiresAt"],
+      "properties": {
+        "schemaVersion": { "const": "agent-vigil-continuity-staple/v1" },
+        "subject": { "$ref": "#/$defs/subject" },
+        "decision": { "$ref": "#/$defs/decision" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "policy": { "$ref": "#/$defs/policy" },
+        "environment": { "$ref": "#/$defs/safeName" },
+        "issuedAt": { "$ref": "#/$defs/timestamp" },
+        "expiresAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "publicKey", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "$ref": "#/$defs/sha256" },
+        "publicKey": { "type": "string", "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" },
+        "value": { "type": "string", "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" }
+      }
+    }
+  }
+}

@@ -466,11 +466,18 @@ test("policy is closed, bounded, and rejects duplicate trust roots", () => {
 test("published continuity schemas are closed and examples satisfy the runtime contracts", () => {
   const eventSchema = JSON.parse(readFileSync(new URL("../docs/continuity-event-v1.schema.json", import.meta.url), "utf8"));
   const policySchema = JSON.parse(readFileSync(new URL("../docs/continuity-policy-v1.schema.json", import.meta.url), "utf8"));
+  const stapleSchema = JSON.parse(readFileSync(new URL("../docs/continuity-staple-v1.schema.json", import.meta.url), "utf8"));
   assert.equal(eventSchema.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(eventSchema.$defs.draft.additionalProperties, false);
   assert.equal(eventSchema.$defs.stored.additionalProperties, false);
   assert.equal(policySchema.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(policySchema.additionalProperties, false);
+  assert.equal(stapleSchema.$schema, "https://json-schema.org/draft/2020-12/schema");
+  assert.equal(stapleSchema.additionalProperties, false);
+  assert.equal(stapleSchema.$defs.payload.additionalProperties, false);
+  assert.equal(stapleSchema.$defs.decision.additionalProperties, false);
+  assert.equal(stapleSchema.$defs.evidence.additionalProperties, false);
+  assert.equal(stapleSchema.$defs.signature.additionalProperties, false);
   validateEventDraft(JSON.parse(readFileSync(new URL("../examples/continuity/verification-refreshed.event.json", import.meta.url), "utf8")));
   validateContinuityPolicy(JSON.parse(readFileSync(new URL("../examples/continuity/policy.json", import.meta.url), "utf8")));
 });

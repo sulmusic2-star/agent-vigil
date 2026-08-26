@@ -729,6 +729,18 @@ vigil continuity status \
   --policy-ref <base-commit-sha> \
   --expected-head <reviewed-head-sha> \
   --environment production
+vigil continuity staple \
+  --chain .agent-vigil/continuity \
+  --policy .agent-vigil-continuity.json \
+  --environment production \
+  --signing-key continuity-authority-private.pem \
+  --output continuity-staple.json
+vigil continuity verify-staple continuity-staple.json \
+  --public-key continuity-authority-public.pem \
+  --expected-receipt-hash <original-receipt-hash> \
+  --expected-head <reviewed-head-sha> \
+  --environment production \
+  --expected-policy-sha256 <sha256-of-exact-policy-bytes>
 ```
 
 The importer accepts authenticated GitHub webhook files for merges, exact
@@ -747,6 +759,15 @@ marked deployment placeholder. There is no hosted collector, crawler, or
 GitHub App in this version. See
 [`docs/CONTINUITY.md`](docs/CONTINUITY.md) for the operator guide and
 security limits.
+
+`vigil continuity staple` turns the current decision into a short-lived signed
+status statement that another deployment system can verify without receiving
+the full history. It binds the exact head, policy, environment, chain tip, and
+event sequence. The default lifetime is five minutes and the hard maximum is
+fifteen minutes. A fresh, pinned `CURRENT` staple is the only form that allows
+a protected action. See
+[`docs/CONTINUITY_STAPLE.md`](docs/CONTINUITY_STAPLE.md) for replay limits and
+the exact verifier contract.
 
 ## CLI
 

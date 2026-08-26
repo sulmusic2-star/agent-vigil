@@ -346,13 +346,13 @@ function parseOpenCode(data, transcriptSha256) {
     for (const part of message?.parts ?? []) {
       if (assistant && part?.type === "text" && typeof part.text === "string") messages.push(part.text);
       if (part?.type !== "tool") continue;
-      const state = part.state ?? {};
+      const state2 = part.state ?? {};
       toolCalls.push({
         id: String(part.callID ?? part.id ?? `opencode-${sequence}`),
-        name: String(part.tool ?? state.title ?? "unknown"),
-        input: serialiseToolValue(state.input ?? {}),
-        output: state.output === void 0 ? void 0 : serialiseToolValue(state.output),
-        isError: state.status === "error",
+        name: String(part.tool ?? state2.title ?? "unknown"),
+        input: serialiseToolValue(state2.input ?? {}),
+        output: state2.output === void 0 ? void 0 : serialiseToolValue(state2.output),
+        isError: state2.status === "error",
         timestamp: isoTimestamp(part.time?.start),
         sequence: sequence++
       });
@@ -4327,7 +4327,7 @@ import { createHash as createHash9 } from "node:crypto";
 import { execFileSync as execFileSync9 } from "node:child_process";
 import { posix } from "node:path";
 
-// node_modules/smol-toml/dist/date.js
+// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/date.js
 var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
 var TomlDate = class _TomlDate extends Date {
   #hasDate = false;
@@ -4419,7 +4419,7 @@ var TomlDate = class _TomlDate extends Date {
   }
 };
 
-// node_modules/smol-toml/dist/error.js
+// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/error.js
 function getLineColFromPtr(string3, ptr) {
   let lines = string3.slice(0, ptr).split(/\r\n|\n|\r/g);
   return [lines.length, lines.pop().length + 1];
@@ -4459,7 +4459,7 @@ ${codeblock}`, options);
   }
 };
 
-// node_modules/smol-toml/dist/util.js
+// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/util.js
 function indexOfNewline(str, start = 0) {
   let idx = str.indexOf("\n", start);
   if (str.charCodeAt(idx - 1) === 13)
@@ -4514,7 +4514,7 @@ function skipUntil(ctx, sep14, end) {
   });
 }
 
-// node_modules/smol-toml/dist/primitive.js
+// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/primitive.js
 var INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
 var FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
 var LEADING_ZERO = /^[+-]?0[0-9_]/;
@@ -4532,33 +4532,33 @@ function parseString(ctx) {
   }
   let parsed = "";
   let sliceStart = ctx.p;
-  let state = 0;
+  let state2 = 0;
   for (; ctx.p < ctx.s.length; ctx.p++) {
     c = ctx.s.charCodeAt(ctx.p);
     if (isMultiline && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)) {
-      state = state && 3;
+      state2 = state2 && 3;
     } else if (c < 32 && c !== 9 || c === 127) {
       throw new TomlError("control characters are not allowed in strings", {
         toml: ctx.s,
         ptr: ctx.p
       });
-    } else if ((!state || state === 3) && c === first && (!isMultiline || ctx.s.charCodeAt(ctx.p + 1) === first && ctx.s.charCodeAt(ctx.p + 2) === first)) {
+    } else if ((!state2 || state2 === 3) && c === first && (!isMultiline || ctx.s.charCodeAt(ctx.p + 1) === first && ctx.s.charCodeAt(ctx.p + 2) === first)) {
       if (isMultiline) {
         if (ctx.s.charCodeAt(ctx.p + 3) === first)
           ctx.p++;
         if (ctx.s.charCodeAt(ctx.p + 3) === first)
           ctx.p++;
       }
-      if (!state)
+      if (!state2)
         parsed += ctx.s.slice(sliceStart, ctx.p);
       ctx.p += isMultiline ? 3 : 1;
       return parsed;
-    } else if (!state) {
+    } else if (!state2) {
       if (!isLiteral && c === 92) {
         parsed += ctx.s.slice(sliceStart, sliceStart = ctx.p);
-        state = 1;
+        state2 = 1;
       }
-    } else if (state === 1) {
+    } else if (state2 === 1) {
       if (c === 120 || c === 117 || c === 85) {
         let value = 0;
         let len = c === 120 ? 2 : c === 117 ? 4 : 8;
@@ -4583,9 +4583,9 @@ function parseString(ctx) {
         }
         parsed += String.fromCodePoint(value);
         sliceStart = ctx.p + 1;
-        state = 0;
+        state2 = 0;
       } else if (c === 32 || c === 9) {
-        state = 2;
+        state2 = 2;
       } else {
         if (c === 98)
           parsed += "\b";
@@ -4606,16 +4606,16 @@ function parseString(ctx) {
         else
           throw new TomlError("unrecognized escape sequence", { toml: ctx.s, ptr: ctx.p });
         sliceStart = ctx.p + 1;
-        state = 0;
+        state2 = 0;
       }
     } else if (c !== 32 && c !== 9) {
-      if (state === 2) {
+      if (state2 === 2) {
         throw new TomlError("invalid escape: only line-ending whitespace may be escaped", {
           toml: ctx.s,
           ptr: sliceStart
         });
       }
-      state = !isLiteral && c === 92 ? 1 : 0;
+      state2 = !isLiteral && c === 92 ? 1 : 0;
       sliceStart = ctx.p;
     }
   }
@@ -4670,7 +4670,7 @@ function parseValue(ctx, integersAsBigInt, end) {
   return date;
 }
 
-// node_modules/smol-toml/dist/extract.js
+// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/extract.js
 function extractValue(ctx, end, integersAsBigInt) {
   let ptr = ctx.p;
   let c = ctx.s.charCodeAt(ptr);
@@ -4703,7 +4703,7 @@ function extractValue(ctx, end, integersAsBigInt) {
   return parseValue(ctx, integersAsBigInt, end);
 }
 
-// node_modules/smol-toml/dist/struct.js
+// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/struct.js
 var KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
 function parseKey(ctx, end = "=") {
   let start = ctx.p;
@@ -4845,21 +4845,21 @@ function parseArray(ctx, integersAsBigInt) {
   });
 }
 
-// node_modules/smol-toml/dist/parse.js
+// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/parse.js
 function peekTable(key, table, meta, type3) {
   let t = table;
   let m = meta;
   let k;
   let hasOwn = false;
-  let state;
+  let state2;
   for (let i = 0; i < key.length; i++) {
     if (i) {
       t = hasOwn ? t[k] : t[k] = {};
-      m = (state = m[k]).c;
-      if (type3 === 0 && (state.t === 1 || state.t === 2)) {
+      m = (state2 = m[k]).c;
+      if (type3 === 0 && (state2.t === 1 || state2.t === 2)) {
         return null;
       }
-      if (state.t === 2) {
+      if (state2.t === 2) {
         let l = t.length - 1;
         t = t[l];
         m = m[l].c;
@@ -4882,28 +4882,28 @@ function peekTable(key, table, meta, type3) {
       };
     }
   }
-  state = m[k];
-  if (state.t !== type3 && !(type3 === 1 && state.t === 3)) {
+  state2 = m[k];
+  if (state2.t !== type3 && !(type3 === 1 && state2.t === 3)) {
     return null;
   }
   if (type3 === 2) {
-    if (!state.d) {
-      state.d = true;
+    if (!state2.d) {
+      state2.d = true;
       t[k] = [];
     }
     t[k].push(t = {});
-    state.c[state.i++] = state = { t: 1, d: false, i: 0, c: {} };
+    state2.c[state2.i++] = state2 = { t: 1, d: false, i: 0, c: {} };
   }
-  if (state.d) {
+  if (state2.d) {
     return null;
   }
-  state.d = true;
+  state2.d = true;
   if (type3 === 1) {
     t = hasOwn ? t[k] : t[k] = {};
   } else if (type3 === 0 && hasOwn) {
     return null;
   }
-  return [k, t, state.c];
+  return [k, t, state2.c];
 }
 function parse2(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
   let ctx = { s: toml, p: 0, d: maxDepth };
@@ -5226,8 +5226,8 @@ function assertBoundedConfig(value) {
       for (const item2 of current) visit(item2, depth + 1);
       return;
     }
-    const object4 = record(current);
-    if (object4) for (const item2 of Object.values(object4)) visit(item2, depth + 1);
+    const object5 = record(current);
+    if (object5) for (const item2 of Object.values(object5)) visit(item2, depth + 1);
   };
   visit(value, 0);
 }
@@ -7017,11 +7017,11 @@ function parsePull(value, event2) {
   const pull = pullObject(value);
   const number = integer(pull?.number ?? event2?.number ?? event2?.pull_request?.number);
   if (number === void 0) return void 0;
-  const state = pull?.state === "closed" ? "closed" : pull?.state === "open" ? "open" : void 0;
-  if (!state) throw new Error("GitHub pull-request evidence state must be open or closed");
+  const state2 = pull?.state === "closed" ? "closed" : pull?.state === "open" ? "open" : void 0;
+  if (!state2) throw new Error("GitHub pull-request evidence state must be open or closed");
   return {
     number,
-    state,
+    state: state2,
     merged: pull?.merged === true || Boolean(pull?.merged_at),
     ...typeof pull?.base?.sha === "string" ? { baseSha: pull.base.sha } : {},
     ...typeof pull?.head?.sha === "string" ? { headSha: pull.head.sha } : {},
@@ -7038,12 +7038,12 @@ function parseReviews(value) {
   const latest = /* @__PURE__ */ new Map();
   let anonymous = 0;
   for (const review of value) {
-    const state = typeof review?.state === "string" ? review.state.toUpperCase() : "";
-    if (!(/* @__PURE__ */ new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED", "COMMENTED", "PENDING"])).has(state)) continue;
+    const state2 = typeof review?.state === "string" ? review.state.toUpperCase() : "";
+    if (!(/* @__PURE__ */ new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED", "COMMENTED", "PENDING"])).has(state2)) continue;
     const login = typeof review?.user?.login === "string" && review.user.login ? review.user.login.toLowerCase() : `anonymous-${anonymous++}`;
     const submittedAt = timestamp(review?.submitted_at);
     const previous = latest.get(login);
-    if (!previous || !previous.submittedAt || submittedAt && submittedAt >= previous.submittedAt) latest.set(login, { state, ...submittedAt ? { submittedAt } : {} });
+    if (!previous || !previous.submittedAt || submittedAt && submittedAt >= previous.submittedAt) latest.set(login, { state: state2, ...submittedAt ? { submittedAt } : {} });
   }
   const states = [...latest.values()];
   const dates = states.map((item2) => item2.submittedAt).filter((item2) => Boolean(item2)).sort();
@@ -7416,9 +7416,9 @@ function subjectMatches(statement, expectedName, expectedDigest) {
   return subjects.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const subject = entry;
-    const digest9 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const digest10 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
     const name2 = String(subject.name ?? "");
-    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && digest9.sha256 === expectedDigest;
+    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && digest10.sha256 === expectedDigest;
   });
 }
 function predicateMatches(predicate, report, fileSha256) {
@@ -9823,9 +9823,9 @@ function subjectMatches2(statement, expectedName, expectedDigest) {
   return subjects.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const subject = entry;
-    const digest9 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const digest10 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
     const name2 = String(subject.name ?? "");
-    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && `sha256:${String(digest9.sha256 ?? "")}` === expectedDigest;
+    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && `sha256:${String(digest10.sha256 ?? "")}` === expectedDigest;
   });
 }
 function predicateMatches2(value, proof, fileSha256) {
@@ -10553,6 +10553,7 @@ var CONTINUITY_EVENT_KINDS = [
 ];
 var CONTINUITY_DISPOSITIONS = ["affirm", "hold", "revoke", "observe"];
 var CONTINUITY_PRIVACY_TIERS = ["receipt", "metadata", "full-local"];
+var CONTINUITY_STATES = ["CURRENT", "HOLD", "EXPIRED", "REVOKED"];
 var SHA2563 = /^sha256:[0-9a-f]{64}$/;
 var GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 var UUID_URN = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -12127,9 +12128,9 @@ function interpretGuardProcess(input) {
   } catch {
     return { decision: "ERROR", rule: "INVALID_JSON_OUTPUT", process: "EXITED", exit, output: "INVALID_JSON" };
   }
-  const object4 = objectValue(parsed);
-  if (!object4) return { decision: "ERROR", rule: "JSON_OUTPUT_NOT_OBJECT", process: "EXITED", exit, output: "JSON" };
-  const interpreted = interpretedDecision(input.host, object4);
+  const object5 = objectValue(parsed);
+  if (!object5) return { decision: "ERROR", rule: "JSON_OUTPUT_NOT_OBJECT", process: "EXITED", exit, output: "JSON" };
+  const interpreted = interpretedDecision(input.host, object5);
   if (input.status !== 0 && input.host === "codex") {
     return { decision: "ERROR", rule: "CODEX_NONZERO_EXIT", process: "EXITED", exit, output: "JSON" };
   }
@@ -13396,6 +13397,238 @@ function renderContinuityDecision(value) {
   return lines.join("\n");
 }
 
+// src/continuity/staple.ts
+import { createPrivateKey as createPrivateKey7, createPublicKey as createPublicKey7, sign as sign6, verify as verify6 } from "node:crypto";
+var CONTINUITY_STAPLE_SCHEMA = "agent-vigil-continuity-staple/v1";
+var DEFAULT_STAPLE_TTL_SECONDS = 300;
+var MAX_STAPLE_TTL_SECONDS = 900;
+var STAPLE_CLOCK_SKEW_SECONDS = 60;
+var SHA2564 = /^sha256:[0-9a-f]{64}$/;
+var GIT_SHA3 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+var BASE642 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+var MAX_STAPLE_BYTES = 256 * 1024;
+function object3(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value;
+}
+function exactKeys8(value, expected, label) {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+    throw new Error(`${label} has unsupported or missing fields`);
+  }
+}
+function digest9(value, label) {
+  if (typeof value !== "string" || !SHA2564.test(value)) throw new Error(`${label} must be a lowercase SHA-256 identifier`);
+  return value;
+}
+function gitSha2(value, label) {
+  if (typeof value !== "string" || !GIT_SHA3.test(value)) throw new Error(`${label} must be a full lowercase Git object ID`);
+  return value;
+}
+function timestamp6(value, label) {
+  if (typeof value !== "string") throw new Error(`${label} must be canonical RFC3339 UTC`);
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value) throw new Error(`${label} must be canonical RFC3339 UTC`);
+  return value;
+}
+function integer5(value, label, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isSafeInteger(value) || Number(value) < minimum || Number(value) > maximum) {
+    throw new Error(`${label} must be an integer from ${minimum} through ${maximum}`);
+  }
+  return Number(value);
+}
+function boolean3(value, label) {
+  if (typeof value !== "boolean") throw new Error(`${label} must be boolean`);
+  return value;
+}
+function base642(value, label, expectedBytes) {
+  if (typeof value !== "string" || !value || value.length > 8192 || !BASE642.test(value)) throw new Error(`${label} must be canonical base64`);
+  const decoded = Buffer.from(value, "base64");
+  if (decoded.toString("base64") !== value || expectedBytes !== void 0 && decoded.length !== expectedBytes) {
+    throw new Error(`${label} has an invalid length or encoding`);
+  }
+  return decoded;
+}
+function state(value, label) {
+  if (typeof value !== "string" || !CONTINUITY_STATES.includes(value)) throw new Error(`${label} is unsupported`);
+  return value;
+}
+function ed25519PublicKey2(der, label) {
+  let key;
+  try {
+    key = createPublicKey7({ key: der, type: "spki", format: "der" });
+  } catch {
+    throw new Error(`${label} is not a valid public key`);
+  }
+  if (key.asymmetricKeyType !== "ed25519") throw new Error(`${label} must be Ed25519`);
+  return key;
+}
+function parsePayload2(value) {
+  const selected = object3(value, "continuity staple payload");
+  exactKeys8(selected, ["schemaVersion", "subject", "decision", "evidence", "policy", "environment", "issuedAt", "expiresAt"], "continuity staple payload");
+  if (selected.schemaVersion !== CONTINUITY_STAPLE_SCHEMA) throw new Error("unsupported continuity staple payload schema");
+  const decision = object3(selected.decision, "continuity staple decision");
+  exactKeys8(decision, ["continuity", "allowsProtectedAction", "evaluatedAt", "decisionHash"], "continuity staple decision");
+  const continuity = state(decision.continuity, "continuity staple decision.continuity");
+  const allowsProtectedAction = boolean3(decision.allowsProtectedAction, "continuity staple decision.allowsProtectedAction");
+  if (allowsProtectedAction !== (continuity === "CURRENT")) throw new Error("continuity staple decision fields are inconsistent");
+  const evidence = object3(selected.evidence, "continuity staple evidence");
+  exactKeys8(evidence, ["rootHash", "chainTip", "sequence", "eventCount"], "continuity staple evidence");
+  const sequence = integer5(evidence.sequence, "continuity staple evidence.sequence", 0, 1e5);
+  const eventCount = integer5(evidence.eventCount, "continuity staple evidence.eventCount", 0, 1e5);
+  if (sequence !== eventCount) throw new Error("continuity staple evidence sequence must equal its complete event count");
+  const policy = object3(selected.policy, "continuity staple policy");
+  exactKeys8(policy, ["sourceHash", "sha256"], "continuity staple policy");
+  const issuedAt = timestamp6(selected.issuedAt, "continuity staple issuedAt");
+  const evaluatedAt = timestamp6(decision.evaluatedAt, "continuity staple decision.evaluatedAt");
+  if (evaluatedAt !== issuedAt) throw new Error("continuity staple issue time must equal its evaluation time");
+  const expiresAt = timestamp6(selected.expiresAt, "continuity staple expiresAt");
+  const lifetime = (Date.parse(expiresAt) - Date.parse(issuedAt)) / 1e3;
+  if (!Number.isInteger(lifetime) || lifetime < 1 || lifetime > MAX_STAPLE_TTL_SECONDS) {
+    throw new Error(`continuity staple lifetime must be from 1 through ${MAX_STAPLE_TTL_SECONDS} seconds`);
+  }
+  return {
+    schemaVersion: CONTINUITY_STAPLE_SCHEMA,
+    subject: validateContinuitySubject(selected.subject),
+    decision: {
+      continuity,
+      allowsProtectedAction,
+      evaluatedAt,
+      decisionHash: digest9(decision.decisionHash, "continuity staple decision.decisionHash")
+    },
+    evidence: {
+      rootHash: digest9(evidence.rootHash, "continuity staple evidence.rootHash"),
+      chainTip: digest9(evidence.chainTip, "continuity staple evidence.chainTip"),
+      sequence,
+      eventCount
+    },
+    policy: {
+      sourceHash: digest9(policy.sourceHash, "continuity staple policy.sourceHash"),
+      sha256: digest9(policy.sha256, "continuity staple policy.sha256")
+    },
+    environment: validateProtectedEnvironment(selected.environment),
+    issuedAt,
+    expiresAt
+  };
+}
+function issueContinuityStaple(options) {
+  const ttlSeconds = options.ttlSeconds ?? DEFAULT_STAPLE_TTL_SECONDS;
+  if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > MAX_STAPLE_TTL_SECONDS) {
+    throw new Error(`continuity staple TTL must be from 1 through ${MAX_STAPLE_TTL_SECONDS} seconds`);
+  }
+  if (!options.decision.protectedEnvironment) throw new Error("continuity staple requires a protected environment");
+  if (options.decision.rootHash !== options.verification.root.rootHash) throw new Error("continuity staple decision does not match the verified root");
+  if (options.decision.chainTip !== options.verification.chainTip) throw new Error("continuity staple decision does not match the verified chain tip");
+  if (options.decision.eventCount !== options.verification.events.length) throw new Error("continuity staple decision does not match the complete event history");
+  const issuedAt = options.decision.evaluatedAt;
+  const expiresAt = new Date(Date.parse(issuedAt) + ttlSeconds * 1e3).toISOString();
+  const sequence = options.verification.events.at(-1)?.sequence ?? 0;
+  const payload = parsePayload2({
+    schemaVersion: CONTINUITY_STAPLE_SCHEMA,
+    subject: options.verification.root.subject,
+    decision: {
+      continuity: options.decision.continuity,
+      allowsProtectedAction: options.decision.allowsProtectedAction,
+      evaluatedAt: options.decision.evaluatedAt,
+      decisionHash: options.decision.decisionHash
+    },
+    evidence: {
+      rootHash: options.decision.rootHash,
+      chainTip: options.decision.chainTip,
+      sequence,
+      eventCount: options.decision.eventCount
+    },
+    policy: options.decision.policy,
+    environment: options.decision.protectedEnvironment,
+    issuedAt,
+    expiresAt
+  });
+  const privateKey = createPrivateKey7(readBoundedRegularFile(options.privateKeyPath, 64 * 1024, "continuity staple signing key"));
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("continuity staple signing key must be Ed25519");
+  const der = publicKeyDer(createPublicKey7(privateKey));
+  const payloadHash = canonicalSha256(payload);
+  return {
+    schemaVersion: CONTINUITY_STAPLE_SCHEMA,
+    payload,
+    payloadHash,
+    signature: {
+      algorithm: "Ed25519",
+      keyId: signingKeyId(der),
+      publicKey: der.toString("base64"),
+      value: sign6(null, Buffer.from(payloadHash), privateKey).toString("base64")
+    }
+  };
+}
+function loadContinuityStaple(path) {
+  return readBoundedJson2(path, MAX_STAPLE_BYTES, "continuity staple");
+}
+function verifyContinuityStaple(input, options) {
+  const selected = object3(input, "signed continuity staple");
+  exactKeys8(selected, ["schemaVersion", "payload", "payloadHash", "signature"], "signed continuity staple");
+  if (selected.schemaVersion !== CONTINUITY_STAPLE_SCHEMA) throw new Error("unsupported signed continuity staple schema");
+  const payload = parsePayload2(selected.payload);
+  const payloadHash = digest9(selected.payloadHash, "continuity staple payloadHash");
+  if (canonicalSha256(payload) !== payloadHash) throw new Error("continuity staple payload hash is invalid");
+  const signature = object3(selected.signature, "continuity staple signature");
+  exactKeys8(signature, ["algorithm", "keyId", "publicKey", "value"], "continuity staple signature");
+  if (signature.algorithm !== "Ed25519") throw new Error("continuity staple signature algorithm must be Ed25519");
+  const embeddedDer = base642(signature.publicKey, "continuity staple signature.publicKey");
+  const embedded = ed25519PublicKey2(embeddedDer, "continuity staple embedded key");
+  const embeddedId = signingKeyId(publicKeyDer(embedded));
+  const keyId = digest9(signature.keyId, "continuity staple signature.keyId");
+  if (embeddedId !== keyId) throw new Error("continuity staple key ID does not match its embedded key");
+  const pinned = createPublicKey7(readBoundedRegularFile(options.publicKeyPath, 64 * 1024, "pinned continuity staple public key"));
+  if (pinned.asymmetricKeyType !== "ed25519") throw new Error("pinned continuity staple public key must be Ed25519");
+  if (signingKeyId(publicKeyDer(pinned)) !== keyId) throw new Error("continuity staple signer does not match the pinned public key");
+  const signatureValue = base642(signature.value, "continuity staple signature.value", 64);
+  if (!verify6(null, Buffer.from(payloadHash), pinned, signatureValue)) throw new Error("continuity staple signature is invalid");
+  const expectedHead = gitSha2(options.expectedHead, "expected continuity staple head");
+  if (payload.subject.headSha !== expectedHead) throw new Error("continuity staple belongs to a different head commit");
+  const expectedReceiptHash = digest9(options.expectedReceiptHash, "expected continuity staple receipt hash");
+  if (payload.subject.episodeReceiptHash !== expectedReceiptHash) throw new Error("continuity staple belongs to a different original receipt");
+  const expectedEnvironment = validateProtectedEnvironment(options.expectedEnvironment);
+  if (payload.environment !== expectedEnvironment) throw new Error("continuity staple belongs to a different protected environment");
+  const expectedPolicy = digest9(options.expectedPolicySha256, "expected continuity staple policy hash");
+  if (payload.policy.sha256 !== expectedPolicy) throw new Error("continuity staple was evaluated under a different policy");
+  if (options.expectedChainTip && payload.evidence.chainTip !== digest9(options.expectedChainTip, "expected continuity staple chain tip")) {
+    throw new Error("continuity staple does not match the expected chain tip");
+  }
+  if (options.minimumSequence !== void 0) {
+    const minimumSequence = integer5(options.minimumSequence, "minimum continuity staple sequence");
+    if (payload.evidence.sequence < minimumSequence) throw new Error("continuity staple predates the minimum accepted evidence sequence");
+  }
+  const now = options.now ?? /* @__PURE__ */ new Date();
+  if (!Number.isFinite(now.getTime())) throw new Error("continuity staple verification time is invalid");
+  if (Date.parse(payload.issuedAt) - now.getTime() > STAPLE_CLOCK_SKEW_SECONDS * 1e3) {
+    throw new Error("continuity staple is implausibly future-dated");
+  }
+  const fresh = now.getTime() < Date.parse(payload.expiresAt);
+  const effectiveContinuity = payload.decision.continuity === "REVOKED" ? "REVOKED" : fresh ? payload.decision.continuity : "EXPIRED";
+  return {
+    schemaVersion: "agent-vigil-continuity-staple-verification/v1",
+    valid: true,
+    fresh,
+    signerPinned: true,
+    embeddedContinuity: payload.decision.continuity,
+    effectiveContinuity,
+    allowsProtectedAction: fresh && effectiveContinuity === "CURRENT",
+    subject: payload.subject,
+    environment: payload.environment,
+    policySha256: payload.policy.sha256,
+    chainTip: payload.evidence.chainTip,
+    sequence: payload.evidence.sequence,
+    issuedAt: payload.issuedAt,
+    expiresAt: payload.expiresAt,
+    payloadHash,
+    signerKeyId: keyId,
+    limits: [
+      "This is a short-lived point-in-time status statement, not proof that code is defect-free.",
+      "An offline verifier cannot discover a newer status before this staple expires unless it also pins a newer chain tip or minimum sequence."
+    ]
+  };
+}
+
 // src/continuity/workflow.ts
 import { execFileSync as execFileSync18 } from "node:child_process";
 import { existsSync as existsSync12, lstatSync as lstatSync15, mkdirSync as mkdirSync10, realpathSync as realpathSync14 } from "node:fs";
@@ -13729,7 +13962,12 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "--source-workflow",
   "--expected-github-repository",
   "--claude-route",
-  "--codex-route"
+  "--codex-route",
+  "--ttl-seconds",
+  "--minimum-sequence",
+  "--expected-policy-sha256",
+  "--expected-chain-tip",
+  "--expected-receipt-hash"
 ]);
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["--json", "--unavailable", "--force", "--self-serve"]);
 function usage2() {
@@ -13746,6 +13984,8 @@ Usage:
   vigil continuity install-action --repo <path> --action-ref <full-commit-sha> [--source-workflow <name>] [--self-serve] [--force] [--format text|json]
   vigil continuity verify --chain <directory> [--expected-head <sha>] [--public-key <public.pem>] [--format text|json] [--output <file>]
   vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
+  vigil continuity staple --chain <directory> --policy <policy.json> --environment <name> --signing-key <private.pem> --output <staple.json> [--repo <path> --policy-ref <sha>] [--expected-head <sha>] [--now <RFC3339>] [--ttl-seconds <1-900>]
+  vigil continuity verify-staple <staple.json> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--now <RFC3339>] [--format text|json] [--output <file>]
 
 Examples:
   vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
@@ -13754,6 +13994,8 @@ Examples:
   vigil continuity import-github-actions --chain .agent-vigil/continuity --signing-key "$RUNNER_TEMP/outcome-recorder.pem"
   vigil continuity verify --chain .agent-vigil/continuity --json
   vigil continuity status --chain .agent-vigil/continuity --policy .agent-vigil-continuity.json --repo . --policy-ref <base-commit-sha> --environment production
+  vigil continuity staple --chain .agent-vigil/continuity --policy .agent-vigil-continuity.json --environment production --signing-key continuity-authority.pem --output continuity-staple.json
+  vigil continuity verify-staple continuity-staple.json --public-key continuity-authority.pub --expected-receipt-hash <sha256:...> --expected-head <head-sha> --environment production --expected-policy-sha256 <sha256:...>
 
 Exit codes:
   0 valid or CURRENT
@@ -13844,6 +14086,14 @@ function selectedNow(parsed) {
   const epoch = Date.parse(raw);
   if (!Number.isFinite(epoch) || new Date(epoch).toISOString() !== raw) throw new Error("--now must be canonical RFC3339 UTC");
   return new Date(epoch);
+}
+function selectedInteger(parsed, name2, fallback) {
+  const raw = parsed.values.get(name2);
+  if (raw === void 0) return fallback;
+  if (!/^(?:0|[1-9][0-9]*)$/.test(raw)) throw new Error(`${name2} must be a non-negative integer`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) throw new Error(`${name2} is too large`);
+  return value;
 }
 function outputJson(path, value) {
   if (path) writePrivateFileAtomic(resolve26(path), `${JSON.stringify(value, null, 2)}
@@ -13993,6 +14243,120 @@ function runStatus(args) {
   if (decision.continuity === "HOLD") return 3;
   return 4;
 }
+function continuityExitCode(continuity) {
+  if (continuity === "CURRENT") return 0;
+  if (continuity === "REVOKED") return 1;
+  if (continuity === "HOLD") return 3;
+  return 4;
+}
+function runStaple(args) {
+  const parsed = parse4(args);
+  allowed(parsed, [
+    "--chain",
+    "--policy",
+    "--policy-ref",
+    "--repo",
+    "--now",
+    "--environment",
+    "--expected-head",
+    "--public-key",
+    "--signing-key",
+    "--ttl-seconds",
+    "--format",
+    "--output"
+  ], ["--json"]);
+  if (parsed.positional.length) throw new Error("continuity staple accepts only named options");
+  const chain = required(parsed, "--chain");
+  const policyPath = required(parsed, "--policy");
+  const signingKey = required(parsed, "--signing-key");
+  const output = required(parsed, "--output");
+  protectOutput(parsed, chain, [policyPath, signingKey, parsed.values.get("--public-key") ?? ""]);
+  const policyRef = parsed.values.get("--policy-ref");
+  const repo = parsed.values.get("--repo");
+  if (Boolean(policyRef) !== Boolean(repo)) throw new Error("--policy-ref and --repo must be provided together");
+  const policy = loadContinuityPolicy({ path: policyPath, ...repo ? { repo: resolve26(repo) } : {}, ...policyRef ? { ref: policyRef } : {} });
+  const now = selectedNow(parsed);
+  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve26(parsed.values.get("--public-key")))] : void 0;
+  const verified = verifyContinuityChain(resolve26(chain), {
+    now,
+    maxClockSkewSeconds: policy.value.maxClockSkewSeconds,
+    pinnedEventKeyIds: pinned,
+    ...repo ? { repo: resolve26(repo) } : {},
+    ...policyRef ? { expectedBase: policyRef } : {},
+    ...parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head") } : {}
+  });
+  const decision = evaluateContinuity(verified, policy, { now, environment: required(parsed, "--environment") });
+  const staple = issueContinuityStaple({
+    verification: verified,
+    decision,
+    privateKeyPath: resolve26(signingKey),
+    ttlSeconds: selectedInteger(parsed, "--ttl-seconds", DEFAULT_STAPLE_TTL_SECONDS)
+  });
+  outputJson(output, staple);
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(staple, null, 2)}
+`);
+  } else {
+    process.stdout.write([
+      "Agent Vigil continuity staple issued",
+      `  result: ${staple.payload.decision.continuity}`,
+      `  protected action: ${staple.payload.decision.allowsProtectedAction ? "allowed until expiry" : "stopped"}`,
+      `  head: ${staple.payload.subject.headSha}`,
+      `  evidence sequence: ${staple.payload.evidence.sequence}`,
+      `  expires: ${staple.payload.expiresAt}`,
+      `  signer: ${staple.signature.keyId}`,
+      `  output: ${resolve26(output)}`,
+      ""
+    ].join("\n"));
+  }
+  return continuityExitCode(staple.payload.decision.continuity);
+}
+function runVerifyStaple(args) {
+  const parsed = parse4(args);
+  allowed(parsed, [
+    "--public-key",
+    "--expected-receipt-hash",
+    "--expected-head",
+    "--environment",
+    "--expected-policy-sha256",
+    "--expected-chain-tip",
+    "--minimum-sequence",
+    "--now",
+    "--format",
+    "--output"
+  ], ["--json"]);
+  if (parsed.positional.length !== 1) throw new Error("continuity verify-staple requires exactly one staple path");
+  const staplePath = resolve26(parsed.positional[0]);
+  protectNamedOutput(parsed.values.get("--output"), [staplePath, required(parsed, "--public-key")]);
+  const result5 = verifyContinuityStaple(loadContinuityStaple(staplePath), {
+    publicKeyPath: resolve26(required(parsed, "--public-key")),
+    expectedReceiptHash: required(parsed, "--expected-receipt-hash"),
+    expectedHead: required(parsed, "--expected-head"),
+    expectedEnvironment: required(parsed, "--environment"),
+    expectedPolicySha256: required(parsed, "--expected-policy-sha256"),
+    now: selectedNow(parsed),
+    ...parsed.values.get("--expected-chain-tip") ? { expectedChainTip: parsed.values.get("--expected-chain-tip") } : {},
+    ...parsed.values.get("--minimum-sequence") !== void 0 ? { minimumSequence: selectedInteger(parsed, "--minimum-sequence") } : {}
+  });
+  outputJson(parsed.values.get("--output"), result5);
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(result5, null, 2)}
+`);
+  } else {
+    process.stdout.write([
+      `Continuity staple: ${result5.effectiveContinuity}`,
+      `  signature: valid and pinned (${result5.signerKeyId})`,
+      `  fresh: ${result5.fresh ? "yes" : "no"}`,
+      `  protected action: ${result5.allowsProtectedAction ? "allowed" : "stopped"}`,
+      `  head: ${result5.subject.headSha}`,
+      `  environment: ${result5.environment}`,
+      `  evidence sequence: ${result5.sequence}`,
+      `  expires: ${result5.expiresAt}`,
+      ""
+    ].join("\n"));
+  }
+  return continuityExitCode(result5.effectiveContinuity);
+}
 function runDemo2(args) {
   const parsed = parse4(args);
   allowed(parsed, ["--format", "--output"], ["--json"]);
@@ -14061,6 +14425,8 @@ function runContinuityCommand(args) {
     if (command === "import-github-actions") return runImportGitHubActions(rest);
     if (command === "verify") return runVerify2(rest);
     if (command === "status") return runStatus(rest);
+    if (command === "staple") return runStaple(rest);
+    if (command === "verify-staple") return runVerifyStaple(rest);
     if (command === "demo") return runDemo2(rest);
     if (command === "guard-demo") return runGuardDemo(rest);
     if (command === "install-action") return runInstallAction(rest);
@@ -14077,10 +14443,10 @@ import { resolve as resolve27 } from "node:path";
 // src/public-pr-receipt.ts
 import {
   createHash as createHash23,
-  createPrivateKey as createPrivateKey7,
-  createPublicKey as createPublicKey7,
-  sign as sign6,
-  verify as verify6
+  createPrivateKey as createPrivateKey8,
+  createPublicKey as createPublicKey8,
+  sign as sign7,
+  verify as verify7
 } from "node:crypto";
 import { readFileSync as readFileSync26 } from "node:fs";
 var PUBLIC_PR_RECEIPT_SCHEMA = "agent-vigil-public-pr-receipt/v1";
@@ -14092,20 +14458,20 @@ var FAILED_CHECKS = /* @__PURE__ */ new Set(["failure", "timed_out", "cancelled"
 function sha2567(raw) {
   return `sha256:${createHash23("sha256").update(raw).digest("hex")}`;
 }
-function object3(value, label) {
+function object4(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value;
 }
 function string2(value) {
   return typeof value === "string" && value.trim() ? value : void 0;
 }
-function timestamp6(value) {
+function timestamp7(value) {
   const selected = string2(value);
   if (!selected) return void 0;
   const epoch = Date.parse(selected);
   return Number.isFinite(epoch) ? new Date(epoch).toISOString() : void 0;
 }
-function integer5(value) {
+function integer6(value) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : void 0;
 }
 function array(value) {
@@ -14180,13 +14546,13 @@ async function collectPublicPrSnapshot(rawUrl, options = {}) {
   const pullEndpoint = `${api}/pulls/${target2.number}`;
   const pullResponse = await transport(pullEndpoint, headers);
   if (pullResponse.status !== 200) throw new Error(`GitHub pull request lookup failed with HTTP ${pullResponse.status}`);
-  const pull = object3(parseJson(pullResponse.body, "GitHub pull request lookup"), "GitHub pull request response");
-  const head = object3(pull.head, "GitHub pull request head");
+  const pull = object4(parseJson(pullResponse.body, "GitHub pull request lookup"), "GitHub pull request response");
+  const head = object4(pull.head, "GitHub pull request head");
   const headSha = string2(head.sha);
   if (!headSha || !FULL_GIT_SHA.test(headSha)) throw new Error("GitHub pull request response did not contain a full head SHA");
   const endpoints = [
     { kind: "reviews", url: `${api}/pulls/${target2.number}/reviews?per_page=100`, select: array },
-    { kind: "check-runs", url: `${api}/commits/${headSha}/check-runs?per_page=100`, select: (value) => array(object3(value, "GitHub check-runs response").check_runs) },
+    { kind: "check-runs", url: `${api}/commits/${headSha}/check-runs?per_page=100`, select: (value) => array(object4(value, "GitHub check-runs response").check_runs) },
     { kind: "commit-statuses", url: `${api}/commits/${headSha}/statuses?per_page=100`, select: array }
   ];
   const responses = await Promise.all(endpoints.map(async (entry) => {
@@ -14232,35 +14598,35 @@ async function collectPublicPrSnapshot(rawUrl, options = {}) {
 function latestReviews(records) {
   const latest = /* @__PURE__ */ new Map();
   for (const item2 of records) {
-    const review = object3(item2, "GitHub review");
-    const user = object3(review.user, "GitHub review user");
+    const review = object4(item2, "GitHub review");
+    const user = object4(review.user, "GitHub review user");
     const login = lower(user.login);
-    const submittedAt = timestamp6(review.submitted_at);
+    const submittedAt = timestamp7(review.submitted_at);
     if (!login || !submittedAt) continue;
     const previous = latest.get(login);
-    if (!previous || Date.parse(submittedAt) >= Date.parse(timestamp6(previous.submitted_at) ?? "1970-01-01T00:00:00.000Z")) latest.set(login, review);
+    if (!previous || Date.parse(submittedAt) >= Date.parse(timestamp7(previous.submitted_at) ?? "1970-01-01T00:00:00.000Z")) latest.set(login, review);
   }
   return [...latest.values()];
 }
 function checkSummary(checkRuns, statuses) {
   const latestRuns = /* @__PURE__ */ new Map();
   for (const item2 of checkRuns) {
-    const check = object3(item2, "GitHub check run");
+    const check = object4(item2, "GitHub check run");
     const app = check.app && typeof check.app === "object" && !Array.isArray(check.app) ? lower(check.app.slug) : "unknown-app";
-    const name2 = lower(check.name) || `id-${integer5(check.id) ?? latestRuns.size}`;
+    const name2 = lower(check.name) || `id-${integer6(check.id) ?? latestRuns.size}`;
     const key = `${app}:${name2}`;
-    const selectedAt = timestamp6(check.completed_at) ?? timestamp6(check.started_at) ?? "1970-01-01T00:00:00.000Z";
+    const selectedAt = timestamp7(check.completed_at) ?? timestamp7(check.started_at) ?? "1970-01-01T00:00:00.000Z";
     const previous = latestRuns.get(key);
-    const previousAt = previous ? timestamp6(previous.completed_at) ?? timestamp6(previous.started_at) ?? "1970-01-01T00:00:00.000Z" : void 0;
+    const previousAt = previous ? timestamp7(previous.completed_at) ?? timestamp7(previous.started_at) ?? "1970-01-01T00:00:00.000Z" : void 0;
     if (!previous || Date.parse(selectedAt) >= Date.parse(previousAt)) latestRuns.set(key, check);
   }
   const latestStatuses = /* @__PURE__ */ new Map();
   for (const item2 of statuses) {
-    const status = object3(item2, "GitHub commit status");
-    const key = lower(status.context) || `id-${integer5(status.id) ?? latestStatuses.size}`;
-    const selectedAt = timestamp6(status.updated_at) ?? timestamp6(status.created_at) ?? "1970-01-01T00:00:00.000Z";
+    const status = object4(item2, "GitHub commit status");
+    const key = lower(status.context) || `id-${integer6(status.id) ?? latestStatuses.size}`;
+    const selectedAt = timestamp7(status.updated_at) ?? timestamp7(status.created_at) ?? "1970-01-01T00:00:00.000Z";
     const previous = latestStatuses.get(key);
-    const previousAt = previous ? timestamp6(previous.updated_at) ?? timestamp6(previous.created_at) ?? "1970-01-01T00:00:00.000Z" : void 0;
+    const previousAt = previous ? timestamp7(previous.updated_at) ?? timestamp7(previous.created_at) ?? "1970-01-01T00:00:00.000Z" : void 0;
     if (!previous || Date.parse(selectedAt) >= Date.parse(previousAt)) latestStatuses.set(key, status);
   }
   let passing = 0;
@@ -14278,10 +14644,10 @@ function checkSummary(checkRuns, statuses) {
     else unknown += 1;
   }
   for (const status of latestStatuses.values()) {
-    const state = lower(status.state);
-    if (state === "success") passing += 1;
-    else if (state === "pending") pending += 1;
-    else if (FAILED_CHECKS.has(state)) failing += 1;
+    const state2 = lower(status.state);
+    if (state2 === "success") passing += 1;
+    else if (state2 === "pending") pending += 1;
+    else if (FAILED_CHECKS.has(state2)) failing += 1;
     else unknown += 1;
   }
   return { total: passing + failing + pending + unknown, passing, failing, pending, unknown };
@@ -14289,13 +14655,13 @@ function checkSummary(checkRuns, statuses) {
 function latestEvidenceAt(snapshot) {
   const candidates = [];
   for (const value of [snapshot.pull.updated_at, snapshot.pull.closed_at, snapshot.pull.merged_at]) {
-    const selected = timestamp6(value);
+    const selected = timestamp7(value);
     if (selected) candidates.push(selected);
   }
   for (const value of [...snapshot.reviews, ...snapshot.checkRuns, ...snapshot.statuses]) {
-    const record6 = object3(value, "GitHub evidence record");
+    const record6 = object4(value, "GitHub evidence record");
     for (const selected of [record6.submitted_at, record6.completed_at, record6.updated_at, record6.created_at]) {
-      const parsed = timestamp6(selected);
+      const parsed = timestamp7(selected);
       if (parsed) candidates.push(parsed);
     }
   }
@@ -14309,8 +14675,8 @@ function unsignedReceipt(snapshot, rawUrl, options) {
   if (!Number.isFinite(options.maxAgeHours) || options.maxAgeHours <= 0 || options.maxAgeHours > 24 * 365) throw new Error("maxAgeHours must be greater than zero and no more than one year");
   validateToolCommit(options.toolCommit);
   const pull = snapshot.pull;
-  const base = object3(pull.base, "GitHub pull request base");
-  const head = object3(pull.head, "GitHub pull request head");
+  const base = object4(pull.base, "GitHub pull request base");
+  const head = object4(pull.head, "GitHub pull request head");
   const baseSha = string2(base.sha);
   const headSha = string2(head.sha);
   if (!baseSha || !FULL_GIT_SHA.test(baseSha) || !headSha || !FULL_GIT_SHA.test(headSha)) throw new Error("GitHub pull request response must contain full base and head SHAs");
@@ -14403,9 +14769,9 @@ function buildPublicPrReceipt(snapshot, rawUrl, options) {
   return { ...unsigned, receiptHash: sha2567(canonical(unsigned)) };
 }
 function signPublicPrReceipt(receipt, privateKeyPath) {
-  const privateKey = createPrivateKey7(readFileSync26(privateKeyPath));
+  const privateKey = createPrivateKey8(readFileSync26(privateKeyPath));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signing key must be Ed25519");
-  const publicKey = createPublicKey7(privateKey);
+  const publicKey = createPublicKey8(privateKey);
   const der = publicKeyDer(publicKey);
   return {
     ...receipt,
@@ -14413,7 +14779,7 @@ function signPublicPrReceipt(receipt, privateKeyPath) {
       algorithm: "Ed25519",
       keyId: signingKeyId(der),
       publicKey: der.toString("base64"),
-      value: sign6(null, Buffer.from(receipt.receiptHash), privateKey).toString("base64")
+      value: sign7(null, Buffer.from(receipt.receiptHash), privateKey).toString("base64")
     }
   };
 }
@@ -14426,9 +14792,9 @@ function verifyPublicPrReceipt(receipt) {
   if (!receipt.signature) return { hashValid };
   if (receipt.signature.algorithm !== "Ed25519") return { hashValid, signatureValid: false };
   try {
-    const publicKey = createPublicKey7({ key: Buffer.from(receipt.signature.publicKey, "base64"), type: "spki", format: "der" });
+    const publicKey = createPublicKey8({ key: Buffer.from(receipt.signature.publicKey, "base64"), type: "spki", format: "der" });
     const keyId = signingKeyId(publicKeyDer(publicKey));
-    const signatureValid = keyId === receipt.signature.keyId && verify6(null, Buffer.from(receipt.receiptHash), publicKey, Buffer.from(receipt.signature.value, "base64"));
+    const signatureValid = keyId === receipt.signature.keyId && verify7(null, Buffer.from(receipt.receiptHash), publicKey, Buffer.from(receipt.signature.value, "base64"));
     return { hashValid, signatureValid, keyId };
   } catch {
     return { hashValid, signatureValid: false };
@@ -15705,7 +16071,7 @@ function runAudit(args) {
     const raw = readFileSync27(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest9 = `sha256:${createHash24("sha256").update(raw).digest("hex")}`;
+    const digest10 = `sha256:${createHash24("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -15717,11 +16083,11 @@ function runAudit(args) {
     }
     const report = buildReport({
       transcript: relative14(process.cwd(), absolute) || absolute,
-      transcriptSha256: digest9,
+      transcriptSha256: digest10,
       transcriptFormat: "unified-git-diff",
       repo: "static-diff-audit",
       base: "unavailable",
-      head: digest9,
+      head: digest10,
       results: integrity.results,
       advisories: integrity.advisories,
       policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash24("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
@@ -15760,11 +16126,11 @@ function runTestIntegrity(args) {
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
     const diff = execFileSync19("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    const digest9 = `sha256:${createHash24("sha256").update(diff).digest("hex")}`;
+    const digest10 = `sha256:${createHash24("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
       transcript: `${base}..${head}`,
-      transcriptSha256: digest9,
+      transcriptSha256: digest10,
       transcriptFormat: "test-integrity-diff",
       repo,
       base,
