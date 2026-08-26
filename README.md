@@ -741,7 +741,26 @@ vigil continuity verify-staple continuity-staple.json \
   --expected-head <reviewed-head-sha> \
   --environment production \
   --expected-policy-sha256 <sha256-of-exact-policy-bytes>
+vigil continuity terraform-plan-gate tfplan \
+  --staple continuity-staple.json \
+  --terraform-executable "$(command -v terraform)" \
+  --public-key continuity-authority-public.pem \
+  --expected-receipt-hash <original-receipt-hash> \
+  --expected-head <reviewed-head-sha> \
+  --environment production \
+  --expected-policy-sha256 <sha256-of-exact-policy-bytes>
 ```
+
+Node.js consumers can import the same offline verifier from
+`@sulmusic/agent-vigil/continuity-staple`. The package includes deterministic
+signed vectors so the CLI and library can be checked against identical bytes.
+See the [TypeScript verifier guide](docs/TYPESCRIPT_CONTINUITY_LIBRARY.md).
+
+For the smallest removable GitHub check, use the manual public-vector workflow
+in [GitHub continuity marker](docs/GITHUB_MARKER.md). It reports
+`SELF_TEST_PASS`, never deployment permission. The measured two-replica dry-run
+fixture is described in
+[Kubernetes admission gate](docs/KUBERNETES_ADMISSION.md).
 
 The importer accepts authenticated GitHub webhook files for merges, exact
 reverts, labeled hotfixes, and explicitly linked incidents. It stores hashes

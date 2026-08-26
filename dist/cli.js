@@ -4,7 +4,7 @@
 import { createHash as createHash24 } from "node:crypto";
 import { execFileSync as execFileSync19 } from "node:child_process";
 import { existsSync as existsSync13, mkdirSync as mkdirSync11, readFileSync as readFileSync27, realpathSync as realpathSync15, statSync as statSync10, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname12, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve28 } from "node:path";
+import { dirname as dirname13, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve29 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -1220,7 +1220,7 @@ function parseTestSummary(output) {
   }
   return summary;
 }
-function inferTestCommand(repo, platform3 = process.platform) {
+function inferTestCommand(repo, platform4 = process.platform) {
   const pkg = resolve2(repo, "package.json");
   if (existsSync2(pkg)) {
     try {
@@ -1233,7 +1233,7 @@ function inferTestCommand(repo, platform3 = process.platform) {
   if (existsSync2(resolve2(repo, "Cargo.toml"))) return "cargo test --quiet";
   if (existsSync2(resolve2(repo, "go.mod"))) return "go test -json ./...";
   if (existsSync2(resolve2(repo, "pom.xml"))) return "mvn test";
-  if (platform3 === "win32" && existsSync2(resolve2(repo, "gradlew.bat"))) return "gradlew.bat test";
+  if (platform4 === "win32" && existsSync2(resolve2(repo, "gradlew.bat"))) return "gradlew.bat test";
   if (existsSync2(resolve2(repo, "gradlew"))) return "./gradlew test";
   if (existsSync2(resolve2(repo, "build.gradle")) || existsSync2(resolve2(repo, "build.gradle.kts"))) return "gradle test";
   if (existsSync2(resolve2(repo, "Gemfile")) && existsSync2(resolve2(repo, "spec"))) return "bundle exec rspec";
@@ -5276,13 +5276,13 @@ function permissionDisposition(decision) {
   };
   return { added: HOLD_UNKNOWN, removed: HOLD_UNKNOWN };
 }
-function addPermissionAtoms(out, platform3, path, rules, decision, locator) {
+function addPermissionAtoms(out, platform4, path, rules, decision, locator) {
   const disposition = permissionDisposition(decision);
   for (const rule of stringList(rules)) {
-    const semanticKey = `${platform3}\0${path}\0permission\0${rule}`;
+    const semanticKey = `${platform4}\0${path}\0permission\0${rule}`;
     out.push(atom({
       semanticKey,
-      platform: platform3,
+      platform: platform4,
       sourcePath: path,
       kind: "permission",
       subject: "agent",
@@ -5299,14 +5299,14 @@ function addPermissionAtoms(out, platform3, path, rules, decision, locator) {
     }));
   }
 }
-function addEnvironmentAtoms(out, platform3, path, subject, values, locator) {
+function addEnvironmentAtoms(out, platform4, path, subject, values, locator) {
   const env = record(values);
   if (!env) return;
   for (const name2 of Object.keys(env).sort()) {
-    const semanticKey = `${platform3}\0${path}\0credential\0${subject}\0${name2}`;
+    const semanticKey = `${platform4}\0${path}\0credential\0${subject}\0${name2}`;
     out.push(atom({
       semanticKey,
-      platform: platform3,
+      platform: platform4,
       sourcePath: path,
       kind: "credential",
       subject,
@@ -5323,12 +5323,12 @@ function addEnvironmentAtoms(out, platform3, path, subject, values, locator) {
     }));
   }
 }
-function addOpaqueAuthoritySection(out, platform3, path, locator, value, reason) {
+function addOpaqueAuthoritySection(out, platform4, path, locator, value, reason) {
   if (value === void 0) return;
   const disposition = hold("AVP014", reason, "high");
   out.push(atom({
-    semanticKey: `${platform3}\0${path}\0opaque-authority\0${locator}`,
-    platform: platform3,
+    semanticKey: `${platform4}\0${path}\0opaque-authority\0${locator}`,
+    platform: platform4,
     sourcePath: path,
     kind: "control",
     subject: "agent",
@@ -5368,19 +5368,19 @@ function addBooleanExpansionControl(out, path, semanticName, rawValue, defaultVa
     compare: (before, after) => decisionRelation(before.decision, after.decision)
   }));
 }
-function addMcpEnvironmentReferences(out, platform3, path, subject, values, locator) {
+function addMcpEnvironmentReferences(out, platform4, path, subject, values, locator) {
   if (!Array.isArray(values)) return;
   for (const [index, raw] of values.entries()) {
     const config = record(raw);
     const name2 = stringValue(raw) ?? stringValue(config?.name);
     if (!name2) {
-      addOpaqueAuthoritySection(out, platform3, path, `${locator}[${index}]`, raw, "an MCP environment reference has an unsupported shape");
+      addOpaqueAuthoritySection(out, platform4, path, `${locator}[${index}]`, raw, "an MCP environment reference has an unsupported shape");
       continue;
     }
     const source2 = stringValue(config?.source) ?? "local";
     out.push(atom({
-      semanticKey: `${platform3}\0${path}\0${subject}\0env-ref\0${name2}`,
-      platform: platform3,
+      semanticKey: `${platform4}\0${path}\0${subject}\0env-ref\0${name2}`,
+      platform: platform4,
       sourcePath: path,
       kind: "credential",
       subject,
@@ -5397,13 +5397,13 @@ function addMcpEnvironmentReferences(out, platform3, path, subject, values, loca
     }));
   }
 }
-function addMcpServerAtoms(out, platform3, path, values, locator) {
+function addMcpServerAtoms(out, platform4, path, values, locator) {
   const servers = record(values);
   if (!servers) return;
   for (const [name2, rawServer] of Object.entries(servers).sort(([a], [b]) => a.localeCompare(b))) {
     const server = record(rawServer);
     if (!server) {
-      addOpaqueAuthoritySection(out, platform3, path, `${locator}.${name2}`, rawServer, "an MCP server entry has an unsupported shape");
+      addOpaqueAuthoritySection(out, platform4, path, `${locator}.${name2}`, rawServer, "an MCP server entry has an unsupported shape");
       continue;
     }
     const enabled = boolValue(server.enabled) ?? !boolValue(server.disabled);
@@ -5411,10 +5411,10 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
     const url = stringValue(server.url) ?? stringValue(server.serverUrl);
     const transport = url ? "http" : command ? "stdio" : stringValue(server.type) ?? "unknown";
     const identity = url ? safeOrigin(url) : command ? safeExecutable(command) : "unknown-server";
-    const baseKey = `${platform3}\0${path}\0mcp\0${name2}`;
+    const baseKey = `${platform4}\0${path}\0mcp\0${name2}`;
     out.push(atom({
       semanticKey: `${baseKey}\0enabled`,
-      platform: platform3,
+      platform: platform4,
       sourcePath: path,
       kind: "capability",
       subject: "agent",
@@ -5431,7 +5431,7 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
     }));
     out.push(atom({
       semanticKey: `${baseKey}\0identity`,
-      platform: platform3,
+      platform: platform4,
       sourcePath: path,
       kind: "control",
       subject: name2,
@@ -5446,18 +5446,18 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
       removed: ALLOW_RESTRICTION,
       compare: () => "expansion"
     }));
-    addEnvironmentAtoms(out, platform3, path, `mcp:${name2}`, server.env, `${locator}.${name2}.env`);
-    addEnvironmentAtoms(out, platform3, path, `mcp:${name2}`, server.http_headers, `${locator}.${name2}.http_headers`);
-    addEnvironmentAtoms(out, platform3, path, `mcp:${name2}`, server.env_http_headers, `${locator}.${name2}.env_http_headers`);
-    addEnvironmentAtoms(out, platform3, path, `mcp:${name2}`, server.headers, `${locator}.${name2}.headers`);
-    addMcpEnvironmentReferences(out, platform3, path, `mcp:${name2}`, server.env_vars, `${locator}.${name2}.env_vars`);
+    addEnvironmentAtoms(out, platform4, path, `mcp:${name2}`, server.env, `${locator}.${name2}.env`);
+    addEnvironmentAtoms(out, platform4, path, `mcp:${name2}`, server.http_headers, `${locator}.${name2}.http_headers`);
+    addEnvironmentAtoms(out, platform4, path, `mcp:${name2}`, server.env_http_headers, `${locator}.${name2}.env_http_headers`);
+    addEnvironmentAtoms(out, platform4, path, `mcp:${name2}`, server.headers, `${locator}.${name2}.headers`);
+    addMcpEnvironmentReferences(out, platform4, path, `mcp:${name2}`, server.env_vars, `${locator}.${name2}.env_vars`);
     const bearer = stringValue(server.bearer_token_env_var);
-    if (bearer) addEnvironmentAtoms(out, platform3, path, `mcp:${name2}`, { [bearer]: "environment-reference" }, `${locator}.${name2}.bearer_token_env_var`);
+    if (bearer) addEnvironmentAtoms(out, platform4, path, `mcp:${name2}`, { [bearer]: "environment-reference" }, `${locator}.${name2}.bearer_token_env_var`);
     const auth = stringValue(server.auth);
     if (auth) {
       out.push(atom({
         semanticKey: `${baseKey}\0auth-mode`,
-        platform: platform3,
+        platform: platform4,
         sourcePath: path,
         kind: "credential",
         subject: `mcp:${name2}`,
@@ -5477,7 +5477,7 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
     if (executionEnvironment) {
       out.push(atom({
         semanticKey: `${baseKey}\0execution-environment`,
-        platform: platform3,
+        platform: platform4,
         sourcePath: path,
         kind: "capability",
         subject: `mcp:${name2}`,
@@ -5497,7 +5497,7 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
     if (oauthResource) {
       out.push(atom({
         semanticKey: `${baseKey}\0oauth-resource`,
-        platform: platform3,
+        platform: platform4,
         sourcePath: path,
         kind: "credential",
         subject: `mcp:${name2}`,
@@ -5516,7 +5516,7 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
     for (const scope of stringList(server.scopes)) {
       out.push(atom({
         semanticKey: `${baseKey}\0oauth-scope\0${scope}`,
-        platform: platform3,
+        platform: platform4,
         sourcePath: path,
         kind: "permission",
         subject: `mcp:${name2}`,
@@ -5536,7 +5536,7 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
     for (const tool of enabledTools) {
       out.push(atom({
         semanticKey: `${baseKey}\0tool\0${tool}`,
-        platform: platform3,
+        platform: platform4,
         sourcePath: path,
         kind: "capability",
         subject: `mcp:${name2}`,
@@ -5554,7 +5554,7 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
     for (const tool of disabledTools) {
       out.push(atom({
         semanticKey: `${baseKey}\0tool\0${tool}`,
-        platform: platform3,
+        platform: platform4,
         sourcePath: path,
         kind: "capability",
         subject: `mcp:${name2}`,
@@ -5571,14 +5571,14 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
       }));
     }
     const approvalMode = stringValue(server.default_tools_approval_mode ?? server.defaultToolsApprovalMode);
-    if (approvalMode) addMcpApprovalAtom(out, platform3, path, `${baseKey}\0approval`, name2, approvalMode, `${locator}.${name2}.default_tools_approval_mode`);
+    if (approvalMode) addMcpApprovalAtom(out, platform4, path, `${baseKey}\0approval`, name2, approvalMode, `${locator}.${name2}.default_tools_approval_mode`);
     const tools = record(server.tools);
     if (tools) {
       for (const [tool, rawTool] of Object.entries(tools).sort(([a], [b]) => a.localeCompare(b))) {
         const config = record(rawTool);
         if (!config) continue;
         const mode = stringValue(config.approval_mode ?? config.approvalMode);
-        if (mode) addMcpApprovalAtom(out, platform3, path, `${baseKey}\0tool-approval\0${tool}`, `${name2}/${tool}`, mode, `${locator}.${name2}.tools.${tool}.approval_mode`);
+        if (mode) addMcpApprovalAtom(out, platform4, path, `${baseKey}\0tool-approval\0${tool}`, `${name2}/${tool}`, mode, `${locator}.${name2}.tools.${tool}.approval_mode`);
       }
     }
     const recognized = /* @__PURE__ */ new Set([
@@ -5614,16 +5614,16 @@ function addMcpServerAtoms(out, platform3, path, values, locator) {
     ]);
     const unsupported = Object.fromEntries(Object.entries(server).filter(([key]) => !recognized.has(key)));
     if (Object.keys(unsupported).length) {
-      addOpaqueAuthoritySection(out, platform3, path, `${locator}.${name2}.*`, unsupported, "an MCP server contains authority-bearing fields that are not yet normalized");
+      addOpaqueAuthoritySection(out, platform4, path, `${locator}.${name2}.*`, unsupported, "an MCP server contains authority-bearing fields that are not yet normalized");
     }
   }
 }
-function addMcpApprovalAtom(out, platform3, path, semanticKey, subject, mode, locator) {
+function addMcpApprovalAtom(out, platform4, path, semanticKey, subject, mode, locator) {
   const supported = /* @__PURE__ */ new Set(["auto", "prompt", "writes", "approve"]);
   const known = supported.has(mode);
   out.push(atom({
     semanticKey,
-    platform: platform3,
+    platform: platform4,
     sourcePath: path,
     kind: "control",
     subject: `mcp:${subject}`,
@@ -6042,13 +6042,13 @@ function addClaudeHooks(out, path, rawHooks) {
     });
   }
 }
-function addModelAtom(out, platform3, path, rawModel, locator) {
+function addModelAtom(out, platform4, path, rawModel, locator) {
   const model = stringValue(rawModel);
   if (!model) return;
   const mutable = /(?:^|[-_/.:])(latest|default|auto|current)(?:$|[-_/.:])/i.test(model);
   out.push(atom({
-    semanticKey: `${platform3}\0${path}\0model`,
-    platform: platform3,
+    semanticKey: `${platform4}\0${path}\0model`,
+    platform: platform4,
     sourcePath: path,
     kind: "model",
     subject: "agent",
@@ -6232,32 +6232,32 @@ function discoverAuthorityProfile(repo, ref) {
     gaps: []
   };
   for (const path of relevantFiles(repo, ref)) {
-    const platform3 = sourcePlatform(path);
+    const platform4 = sourcePlatform(path);
     let raw;
     try {
       raw = readGitFile(repo, ref, path);
     } catch (error) {
-      internal.gaps.push({ platform: platform3, sourcePath: path, locator: path, reason: error.message });
+      internal.gaps.push({ platform: platform4, sourcePath: path, locator: path, reason: error.message });
       continue;
     }
     const format = path.endsWith(".toml") ? "toml" : "json";
-    internal.sources.push({ platform: platform3, path, format, sha256: sha256(raw) });
+    internal.sources.push({ platform: platform4, path, format, sha256: sha256(raw) });
     let parsed;
     try {
       parsed = parseConfig(raw, format);
     } catch {
-      internal.gaps.push({ platform: platform3, sourcePath: path, locator: path, reason: `${format.toUpperCase()} parse failed; inspect the committed source locally` });
+      internal.gaps.push({ platform: platform4, sourcePath: path, locator: path, reason: `${format.toUpperCase()} parse failed; inspect the committed source locally` });
       continue;
     }
     const value = record(parsed);
     if (!value) {
-      internal.gaps.push({ platform: platform3, sourcePath: path, locator: path, reason: "configuration root is not an object" });
+      internal.gaps.push({ platform: platform4, sourcePath: path, locator: path, reason: "configuration root is not an object" });
       continue;
     }
     try {
-      internal.atoms.push(...platform3 === "claude-code" ? extractClaude(path, value) : platform3 === "codex" ? extractCodex(path, value) : extractMcp(path, value));
+      internal.atoms.push(...platform4 === "claude-code" ? extractClaude(path, value) : platform4 === "codex" ? extractCodex(path, value) : extractMcp(path, value));
     } catch {
-      internal.gaps.push({ platform: platform3, sourcePath: path, locator: path, reason: "authority extraction failed; inspect the committed source locally" });
+      internal.gaps.push({ platform: platform4, sourcePath: path, locator: path, reason: "authority extraction failed; inspect the committed source locally" });
     }
   }
   internal.sources.sort((a, b) => a.path.localeCompare(b.path));
@@ -8026,13 +8026,13 @@ function resolveDockerBinary(requested = "docker") {
   }
   throw new Error("Docker client was not found at a fixed trusted platform location; pass --docker-bin with an absolute path");
 }
-function isLocalDockerEndpoint(endpoint, platform3 = process.platform) {
+function isLocalDockerEndpoint(endpoint, platform4 = process.platform) {
   if (endpoint.includes("\0") || /[\r\n]/.test(endpoint)) return false;
   if (endpoint.startsWith("unix:///")) {
     const path = endpoint.slice("unix://".length);
     return path.startsWith("/") && path.length > 1 && !/[?#]/.test(path);
   }
-  if (platform3 === "win32") {
+  if (platform4 === "win32") {
     return /^npipe:\/{4}\.\/pipe\/[A-Za-z0-9._-]+$/.test(endpoint);
   }
   return false;
@@ -10513,7 +10513,7 @@ function renderStatusReport(report) {
 }
 
 // src/continuity/cli.ts
-import { isAbsolute as isAbsolute10, relative as relative13, resolve as resolve26 } from "node:path";
+import { isAbsolute as isAbsolute10, relative as relative13, resolve as resolve27 } from "node:path";
 
 // src/continuity/chain.ts
 import {
@@ -13406,7 +13406,7 @@ var STAPLE_CLOCK_SKEW_SECONDS = 60;
 var SHA2564 = /^sha256:[0-9a-f]{64}$/;
 var GIT_SHA3 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 var BASE642 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-var MAX_STAPLE_BYTES = 256 * 1024;
+var MAX_CONTINUITY_STAPLE_BYTES = 256 * 1024;
 function object3(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value;
@@ -13561,7 +13561,20 @@ function issueContinuityStaple(options) {
   };
 }
 function loadContinuityStaple(path) {
-  return readBoundedJson2(path, MAX_STAPLE_BYTES, "continuity staple");
+  return readBoundedJson2(path, MAX_CONTINUITY_STAPLE_BYTES, "continuity staple");
+}
+function pinnedPublicKey(options) {
+  const hasPath = typeof options.publicKeyPath === "string" && options.publicKeyPath.length > 0;
+  const hasPem = typeof options.publicKeyPem === "string" || options.publicKeyPem instanceof Uint8Array;
+  if (hasPath === hasPem) throw new Error("provide exactly one pinned continuity public key source");
+  let pinned;
+  try {
+    pinned = hasPath ? createPublicKey7(readBoundedRegularFile(options.publicKeyPath, 64 * 1024, "pinned continuity staple public key")) : createPublicKey7(typeof options.publicKeyPem === "string" ? options.publicKeyPem : Buffer.from(options.publicKeyPem));
+  } catch {
+    throw new Error("pinned continuity staple public key is invalid");
+  }
+  if (pinned.asymmetricKeyType !== "ed25519") throw new Error("pinned continuity staple public key must be Ed25519");
+  return pinned;
 }
 function verifyContinuityStaple(input, options) {
   const selected = object3(input, "signed continuity staple");
@@ -13578,8 +13591,7 @@ function verifyContinuityStaple(input, options) {
   const embeddedId = signingKeyId(publicKeyDer(embedded));
   const keyId = digest9(signature.keyId, "continuity staple signature.keyId");
   if (embeddedId !== keyId) throw new Error("continuity staple key ID does not match its embedded key");
-  const pinned = createPublicKey7(readBoundedRegularFile(options.publicKeyPath, 64 * 1024, "pinned continuity staple public key"));
-  if (pinned.asymmetricKeyType !== "ed25519") throw new Error("pinned continuity staple public key must be Ed25519");
+  const pinned = pinnedPublicKey(options);
   if (signingKeyId(publicKeyDer(pinned)) !== keyId) throw new Error("continuity staple signer does not match the pinned public key");
   const signatureValue = base642(signature.value, "continuity staple signature.value", 64);
   if (!verify6(null, Buffer.from(payloadHash), pinned, signatureValue)) throw new Error("continuity staple signature is invalid");
@@ -13629,10 +13641,136 @@ function verifyContinuityStaple(input, options) {
   };
 }
 
+// src/continuity/terraform.ts
+import { spawnSync as spawnSync6 } from "node:child_process";
+import { lstatSync as lstatSync15 } from "node:fs";
+import { dirname as dirname11, resolve as resolve25 } from "node:path";
+import { arch as arch3, platform as platform3 } from "node:process";
+var TERRAFORM_PLAN_GATE_SCHEMA = "agent-vigil-terraform-plan-gate/v1";
+var MAX_TERRAFORM_PLAN_BYTES = 512 * 1024 * 1024;
+var MAX_TERRAFORM_SHOW_BYTES = 64 * 1024 * 1024;
+function reasonFor(state2) {
+  if (state2 === "CURRENT") return "CURRENT_STAPLE";
+  if (state2 === "REVOKED") return "LATER_EVIDENCE_REVOKED";
+  if (state2 === "EXPIRED") return "STAPLE_EXPIRED";
+  return "EVIDENCE_HOLD";
+}
+function shortVersion(value, label) {
+  if (typeof value !== "string" || !/^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][0-9A-Za-z.-]+)?$/.test(value) || value.length > 40) {
+    throw new Error(`${label} is invalid`);
+  }
+  return value;
+}
+function actionCounts(value) {
+  if (value === void 0) value = [];
+  if (!Array.isArray(value) || value.length > 1e5) throw new Error("Terraform plan resource_changes is invalid or exceeds 100000 entries");
+  const actions = { noOp: 0, create: 0, read: 0, update: 0, delete: 0, replaceDeleteCreate: 0, replaceCreateDelete: 0 };
+  const mapping = {
+    "no-op": "noOp",
+    create: "create",
+    read: "read",
+    update: "update",
+    delete: "delete",
+    "delete,create": "replaceDeleteCreate",
+    "create,delete": "replaceCreateDelete"
+  };
+  for (const item2 of value) {
+    if (!item2 || typeof item2 !== "object" || Array.isArray(item2)) throw new Error("Terraform plan contains a malformed resource change");
+    const raw = item2.change?.actions;
+    if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string")) throw new Error("Terraform plan contains malformed actions");
+    const selected = mapping[raw.join(",")];
+    if (!selected) throw new Error("Terraform plan contains unsupported actions");
+    actions[selected] += 1;
+  }
+  return { changes: value.length, actions };
+}
+function parseTerraformShow(value) {
+  let selected;
+  try {
+    selected = JSON.parse(value);
+  } catch {
+    throw new Error("terraform show did not return valid JSON");
+  }
+  if (!selected || typeof selected !== "object" || Array.isArray(selected)) throw new Error("terraform show returned an invalid document");
+  const record6 = selected;
+  const formatVersion = shortVersion(record6.format_version, "Terraform plan format_version");
+  if (!formatVersion.startsWith("1.")) throw new Error("Terraform plan format version is unsupported");
+  const terraformVersion = shortVersion(record6.terraform_version, "Terraform version");
+  const counted = actionCounts(record6.resource_changes);
+  return { formatVersion, terraformVersion, resourceChanges: counted.changes, actions: counted.actions };
+}
+function unsignedResult(generatedAt, continuity, staple, plan, verifier) {
+  return {
+    schemaVersion: TERRAFORM_PLAN_GATE_SCHEMA,
+    generatedAt,
+    decision: { continuity, authorization: continuity === "CURRENT" && plan !== null ? "ALLOW" : "DENY", reasonCode: reasonFor(continuity) },
+    staple,
+    plan,
+    verifier,
+    limitations: [
+      "This command verifies and fingerprints a saved Terraform plan; it does not run terraform apply.",
+      "The apply job must use this exact plan immediately, recompute its SHA-256, and refuse a mismatch.",
+      "The minimized result contains counts and hashes only; raw Terraform plan values are not retained."
+    ]
+  };
+}
+function verifyTerraformSavedPlan(options) {
+  const verification2 = verifyContinuityStaple(options.staple, options.stapleOptions);
+  const staple = {
+    payloadHash: verification2.payloadHash,
+    signerKeyId: verification2.signerKeyId,
+    expiresAt: verification2.expiresAt,
+    sequence: verification2.sequence
+  };
+  const generatedAt = (options.stapleOptions.now ?? /* @__PURE__ */ new Date()).toISOString();
+  if (!verification2.allowsProtectedAction) {
+    const unsigned2 = unsignedResult(generatedAt, verification2.effectiveContinuity, staple, null, null);
+    return { ...unsigned2, authorizationHash: canonicalSha256(unsigned2) };
+  }
+  const requestedPlan = resolve25(options.planPath);
+  const requestedStatus = lstatSync15(requestedPlan);
+  if (requestedStatus.isSymbolicLink() || !requestedStatus.isFile()) throw new Error("saved Terraform plan must be a regular file, not a symbolic link");
+  const planIdentity = hashGuardFile(requestedPlan, "saved Terraform plan");
+  if (planIdentity.size <= 0n || planIdentity.size > BigInt(MAX_TERRAFORM_PLAN_BYTES)) throw new Error("saved Terraform plan is empty or exceeds the byte limit");
+  const executableIdentity = hashGuardFile(resolve25(options.terraformExecutable), "Terraform executable");
+  const timeoutMs = options.timeoutMs ?? 3e4;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1e3 || timeoutMs > 12e4) throw new Error("Terraform show timeout must be from 1000 through 120000 milliseconds");
+  const environment = { ...process.env, TF_IN_AUTOMATION: "1", CHECKPOINT_DISABLE: "1" };
+  for (const name2 of Object.keys(environment)) if (name2 === "TF_CLI_ARGS" || name2.startsWith("TF_CLI_ARGS_")) delete environment[name2];
+  const child = spawnSync6(executableIdentity.realPath, ["show", "-json", "-no-color", planIdentity.realPath], {
+    cwd: dirname11(planIdentity.realPath),
+    env: environment,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: timeoutMs,
+    maxBuffer: MAX_TERRAFORM_SHOW_BYTES
+  });
+  if (child.error || child.signal || child.status !== 0) throw new Error("terraform show could not inspect the saved plan");
+  const parsed = parseTerraformShow(child.stdout);
+  assertGuardFileUnchanged(planIdentity, "saved Terraform plan");
+  assertGuardFileUnchanged(executableIdentity, "Terraform executable");
+  const plan = {
+    sha256: planIdentity.sha256,
+    bytes: Number(planIdentity.size),
+    formatVersion: parsed.formatVersion,
+    terraformVersion: parsed.terraformVersion,
+    resourceChanges: parsed.resourceChanges,
+    actions: parsed.actions
+  };
+  const verifier = {
+    terraformExecutableSha256: executableIdentity.sha256,
+    operatingSystem: platform3,
+    architecture: arch3,
+    networkCalls: 0
+  };
+  const unsigned = unsignedResult(generatedAt, verification2.effectiveContinuity, staple, plan, verifier);
+  return { ...unsigned, authorizationHash: canonicalSha256(unsigned) };
+}
+
 // src/continuity/workflow.ts
 import { execFileSync as execFileSync18 } from "node:child_process";
-import { existsSync as existsSync12, lstatSync as lstatSync15, mkdirSync as mkdirSync10, realpathSync as realpathSync14 } from "node:fs";
-import { join as join14, resolve as resolve25, sep as sep13 } from "node:path";
+import { existsSync as existsSync12, lstatSync as lstatSync16, mkdirSync as mkdirSync10, realpathSync as realpathSync14 } from "node:fs";
+import { join as join14, resolve as resolve26, sep as sep13 } from "node:path";
 var ACTION_COMMIT = /^[0-9a-f]{40}$/;
 var CHECKOUT_COMMIT2 = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 var DOWNLOAD_COMMIT = "634f93cb2916e3fdff6788551b99b062d0335ce0";
@@ -13641,7 +13779,7 @@ function repositoryRoot(path) {
   let root;
   try {
     root = execFileSync18("git", ["rev-parse", "--show-toplevel"], {
-      cwd: resolve25(path),
+      cwd: resolve26(path),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
     }).trim();
@@ -13649,7 +13787,7 @@ function repositoryRoot(path) {
     throw new Error("--repo must name a Git repository");
   }
   const canonical3 = realpathSync14(root);
-  if (!lstatSync15(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
+  if (!lstatSync16(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
   return canonical3;
 }
 function ensureSafeParent(root, target2) {
@@ -13658,7 +13796,7 @@ function ensureSafeParent(root, target2) {
   for (const part of relative15) {
     current = join14(current, part);
     if (existsSync12(current)) {
-      const status = lstatSync15(current);
+      const status = lstatSync16(current);
       if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("continuity setup refuses symbolic-link or non-directory parents");
     } else {
       mkdirSync10(current, { mode: 448 });
@@ -13927,11 +14065,11 @@ function installContinuityAction(options) {
     selfServe: Boolean(options.selfServe)
   };
   if (!options.force) {
-    const existing = files.find((file) => existsSync12(resolve25(root, file.path)));
+    const existing = files.find((file) => existsSync12(resolve26(root, file.path)));
     if (existing) throw new Error(`${existing.path} already exists; use --force only after reviewing the current file`);
   }
   for (const file of files) {
-    const destination = resolve25(root, file.path);
+    const destination = resolve26(root, file.path);
     ensureSafeParent(root, destination);
     const replaced = existsSync12(destination);
     writePrivateFileAtomic(destination, file.content);
@@ -13967,7 +14105,10 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "--minimum-sequence",
   "--expected-policy-sha256",
   "--expected-chain-tip",
-  "--expected-receipt-hash"
+  "--expected-receipt-hash",
+  "--staple",
+  "--terraform-executable",
+  "--timeout-ms"
 ]);
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["--json", "--unavailable", "--force", "--self-serve"]);
 function usage2() {
@@ -13986,6 +14127,7 @@ Usage:
   vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
   vigil continuity staple --chain <directory> --policy <policy.json> --environment <name> --signing-key <private.pem> --output <staple.json> [--repo <path> --policy-ref <sha>] [--expected-head <sha>] [--now <RFC3339>] [--ttl-seconds <1-900>]
   vigil continuity verify-staple <staple.json> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--now <RFC3339>] [--format text|json] [--output <file>]
+  vigil continuity terraform-plan-gate <saved-plan> --staple <staple.json> --terraform-executable <path> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--now <RFC3339>] [--timeout-ms <1000-120000>] [--format text|json] [--output <file>]
 
 Examples:
   vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
@@ -13996,6 +14138,7 @@ Examples:
   vigil continuity status --chain .agent-vigil/continuity --policy .agent-vigil-continuity.json --repo . --policy-ref <base-commit-sha> --environment production
   vigil continuity staple --chain .agent-vigil/continuity --policy .agent-vigil-continuity.json --environment production --signing-key continuity-authority.pem --output continuity-staple.json
   vigil continuity verify-staple continuity-staple.json --public-key continuity-authority.pub --expected-receipt-hash <sha256:...> --expected-head <head-sha> --environment production --expected-policy-sha256 <sha256:...>
+  vigil continuity terraform-plan-gate tfplan --staple continuity-staple.json --terraform-executable "$(command -v terraform)" --public-key continuity-authority.pub --expected-receipt-hash <sha256:...> --expected-head <head-sha> --environment production --expected-policy-sha256 <sha256:...>
 
 Exit codes:
   0 valid or CURRENT
@@ -14012,8 +14155,8 @@ function runImportGitHubActions(args) {
   const signingKey = required(parsed, "--signing-key");
   protectOutput(parsed, chain, [signingKey, process.env.GITHUB_EVENT_PATH ?? ""]);
   const receipt = importGitHubActionsOutcome({
-    chain: resolve26(chain),
-    signingKeyPath: resolve26(signingKey)
+    chain: resolve27(chain),
+    signingKeyPath: resolve27(signingKey)
   });
   outputJson(parsed.values.get("--output"), receipt);
   if (selectedFormat(parsed) === "json") {
@@ -14038,13 +14181,13 @@ function allowed(parsed, values, flags = []) {
 function protectOutput(parsed, chain, inputs = []) {
   const output = parsed.values.get("--output");
   if (!output) return;
-  const selected = resolve26(output);
-  const chainRoot = resolve26(chain);
+  const selected = resolve27(output);
+  const chainRoot = resolve27(chain);
   const fromChain = relative13(chainRoot, selected);
   if (!fromChain || !fromChain.startsWith("..") && !isAbsolute10(fromChain)) {
     throw new Error("--output must be outside the continuity chain directory");
   }
-  if (inputs.some((input) => input && resolve26(input) === selected)) throw new Error("--output must not replace a continuity input");
+  if (inputs.some((input) => input && resolve27(input) === selected)) throw new Error("--output must not replace a continuity input");
 }
 function parse4(args) {
   const positional2 = [];
@@ -14096,20 +14239,20 @@ function selectedInteger(parsed, name2, fallback) {
   return value;
 }
 function outputJson(path, value) {
-  if (path) writePrivateFileAtomic(resolve26(path), `${JSON.stringify(value, null, 2)}
+  if (path) writePrivateFileAtomic(resolve27(path), `${JSON.stringify(value, null, 2)}
 `);
 }
 function protectNamedOutput(output, inputs) {
   if (!output) return;
-  const selected = resolve26(output);
-  if (inputs.some((input) => resolve26(input) === selected)) throw new Error("--output must not replace an input receipt");
+  const selected = resolve27(output);
+  if (inputs.some((input) => resolve27(input) === selected)) throw new Error("--output must not replace an input receipt");
 }
 function runInit2(args) {
   const parsed = parse4(args);
   allowed(parsed, ["--output"]);
   if (parsed.positional.length !== 1) throw new Error("continuity init requires exactly one Agent Vigil receipt path");
   const output = required(parsed, "--output");
-  const root = initializeContinuityChain(resolve26(parsed.positional[0]), resolve26(output));
+  const root = initializeContinuityChain(resolve27(parsed.positional[0]), resolve27(output));
   process.stdout.write([
     "Agent Vigil continuity chain initialized",
     `  historical verification: ${root.historicalVerification}`,
@@ -14126,8 +14269,8 @@ function runAppend(args) {
   if (parsed.positional.length) throw new Error("continuity append accepts only named options");
   const chain = required(parsed, "--chain");
   const eventPath = required(parsed, "--event");
-  const draft = loadEventDraft(resolve26(eventPath));
-  const event2 = appendContinuityEvent(resolve26(chain), draft, parsed.values.get("--signing-key") ? resolve26(parsed.values.get("--signing-key")) : void 0);
+  const draft = loadEventDraft(resolve27(eventPath));
+  const event2 = appendContinuityEvent(resolve27(chain), draft, parsed.values.get("--signing-key") ? resolve27(parsed.values.get("--signing-key")) : void 0);
   process.stdout.write([
     "Agent Vigil continuity event appended",
     `  sequence: ${event2.sequence}`,
@@ -14145,8 +14288,8 @@ function runVerify2(args) {
   if (parsed.positional.length) throw new Error("continuity verify accepts only named options");
   const chain = required(parsed, "--chain");
   protectOutput(parsed, chain, [parsed.values.get("--public-key") ?? ""]);
-  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve26(parsed.values.get("--public-key")))] : void 0;
-  const verified = verifyContinuityChain(resolve26(chain), {
+  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve27(parsed.values.get("--public-key")))] : void 0;
+  const verified = verifyContinuityChain(resolve27(chain), {
     pinnedEventKeyIds: pinned,
     ...parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head") } : {}
   });
@@ -14175,13 +14318,13 @@ function runImportGitHub(args) {
   const inputs = ["--event", "--webhook-secret-file", "--signing-key"].map((name2) => parsed.values.get(name2) ?? "");
   protectOutput(parsed, chain, inputs);
   const receipt = importGitHubOutcome({
-    chain: resolve26(chain),
+    chain: resolve27(chain),
     deliveryId: required(parsed, "--delivery-id"),
-    ...parsed.values.get("--event") ? { eventPath: resolve26(parsed.values.get("--event")) } : {},
+    ...parsed.values.get("--event") ? { eventPath: resolve27(parsed.values.get("--event")) } : {},
     ...parsed.values.get("--webhook-signature") ? { webhookSignature: parsed.values.get("--webhook-signature") } : {},
-    ...parsed.values.get("--webhook-secret-file") ? { webhookSecretPath: resolve26(parsed.values.get("--webhook-secret-file")) } : {},
+    ...parsed.values.get("--webhook-secret-file") ? { webhookSecretPath: resolve27(parsed.values.get("--webhook-secret-file")) } : {},
     ...parsed.values.get("--observed-at") ? { observedAt: parsed.values.get("--observed-at") } : {},
-    ...parsed.values.get("--signing-key") ? { signingKeyPath: resolve26(parsed.values.get("--signing-key")) } : {},
+    ...parsed.values.get("--signing-key") ? { signingKeyPath: resolve27(parsed.values.get("--signing-key")) } : {},
     unavailable: parsed.flags.has("--unavailable")
   });
   outputJson(parsed.values.get("--output"), receipt);
@@ -14210,14 +14353,14 @@ function runStatus(args) {
   const policyRef = parsed.values.get("--policy-ref");
   const repo = parsed.values.get("--repo");
   if (Boolean(policyRef) !== Boolean(repo)) throw new Error("--policy-ref and --repo must be provided together");
-  const policy = loadContinuityPolicy({ path: policyPath, ...repo ? { repo: resolve26(repo) } : {}, ...policyRef ? { ref: policyRef } : {} });
+  const policy = loadContinuityPolicy({ path: policyPath, ...repo ? { repo: resolve27(repo) } : {}, ...policyRef ? { ref: policyRef } : {} });
   const now = selectedNow(parsed);
-  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve26(parsed.values.get("--public-key")))] : void 0;
-  const verified = verifyContinuityChain(resolve26(chain), {
+  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve27(parsed.values.get("--public-key")))] : void 0;
+  const verified = verifyContinuityChain(resolve27(chain), {
     now,
     maxClockSkewSeconds: policy.value.maxClockSkewSeconds,
     pinnedEventKeyIds: pinned,
-    ...repo ? { repo: resolve26(repo) } : {},
+    ...repo ? { repo: resolve27(repo) } : {},
     ...policyRef ? { expectedBase: policyRef } : {},
     ...parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head") } : {}
   });
@@ -14274,14 +14417,14 @@ function runStaple(args) {
   const policyRef = parsed.values.get("--policy-ref");
   const repo = parsed.values.get("--repo");
   if (Boolean(policyRef) !== Boolean(repo)) throw new Error("--policy-ref and --repo must be provided together");
-  const policy = loadContinuityPolicy({ path: policyPath, ...repo ? { repo: resolve26(repo) } : {}, ...policyRef ? { ref: policyRef } : {} });
+  const policy = loadContinuityPolicy({ path: policyPath, ...repo ? { repo: resolve27(repo) } : {}, ...policyRef ? { ref: policyRef } : {} });
   const now = selectedNow(parsed);
-  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve26(parsed.values.get("--public-key")))] : void 0;
-  const verified = verifyContinuityChain(resolve26(chain), {
+  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve27(parsed.values.get("--public-key")))] : void 0;
+  const verified = verifyContinuityChain(resolve27(chain), {
     now,
     maxClockSkewSeconds: policy.value.maxClockSkewSeconds,
     pinnedEventKeyIds: pinned,
-    ...repo ? { repo: resolve26(repo) } : {},
+    ...repo ? { repo: resolve27(repo) } : {},
     ...policyRef ? { expectedBase: policyRef } : {},
     ...parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head") } : {}
   });
@@ -14289,7 +14432,7 @@ function runStaple(args) {
   const staple = issueContinuityStaple({
     verification: verified,
     decision,
-    privateKeyPath: resolve26(signingKey),
+    privateKeyPath: resolve27(signingKey),
     ttlSeconds: selectedInteger(parsed, "--ttl-seconds", DEFAULT_STAPLE_TTL_SECONDS)
   });
   outputJson(output, staple);
@@ -14305,7 +14448,7 @@ function runStaple(args) {
       `  evidence sequence: ${staple.payload.evidence.sequence}`,
       `  expires: ${staple.payload.expiresAt}`,
       `  signer: ${staple.signature.keyId}`,
-      `  output: ${resolve26(output)}`,
+      `  output: ${resolve27(output)}`,
       ""
     ].join("\n"));
   }
@@ -14326,10 +14469,10 @@ function runVerifyStaple(args) {
     "--output"
   ], ["--json"]);
   if (parsed.positional.length !== 1) throw new Error("continuity verify-staple requires exactly one staple path");
-  const staplePath = resolve26(parsed.positional[0]);
+  const staplePath = resolve27(parsed.positional[0]);
   protectNamedOutput(parsed.values.get("--output"), [staplePath, required(parsed, "--public-key")]);
   const result5 = verifyContinuityStaple(loadContinuityStaple(staplePath), {
-    publicKeyPath: resolve26(required(parsed, "--public-key")),
+    publicKeyPath: resolve27(required(parsed, "--public-key")),
     expectedReceiptHash: required(parsed, "--expected-receipt-hash"),
     expectedHead: required(parsed, "--expected-head"),
     expectedEnvironment: required(parsed, "--environment"),
@@ -14356,6 +14499,61 @@ function runVerifyStaple(args) {
     ].join("\n"));
   }
   return continuityExitCode(result5.effectiveContinuity);
+}
+function runTerraformPlanGate(args) {
+  const parsed = parse4(args);
+  allowed(parsed, [
+    "--staple",
+    "--terraform-executable",
+    "--public-key",
+    "--expected-receipt-hash",
+    "--expected-head",
+    "--environment",
+    "--expected-policy-sha256",
+    "--expected-chain-tip",
+    "--minimum-sequence",
+    "--now",
+    "--timeout-ms",
+    "--format",
+    "--output"
+  ], ["--json"]);
+  if (parsed.positional.length !== 1) throw new Error("continuity terraform-plan-gate requires exactly one saved plan path");
+  const planPath = resolve27(parsed.positional[0]);
+  const staplePath = resolve27(required(parsed, "--staple"));
+  const publicKeyPath = resolve27(required(parsed, "--public-key"));
+  const terraformExecutable = resolve27(required(parsed, "--terraform-executable"));
+  protectNamedOutput(parsed.values.get("--output"), [planPath, staplePath, publicKeyPath, terraformExecutable]);
+  const result5 = verifyTerraformSavedPlan({
+    planPath,
+    terraformExecutable,
+    staple: loadContinuityStaple(staplePath),
+    stapleOptions: {
+      publicKeyPath,
+      expectedReceiptHash: required(parsed, "--expected-receipt-hash"),
+      expectedHead: required(parsed, "--expected-head"),
+      expectedEnvironment: required(parsed, "--environment"),
+      expectedPolicySha256: required(parsed, "--expected-policy-sha256"),
+      now: selectedNow(parsed),
+      ...parsed.values.get("--expected-chain-tip") ? { expectedChainTip: parsed.values.get("--expected-chain-tip") } : {},
+      ...parsed.values.get("--minimum-sequence") !== void 0 ? { minimumSequence: selectedInteger(parsed, "--minimum-sequence") } : {}
+    },
+    timeoutMs: selectedInteger(parsed, "--timeout-ms", 3e4)
+  });
+  outputJson(parsed.values.get("--output"), result5);
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(result5, null, 2)}
+`);
+  } else {
+    process.stdout.write([
+      `Terraform saved-plan gate: ${result5.decision.authorization}`,
+      `  continuity: ${result5.decision.continuity}`,
+      `  reason: ${result5.decision.reasonCode}`,
+      ...result5.plan ? [`  plan: ${result5.plan.sha256}`, `  resource changes: ${result5.plan.resourceChanges}`] : [],
+      "  terraform apply: not run",
+      ""
+    ].join("\n"));
+  }
+  return continuityExitCode(result5.decision.continuity);
 }
 function runDemo2(args) {
   const parsed = parse4(args);
@@ -14390,7 +14588,7 @@ function runInstallAction(args) {
   allowed(parsed, ["--repo", "--action-ref", "--source-workflow", "--format"], ["--json", "--force", "--self-serve"]);
   if (parsed.positional.length) throw new Error("continuity install-action accepts only named options");
   const result5 = installContinuityAction({
-    repo: resolve26(required(parsed, "--repo")),
+    repo: resolve27(required(parsed, "--repo")),
     actionCommit: required(parsed, "--action-ref"),
     ...parsed.values.get("--source-workflow") ? { sourceWorkflow: parsed.values.get("--source-workflow") } : {},
     force: parsed.flags.has("--force"),
@@ -14427,6 +14625,7 @@ function runContinuityCommand(args) {
     if (command === "status") return runStatus(rest);
     if (command === "staple") return runStaple(rest);
     if (command === "verify-staple") return runVerifyStaple(rest);
+    if (command === "terraform-plan-gate") return runTerraformPlanGate(rest);
     if (command === "demo") return runDemo2(rest);
     if (command === "guard-demo") return runGuardDemo(rest);
     if (command === "install-action") return runInstallAction(rest);
@@ -14438,7 +14637,7 @@ function runContinuityCommand(args) {
 }
 
 // src/public-pr-receipt-cli.ts
-import { resolve as resolve27 } from "node:path";
+import { resolve as resolve28 } from "node:path";
 
 // src/public-pr-receipt.ts
 import {
@@ -14854,7 +15053,7 @@ function selectedReceipt(value) {
   return value;
 }
 function verifyReceipt(path, format) {
-  const receipt = selectedReceipt(readBoundedJson(resolve27(path), 2 * 1024 * 1024, "public PR receipt"));
+  const receipt = selectedReceipt(readBoundedJson(resolve28(path), 2 * 1024 * 1024, "public PR receipt"));
   const result5 = verifyPublicPrReceipt(receipt);
   const signaturePresent = receipt.signature !== void 0;
   const accepted = result5.hashValid && (!signaturePresent || result5.signatureValid === true);
@@ -14922,7 +15121,7 @@ async function runPublicPrReceiptCommand(args, options = {}) {
     const toolCommit = validateToolCommit(parsed.values.get("--tool-ref") ?? "");
     const signingKey = parsed.values.get("--signing-key");
     const output = parsed.values.get("--output");
-    if (signingKey && output && resolve27(signingKey) === resolve27(output)) throw new Error("--output must not replace the signing key");
+    if (signingKey && output && resolve28(signingKey) === resolve28(output)) throw new Error("--output must not replace the signing key");
     const snapshot = await collectPublicPrSnapshot(parsed.positional[0], {
       ...options.transport ? { transport: options.transport } : {},
       token: options.token ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
@@ -14933,8 +15132,8 @@ async function runPublicPrReceiptCommand(args, options = {}) {
       toolVersion: options.toolVersion ?? VERSION,
       toolCommit
     });
-    if (signingKey) receipt = signPublicPrReceipt(receipt, resolve27(signingKey));
-    if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(receipt, null, 2)}
+    if (signingKey) receipt = signPublicPrReceipt(receipt, resolve28(signingKey));
+    if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(receipt, null, 2)}
 `);
     process.stdout.write(format === "json" ? `${JSON.stringify(receipt, null, 2)}
 ` : renderPublicPrReceipt(receipt));
@@ -15093,19 +15292,19 @@ function runGuardCompatibilityCommand(args) {
     const report = runGuardCompatibility({
       host,
       hostVersion: required2("--host-version"),
-      hostExecutable: resolve28(required2("--host-executable")),
+      hostExecutable: resolve29(required2("--host-executable")),
       controlName: required2("--control-name"),
       controlVersion: required2("--control-version"),
-      controlExecutable: resolve28(required2("--control-executable")),
-      ...parsed.values.get("--control-artifact") ? { controlArtifact: resolve28(parsed.values.get("--control-artifact")) } : {},
-      ...argumentsPath ? { controlArguments: loadControlArguments(resolve28(argumentsPath)) } : {},
-      policyPath: resolve28(required2("--policy")),
-      configurationPath: resolve28(required2("--configuration")),
+      controlExecutable: resolve29(required2("--control-executable")),
+      ...parsed.values.get("--control-artifact") ? { controlArtifact: resolve29(parsed.values.get("--control-artifact")) } : {},
+      ...argumentsPath ? { controlArguments: loadControlArguments(resolve29(argumentsPath)) } : {},
+      policyPath: resolve29(required2("--policy")),
+      configurationPath: resolve29(required2("--configuration")),
       vigilVersion: VERSION,
       ...timeoutMs !== void 0 ? { timeoutMs } : {}
     });
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve29(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardCompatibility(report));
     return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
@@ -15167,13 +15366,13 @@ function runGuardRouteCommand(args) {
     const report = runGuardRoute({
       host,
       hostVersion: required2("--host-version"),
-      hostExecutable: resolve28(required2("--host-executable")),
-      profileHome: resolve28(required2("--profile-home")),
+      hostExecutable: resolve29(required2("--host-executable")),
+      profileHome: resolve29(required2("--profile-home")),
       vigilVersion: VERSION,
       ...timeoutMs !== void 0 ? { timeoutMs } : {}
     });
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve29(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardRoute(report));
     return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
@@ -15196,7 +15395,7 @@ function runProve(args) {
         index += 1;
       }
     }
-    const repo = resolve28(optionValue(args, "--repo") ?? ".");
+    const repo = resolve29(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_SHA ?? "HEAD";
     if (!existsSync13(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef)) throw new Error(`invalid Git commit ${baseRef}`);
@@ -15204,7 +15403,7 @@ function runProve(args) {
     if (!(/* @__PURE__ */ new Set(["text", "json"])).has(format)) throw new Error("prove --format must be text or json");
     const report = buildControlProof(repo, baseRef, VERSION);
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve29(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderControlProof(report));
     return report.status === "PASS" ? 0 : 2;
@@ -15236,9 +15435,9 @@ function runCertify(args) {
       const requiredCheck = parsed.values.get("--required-check");
       const output = parsed.values.get("--output");
       if (!organization || !repository2 || !requiredCheck || !output) throw new Error("certify record requires --organization, --repository, --required-check, and --output");
-      const proof = readBoundedJson(resolve28(parsed.positional[0]), 2 * 1024 * 1024, "control proof");
+      const proof = readBoundedJson(resolve29(parsed.positional[0]), 2 * 1024 * 1024, "control proof");
       const certificate = createCertificate({ proof, organization, repository: repository2, requiredCheck });
-      writePrivateFileAtomic(resolve28(output), `${JSON.stringify(certificate, null, 2)}
+      writePrivateFileAtomic(resolve29(output), `${JSON.stringify(certificate, null, 2)}
 `);
       console.log(`Control certificate: ${certificate.proof.status} \xB7 ${certificate.certificateHash}`);
       return certificate.proof.status === "PASS" ? 0 : 2;
@@ -15248,8 +15447,8 @@ function runCertify(args) {
       const privateKey = parsed.values.get("--private-key");
       const output = parsed.values.get("--output");
       if (parsed.positional.length !== 1 || !privateKey || !output) throw new Error("certify sign requires <proof-payload.json> --private-key <pem> --output <path>");
-      const proof = signControlProof(readBoundedJson(resolve28(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve28(privateKey));
-      writePrivateFileAtomic(resolve28(output), `${JSON.stringify(proof, null, 2)}
+      const proof = signControlProof(readBoundedJson(resolve29(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve29(privateKey));
+      writePrivateFileAtomic(resolve29(output), `${JSON.stringify(proof, null, 2)}
 `);
       console.log(`Signed control proof: ${proof.payload.status}`);
       console.log(`Control identity: ${signedControlIdentity(proof)}`);
@@ -15264,13 +15463,13 @@ function runCertify(args) {
       const output = parsed.values.get("--output");
       if (parsed.positional.length !== 1 || !publicKeyPath || !organization || !repository2 || !requiredCheck || !output) throw new Error("certify record-signed requires <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>");
       const certificate = createSignedCertificate({
-        proof: readBoundedJson(resolve28(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
-        publicKeyPath: resolve28(publicKeyPath),
+        proof: readBoundedJson(resolve29(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
+        publicKeyPath: resolve29(publicKeyPath),
         organization,
         repository: repository2,
         requiredCheck
       });
-      writePrivateFileAtomic(resolve28(output), `${JSON.stringify(certificate, null, 2)}
+      writePrivateFileAtomic(resolve29(output), `${JSON.stringify(certificate, null, 2)}
 `);
       console.log(`Signed control certificate: ${certificate.proof.payload.status} \xB7 ${certificate.certificateHash}`);
       console.log(`Control identity: ${signedControlIdentity(certificate.proof)}`);
@@ -15280,8 +15479,8 @@ function runCertify(args) {
       const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--corpus"]));
       const corpus = parsed.values.get("--corpus");
       if (parsed.positional.length !== 1 || !corpus) throw new Error("certify add requires <certificate.json> --corpus <corpus.jsonl>");
-      const certificate = validateAnyCertificate(readBoundedJson(resolve28(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
-      const corpusPath = resolve28(corpus);
+      const certificate = validateAnyCertificate(readBoundedJson(resolve29(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
+      const corpusPath = resolve29(corpus);
       const current = loadCorpus(corpusPath).map((entry2) => JSON.stringify(entry2)).join("\n");
       const { entry, line } = appendCorpusEntry(current, certificate);
       appendPrivateFileAtomic(corpusPath, line);
@@ -15295,12 +15494,12 @@ function runCertify(args) {
       if (!corpus || !policy || parsed.positional.length) throw new Error("certify status requires --corpus <corpus.jsonl> --policy <policy.json>");
       const format = parsed.values.get("--format") ?? "text";
       if (format !== "text" && format !== "json") throw new Error("certify status --format must be text or json");
-      const report = buildStatusReport(loadPolicy2(resolve28(policy)), loadCorpus(resolve28(corpus)), parsed.values.get("--as-of") ?? (/* @__PURE__ */ new Date()).toISOString());
+      const report = buildStatusReport(loadPolicy2(resolve29(policy)), loadCorpus(resolve29(corpus)), parsed.values.get("--as-of") ?? (/* @__PURE__ */ new Date()).toISOString());
       const rendered = format === "json" ? `${JSON.stringify(report, null, 2)}
 ` : `${renderStatusReport(report)}
 `;
       const output = parsed.values.get("--output");
-      if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
+      if (output) writePrivateFileAtomic(resolve29(output), `${JSON.stringify(report, null, 2)}
 `);
       process.stdout.write(rendered);
       return report.status === "PASS" ? 0 : 2;
@@ -15317,7 +15516,7 @@ function runCertify(args) {
       const maxAgeRaw = parsed.values.get("--max-age-hours");
       const maxAgeHours = maxAgeRaw === void 0 ? void 0 : Number(maxAgeRaw);
       const generated = createSingleRepositoryPolicy({ organization, repository: repository2, requiredCheck, pack, ...maxAgeHours === void 0 ? {} : { maxAgeHours } });
-      writePrivateFileAtomic(resolve28(output), `${JSON.stringify(generated, null, 2)}
+      writePrivateFileAtomic(resolve29(output), `${JSON.stringify(generated, null, 2)}
 `);
       console.log(`Created ${pack} control policy with a ${generated.maxAgeHours}-hour proof window.`);
       return 0;
@@ -15340,7 +15539,7 @@ function runPlan(args) {
         index += 1;
       }
     }
-    const repo = resolve28(optionValue(args, "--repo") ?? ".");
+    const repo = resolve29(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_BASE_SHA ?? "HEAD~1";
     const headRef = optionValue(args, "--head") ?? process.env.GITHUB_HEAD_SHA ?? "HEAD";
     if (!existsSync13(repo)) throw new Error(`repository not found: ${repo}`);
@@ -15356,13 +15555,13 @@ function runPlan(args) {
 ` : format === "markdown" ? renderAuthorityPlanMarkdown(report) : `${renderAuthorityPlan(report)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve29(output), `${JSON.stringify(report, null, 2)}
 `);
     else process.stdout.write(rendered);
     if (args.includes("--github-summary")) {
       const summaryPath = process.env.GITHUB_STEP_SUMMARY;
       if (!summaryPath) throw new Error("--github-summary requires GITHUB_STEP_SUMMARY");
-      appendPrivateFileAtomic(resolve28(summaryPath), renderAuthorityPlanMarkdown(report));
+      appendPrivateFileAtomic(resolve29(summaryPath), renderAuthorityPlanMarkdown(report));
     }
     return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
   } catch (error) {
@@ -15374,10 +15573,10 @@ function runProofComment(args) {
   try {
     const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--verify-url", "--output"]));
     if (parsed.positional.length !== 1) throw new Error("proof-comment requires exactly one full receipt JSON path");
-    const { report } = loadReceipt(resolve28(parsed.positional[0]));
+    const { report } = loadReceipt(resolve29(parsed.positional[0]));
     const rendered = renderProofComment(report, { verifyUrl: parsed.values.get("--verify-url") });
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve28(output), rendered);
+    if (output) writePrivateFileAtomic(resolve29(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -15445,7 +15644,7 @@ function optionValue(args, name2) {
 }
 function runInit3(args) {
   try {
-    const repo = resolve28(optionValue(args, "--repo") ?? ".");
+    const repo = resolve29(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
     const profile = optionValue(args, "--profile") ?? "default";
@@ -15454,7 +15653,7 @@ function runInit3(args) {
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve28(publicKey)) : void 0, profile, attest);
+    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve29(publicKey)) : void 0, profile, attest);
     console.log("Agent Vigil initialized.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
     for (const path of result5.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -15476,7 +15675,7 @@ function runProtect(args) {
       if (!allowed2.has(arg)) throw new Error(`unknown protect argument: ${arg}`);
       if (arg === "--repo") index += 1;
     }
-    const repo = resolve28(optionValue(args, "--repo") ?? ".");
+    const repo = resolve29(optionValue(args, "--repo") ?? ".");
     const result5 = initRepository(repo, args.includes("--force"), void 0, "protect", args.includes("--attest"));
     console.log("Agent Vigil protection installed.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
@@ -15508,8 +15707,8 @@ function runMaintainer(args) {
     const eventOption = optionValue(args, "--event");
     if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
     const options = parseArgs(withoutOption(args.slice(1), "--event"));
-    const repo = resolve28(options.repo);
-    const eventPath = resolve28(eventOption);
+    const repo = resolve29(options.repo);
+    const eventPath = resolve29(eventOption);
     const policy = loadPolicy(repo, options.policy, options.policyRef);
     if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -15595,7 +15794,7 @@ function runMergeGroup(args) {
 }
 function runDoctor2(args) {
   try {
-    const repo = resolve28(optionValue(args, "--repo") ?? ".");
+    const repo = resolve29(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -15609,9 +15808,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve28(privatePath), resolve28(publicPath));
+    generateSigningKey(resolve29(privatePath), resolve29(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve28(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve29(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -15629,10 +15828,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve28(options.repo, receiptPath);
+    const absoluteReceipt = resolve29(options.repo, receiptPath);
     const receipt = JSON.parse(readFileSync27(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve28(options.repo),
+      repo: resolve29(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -15651,10 +15850,10 @@ function runVerify3(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync27(resolve28(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync27(resolve29(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result5 = verifyReport(report, publicKey ? resolve28(publicKey) : void 0);
+    const result5 = verifyReport(report, publicKey ? resolve29(publicKey) : void 0);
     console.log(`Receipt hash: ${result5.hashValid ? "VALID" : "INVALID"}`);
     if (result5.signatureValid !== void 0) {
       console.log(`Ed25519 signature: ${result5.signatureValid ? "VALID" : "INVALID"} \xB7 ${result5.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
@@ -15698,7 +15897,7 @@ function runAttest(args) {
     const predicateOutput = parsed.values.get("--predicate-output");
     if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest requires <receipt.json> and --predicate-output <path>");
     const receiptPath = parsed.positional[0];
-    const predicate = writeAttestationPredicate(resolve28(receiptPath), resolve28(predicateOutput));
+    const predicate = writeAttestationPredicate(resolve29(receiptPath), resolve29(predicateOutput));
     console.log("Agent Vigil attestation predicate prepared.");
     console.log(`  receipt:  ${predicate.receipt.receiptHash}`);
     console.log(`  decision: ${predicate.receipt.status}`);
@@ -15719,8 +15918,8 @@ function runVerifyAttestation(args) {
     if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-attestation requires <receipt.json> and --repository <owner/name>");
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve28(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const { report } = loadReceipt(resolve28(receiptPath));
+    const verification2 = verifyGitHubAttestation(resolve29(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const { report } = loadReceipt(resolve29(receiptPath));
     console.log(`GitHub attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
     console.log(`Receipt file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
     console.log(`Receipt contents: ${verification2.receiptHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
@@ -15740,7 +15939,7 @@ function runAttestControl(args) {
     const predicateOutput = parsed.values.get("--predicate-output");
     if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest-control requires <control-proof.json> and --predicate-output <path>");
     const proofPath = parsed.positional[0];
-    const predicate = writeControlProofPredicate(resolve28(proofPath), resolve28(predicateOutput));
+    const predicate = writeControlProofPredicate(resolve29(proofPath), resolve29(predicateOutput));
     console.log("Agent Vigil control-proof attestation predicate prepared.");
     console.log(`  proof:    ${predicate.proof.receiptHash}`);
     console.log(`  decision: ${predicate.proof.status}`);
@@ -15761,12 +15960,12 @@ function runVerifyControlAttestation(args) {
     if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-control-attestation requires <control-proof.json> and --repository <owner/name>");
     const proofPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil-control-proof.yml`;
-    const verification2 = verifyGitHubControlProofAttestation(resolve28(proofPath), repository2, {
+    const verification2 = verifyGitHubControlProofAttestation(resolve29(proofPath), repository2, {
       signerWorkflow,
       ...parsed.values.get("--signer-digest") ? { signerDigest: parsed.values.get("--signer-digest") } : {},
       allowSelfHosted: parsed.flags.has("--allow-self-hosted")
     });
-    const { proof } = loadControlProof(resolve28(proofPath));
+    const { proof } = loadControlProof(resolve29(proofPath));
     console.log(`GitHub control-proof attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
     console.log(`Proof file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
     console.log(`Proof contents: ${verification2.proofHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
@@ -15793,12 +15992,12 @@ function runNotary(args) {
     }
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve28(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const payload = buildNotaryCheck(resolve28(receiptPath), verification2, head, policySha256);
+    const verification2 = verifyGitHubAttestation(resolve29(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const payload = buildNotaryCheck(resolve29(receiptPath), verification2, head, policySha256);
     const rendered = `${JSON.stringify(payload, null, 2)}
 `;
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve28(output), rendered);
+    if (output) writePrivateFileAtomic(resolve29(output), rendered);
     else process.stdout.write(rendered);
     return payload.conclusion === "success" ? 0 : payload.conclusion === "failure" ? 1 : 2;
   } catch (error) {
@@ -15812,15 +16011,15 @@ function runCompare(args) {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync27(resolve28(values[0]), "utf8"));
-    const after = JSON.parse(readFileSync27(resolve28(values[1]), "utf8"));
+    const before = JSON.parse(readFileSync27(resolve29(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync27(resolve29(values[1]), "utf8"));
     if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
 ` : `${renderReceiptDelta(delta)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve28(output), rendered);
+    if (output) writePrivateFileAtomic(resolve29(output), rendered);
     else process.stdout.write(rendered);
     return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
   } catch (error) {
@@ -15912,21 +16111,21 @@ function readBoundedFile(path, maximumBytes, label) {
 function runValue(args) {
   try {
     const options = parseValueArgs(args);
-    const receiptPath = resolve28(options.receipt);
+    const receiptPath = resolve29(options.receipt);
     const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
     const report = JSON.parse(rawReceipt.toString("utf8"));
     if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
       throw new Error("value requires a full Agent Vigil receipt schema 2");
     }
-    const verification2 = verifyReport(report, options.publicKey ? resolve28(options.publicKey) : void 0);
+    const verification2 = verifyReport(report, options.publicKey ? resolve29(options.publicKey) : void 0);
     if (!verification2.hashValid) throw new Error("value receipt hash is invalid");
     if (verification2.signatureValid === false) throw new Error("value receipt signature is invalid");
     let transcriptPath;
-    if (options.transcript) transcriptPath = resolve28(options.transcript);
+    if (options.transcript) transcriptPath = resolve29(options.transcript);
     else if ((/* @__PURE__ */ new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"])).has(report.transcriptFormat)) {
       const candidates = [
-        resolve28(dirname12(receiptPath), report.transcript),
-        ...isAbsolute11(report.repo) ? [resolve28(report.repo, report.transcript)] : []
+        resolve29(dirname13(receiptPath), report.transcript),
+        ...isAbsolute11(report.repo) ? [resolve29(report.repo, report.transcript)] : []
       ];
       transcriptPath = candidates.find((candidate) => existsSync13(candidate));
     }
@@ -15937,11 +16136,11 @@ function runValue(args) {
     }
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
-      const evidence = readBoundedFile(resolve28(path), 64 * 1024 * 1024, label);
+      const evidence = readBoundedFile(resolve29(path), 64 * 1024 * 1024, label);
       return `sha256:${createHash24("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
-    const github = options.githubEvidence ? loadGitHubEvidence(resolve28(options.githubEvidence)) : void 0;
+    const github = options.githubEvidence ? loadGitHubEvidence(resolve29(options.githubEvidence)) : void 0;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;
     const inferredOutcome = options.outcome ?? github?.inference.outcome;
     const inferredOutcomeAsOf = options.outcomeAsOf ?? github?.inference.outcomeAsOf;
@@ -15983,7 +16182,7 @@ function runValue(args) {
     });
     const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}
 ` : options.format === "markdown" ? renderValueCardMarkdown(card) : options.format === "html" ? renderValueCardHtml(card) : renderValueCardText(card);
-    if (options.output) writePrivateFileAtomic(resolve28(options.output), rendered);
+    if (options.output) writePrivateFileAtomic(resolve29(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
   } catch (error) {
@@ -16024,7 +16223,7 @@ function runGitHubEvidence(args) {
     const bundle = buildGitHubEvidence(inputs);
     const rendered = `${JSON.stringify(bundle, null, 2)}
 `;
-    if (output) writePrivateFileAtomic(resolve28(output), rendered);
+    if (output) writePrivateFileAtomic(resolve29(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -16054,7 +16253,7 @@ function runCompareValue(args) {
     const comparison = compareValueCards(cards, paths.length);
     const rendered = format === "json" ? `${JSON.stringify(comparison, null, 2)}
 ` : format === "html" ? renderValueComparisonHtml(comparison) : renderValueComparisonText(comparison);
-    if (output) writePrivateFileAtomic(resolve28(output), rendered);
+    if (output) writePrivateFileAtomic(resolve29(output), rendered);
     else process.stdout.write(rendered);
     return comparison.status === "COMPARABLE" ? 0 : 2;
   } catch (error) {
@@ -16067,7 +16266,7 @@ function runAudit(args) {
     const options = parseArgs(args.slice(1));
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
-    const absolute = resolve28(diffPath);
+    const absolute = resolve29(diffPath);
     const raw = readFileSync27(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
@@ -16104,7 +16303,7 @@ function runAudit(args) {
 function runTestIntegrity(args) {
   try {
     const options = parseArgs(args.slice(1));
-    const repo = resolve28(options.repo);
+    const repo = resolve29(options.repo);
     if (!gitRefExists(repo, options.base) || options.head !== "WORKTREE" && !gitRefExists(repo, options.head)) {
       throw new Error(`invalid git range ${options.base}..${options.head}`);
     }
@@ -16163,7 +16362,7 @@ function runAuthority(args) {
       const output = optionValue(args, "--output");
       const rendered = authorityContractTemplate();
       if (output) {
-        writePrivateFileAtomic(resolve28(output), rendered);
+        writePrivateFileAtomic(resolve29(output), rendered);
         console.log(`Created task-scoped authority contract ${output}. Review every allowed action and replace the task ID before use.`);
       } else process.stdout.write(rendered);
       return 0;
@@ -16176,11 +16375,11 @@ function runAuthority(args) {
     const options = parseArgs(stripped);
     const transcriptOption = options.transcript;
     if (!transcriptOption) throw new Error("authority requires a structured agent transcript");
-    const repo = resolve28(options.repo);
+    const repo = resolve29(options.repo);
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
     const base = resolveGitRef(repo, options.base);
     const head = resolveGitRef(repo, options.head);
-    const transcriptPath = isAbsolute11(transcriptOption) ? transcriptOption : resolve28(repo, transcriptOption);
+    const transcriptPath = isAbsolute11(transcriptOption) ? transcriptOption : resolve29(repo, transcriptOption);
     if (!existsSync13(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
     const contract = loadAuthorityContract(repo, contractOption, contractRef);
     const loaded = loadTranscript(transcriptPath);
@@ -16225,7 +16424,7 @@ function runAuthority(args) {
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve28(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve29(options.signingKey));
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
@@ -16291,7 +16490,7 @@ function run(argv = process.argv.slice(2)) {
 ${usage4()}`);
     return 2;
   }
-  const repo = resolve28(options.repo);
+  const repo = resolve29(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -16308,7 +16507,7 @@ ${usage4()}`);
     console.error(usage4());
     return 2;
   }
-  const transcriptPath = isAbsolute11(transcript) ? transcript : resolve28(repo, transcript);
+  const transcriptPath = isAbsolute11(transcript) ? transcript : resolve29(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
@@ -16335,8 +16534,8 @@ ${usage4()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve28(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve28(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve29(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve29(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -16386,12 +16585,12 @@ ${usage4()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve28(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve29(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve28(options.signingKey));
-      const portablePath = resolve28(repo, options.portableOutput);
-      mkdirSync11(dirname12(portablePath), { recursive: true });
+      const portable = createPortableReceipt(report, resolve29(options.signingKey));
+      const portablePath = resolve29(repo, options.portableOutput);
+      mkdirSync11(dirname13(portablePath), { recursive: true });
       writeFileSync11(portablePath, `${JSON.stringify(portable, null, 2)}
 `);
     }

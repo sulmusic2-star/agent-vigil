@@ -70,8 +70,7 @@ export type ContinuityStapleVerification = {
   limits: string[];
 };
 
-type VerifyStapleOptions = {
-  publicKeyPath: string;
+type VerifyStapleBindings = {
   expectedHead: string;
   expectedReceiptHash: string;
   expectedEnvironment: string;
@@ -81,10 +80,15 @@ type VerifyStapleOptions = {
   expectedChainTip?: string;
 };
 
+export type VerifyStapleOptions = VerifyStapleBindings & (
+  | { publicKeyPath: string; publicKeyPem?: never }
+  | { publicKeyPem: string | Uint8Array; publicKeyPath?: never }
+);
+
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-const MAX_STAPLE_BYTES = 256 * 1024;
+export const MAX_CONTINUITY_STAPLE_BYTES = 256 * 1024;
 
 function object(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -262,7 +266,34 @@ export function issueContinuityStaple(options: {
 }
 
 export function loadContinuityStaple(path: string): unknown {
-  return readBoundedJson(path, MAX_STAPLE_BYTES, "continuity staple");
+  return readBoundedJson(path, MAX_CONTINUITY_STAPLE_BYTES, "continuity staple");
+}
+
+export function parseContinuityStapleJson(value: string): unknown {
+  if (typeof value !== "string" || Buffer.byteLength(value) > MAX_CONTINUITY_STAPLE_BYTES) {
+    throw new Error("continuity staple JSON exceeds the byte limit");
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    throw new Error("continuity staple JSON is malformed");
+  }
+}
+
+function pinnedPublicKey(options: VerifyStapleOptions): KeyObject {
+  const hasPath = typeof options.publicKeyPath === "string" && options.publicKeyPath.length > 0;
+  const hasPem = typeof options.publicKeyPem === "string" || options.publicKeyPem instanceof Uint8Array;
+  if (hasPath === hasPem) throw new Error("provide exactly one pinned continuity public key source");
+  let pinned: KeyObject;
+  try {
+    pinned = hasPath
+      ? createPublicKey(readBoundedRegularFile(options.publicKeyPath!, 64 * 1024, "pinned continuity staple public key"))
+      : createPublicKey(typeof options.publicKeyPem === "string" ? options.publicKeyPem : Buffer.from(options.publicKeyPem!));
+  } catch {
+    throw new Error("pinned continuity staple public key is invalid");
+  }
+  if (pinned.asymmetricKeyType !== "ed25519") throw new Error("pinned continuity staple public key must be Ed25519");
+  return pinned;
 }
 
 export function verifyContinuityStaple(input: unknown, options: VerifyStapleOptions): ContinuityStapleVerification {
@@ -282,8 +313,7 @@ export function verifyContinuityStaple(input: unknown, options: VerifyStapleOpti
   const keyId = digest(signature.keyId, "continuity staple signature.keyId");
   if (embeddedId !== keyId) throw new Error("continuity staple key ID does not match its embedded key");
 
-  const pinned = createPublicKey(readBoundedRegularFile(options.publicKeyPath, 64 * 1024, "pinned continuity staple public key"));
-  if (pinned.asymmetricKeyType !== "ed25519") throw new Error("pinned continuity staple public key must be Ed25519");
+  const pinned = pinnedPublicKey(options);
   if (signingKeyId(publicKeyDer(pinned)) !== keyId) throw new Error("continuity staple signer does not match the pinned public key");
   const signatureValue = base64(signature.value, "continuity staple signature.value", 64);
   if (!verify(null, Buffer.from(payloadHash), pinned, signatureValue)) throw new Error("continuity staple signature is invalid");

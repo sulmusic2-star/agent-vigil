@@ -84,4 +84,12 @@ Expiry never turns `REVOKED` into a weaker result. A signed revocation remains
 `EXPIRED` and stops the protected action.
 
 This implementation is local and offline. It does not deploy a status service,
-Kubernetes admission controller, Terraform gate, GitHub App, or hosted product.
+GitHub App, production admission controller, or hosted product.
+
+Node.js consumers can use the offline package subpath documented in
+[TypeScript continuity verifier](TYPESCRIPT_CONTINUITY_LIBRARY.md). GitHub
+installation is documented in [GitHub continuity marker](GITHUB_MARKER.md).
+The saved-plan command is documented in
+[Terraform saved-plan gate](TERRAFORM_PLAN_GATE.md). The measured disposable
+cluster fixture is documented in
+[Kubernetes admission gate](KUBERNETES_ADMISSION.md).

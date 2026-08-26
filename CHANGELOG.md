@@ -19,6 +19,24 @@
   `CURRENT`, controlled `REVOKED`, sticky `REVOKED` after an ordinary green
   route, and `CURRENT` only after independent signed repair. The command labels
   its failure as a fixture and does not claim a real incident or deployment.
+- Add a removable GitHub continuity marker with a manual public installation
+  vector. The public vector reports `SELF_TEST_PASS`, never `CURRENT`, and
+  cannot authorize a protected action.
+- Add the offline `@sulmusic/agent-vigil/continuity-staple` TypeScript package
+  entry and deterministic signed vectors shared by the library and CLI. The
+  vector private key is not retained or packaged.
+- Add `vigil continuity terraform-plan-gate` to verify signed continuity before
+  inspecting and fingerprinting one exact saved Terraform plan. It never runs
+  `terraform apply` and retains hashes, versions, and action counts rather than
+  plan values.
+- Add a disposable two-replica Kubernetes admission lab with default-deny
+  verifier egress and an unavailable-verifier drill. It allows fresh `CURRENT`,
+  denies missing, tampered, expired, and revoked evidence, and removes its
+  cluster and fixtures. This maintainer-run lab is not a production deployment
+  or outside adoption.
+- Scope the existing coverage thresholds to production TypeScript sources so
+  temporary repositories and generated adversarial fixtures cannot dilute the
+  reported project coverage.
 
 ## 0.19.0 - 2026-08-25
 

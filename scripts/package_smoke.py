@@ -26,6 +26,19 @@ def main() -> int:
     (consumer / "package.json").write_text('{"private":true}\n')
     run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", str(tarball)], consumer)
     vigil = consumer / "node_modules" / ".bin" / "vigil"
+    installed = consumer / "node_modules" / "@sulmusic" / "agent-vigil"
+    vector_dir = installed / "test-vectors" / "continuity-staple" / "v1"
+    library_check = consumer / "continuity-library-check.mjs"
+    library_check.write_text(
+        'import { readFileSync } from "node:fs";\n'
+        'import { parseContinuityStapleJson, verifyContinuityStaple } from "@sulmusic/agent-vigil/continuity-staple";\n'
+        f'const root={json.dumps(str(vector_dir))};\n'
+        'const manifest=JSON.parse(readFileSync(`${root}/manifest.json`,"utf8"));\n'
+        'const result=verifyContinuityStaple(parseContinuityStapleJson(readFileSync(`${root}/current.staple.json`,"utf8")),{publicKeyPem:readFileSync(`${root}/authority-public.pem`),...manifest.bindings,now:new Date(manifest.times.freshVerification)});\n'
+        'if(result.effectiveContinuity!=="CURRENT"||!result.allowsProtectedAction)throw new Error("packed library did not allow the signed CURRENT vector");\n'
+        'process.stdout.write(JSON.stringify({status:result.effectiveContinuity,allowed:result.allowsProtectedAction}));\n'
+    )
+    library_result = json.loads(run(["node", str(library_check)], consumer).stdout)
     continuity_help = run([str(vigil), "continuity", "--help"], consumer)
     required_continuity_help = ["continuity init", "continuity import-github", "continuity status", "continuity demo", "continuity install-action"]
     if any(item not in continuity_help.stdout for item in required_continuity_help):
@@ -205,6 +218,7 @@ def main() -> int:
         "controlProof": control_proof_result,
         "continuityHelpExit": continuity_help.returncode,
         "continuityDemoExit": continuity_demo.returncode,
+        "continuityLibrary": library_result,
         "guardCompatibilityExit": guard_check.returncode,
         "guardDeploymentState": guard_receipt["deployment"]["state"],
         "liveHostRouteExit": route_check.returncode,
