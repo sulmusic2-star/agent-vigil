@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "subject": "Agent Vigil Continuity Staple consumer verification",
+  "scope": {
+    "included": [
+      "canonical payload hashing",
+      "Ed25519 signature verification against a pinned public key",
+      "receipt, commit, environment, policy, chain-tip, sequence, clock, and expiry checks",
+      "bounded file read and JSON parsing",
+      "cold Node.js CLI process startup"
+    ],
+    "excluded": [
+      "continuity chain issuance",
+      "network retrieval",
+      "container registry retrieval",
+      "Kubernetes API-server latency",
+      "host-route execution",
+      "competitor performance"
+    ]
+  },
+  "iterations": { "core": 10000, "file": 2000, "coldCli": 50 },
+  "warmups": { "core": 500, "file": 100, "coldCli": 5 },
+  "budgets": {
+    "stapleBytesMaximum": 8192,
+    "coreP95MillisecondsMaximum": 2,
+    "fileP95MillisecondsMaximum": 5,
+    "coldCliP95MillisecondsMaximum": 250
+  },
+  "rules": [
+    "Run from a clean exact Git commit after building dist/cli.js.",
+    "Use one valid short-lived CURRENT staple and a pinned Ed25519 public key.",
+    "Freeze the verification time inside the staple lifetime so clock drift cannot change the result.",
+    "Record every sample and calculate percentiles from the sorted observed durations.",
+    "Do not present a single-machine maintainer run as independent, universal, or competitor-comparative evidence."
+  ]
+}

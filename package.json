@@ -27,7 +27,8 @@
     "demo:value-comparison": "tsx scripts/value_comparison_demo.ts",
     "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
     "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts",
-    "benchmark:compare": "tsx scripts/benchmark_compare_static.ts"
+    "benchmark:compare": "tsx scripts/benchmark_compare_static.ts",
+    "benchmark:continuity-staple": "tsx scripts/benchmark_continuity_staple.ts"
   },
   "keywords": [
     "ai-agents",
