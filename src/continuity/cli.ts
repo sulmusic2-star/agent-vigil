@@ -6,6 +6,8 @@ import { appendContinuityEvent, initializeContinuityChain, verifyContinuityChain
 import { loadContinuityPolicy, loadEventDraft } from "./contracts.ts";
 import { renderContinuityDemo, runContinuityDemo } from "./demo.ts";
 import { evaluateContinuity } from "./decision.ts";
+import { renderGuardContinuityDemo, runGuardContinuityDemo } from "./guard-demo.ts";
+import { loadGuardRouteReport } from "./guard.ts";
 import { githubRepositoryFromRemote, importGitHubActionsOutcome, importGitHubOutcome } from "./github.ts";
 import { publicChainVerification, renderChainVerification, renderContinuityDecision } from "./presentation.ts";
 import { installContinuityAction } from "./workflow.ts";
@@ -16,6 +18,7 @@ const VALUE_FLAGS = new Set([
   "--webhook-signature", "--webhook-secret-file", "--observed-at", "--expected-head",
   "--action-ref", "--source-workflow",
   "--expected-github-repository",
+  "--claude-route", "--codex-route",
 ]);
 const BOOLEAN_FLAGS = new Set(["--json", "--unavailable", "--force", "--self-serve"]);
 
@@ -29,6 +32,7 @@ Usage:
   vigil continuity import-github --chain <directory> --unavailable --delivery-id <uuid> --observed-at <RFC3339> --signing-key <private.pem>
   vigil continuity import-github-actions --chain <directory> --signing-key <private.pem>
   vigil continuity demo [--format text|json] [--output <file>]
+  vigil continuity guard-demo --claude-route <receipt.json> --codex-route <receipt.json> [--format text|json] [--output <file>]
   vigil continuity install-action --repo <path> --action-ref <full-commit-sha> [--source-workflow <name>] [--self-serve] [--force] [--format text|json]
   vigil continuity verify --chain <directory> [--expected-head <sha>] [--public-key <public.pem>] [--format text|json] [--output <file>]
   vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
@@ -142,6 +146,12 @@ function selectedNow(parsed: Parsed): Date {
 
 function outputJson(path: string | undefined, value: unknown): void {
   if (path) writePrivateFileAtomic(resolve(path), `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function protectNamedOutput(output: string | undefined, inputs: string[]): void {
+  if (!output) return;
+  const selected = resolve(output);
+  if (inputs.some((input) => resolve(input) === selected)) throw new Error("--output must not replace an input receipt");
 }
 
 function runInit(args: string[]): number {
@@ -286,6 +296,22 @@ function runDemo(args: string[]): number {
   return 0;
 }
 
+function runGuardDemo(args: string[]): number {
+  const parsed = parse(args);
+  allowed(parsed, ["--claude-route", "--codex-route", "--format", "--output"], ["--json"]);
+  if (parsed.positional.length) throw new Error("continuity guard-demo accepts only named options");
+  const claudePath = required(parsed, "--claude-route");
+  const codexPath = required(parsed, "--codex-route");
+  protectNamedOutput(parsed.values.get("--output"), [claudePath, codexPath]);
+  const result = runGuardContinuityDemo({
+    claudeRoute: loadGuardRouteReport(claudePath),
+    codexRoute: loadGuardRouteReport(codexPath),
+  });
+  outputJson(parsed.values.get("--output"), result);
+  process.stdout.write(selectedFormat(parsed) === "json" ? `${JSON.stringify(result, null, 2)}\n` : `${renderGuardContinuityDemo(result)}\n`);
+  return 0;
+}
+
 function runInstallAction(args: string[]): number {
   const parsed = parse(args);
   allowed(parsed, ["--repo", "--action-ref", "--source-workflow", "--format"], ["--json", "--force", "--self-serve"]);
@@ -327,6 +353,7 @@ export function runContinuityCommand(args: string[]): number {
     if (command === "verify") return runVerify(rest);
     if (command === "status") return runStatus(rest);
     if (command === "demo") return runDemo(rest);
+    if (command === "guard-demo") return runGuardDemo(rest);
     if (command === "install-action") return runInstallAction(rest);
     throw new Error(`unknown continuity command: ${command}`);
   } catch (error) {

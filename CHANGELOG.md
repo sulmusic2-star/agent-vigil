@@ -12,6 +12,13 @@
   host-owned call identifiers, no unexpected routed calls, removed temporary
   configuration, and unchanged ordinary user configuration. One host passing
   cannot stand in for the other, and deployment remains on `HOLD`.
+- Add strict guard-route receipt validation and typed continuity events. A
+  passing route affirms, a contradictory route revokes, an inconclusive route
+  holds, and an unexpected host/control/operating-system binding revokes.
+- Add `vigil continuity guard-demo` for the complete two-host state sequence:
+  `CURRENT`, controlled `REVOKED`, sticky `REVOKED` after an ordinary green
+  route, and `CURRENT` only after independent signed repair. The command labels
+  its failure as a fixture and does not claim a real incident or deployment.
 
 ## 0.19.0 - 2026-08-25
 

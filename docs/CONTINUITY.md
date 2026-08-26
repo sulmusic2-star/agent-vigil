@@ -20,6 +20,20 @@ It shows one change moving through this exact sequence:
 
 The result lists all five recorded event types in order.
 
+After separately checking that the supplied Claude Code and Codex versions are
+current, and both live-route receipts pass, run the guarded-host version:
+
+```bash
+vigil continuity guard-demo \
+  --claude-route claude-live-route.json \
+  --codex-route codex-live-route.json
+```
+
+It records both hosts as required sources, applies a controlled routing
+failure, proves that a later green route does not clear the revocation, and
+requires independent signed repair. See
+[Guarded-host continuity](GUARD_CONTINUITY.md) for its checks and limits.
+
 ## See the behavior in GitHub
 
 The repository includes a manual

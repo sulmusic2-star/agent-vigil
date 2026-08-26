@@ -224,6 +224,20 @@ The live drill permits only two harmless `printf` calls in an empty temporary
 workspace. One host passing cannot stand in for the other, and deployment stays
 on `HOLD`. See [the live-host route contract](docs/LIVE_HOST_ROUTE.md).
 
+After both host receipts pass, join them to the sticky continuity rule:
+
+```bash
+vigil continuity guard-demo \
+  --claude-route claude-live-route.json \
+  --codex-route codex-live-route.json \
+  --output guarded-host-continuity.json
+```
+
+The local demonstration reaches `CURRENT`, applies a clearly labeled controlled
+failure, stays `REVOKED` after a later green route, and returns to `CURRENT`
+only after independent signed repair. It does not claim a real host incident or
+deployment. See [Guarded-host continuity](docs/GUARD_CONTINUITY.md).
+
 The check sends one printable allow marker and one printable deny marker in the
 host's `PreToolUse` format. It records five explicit outcomes and binds the
 receipt to the selected host and control files, policy, configuration,
@@ -695,6 +709,9 @@ lab uses synthetic evidence and never deploys software. See the
 
 ```bash
 vigil continuity demo
+vigil continuity guard-demo \
+  --claude-route claude-live-route.json \
+  --codex-route codex-live-route.json
 vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
 vigil continuity import-github \
   --chain .agent-vigil/continuity \

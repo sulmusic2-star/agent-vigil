@@ -46,6 +46,12 @@ directory. The command refuses either ordinary profile and refuses to overwrite
 an existing `hooks.json`, `config.toml`, `settings.json`, or
 `settings.local.json` in the disposable profile.
 
+For Claude Code, the drill binds `CLAUDE_CONFIG_DIR` to the marked disposable
+profile. Confirm that the exact Claude executable can authenticate from that
+same profile before running the drill. Remove the disposable login after
+retaining the reduced result. Do not point this command at the ordinary user
+profile.
+
 ## Run one host
 
 ```bash
@@ -95,6 +101,21 @@ Every receipt keeps deployment on `HOLD`. A passing receipt records
 `ONE_HOST_PROVEN`; it does not stand in for the other host. The GitHub plus
 Terraform ticket remains blocked until the current Claude Code version and the
 current Codex version each produce their own passing receipt.
+
+After both receipts pass, run the local guarded-host continuity demonstration:
+
+```bash
+vigil continuity guard-demo \
+  --claude-route claude-live-route.json \
+  --codex-route codex-live-route.json \
+  --output guarded-host-continuity.json
+```
+
+It proves that a later control failure revokes deployment permission, that a
+subsequent ordinary green route cannot erase the revocation, and that a
+different trusted signer must verify the exact repair. The failure is a
+controlled fixture, not a claim about either host. See
+[Guarded-host continuity](GUARD_CONTINUITY.md).
 
 Coverage is limited to the exact tested Bash route. Codex's official hooks
 reference says specialized tool paths can bypass the default hook path.

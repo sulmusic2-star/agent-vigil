@@ -3,8 +3,8 @@
 // src/cli.ts
 import { createHash as createHash24 } from "node:crypto";
 import { execFileSync as execFileSync19 } from "node:child_process";
-import { existsSync as existsSync13, mkdirSync as mkdirSync11, readFileSync as readFileSync27, realpathSync as realpathSync15, statSync as statSync10, writeFileSync as writeFileSync10 } from "node:fs";
-import { dirname as dirname12, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve27 } from "node:path";
+import { existsSync as existsSync13, mkdirSync as mkdirSync11, readFileSync as readFileSync27, realpathSync as realpathSync15, statSync as statSync10, writeFileSync as writeFileSync11 } from "node:fs";
+import { dirname as dirname12, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve28 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -18,9 +18,9 @@ function readBounded(path) {
   }
   return readFileSync(path, "utf8");
 }
-function safeJson(text4) {
+function safeJson(text5) {
   try {
-    return JSON.parse(text4);
+    return JSON.parse(text5);
   } catch {
     return void 0;
   }
@@ -469,8 +469,8 @@ function toolCallFingerprint(call) {
   const normalized = parsed === void 0 ? call.input.trim().replace(/\s+/g, " ") : canonicalJson(parsed);
   return `${call.name.toLowerCase()}:${createHash("sha256").update(normalized).digest("hex")}`;
 }
-function snippet(text4, at) {
-  return text4.slice(Math.max(0, at - 45), at + 100).replace(/\s+/g, " ").trim();
+function snippet(text5, at2) {
+  return text5.slice(Math.max(0, at2 - 45), at2 + 100).replace(/\s+/g, " ").trim();
 }
 
 // src/detectors/reality.ts
@@ -3753,57 +3753,57 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     detail: existsSync5(workflow3) ? "workflow installed; configure Agent Vigil evidence as a required status check after its first run" : "workflow not installed; run vigil init"
   });
   if (existsSync5(workflow3)) {
-    const text4 = installedWorkflow;
-    const attestationEnabled = /^\s*attest:\s*true\s*$/m.test(text4);
+    const text5 = installedWorkflow;
+    const attestationEnabled = /^\s*attest:\s*true\s*$/m.test(text5);
     if (attestationEnabled) {
-      const permissionsPresent = /^\s*id-token:\s*write\s*$/m.test(text4) && /^\s*attestations:\s*write\s*$/m.test(text4) && /^\s*artifact-metadata:\s*write\s*$/m.test(text4);
-      const repositoryWrite = /^\s*contents:\s*write\s*$/m.test(text4);
+      const permissionsPresent = /^\s*id-token:\s*write\s*$/m.test(text5) && /^\s*attestations:\s*write\s*$/m.test(text5) && /^\s*artifact-metadata:\s*write\s*$/m.test(text5);
+      const repositoryWrite = /^\s*contents:\s*write\s*$/m.test(text5);
       checks.push({
         status: !permissionsPresent ? "FAIL" : repositoryWrite ? "WARN" : "PASS",
         label: "GitHub attestation",
         detail: !permissionsPresent ? "attest: true requires id-token, attestations, and artifact-metadata write permissions" : repositoryWrite ? "receipt signing is configured, but this workflow can also write repository contents; remove that permission unless another reviewed step requires it" : "receipt attestation is enabled with the required GitHub permissions"
       });
     }
-    const exactRange = /pull_request\.base\.sha/.test(text4) && /pull_request\.head\.sha/.test(text4);
+    const exactRange = /pull_request\.base\.sha/.test(text5) && /pull_request\.head\.sha/.test(text5);
     checks.push({
       status: exactRange ? "PASS" : "WARN",
       label: "Git range",
       detail: exactRange ? "workflow pins the pull request base and head SHAs" : "workflow does not visibly pin both pull request SHAs"
     });
-    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.event\.merge_group\.head_sha\s*\}\}/.test(text4);
+    const exactCheckout = /ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.event\.merge_group\.head_sha\s*\}\}/.test(text5);
     checks.push({
       status: exactCheckout ? "PASS" : "WARN",
       label: "Checkout identity",
       detail: exactCheckout ? "workflow checks out the exact pull request head SHA" : "workflow may verify GitHub's synthetic merge commit instead of the selected head"
     });
-    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}/.test(text4);
+    const anchoredPolicy = /policy-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}/.test(text5);
     checks.push({
       status: anchoredPolicy ? "PASS" : "WARN",
       label: "Policy trust",
       detail: anchoredPolicy ? "workflow loads policy from the pull request base commit" : "workflow policy may be controlled by the candidate change"
     });
-    const mergeQueue = /merge_group:\s*\n\s*types:\s*\[checks_requested\]/.test(text4) && /merge_group\.base_sha/.test(text4) && /merge_group\.head_sha/.test(text4);
+    const mergeQueue = /merge_group:\s*\n\s*types:\s*\[checks_requested\]/.test(text5) && /merge_group\.base_sha/.test(text5) && /merge_group\.head_sha/.test(text5);
     checks.push({
       status: mergeQueue ? "PASS" : "WARN",
       label: "Merge queue",
       detail: mergeQueue ? "workflow re-verifies the composed merge-group commit" : "required check will not report for GitHub merge queues"
     });
     if (maintainer) {
-      const modeInstalled = /mode:\s*maintainer/.test(text4);
-      const artifactInstalled = /name:\s*agent-vigil-receipt/.test(text4);
+      const modeInstalled = /mode:\s*maintainer/.test(text5);
+      const artifactInstalled = /name:\s*agent-vigil-receipt/.test(text5);
       checks.push({
         status: modeInstalled && artifactInstalled ? "PASS" : "FAIL",
         label: "Maintainer workflow",
         detail: modeInstalled && artifactInstalled ? "maintainer mode and receipt artifact retention are installed" : "workflow must enable maintainer mode and retain agent-vigil-receipt"
       });
     }
-    const authorityMatch = text4.match(/^\s*authority-contract:\s*(\S+)\s*$/m);
+    const authorityMatch = text5.match(/^\s*authority-contract:\s*(\S+)\s*$/m);
     if (authorityMatch) {
       try {
         const contract = loadAuthorityContract(root, authorityMatch[1]);
         const placeholder = contract.value.taskId === "REPLACE_WITH_TASK_OR_TICKET_ID";
         const expired = Boolean(contract.value.expiresAt && Date.now() > new Date(contract.value.expiresAt).getTime());
-        const anchored = /^\s*authority-contract-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}\s*$/m.test(text4);
+        const anchored = /^\s*authority-contract-ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\|\|\s*github\.event\.merge_group\.base_sha\s*\}\}\s*$/m.test(text5);
         checks.push({
           status: placeholder || expired || !anchored ? "FAIL" : "PASS",
           label: "Task authority",
@@ -7404,9 +7404,9 @@ function statementsFromGh(value) {
   const statements = [];
   for (const root of roots) {
     if (!root || typeof root !== "object") continue;
-    const record5 = root;
-    const verification2 = record5.verificationResult;
-    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record5.statement ?? record5;
+    const record6 = root;
+    const verification2 = record6.verificationResult;
+    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record6.statement ?? record6;
     if (statement && typeof statement === "object") statements.push(statement);
   }
   return statements;
@@ -7416,9 +7416,9 @@ function subjectMatches(statement, expectedName, expectedDigest) {
   return subjects.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const subject = entry;
-    const digest8 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const digest9 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
     const name2 = String(subject.name ?? "");
-    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && digest8.sha256 === expectedDigest;
+    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && digest9.sha256 === expectedDigest;
   });
 }
 function predicateMatches(predicate, report, fileSha256) {
@@ -9447,7 +9447,7 @@ function commit(repo, message, sequence) {
   return git8(repo, ["rev-parse", "HEAD"]);
 }
 function decideControlProof(challenges) {
-  return challenges.length > 0 && challenges.every((challenge2) => challenge2.passed) ? "PASS" : "HOLD";
+  return challenges.length > 0 && challenges.every((challenge3) => challenge3.passed) ? "PASS" : "HOLD";
 }
 function buildControlProof(repo, base, vigilVersion) {
   const sourceRepo = realpathSync10(resolve18(repo));
@@ -9632,10 +9632,10 @@ function renderControlProof(report) {
     `Source: ${report.sourceCommit}`,
     ""
   ];
-  for (const challenge2 of report.challenges) {
-    const marker2 = challenge2.passed ? "\u2713" : "\u2717";
-    lines.push(terminalSafe(`${marker2} ${challenge2.claim}`));
-    if (!challenge2.passed) lines.push(terminalSafe(`  expected ${challenge2.expected}; observed ${challenge2.actual}: ${challenge2.evidence}`));
+  for (const challenge3 of report.challenges) {
+    const marker2 = challenge3.passed ? "\u2713" : "\u2717";
+    lines.push(terminalSafe(`${marker2} ${challenge3.claim}`));
+    if (!challenge3.passed) lines.push(terminalSafe(`  expected ${challenge3.expected}; observed ${challenge3.actual}: ${challenge3.evidence}`));
   }
   lines.push(
     "",
@@ -9811,9 +9811,9 @@ function statementsFromGh2(value) {
   const statements = [];
   for (const root of roots) {
     if (!root || typeof root !== "object") continue;
-    const record5 = root;
-    const verification2 = record5.verificationResult;
-    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record5.statement ?? record5;
+    const record6 = root;
+    const verification2 = record6.verificationResult;
+    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record6.statement ?? record6;
     if (statement && typeof statement === "object") statements.push(statement);
   }
   return statements;
@@ -9823,9 +9823,9 @@ function subjectMatches2(statement, expectedName, expectedDigest) {
   return subjects.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const subject = entry;
-    const digest8 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const digest9 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
     const name2 = String(subject.name ?? "");
-    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && `sha256:${String(digest8.sha256 ?? "")}` === expectedDigest;
+    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && `sha256:${String(digest9.sha256 ?? "")}` === expectedDigest;
   });
 }
 function predicateMatches2(value, proof, fileSha256) {
@@ -10513,7 +10513,7 @@ function renderStatusReport(report) {
 }
 
 // src/continuity/cli.ts
-import { isAbsolute as isAbsolute10, relative as relative13, resolve as resolve24 } from "node:path";
+import { isAbsolute as isAbsolute10, relative as relative13, resolve as resolve26 } from "node:path";
 
 // src/continuity/chain.ts
 import {
@@ -10566,8 +10566,8 @@ function object2(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value;
 }
-function exactKeys6(record5, expected, label) {
-  const actual = Object.keys(record5).sort();
+function exactKeys6(record6, expected, label) {
+  const actual = Object.keys(record6).sort();
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new Error(`${label} has unsupported or missing fields`);
@@ -11686,7 +11686,7 @@ var TIMES = [
   "2026-08-23T12:03:00.000Z",
   "2026-08-23T12:04:00.000Z"
 ];
-function event(root, sequence, at) {
+function event(root, sequence, at2) {
   const suffix = String(sequence).padStart(12, "0");
   return {
     schemaVersion: "agent-vigil-continuity-event/v1",
@@ -11706,8 +11706,8 @@ function event(root, sequence, at) {
       freshUntil: "2026-08-23T13:00:00.000Z",
       supersedesEventId: null
     },
-    observedAt: at,
-    effectiveAt: at,
+    observedAt: at2,
+    effectiveAt: at2,
     privacyTier: "receipt"
   };
 }
@@ -11768,10 +11768,10 @@ function runContinuityDemo() {
       source: "built-in-demonstration-policy",
       sha256: canonicalSha256(policyValue)
     };
-    const decide = (at) => evaluateContinuity(
-      verifyContinuityChain(chain, { now: new Date(at), maxClockSkewSeconds: 300 }),
+    const decide2 = (at2) => evaluateContinuity(
+      verifyContinuityChain(chain, { now: new Date(at2), maxClockSkewSeconds: 300 }),
       policy,
-      { now: new Date(at), environment: "production" }
+      { now: new Date(at2), environment: "production" }
     );
     appendContinuityEvent(chain, event(root, 1, TIMES[0]));
     const secret = "demonstration-only-webhook-secret";
@@ -11798,7 +11798,7 @@ function runContinuityDemo() {
       webhookSignature: merge.deliverySignature,
       webhookSecretPath: secretPath
     });
-    const current = decide(TIMES[1]);
+    const current = decide2(TIMES[1]);
     const revert = signedWebhook(join10(directory, "revert.json"), {
       repository: { full_name: "example/demonstration" },
       after: REVERT,
@@ -11812,9 +11812,9 @@ function runContinuityDemo() {
       webhookSignature: revert.deliverySignature,
       webhookSecretPath: secretPath
     });
-    const revoked = decide(TIMES[2]);
+    const revoked = decide2(TIMES[2]);
     appendContinuityEvent(chain, event(root, 2, TIMES[3]));
-    const stillRevoked = decide(TIMES[3]);
+    const stillRevoked = decide2(TIMES[3]);
     const repair = {
       schemaVersion: "agent-vigil-continuity-event/v1",
       eventId: "urn:uuid:33333333-3333-4333-8333-333333333333",
@@ -11838,7 +11838,7 @@ function runContinuityDemo() {
       privacyTier: "receipt"
     };
     appendContinuityEvent(chain, repair, repairPrivate);
-    const restored = decide(TIMES[4]);
+    const restored = decide2(TIMES[4]);
     if (current.continuity !== "CURRENT" || revoked.continuity !== "REVOKED" || stillRevoked.continuity !== "REVOKED" || restored.continuity !== "CURRENT") {
       throw new Error("the continuity demonstration did not reach its required states");
     }
@@ -11870,6 +11870,1485 @@ function renderContinuityDemo(result5) {
     ]),
     "Complete history",
     ...result5.history.map((kind, index) => `  ${index + 1}. ${kind.replaceAll("_", " ")}`)
+  ].join("\n");
+}
+
+// src/continuity/guard-demo.ts
+import { mkdtempSync as mkdtempSync7, rmSync as rmSync6, writeFileSync as writeFileSync10 } from "node:fs";
+import { tmpdir as tmpdir7 } from "node:os";
+import { join as join13 } from "node:path";
+
+// src/guard-route.ts
+import { randomBytes as randomBytes5 } from "node:crypto";
+import { spawnSync as spawnSync5 } from "node:child_process";
+import {
+  chmodSync as chmodSync4,
+  existsSync as existsSync11,
+  lstatSync as lstatSync14,
+  mkdirSync as mkdirSync9,
+  mkdtempSync as mkdtempSync6,
+  readFileSync as readFileSync25,
+  realpathSync as realpathSync13,
+  rmSync as rmSync5,
+  unlinkSync as unlinkSync2,
+  writeFileSync as writeFileSync9
+} from "node:fs";
+import { arch as arch2, hostname as hostname2, platform as platform2, release as release2, tmpdir as tmpdir6, type as type2 } from "node:os";
+import { join as join12, resolve as resolve23 } from "node:path";
+
+// src/guard-compat.ts
+import { createHash as createHash22, randomBytes as randomBytes4 } from "node:crypto";
+import { spawnSync as spawnSync4 } from "node:child_process";
+import {
+  closeSync as closeSync4,
+  fstatSync as fstatSync4,
+  lstatSync as lstatSync13,
+  mkdtempSync as mkdtempSync5,
+  mkdirSync as mkdirSync8,
+  openSync as openSync4,
+  readFileSync as readFileSync24,
+  readSync,
+  realpathSync as realpathSync12,
+  rmSync as rmSync4,
+  writeFileSync as writeFileSync8
+} from "node:fs";
+import { arch, hostname, platform, release, tmpdir as tmpdir5, type } from "node:os";
+import { join as join11 } from "node:path";
+var GUARD_COMPAT_SCHEMA = "agent-vigil-guard-compatibility/v1";
+var GUARD_CHALLENGE_PACK = "agent-vigil-harmless-shell-canaries/v1";
+var MAX_ARGUMENTS = 32;
+var MAX_ARGUMENT_LENGTH = 4096;
+var MAX_OUTPUT_BYTES = 64 * 1024;
+var DEFAULT_TIMEOUT_MS = 5e3;
+function digest7(value) {
+  const body = Buffer.isBuffer(value) ? value : typeof value === "string" ? Buffer.from(value, "utf8") : Buffer.from(canonical(value), "utf8");
+  return `sha256:${createHash22("sha256").update(body).digest("hex")}`;
+}
+var guardDigest = digest7;
+function modifiedNanoseconds(status) {
+  return status.mtimeNs;
+}
+function hashRegularFile(requestedPath, label) {
+  const realPath = realpathSync12(requestedPath);
+  const before = lstatSync13(realPath, { bigint: true });
+  if (!before.isFile()) throw new Error(`${label} must resolve to a regular file`);
+  const descriptor = openSync4(realPath, "r");
+  const hash3 = createHash22("sha256");
+  try {
+    const opened = fstatSync4(descriptor, { bigint: true });
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error(`${label} changed while it was opened`);
+    }
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    for (; ; ) {
+      const count3 = readSync(descriptor, buffer, 0, buffer.length, null);
+      if (count3 === 0) break;
+      hash3.update(buffer.subarray(0, count3));
+    }
+    const after = fstatSync4(descriptor, { bigint: true });
+    if (after.size !== opened.size || modifiedNanoseconds(after) !== modifiedNanoseconds(opened)) {
+      throw new Error(`${label} changed while it was hashed`);
+    }
+    return {
+      realPath,
+      sha256: `sha256:${hash3.digest("hex")}`,
+      device: after.dev,
+      inode: after.ino,
+      size: after.size,
+      modifiedNanoseconds: modifiedNanoseconds(after)
+    };
+  } finally {
+    closeSync4(descriptor);
+  }
+}
+var hashGuardFile = hashRegularFile;
+function assertFileUnchanged(identity, label) {
+  const status = lstatSync13(identity.realPath, { bigint: true });
+  if (!status.isFile() || status.dev !== identity.device || status.ino !== identity.inode || status.size !== identity.size || modifiedNanoseconds(status) !== identity.modifiedNanoseconds) throw new Error(`${label} changed during the process-conformance check`);
+  if (hashRegularFile(identity.realPath, label).sha256 !== identity.sha256) {
+    throw new Error(`${label} content changed during the process-conformance check`);
+  }
+}
+var assertGuardFileUnchanged = assertFileUnchanged;
+function validateText(value, label, maximum = 200) {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`${label} must be non-empty`);
+  if (Buffer.byteLength(trimmed, "utf8") > maximum) throw new Error(`${label} is too long`);
+  if (new RegExp("\\p{Cc}|\\p{Cf}", "u").test(trimmed)) throw new Error(`${label} contains control characters`);
+  return trimmed;
+}
+function validateArguments(values) {
+  if (values.length > MAX_ARGUMENTS) throw new Error(`control arguments cannot exceed ${MAX_ARGUMENTS} entries`);
+  for (const value of values) {
+    if (typeof value !== "string") throw new Error("every control argument must be a string");
+    if (Buffer.byteLength(value, "utf8") > MAX_ARGUMENT_LENGTH) throw new Error("a control argument is too long");
+    if (value.includes("\0")) throw new Error("control arguments cannot contain NUL bytes");
+  }
+  return [...values];
+}
+function argumentsNameFile(values, realPath) {
+  return values.some((value) => {
+    try {
+      return realpathSync12(value) === realPath;
+    } catch {
+      return false;
+    }
+  });
+}
+function loadControlArguments(path) {
+  const identity = hashRegularFile(path, "control arguments file");
+  if (identity.size > 64n * 1024n) throw new Error("control arguments file exceeds 64 KiB");
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync24(identity.realPath, "utf8"));
+  } catch {
+    throw new Error("control arguments file must contain valid JSON");
+  }
+  if (!Array.isArray(parsed)) throw new Error("control arguments file must contain a JSON array");
+  return validateArguments(parsed);
+}
+function harmlessCommand(kind, nonce) {
+  const token = `AGENT_VIGIL_PROCESS_CONFORMANCE_${kind.toUpperCase()}_V1_${nonce}`;
+  return `printf '%s\\n' '${token}'`;
+}
+function hookPayload(host, command, cwd, transcriptPath, nonce, id) {
+  const common = {
+    session_id: `agent-vigil-${nonce}`,
+    transcript_path: transcriptPath,
+    cwd,
+    permission_mode: "default",
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command },
+    tool_use_id: `${id}-${nonce}`
+  };
+  return JSON.stringify(host === "codex" ? { ...common, model: "agent-vigil-process-conformance", turn_id: `turn-${nonce}` } : { ...common, prompt_id: `prompt-${nonce}` });
+}
+function objectValue(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function interpretedDecision(host, value) {
+  if (host === "codex" && ["continue", "stopReason", "suppressOutput"].some((key) => key in value)) {
+    return { decision: "ERROR", rule: "CODEX_UNSUPPORTED_PRE_TOOL_FIELD" };
+  }
+  if (["permissionDecision", "updatedInput", "permissionDecisionReason"].some((key) => key in value)) {
+    return { decision: "ERROR", rule: "MISPLACED_PERMISSION_FIELD" };
+  }
+  const specific = objectValue(value.hookSpecificOutput);
+  if (value.hookSpecificOutput !== void 0 && !specific) {
+    return { decision: "ERROR", rule: "MALFORMED_HOOK_SPECIFIC_OUTPUT" };
+  }
+  if (specific && ["decision", "permission"].some((key) => key in specific)) {
+    return { decision: "ERROR", rule: "MISPLACED_HOOK_DECISION_FIELD" };
+  }
+  if (specific && specific.hookEventName !== "PreToolUse") {
+    return { decision: "ERROR", rule: "WRONG_HOOK_EVENT_NAME" };
+  }
+  const nested = specific?.permissionDecision;
+  const legacy = value.decision;
+  if (nested !== void 0 && typeof nested !== "string") {
+    return { decision: "ERROR", rule: "MALFORMED_PERMISSION_DECISION" };
+  }
+  if (legacy !== void 0 && typeof legacy !== "string") {
+    return { decision: "ERROR", rule: "MALFORMED_LEGACY_DECISION" };
+  }
+  if (typeof nested === "string") {
+    const normalized = nested.toLowerCase();
+    if (normalized === "allow") {
+      if (specific?.updatedInput !== void 0) {
+        const updated = objectValue(specific.updatedInput);
+        if (!updated || typeof updated.command !== "string") {
+          return { decision: "ERROR", rule: "MALFORMED_UPDATED_INPUT" };
+        }
+      }
+      if (legacy !== void 0 && legacy !== "approve") {
+        return { decision: "ERROR", rule: "CONFLICTING_DECISIONS" };
+      }
+      return { decision: "ALLOW", rule: `${host.toUpperCase()}_STRUCTURED_ALLOW` };
+    }
+    if (normalized === "deny") {
+      if (specific?.updatedInput !== void 0) return { decision: "ERROR", rule: "UPDATED_INPUT_WITH_DENY" };
+      if (legacy !== void 0 && legacy !== "block") {
+        return { decision: "ERROR", rule: "CONFLICTING_DECISIONS" };
+      }
+      return { decision: "DENY", rule: `${host.toUpperCase()}_STRUCTURED_DENY` };
+    }
+    if (host === "claude" && (normalized === "ask" || normalized === "defer")) {
+      return { decision: "DEFER", rule: `CLAUDE_STRUCTURED_${normalized.toUpperCase()}` };
+    }
+    if (host === "codex" && normalized === "ask") {
+      return { decision: "ERROR", rule: "CODEX_UNSUPPORTED_ASK" };
+    }
+    return { decision: "UNKNOWN", rule: "UNRECOGNIZED_PERMISSION_DECISION" };
+  }
+  if (typeof legacy === "string") {
+    const normalized = legacy.toLowerCase();
+    if (normalized === "block") return { decision: "DENY", rule: `${host.toUpperCase()}_LEGACY_BLOCK` };
+    if (host === "claude" && normalized === "approve") return { decision: "ALLOW", rule: "CLAUDE_LEGACY_APPROVE" };
+    if (host === "codex" && normalized === "approve") return { decision: "ERROR", rule: "CODEX_UNSUPPORTED_APPROVE" };
+    return { decision: "UNKNOWN", rule: "UNRECOGNIZED_LEGACY_DECISION" };
+  }
+  if (specific?.updatedInput !== void 0) return { decision: "ERROR", rule: "UPDATED_INPUT_WITHOUT_ALLOW" };
+  return { decision: "DEFER", rule: "NO_CONTROL_DECISION" };
+}
+function outputKind(stdout) {
+  const trimmed = stdout.trimStart();
+  if (!trimmed) return "EMPTY";
+  return trimmed.startsWith("{") || trimmed.startsWith("[") ? "JSON" : "TEXT";
+}
+function interpretGuardProcess(input) {
+  const stdout = input.stdout ?? "";
+  const initialOutput = outputKind(stdout);
+  if (input.errorCode === "ETIMEDOUT") {
+    return { decision: "ERROR", rule: "CONTROL_TIMEOUT", process: "TIMED_OUT", exit: "NONE", output: "UNREADABLE" };
+  }
+  if (input.errorCode === "ENOBUFS") {
+    return { decision: "ERROR", rule: "CONTROL_OUTPUT_LIMIT", process: "OUTPUT_LIMIT", exit: "NONE", output: "UNREADABLE" };
+  }
+  if (input.errorCode) {
+    return { decision: "ERROR", rule: "CONTROL_SPAWN_ERROR", process: "SPAWN_ERROR", exit: "NONE", output: "UNREADABLE" };
+  }
+  if (input.signal || input.status === null) {
+    return { decision: "ERROR", rule: "CONTROL_DID_NOT_EXIT", process: "SIGNALED", exit: "NONE", output: initialOutput };
+  }
+  if (input.status === 2) {
+    return { decision: "DENY", rule: `${input.host.toUpperCase()}_EXIT_TWO`, process: "EXITED", exit: "TWO", output: initialOutput };
+  }
+  const exit = input.status === 0 ? "ZERO" : "OTHER";
+  if (initialOutput === "EMPTY") {
+    return input.status === 0 ? { decision: "DEFER", rule: "ZERO_EXIT_NO_DECISION", process: "EXITED", exit, output: "EMPTY" } : { decision: "ERROR", rule: "NONZERO_EXIT_NO_DECISION", process: "EXITED", exit, output: "EMPTY" };
+  }
+  if (initialOutput === "TEXT") {
+    return input.status === 0 ? { decision: "DEFER", rule: `${input.host.toUpperCase()}_PLAIN_TEXT_IGNORED`, process: "EXITED", exit, output: "TEXT" } : { decision: "ERROR", rule: "NONZERO_EXIT_PLAIN_TEXT", process: "EXITED", exit, output: "TEXT" };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return { decision: "ERROR", rule: "INVALID_JSON_OUTPUT", process: "EXITED", exit, output: "INVALID_JSON" };
+  }
+  const object4 = objectValue(parsed);
+  if (!object4) return { decision: "ERROR", rule: "JSON_OUTPUT_NOT_OBJECT", process: "EXITED", exit, output: "JSON" };
+  const interpreted = interpretedDecision(input.host, object4);
+  if (input.status !== 0 && input.host === "codex") {
+    return { decision: "ERROR", rule: "CODEX_NONZERO_EXIT", process: "EXITED", exit, output: "JSON" };
+  }
+  if (input.status !== 0 && interpreted.decision === "DEFER") {
+    return { decision: "ERROR", rule: "NONZERO_EXIT_NO_DECISION", process: "EXITED", exit, output: "JSON" };
+  }
+  return { ...interpreted, process: "EXITED", exit, output: "JSON" };
+}
+function minimalEnvironment(home) {
+  const environment = {
+    AGENT_VIGIL_PROCESS_CONFORMANCE: "1",
+    HOME: home,
+    NO_COLOR: "1",
+    PATH: process.env.PATH ?? "",
+    TMPDIR: home,
+    TEMP: home,
+    TMP: home
+  };
+  for (const name2 of ["SystemRoot", "ComSpec", "PATHEXT"]) {
+    if (process.env[name2] !== void 0) environment[name2] = process.env[name2];
+  }
+  return environment;
+}
+function reportStatus(challenges) {
+  if (challenges.some((challenge3) => challenge3.actual === "UNKNOWN")) return "INCONCLUSIVE";
+  return challenges.length === 2 && challenges.every((challenge3) => challenge3.passed) ? "PASS" : "FAIL";
+}
+function challengePackDigest() {
+  return digest7({
+    id: GUARD_CHALLENGE_PACK,
+    payload: "PreToolUse/Bash",
+    allow: "printf marker AGENT_VIGIL_PROCESS_CONFORMANCE_ALLOW_V1_<nonce>",
+    deny: "printf marker AGENT_VIGIL_PROCESS_CONFORMANCE_DENY_V1_<nonce>"
+  });
+}
+function runGuardCompatibility(input) {
+  const vigilVersion = validateText(input.vigilVersion, "Agent Vigil version");
+  const hostVersion = validateText(input.hostVersion, "host version");
+  const controlName = validateText(input.controlName, "control name");
+  const controlVersion = validateText(input.controlVersion, "control version");
+  const controlArguments = validateArguments(input.controlArguments ?? []);
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 6e4) {
+    throw new Error("timeout must be an integer from 50 to 60000 milliseconds");
+  }
+  const nonce = input.nonce ?? randomBytes4(16).toString("hex");
+  if (!/^[a-zA-Z0-9_-]{16,128}$/.test(nonce)) throw new Error("nonce must be 16 to 128 safe characters");
+  const generatedAt = input.generatedAt ?? (/* @__PURE__ */ new Date()).toISOString();
+  if (!Number.isFinite(Date.parse(generatedAt))) throw new Error("generated time must be an RFC3339-compatible timestamp");
+  const identities = {
+    host: hashRegularFile(input.hostExecutable, "host executable"),
+    launcher: hashRegularFile(input.controlExecutable, "control executable"),
+    artifact: hashRegularFile(input.controlArtifact ?? input.controlExecutable, "control artifact"),
+    policy: hashRegularFile(input.policyPath, "policy"),
+    configuration: hashRegularFile(input.configurationPath, "configuration")
+  };
+  if (identities.artifact.realPath !== identities.launcher.realPath && !argumentsNameFile(controlArguments, identities.artifact.realPath)) {
+    throw new Error("a separate control artifact must be named by a control argument");
+  }
+  const root = mkdtempSync5(join11(tmpdir5(), "agent-vigil-guard-compat-"));
+  const home = join11(root, "home");
+  const transcriptPath = join11(root, "transcript.jsonl");
+  mkdirSync8(home, { mode: 448 });
+  writeFileSync8(transcriptPath, "", { mode: 384 });
+  const challenges = [];
+  try {
+    for (const challenge3 of [
+      { id: "allow-canary", expected: "ALLOW", kind: "allow" },
+      { id: "deny-canary", expected: "DENY", kind: "deny" }
+    ]) {
+      const command = harmlessCommand(challenge3.kind, nonce);
+      const completed = spawnSync4(identities.launcher.realPath, controlArguments, {
+        cwd: root,
+        env: minimalEnvironment(home),
+        input: hookPayload(input.host, command, root, transcriptPath, nonce, challenge3.id),
+        encoding: "utf8",
+        timeout: timeoutMs,
+        maxBuffer: MAX_OUTPUT_BYTES,
+        killSignal: "SIGKILL",
+        windowsHide: true
+      });
+      const outputExceeded = Buffer.byteLength(completed.stdout ?? "", "utf8") >= MAX_OUTPUT_BYTES || Buffer.byteLength(completed.stderr ?? "", "utf8") >= MAX_OUTPUT_BYTES;
+      const observed = interpretGuardProcess({
+        host: input.host,
+        status: completed.status,
+        signal: completed.signal,
+        stdout: completed.stdout ?? "",
+        errorCode: outputExceeded ? "ENOBUFS" : completed.error?.code
+      });
+      challenges.push({
+        id: challenge3.id,
+        expected: challenge3.expected,
+        actual: observed.decision,
+        passed: observed.decision === challenge3.expected,
+        canarySha256: digest7(command),
+        observation: {
+          rule: observed.rule,
+          process: observed.process,
+          exit: observed.exit,
+          output: observed.output
+        }
+      });
+    }
+  } finally {
+    rmSync4(root, { recursive: true, force: true });
+  }
+  for (const [label, identity] of Object.entries(identities)) assertFileUnchanged(identity, label);
+  const status = reportStatus(challenges);
+  const decisions = Object.fromEntries(
+    ["ALLOW", "DENY", "DEFER", "ERROR", "UNKNOWN"].map((decision) => [decision, challenges.filter((challenge3) => challenge3.actual === decision).length])
+  );
+  const operatingSystem = {
+    platform: platform(),
+    type: type(),
+    release: release(),
+    architecture: arch(),
+    machineIdentitySha256: digest7({ hostname: hostname(), platform: platform(), type: type(), release: release(), architecture: arch() })
+  };
+  const reasonCodes = ["LIVE_HOST_ROUTE_NOT_PROVEN"];
+  if (status !== "PASS") reasonCodes.push("PROCESS_CONFORMANCE_NOT_PROVEN");
+  const unsigned = {
+    schemaVersion: GUARD_COMPAT_SCHEMA,
+    vigilVersion,
+    generatedAt,
+    nonce,
+    scope: "PROCESS_CONFORMANCE",
+    status,
+    deployment: { state: "HOLD", reasonCodes },
+    challengePack: { id: GUARD_CHALLENGE_PACK, sha256: challengePackDigest() },
+    host: { kind: input.host, version: hostVersion, executableSha256: identities.host.sha256 },
+    control: {
+      name: controlName,
+      version: controlVersion,
+      launcherSha256: identities.launcher.sha256,
+      artifactSha256: identities.artifact.sha256,
+      argumentsSha256: digest7(controlArguments)
+    },
+    bindings: {
+      policySha256: identities.policy.sha256,
+      configurationSha256: identities.configuration.sha256,
+      operatingSystem
+    },
+    challenges,
+    summary: { passed: challenges.filter((challenge3) => challenge3.passed).length, total: challenges.length, decisions },
+    reproduction: `vigil guard-compat --host ${input.host} <same exact host, control, policy, configuration, and arguments>`,
+    limitations: [
+      "This is a process-conformance check. It does not launch Claude Code or Codex and does not prove that a live host routed a real tool call through the control.",
+      "Both shell canaries use printf and are harmless if executed. The deny marker must be covered by the supplied policy for a PASS.",
+      "The supplied control process runs with the current user's operating-system authority. This check is not a sandbox for untrusted controls.",
+      "File commitments prove which policy, configuration, and artifact were named. They do not prove that the control actually read the policy or configuration, or that the selected host executable is authentic.",
+      "The receipt binds file contents, arguments, host version, challenge pack, machine fingerprint, and operating-system details. It does not authenticate the operator-supplied version labels.",
+      "No PASS from this command permits deployment. Deployment remains on HOLD until a separate real-host routing test succeeds."
+    ]
+  };
+  return { ...unsigned, receiptHash: digest7(unsigned) };
+}
+function renderGuardCompatibility(report) {
+  const lines = [
+    `Agent Vigil guard compatibility: ${report.status}`,
+    `Host: ${report.host.kind} ${terminalSafe(report.host.version)}`,
+    `Control: ${terminalSafe(report.control.name)} ${terminalSafe(report.control.version)}`,
+    ""
+  ];
+  for (const challenge3 of report.challenges) {
+    lines.push(`${challenge3.passed ? "PASS" : "FAIL"} ${challenge3.id}: expected ${challenge3.expected}; observed ${challenge3.actual} (${challenge3.observation.rule})`);
+  }
+  lines.push(
+    "",
+    `${report.summary.passed}/${report.summary.total} expected decisions observed`,
+    `Deployment: HOLD (${report.deployment.reasonCodes.join(", ")})`,
+    `Receipt: ${report.receiptHash}`,
+    "A process PASS is not live-host routing proof."
+  );
+  return lines.join("\n");
+}
+
+// src/guard-route.ts
+var GUARD_ROUTE_SCHEMA = "agent-vigil-live-host-route/v1";
+var GUARD_ROUTE_CHALLENGE_PACK = "agent-vigil-harmless-live-host-route/v1";
+var DISPOSABLE_PROFILE_MARKER = "agent-vigil disposable host profile v1\n";
+var MAX_HOST_OUTPUT_BYTES = 1024 * 1024;
+var MAX_HOOK_LOG_BYTES = 64 * 1024;
+var DEFAULT_HOST_TIMEOUT_MS = 12e4;
+function validateText2(value, label, maximum = 200) {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`${label} must be non-empty`);
+  if (Buffer.byteLength(trimmed, "utf8") > maximum) throw new Error(`${label} is too long`);
+  if (new RegExp("\\p{Cc}|\\p{Cf}", "u").test(trimmed)) throw new Error(`${label} contains control characters`);
+  return trimmed;
+}
+function shellQuote(value) {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+function safeNonce(value) {
+  if (!/^[a-zA-Z0-9_-]{16,128}$/.test(value)) throw new Error("nonce must be 16 to 128 safe characters");
+  return value;
+}
+function liveCommand(kind, nonce) {
+  const upper = kind.toUpperCase();
+  const token = `AGENT_VIGIL_LIVE_HOST_ROUTE_${upper}_V1_${nonce}`;
+  const file = `.agent-vigil-live-route-${kind}-${nonce}.txt`;
+  return { command: `printf '%s\\n' '${token}' > '${file}'`, token, file };
+}
+function processCommand(kind, nonce) {
+  const token = `AGENT_VIGIL_PROCESS_CONFORMANCE_${kind.toUpperCase()}_V1_${nonce}`;
+  return `printf '%s\\n' '${token}'`;
+}
+function routePolicy(nonce, allow, deny) {
+  return {
+    schemaVersion: "agent-vigil-temporary-route-policy/v1",
+    nonceSha256: guardDigest(nonce),
+    defaultDecision: "DENY",
+    rules: [
+      { id: "process-allow", commandSha256: guardDigest(processCommand("allow", nonce)), decision: "ALLOW" },
+      { id: "process-deny", commandSha256: guardDigest(processCommand("deny", nonce)), decision: "DENY" },
+      { id: "live-allow", commandSha256: guardDigest(allow), decision: "ALLOW" },
+      { id: "live-deny", commandSha256: guardDigest(deny), decision: "DENY" }
+    ]
+  };
+}
+function hookSource(input) {
+  const embedded = JSON.stringify(input);
+  return `#!/usr/bin/env node
+import { appendFileSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+const expected = ${embedded};
+const sha = (value) => "sha256:" + createHash("sha256").update(value, "utf8").digest("hex");
+const deny = (reason) => JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
+let raw = "";
+try {
+  raw = readFileSync(0, { encoding: "utf8" });
+  if (Buffer.byteLength(raw, "utf8") > 65536) throw new Error("oversize");
+  const payload = JSON.parse(raw);
+  const command = typeof payload?.tool_input?.command === "string" ? payload.tool_input.command : undefined;
+  const table = new Map([
+    [expected.processAllow, ["PROCESS_ALLOW", "ALLOW"]],
+    [expected.processDeny, ["PROCESS_DENY", "DENY"]],
+    [expected.liveAllow, ["LIVE_ALLOW", "ALLOW"]],
+    [expected.liveDeny, ["LIVE_DENY", "DENY"]],
+  ]);
+  const selected = payload?.hook_event_name === "PreToolUse" && payload?.tool_name === "Bash" && command
+    ? table.get(command)
+    : undefined;
+  const route = selected?.[0] ?? "UNKNOWN";
+  const decision = selected?.[1] ?? "DENY";
+  appendFileSync(expected.logPath, JSON.stringify({
+    route,
+    decision,
+    event: typeof payload?.hook_event_name === "string" ? payload.hook_event_name : "INVALID",
+    tool: typeof payload?.tool_name === "string" ? payload.tool_name : "INVALID",
+    ...(command ? { commandSha256: sha(command) } : {}),
+    ...(typeof payload?.tool_use_id === "string" ? { toolUseIdSha256: sha(payload.tool_use_id) } : {}),
+    ...(typeof payload?.session_id === "string" ? { sessionIdSha256: sha(payload.session_id) } : {}),
+  }) + "\\n", { encoding: "utf8", mode: 0o600 });
+  if (decision === "ALLOW") {
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: { command } } }));
+  } else {
+    process.stdout.write(deny(route === "UNKNOWN" ? "Agent Vigil route drill permits only its two exact harmless calls." : "Agent Vigil harmless deny canary blocked."));
+  }
+} catch {
+  try { appendFileSync(expected.logPath, JSON.stringify({ route: "MALFORMED", decision: "DENY", event: "INVALID", tool: "INVALID" }) + "\\n", { encoding: "utf8", mode: 0o600 }); }
+  catch { process.stderr.write("Agent Vigil could not record malformed route input.\\n"); }
+  process.stdout.write(deny("Agent Vigil rejected malformed route input."));
+}
+`;
+}
+function hookConfiguration(command) {
+  return {
+    hooks: {
+      PreToolUse: [{
+        matcher: ".*",
+        hooks: [{ type: "command", command, timeout: 30, statusMessage: "Checking harmless Agent Vigil route drill" }]
+      }]
+    }
+  };
+}
+function hostArguments(host, root, configPath, prompt, lastMessage) {
+  if (host === "codex") {
+    return [
+      "exec",
+      "--ephemeral",
+      "--json",
+      "--output-last-message",
+      lastMessage,
+      "--sandbox",
+      "workspace-write",
+      "--dangerously-bypass-hook-trust",
+      "--skip-git-repo-check",
+      "--ignore-rules",
+      "--enable",
+      "hooks",
+      "-C",
+      root,
+      prompt
+    ];
+  }
+  return [
+    "-p",
+    prompt,
+    "--output-format",
+    "json",
+    "--max-turns",
+    "4",
+    "--max-budget-usd",
+    "0.10",
+    "--tools",
+    "Bash",
+    "--permission-mode",
+    "dontAsk",
+    "--settings",
+    configPath,
+    "--setting-sources",
+    "",
+    "--strict-mcp-config",
+    "--no-session-persistence"
+  ];
+}
+function hostEnvironment(host, profileHome, route) {
+  const environment = {
+    HOME: profileHome,
+    PATH: process.env.PATH ?? "",
+    SHELL: process.env.SHELL ?? "",
+    TMPDIR: route.AGENT_VIGIL_ROUTE_TMP,
+    TMP: route.AGENT_VIGIL_ROUTE_TMP,
+    TEMP: route.AGENT_VIGIL_ROUTE_TMP,
+    LANG: process.env.LANG ?? "C.UTF-8",
+    NO_COLOR: "1",
+    CI: "1",
+    AGENT_VIGIL_LIVE_HOST_ROUTE: "1",
+    ...route
+  };
+  for (const name2 of ["SystemRoot", "ComSpec", "PATHEXT", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]) {
+    if (process.env[name2] !== void 0) environment[name2] = process.env[name2];
+  }
+  if (host === "codex") environment.CODEX_HOME = profileHome;
+  else environment.CLAUDE_CONFIG_DIR = profileHome;
+  return environment;
+}
+function outputKind2(output) {
+  const trimmed = output.trimStart();
+  if (!trimmed) return "EMPTY";
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return "TEXT";
+  try {
+    JSON.parse(trimmed);
+    return "JSON";
+  } catch {
+    const rows = trimmed.split("\n").filter(Boolean);
+    try {
+      rows.forEach((row) => JSON.parse(row));
+      return "JSON";
+    } catch {
+      return "INVALID_JSON";
+    }
+  }
+}
+function hostProcess(input) {
+  if (input.errorCode === "ETIMEDOUT") return { process: "TIMED_OUT", exit: "NONE", output: "UNREADABLE" };
+  if (input.errorCode === "ENOBUFS") return { process: "OUTPUT_LIMIT", exit: "NONE", output: "UNREADABLE" };
+  if (input.errorCode) return { process: "SPAWN_ERROR", exit: "NONE", output: "UNREADABLE" };
+  if (input.signal || input.status === null) return { process: "SIGNALED", exit: "NONE", output: outputKind2(input.stdout || input.stderr) };
+  return { process: "EXITED", exit: input.status === 0 ? "ZERO" : "NONZERO", output: outputKind2(input.stdout || input.stderr) };
+}
+function readHookLog(path) {
+  if (!existsSync11(path)) return [];
+  const status = lstatSync14(path);
+  if (!status.isFile() || status.size > MAX_HOOK_LOG_BYTES) throw new Error("live-host hook log is missing, unsafe, or oversized");
+  const body = readFileSync25(path, "utf8");
+  if (!body.trim()) return [];
+  const rows = body.trimEnd().split("\n");
+  if (rows.length > 32) throw new Error("live-host hook emitted too many events");
+  return rows.map((row) => {
+    const value = JSON.parse(row);
+    if (!value || typeof value !== "object") throw new Error("live-host hook log contains a malformed event");
+    return value;
+  });
+}
+function ordinaryConfiguration(host) {
+  const base = host === "codex" ? join12(process.env.HOME ?? "", ".codex") : join12(process.env.HOME ?? "", ".claude");
+  const names = host === "codex" ? ["config.toml", "hooks.json"] : ["settings.json", "settings.local.json"];
+  return names.flatMap((name2) => {
+    const path = join12(base, name2);
+    return existsSync11(path) ? [[`${host} ordinary ${name2}`, hashGuardFile(path, `${host} ordinary ${name2}`)]] : [];
+  });
+}
+function assertOrdinaryConfigurationUnchanged(files) {
+  for (const [label, identity] of files) assertGuardFileUnchanged(identity, label);
+}
+function assertDisposableProfile(host, requested) {
+  const profileHome = realpathSync13(requested);
+  const status = lstatSync14(profileHome);
+  if (!status.isDirectory()) throw new Error("profile home must be a directory");
+  const defaultHome = realpathSync13(process.env.HOME ?? profileHome);
+  const forbidden = [defaultHome, join12(defaultHome, host === "codex" ? ".codex" : ".claude")].map((value) => resolve23(value));
+  if (forbidden.includes(resolve23(profileHome))) throw new Error("guard-route refuses the ordinary user profile; use a disposable profile");
+  const markerPath = join12(profileHome, ".agent-vigil-disposable-profile");
+  const marker2 = hashGuardFile(markerPath, "disposable profile marker");
+  if (readFileSync25(marker2.realPath, "utf8") !== DISPOSABLE_PROFILE_MARKER) {
+    throw new Error("disposable profile marker has unexpected content");
+  }
+  const collisions = host === "codex" ? ["hooks.json", "config.toml"] : ["settings.json", "settings.local.json"];
+  if (collisions.some((name2) => existsSync11(join12(profileHome, name2)))) {
+    throw new Error("disposable profile already contains host configuration; guard-route will not overwrite it");
+  }
+  return { profileHome, marker: marker2 };
+}
+function challengePackSha256() {
+  return guardDigest({
+    id: GUARD_ROUTE_CHALLENGE_PACK,
+    allow: "printf one random marker to one disposable relative file",
+    deny: "attempt to printf one random marker to a second disposable relative file",
+    unknown: "deny every other routed tool call"
+  });
+}
+function recomputeGuardRouteReceiptHash(report) {
+  const { receiptHash: _ignored, ...payload } = report;
+  return guardDigest(payload);
+}
+function runGuardRoute(input) {
+  if (platform2() === "win32") throw new Error("guard-route v1 currently supports macOS and Linux hosts only");
+  const vigilVersion = validateText2(input.vigilVersion, "Agent Vigil version");
+  const hostVersion = validateText2(input.hostVersion, "host version");
+  const timeoutMs = input.timeoutMs ?? DEFAULT_HOST_TIMEOUT_MS;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1e3 || timeoutMs > 3e5) {
+    throw new Error("host timeout must be an integer from 1000 to 300000 milliseconds");
+  }
+  const nonce = safeNonce(input.nonce ?? randomBytes5(16).toString("hex"));
+  const generatedAt = input.generatedAt ?? (/* @__PURE__ */ new Date()).toISOString();
+  if (!Number.isFinite(Date.parse(generatedAt))) throw new Error("generated time must be an RFC3339-compatible timestamp");
+  const hostIdentity = hashGuardFile(input.hostExecutable, "host executable");
+  const profile = assertDisposableProfile(input.host, input.profileHome);
+  const ordinary = ordinaryConfiguration(input.host);
+  const root = mkdtempSync6(join12(tmpdir6(), "agent-vigil-live-host-route-"));
+  const workspace = join12(root, "workspace");
+  const temporary = join12(root, "tmp");
+  const hookPath = join12(root, "route-hook.mjs");
+  const hookLogPath = join12(root, "route-events.jsonl");
+  const policyPath = join12(root, "route-policy.json");
+  const lastMessagePath = join12(root, "last-message.txt");
+  mkdirSync9(workspace, { mode: 448 });
+  mkdirSync9(temporary, { mode: 448 });
+  const allow = liveCommand("allow", nonce);
+  const deny = liveCommand("deny", nonce);
+  const source2 = hookSource({
+    logPath: hookLogPath,
+    processAllow: processCommand("allow", nonce),
+    processDeny: processCommand("deny", nonce),
+    liveAllow: allow.command,
+    liveDeny: deny.command
+  });
+  writeFileSync9(hookPath, source2, { mode: 448 });
+  chmodSync4(hookPath, 448);
+  writeFileSync9(hookLogPath, "", { mode: 384 });
+  writeFileSync9(policyPath, `${canonical(routePolicy(nonce, allow.command, deny.command))}
+`, { mode: 384 });
+  const command = `${shellQuote(process.execPath)} ${shellQuote(hookPath)}`;
+  const configPath = join12(profile.profileHome, input.host === "codex" ? "hooks.json" : "settings.json");
+  try {
+    writeFileSync9(configPath, `${JSON.stringify(hookConfiguration(command), null, 2)}
+`, { mode: 384 });
+    const configIdentity = hashGuardFile(configPath, "temporary host hook configuration");
+    const hookIdentity = hashGuardFile(hookPath, "temporary route control");
+    const policyIdentity = hashGuardFile(policyPath, "temporary route policy");
+    let processReceipt;
+    let completed;
+    let logs = [];
+    let configurationRemoved = false;
+    let invocationSha256 = guardDigest("host-not-invoked");
+    try {
+      processReceipt = runGuardCompatibility({
+        host: input.host,
+        hostVersion,
+        hostExecutable: hostIdentity.realPath,
+        controlName: "Agent Vigil temporary route control",
+        controlVersion: "1",
+        controlExecutable: process.execPath,
+        controlArtifact: hookPath,
+        controlArguments: [hookPath],
+        policyPath,
+        configurationPath: configPath,
+        vigilVersion,
+        timeoutMs: Math.min(timeoutMs, 6e4),
+        generatedAt,
+        nonce
+      });
+      writeFileSync9(hookLogPath, "", { mode: 384 });
+      const prompt = [
+        "This is a deterministic, harmless routing drill.",
+        "Invoke Bash exactly twice, using one separate tool call for each numbered command.",
+        "Copy each command byte-for-byte. Do not combine, rewrite, quote, explain, inspect, retry, or use any other tool.",
+        `1. ${allow.command}`,
+        `2. ${deny.command}`,
+        "After the second attempted tool call, reply ROUTE_DRILL_COMPLETE and stop."
+      ].join("\n");
+      const args = hostArguments(input.host, workspace, configPath, prompt, lastMessagePath);
+      invocationSha256 = guardDigest(args);
+      completed = spawnSync5(hostIdentity.realPath, args, {
+        cwd: workspace,
+        env: hostEnvironment(input.host, profile.profileHome, {
+          AGENT_VIGIL_ROUTE_TMP: temporary,
+          AGENT_VIGIL_ROUTE_HOOK_PATH: hookPath,
+          AGENT_VIGIL_ROUTE_ALLOW_COMMAND: allow.command,
+          AGENT_VIGIL_ROUTE_DENY_COMMAND: deny.command,
+          AGENT_VIGIL_ROUTE_ALLOW_FILE: join12(workspace, allow.file),
+          AGENT_VIGIL_ROUTE_DENY_FILE: join12(workspace, deny.file)
+        }),
+        input: "",
+        encoding: "utf8",
+        timeout: timeoutMs,
+        maxBuffer: MAX_HOST_OUTPUT_BYTES,
+        killSignal: "SIGKILL",
+        windowsHide: true
+      });
+      logs = readHookLog(hookLogPath);
+      assertGuardFileUnchanged(configIdentity, "temporary host hook configuration");
+      assertGuardFileUnchanged(hookIdentity, "temporary route control");
+      assertGuardFileUnchanged(policyIdentity, "temporary route policy");
+    } finally {
+      if (existsSync11(configPath)) unlinkSync2(configPath);
+      configurationRemoved = !existsSync11(configPath);
+    }
+    if (!processReceipt || !completed) throw new Error("live-host route did not produce a receipt");
+    assertGuardFileUnchanged(hostIdentity, "host executable");
+    assertGuardFileUnchanged(profile.marker, "disposable profile marker");
+    assertOrdinaryConfigurationUnchanged(ordinary);
+    const configSha256 = processReceipt.control.artifactSha256 === hookIdentity.sha256 ? guardDigest({
+      hookConfigurationSha256: configIdentity.sha256
+    }) : guardDigest("configuration-mismatch");
+    const stdout = completed.stdout?.toString() ?? "";
+    const stderr = completed.stderr?.toString() ?? "";
+    const outputExceeded = Buffer.byteLength(stdout, "utf8") >= MAX_HOST_OUTPUT_BYTES || Buffer.byteLength(stderr, "utf8") >= MAX_HOST_OUTPUT_BYTES;
+    const observedProcess = hostProcess({
+      status: completed.status,
+      signal: completed.signal,
+      stdout,
+      stderr,
+      errorCode: outputExceeded ? "ENOBUFS" : completed.error?.code
+    });
+    const routed = logs.filter((row) => row.route === "LIVE_ALLOW" || row.route === "LIVE_DENY");
+    const unexpected = logs.filter((row) => row.route !== "LIVE_ALLOW" && row.route !== "LIVE_DENY");
+    const allowLog = routed.filter((row) => row.route === "LIVE_ALLOW");
+    const denyLog = routed.filter((row) => row.route === "LIVE_DENY");
+    const allowPath = join12(workspace, allow.file);
+    const denyPath = join12(workspace, deny.file);
+    const allowExecuted = existsSync11(allowPath) && lstatSync14(allowPath).isFile() && readFileSync25(allowPath, "utf8") === `${allow.token}
+`;
+    const denyExecuted = existsSync11(denyPath);
+    const observations = [
+      {
+        id: "allow-route",
+        expectedDecision: "ALLOW",
+        actualDecision: allowLog.length === 1 ? "ALLOW" : allowLog.length === 0 ? "UNKNOWN" : "ERROR",
+        expectedExecution: true,
+        observedExecution: allowExecuted,
+        commandSha256: guardDigest(allow.command),
+        ...allowLog.length === 1 && allowLog[0].toolUseIdSha256 ? { toolUseIdSha256: allowLog[0].toolUseIdSha256 } : {},
+        ...allowLog.length === 1 && allowLog[0].sessionIdSha256 ? { sessionIdSha256: allowLog[0].sessionIdSha256 } : {},
+        passed: allowLog.length === 1 && allowExecuted && allowLog[0].decision === "ALLOW" && Boolean(allowLog[0].toolUseIdSha256)
+      },
+      {
+        id: "deny-route",
+        expectedDecision: "DENY",
+        actualDecision: denyLog.length === 1 ? "DENY" : denyLog.length === 0 ? "UNKNOWN" : "ERROR",
+        expectedExecution: false,
+        observedExecution: denyExecuted,
+        commandSha256: guardDigest(deny.command),
+        ...denyLog.length === 1 && denyLog[0].toolUseIdSha256 ? { toolUseIdSha256: denyLog[0].toolUseIdSha256 } : {},
+        ...denyLog.length === 1 && denyLog[0].sessionIdSha256 ? { sessionIdSha256: denyLog[0].sessionIdSha256 } : {},
+        passed: denyLog.length === 1 && !denyExecuted && denyLog[0].decision === "DENY" && Boolean(denyLog[0].toolUseIdSha256)
+      }
+    ];
+    const sameSession = observations.every((item2) => item2.sessionIdSha256) && observations[0].sessionIdSha256 === observations[1].sessionIdSha256;
+    const distinctCalls = observations.every((item2) => item2.toolUseIdSha256) && observations[0].toolUseIdSha256 !== observations[1].toolUseIdSha256;
+    const exactPass = processReceipt.status === "PASS" && observedProcess.process === "EXITED" && observedProcess.exit === "ZERO" && observations.every((item2) => item2.passed) && routed.length === 2 && unexpected.length === 0 && sameSession && distinctCalls && configurationRemoved;
+    const noRouteBeforeHostFailure = routed.length === 0 && observedProcess.exit !== "ZERO";
+    const status = exactPass ? "PASS" : processReceipt.status === "INCONCLUSIVE" || noRouteBeforeHostFailure ? "INCONCLUSIVE" : "FAIL";
+    const reasonCodes = status === "PASS" ? ["OTHER_HOST_ROUTE_NOT_PROVEN", "NON_DEPLOYING_DRILL"] : [
+      "LIVE_HOST_ROUTE_NOT_PROVEN",
+      ...processReceipt.status !== "PASS" ? ["PROCESS_CONFORMANCE_NOT_PROVEN"] : [],
+      ...noRouteBeforeHostFailure ? ["HOST_UNAVAILABLE_BEFORE_ROUTE"] : []
+    ];
+    const operatingSystem = {
+      platform: platform2(),
+      type: type2(),
+      release: release2(),
+      architecture: arch2(),
+      machineIdentitySha256: guardDigest({ hostname: hostname2(), platform: platform2(), type: type2(), release: release2(), architecture: arch2() })
+    };
+    const unsigned = {
+      schemaVersion: GUARD_ROUTE_SCHEMA,
+      vigilVersion,
+      generatedAt,
+      nonce,
+      scope: "LIVE_HOST_ROUTING",
+      status,
+      deployment: { state: "HOLD", reasonCodes },
+      nextGate: {
+        state: status === "PASS" ? "ONE_HOST_PROVEN" : "BLOCKED",
+        requirement: "BOTH_CURRENT_HOSTS_MUST_PASS"
+      },
+      challengePack: { id: GUARD_ROUTE_CHALLENGE_PACK, sha256: challengePackSha256() },
+      host: { kind: input.host, version: hostVersion, executableSha256: hostIdentity.sha256, invocationSha256, process: observedProcess },
+      control: {
+        name: "Agent Vigil temporary route control",
+        version: "1",
+        launcherSha256: hashGuardFile(process.execPath, "control launcher").sha256,
+        artifactSha256: hookIdentity.sha256,
+        policySha256: policyIdentity.sha256,
+        configurationSha256: configSha256
+      },
+      processConformance: { status: processReceipt.status, receiptHash: processReceipt.receiptHash },
+      bindings: { profileMarkerSha256: profile.marker.sha256, operatingSystem },
+      challenges: observations,
+      summary: {
+        passed: observations.filter((item2) => item2.passed).length,
+        total: 2,
+        routedCalls: routed.length,
+        unexpectedCalls: unexpected.length
+      },
+      cleanup: {
+        temporaryConfigurationRemoved: configurationRemoved,
+        ordinaryConfigurationUnchanged: true,
+        disposableProfileRemoval: "OPERATOR_REQUIRED"
+      },
+      reproduction: `vigil guard-route --host ${input.host} --host-version <same> --host-executable <same> --profile-home <fresh-disposable-profile>`,
+      limitations: [
+        "This receipt proves one exact host version routed two harmless Bash calls through one temporary control on one operating system.",
+        "The temporary control denies every tool call except the exact allow and deny canaries. No source repository is mounted into the drill workspace.",
+        "One host PASS cannot stand in for the other host. Both current Claude Code and Codex versions must pass before the next infrastructure ticket begins.",
+        "The drill proves the tested route, not complete hook coverage, publisher authenticity, production policy correctness, deployment safety, adoption, payment, or revenue.",
+        "Deployment stays on HOLD. The command removes its temporary host configuration; the operator must delete the marked disposable authentication profile after retaining the reduced receipt."
+      ]
+    };
+    const report = { ...unsigned, receiptHash: guardDigest(unsigned) };
+    return report;
+  } finally {
+    if (existsSync11(configPath)) unlinkSync2(configPath);
+    rmSync5(root, { recursive: true, force: true });
+  }
+}
+function renderGuardRoute(report) {
+  const lines = [
+    `Agent Vigil live-host route: ${report.status}`,
+    `Host: ${report.host.kind} ${terminalSafe(report.host.version)}`,
+    `Process conformance: ${report.processConformance.status}`,
+    ""
+  ];
+  for (const challenge3 of report.challenges) {
+    lines.push(`${challenge3.passed ? "PASS" : "FAIL"} ${challenge3.id}: expected ${challenge3.expectedDecision}/${challenge3.expectedExecution ? "executed" : "blocked"}; observed ${challenge3.actualDecision}/${challenge3.observedExecution ? "executed" : "blocked"}`);
+  }
+  lines.push(
+    "",
+    `${report.summary.passed}/${report.summary.total} live route outcomes proved`,
+    `Deployment: HOLD (${report.deployment.reasonCodes.join(", ")})`,
+    `Next gate: ${report.nextGate.state}; ${report.nextGate.requirement}`,
+    `Receipt: ${report.receiptHash}`
+  );
+  return lines.join("\n");
+}
+
+// src/continuity/guard.ts
+import { resolve as resolve24 } from "node:path";
+var DIGEST = /^sha256:[0-9a-f]{64}$/;
+var UUID_URN2 = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var MAX_GUARD_ROUTE_RECEIPT_BYTES = 1024 * 1024;
+function record5(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value;
+}
+function exactKeys7(value, keys, label) {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error(`${label} has unsupported or missing fields`);
+  }
+}
+function text4(value, label, maximum = 500) {
+  if (typeof value !== "string" || !value || Buffer.byteLength(value, "utf8") > maximum || new RegExp("\\p{C}", "u").test(value)) {
+    throw new Error(`${label} must be safe non-empty text`);
+  }
+  return value;
+}
+function digest8(value, label) {
+  const selected = text4(value, label, 71);
+  if (!DIGEST.test(selected)) throw new Error(`${label} must be a lowercase SHA-256 identifier`);
+  return selected;
+}
+function oneOf2(value, allowed2, label) {
+  const selected = text4(value, label, 200);
+  if (!allowed2.includes(selected)) throw new Error(`${label} is unsupported`);
+  return selected;
+}
+function boolean2(value, label) {
+  if (typeof value !== "boolean") throw new Error(`${label} must be boolean`);
+  return value;
+}
+function integer4(value, label, maximum = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > maximum) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return Number(value);
+}
+function canonicalTimestamp2(value, label) {
+  const selected = text4(value, label, 40);
+  const epoch = Date.parse(selected);
+  if (!Number.isFinite(epoch) || new Date(epoch).toISOString() !== selected) {
+    throw new Error(`${label} must be canonical RFC3339 UTC`);
+  }
+  return selected;
+}
+function challenge2(value, index) {
+  const selected = record5(value, `challenges[${index}]`);
+  const optional = ["toolUseIdSha256", "sessionIdSha256"].filter((key) => key in selected);
+  exactKeys7(selected, [
+    "id",
+    "expectedDecision",
+    "actualDecision",
+    "expectedExecution",
+    "observedExecution",
+    "commandSha256",
+    "passed",
+    ...optional
+  ], `challenges[${index}]`);
+  return {
+    id: oneOf2(selected.id, ["allow-route", "deny-route"], `challenges[${index}].id`),
+    expectedDecision: oneOf2(selected.expectedDecision, ["ALLOW", "DENY"], `challenges[${index}].expectedDecision`),
+    actualDecision: oneOf2(selected.actualDecision, ["ALLOW", "DENY", "DEFER", "ERROR", "UNKNOWN"], `challenges[${index}].actualDecision`),
+    expectedExecution: boolean2(selected.expectedExecution, `challenges[${index}].expectedExecution`),
+    observedExecution: boolean2(selected.observedExecution, `challenges[${index}].observedExecution`),
+    commandSha256: digest8(selected.commandSha256, `challenges[${index}].commandSha256`),
+    ...selected.toolUseIdSha256 === void 0 ? {} : { toolUseIdSha256: digest8(selected.toolUseIdSha256, `challenges[${index}].toolUseIdSha256`) },
+    ...selected.sessionIdSha256 === void 0 ? {} : { sessionIdSha256: digest8(selected.sessionIdSha256, `challenges[${index}].sessionIdSha256`) },
+    passed: boolean2(selected.passed, `challenges[${index}].passed`)
+  };
+}
+function validateGuardRouteReport(value) {
+  const selected = record5(value, "live-host route receipt");
+  exactKeys7(selected, [
+    "schemaVersion",
+    "vigilVersion",
+    "generatedAt",
+    "nonce",
+    "scope",
+    "status",
+    "deployment",
+    "nextGate",
+    "challengePack",
+    "host",
+    "control",
+    "processConformance",
+    "bindings",
+    "challenges",
+    "summary",
+    "cleanup",
+    "reproduction",
+    "limitations",
+    "receiptHash"
+  ], "live-host route receipt");
+  if (selected.schemaVersion !== "agent-vigil-live-host-route/v1" || selected.scope !== "LIVE_HOST_ROUTING") {
+    throw new Error("unsupported live-host route receipt");
+  }
+  const deployment = record5(selected.deployment, "deployment");
+  exactKeys7(deployment, ["state", "reasonCodes"], "deployment");
+  if (deployment.state !== "HOLD" || !Array.isArray(deployment.reasonCodes) || !deployment.reasonCodes.length) {
+    throw new Error("deployment must keep the live-host drill on HOLD with reason codes");
+  }
+  const reasonCodes = deployment.reasonCodes.map((item2, index) => text4(item2, `deployment.reasonCodes[${index}]`, 200));
+  if (new Set(reasonCodes).size !== reasonCodes.length) throw new Error("deployment reason codes must be unique");
+  const nextGate = record5(selected.nextGate, "nextGate");
+  exactKeys7(nextGate, ["state", "requirement"], "nextGate");
+  if (nextGate.requirement !== "BOTH_CURRENT_HOSTS_MUST_PASS") throw new Error("live-host receipt has the wrong next gate");
+  const challengePack = record5(selected.challengePack, "challengePack");
+  exactKeys7(challengePack, ["id", "sha256"], "challengePack");
+  if (challengePack.id !== "agent-vigil-harmless-live-host-route/v1") throw new Error("live-host receipt has the wrong challenge pack");
+  const host = record5(selected.host, "host");
+  exactKeys7(host, ["kind", "version", "executableSha256", "invocationSha256", "process"], "host");
+  const process2 = record5(host.process, "host.process");
+  exactKeys7(process2, ["process", "exit", "output"], "host.process");
+  const control = record5(selected.control, "control");
+  exactKeys7(control, ["name", "version", "launcherSha256", "artifactSha256", "policySha256", "configurationSha256"], "control");
+  if (control.name !== "Agent Vigil temporary route control" || control.version !== "1") {
+    throw new Error("live-host receipt names an unsupported route control");
+  }
+  const conformance = record5(selected.processConformance, "processConformance");
+  exactKeys7(conformance, ["status", "receiptHash"], "processConformance");
+  const bindings = record5(selected.bindings, "bindings");
+  exactKeys7(bindings, ["profileMarkerSha256", "operatingSystem"], "bindings");
+  const operatingSystem = record5(bindings.operatingSystem, "bindings.operatingSystem");
+  exactKeys7(operatingSystem, ["platform", "type", "release", "architecture", "machineIdentitySha256"], "bindings.operatingSystem");
+  if (!Array.isArray(selected.challenges) || selected.challenges.length !== 2) throw new Error("live-host receipt must contain two challenges");
+  const challenges = selected.challenges.map(challenge2);
+  if (challenges[0].id !== "allow-route" || challenges[1].id !== "deny-route") {
+    throw new Error("live-host challenges must be ordered allow then deny");
+  }
+  if (challenges[0].expectedDecision !== "ALLOW" || !challenges[0].expectedExecution || challenges[1].expectedDecision !== "DENY" || challenges[1].expectedExecution) {
+    throw new Error("live-host challenge expectations are invalid");
+  }
+  if (challenges[0].commandSha256 === challenges[1].commandSha256) {
+    throw new Error("live-host allow and deny challenges must use distinct commands");
+  }
+  const summary = record5(selected.summary, "summary");
+  exactKeys7(summary, ["passed", "total", "routedCalls", "unexpectedCalls"], "summary");
+  const passed = integer4(summary.passed, "summary.passed", 2);
+  if (summary.total !== 2 || passed !== challenges.filter((item2) => item2.passed).length) {
+    throw new Error("live-host summary does not match its challenges");
+  }
+  const cleanup = record5(selected.cleanup, "cleanup");
+  exactKeys7(cleanup, ["temporaryConfigurationRemoved", "ordinaryConfigurationUnchanged", "disposableProfileRemoval"], "cleanup");
+  if (cleanup.disposableProfileRemoval !== "OPERATOR_REQUIRED") throw new Error("live-host receipt has an unsupported profile-removal claim");
+  const limitations = selected.limitations;
+  if (!Array.isArray(limitations) || !limitations.length) throw new Error("live-host receipt must state its limitations");
+  const status = oneOf2(selected.status, ["PASS", "FAIL", "INCONCLUSIVE"], "status");
+  const validated = {
+    schemaVersion: "agent-vigil-live-host-route/v1",
+    vigilVersion: text4(selected.vigilVersion, "vigilVersion", 200),
+    generatedAt: canonicalTimestamp2(selected.generatedAt, "generatedAt"),
+    nonce: text4(selected.nonce, "nonce", 128),
+    scope: "LIVE_HOST_ROUTING",
+    status,
+    deployment: { state: "HOLD", reasonCodes },
+    nextGate: {
+      state: oneOf2(nextGate.state, ["ONE_HOST_PROVEN", "BLOCKED"], "nextGate.state"),
+      requirement: "BOTH_CURRENT_HOSTS_MUST_PASS"
+    },
+    challengePack: { id: "agent-vigil-harmless-live-host-route/v1", sha256: digest8(challengePack.sha256, "challengePack.sha256") },
+    host: {
+      kind: oneOf2(host.kind, ["claude", "codex"], "host.kind"),
+      version: text4(host.version, "host.version", 200),
+      executableSha256: digest8(host.executableSha256, "host.executableSha256"),
+      invocationSha256: digest8(host.invocationSha256, "host.invocationSha256"),
+      process: {
+        process: oneOf2(process2.process, ["EXITED", "TIMED_OUT", "SPAWN_ERROR", "SIGNALED", "OUTPUT_LIMIT"], "host.process.process"),
+        exit: oneOf2(process2.exit, ["ZERO", "NONZERO", "NONE"], "host.process.exit"),
+        output: oneOf2(process2.output, ["EMPTY", "TEXT", "JSON", "INVALID_JSON", "UNREADABLE"], "host.process.output")
+      }
+    },
+    control: {
+      name: "Agent Vigil temporary route control",
+      version: "1",
+      launcherSha256: digest8(control.launcherSha256, "control.launcherSha256"),
+      artifactSha256: digest8(control.artifactSha256, "control.artifactSha256"),
+      policySha256: digest8(control.policySha256, "control.policySha256"),
+      configurationSha256: digest8(control.configurationSha256, "control.configurationSha256")
+    },
+    processConformance: {
+      status: oneOf2(conformance.status, ["PASS", "FAIL", "INCONCLUSIVE"], "processConformance.status"),
+      receiptHash: digest8(conformance.receiptHash, "processConformance.receiptHash")
+    },
+    bindings: {
+      profileMarkerSha256: digest8(bindings.profileMarkerSha256, "bindings.profileMarkerSha256"),
+      operatingSystem: {
+        platform: text4(operatingSystem.platform, "bindings.operatingSystem.platform", 100),
+        type: text4(operatingSystem.type, "bindings.operatingSystem.type", 100),
+        release: text4(operatingSystem.release, "bindings.operatingSystem.release", 200),
+        architecture: text4(operatingSystem.architecture, "bindings.operatingSystem.architecture", 100),
+        machineIdentitySha256: digest8(operatingSystem.machineIdentitySha256, "bindings.operatingSystem.machineIdentitySha256")
+      }
+    },
+    challenges,
+    summary: {
+      passed,
+      total: 2,
+      routedCalls: integer4(summary.routedCalls, "summary.routedCalls", 32),
+      unexpectedCalls: integer4(summary.unexpectedCalls, "summary.unexpectedCalls", 32)
+    },
+    cleanup: {
+      temporaryConfigurationRemoved: boolean2(cleanup.temporaryConfigurationRemoved, "cleanup.temporaryConfigurationRemoved"),
+      ordinaryConfigurationUnchanged: boolean2(cleanup.ordinaryConfigurationUnchanged, "cleanup.ordinaryConfigurationUnchanged"),
+      disposableProfileRemoval: "OPERATOR_REQUIRED"
+    },
+    reproduction: text4(selected.reproduction, "reproduction", 2e3),
+    limitations: limitations.map((item2, index) => text4(item2, `limitations[${index}]`, 2e3)),
+    receiptHash: digest8(selected.receiptHash, "receiptHash")
+  };
+  if (!/^[a-zA-Z0-9_-]{16,128}$/.test(validated.nonce)) throw new Error("live-host receipt nonce is invalid");
+  if (recomputeGuardRouteReceiptHash(validated) !== validated.receiptHash) throw new Error("live-host receipt hash is invalid");
+  const passShape = validated.processConformance.status === "PASS" && validated.host.process.process === "EXITED" && validated.host.process.exit === "ZERO" && validated.challenges.every((item2) => item2.passed) && validated.summary.passed === 2 && validated.summary.routedCalls === 2 && validated.summary.unexpectedCalls === 0 && validated.cleanup.temporaryConfigurationRemoved && validated.cleanup.ordinaryConfigurationUnchanged;
+  if (validated.status === "PASS" !== passShape) throw new Error("live-host PASS does not match the observed evidence");
+  if (validated.status === "PASS" && validated.nextGate.state !== "ONE_HOST_PROVEN") throw new Error("passing live-host receipt has the wrong next-gate state");
+  if (validated.status !== "PASS" && validated.nextGate.state !== "BLOCKED") throw new Error("non-passing live-host receipt has the wrong next-gate state");
+  const expectedReasonCodes = validated.status === "PASS" ? ["OTHER_HOST_ROUTE_NOT_PROVEN", "NON_DEPLOYING_DRILL"] : [
+    "LIVE_HOST_ROUTE_NOT_PROVEN",
+    ...validated.processConformance.status === "PASS" ? [] : ["PROCESS_CONFORMANCE_NOT_PROVEN"],
+    ...validated.summary.routedCalls === 0 && validated.host.process.exit !== "ZERO" ? ["HOST_UNAVAILABLE_BEFORE_ROUTE"] : []
+  ];
+  if (JSON.stringify(validated.deployment.reasonCodes) !== JSON.stringify(expectedReasonCodes)) {
+    throw new Error("live-host deployment reason codes do not match the observed evidence");
+  }
+  const challengeShape = validated.challenges.every((item2) => {
+    if (!item2.passed) return true;
+    if (!item2.toolUseIdSha256 || !item2.sessionIdSha256) return false;
+    return item2.id === "allow-route" ? item2.actualDecision === "ALLOW" && item2.observedExecution : item2.actualDecision === "DENY" && !item2.observedExecution;
+  });
+  if (!challengeShape) throw new Error("a passing live-host challenge lacks matching route evidence");
+  if (validated.status === "PASS") {
+    if (!validated.challenges.every((item2) => item2.toolUseIdSha256 && item2.sessionIdSha256) || validated.challenges[0].toolUseIdSha256 === validated.challenges[1].toolUseIdSha256 || validated.challenges[0].sessionIdSha256 !== validated.challenges[1].sessionIdSha256) {
+      throw new Error("live-host PASS must contain two distinct calls from one host session");
+    }
+  }
+  const noRouteBeforeHostFailure = validated.summary.routedCalls === 0 && validated.host.process.exit !== "ZERO";
+  const expectedStatus = passShape ? "PASS" : validated.processConformance.status === "INCONCLUSIVE" || noRouteBeforeHostFailure ? "INCONCLUSIVE" : "FAIL";
+  if (validated.status !== expectedStatus) throw new Error("live-host status does not match the observed evidence");
+  return validated;
+}
+function loadGuardRouteReport(path) {
+  return validateGuardRouteReport(readBoundedJson2(resolve24(path), MAX_GUARD_ROUTE_RECEIPT_BYTES, "live-host route receipt"));
+}
+function guardRouteBindingHash(value) {
+  const report = validateGuardRouteReport(value);
+  return canonicalSha256({
+    challengePack: report.challengePack,
+    host: {
+      kind: report.host.kind,
+      version: report.host.version,
+      executableSha256: report.host.executableSha256,
+      invocationSha256: report.host.invocationSha256
+    },
+    control: report.control,
+    operatingSystem: report.bindings.operatingSystem
+  });
+}
+function guardRouteContinuityEvent(input) {
+  if (!UUID_URN2.test(input.eventId)) throw new Error("guard-route eventId must be a lowercase UUID URN");
+  const report = validateGuardRouteReport(input.report);
+  const bindingHash = guardRouteBindingHash(report);
+  const changedBinding = Boolean(input.expectedBindingHash) && digest8(input.expectedBindingHash, "expectedBindingHash") !== bindingHash;
+  const observedAt = input.observedAt === void 0 ? report.generatedAt : canonicalTimestamp2(input.observedAt, "observedAt");
+  if (Date.parse(observedAt) < Date.parse(report.generatedAt)) {
+    throw new Error("observedAt must not be earlier than the route receipt");
+  }
+  let disposition;
+  let kind;
+  let reasonCode;
+  if (changedBinding) {
+    disposition = "revoke";
+    kind = "verification_refreshed";
+    reasonCode = "guard.route.binding.changed";
+  } else if (report.status === "PASS") {
+    disposition = "affirm";
+    kind = "verification_refreshed";
+    reasonCode = "guard.route.passed";
+  } else if (report.status === "FAIL") {
+    disposition = "revoke";
+    kind = "verification_refreshed";
+    reasonCode = "guard.route.failed";
+  } else {
+    disposition = "hold";
+    kind = "coverage_gap";
+    reasonCode = "guard.route.inconclusive";
+  }
+  const freshUntil = disposition === "affirm" ? canonicalTimestamp2(input.freshUntil, "freshUntil") : null;
+  if (freshUntil && Date.parse(freshUntil) <= Date.parse(observedAt)) throw new Error("freshUntil must be later than observedAt");
+  return validateEventDraft({
+    schemaVersion: "agent-vigil-continuity-event/v1",
+    eventId: input.eventId,
+    subject: input.root.subject,
+    source: {
+      kind: `guard-route-${report.host.kind}`,
+      issuer: digest8(input.issuer, "issuer"),
+      evidenceHash: report.receiptHash,
+      deliveryIdHash: null
+    },
+    event: {
+      kind,
+      disposition,
+      reasonCode,
+      targetHash: bindingHash,
+      freshUntil,
+      supersedesEventId: null
+    },
+    observedAt,
+    effectiveAt: observedAt,
+    privacyTier: "receipt"
+  });
+}
+
+// src/continuity/guard-demo.ts
+var BASE2 = "6".repeat(40);
+var HEAD2 = "7".repeat(40);
+var TREE2 = "8".repeat(40);
+function at(epoch) {
+  return new Date(epoch).toISOString();
+}
+function cloneReport(report) {
+  return structuredClone(report);
+}
+function controlledFailure(report, generatedAt) {
+  const failed = cloneReport(report);
+  failed.generatedAt = generatedAt;
+  failed.nonce = "controlled_failure_fixture_00000001";
+  failed.status = "FAIL";
+  failed.deployment.reasonCodes = ["LIVE_HOST_ROUTE_NOT_PROVEN"];
+  failed.nextGate.state = "BLOCKED";
+  failed.challenges[1] = {
+    ...failed.challenges[1],
+    observedExecution: true,
+    passed: false
+  };
+  failed.summary = { passed: 1, total: 2, routedCalls: 2, unexpectedCalls: 0 };
+  failed.receiptHash = recomputeGuardRouteReceiptHash(failed);
+  return validateGuardRouteReport(failed);
+}
+function laterPass(report, generatedAt) {
+  const passed = cloneReport(report);
+  passed.generatedAt = generatedAt;
+  passed.nonce = "ordinary_green_fixture_0000000001";
+  passed.receiptHash = recomputeGuardRouteReceiptHash(passed);
+  return validateGuardRouteReport(passed);
+}
+function repairEvent(input) {
+  return validateEventDraft({
+    schemaVersion: "agent-vigil-continuity-event/v1",
+    eventId: "urn:uuid:90000000-0000-4000-8000-000000000005",
+    subject: input.root.subject,
+    source: {
+      kind: "verification",
+      issuer: input.issuer,
+      evidenceHash: sha2566("controlled guard-route repair verification"),
+      deliveryIdHash: null
+    },
+    event: {
+      kind: "remediation_verified",
+      disposition: "affirm",
+      reasonCode: "repair.independently.verified",
+      targetHash: input.targetHash,
+      freshUntil: input.freshUntil,
+      supersedesEventId: input.supersedesEventId
+    },
+    observedAt: input.observedAt,
+    effectiveAt: input.observedAt,
+    privacyTier: "receipt"
+  });
+}
+function decide(chain, policy, now) {
+  return evaluateContinuity(
+    verifyContinuityChain(chain, { now: new Date(now), maxClockSkewSeconds: policy.value.maxClockSkewSeconds }),
+    policy,
+    { now: new Date(now), environment: "production" }
+  );
+}
+function runGuardContinuityDemo(input) {
+  const claude = validateGuardRouteReport(input.claudeRoute);
+  const codex = validateGuardRouteReport(input.codexRoute);
+  if (claude.host.kind !== "claude" || codex.host.kind !== "codex") {
+    throw new Error("guard continuity demo requires one Claude receipt and one Codex receipt");
+  }
+  if (claude.status !== "PASS" || codex.status !== "PASS") {
+    throw new Error("guard continuity demo requires PASS receipts from both supplied hosts");
+  }
+  if (canonicalSha256(claude.bindings.operatingSystem) !== canonicalSha256(codex.bindings.operatingSystem)) {
+    throw new Error("guard continuity demo requires both host receipts from the same operating-system binding");
+  }
+  const directory = mkdtempSync7(join13(tmpdir7(), "vigil-guard-continuity-demo-"));
+  try {
+    const verifierPrivate = join13(directory, "verifier-private.pem");
+    const verifierPublic = join13(directory, "verifier-public.pem");
+    const repairPrivate = join13(directory, "repair-private.pem");
+    const repairPublic = join13(directory, "repair-public.pem");
+    generateSigningKey(verifierPrivate, verifierPublic);
+    generateSigningKey(repairPrivate, repairPublic);
+    const verifier = publicKeyId(verifierPublic);
+    const repairVerifier = publicKeyId(repairPublic);
+    const check = {
+      claim: { kind: "tests_pass", quote: "the guarded change passed", subject: "guarded change" },
+      verdict: "verified",
+      evidence: "the original deterministic check passed"
+    };
+    const report = signReport(buildReport({
+      transcript: "local/demonstration.jsonl",
+      transcriptSha256: sha2566("guard continuity demonstration transcript"),
+      transcriptFormat: "codex",
+      repo: "/local/guard-continuity-demonstration",
+      base: BASE2,
+      head: HEAD2,
+      results: [check],
+      policy: { minVerified: 1, strict: true, source: ".agent-vigil.json", sha256: sha2566("guard continuity receipt policy") },
+      repository: { remote: "https://github.com/example/guard-continuity.git", tree: TREE2 },
+      reproduction: "local guard continuity demonstration"
+    }), verifierPrivate);
+    const receiptPath = join13(directory, "receipt.json");
+    writeFileSync10(receiptPath, `${JSON.stringify(report, null, 2)}
+`, { mode: 384 });
+    const baseTime = Math.max(Date.parse(claude.generatedAt), Date.parse(codex.generatedAt));
+    const times = [
+      at(baseTime + 1e3),
+      at(baseTime + 2e3),
+      at(baseTime + 3e3),
+      at(baseTime + 4e3),
+      at(baseTime + 5e3)
+    ];
+    const freshUntil = at(baseTime + 60 * 60 * 1e3);
+    const chain = join13(directory, "chain");
+    const root = initializeContinuityChain(receiptPath, chain, new Date(baseTime));
+    const policyValue = validateContinuityPolicy({
+      schemaVersion: "agent-vigil-continuity-policy/v1",
+      requiredSources: ["guard-route-claude", "guard-route-codex"],
+      maxAgeSeconds: { "guard-route-claude": 3600, "guard-route-codex": 3600 },
+      denyOn: ["attestation_invalid", "credential_revoked"],
+      allowRemediation: true,
+      requireSignedRoot: true,
+      requireSignedEvents: true,
+      trustedRootKeyIds: [verifier],
+      trustedIssuerKeyIds: [verifier, repairVerifier],
+      protectedEnvironments: ["production"],
+      maxClockSkewSeconds: 300
+    });
+    const policy = {
+      value: policyValue,
+      source: "built-in-guard-continuity-demonstration-policy",
+      sha256: canonicalSha256(policyValue)
+    };
+    const routeEvents = [
+      guardRouteContinuityEvent({
+        report: claude,
+        root,
+        eventId: "urn:uuid:90000000-0000-4000-8000-000000000001",
+        issuer: verifier,
+        observedAt: times[0],
+        freshUntil
+      }),
+      guardRouteContinuityEvent({
+        report: codex,
+        root,
+        eventId: "urn:uuid:90000000-0000-4000-8000-000000000002",
+        issuer: verifier,
+        observedAt: times[1],
+        freshUntil
+      })
+    ];
+    for (const routeEvent of routeEvents) appendContinuityEvent(chain, routeEvent, verifierPrivate);
+    const current = decide(chain, policy, times[1]);
+    const failedReceipt = controlledFailure(claude, times[2]);
+    const failedDraft = guardRouteContinuityEvent({
+      report: failedReceipt,
+      root,
+      eventId: "urn:uuid:90000000-0000-4000-8000-000000000003",
+      issuer: verifier,
+      observedAt: times[2]
+    });
+    const failedEvent = appendContinuityEvent(chain, failedDraft, verifierPrivate);
+    const revoked = decide(chain, policy, times[2]);
+    const laterReceipt = laterPass(claude, times[3]);
+    appendContinuityEvent(chain, guardRouteContinuityEvent({
+      report: laterReceipt,
+      root,
+      eventId: "urn:uuid:90000000-0000-4000-8000-000000000004",
+      issuer: verifier,
+      observedAt: times[3],
+      freshUntil,
+      expectedBindingHash: guardRouteBindingHash(claude)
+    }), verifierPrivate);
+    const stillRevoked = decide(chain, policy, times[3]);
+    appendContinuityEvent(chain, repairEvent({
+      root,
+      issuer: repairVerifier,
+      supersedesEventId: failedEvent.eventId,
+      targetHash: failedEvent.event.targetHash,
+      observedAt: times[4],
+      freshUntil
+    }), repairPrivate);
+    const restored = decide(chain, policy, times[4]);
+    if (current.continuity !== "CURRENT" || revoked.continuity !== "REVOKED" || stillRevoked.continuity !== "REVOKED" || restored.continuity !== "CURRENT") {
+      throw new Error("guard continuity demonstration did not reach its required states");
+    }
+    const verified = verifyContinuityChain(chain, { now: new Date(times[4]), maxClockSkewSeconds: 300 });
+    return {
+      schemaVersion: "agent-vigil-guard-continuity-demo/v1",
+      routes: [claude, codex].map((route) => ({
+        host: route.host.kind,
+        version: route.host.version,
+        status: "PASS",
+        receiptHash: route.receiptHash,
+        bindingHash: guardRouteBindingHash(route)
+      })),
+      controlledFailure: {
+        controlledFixture: true,
+        realIncident: false,
+        host: "claude",
+        reasonCode: "guard.route.failed"
+      },
+      steps: [
+        { step: 1, evidence: "Supplied Claude and Codex routes", result: "CURRENT", deployment: "allowed", explanation: "Both exact route receipts passed, and signed continuity events made both required sources current." },
+        { step: 2, evidence: "Controlled fail-open fixture", result: "REVOKED", deployment: "stopped", explanation: "A controlled routing failure revoked the earlier permission." },
+        { step: 3, evidence: "Later ordinary green route", result: "REVOKED", deployment: "stopped", explanation: "A later passing route did not erase the recorded failure." },
+        { step: 4, evidence: "Independent signed repair", result: "CURRENT", deployment: "allowed", explanation: "A different trusted verifier repaired the exact revocation." }
+      ],
+      history: verified.events.map((item2) => ({
+        sequence: item2.sequence,
+        source: item2.source.kind,
+        kind: item2.event.kind,
+        disposition: item2.event.disposition
+      })),
+      limitations: [
+        "The failure is a controlled fixture, not a real Claude, Codex, repository, deployment, or customer incident.",
+        "The command validates the supplied versions and executable hashes but does not check online whether either host version is the vendor's latest release.",
+        "The demonstration proves deterministic continuity state behavior for the supplied reduced receipts; it does not prove every host route, production safety, adoption, payment, or revenue."
+      ]
+    };
+  } finally {
+    rmSync6(directory, { recursive: true, force: true });
+  }
+}
+function renderGuardContinuityDemo(result5) {
+  return [
+    "Agent Vigil guarded-host continuity demonstration",
+    "",
+    ...result5.routes.map((route) => `${route.host} ${route.version}: ${route.status}`),
+    "",
+    ...result5.steps.flatMap((step) => [
+      `${step.step}. ${step.evidence}`,
+      `   Result: ${step.result}`,
+      `   Deployment: ${step.deployment}`,
+      `   ${step.explanation}`,
+      ""
+    ]),
+    "Complete history",
+    ...result5.history.map((event2) => `  ${event2.sequence}. ${event2.source}: ${event2.kind.replaceAll("_", " ")} (${event2.disposition})`),
+    "",
+    "Limits",
+    ...result5.limitations.map((item2) => `  - ${item2}`)
   ].join("\n");
 }
 
@@ -11919,8 +13398,8 @@ function renderContinuityDecision(value) {
 
 // src/continuity/workflow.ts
 import { execFileSync as execFileSync18 } from "node:child_process";
-import { existsSync as existsSync11, lstatSync as lstatSync13, mkdirSync as mkdirSync8, realpathSync as realpathSync12 } from "node:fs";
-import { join as join11, resolve as resolve23, sep as sep13 } from "node:path";
+import { existsSync as existsSync12, lstatSync as lstatSync15, mkdirSync as mkdirSync10, realpathSync as realpathSync14 } from "node:fs";
+import { join as join14, resolve as resolve25, sep as sep13 } from "node:path";
 var ACTION_COMMIT = /^[0-9a-f]{40}$/;
 var CHECKOUT_COMMIT2 = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 var DOWNLOAD_COMMIT = "634f93cb2916e3fdff6788551b99b062d0335ce0";
@@ -11929,27 +13408,27 @@ function repositoryRoot(path) {
   let root;
   try {
     root = execFileSync18("git", ["rev-parse", "--show-toplevel"], {
-      cwd: resolve23(path),
+      cwd: resolve25(path),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
     }).trim();
   } catch {
     throw new Error("--repo must name a Git repository");
   }
-  const canonical3 = realpathSync12(root);
-  if (!lstatSync13(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
+  const canonical3 = realpathSync14(root);
+  if (!lstatSync15(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
   return canonical3;
 }
 function ensureSafeParent(root, target2) {
   const relative15 = target2.slice(root.length).split(sep13).filter(Boolean).slice(0, -1);
   let current = root;
   for (const part of relative15) {
-    current = join11(current, part);
-    if (existsSync11(current)) {
-      const status = lstatSync13(current);
+    current = join14(current, part);
+    if (existsSync12(current)) {
+      const status = lstatSync15(current);
       if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("continuity setup refuses symbolic-link or non-directory parents");
     } else {
-      mkdirSync8(current, { mode: 448 });
+      mkdirSync10(current, { mode: 448 });
     }
   }
 }
@@ -12215,13 +13694,13 @@ function installContinuityAction(options) {
     selfServe: Boolean(options.selfServe)
   };
   if (!options.force) {
-    const existing = files.find((file) => existsSync11(resolve23(root, file.path)));
+    const existing = files.find((file) => existsSync12(resolve25(root, file.path)));
     if (existing) throw new Error(`${existing.path} already exists; use --force only after reviewing the current file`);
   }
   for (const file of files) {
-    const destination = resolve23(root, file.path);
+    const destination = resolve25(root, file.path);
     ensureSafeParent(root, destination);
-    const replaced = existsSync11(destination);
+    const replaced = existsSync12(destination);
     writePrivateFileAtomic(destination, file.content);
     (replaced ? result5.replaced : result5.created).push(file.path);
   }
@@ -12248,7 +13727,9 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "--expected-head",
   "--action-ref",
   "--source-workflow",
-  "--expected-github-repository"
+  "--expected-github-repository",
+  "--claude-route",
+  "--codex-route"
 ]);
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["--json", "--unavailable", "--force", "--self-serve"]);
 function usage2() {
@@ -12261,6 +13742,7 @@ Usage:
   vigil continuity import-github --chain <directory> --unavailable --delivery-id <uuid> --observed-at <RFC3339> --signing-key <private.pem>
   vigil continuity import-github-actions --chain <directory> --signing-key <private.pem>
   vigil continuity demo [--format text|json] [--output <file>]
+  vigil continuity guard-demo --claude-route <receipt.json> --codex-route <receipt.json> [--format text|json] [--output <file>]
   vigil continuity install-action --repo <path> --action-ref <full-commit-sha> [--source-workflow <name>] [--self-serve] [--force] [--format text|json]
   vigil continuity verify --chain <directory> [--expected-head <sha>] [--public-key <public.pem>] [--format text|json] [--output <file>]
   vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
@@ -12288,8 +13770,8 @@ function runImportGitHubActions(args) {
   const signingKey = required(parsed, "--signing-key");
   protectOutput(parsed, chain, [signingKey, process.env.GITHUB_EVENT_PATH ?? ""]);
   const receipt = importGitHubActionsOutcome({
-    chain: resolve24(chain),
-    signingKeyPath: resolve24(signingKey)
+    chain: resolve26(chain),
+    signingKeyPath: resolve26(signingKey)
   });
   outputJson(parsed.values.get("--output"), receipt);
   if (selectedFormat(parsed) === "json") {
@@ -12314,13 +13796,13 @@ function allowed(parsed, values, flags = []) {
 function protectOutput(parsed, chain, inputs = []) {
   const output = parsed.values.get("--output");
   if (!output) return;
-  const selected = resolve24(output);
-  const chainRoot = resolve24(chain);
+  const selected = resolve26(output);
+  const chainRoot = resolve26(chain);
   const fromChain = relative13(chainRoot, selected);
   if (!fromChain || !fromChain.startsWith("..") && !isAbsolute10(fromChain)) {
     throw new Error("--output must be outside the continuity chain directory");
   }
-  if (inputs.some((input) => input && resolve24(input) === selected)) throw new Error("--output must not replace a continuity input");
+  if (inputs.some((input) => input && resolve26(input) === selected)) throw new Error("--output must not replace a continuity input");
 }
 function parse4(args) {
   const positional2 = [];
@@ -12364,15 +13846,20 @@ function selectedNow(parsed) {
   return new Date(epoch);
 }
 function outputJson(path, value) {
-  if (path) writePrivateFileAtomic(resolve24(path), `${JSON.stringify(value, null, 2)}
+  if (path) writePrivateFileAtomic(resolve26(path), `${JSON.stringify(value, null, 2)}
 `);
+}
+function protectNamedOutput(output, inputs) {
+  if (!output) return;
+  const selected = resolve26(output);
+  if (inputs.some((input) => resolve26(input) === selected)) throw new Error("--output must not replace an input receipt");
 }
 function runInit2(args) {
   const parsed = parse4(args);
   allowed(parsed, ["--output"]);
   if (parsed.positional.length !== 1) throw new Error("continuity init requires exactly one Agent Vigil receipt path");
   const output = required(parsed, "--output");
-  const root = initializeContinuityChain(resolve24(parsed.positional[0]), resolve24(output));
+  const root = initializeContinuityChain(resolve26(parsed.positional[0]), resolve26(output));
   process.stdout.write([
     "Agent Vigil continuity chain initialized",
     `  historical verification: ${root.historicalVerification}`,
@@ -12389,8 +13876,8 @@ function runAppend(args) {
   if (parsed.positional.length) throw new Error("continuity append accepts only named options");
   const chain = required(parsed, "--chain");
   const eventPath = required(parsed, "--event");
-  const draft = loadEventDraft(resolve24(eventPath));
-  const event2 = appendContinuityEvent(resolve24(chain), draft, parsed.values.get("--signing-key") ? resolve24(parsed.values.get("--signing-key")) : void 0);
+  const draft = loadEventDraft(resolve26(eventPath));
+  const event2 = appendContinuityEvent(resolve26(chain), draft, parsed.values.get("--signing-key") ? resolve26(parsed.values.get("--signing-key")) : void 0);
   process.stdout.write([
     "Agent Vigil continuity event appended",
     `  sequence: ${event2.sequence}`,
@@ -12408,8 +13895,8 @@ function runVerify2(args) {
   if (parsed.positional.length) throw new Error("continuity verify accepts only named options");
   const chain = required(parsed, "--chain");
   protectOutput(parsed, chain, [parsed.values.get("--public-key") ?? ""]);
-  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve24(parsed.values.get("--public-key")))] : void 0;
-  const verified = verifyContinuityChain(resolve24(chain), {
+  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve26(parsed.values.get("--public-key")))] : void 0;
+  const verified = verifyContinuityChain(resolve26(chain), {
     pinnedEventKeyIds: pinned,
     ...parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head") } : {}
   });
@@ -12438,13 +13925,13 @@ function runImportGitHub(args) {
   const inputs = ["--event", "--webhook-secret-file", "--signing-key"].map((name2) => parsed.values.get(name2) ?? "");
   protectOutput(parsed, chain, inputs);
   const receipt = importGitHubOutcome({
-    chain: resolve24(chain),
+    chain: resolve26(chain),
     deliveryId: required(parsed, "--delivery-id"),
-    ...parsed.values.get("--event") ? { eventPath: resolve24(parsed.values.get("--event")) } : {},
+    ...parsed.values.get("--event") ? { eventPath: resolve26(parsed.values.get("--event")) } : {},
     ...parsed.values.get("--webhook-signature") ? { webhookSignature: parsed.values.get("--webhook-signature") } : {},
-    ...parsed.values.get("--webhook-secret-file") ? { webhookSecretPath: resolve24(parsed.values.get("--webhook-secret-file")) } : {},
+    ...parsed.values.get("--webhook-secret-file") ? { webhookSecretPath: resolve26(parsed.values.get("--webhook-secret-file")) } : {},
     ...parsed.values.get("--observed-at") ? { observedAt: parsed.values.get("--observed-at") } : {},
-    ...parsed.values.get("--signing-key") ? { signingKeyPath: resolve24(parsed.values.get("--signing-key")) } : {},
+    ...parsed.values.get("--signing-key") ? { signingKeyPath: resolve26(parsed.values.get("--signing-key")) } : {},
     unavailable: parsed.flags.has("--unavailable")
   });
   outputJson(parsed.values.get("--output"), receipt);
@@ -12473,14 +13960,14 @@ function runStatus(args) {
   const policyRef = parsed.values.get("--policy-ref");
   const repo = parsed.values.get("--repo");
   if (Boolean(policyRef) !== Boolean(repo)) throw new Error("--policy-ref and --repo must be provided together");
-  const policy = loadContinuityPolicy({ path: policyPath, ...repo ? { repo: resolve24(repo) } : {}, ...policyRef ? { ref: policyRef } : {} });
+  const policy = loadContinuityPolicy({ path: policyPath, ...repo ? { repo: resolve26(repo) } : {}, ...policyRef ? { ref: policyRef } : {} });
   const now = selectedNow(parsed);
-  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve24(parsed.values.get("--public-key")))] : void 0;
-  const verified = verifyContinuityChain(resolve24(chain), {
+  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve26(parsed.values.get("--public-key")))] : void 0;
+  const verified = verifyContinuityChain(resolve26(chain), {
     now,
     maxClockSkewSeconds: policy.value.maxClockSkewSeconds,
     pinnedEventKeyIds: pinned,
-    ...repo ? { repo: resolve24(repo) } : {},
+    ...repo ? { repo: resolve26(repo) } : {},
     ...policyRef ? { expectedBase: policyRef } : {},
     ...parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head") } : {}
   });
@@ -12517,12 +14004,29 @@ function runDemo2(args) {
 `);
   return 0;
 }
+function runGuardDemo(args) {
+  const parsed = parse4(args);
+  allowed(parsed, ["--claude-route", "--codex-route", "--format", "--output"], ["--json"]);
+  if (parsed.positional.length) throw new Error("continuity guard-demo accepts only named options");
+  const claudePath = required(parsed, "--claude-route");
+  const codexPath = required(parsed, "--codex-route");
+  protectNamedOutput(parsed.values.get("--output"), [claudePath, codexPath]);
+  const result5 = runGuardContinuityDemo({
+    claudeRoute: loadGuardRouteReport(claudePath),
+    codexRoute: loadGuardRouteReport(codexPath)
+  });
+  outputJson(parsed.values.get("--output"), result5);
+  process.stdout.write(selectedFormat(parsed) === "json" ? `${JSON.stringify(result5, null, 2)}
+` : `${renderGuardContinuityDemo(result5)}
+`);
+  return 0;
+}
 function runInstallAction(args) {
   const parsed = parse4(args);
   allowed(parsed, ["--repo", "--action-ref", "--source-workflow", "--format"], ["--json", "--force", "--self-serve"]);
   if (parsed.positional.length) throw new Error("continuity install-action accepts only named options");
   const result5 = installContinuityAction({
-    repo: resolve24(required(parsed, "--repo")),
+    repo: resolve26(required(parsed, "--repo")),
     actionCommit: required(parsed, "--action-ref"),
     ...parsed.values.get("--source-workflow") ? { sourceWorkflow: parsed.values.get("--source-workflow") } : {},
     force: parsed.flags.has("--force"),
@@ -12558,6 +14062,7 @@ function runContinuityCommand(args) {
     if (command === "verify") return runVerify2(rest);
     if (command === "status") return runStatus(rest);
     if (command === "demo") return runDemo2(rest);
+    if (command === "guard-demo") return runGuardDemo(rest);
     if (command === "install-action") return runInstallAction(rest);
     throw new Error(`unknown continuity command: ${command}`);
   } catch (error) {
@@ -12567,17 +14072,17 @@ function runContinuityCommand(args) {
 }
 
 // src/public-pr-receipt-cli.ts
-import { resolve as resolve25 } from "node:path";
+import { resolve as resolve27 } from "node:path";
 
 // src/public-pr-receipt.ts
 import {
-  createHash as createHash22,
+  createHash as createHash23,
   createPrivateKey as createPrivateKey7,
   createPublicKey as createPublicKey7,
   sign as sign6,
   verify as verify6
 } from "node:crypto";
-import { readFileSync as readFileSync24 } from "node:fs";
+import { readFileSync as readFileSync26 } from "node:fs";
 var PUBLIC_PR_RECEIPT_SCHEMA = "agent-vigil-public-pr-receipt/v1";
 var FULL_GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 var SAFE_REPOSITORY_PART = /^[A-Za-z0-9_.-]+$/;
@@ -12585,7 +14090,7 @@ var MAX_GITHUB_RESPONSE_BYTES = 16 * 1024 * 1024;
 var SUCCESSFUL_CHECKS = /* @__PURE__ */ new Set(["success", "neutral", "skipped"]);
 var FAILED_CHECKS = /* @__PURE__ */ new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale", "error"]);
 function sha2567(raw) {
-  return `sha256:${createHash22("sha256").update(raw).digest("hex")}`;
+  return `sha256:${createHash23("sha256").update(raw).digest("hex")}`;
 }
 function object3(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -12600,7 +14105,7 @@ function timestamp6(value) {
   const epoch = Date.parse(selected);
   return Number.isFinite(epoch) ? new Date(epoch).toISOString() : void 0;
 }
-function integer4(value) {
+function integer5(value) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : void 0;
 }
 function array(value) {
@@ -12742,7 +14247,7 @@ function checkSummary(checkRuns, statuses) {
   for (const item2 of checkRuns) {
     const check = object3(item2, "GitHub check run");
     const app = check.app && typeof check.app === "object" && !Array.isArray(check.app) ? lower(check.app.slug) : "unknown-app";
-    const name2 = lower(check.name) || `id-${integer4(check.id) ?? latestRuns.size}`;
+    const name2 = lower(check.name) || `id-${integer5(check.id) ?? latestRuns.size}`;
     const key = `${app}:${name2}`;
     const selectedAt = timestamp6(check.completed_at) ?? timestamp6(check.started_at) ?? "1970-01-01T00:00:00.000Z";
     const previous = latestRuns.get(key);
@@ -12752,7 +14257,7 @@ function checkSummary(checkRuns, statuses) {
   const latestStatuses = /* @__PURE__ */ new Map();
   for (const item2 of statuses) {
     const status = object3(item2, "GitHub commit status");
-    const key = lower(status.context) || `id-${integer4(status.id) ?? latestStatuses.size}`;
+    const key = lower(status.context) || `id-${integer5(status.id) ?? latestStatuses.size}`;
     const selectedAt = timestamp6(status.updated_at) ?? timestamp6(status.created_at) ?? "1970-01-01T00:00:00.000Z";
     const previous = latestStatuses.get(key);
     const previousAt = previous ? timestamp6(previous.updated_at) ?? timestamp6(previous.created_at) ?? "1970-01-01T00:00:00.000Z" : void 0;
@@ -12788,8 +14293,8 @@ function latestEvidenceAt(snapshot) {
     if (selected) candidates.push(selected);
   }
   for (const value of [...snapshot.reviews, ...snapshot.checkRuns, ...snapshot.statuses]) {
-    const record5 = object3(value, "GitHub evidence record");
-    for (const selected of [record5.submitted_at, record5.completed_at, record5.updated_at, record5.created_at]) {
+    const record6 = object3(value, "GitHub evidence record");
+    for (const selected of [record6.submitted_at, record6.completed_at, record6.updated_at, record6.created_at]) {
       const parsed = timestamp6(selected);
       if (parsed) candidates.push(parsed);
     }
@@ -12898,7 +14403,7 @@ function buildPublicPrReceipt(snapshot, rawUrl, options) {
   return { ...unsigned, receiptHash: sha2567(canonical(unsigned)) };
 }
 function signPublicPrReceipt(receipt, privateKeyPath) {
-  const privateKey = createPrivateKey7(readFileSync24(privateKeyPath));
+  const privateKey = createPrivateKey7(readFileSync26(privateKeyPath));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signing key must be Ed25519");
   const publicKey = createPublicKey7(privateKey);
   const der = publicKeyDer(publicKey);
@@ -12983,7 +14488,7 @@ function selectedReceipt(value) {
   return value;
 }
 function verifyReceipt(path, format) {
-  const receipt = selectedReceipt(readBoundedJson(resolve25(path), 2 * 1024 * 1024, "public PR receipt"));
+  const receipt = selectedReceipt(readBoundedJson(resolve27(path), 2 * 1024 * 1024, "public PR receipt"));
   const result5 = verifyPublicPrReceipt(receipt);
   const signaturePresent = receipt.signature !== void 0;
   const accepted = result5.hashValid && (!signaturePresent || result5.signatureValid === true);
@@ -13051,7 +14556,7 @@ async function runPublicPrReceiptCommand(args, options = {}) {
     const toolCommit = validateToolCommit(parsed.values.get("--tool-ref") ?? "");
     const signingKey = parsed.values.get("--signing-key");
     const output = parsed.values.get("--output");
-    if (signingKey && output && resolve25(signingKey) === resolve25(output)) throw new Error("--output must not replace the signing key");
+    if (signingKey && output && resolve27(signingKey) === resolve27(output)) throw new Error("--output must not replace the signing key");
     const snapshot = await collectPublicPrSnapshot(parsed.positional[0], {
       ...options.transport ? { transport: options.transport } : {},
       token: options.token ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
@@ -13062,8 +14567,8 @@ async function runPublicPrReceiptCommand(args, options = {}) {
       toolVersion: options.toolVersion ?? VERSION,
       toolCommit
     });
-    if (signingKey) receipt = signPublicPrReceipt(receipt, resolve25(signingKey));
-    if (output) writePrivateFileAtomic(resolve25(output), `${JSON.stringify(receipt, null, 2)}
+    if (signingKey) receipt = signPublicPrReceipt(receipt, resolve27(signingKey));
+    if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(receipt, null, 2)}
 `);
     process.stdout.write(format === "json" ? `${JSON.stringify(receipt, null, 2)}
 ` : renderPublicPrReceipt(receipt));
@@ -13075,911 +14580,6 @@ async function runPublicPrReceiptCommand(args, options = {}) {
     console.error(`agent-vigil: ${error instanceof Error ? error.message : String(error)}`);
     return 2;
   }
-}
-
-// src/guard-compat.ts
-import { createHash as createHash23, randomBytes as randomBytes4 } from "node:crypto";
-import { spawnSync as spawnSync4 } from "node:child_process";
-import {
-  closeSync as closeSync4,
-  fstatSync as fstatSync4,
-  lstatSync as lstatSync14,
-  mkdtempSync as mkdtempSync5,
-  mkdirSync as mkdirSync9,
-  openSync as openSync4,
-  readFileSync as readFileSync25,
-  readSync,
-  realpathSync as realpathSync13,
-  rmSync as rmSync4,
-  writeFileSync as writeFileSync8
-} from "node:fs";
-import { arch, hostname, platform, release, tmpdir as tmpdir5, type } from "node:os";
-import { join as join12 } from "node:path";
-var GUARD_COMPAT_SCHEMA = "agent-vigil-guard-compatibility/v1";
-var GUARD_CHALLENGE_PACK = "agent-vigil-harmless-shell-canaries/v1";
-var MAX_ARGUMENTS = 32;
-var MAX_ARGUMENT_LENGTH = 4096;
-var MAX_OUTPUT_BYTES = 64 * 1024;
-var DEFAULT_TIMEOUT_MS = 5e3;
-function digest7(value) {
-  const body = Buffer.isBuffer(value) ? value : typeof value === "string" ? Buffer.from(value, "utf8") : Buffer.from(canonical(value), "utf8");
-  return `sha256:${createHash23("sha256").update(body).digest("hex")}`;
-}
-var guardDigest = digest7;
-function modifiedNanoseconds(status) {
-  return status.mtimeNs;
-}
-function hashRegularFile(requestedPath, label) {
-  const realPath = realpathSync13(requestedPath);
-  const before = lstatSync14(realPath, { bigint: true });
-  if (!before.isFile()) throw new Error(`${label} must resolve to a regular file`);
-  const descriptor = openSync4(realPath, "r");
-  const hash3 = createHash23("sha256");
-  try {
-    const opened = fstatSync4(descriptor, { bigint: true });
-    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
-      throw new Error(`${label} changed while it was opened`);
-    }
-    const buffer = Buffer.allocUnsafe(64 * 1024);
-    for (; ; ) {
-      const count3 = readSync(descriptor, buffer, 0, buffer.length, null);
-      if (count3 === 0) break;
-      hash3.update(buffer.subarray(0, count3));
-    }
-    const after = fstatSync4(descriptor, { bigint: true });
-    if (after.size !== opened.size || modifiedNanoseconds(after) !== modifiedNanoseconds(opened)) {
-      throw new Error(`${label} changed while it was hashed`);
-    }
-    return {
-      realPath,
-      sha256: `sha256:${hash3.digest("hex")}`,
-      device: after.dev,
-      inode: after.ino,
-      size: after.size,
-      modifiedNanoseconds: modifiedNanoseconds(after)
-    };
-  } finally {
-    closeSync4(descriptor);
-  }
-}
-var hashGuardFile = hashRegularFile;
-function assertFileUnchanged(identity, label) {
-  const status = lstatSync14(identity.realPath, { bigint: true });
-  if (!status.isFile() || status.dev !== identity.device || status.ino !== identity.inode || status.size !== identity.size || modifiedNanoseconds(status) !== identity.modifiedNanoseconds) throw new Error(`${label} changed during the process-conformance check`);
-  if (hashRegularFile(identity.realPath, label).sha256 !== identity.sha256) {
-    throw new Error(`${label} content changed during the process-conformance check`);
-  }
-}
-var assertGuardFileUnchanged = assertFileUnchanged;
-function validateText(value, label, maximum = 200) {
-  const trimmed = value.trim();
-  if (!trimmed) throw new Error(`${label} must be non-empty`);
-  if (Buffer.byteLength(trimmed, "utf8") > maximum) throw new Error(`${label} is too long`);
-  if (new RegExp("\\p{Cc}|\\p{Cf}", "u").test(trimmed)) throw new Error(`${label} contains control characters`);
-  return trimmed;
-}
-function validateArguments(values) {
-  if (values.length > MAX_ARGUMENTS) throw new Error(`control arguments cannot exceed ${MAX_ARGUMENTS} entries`);
-  for (const value of values) {
-    if (typeof value !== "string") throw new Error("every control argument must be a string");
-    if (Buffer.byteLength(value, "utf8") > MAX_ARGUMENT_LENGTH) throw new Error("a control argument is too long");
-    if (value.includes("\0")) throw new Error("control arguments cannot contain NUL bytes");
-  }
-  return [...values];
-}
-function argumentsNameFile(values, realPath) {
-  return values.some((value) => {
-    try {
-      return realpathSync13(value) === realPath;
-    } catch {
-      return false;
-    }
-  });
-}
-function loadControlArguments(path) {
-  const identity = hashRegularFile(path, "control arguments file");
-  if (identity.size > 64n * 1024n) throw new Error("control arguments file exceeds 64 KiB");
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync25(identity.realPath, "utf8"));
-  } catch {
-    throw new Error("control arguments file must contain valid JSON");
-  }
-  if (!Array.isArray(parsed)) throw new Error("control arguments file must contain a JSON array");
-  return validateArguments(parsed);
-}
-function harmlessCommand(kind, nonce) {
-  const token = `AGENT_VIGIL_PROCESS_CONFORMANCE_${kind.toUpperCase()}_V1_${nonce}`;
-  return `printf '%s\\n' '${token}'`;
-}
-function hookPayload(host, command, cwd, transcriptPath, nonce, id) {
-  const common = {
-    session_id: `agent-vigil-${nonce}`,
-    transcript_path: transcriptPath,
-    cwd,
-    permission_mode: "default",
-    hook_event_name: "PreToolUse",
-    tool_name: "Bash",
-    tool_input: { command },
-    tool_use_id: `${id}-${nonce}`
-  };
-  return JSON.stringify(host === "codex" ? { ...common, model: "agent-vigil-process-conformance", turn_id: `turn-${nonce}` } : { ...common, prompt_id: `prompt-${nonce}` });
-}
-function objectValue(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
-}
-function interpretedDecision(host, value) {
-  if (host === "codex" && ["continue", "stopReason", "suppressOutput"].some((key) => key in value)) {
-    return { decision: "ERROR", rule: "CODEX_UNSUPPORTED_PRE_TOOL_FIELD" };
-  }
-  if (["permissionDecision", "updatedInput", "permissionDecisionReason"].some((key) => key in value)) {
-    return { decision: "ERROR", rule: "MISPLACED_PERMISSION_FIELD" };
-  }
-  const specific = objectValue(value.hookSpecificOutput);
-  if (value.hookSpecificOutput !== void 0 && !specific) {
-    return { decision: "ERROR", rule: "MALFORMED_HOOK_SPECIFIC_OUTPUT" };
-  }
-  if (specific && ["decision", "permission"].some((key) => key in specific)) {
-    return { decision: "ERROR", rule: "MISPLACED_HOOK_DECISION_FIELD" };
-  }
-  if (specific && specific.hookEventName !== "PreToolUse") {
-    return { decision: "ERROR", rule: "WRONG_HOOK_EVENT_NAME" };
-  }
-  const nested = specific?.permissionDecision;
-  const legacy = value.decision;
-  if (nested !== void 0 && typeof nested !== "string") {
-    return { decision: "ERROR", rule: "MALFORMED_PERMISSION_DECISION" };
-  }
-  if (legacy !== void 0 && typeof legacy !== "string") {
-    return { decision: "ERROR", rule: "MALFORMED_LEGACY_DECISION" };
-  }
-  if (typeof nested === "string") {
-    const normalized = nested.toLowerCase();
-    if (normalized === "allow") {
-      if (specific?.updatedInput !== void 0) {
-        const updated = objectValue(specific.updatedInput);
-        if (!updated || typeof updated.command !== "string") {
-          return { decision: "ERROR", rule: "MALFORMED_UPDATED_INPUT" };
-        }
-      }
-      if (legacy !== void 0 && legacy !== "approve") {
-        return { decision: "ERROR", rule: "CONFLICTING_DECISIONS" };
-      }
-      return { decision: "ALLOW", rule: `${host.toUpperCase()}_STRUCTURED_ALLOW` };
-    }
-    if (normalized === "deny") {
-      if (specific?.updatedInput !== void 0) return { decision: "ERROR", rule: "UPDATED_INPUT_WITH_DENY" };
-      if (legacy !== void 0 && legacy !== "block") {
-        return { decision: "ERROR", rule: "CONFLICTING_DECISIONS" };
-      }
-      return { decision: "DENY", rule: `${host.toUpperCase()}_STRUCTURED_DENY` };
-    }
-    if (host === "claude" && (normalized === "ask" || normalized === "defer")) {
-      return { decision: "DEFER", rule: `CLAUDE_STRUCTURED_${normalized.toUpperCase()}` };
-    }
-    if (host === "codex" && normalized === "ask") {
-      return { decision: "ERROR", rule: "CODEX_UNSUPPORTED_ASK" };
-    }
-    return { decision: "UNKNOWN", rule: "UNRECOGNIZED_PERMISSION_DECISION" };
-  }
-  if (typeof legacy === "string") {
-    const normalized = legacy.toLowerCase();
-    if (normalized === "block") return { decision: "DENY", rule: `${host.toUpperCase()}_LEGACY_BLOCK` };
-    if (host === "claude" && normalized === "approve") return { decision: "ALLOW", rule: "CLAUDE_LEGACY_APPROVE" };
-    if (host === "codex" && normalized === "approve") return { decision: "ERROR", rule: "CODEX_UNSUPPORTED_APPROVE" };
-    return { decision: "UNKNOWN", rule: "UNRECOGNIZED_LEGACY_DECISION" };
-  }
-  if (specific?.updatedInput !== void 0) return { decision: "ERROR", rule: "UPDATED_INPUT_WITHOUT_ALLOW" };
-  return { decision: "DEFER", rule: "NO_CONTROL_DECISION" };
-}
-function outputKind(stdout) {
-  const trimmed = stdout.trimStart();
-  if (!trimmed) return "EMPTY";
-  return trimmed.startsWith("{") || trimmed.startsWith("[") ? "JSON" : "TEXT";
-}
-function interpretGuardProcess(input) {
-  const stdout = input.stdout ?? "";
-  const initialOutput = outputKind(stdout);
-  if (input.errorCode === "ETIMEDOUT") {
-    return { decision: "ERROR", rule: "CONTROL_TIMEOUT", process: "TIMED_OUT", exit: "NONE", output: "UNREADABLE" };
-  }
-  if (input.errorCode === "ENOBUFS") {
-    return { decision: "ERROR", rule: "CONTROL_OUTPUT_LIMIT", process: "OUTPUT_LIMIT", exit: "NONE", output: "UNREADABLE" };
-  }
-  if (input.errorCode) {
-    return { decision: "ERROR", rule: "CONTROL_SPAWN_ERROR", process: "SPAWN_ERROR", exit: "NONE", output: "UNREADABLE" };
-  }
-  if (input.signal || input.status === null) {
-    return { decision: "ERROR", rule: "CONTROL_DID_NOT_EXIT", process: "SIGNALED", exit: "NONE", output: initialOutput };
-  }
-  if (input.status === 2) {
-    return { decision: "DENY", rule: `${input.host.toUpperCase()}_EXIT_TWO`, process: "EXITED", exit: "TWO", output: initialOutput };
-  }
-  const exit = input.status === 0 ? "ZERO" : "OTHER";
-  if (initialOutput === "EMPTY") {
-    return input.status === 0 ? { decision: "DEFER", rule: "ZERO_EXIT_NO_DECISION", process: "EXITED", exit, output: "EMPTY" } : { decision: "ERROR", rule: "NONZERO_EXIT_NO_DECISION", process: "EXITED", exit, output: "EMPTY" };
-  }
-  if (initialOutput === "TEXT") {
-    return input.status === 0 ? { decision: "DEFER", rule: `${input.host.toUpperCase()}_PLAIN_TEXT_IGNORED`, process: "EXITED", exit, output: "TEXT" } : { decision: "ERROR", rule: "NONZERO_EXIT_PLAIN_TEXT", process: "EXITED", exit, output: "TEXT" };
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    return { decision: "ERROR", rule: "INVALID_JSON_OUTPUT", process: "EXITED", exit, output: "INVALID_JSON" };
-  }
-  const object4 = objectValue(parsed);
-  if (!object4) return { decision: "ERROR", rule: "JSON_OUTPUT_NOT_OBJECT", process: "EXITED", exit, output: "JSON" };
-  const interpreted = interpretedDecision(input.host, object4);
-  if (input.status !== 0 && input.host === "codex") {
-    return { decision: "ERROR", rule: "CODEX_NONZERO_EXIT", process: "EXITED", exit, output: "JSON" };
-  }
-  if (input.status !== 0 && interpreted.decision === "DEFER") {
-    return { decision: "ERROR", rule: "NONZERO_EXIT_NO_DECISION", process: "EXITED", exit, output: "JSON" };
-  }
-  return { ...interpreted, process: "EXITED", exit, output: "JSON" };
-}
-function minimalEnvironment(home) {
-  const environment = {
-    AGENT_VIGIL_PROCESS_CONFORMANCE: "1",
-    HOME: home,
-    NO_COLOR: "1",
-    PATH: process.env.PATH ?? "",
-    TMPDIR: home,
-    TEMP: home,
-    TMP: home
-  };
-  for (const name2 of ["SystemRoot", "ComSpec", "PATHEXT"]) {
-    if (process.env[name2] !== void 0) environment[name2] = process.env[name2];
-  }
-  return environment;
-}
-function reportStatus(challenges) {
-  if (challenges.some((challenge2) => challenge2.actual === "UNKNOWN")) return "INCONCLUSIVE";
-  return challenges.length === 2 && challenges.every((challenge2) => challenge2.passed) ? "PASS" : "FAIL";
-}
-function challengePackDigest() {
-  return digest7({
-    id: GUARD_CHALLENGE_PACK,
-    payload: "PreToolUse/Bash",
-    allow: "printf marker AGENT_VIGIL_PROCESS_CONFORMANCE_ALLOW_V1_<nonce>",
-    deny: "printf marker AGENT_VIGIL_PROCESS_CONFORMANCE_DENY_V1_<nonce>"
-  });
-}
-function runGuardCompatibility(input) {
-  const vigilVersion = validateText(input.vigilVersion, "Agent Vigil version");
-  const hostVersion = validateText(input.hostVersion, "host version");
-  const controlName = validateText(input.controlName, "control name");
-  const controlVersion = validateText(input.controlVersion, "control version");
-  const controlArguments = validateArguments(input.controlArguments ?? []);
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 6e4) {
-    throw new Error("timeout must be an integer from 50 to 60000 milliseconds");
-  }
-  const nonce = input.nonce ?? randomBytes4(16).toString("hex");
-  if (!/^[a-zA-Z0-9_-]{16,128}$/.test(nonce)) throw new Error("nonce must be 16 to 128 safe characters");
-  const generatedAt = input.generatedAt ?? (/* @__PURE__ */ new Date()).toISOString();
-  if (!Number.isFinite(Date.parse(generatedAt))) throw new Error("generated time must be an RFC3339-compatible timestamp");
-  const identities = {
-    host: hashRegularFile(input.hostExecutable, "host executable"),
-    launcher: hashRegularFile(input.controlExecutable, "control executable"),
-    artifact: hashRegularFile(input.controlArtifact ?? input.controlExecutable, "control artifact"),
-    policy: hashRegularFile(input.policyPath, "policy"),
-    configuration: hashRegularFile(input.configurationPath, "configuration")
-  };
-  if (identities.artifact.realPath !== identities.launcher.realPath && !argumentsNameFile(controlArguments, identities.artifact.realPath)) {
-    throw new Error("a separate control artifact must be named by a control argument");
-  }
-  const root = mkdtempSync5(join12(tmpdir5(), "agent-vigil-guard-compat-"));
-  const home = join12(root, "home");
-  const transcriptPath = join12(root, "transcript.jsonl");
-  mkdirSync9(home, { mode: 448 });
-  writeFileSync8(transcriptPath, "", { mode: 384 });
-  const challenges = [];
-  try {
-    for (const challenge2 of [
-      { id: "allow-canary", expected: "ALLOW", kind: "allow" },
-      { id: "deny-canary", expected: "DENY", kind: "deny" }
-    ]) {
-      const command = harmlessCommand(challenge2.kind, nonce);
-      const completed = spawnSync4(identities.launcher.realPath, controlArguments, {
-        cwd: root,
-        env: minimalEnvironment(home),
-        input: hookPayload(input.host, command, root, transcriptPath, nonce, challenge2.id),
-        encoding: "utf8",
-        timeout: timeoutMs,
-        maxBuffer: MAX_OUTPUT_BYTES,
-        killSignal: "SIGKILL",
-        windowsHide: true
-      });
-      const outputExceeded = Buffer.byteLength(completed.stdout ?? "", "utf8") >= MAX_OUTPUT_BYTES || Buffer.byteLength(completed.stderr ?? "", "utf8") >= MAX_OUTPUT_BYTES;
-      const observed = interpretGuardProcess({
-        host: input.host,
-        status: completed.status,
-        signal: completed.signal,
-        stdout: completed.stdout ?? "",
-        errorCode: outputExceeded ? "ENOBUFS" : completed.error?.code
-      });
-      challenges.push({
-        id: challenge2.id,
-        expected: challenge2.expected,
-        actual: observed.decision,
-        passed: observed.decision === challenge2.expected,
-        canarySha256: digest7(command),
-        observation: {
-          rule: observed.rule,
-          process: observed.process,
-          exit: observed.exit,
-          output: observed.output
-        }
-      });
-    }
-  } finally {
-    rmSync4(root, { recursive: true, force: true });
-  }
-  for (const [label, identity] of Object.entries(identities)) assertFileUnchanged(identity, label);
-  const status = reportStatus(challenges);
-  const decisions = Object.fromEntries(
-    ["ALLOW", "DENY", "DEFER", "ERROR", "UNKNOWN"].map((decision) => [decision, challenges.filter((challenge2) => challenge2.actual === decision).length])
-  );
-  const operatingSystem = {
-    platform: platform(),
-    type: type(),
-    release: release(),
-    architecture: arch(),
-    machineIdentitySha256: digest7({ hostname: hostname(), platform: platform(), type: type(), release: release(), architecture: arch() })
-  };
-  const reasonCodes = ["LIVE_HOST_ROUTE_NOT_PROVEN"];
-  if (status !== "PASS") reasonCodes.push("PROCESS_CONFORMANCE_NOT_PROVEN");
-  const unsigned = {
-    schemaVersion: GUARD_COMPAT_SCHEMA,
-    vigilVersion,
-    generatedAt,
-    nonce,
-    scope: "PROCESS_CONFORMANCE",
-    status,
-    deployment: { state: "HOLD", reasonCodes },
-    challengePack: { id: GUARD_CHALLENGE_PACK, sha256: challengePackDigest() },
-    host: { kind: input.host, version: hostVersion, executableSha256: identities.host.sha256 },
-    control: {
-      name: controlName,
-      version: controlVersion,
-      launcherSha256: identities.launcher.sha256,
-      artifactSha256: identities.artifact.sha256,
-      argumentsSha256: digest7(controlArguments)
-    },
-    bindings: {
-      policySha256: identities.policy.sha256,
-      configurationSha256: identities.configuration.sha256,
-      operatingSystem
-    },
-    challenges,
-    summary: { passed: challenges.filter((challenge2) => challenge2.passed).length, total: challenges.length, decisions },
-    reproduction: `vigil guard-compat --host ${input.host} <same exact host, control, policy, configuration, and arguments>`,
-    limitations: [
-      "This is a process-conformance check. It does not launch Claude Code or Codex and does not prove that a live host routed a real tool call through the control.",
-      "Both shell canaries use printf and are harmless if executed. The deny marker must be covered by the supplied policy for a PASS.",
-      "The supplied control process runs with the current user's operating-system authority. This check is not a sandbox for untrusted controls.",
-      "File commitments prove which policy, configuration, and artifact were named. They do not prove that the control actually read the policy or configuration, or that the selected host executable is authentic.",
-      "The receipt binds file contents, arguments, host version, challenge pack, machine fingerprint, and operating-system details. It does not authenticate the operator-supplied version labels.",
-      "No PASS from this command permits deployment. Deployment remains on HOLD until a separate real-host routing test succeeds."
-    ]
-  };
-  return { ...unsigned, receiptHash: digest7(unsigned) };
-}
-function renderGuardCompatibility(report) {
-  const lines = [
-    `Agent Vigil guard compatibility: ${report.status}`,
-    `Host: ${report.host.kind} ${terminalSafe(report.host.version)}`,
-    `Control: ${terminalSafe(report.control.name)} ${terminalSafe(report.control.version)}`,
-    ""
-  ];
-  for (const challenge2 of report.challenges) {
-    lines.push(`${challenge2.passed ? "PASS" : "FAIL"} ${challenge2.id}: expected ${challenge2.expected}; observed ${challenge2.actual} (${challenge2.observation.rule})`);
-  }
-  lines.push(
-    "",
-    `${report.summary.passed}/${report.summary.total} expected decisions observed`,
-    `Deployment: HOLD (${report.deployment.reasonCodes.join(", ")})`,
-    `Receipt: ${report.receiptHash}`,
-    "A process PASS is not live-host routing proof."
-  );
-  return lines.join("\n");
-}
-
-// src/guard-route.ts
-import { randomBytes as randomBytes5 } from "node:crypto";
-import { spawnSync as spawnSync5 } from "node:child_process";
-import {
-  chmodSync as chmodSync4,
-  existsSync as existsSync12,
-  lstatSync as lstatSync15,
-  mkdirSync as mkdirSync10,
-  mkdtempSync as mkdtempSync6,
-  readFileSync as readFileSync26,
-  realpathSync as realpathSync14,
-  rmSync as rmSync5,
-  unlinkSync as unlinkSync2,
-  writeFileSync as writeFileSync9
-} from "node:fs";
-import { arch as arch2, hostname as hostname2, platform as platform2, release as release2, tmpdir as tmpdir6, type as type2 } from "node:os";
-import { join as join13, resolve as resolve26 } from "node:path";
-var GUARD_ROUTE_SCHEMA = "agent-vigil-live-host-route/v1";
-var GUARD_ROUTE_CHALLENGE_PACK = "agent-vigil-harmless-live-host-route/v1";
-var DISPOSABLE_PROFILE_MARKER = "agent-vigil disposable host profile v1\n";
-var MAX_HOST_OUTPUT_BYTES = 1024 * 1024;
-var MAX_HOOK_LOG_BYTES = 64 * 1024;
-var DEFAULT_HOST_TIMEOUT_MS = 12e4;
-function validateText2(value, label, maximum = 200) {
-  const trimmed = value.trim();
-  if (!trimmed) throw new Error(`${label} must be non-empty`);
-  if (Buffer.byteLength(trimmed, "utf8") > maximum) throw new Error(`${label} is too long`);
-  if (new RegExp("\\p{Cc}|\\p{Cf}", "u").test(trimmed)) throw new Error(`${label} contains control characters`);
-  return trimmed;
-}
-function shellQuote(value) {
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-function safeNonce(value) {
-  if (!/^[a-zA-Z0-9_-]{16,128}$/.test(value)) throw new Error("nonce must be 16 to 128 safe characters");
-  return value;
-}
-function liveCommand(kind, nonce) {
-  const upper = kind.toUpperCase();
-  const token = `AGENT_VIGIL_LIVE_HOST_ROUTE_${upper}_V1_${nonce}`;
-  const file = `.agent-vigil-live-route-${kind}-${nonce}.txt`;
-  return { command: `printf '%s\\n' '${token}' > '${file}'`, token, file };
-}
-function processCommand(kind, nonce) {
-  const token = `AGENT_VIGIL_PROCESS_CONFORMANCE_${kind.toUpperCase()}_V1_${nonce}`;
-  return `printf '%s\\n' '${token}'`;
-}
-function routePolicy(nonce, allow, deny) {
-  return {
-    schemaVersion: "agent-vigil-temporary-route-policy/v1",
-    nonceSha256: guardDigest(nonce),
-    defaultDecision: "DENY",
-    rules: [
-      { id: "process-allow", commandSha256: guardDigest(processCommand("allow", nonce)), decision: "ALLOW" },
-      { id: "process-deny", commandSha256: guardDigest(processCommand("deny", nonce)), decision: "DENY" },
-      { id: "live-allow", commandSha256: guardDigest(allow), decision: "ALLOW" },
-      { id: "live-deny", commandSha256: guardDigest(deny), decision: "DENY" }
-    ]
-  };
-}
-function hookSource(input) {
-  const embedded = JSON.stringify(input);
-  return `#!/usr/bin/env node
-import { appendFileSync, readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
-const expected = ${embedded};
-const sha = (value) => "sha256:" + createHash("sha256").update(value, "utf8").digest("hex");
-const deny = (reason) => JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
-let raw = "";
-try {
-  raw = readFileSync(0, { encoding: "utf8" });
-  if (Buffer.byteLength(raw, "utf8") > 65536) throw new Error("oversize");
-  const payload = JSON.parse(raw);
-  const command = typeof payload?.tool_input?.command === "string" ? payload.tool_input.command : undefined;
-  const table = new Map([
-    [expected.processAllow, ["PROCESS_ALLOW", "ALLOW"]],
-    [expected.processDeny, ["PROCESS_DENY", "DENY"]],
-    [expected.liveAllow, ["LIVE_ALLOW", "ALLOW"]],
-    [expected.liveDeny, ["LIVE_DENY", "DENY"]],
-  ]);
-  const selected = payload?.hook_event_name === "PreToolUse" && payload?.tool_name === "Bash" && command
-    ? table.get(command)
-    : undefined;
-  const route = selected?.[0] ?? "UNKNOWN";
-  const decision = selected?.[1] ?? "DENY";
-  appendFileSync(expected.logPath, JSON.stringify({
-    route,
-    decision,
-    event: typeof payload?.hook_event_name === "string" ? payload.hook_event_name : "INVALID",
-    tool: typeof payload?.tool_name === "string" ? payload.tool_name : "INVALID",
-    ...(command ? { commandSha256: sha(command) } : {}),
-    ...(typeof payload?.tool_use_id === "string" ? { toolUseIdSha256: sha(payload.tool_use_id) } : {}),
-    ...(typeof payload?.session_id === "string" ? { sessionIdSha256: sha(payload.session_id) } : {}),
-  }) + "\\n", { encoding: "utf8", mode: 0o600 });
-  if (decision === "ALLOW") {
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: { command } } }));
-  } else {
-    process.stdout.write(deny(route === "UNKNOWN" ? "Agent Vigil route drill permits only its two exact harmless calls." : "Agent Vigil harmless deny canary blocked."));
-  }
-} catch {
-  try { appendFileSync(expected.logPath, JSON.stringify({ route: "MALFORMED", decision: "DENY", event: "INVALID", tool: "INVALID" }) + "\\n", { encoding: "utf8", mode: 0o600 }); }
-  catch { process.stderr.write("Agent Vigil could not record malformed route input.\\n"); }
-  process.stdout.write(deny("Agent Vigil rejected malformed route input."));
-}
-`;
-}
-function hookConfiguration(command) {
-  return {
-    hooks: {
-      PreToolUse: [{
-        matcher: ".*",
-        hooks: [{ type: "command", command, timeout: 30, statusMessage: "Checking harmless Agent Vigil route drill" }]
-      }]
-    }
-  };
-}
-function hostArguments(host, root, configPath, prompt, lastMessage) {
-  if (host === "codex") {
-    return [
-      "exec",
-      "--ephemeral",
-      "--json",
-      "--output-last-message",
-      lastMessage,
-      "--sandbox",
-      "workspace-write",
-      "--dangerously-bypass-hook-trust",
-      "--skip-git-repo-check",
-      "--ignore-rules",
-      "--enable",
-      "hooks",
-      "-C",
-      root,
-      prompt
-    ];
-  }
-  return [
-    "-p",
-    prompt,
-    "--output-format",
-    "json",
-    "--max-turns",
-    "4",
-    "--max-budget-usd",
-    "0.10",
-    "--tools",
-    "Bash",
-    "--permission-mode",
-    "dontAsk",
-    "--settings",
-    configPath,
-    "--setting-sources",
-    "",
-    "--strict-mcp-config",
-    "--no-session-persistence"
-  ];
-}
-function hostEnvironment(host, profileHome, route) {
-  const environment = {
-    HOME: profileHome,
-    PATH: process.env.PATH ?? "",
-    SHELL: process.env.SHELL ?? "",
-    TMPDIR: route.AGENT_VIGIL_ROUTE_TMP,
-    TMP: route.AGENT_VIGIL_ROUTE_TMP,
-    TEMP: route.AGENT_VIGIL_ROUTE_TMP,
-    LANG: process.env.LANG ?? "C.UTF-8",
-    NO_COLOR: "1",
-    CI: "1",
-    AGENT_VIGIL_LIVE_HOST_ROUTE: "1",
-    ...route
-  };
-  for (const name2 of ["SystemRoot", "ComSpec", "PATHEXT", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]) {
-    if (process.env[name2] !== void 0) environment[name2] = process.env[name2];
-  }
-  if (host === "codex") environment.CODEX_HOME = profileHome;
-  else environment.CLAUDE_CONFIG_DIR = profileHome;
-  return environment;
-}
-function outputKind2(output) {
-  const trimmed = output.trimStart();
-  if (!trimmed) return "EMPTY";
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return "TEXT";
-  try {
-    JSON.parse(trimmed);
-    return "JSON";
-  } catch {
-    const rows = trimmed.split("\n").filter(Boolean);
-    try {
-      rows.forEach((row) => JSON.parse(row));
-      return "JSON";
-    } catch {
-      return "INVALID_JSON";
-    }
-  }
-}
-function hostProcess(input) {
-  if (input.errorCode === "ETIMEDOUT") return { process: "TIMED_OUT", exit: "NONE", output: "UNREADABLE" };
-  if (input.errorCode === "ENOBUFS") return { process: "OUTPUT_LIMIT", exit: "NONE", output: "UNREADABLE" };
-  if (input.errorCode) return { process: "SPAWN_ERROR", exit: "NONE", output: "UNREADABLE" };
-  if (input.signal || input.status === null) return { process: "SIGNALED", exit: "NONE", output: outputKind2(input.stdout || input.stderr) };
-  return { process: "EXITED", exit: input.status === 0 ? "ZERO" : "NONZERO", output: outputKind2(input.stdout || input.stderr) };
-}
-function readHookLog(path) {
-  if (!existsSync12(path)) return [];
-  const status = lstatSync15(path);
-  if (!status.isFile() || status.size > MAX_HOOK_LOG_BYTES) throw new Error("live-host hook log is missing, unsafe, or oversized");
-  const body = readFileSync26(path, "utf8");
-  if (!body.trim()) return [];
-  const rows = body.trimEnd().split("\n");
-  if (rows.length > 32) throw new Error("live-host hook emitted too many events");
-  return rows.map((row) => {
-    const value = JSON.parse(row);
-    if (!value || typeof value !== "object") throw new Error("live-host hook log contains a malformed event");
-    return value;
-  });
-}
-function ordinaryConfiguration(host) {
-  const base = host === "codex" ? join13(process.env.HOME ?? "", ".codex") : join13(process.env.HOME ?? "", ".claude");
-  const names = host === "codex" ? ["config.toml", "hooks.json"] : ["settings.json", "settings.local.json"];
-  return names.flatMap((name2) => {
-    const path = join13(base, name2);
-    return existsSync12(path) ? [[`${host} ordinary ${name2}`, hashGuardFile(path, `${host} ordinary ${name2}`)]] : [];
-  });
-}
-function assertOrdinaryConfigurationUnchanged(files) {
-  for (const [label, identity] of files) assertGuardFileUnchanged(identity, label);
-}
-function assertDisposableProfile(host, requested) {
-  const profileHome = realpathSync14(requested);
-  const status = lstatSync15(profileHome);
-  if (!status.isDirectory()) throw new Error("profile home must be a directory");
-  const defaultHome = realpathSync14(process.env.HOME ?? profileHome);
-  const forbidden = [defaultHome, join13(defaultHome, host === "codex" ? ".codex" : ".claude")].map((value) => resolve26(value));
-  if (forbidden.includes(resolve26(profileHome))) throw new Error("guard-route refuses the ordinary user profile; use a disposable profile");
-  const markerPath = join13(profileHome, ".agent-vigil-disposable-profile");
-  const marker2 = hashGuardFile(markerPath, "disposable profile marker");
-  if (readFileSync26(marker2.realPath, "utf8") !== DISPOSABLE_PROFILE_MARKER) {
-    throw new Error("disposable profile marker has unexpected content");
-  }
-  const collisions = host === "codex" ? ["hooks.json", "config.toml"] : ["settings.json", "settings.local.json"];
-  if (collisions.some((name2) => existsSync12(join13(profileHome, name2)))) {
-    throw new Error("disposable profile already contains host configuration; guard-route will not overwrite it");
-  }
-  return { profileHome, marker: marker2 };
-}
-function challengePackSha256() {
-  return guardDigest({
-    id: GUARD_ROUTE_CHALLENGE_PACK,
-    allow: "printf one random marker to one disposable relative file",
-    deny: "attempt to printf one random marker to a second disposable relative file",
-    unknown: "deny every other routed tool call"
-  });
-}
-function runGuardRoute(input) {
-  if (platform2() === "win32") throw new Error("guard-route v1 currently supports macOS and Linux hosts only");
-  const vigilVersion = validateText2(input.vigilVersion, "Agent Vigil version");
-  const hostVersion = validateText2(input.hostVersion, "host version");
-  const timeoutMs = input.timeoutMs ?? DEFAULT_HOST_TIMEOUT_MS;
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1e3 || timeoutMs > 3e5) {
-    throw new Error("host timeout must be an integer from 1000 to 300000 milliseconds");
-  }
-  const nonce = safeNonce(input.nonce ?? randomBytes5(16).toString("hex"));
-  const generatedAt = input.generatedAt ?? (/* @__PURE__ */ new Date()).toISOString();
-  if (!Number.isFinite(Date.parse(generatedAt))) throw new Error("generated time must be an RFC3339-compatible timestamp");
-  const hostIdentity = hashGuardFile(input.hostExecutable, "host executable");
-  const profile = assertDisposableProfile(input.host, input.profileHome);
-  const ordinary = ordinaryConfiguration(input.host);
-  const root = mkdtempSync6(join13(tmpdir6(), "agent-vigil-live-host-route-"));
-  const workspace = join13(root, "workspace");
-  const temporary = join13(root, "tmp");
-  const hookPath = join13(root, "route-hook.mjs");
-  const hookLogPath = join13(root, "route-events.jsonl");
-  const policyPath = join13(root, "route-policy.json");
-  const lastMessagePath = join13(root, "last-message.txt");
-  mkdirSync10(workspace, { mode: 448 });
-  mkdirSync10(temporary, { mode: 448 });
-  const allow = liveCommand("allow", nonce);
-  const deny = liveCommand("deny", nonce);
-  const source2 = hookSource({
-    logPath: hookLogPath,
-    processAllow: processCommand("allow", nonce),
-    processDeny: processCommand("deny", nonce),
-    liveAllow: allow.command,
-    liveDeny: deny.command
-  });
-  writeFileSync9(hookPath, source2, { mode: 448 });
-  chmodSync4(hookPath, 448);
-  writeFileSync9(hookLogPath, "", { mode: 384 });
-  writeFileSync9(policyPath, `${canonical(routePolicy(nonce, allow.command, deny.command))}
-`, { mode: 384 });
-  const command = `${shellQuote(process.execPath)} ${shellQuote(hookPath)}`;
-  const configPath = join13(profile.profileHome, input.host === "codex" ? "hooks.json" : "settings.json");
-  try {
-    writeFileSync9(configPath, `${JSON.stringify(hookConfiguration(command), null, 2)}
-`, { mode: 384 });
-    const configIdentity = hashGuardFile(configPath, "temporary host hook configuration");
-    const hookIdentity = hashGuardFile(hookPath, "temporary route control");
-    const policyIdentity = hashGuardFile(policyPath, "temporary route policy");
-    let processReceipt;
-    let completed;
-    let logs = [];
-    let configurationRemoved = false;
-    let invocationSha256 = guardDigest("host-not-invoked");
-    try {
-      processReceipt = runGuardCompatibility({
-        host: input.host,
-        hostVersion,
-        hostExecutable: hostIdentity.realPath,
-        controlName: "Agent Vigil temporary route control",
-        controlVersion: "1",
-        controlExecutable: process.execPath,
-        controlArtifact: hookPath,
-        controlArguments: [hookPath],
-        policyPath,
-        configurationPath: configPath,
-        vigilVersion,
-        timeoutMs: Math.min(timeoutMs, 6e4),
-        generatedAt,
-        nonce
-      });
-      writeFileSync9(hookLogPath, "", { mode: 384 });
-      const prompt = [
-        "This is a deterministic, harmless routing drill.",
-        "Invoke Bash exactly twice, using one separate tool call for each numbered command.",
-        "Copy each command byte-for-byte. Do not combine, rewrite, quote, explain, inspect, retry, or use any other tool.",
-        `1. ${allow.command}`,
-        `2. ${deny.command}`,
-        "After the second attempted tool call, reply ROUTE_DRILL_COMPLETE and stop."
-      ].join("\n");
-      const args = hostArguments(input.host, workspace, configPath, prompt, lastMessagePath);
-      invocationSha256 = guardDigest(args);
-      completed = spawnSync5(hostIdentity.realPath, args, {
-        cwd: workspace,
-        env: hostEnvironment(input.host, profile.profileHome, {
-          AGENT_VIGIL_ROUTE_TMP: temporary,
-          AGENT_VIGIL_ROUTE_HOOK_PATH: hookPath,
-          AGENT_VIGIL_ROUTE_ALLOW_COMMAND: allow.command,
-          AGENT_VIGIL_ROUTE_DENY_COMMAND: deny.command,
-          AGENT_VIGIL_ROUTE_ALLOW_FILE: join13(workspace, allow.file),
-          AGENT_VIGIL_ROUTE_DENY_FILE: join13(workspace, deny.file)
-        }),
-        input: "",
-        encoding: "utf8",
-        timeout: timeoutMs,
-        maxBuffer: MAX_HOST_OUTPUT_BYTES,
-        killSignal: "SIGKILL",
-        windowsHide: true
-      });
-      logs = readHookLog(hookLogPath);
-      assertGuardFileUnchanged(configIdentity, "temporary host hook configuration");
-      assertGuardFileUnchanged(hookIdentity, "temporary route control");
-      assertGuardFileUnchanged(policyIdentity, "temporary route policy");
-    } finally {
-      if (existsSync12(configPath)) unlinkSync2(configPath);
-      configurationRemoved = !existsSync12(configPath);
-    }
-    if (!processReceipt || !completed) throw new Error("live-host route did not produce a receipt");
-    assertGuardFileUnchanged(hostIdentity, "host executable");
-    assertGuardFileUnchanged(profile.marker, "disposable profile marker");
-    assertOrdinaryConfigurationUnchanged(ordinary);
-    const configSha256 = processReceipt.control.artifactSha256 === hookIdentity.sha256 ? guardDigest({
-      hookConfigurationSha256: configIdentity.sha256
-    }) : guardDigest("configuration-mismatch");
-    const stdout = completed.stdout?.toString() ?? "";
-    const stderr = completed.stderr?.toString() ?? "";
-    const outputExceeded = Buffer.byteLength(stdout, "utf8") >= MAX_HOST_OUTPUT_BYTES || Buffer.byteLength(stderr, "utf8") >= MAX_HOST_OUTPUT_BYTES;
-    const observedProcess = hostProcess({
-      status: completed.status,
-      signal: completed.signal,
-      stdout,
-      stderr,
-      errorCode: outputExceeded ? "ENOBUFS" : completed.error?.code
-    });
-    const routed = logs.filter((row) => row.route === "LIVE_ALLOW" || row.route === "LIVE_DENY");
-    const unexpected = logs.filter((row) => row.route !== "LIVE_ALLOW" && row.route !== "LIVE_DENY");
-    const allowLog = routed.filter((row) => row.route === "LIVE_ALLOW");
-    const denyLog = routed.filter((row) => row.route === "LIVE_DENY");
-    const allowPath = join13(workspace, allow.file);
-    const denyPath = join13(workspace, deny.file);
-    const allowExecuted = existsSync12(allowPath) && lstatSync15(allowPath).isFile() && readFileSync26(allowPath, "utf8") === `${allow.token}
-`;
-    const denyExecuted = existsSync12(denyPath);
-    const observations = [
-      {
-        id: "allow-route",
-        expectedDecision: "ALLOW",
-        actualDecision: allowLog.length === 1 ? "ALLOW" : allowLog.length === 0 ? "UNKNOWN" : "ERROR",
-        expectedExecution: true,
-        observedExecution: allowExecuted,
-        commandSha256: guardDigest(allow.command),
-        ...allowLog.length === 1 && allowLog[0].toolUseIdSha256 ? { toolUseIdSha256: allowLog[0].toolUseIdSha256 } : {},
-        ...allowLog.length === 1 && allowLog[0].sessionIdSha256 ? { sessionIdSha256: allowLog[0].sessionIdSha256 } : {},
-        passed: allowLog.length === 1 && allowExecuted && allowLog[0].decision === "ALLOW" && Boolean(allowLog[0].toolUseIdSha256)
-      },
-      {
-        id: "deny-route",
-        expectedDecision: "DENY",
-        actualDecision: denyLog.length === 1 ? "DENY" : denyLog.length === 0 ? "UNKNOWN" : "ERROR",
-        expectedExecution: false,
-        observedExecution: denyExecuted,
-        commandSha256: guardDigest(deny.command),
-        ...denyLog.length === 1 && denyLog[0].toolUseIdSha256 ? { toolUseIdSha256: denyLog[0].toolUseIdSha256 } : {},
-        ...denyLog.length === 1 && denyLog[0].sessionIdSha256 ? { sessionIdSha256: denyLog[0].sessionIdSha256 } : {},
-        passed: denyLog.length === 1 && !denyExecuted && denyLog[0].decision === "DENY" && Boolean(denyLog[0].toolUseIdSha256)
-      }
-    ];
-    const sameSession = observations.every((item2) => item2.sessionIdSha256) && observations[0].sessionIdSha256 === observations[1].sessionIdSha256;
-    const distinctCalls = observations.every((item2) => item2.toolUseIdSha256) && observations[0].toolUseIdSha256 !== observations[1].toolUseIdSha256;
-    const exactPass = processReceipt.status === "PASS" && observedProcess.process === "EXITED" && observedProcess.exit === "ZERO" && observations.every((item2) => item2.passed) && routed.length === 2 && unexpected.length === 0 && sameSession && distinctCalls && configurationRemoved;
-    const noRouteBeforeHostFailure = routed.length === 0 && observedProcess.exit !== "ZERO";
-    const status = exactPass ? "PASS" : processReceipt.status === "INCONCLUSIVE" || noRouteBeforeHostFailure ? "INCONCLUSIVE" : "FAIL";
-    const reasonCodes = status === "PASS" ? ["OTHER_HOST_ROUTE_NOT_PROVEN", "NON_DEPLOYING_DRILL"] : [
-      "LIVE_HOST_ROUTE_NOT_PROVEN",
-      ...processReceipt.status !== "PASS" ? ["PROCESS_CONFORMANCE_NOT_PROVEN"] : [],
-      ...noRouteBeforeHostFailure ? ["HOST_UNAVAILABLE_BEFORE_ROUTE"] : []
-    ];
-    const operatingSystem = {
-      platform: platform2(),
-      type: type2(),
-      release: release2(),
-      architecture: arch2(),
-      machineIdentitySha256: guardDigest({ hostname: hostname2(), platform: platform2(), type: type2(), release: release2(), architecture: arch2() })
-    };
-    const unsigned = {
-      schemaVersion: GUARD_ROUTE_SCHEMA,
-      vigilVersion,
-      generatedAt,
-      nonce,
-      scope: "LIVE_HOST_ROUTING",
-      status,
-      deployment: { state: "HOLD", reasonCodes },
-      nextGate: {
-        state: status === "PASS" ? "ONE_HOST_PROVEN" : "BLOCKED",
-        requirement: "BOTH_CURRENT_HOSTS_MUST_PASS"
-      },
-      challengePack: { id: GUARD_ROUTE_CHALLENGE_PACK, sha256: challengePackSha256() },
-      host: { kind: input.host, version: hostVersion, executableSha256: hostIdentity.sha256, invocationSha256, process: observedProcess },
-      control: {
-        name: "Agent Vigil temporary route control",
-        version: "1",
-        launcherSha256: hashGuardFile(process.execPath, "control launcher").sha256,
-        artifactSha256: hookIdentity.sha256,
-        policySha256: policyIdentity.sha256,
-        configurationSha256: configSha256
-      },
-      processConformance: { status: processReceipt.status, receiptHash: processReceipt.receiptHash },
-      bindings: { profileMarkerSha256: profile.marker.sha256, operatingSystem },
-      challenges: observations,
-      summary: {
-        passed: observations.filter((item2) => item2.passed).length,
-        total: 2,
-        routedCalls: routed.length,
-        unexpectedCalls: unexpected.length
-      },
-      cleanup: {
-        temporaryConfigurationRemoved: configurationRemoved,
-        ordinaryConfigurationUnchanged: true,
-        disposableProfileRemoval: "OPERATOR_REQUIRED"
-      },
-      reproduction: `vigil guard-route --host ${input.host} --host-version <same> --host-executable <same> --profile-home <fresh-disposable-profile>`,
-      limitations: [
-        "This receipt proves one exact host version routed two harmless Bash calls through one temporary control on one operating system.",
-        "The temporary control denies every tool call except the exact allow and deny canaries. No source repository is mounted into the drill workspace.",
-        "One host PASS cannot stand in for the other host. Both current Claude Code and Codex versions must pass before the next infrastructure ticket begins.",
-        "The drill proves the tested route, not complete hook coverage, publisher authenticity, production policy correctness, deployment safety, adoption, payment, or revenue.",
-        "Deployment stays on HOLD. The command removes its temporary host configuration; the operator must delete the marked disposable authentication profile after retaining the reduced receipt."
-      ]
-    };
-    const report = { ...unsigned, receiptHash: guardDigest(unsigned) };
-    return report;
-  } finally {
-    if (existsSync12(configPath)) unlinkSync2(configPath);
-    rmSync5(root, { recursive: true, force: true });
-  }
-}
-function renderGuardRoute(report) {
-  const lines = [
-    `Agent Vigil live-host route: ${report.status}`,
-    `Host: ${report.host.kind} ${terminalSafe(report.host.version)}`,
-    `Process conformance: ${report.processConformance.status}`,
-    ""
-  ];
-  for (const challenge2 of report.challenges) {
-    lines.push(`${challenge2.passed ? "PASS" : "FAIL"} ${challenge2.id}: expected ${challenge2.expectedDecision}/${challenge2.expectedExecution ? "executed" : "blocked"}; observed ${challenge2.actualDecision}/${challenge2.observedExecution ? "executed" : "blocked"}`);
-  }
-  lines.push(
-    "",
-    `${report.summary.passed}/${report.summary.total} live route outcomes proved`,
-    `Deployment: HOLD (${report.deployment.reasonCodes.join(", ")})`,
-    `Next gate: ${report.nextGate.state}; ${report.nextGate.requirement}`,
-    `Receipt: ${report.receiptHash}`
-  );
-  return lines.join("\n");
 }
 
 // src/cli.ts
@@ -14127,19 +14727,19 @@ function runGuardCompatibilityCommand(args) {
     const report = runGuardCompatibility({
       host,
       hostVersion: required2("--host-version"),
-      hostExecutable: resolve27(required2("--host-executable")),
+      hostExecutable: resolve28(required2("--host-executable")),
       controlName: required2("--control-name"),
       controlVersion: required2("--control-version"),
-      controlExecutable: resolve27(required2("--control-executable")),
-      ...parsed.values.get("--control-artifact") ? { controlArtifact: resolve27(parsed.values.get("--control-artifact")) } : {},
-      ...argumentsPath ? { controlArguments: loadControlArguments(resolve27(argumentsPath)) } : {},
-      policyPath: resolve27(required2("--policy")),
-      configurationPath: resolve27(required2("--configuration")),
+      controlExecutable: resolve28(required2("--control-executable")),
+      ...parsed.values.get("--control-artifact") ? { controlArtifact: resolve28(parsed.values.get("--control-artifact")) } : {},
+      ...argumentsPath ? { controlArguments: loadControlArguments(resolve28(argumentsPath)) } : {},
+      policyPath: resolve28(required2("--policy")),
+      configurationPath: resolve28(required2("--configuration")),
       vigilVersion: VERSION,
       ...timeoutMs !== void 0 ? { timeoutMs } : {}
     });
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardCompatibility(report));
     return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
@@ -14201,13 +14801,13 @@ function runGuardRouteCommand(args) {
     const report = runGuardRoute({
       host,
       hostVersion: required2("--host-version"),
-      hostExecutable: resolve27(required2("--host-executable")),
-      profileHome: resolve27(required2("--profile-home")),
+      hostExecutable: resolve28(required2("--host-executable")),
+      profileHome: resolve28(required2("--profile-home")),
       vigilVersion: VERSION,
       ...timeoutMs !== void 0 ? { timeoutMs } : {}
     });
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardRoute(report));
     return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
@@ -14230,7 +14830,7 @@ function runProve(args) {
         index += 1;
       }
     }
-    const repo = resolve27(optionValue(args, "--repo") ?? ".");
+    const repo = resolve28(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_SHA ?? "HEAD";
     if (!existsSync13(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef)) throw new Error(`invalid Git commit ${baseRef}`);
@@ -14238,7 +14838,7 @@ function runProve(args) {
     if (!(/* @__PURE__ */ new Set(["text", "json"])).has(format)) throw new Error("prove --format must be text or json");
     const report = buildControlProof(repo, baseRef, VERSION);
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderControlProof(report));
     return report.status === "PASS" ? 0 : 2;
@@ -14270,9 +14870,9 @@ function runCertify(args) {
       const requiredCheck = parsed.values.get("--required-check");
       const output = parsed.values.get("--output");
       if (!organization || !repository2 || !requiredCheck || !output) throw new Error("certify record requires --organization, --repository, --required-check, and --output");
-      const proof = readBoundedJson(resolve27(parsed.positional[0]), 2 * 1024 * 1024, "control proof");
+      const proof = readBoundedJson(resolve28(parsed.positional[0]), 2 * 1024 * 1024, "control proof");
       const certificate = createCertificate({ proof, organization, repository: repository2, requiredCheck });
-      writePrivateFileAtomic(resolve27(output), `${JSON.stringify(certificate, null, 2)}
+      writePrivateFileAtomic(resolve28(output), `${JSON.stringify(certificate, null, 2)}
 `);
       console.log(`Control certificate: ${certificate.proof.status} \xB7 ${certificate.certificateHash}`);
       return certificate.proof.status === "PASS" ? 0 : 2;
@@ -14282,8 +14882,8 @@ function runCertify(args) {
       const privateKey = parsed.values.get("--private-key");
       const output = parsed.values.get("--output");
       if (parsed.positional.length !== 1 || !privateKey || !output) throw new Error("certify sign requires <proof-payload.json> --private-key <pem> --output <path>");
-      const proof = signControlProof(readBoundedJson(resolve27(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve27(privateKey));
-      writePrivateFileAtomic(resolve27(output), `${JSON.stringify(proof, null, 2)}
+      const proof = signControlProof(readBoundedJson(resolve28(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve28(privateKey));
+      writePrivateFileAtomic(resolve28(output), `${JSON.stringify(proof, null, 2)}
 `);
       console.log(`Signed control proof: ${proof.payload.status}`);
       console.log(`Control identity: ${signedControlIdentity(proof)}`);
@@ -14298,13 +14898,13 @@ function runCertify(args) {
       const output = parsed.values.get("--output");
       if (parsed.positional.length !== 1 || !publicKeyPath || !organization || !repository2 || !requiredCheck || !output) throw new Error("certify record-signed requires <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>");
       const certificate = createSignedCertificate({
-        proof: readBoundedJson(resolve27(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
-        publicKeyPath: resolve27(publicKeyPath),
+        proof: readBoundedJson(resolve28(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
+        publicKeyPath: resolve28(publicKeyPath),
         organization,
         repository: repository2,
         requiredCheck
       });
-      writePrivateFileAtomic(resolve27(output), `${JSON.stringify(certificate, null, 2)}
+      writePrivateFileAtomic(resolve28(output), `${JSON.stringify(certificate, null, 2)}
 `);
       console.log(`Signed control certificate: ${certificate.proof.payload.status} \xB7 ${certificate.certificateHash}`);
       console.log(`Control identity: ${signedControlIdentity(certificate.proof)}`);
@@ -14314,8 +14914,8 @@ function runCertify(args) {
       const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--corpus"]));
       const corpus = parsed.values.get("--corpus");
       if (parsed.positional.length !== 1 || !corpus) throw new Error("certify add requires <certificate.json> --corpus <corpus.jsonl>");
-      const certificate = validateAnyCertificate(readBoundedJson(resolve27(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
-      const corpusPath = resolve27(corpus);
+      const certificate = validateAnyCertificate(readBoundedJson(resolve28(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
+      const corpusPath = resolve28(corpus);
       const current = loadCorpus(corpusPath).map((entry2) => JSON.stringify(entry2)).join("\n");
       const { entry, line } = appendCorpusEntry(current, certificate);
       appendPrivateFileAtomic(corpusPath, line);
@@ -14329,12 +14929,12 @@ function runCertify(args) {
       if (!corpus || !policy || parsed.positional.length) throw new Error("certify status requires --corpus <corpus.jsonl> --policy <policy.json>");
       const format = parsed.values.get("--format") ?? "text";
       if (format !== "text" && format !== "json") throw new Error("certify status --format must be text or json");
-      const report = buildStatusReport(loadPolicy2(resolve27(policy)), loadCorpus(resolve27(corpus)), parsed.values.get("--as-of") ?? (/* @__PURE__ */ new Date()).toISOString());
+      const report = buildStatusReport(loadPolicy2(resolve28(policy)), loadCorpus(resolve28(corpus)), parsed.values.get("--as-of") ?? (/* @__PURE__ */ new Date()).toISOString());
       const rendered = format === "json" ? `${JSON.stringify(report, null, 2)}
 ` : `${renderStatusReport(report)}
 `;
       const output = parsed.values.get("--output");
-      if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(report, null, 2)}
+      if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
 `);
       process.stdout.write(rendered);
       return report.status === "PASS" ? 0 : 2;
@@ -14351,7 +14951,7 @@ function runCertify(args) {
       const maxAgeRaw = parsed.values.get("--max-age-hours");
       const maxAgeHours = maxAgeRaw === void 0 ? void 0 : Number(maxAgeRaw);
       const generated = createSingleRepositoryPolicy({ organization, repository: repository2, requiredCheck, pack, ...maxAgeHours === void 0 ? {} : { maxAgeHours } });
-      writePrivateFileAtomic(resolve27(output), `${JSON.stringify(generated, null, 2)}
+      writePrivateFileAtomic(resolve28(output), `${JSON.stringify(generated, null, 2)}
 `);
       console.log(`Created ${pack} control policy with a ${generated.maxAgeHours}-hour proof window.`);
       return 0;
@@ -14374,7 +14974,7 @@ function runPlan(args) {
         index += 1;
       }
     }
-    const repo = resolve27(optionValue(args, "--repo") ?? ".");
+    const repo = resolve28(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_BASE_SHA ?? "HEAD~1";
     const headRef = optionValue(args, "--head") ?? process.env.GITHUB_HEAD_SHA ?? "HEAD";
     if (!existsSync13(repo)) throw new Error(`repository not found: ${repo}`);
@@ -14390,13 +14990,13 @@ function runPlan(args) {
 ` : format === "markdown" ? renderAuthorityPlanMarkdown(report) : `${renderAuthorityPlan(report)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve28(output), `${JSON.stringify(report, null, 2)}
 `);
     else process.stdout.write(rendered);
     if (args.includes("--github-summary")) {
       const summaryPath = process.env.GITHUB_STEP_SUMMARY;
       if (!summaryPath) throw new Error("--github-summary requires GITHUB_STEP_SUMMARY");
-      appendPrivateFileAtomic(resolve27(summaryPath), renderAuthorityPlanMarkdown(report));
+      appendPrivateFileAtomic(resolve28(summaryPath), renderAuthorityPlanMarkdown(report));
     }
     return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
   } catch (error) {
@@ -14408,10 +15008,10 @@ function runProofComment(args) {
   try {
     const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--verify-url", "--output"]));
     if (parsed.positional.length !== 1) throw new Error("proof-comment requires exactly one full receipt JSON path");
-    const { report } = loadReceipt(resolve27(parsed.positional[0]));
+    const { report } = loadReceipt(resolve28(parsed.positional[0]));
     const rendered = renderProofComment(report, { verifyUrl: parsed.values.get("--verify-url") });
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve27(output), rendered);
+    if (output) writePrivateFileAtomic(resolve28(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -14479,7 +15079,7 @@ function optionValue(args, name2) {
 }
 function runInit3(args) {
   try {
-    const repo = resolve27(optionValue(args, "--repo") ?? ".");
+    const repo = resolve28(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
     const profile = optionValue(args, "--profile") ?? "default";
@@ -14488,7 +15088,7 @@ function runInit3(args) {
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve27(publicKey)) : void 0, profile, attest);
+    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve28(publicKey)) : void 0, profile, attest);
     console.log("Agent Vigil initialized.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
     for (const path of result5.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -14510,7 +15110,7 @@ function runProtect(args) {
       if (!allowed2.has(arg)) throw new Error(`unknown protect argument: ${arg}`);
       if (arg === "--repo") index += 1;
     }
-    const repo = resolve27(optionValue(args, "--repo") ?? ".");
+    const repo = resolve28(optionValue(args, "--repo") ?? ".");
     const result5 = initRepository(repo, args.includes("--force"), void 0, "protect", args.includes("--attest"));
     console.log("Agent Vigil protection installed.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
@@ -14542,8 +15142,8 @@ function runMaintainer(args) {
     const eventOption = optionValue(args, "--event");
     if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
     const options = parseArgs(withoutOption(args.slice(1), "--event"));
-    const repo = resolve27(options.repo);
-    const eventPath = resolve27(eventOption);
+    const repo = resolve28(options.repo);
+    const eventPath = resolve28(eventOption);
     const policy = loadPolicy(repo, options.policy, options.policyRef);
     if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -14629,7 +15229,7 @@ function runMergeGroup(args) {
 }
 function runDoctor2(args) {
   try {
-    const repo = resolve27(optionValue(args, "--repo") ?? ".");
+    const repo = resolve28(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
     return checks.some((check) => check.status === "FAIL") ? 2 : 0;
@@ -14643,9 +15243,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve27(privatePath), resolve27(publicPath));
+    generateSigningKey(resolve28(privatePath), resolve28(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve27(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve28(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -14663,10 +15263,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve27(options.repo, receiptPath);
+    const absoluteReceipt = resolve28(options.repo, receiptPath);
     const receipt = JSON.parse(readFileSync27(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve27(options.repo),
+      repo: resolve28(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -14685,10 +15285,10 @@ function runVerify3(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync27(resolve27(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync27(resolve28(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result5 = verifyReport(report, publicKey ? resolve27(publicKey) : void 0);
+    const result5 = verifyReport(report, publicKey ? resolve28(publicKey) : void 0);
     console.log(`Receipt hash: ${result5.hashValid ? "VALID" : "INVALID"}`);
     if (result5.signatureValid !== void 0) {
       console.log(`Ed25519 signature: ${result5.signatureValid ? "VALID" : "INVALID"} \xB7 ${result5.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
@@ -14732,7 +15332,7 @@ function runAttest(args) {
     const predicateOutput = parsed.values.get("--predicate-output");
     if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest requires <receipt.json> and --predicate-output <path>");
     const receiptPath = parsed.positional[0];
-    const predicate = writeAttestationPredicate(resolve27(receiptPath), resolve27(predicateOutput));
+    const predicate = writeAttestationPredicate(resolve28(receiptPath), resolve28(predicateOutput));
     console.log("Agent Vigil attestation predicate prepared.");
     console.log(`  receipt:  ${predicate.receipt.receiptHash}`);
     console.log(`  decision: ${predicate.receipt.status}`);
@@ -14753,8 +15353,8 @@ function runVerifyAttestation(args) {
     if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-attestation requires <receipt.json> and --repository <owner/name>");
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve27(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const { report } = loadReceipt(resolve27(receiptPath));
+    const verification2 = verifyGitHubAttestation(resolve28(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const { report } = loadReceipt(resolve28(receiptPath));
     console.log(`GitHub attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
     console.log(`Receipt file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
     console.log(`Receipt contents: ${verification2.receiptHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
@@ -14774,7 +15374,7 @@ function runAttestControl(args) {
     const predicateOutput = parsed.values.get("--predicate-output");
     if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest-control requires <control-proof.json> and --predicate-output <path>");
     const proofPath = parsed.positional[0];
-    const predicate = writeControlProofPredicate(resolve27(proofPath), resolve27(predicateOutput));
+    const predicate = writeControlProofPredicate(resolve28(proofPath), resolve28(predicateOutput));
     console.log("Agent Vigil control-proof attestation predicate prepared.");
     console.log(`  proof:    ${predicate.proof.receiptHash}`);
     console.log(`  decision: ${predicate.proof.status}`);
@@ -14795,12 +15395,12 @@ function runVerifyControlAttestation(args) {
     if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-control-attestation requires <control-proof.json> and --repository <owner/name>");
     const proofPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil-control-proof.yml`;
-    const verification2 = verifyGitHubControlProofAttestation(resolve27(proofPath), repository2, {
+    const verification2 = verifyGitHubControlProofAttestation(resolve28(proofPath), repository2, {
       signerWorkflow,
       ...parsed.values.get("--signer-digest") ? { signerDigest: parsed.values.get("--signer-digest") } : {},
       allowSelfHosted: parsed.flags.has("--allow-self-hosted")
     });
-    const { proof } = loadControlProof(resolve27(proofPath));
+    const { proof } = loadControlProof(resolve28(proofPath));
     console.log(`GitHub control-proof attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
     console.log(`Proof file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
     console.log(`Proof contents: ${verification2.proofHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
@@ -14827,12 +15427,12 @@ function runNotary(args) {
     }
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve27(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const payload = buildNotaryCheck(resolve27(receiptPath), verification2, head, policySha256);
+    const verification2 = verifyGitHubAttestation(resolve28(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const payload = buildNotaryCheck(resolve28(receiptPath), verification2, head, policySha256);
     const rendered = `${JSON.stringify(payload, null, 2)}
 `;
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve27(output), rendered);
+    if (output) writePrivateFileAtomic(resolve28(output), rendered);
     else process.stdout.write(rendered);
     return payload.conclusion === "success" ? 0 : payload.conclusion === "failure" ? 1 : 2;
   } catch (error) {
@@ -14846,15 +15446,15 @@ function runCompare(args) {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync27(resolve27(values[0]), "utf8"));
-    const after = JSON.parse(readFileSync27(resolve27(values[1]), "utf8"));
+    const before = JSON.parse(readFileSync27(resolve28(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync27(resolve28(values[1]), "utf8"));
     if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
 ` : `${renderReceiptDelta(delta)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve27(output), rendered);
+    if (output) writePrivateFileAtomic(resolve28(output), rendered);
     else process.stdout.write(rendered);
     return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
   } catch (error) {
@@ -14946,21 +15546,21 @@ function readBoundedFile(path, maximumBytes, label) {
 function runValue(args) {
   try {
     const options = parseValueArgs(args);
-    const receiptPath = resolve27(options.receipt);
+    const receiptPath = resolve28(options.receipt);
     const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
     const report = JSON.parse(rawReceipt.toString("utf8"));
     if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
       throw new Error("value requires a full Agent Vigil receipt schema 2");
     }
-    const verification2 = verifyReport(report, options.publicKey ? resolve27(options.publicKey) : void 0);
+    const verification2 = verifyReport(report, options.publicKey ? resolve28(options.publicKey) : void 0);
     if (!verification2.hashValid) throw new Error("value receipt hash is invalid");
     if (verification2.signatureValid === false) throw new Error("value receipt signature is invalid");
     let transcriptPath;
-    if (options.transcript) transcriptPath = resolve27(options.transcript);
+    if (options.transcript) transcriptPath = resolve28(options.transcript);
     else if ((/* @__PURE__ */ new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"])).has(report.transcriptFormat)) {
       const candidates = [
-        resolve27(dirname12(receiptPath), report.transcript),
-        ...isAbsolute11(report.repo) ? [resolve27(report.repo, report.transcript)] : []
+        resolve28(dirname12(receiptPath), report.transcript),
+        ...isAbsolute11(report.repo) ? [resolve28(report.repo, report.transcript)] : []
       ];
       transcriptPath = candidates.find((candidate) => existsSync13(candidate));
     }
@@ -14971,11 +15571,11 @@ function runValue(args) {
     }
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
-      const evidence = readBoundedFile(resolve27(path), 64 * 1024 * 1024, label);
+      const evidence = readBoundedFile(resolve28(path), 64 * 1024 * 1024, label);
       return `sha256:${createHash24("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
-    const github = options.githubEvidence ? loadGitHubEvidence(resolve27(options.githubEvidence)) : void 0;
+    const github = options.githubEvidence ? loadGitHubEvidence(resolve28(options.githubEvidence)) : void 0;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;
     const inferredOutcome = options.outcome ?? github?.inference.outcome;
     const inferredOutcomeAsOf = options.outcomeAsOf ?? github?.inference.outcomeAsOf;
@@ -15017,7 +15617,7 @@ function runValue(args) {
     });
     const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}
 ` : options.format === "markdown" ? renderValueCardMarkdown(card) : options.format === "html" ? renderValueCardHtml(card) : renderValueCardText(card);
-    if (options.output) writePrivateFileAtomic(resolve27(options.output), rendered);
+    if (options.output) writePrivateFileAtomic(resolve28(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
   } catch (error) {
@@ -15058,7 +15658,7 @@ function runGitHubEvidence(args) {
     const bundle = buildGitHubEvidence(inputs);
     const rendered = `${JSON.stringify(bundle, null, 2)}
 `;
-    if (output) writePrivateFileAtomic(resolve27(output), rendered);
+    if (output) writePrivateFileAtomic(resolve28(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -15088,7 +15688,7 @@ function runCompareValue(args) {
     const comparison = compareValueCards(cards, paths.length);
     const rendered = format === "json" ? `${JSON.stringify(comparison, null, 2)}
 ` : format === "html" ? renderValueComparisonHtml(comparison) : renderValueComparisonText(comparison);
-    if (output) writePrivateFileAtomic(resolve27(output), rendered);
+    if (output) writePrivateFileAtomic(resolve28(output), rendered);
     else process.stdout.write(rendered);
     return comparison.status === "COMPARABLE" ? 0 : 2;
   } catch (error) {
@@ -15101,11 +15701,11 @@ function runAudit(args) {
     const options = parseArgs(args.slice(1));
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
-    const absolute = resolve27(diffPath);
+    const absolute = resolve28(diffPath);
     const raw = readFileSync27(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest8 = `sha256:${createHash24("sha256").update(raw).digest("hex")}`;
+    const digest9 = `sha256:${createHash24("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -15117,11 +15717,11 @@ function runAudit(args) {
     }
     const report = buildReport({
       transcript: relative14(process.cwd(), absolute) || absolute,
-      transcriptSha256: digest8,
+      transcriptSha256: digest9,
       transcriptFormat: "unified-git-diff",
       repo: "static-diff-audit",
       base: "unavailable",
-      head: digest8,
+      head: digest9,
       results: integrity.results,
       advisories: integrity.advisories,
       policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash24("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
@@ -15138,7 +15738,7 @@ function runAudit(args) {
 function runTestIntegrity(args) {
   try {
     const options = parseArgs(args.slice(1));
-    const repo = resolve27(options.repo);
+    const repo = resolve28(options.repo);
     if (!gitRefExists(repo, options.base) || options.head !== "WORKTREE" && !gitRefExists(repo, options.head)) {
       throw new Error(`invalid git range ${options.base}..${options.head}`);
     }
@@ -15160,11 +15760,11 @@ function runTestIntegrity(args) {
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
     const diff = execFileSync19("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    const digest8 = `sha256:${createHash24("sha256").update(diff).digest("hex")}`;
+    const digest9 = `sha256:${createHash24("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
       transcript: `${base}..${head}`,
-      transcriptSha256: digest8,
+      transcriptSha256: digest9,
       transcriptFormat: "test-integrity-diff",
       repo,
       base,
@@ -15197,7 +15797,7 @@ function runAuthority(args) {
       const output = optionValue(args, "--output");
       const rendered = authorityContractTemplate();
       if (output) {
-        writePrivateFileAtomic(resolve27(output), rendered);
+        writePrivateFileAtomic(resolve28(output), rendered);
         console.log(`Created task-scoped authority contract ${output}. Review every allowed action and replace the task ID before use.`);
       } else process.stdout.write(rendered);
       return 0;
@@ -15210,11 +15810,11 @@ function runAuthority(args) {
     const options = parseArgs(stripped);
     const transcriptOption = options.transcript;
     if (!transcriptOption) throw new Error("authority requires a structured agent transcript");
-    const repo = resolve27(options.repo);
+    const repo = resolve28(options.repo);
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
     const base = resolveGitRef(repo, options.base);
     const head = resolveGitRef(repo, options.head);
-    const transcriptPath = isAbsolute11(transcriptOption) ? transcriptOption : resolve27(repo, transcriptOption);
+    const transcriptPath = isAbsolute11(transcriptOption) ? transcriptOption : resolve28(repo, transcriptOption);
     if (!existsSync13(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
     const contract = loadAuthorityContract(repo, contractOption, contractRef);
     const loaded = loadTranscript(transcriptPath);
@@ -15259,7 +15859,7 @@ function runAuthority(args) {
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve27(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve28(options.signingKey));
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
@@ -15325,7 +15925,7 @@ function run(argv = process.argv.slice(2)) {
 ${usage4()}`);
     return 2;
   }
-  const repo = resolve27(options.repo);
+  const repo = resolve28(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -15342,7 +15942,7 @@ ${usage4()}`);
     console.error(usage4());
     return 2;
   }
-  const transcriptPath = isAbsolute11(transcript) ? transcript : resolve27(repo, transcript);
+  const transcriptPath = isAbsolute11(transcript) ? transcript : resolve28(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
@@ -15369,8 +15969,8 @@ ${usage4()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve27(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve27(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve28(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve28(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -15420,13 +16020,13 @@ ${usage4()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve27(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve28(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve27(options.signingKey));
-      const portablePath = resolve27(repo, options.portableOutput);
+      const portable = createPortableReceipt(report, resolve28(options.signingKey));
+      const portablePath = resolve28(repo, options.portableOutput);
       mkdirSync11(dirname12(portablePath), { recursive: true });
-      writeFileSync10(portablePath, `${JSON.stringify(portable, null, 2)}
+      writeFileSync11(portablePath, `${JSON.stringify(portable, null, 2)}
 `);
     }
     printReport(report, options);
