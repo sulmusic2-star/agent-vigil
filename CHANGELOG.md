@@ -15,6 +15,10 @@
   not presented as maintainer-confirmed retention.
 - Add a weekly evidence workflow that retains the public census and consented
   ledger report for 90 days. The current external-adoption count remains zero.
+- Match the current GitHub-hosted `setup-node` runtime contract, where the
+  exact tool-cache Node binary is a regular 0777 file. Agent Vigil accepts only
+  the expected Node 22 cache path, copies it before candidate execution, and
+  verifies the source and private copy fingerprints before use.
 
 ## 0.21.0 - 2026-08-27
 

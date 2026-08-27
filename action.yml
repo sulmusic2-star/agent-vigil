@@ -328,6 +328,29 @@ runs:
           esac
         }
 
+        # setup-node installs the selected runtime as a regular 0777 file in
+        # GitHub's hosted tool cache. That mode is part of the current hosted
+        # runner contract, so the generic immutable-host-file check cannot
+        # select it. Accept only an exact Node 22 tool-cache location here,
+        # before any candidate command runs. The bytes are fingerprinted,
+        # copied into the private runtime directory, and checked again below.
+        canonical_node_source() {
+          local selected="$1" parent canonical_parent
+          parent="${selected%/*}"
+          canonical_parent=$(cd "$parent" 2>/dev/null && pwd -P) || return 1
+          selected="$canonical_parent/${selected##*/}"
+          [[ "$selected" == "$1" && -f "$selected" && ! -L "$selected" && -x "$selected" ]] || return 1
+          valid_node_source "$selected" || return 1
+          case "$selected" in
+            "$VIGIL_HOSTED_NODE_ROOT"/*/x64/bin/node|"$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/*/bin/node) ;;
+            *) canonical_host_file "$selected" >/dev/null || return 1 ;;
+          esac
+          if path_is_inside "$selected" "${GITHUB_WORKSPACE:-}" \
+            || path_is_inside "$selected" "${RUNNER_TEMP:-}" \
+            || path_is_inside "$selected" "${GITHUB_ACTION_PATH:-}"; then return 1; fi
+          printf '%s' "$selected"
+        }
+
         VIGIL_ENV_BIN=$(canonical_host_file /usr/bin/env) || true
         VIGIL_GIT_BIN=$(canonical_host_file /usr/bin/git) || true
         VIGIL_DOCKER_BIN=''
@@ -359,7 +382,7 @@ runs:
           "$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/arm64/bin/node \
           /usr/bin/node \
           /usr/local/bin/node; do
-          if resolved=$(canonical_host_file "$candidate") && valid_node_source "$resolved"; then
+          if resolved=$(canonical_node_source "$candidate"); then
             VIGIL_NODE_SOURCE="$resolved"
             break
           fi
