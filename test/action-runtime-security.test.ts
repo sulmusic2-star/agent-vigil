@@ -323,12 +323,15 @@ function candidateAttackProgram(forbiddenPaths: string[]): string {
   return `
 const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");
-const allowedEnvironment = ["CI", "HOME", "LANG", "LC_ALL", "NPM_CONFIG_CACHE", "PATH", "TZ"];
+const allowedEnvironment = ["CI", "HOME", "LANG", "LC_ALL", "NODE_TEST_CONTEXT", "NPM_CONFIG_CACHE", "PATH", "TZ"];
 const observedEnvironment = Object.keys(process.env).sort();
 const extras = observedEnvironment.filter((key) => !allowedEnvironment.includes(key));
 const missing = allowedEnvironment.filter((key) => !observedEnvironment.includes(key));
 if (extras.length || missing.length) {
   throw new Error("candidate environment is not exact: extras=" + extras.join(",") + " missing=" + missing.join(","));
+}
+if (process.env.NODE_TEST_CONTEXT !== "child-v8") {
+  throw new Error("candidate received an unexpected Node test-runner context");
 }
 for (const key of [
   "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "GITHUB_ENV", "GITHUB_OUTPUT",

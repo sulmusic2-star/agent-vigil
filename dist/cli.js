@@ -585,11 +585,13 @@ function trustedGitOptional(repo, args, maxBuffer = 64 * 1024 * 1024) {
 // src/candidate-command.ts
 var PINNED_CANDIDATE_IMAGE = "node@sha256:46e94f8cf91baab69a2deb3153e74eeffd73c20c7cc1d8432f5b96469eaa0322";
 var MAX_COMMAND_OUTPUT = 12e3;
+var MAX_WRAPPER_CAPTURE_BYTES = 3 * 1024 * 1024;
 var TIMEOUT_MARKER = "[agent-vigil-command-timeout]";
 var ABNORMAL_MARKER = "[agent-vigil-command-abnormal]";
 var CONTAINER_PREFIX = "agent-vigil-candidate-";
 var COMMAND_WRAPPER = String.raw`
 const { execFile, spawn } = require("node:child_process");
+const { writeSync } = require("node:fs");
 const command = process.argv[1];
 const timeout = Number(process.argv[2]);
 const windows = process.platform === "win32";
@@ -598,38 +600,99 @@ const shell = windows ? (process.env.ComSpec || "cmd.exe") : "/bin/sh";
 // created with env -i. Remove it before candidate code starts so the hosted
 // sandbox contract remains the exact explicit allowlist.
 const shellArgs = windows ? ["/d", "/s", "/c", command] : ["-c", "unset PWD\n" + command];
-const child = spawn(shell, shellArgs, { env: process.env, detached: true });
-child.stdout.pipe(process.stdout);
-child.stderr.pipe(process.stderr);
+// Retain the child-owned pipes until EOF so a descendant that inherits them
+// remains tied to this wrapper's timeout. Buffer under the outer verifier's
+// maxBuffer, then synchronously forward complete bytes after the child closes;
+// JavaScript stream re-piping can drop the final test summary on Windows.
+const child = spawn(shell, shellArgs, {
+  env: process.env,
+  detached: true,
+  stdio: ["ignore", "pipe", "pipe"],
+});
+const captureLimit = ${MAX_WRAPPER_CAPTURE_BYTES};
+const stdoutChunks = [];
+const stderrChunks = [];
+let capturedBytes = 0;
 let timedOut = false;
+let terminating = false;
 let finished = false;
-const finish = (code) => {
+const writeAll = (fd, chunks) => {
+  for (const chunk of chunks) {
+    let offset = 0;
+    while (offset < chunk.length) {
+      const written = writeSync(fd, chunk, offset, chunk.length - offset);
+      if (written <= 0) throw new Error("candidate output descriptor stopped accepting bytes");
+      offset += written;
+    }
+  }
+};
+const finish = (code, marker = "") => {
   if (finished) return;
   finished = true;
   clearTimeout(timer);
-  // Setting exitCode lets piped child output drain before the wrapper exits.
-  // Calling process.exit() here can discard the test summary on Windows.
-  process.exitCode = code;
+  try {
+    writeAll(1, stdoutChunks);
+    writeAll(2, stderrChunks);
+    if (marker) writeAll(2, [Buffer.from(marker + "\\n")]);
+    // Setting exitCode lets the wrapper's own descriptors settle. Calling
+    // process.exit() here can discard the final test summary on Windows.
+    process.exitCode = code;
+  } catch {
+    process.exitCode = 125;
+  }
 };
-const timer = setTimeout(() => {
-  timedOut = true;
-  process.stderr.write("${TIMEOUT_MARKER}\\n");
+const terminateTree = (code, marker) => {
+  if (terminating || finished) return;
+  terminating = true;
+  clearTimeout(timer);
+  const stopCapture = () => {
+    child.stdout.destroy();
+    child.stderr.destroy();
+  };
   if (windows) {
-    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => finish(124));
+    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => {
+      stopCapture();
+      finish(code, marker);
+    });
   } else {
     try { process.kill(-child.pid, "SIGKILL"); } catch {}
-    setTimeout(() => finish(124), 50);
+    setTimeout(() => {
+      stopCapture();
+      finish(code, marker);
+    }, 50);
   }
+};
+const capture = (stream, chunks) => {
+  stream.on("data", (value) => {
+    if (terminating || finished) return;
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    const remaining = captureLimit - capturedBytes;
+    if (remaining > 0) {
+      const kept = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+      chunks.push(kept);
+      capturedBytes += kept.length;
+    }
+    if (chunk.length > remaining) {
+      terminateTree(125, "${ABNORMAL_MARKER} output exceeded " + captureLimit + " bytes");
+    }
+  });
+  stream.on("error", (error) => {
+    terminateTree(125, "${ABNORMAL_MARKER} output capture failed: " + error.message);
+  });
+};
+capture(child.stdout, stdoutChunks);
+capture(child.stderr, stderrChunks);
+const timer = setTimeout(() => {
+  timedOut = true;
+  terminateTree(124, "${TIMEOUT_MARKER}");
 }, timeout);
 child.on("error", (error) => {
-  process.stderr.write("${ABNORMAL_MARKER} " + error.message + "\\n");
-  finish(125);
+  finish(125, "${ABNORMAL_MARKER} " + error.message);
 });
 child.on("close", (code, signal) => {
-  if (timedOut || finished) return;
+  if (timedOut || terminating || finished) return;
   if (signal || code === null) {
-    process.stderr.write("${ABNORMAL_MARKER} signal=" + (signal || "unknown") + "\\n");
-    finish(125);
+    finish(125, "${ABNORMAL_MARKER} signal=" + (signal || "unknown"));
     return;
   }
   finish(code);

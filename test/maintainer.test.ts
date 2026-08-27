@@ -564,6 +564,33 @@ test("automated review is inconclusive when a command times out", () => {
   assert.ok(checks.some((check) => check.ruleId === "automated-review-command" && check.verdict === "unverifiable" && check.blocksPass));
 });
 
+test("automated review retains its deadline when a descendant holds the output pipes open", () => {
+  const fixture = regressionRepo(true);
+  const root = temp("vigil-command-descendant-");
+  const script = join(root, "descendant.cjs");
+  writeFileSync(script, [
+    'const { spawn } = require("node:child_process");',
+    'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], { stdio: ["ignore", "inherit", "inherit"] });',
+    "child.unref();",
+    "",
+  ].join("\n"));
+  try {
+    const checks = checkAutomatedReview(fixture.repo, fixture.head, { commands: [`node ${JSON.stringify(script)}`], timeoutSeconds: 1 });
+    assert.ok(checks.some((check) => check.ruleId === "automated-review-command" && check.verdict === "unverifiable" && check.blocksPass));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("automated review fails closed when combined command output exceeds the wrapper cap", () => {
+  const fixture = regressionRepo(true);
+  const checks = checkAutomatedReview(fixture.repo, fixture.head, {
+    commands: [`node -e "process.stdout.write('x'.repeat(3 * 1024 * 1024 + 1))"`],
+    timeoutSeconds: 30,
+  });
+  assert.ok(checks.some((check) => check.ruleId === "automated-review-command" && check.verdict === "unverifiable" && check.blocksPass));
+});
+
 test("automated review rejects tracked-file mutation", () => {
   const fixture = regressionRepo(true);
   const checks = checkAutomatedReview(fixture.repo, fixture.head, {
