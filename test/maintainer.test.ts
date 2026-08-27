@@ -427,6 +427,8 @@ test("local candidate commands use the native Windows command processor", { skip
 
 test("candidate wrapper detaches only where POSIX process-group termination requires it", () => {
   const source = readFileSync(new URL("../src/candidate-command.ts", import.meta.url), "utf8");
+  assert.match(source, /\["\/d", "\/s", "\/c", '"' \+ command \+ '"'\]/);
+  assert.match(source, /windowsVerbatimArguments:\s*windows/);
   assert.match(source, /detached:\s*!windows/);
   assert.doesNotMatch(source, /detached:\s*true/);
 });

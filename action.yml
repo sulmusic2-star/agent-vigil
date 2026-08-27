@@ -493,14 +493,17 @@ runs:
             echo "agent-vigil: trusted runtime, Action bundle, event source, or evidence snapshot changed during repository verification" >&2
             return 2
           fi
-          "$VIGIL_NODE_BIN" "$@"
+          # Node inline/eval entrypoints may inspect package metadata in their
+          # starting directory before trusted code runs. Never start them in the
+          # candidate worktree.
+          ( cd "$VIGIL_RUNTIME_DIR" && "$VIGIL_NODE_BIN" "$@" )
         }
         post_verification_node_empty() {
           if ! node_checkpoint_is_intact || ! action_cli_is_intact || ! event_snapshot_is_intact || ! candidate_evidence_is_intact; then
             echo "agent-vigil: trusted runtime, Action bundle, event source, or evidence snapshot changed during repository verification" >&2
             return 2
           fi
-          "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "$VIGIL_NODE_BIN" "$@"
+          ( cd "$VIGIL_RUNTIME_DIR" && "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "$VIGIL_NODE_BIN" "$@" )
         }
 
         if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "maintainer" && "$VIGIL_MODE" != "outcome" && "$VIGIL_MODE" != "continuity" ]]; then

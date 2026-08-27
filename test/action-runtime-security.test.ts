@@ -118,6 +118,11 @@ test("Action leaves strictness and the evidence minimum under trusted-policy con
   assert.match(action, /if \[\[ -n "\$VIGIL_MIN_VERIFIED" \]\]; then args\+=\(--min-verified "\$VIGIL_MIN_VERIFIED"\); fi/);
   assert.match(action, /if \[\[ "\$VIGIL_STRICT" == "true" \]\]; then args\+=\(--strict\); fi/);
   assert.match(action, /O_RDONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
+  const postVerificationNode = action.match(/post_verification_node\(\) \{([\s\S]*?)(?=\n        post_verification_node_empty\(\))/)?.[1];
+  const postVerificationNodeEmpty = action.match(/post_verification_node_empty\(\) \{([\s\S]*?)(?=\n\n        if \[\[ -n "\$VIGIL_MODE")/)?.[1];
+  assert.ok(postVerificationNode && postVerificationNodeEmpty);
+  assert.match(postVerificationNode, /\( cd "\$VIGIL_RUNTIME_DIR" && "\$VIGIL_NODE_BIN" "\$@" \)/);
+  assert.match(postVerificationNodeEmpty, /\( cd "\$VIGIL_RUNTIME_DIR" && "\$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "\$VIGIL_NODE_BIN" "\$@" \)/);
   assert.match(action, /"GITHUB_EVENT_NAME=\$\{GITHUB_EVENT_NAME-\}"/);
   assert.match(action, /GITHUB_EVENT_NAME:-}" != "pull_request_target"/);
   const snapshotReader = action.match(/snapshot_regular_json\(\) \{([\s\S]*?)(?=\n        event_snapshot_fingerprint=)/)?.[1];

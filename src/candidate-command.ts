@@ -22,7 +22,10 @@ const shell = windows ? (process.env.ComSpec || "cmd.exe") : "/bin/sh";
 // POSIX shells synthesize and export PWD even when their own environment was
 // created with env -i. Remove it before candidate code starts so the hosted
 // sandbox contract remains the exact explicit allowlist.
-const shellArgs = windows ? ["/d", "/s", "/c", command] : ["-c", "unset PWD\n" + command];
+// Match Node's own cmd.exe normalization: /s removes the outer quote pair,
+// leaving command-owned quotes intact, while verbatim argv prevents libuv's
+// C-runtime escaping from rewriting those quotes into syntax cmd cannot parse.
+const shellArgs = windows ? ["/d", "/s", "/c", '"' + command + '"'] : ["-c", "unset PWD\n" + command];
 // Retain the child-owned pipes until EOF so a descendant that inherits them
 // remains tied to this wrapper's timeout. Buffer under the outer verifier's
 // maxBuffer, then synchronously forward complete bytes after the child closes;
@@ -34,6 +37,7 @@ const child = spawn(shell, shellArgs, {
   // lets it return before the candidate console program has actually exited.
   detached: !windows,
   stdio: ["ignore", "pipe", "pipe"],
+  windowsVerbatimArguments: windows,
 });
 const captureLimit = ${MAX_WRAPPER_CAPTURE_BYTES};
 const stdoutChunks = [];
