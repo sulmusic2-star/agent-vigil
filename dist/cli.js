@@ -2279,7 +2279,7 @@ function renderResultMarkdown(view, options = {}) {
     "",
     `**${markdownText(view.consequence)}**`,
     "",
-    options.aggregateOnly ? `Main result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : markdownText(view.mainCause),
+    options.aggregateOnly ? `Main result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : `**Main result:** ${markdownText(view.mainCause)}`,
     "",
     `**Checks:** ${countLine(view)}`
   ];
@@ -2318,7 +2318,7 @@ function renderMarkdown(report) {
   return renderResultMarkdown(buildReportResultView(report));
 }
 function renderDecisionCard(report) {
-  return renderResultMarkdown(buildReportResultView(report));
+  return renderResultMarkdown(buildReportResultView(report), { aggregateOnly: true });
 }
 function sarifResult(result5, advisory = false) {
   const level = advisory ? "warning" : result5.verdict === "contradicted" ? "error" : result5.verdict === "unverifiable" ? "warning" : "note";

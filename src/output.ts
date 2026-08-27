@@ -84,7 +84,7 @@ export function renderResultMarkdown(view: ResultView, options: { aggregateOnly?
     "",
     `**${markdownText(view.consequence)}**`,
     "",
-    options.aggregateOnly ? `Main result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : markdownText(view.mainCause),
+    options.aggregateOnly ? `Main result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : `**Main result:** ${markdownText(view.mainCause)}`,
     "",
     `**Checks:** ${countLine(view)}`,
   ];
@@ -125,7 +125,7 @@ export function renderMarkdown(report: TrustReport): string {
 }
 
 export function renderDecisionCard(report: TrustReport): string {
-  return renderResultMarkdown(buildReportResultView(report));
+  return renderResultMarkdown(buildReportResultView(report), { aggregateOnly: true });
 }
 
 function escapeCell(value: string): string {

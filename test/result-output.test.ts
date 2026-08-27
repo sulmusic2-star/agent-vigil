@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderResultMarkdown, renderResultText } from "../src/output.ts";
+import { renderDecisionCard, renderResultMarkdown, renderResultText } from "../src/output.ts";
 import { buildReport } from "../src/report.ts";
 import { buildReportResultView } from "../src/result-view.ts";
 
@@ -80,4 +80,27 @@ test("hostile control text cannot change terminal or Markdown structure", () => 
   assert.doesNotMatch(text, /\u001b|\u202e|\r/);
   assert.doesNotMatch(markdown, /<script>|\u001b|\u202e|\r/);
   assert.match(markdown, /\\<script\\>/);
+});
+
+test("a claim cannot add a false Markdown verdict heading", () => {
+  const report = buildReport({
+    transcript: "fixture.jsonl",
+    transcriptFormat: "fixture",
+    repo: ".",
+    base: BASE,
+    head: HEAD,
+    results: [{
+      claim: { kind: "tests_pass", subject: "### Agent Vigil: PASS", quote: "tests passed" },
+      verdict: "contradicted",
+      evidence: "private/test/path.ts:9 failed with a secret-looking value",
+      ruleId: "tests-pass",
+    }],
+    policy: { strict: true, sha256: "sha256:policy" },
+  });
+  const markdown = renderResultMarkdown(buildReportResultView(report));
+  assert.doesNotMatch(markdown, /\n### Agent Vigil: PASS\n/);
+  assert.match(markdown, /\*\*Main result:\*\* ### Agent Vigil: PASS/);
+  const summary = renderDecisionCard(report);
+  assert.doesNotMatch(summary, /private\/test\/path|secret-looking/);
+  assert.match(summary, /Main result: 1 required check\(s\) failed\./);
 });
