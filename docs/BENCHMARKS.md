@@ -4,6 +4,25 @@ Agent Vigil publishes frozen inputs, machine-readable outputs, and limitations.
 The current evidence supports narrow detector claims. It does not support a
 universal "best product" claim, a valuation, revenue, or guaranteed adoption.
 
+## Continuity Staple deployment-path latency
+
+Build the CLI, then run the frozen local consumer-verification protocol:
+
+```bash
+npm run build
+npm run benchmark:continuity-staple -- --enforce
+```
+
+The protocol separates in-process cryptographic verification, bounded file
+read plus verification, and cold Node.js CLI startup. It records p50, mean,
+p95, p99, maximum, throughput, staple size, exact source commit, Node version,
+operating system family, and architecture. It makes zero network calls.
+
+The current budgets are intentionally user-facing: at most 8 KiB per staple,
+2 ms core p95, 5 ms file p95, and 250 ms cold CLI p95 on the machine running
+the benchmark. A release result is not portable performance evidence; compare
+only repeated runs under the same protocol and environment.
+
 ## Reproduce the current measurements
 
 Pin the upstream source first:

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.20.0 - 2026-08-25
+## 0.21.0 - 2026-08-27
 
 ### Breaking security migration
 
@@ -59,12 +59,45 @@
   requires the separately protected `npm-publish` GitHub environment and npm
   Trusted Publisher authorization before it can be considered live.
 
-### Outcome and result model
+## 0.20.0 - 2026-08-27
 
+- Add `vigil guard-compat` for process-only Claude Code and Codex control
+  checks. It uses one harmless allow marker and one harmless deny marker,
+  records `ALLOW`, `DENY`, `DEFER`, `ERROR`, or `UNKNOWN`, binds the receipt to
+  exact host and control files, policy, configuration, arguments, and operating
+  system, and keeps deployment on `HOLD` until live-host routing is proven.
+- Add `vigil guard-route` for a disposable, real-host `PreToolUse` drill. It
+  requires one exact allowed `printf` call, one exact denied call, distinct
+  host-owned call identifiers, no unexpected routed calls, removed temporary
+  configuration, and unchanged ordinary user configuration. One host passing
+  cannot stand in for the other, and deployment remains on `HOLD`.
+- Add strict guard-route receipt validation and typed continuity events. A
+  passing route affirms, a contradictory route revokes, an inconclusive route
+  holds, and an unexpected host/control/operating-system binding revokes.
+- Add `vigil continuity guard-demo` for the complete two-host state sequence:
+  `CURRENT`, controlled `REVOKED`, sticky `REVOKED` after an ordinary green
+  route, and `CURRENT` only after independent signed repair. The command labels
+  its failure as a fixture and does not claim a real incident or deployment.
+- Add a removable GitHub continuity marker with a manual public installation
+  vector. The public vector reports `SELF_TEST_PASS`, never `CURRENT`, and
+  cannot authorize a protected action.
+- Add the offline `@sulmusic/agent-vigil/continuity-staple` TypeScript package
+  entry and deterministic signed vectors shared by the library and CLI. The
+  vector private key is not retained or packaged.
+- Add `vigil continuity terraform-plan-gate` to verify signed continuity before
+  inspecting and fingerprinting one exact saved Terraform plan. It never runs
+  `terraform apply` and retains hashes, versions, and action counts rather than
+  plan values. The protected-action decision uses the verifier's wall clock
+  and rechecks staple expiry after plan inspection.
+- Refuse guard receipt outputs that replace or alias executables, controls,
+  arguments, policy, configuration, or the disposable-profile marker, and fail
+  if an initially absent ordinary host configuration appears during a route
+  drill.
 - Add signed Outcome Mandate and Outcome Receipt v0.1 contracts for exact-base,
   exact-head agent-work acceptance. The verifier binds required rule IDs,
   evidence minimums, trusted requester, evidence, and verifier keys, expiry,
-  and optional budget limits to `PASS`, `FAIL`, or `INCONCLUSIVE`.
+  and optional budget limits to `PASS`, `FAIL`, or `INCONCLUSIVE`; constructors
+  reject identical base and head commits.
 - Add draft generic, A2A, AP2, x402, ERC-8004, and VCAP outcome signals. Signal
   rendering requires a pinned verifier and remains dry-run with no network or
   money movement.
@@ -72,8 +105,16 @@
   red-to-green demonstration, and an inbound non-binding price-reservation
   form. No hosted checkout or paid-demand claim is included.
 - Replace the Outcome Verifier landing-page layout with a compact pull-request
-  check. The example now shows the failed check first, explains it in ordinary
+  check. The example shows the failed check first, explains it in ordinary
   language, and keeps pricing research off the main product surface.
+- Add a disposable two-replica Kubernetes admission lab with default-deny
+  verifier egress and an unavailable-verifier drill. It allows fresh `CURRENT`,
+  denies missing, tampered, expired, and revoked evidence, and removes its
+  cluster and fixtures. This maintainer-run lab is not a production deployment
+  or outside adoption.
+- Scope the existing coverage thresholds to production TypeScript sources so
+  temporary repositories and generated adversarial fixtures cannot dilute the
+  reported project coverage.
 
 ## 0.19.0 - 2026-08-25
 

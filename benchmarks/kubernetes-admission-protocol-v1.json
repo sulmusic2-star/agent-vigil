@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "cluster": {
+    "distribution": "k3s",
+    "image": "rancher/k3s@sha256:728a3d3b688ce0755ddd084d73941a54478bae02c3232b2852b6757f3b884dcb",
+    "kubernetesVersion": "v1.35.0+k3s1",
+    "nodes": 1
+  },
+  "verifier": {
+    "replicas": 2,
+    "image": "node:22-alpine",
+    "networkCallsPerDecision": 0,
+    "webhookTimeoutSeconds": 1,
+    "failurePolicy": "Fail"
+  },
+  "iterations": 50,
+  "budgets": {
+    "clusterReadySecondsMaximum": 180,
+    "verifierReadySecondsMaximum": 180,
+    "serverP95MillisecondsMaximum": 10,
+    "endToEndP95MillisecondsMaximum": 250,
+    "outageDecisionMillisecondsMaximum": 1500
+  },
+  "requiredCases": [
+    "fresh_current_allowed",
+    "missing_staple_denied",
+    "tampered_staple_denied",
+    "expired_staple_denied",
+    "revoked_staple_denied",
+    "verifier_unavailable_denied"
+  ]
+}

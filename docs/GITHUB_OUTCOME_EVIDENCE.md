@@ -1,6 +1,6 @@
 # GitHub outcome evidence v1
 
-**State:** Agent Vigil v0.20.0 contract
+**State:** Agent Vigil v0.21.0 contract
 
 `vigil github-evidence` converts bounded GitHub event and REST API exports into
 a privacy-reduced, hash-bound bundle. `vigil value --github-evidence` can then
@@ -28,7 +28,7 @@ vigil value agent-vigil-report.json \
 ```
 
 The standalone command normalizes operator-supplied exports. In the generated
-v0.20.0 hosted path, the credential-free candidate evidence job does not
+v0.21.0 hosted path, the credential-free candidate evidence job does not
 receive a GitHub token. The separate read-only outcome workflow collects the
 official API records after the evidence run completes and retains the bundle
 and Value Card in its 30-day artifact.

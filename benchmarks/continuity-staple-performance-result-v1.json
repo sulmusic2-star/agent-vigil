@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-26T13:14:09.546Z",
+  "tool": {
+    "name": "agent-vigil",
+    "sourceCommit": "bca9338457ec8a62082cfd43c6becbbd3da58e66"
+  },
+  "environment": {
+    "node": "v22.22.3",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "protocol": {
+    "path": "benchmarks/continuity-staple-performance-protocol-v1.json",
+    "sha256": "sha256:bc145d6272b9c17d69ac84368b1348bf5fffee73d9935a046e404ccd6e90f77b"
+  },
+  "subject": {
+    "state": "CURRENT",
+    "stapleBytes": 1718,
+    "signature": "Ed25519",
+    "networkCalls": 0
+  },
+  "results": {
+    "core": {
+      "iterations": 10000,
+      "minimumMilliseconds": 0.1781,
+      "medianMilliseconds": 0.1906,
+      "meanMilliseconds": 0.1983,
+      "p95Milliseconds": 0.2343,
+      "p99Milliseconds": 0.3845,
+      "maximumMilliseconds": 0.6354,
+      "decisionsPerSecond": 5042.2332
+    },
+    "file": {
+      "iterations": 2000,
+      "minimumMilliseconds": 0.2063,
+      "medianMilliseconds": 0.2258,
+      "meanMilliseconds": 0.2335,
+      "p95Milliseconds": 0.2745,
+      "p99Milliseconds": 0.4243,
+      "maximumMilliseconds": 0.6888,
+      "decisionsPerSecond": 4281.8953
+    },
+    "coldCli": {
+      "iterations": 50,
+      "minimumMilliseconds": 46.9691,
+      "medianMilliseconds": 49.4402,
+      "meanMilliseconds": 49.6239,
+      "p95Milliseconds": 52.2417,
+      "p99Milliseconds": 52.6357,
+      "maximumMilliseconds": 52.6357,
+      "decisionsPerSecond": 20.1516
+    }
+  },
+  "checks": {
+    "stapleBytes": {
+      "observed": 1718,
+      "maximum": 8192,
+      "pass": true
+    },
+    "coreP95Milliseconds": {
+      "observed": 0.2343,
+      "maximum": 2,
+      "pass": true
+    },
+    "fileP95Milliseconds": {
+      "observed": 0.2745,
+      "maximum": 5,
+      "pass": true
+    },
+    "coldCliP95Milliseconds": {
+      "observed": 52.2417,
+      "maximum": 250,
+      "pass": true
+    }
+  },
+  "passed": true,
+  "limits": [
+    "This is a maintainer-run single-machine microbenchmark, not an independent or competitor-comparative result.",
+    "The cold CLI measurement includes Node.js process startup; embedded and long-lived consumers should use the core or file path.",
+    "This benchmark does not measure chain issuance, network retrieval, Kubernetes API latency, adoption, willingness to pay, or revenue."
+  ]
+}

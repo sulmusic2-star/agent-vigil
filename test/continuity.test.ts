@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { generateKeyPairSync } from "node:crypto";
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
   appendContinuityEvent,
+  chainExists,
+  chainName,
+  continuitySubjectTemplate,
   computeEventHash,
+  createStoredEvent,
   initializeContinuityChain,
   verifyContinuityChain,
   type ChainVerification,
@@ -25,7 +30,7 @@ import {
 } from "../src/continuity/contracts.ts";
 import { evaluateContinuity } from "../src/continuity/decision.ts";
 import { publicChainVerification } from "../src/continuity/presentation.ts";
-import { buildReport, type CheckResult, type TrustReport } from "../src/report.ts";
+import { buildReport, recomputeReceiptHash, type CheckResult, type TrustReport } from "../src/report.ts";
 import { generateSigningKey, publicKeyId, signReport } from "../src/signature.ts";
 
 const BASE = "1".repeat(40);
@@ -198,6 +203,84 @@ test("initializes an owner-only chain without changing original receipt bytes or
       assert.equal(lstatSync(join(value.chain, file)).mode & 0o777, 0o600);
     }
   }
+  assert.equal(chainExists(value.chain), true);
+  assert.equal(chainName(value.chain), "chain");
+  assert.deepEqual(continuitySubjectTemplate(value.continuityRoot), value.continuityRoot.subject);
+});
+
+test("initialization rejects malformed, incomplete, and internally inconsistent receipts", () => {
+  const cases: Array<[string | ((value: TrustReport) => unknown), RegExp]> = [
+    ["{", /not valid JSON/],
+    [() => [], /must be an object/],
+    [(value) => ({ ...value, schemaVersion: "3" }), /schema.*version 2/],
+    [(value) => ({ ...value, summary: { ...value.summary, status: "MAYBE" } }), /summary\.status.*unsupported/],
+    [(value) => ({ ...value, results: null }), /receipt results must be an array/],
+    [(value) => ({ ...value, base: "main" }), /full base and head/],
+    [(value) => ({ ...value, head: "HEAD" }), /full base and head/],
+    [(value) => ({ ...value, repository: { ...value.repository, tree: "tree" } }), /repository\.tree.*full lowercase Git object ID|committed head tree/],
+    [(value) => ({ ...value, receiptHash: digest("wrong") }), /receipt hash is invalid/],
+    [(value) => {
+      const changed = structuredClone(value);
+      changed.summary.verified += 1;
+      assert.throws(() => recomputeReceiptHash(changed), /summary\.verified does not match/);
+      return changed;
+    }, /summary\.verified does not match/],
+  ];
+  for (const [mutation, pattern] of cases) {
+    const root = mkdtempSync(join(tmpdir(), "vigil-continuity-bad-receipt-"));
+    const receiptValue = report(root);
+    writeFileSync(receiptValue.path, typeof mutation === "string" ? mutation : JSON.stringify(mutation(receiptValue.report)));
+    assert.throws(() => initializeContinuityChain(receiptValue.path, join(root, "chain")), pattern);
+  }
+});
+
+test("chain storage rejects missing paths, wrong entry types, unsupported files, and malformed tips", (context) => {
+  const missing = join(mkdtempSync(join(tmpdir(), "vigil-continuity-missing-")), "missing");
+  assert.throws(() => verifyContinuityChain(missing), /missing or unreadable/);
+
+  const regularRoot = mkdtempSync(join(tmpdir(), "vigil-continuity-file-"));
+  const regular = join(regularRoot, "chain");
+  writeFileSync(regular, "not a directory");
+  assert.throws(() => verifyContinuityChain(regular), /regular directory/);
+
+  const extra = fixture();
+  writeFileSync(join(extra.chain, "extra.txt"), "unexpected");
+  assert.throws(() => verification(extra), /unsupported or missing entries/);
+
+  const wrongEvents = fixture();
+  renameSync(join(wrongEvents.chain, "events"), join(wrongEvents.chain, "events-old"));
+  writeFileSync(join(wrongEvents.chain, "events"), "not a directory");
+  rmSync(join(wrongEvents.chain, "events-old"), { recursive: true });
+  assert.throws(() => verification(wrongEvents), /events must be stored in a regular directory/);
+
+  const unsupportedEvent = fixture();
+  writeFileSync(join(unsupportedEvent.chain, "events", "notes.txt"), "unexpected");
+  assert.throws(() => verification(unsupportedEvent), /events directory contains an unsupported entry/);
+
+  const tips: Array<[unknown, RegExp]> = [
+    [null, /tip must be an object/],
+    [{}, /tip has unsupported or missing fields/],
+    [{ schemaVersion: "future", sequence: 0, eventHash: digest("tip"), updatedAt: NOW.toISOString() }, /unsupported continuity tip schema/],
+    [{ schemaVersion: "agent-vigil-continuity-tip/v1", sequence: -1, eventHash: digest("tip"), updatedAt: NOW.toISOString() }, /tip sequence is invalid/],
+    [{ schemaVersion: "agent-vigil-continuity-tip/v1", sequence: 0, eventHash: "bad", updatedAt: NOW.toISOString() }, /tip hash is invalid/],
+    [{ schemaVersion: "agent-vigil-continuity-tip/v1", sequence: 0, eventHash: digest("tip"), updatedAt: "2026-08-23" }, /tip timestamp is invalid/],
+  ];
+  for (const [tip, pattern] of tips) {
+    const value = fixture();
+    writeFileSync(join(value.chain, "tip.json"), JSON.stringify(tip));
+    assert.throws(() => verification(value), pattern);
+  }
+
+  const linkRoot = mkdtempSync(join(tmpdir(), "vigil-continuity-read-link-"));
+  const target = fixture().chain;
+  const link = join(linkRoot, "chain");
+  try { symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir"); }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (["EPERM", "EACCES", "UNKNOWN"].includes(code ?? "")) { context.skip(`host does not permit symlinks (${code})`); return; }
+    throw error;
+  }
+  assert.throws(() => verifyContinuityChain(link), /regular directory, not a symbolic link/);
 });
 
 test("folds independently to HOLD, CURRENT, EXPIRED, and REVOKED", () => {
@@ -240,6 +323,21 @@ test("wrong repository or head subject is refused before append", () => {
   const wrongRepository = event(value.continuityRoot, "verification_refreshed", "verification", "2026-08-23T12:00:00.000Z");
   wrongRepository.subject.repositoryHash = digest("other repository");
   assert.throws(() => appendContinuityEvent(value.chain, wrongRepository), /subject does not match/);
+});
+
+test("verification binds expected commits and refuses an unverifiable repository range", () => {
+  const value = fixture();
+  assert.throws(() => verifyContinuityChain(value.chain, { expectedBase: "main" }), /expected base must be a full lowercase/);
+  assert.throws(() => verifyContinuityChain(value.chain, { expectedHead: "HEAD" }), /expected head must be a full lowercase/);
+  const mismatched = verifyContinuityChain(value.chain, {
+    expectedBase: "a".repeat(40),
+    expectedHead: "b".repeat(40),
+    repo: value.root,
+  });
+  assert.equal(mismatched.valid, false);
+  assert.match(mismatched.errors.join("\n"), /policy base commit/);
+  assert.match(mismatched.errors.join("\n"), /expected deployment commit/);
+  assert.match(mismatched.errors.join("\n"), /not a verifiable ancestor range/);
 });
 
 test("deleted middle or tail events and reordered event files invalidate the chain", () => {
@@ -286,6 +384,28 @@ test("duplicate sequence and forked predecessor remain invalid after attacker re
   assert.match(verification(fork).errors.join("\n"), /prior chain tip/);
 });
 
+test("verification detects duplicated identities, wrong subjects, invalid hashes, and impossible event times", () => {
+  const mutations: Array<[((stored: any, first?: any) => void), RegExp, boolean]> = [
+    [(stored) => { stored.subject.headSha = "4".repeat(40); stored.eventHash = computeEventHash(stored); }, /different receipt subject/, false],
+    [(stored) => { stored.eventHash = digest("tampered"); }, /content hash is invalid/, false],
+    [(stored, first) => { stored.eventId = first.eventId; stored.eventHash = computeEventHash(stored); }, /reuses an earlier event ID/, true],
+    [(stored) => { stored.observedAt = "2026-08-23T11:59:00.000Z"; stored.eventHash = computeEventHash(stored); }, /observed before it became effective/, false],
+    [(stored) => { stored.observedAt = "2099-01-01T00:00:00.000Z"; stored.effectiveAt = stored.observedAt; stored.eventHash = computeEventHash(stored); }, /implausible future timestamp/, false],
+    [(stored) => { stored.event.freshUntil = stored.effectiveAt; stored.eventHash = computeEventHash(stored); }, /freshness boundary/, false],
+  ];
+  for (const [mutate, pattern, needsTwo] of mutations) {
+    const value = fixture();
+    appendContinuityEvent(value.chain, event(value.continuityRoot, "verification_refreshed", "verification", "2026-08-23T12:00:00.000Z"));
+    if (needsTwo) appendContinuityEvent(value.chain, event(value.continuityRoot, "merge_observed", "github-outcome", "2026-08-23T12:01:00.000Z"));
+    const first = JSON.parse(readFileSync(join(value.chain, "events", "00000001.json"), "utf8"));
+    const targetPath = join(value.chain, "events", needsTwo ? "00000002.json" : "00000001.json");
+    const stored = JSON.parse(readFileSync(targetPath, "utf8"));
+    mutate(stored, first);
+    writeFileSync(targetPath, `${JSON.stringify(stored, null, 2)}\n`);
+    assert.match(verification(value).errors.join("\n"), pattern);
+  }
+});
+
 test("invalid and untrusted Ed25519 signatures fail closed", () => {
   const value = fixture();
   const privateKey = join(value.root, "event-private.pem");
@@ -312,6 +432,35 @@ test("invalid and untrusted Ed25519 signatures fail closed", () => {
   const mismatchedDraft = event(mismatched.continuityRoot, "verification_refreshed", "verification", "2026-08-23T12:00:00.000Z");
   assert.throws(() => appendContinuityEvent(mismatched.chain, mismatchedDraft, privateKey), /issuer must match/);
   assert.equal(verification(mismatched).events.length, 0);
+
+  const otherKey = join(value.root, "other-public.pem");
+  generateSigningKey(join(value.root, "other-private.pem"), otherKey);
+  assert.match(verifyContinuityChain(value.chain, { pinnedEventKeyIds: [publicKeyId(otherKey)] }).errors.join("\n"), /signer does not match the pinned public key/);
+});
+
+test("event creation rejects duplicate IDs, impossible timing, stale evidence, and non-Ed25519 signing keys", () => {
+  const value = fixture();
+  const firstDraft = event(value.continuityRoot, "verification_refreshed", "verification", "2026-08-23T12:00:00.000Z");
+  const first = createStoredEvent(firstDraft, value.continuityRoot, [], undefined, NOW);
+  assert.throws(() => createStoredEvent(firstDraft, value.continuityRoot, [first], undefined, NOW), /event ID was already used/);
+
+  const observedEarly = event(value.continuityRoot, "merge_observed", "github-outcome", "2026-08-23T12:01:00.000Z");
+  observedEarly.effectiveAt = "2026-08-23T12:02:00.000Z";
+  assert.throws(() => createStoredEvent(observedEarly, value.continuityRoot, [], undefined, NOW), /cannot be observed before/);
+
+  const stale = event(value.continuityRoot, "merge_observed", "github-outcome", "2026-08-23T12:01:00.000Z", { freshUntil: "2026-08-23T12:01:00.000Z" });
+  assert.throws(() => createStoredEvent(stale, value.continuityRoot, [], undefined, NOW), /freshness must extend/);
+
+  const rsaPath = join(value.root, "rsa-private.pem");
+  const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  writeFileSync(rsaPath, rsa.privateKey.export({ type: "pkcs8", format: "pem" }));
+  assert.throws(() => createStoredEvent(
+    event(value.continuityRoot, "merge_observed", "github-outcome", "2026-08-23T12:01:00.000Z"),
+    value.continuityRoot,
+    [],
+    rsaPath,
+    NOW,
+  ), /signing key must be Ed25519/);
 });
 
 test("signed root and event become CURRENT only when policy pins both keys", () => {
@@ -509,11 +658,18 @@ test("policy is closed, bounded, and rejects duplicate trust roots", () => {
 test("published continuity schemas are closed and examples satisfy the runtime contracts", () => {
   const eventSchema = JSON.parse(readFileSync(new URL("../docs/continuity-event-v1.schema.json", import.meta.url), "utf8"));
   const policySchema = JSON.parse(readFileSync(new URL("../docs/continuity-policy-v1.schema.json", import.meta.url), "utf8"));
+  const stapleSchema = JSON.parse(readFileSync(new URL("../docs/continuity-staple-v1.schema.json", import.meta.url), "utf8"));
   assert.equal(eventSchema.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(eventSchema.$defs.draft.additionalProperties, false);
   assert.equal(eventSchema.$defs.stored.additionalProperties, false);
   assert.equal(policySchema.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(policySchema.additionalProperties, false);
+  assert.equal(stapleSchema.$schema, "https://json-schema.org/draft/2020-12/schema");
+  assert.equal(stapleSchema.additionalProperties, false);
+  assert.equal(stapleSchema.$defs.payload.additionalProperties, false);
+  assert.equal(stapleSchema.$defs.decision.additionalProperties, false);
+  assert.equal(stapleSchema.$defs.evidence.additionalProperties, false);
+  assert.equal(stapleSchema.$defs.signature.additionalProperties, false);
   validateEventDraft(JSON.parse(readFileSync(new URL("../examples/continuity/verification-refreshed.event.json", import.meta.url), "utf8")));
   validateContinuityPolicy(JSON.parse(readFileSync(new URL("../examples/continuity/policy.json", import.meta.url), "utf8")));
 });

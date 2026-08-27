@@ -51,7 +51,7 @@ policy change invalidates that binding.
 ## Policy integrity
 
 A candidate change can edit policy and workflow files stored in its own
-worktree. The v0.20.0 generated workflow is therefore selected from the base
+worktree. The v0.21.0 generated workflow is therefore selected from the base
 branch through `pull_request_target`. It passes the event base SHA as
 `policy-ref`, checks out the exact event head without persisted credentials,
 and rejects base, head, policy, Action, event, or workspace inputs that do not
@@ -102,7 +102,7 @@ it does not isolate processes, files, credentials, descendants, or the network.
 Never construct `--test-cmd` from issue text, PR descriptions, commit messages,
 or other untrusted strings.
 
-The v0.20.0 generated hosted lane instead requires a GitHub-hosted Linux runner
+The v0.21.0 generated hosted lane instead requires a GitHub-hosted Linux runner
 and runs repository commands in fixed candidate-only Docker invocations. The
 candidate receives no GitHub token, OIDC, signing, or write authority. A
 base-owned `npm ci --ignore-scripts` setup may use network and a writable mount;
@@ -248,6 +248,31 @@ repository name, path, secret, signature header, and issue text. A valid HMAC
 shows that the body matches the configured secret. It does not establish that
 GitHub sent the request if the secret or receiving machine was compromised.
 An incident link records association only and does not claim causation.
+
+## Continuity staple boundary
+
+A continuity staple is a signed, short-lived projection of one verified local
+continuity decision. The issuer binds the exact subject, policy bytes,
+environment, chain tip, sequence, and decision hash. The verifier requires an
+independently pinned Ed25519 key plus the expected head, environment, and policy
+hash. A mismatched key, signature, subject, policy, environment, chain tip, or
+minimum sequence fails closed.
+
+The staple does not contact an online status service. An offline verifier
+cannot learn that a newer revocation exists while an older signed `CURRENT`
+staple is still inside its lifetime unless the caller also pins a newer chain
+tip or minimum sequence. The format limits this replay window to at most 15
+minutes; the default is five minutes. A high-consequence caller should obtain
+the newest staple from an independent channel and persist the highest accepted
+sequence. Expiry turns an earlier `CURRENT` into `EXPIRED`, never into a new
+approval. An embedded `REVOKED` result remains `REVOKED` even after expiry.
+
+The signing key is an authority boundary. If the change author or deployment
+job can invoke it, they can mint a fresh statement for any locally computed
+decision. Keep the private key outside both scopes. The staple proves the
+authority signed these status fields; it does not prove the authority host,
+source observers, or signing key were uncompromised, and it does not prove the
+code is defect-free.
 
 ## Reporting
 

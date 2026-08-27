@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -65,6 +65,41 @@ function snapshot(overrides: Partial<PublicPrSnapshot> = {}): PublicPrSnapshot {
 
 function build(value = snapshot(), generatedAt = NOW) {
   return buildPublicPrReceipt(value, PR_URL, { generatedAt, maxAgeHours: 168, toolVersion: "0.18.0", toolCommit: TOOL });
+}
+
+async function captureCommand(
+  args: string[],
+  options: Parameters<typeof runPublicPrReceiptCommand>[1] = {},
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const originalStdout = process.stdout.write;
+  const originalStderr = process.stderr.write;
+  let stdout = "";
+  let stderr = "";
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    return { code: await runPublicPrReceiptCommand(args, options), stdout, stderr };
+  } finally {
+    process.stdout.write = originalStdout;
+    process.stderr.write = originalStderr;
+  }
+}
+
+function transportFor(value: PublicPrSnapshot): PublicPrTransport {
+  return async (url) => {
+    let body: unknown;
+    if (/\/pulls\/42$/.test(url)) body = value.pull;
+    else if (/\/reviews\?/.test(url)) body = value.reviews;
+    else if (/\/check-runs\?/.test(url)) body = { check_runs: value.checkRuns };
+    else body = value.statuses;
+    return { status: 200, headers: {}, body: Buffer.from(JSON.stringify(body)) };
+  };
 }
 
 test("public PR URL parsing rejects alternate hosts, credentials, query data, and malformed paths", () => {
@@ -404,6 +439,103 @@ test("offline verification uses the bounded no-follow receipt reader", async (co
   }
   symlinkSync(validPath, linkedPath);
   assert.equal(await runPublicPrReceiptCommand(["verify", linkedPath]), 2);
+});
+
+test("public PR receipt CLI help and parser errors are explicit and fail closed", async () => {
+  for (const args of [[], ["--help"], ["-h"]]) {
+    const result = await captureCommand(args);
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /no workflow change required/);
+  }
+
+  const invalid: Array<[string[], RegExp]> = [
+    [[PR_URL, "--wat"], /unknown pr-receipt option/],
+    [[PR_URL, "--format", "json", "--format", "text"], /may be provided only once/],
+    [[PR_URL, "--format"], /requires a value/],
+    [[PR_URL, "--format", "yaml"], /must be text or json/],
+    [["verify"], /requires exactly one receipt JSON path/],
+    [["verify", "one.json", "two.json"], /requires exactly one receipt JSON path/],
+    [["verify", "one.json", "--tool-ref", TOOL], /not valid with pr-receipt verify/],
+  ];
+  for (const [args, pattern] of invalid) {
+    const result = await captureCommand(args);
+    assert.equal(result.code, 2);
+    assert.match(result.stderr, pattern);
+  }
+
+  for (const args of [[PR_URL], [PR_URL, PR_URL, "--tool-ref", TOOL]]) {
+    const result = await captureCommand(args);
+    assert.equal(result.code, 2);
+    assert.match(result.stderr, /full lowercase Git commit SHA|exactly one public GitHub pull request URL/);
+  }
+});
+
+test("offline verification rejects malformed receipt envelopes before trusting their content", async () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-public-pr-invalid-"));
+  const receiptPath = join(root, "receipt.json");
+  const values: Array<[unknown, RegExp]> = [
+    [[], /must be (?:a JSON|an) object/],
+    [{}, /unsupported or missing fields/],
+    [{ schemaVersion: "agent-vigil-public-pr-receipt/v1" }, /unsupported or missing fields/],
+    [{ schemaVersion: "agent-vigil-public-pr-receipt/v1", receiptHash: `sha256:${"0".repeat(64)}`, signature: "bad" }, /unsupported or missing fields|signature is invalid/],
+  ];
+  for (const [value, pattern] of values) {
+    writeFileSync(receiptPath, JSON.stringify(value));
+    const result = await captureCommand(["verify", receiptPath]);
+    assert.equal(result.code, 2);
+    assert.match(result.stderr, pattern);
+  }
+});
+
+test("public PR receipt CLI creates private signed output and maps every continuity state", async () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-public-pr-cli-"));
+  const privateKey = join(root, "operator-private.pem");
+  const publicKey = join(root, "operator-public.pem");
+  const output = join(root, "receipt.json");
+  generateSigningKey(privateKey, publicKey);
+
+  const current = await captureCommand([
+    PR_URL, "--tool-ref", TOOL, "--signing-key", privateKey, "--output", output,
+    "--format", "json", "--as-of", NOW, "--max-age-hours", "168",
+  ], { transport: transportFor(snapshot()), toolVersion: "test-version", token: "test-token" });
+  assert.equal(current.code, 0);
+  assert.equal(current.stderr, "");
+  const written = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(written.decision.continuity, "CURRENT");
+  assert.equal(written.tool.version, "test-version");
+  assert.equal(verifyPublicPrReceipt(written).signatureValid, true);
+  if (process.platform !== "win32") assert.equal(statSync(output).mode & 0o777, 0o600);
+
+  const states: Array<[PublicPrSnapshot, string, number, string[]]> = [
+    [snapshot({ pull: { ...snapshot().pull, merged: false, merged_at: null } }), NOW, 1, []],
+    [snapshot({ checkRuns: [] }), NOW, 3, []],
+    [snapshot(), "2026-09-02T13:00:01.000Z", 4, ["--max-age-hours", "168"]],
+  ];
+  for (const [value, asOf, exit, extra] of states) {
+    const result = await captureCommand([PR_URL, "--tool-ref", TOOL, "--as-of", asOf, ...extra], {
+      transport: transportFor(value),
+    });
+    assert.equal(result.code, exit);
+    assert.match(result.stdout, /\n(REVOKED|HOLD|EXPIRED) —/);
+  }
+});
+
+test("public PR receipt CLI rejects unsafe output aliases and invalid time windows", async () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-public-pr-options-"));
+  const privateKey = join(root, "operator-private.pem");
+  generateSigningKey(privateKey, join(root, "operator-public.pem"));
+  const cases: Array<[string[], RegExp]> = [
+    [[PR_URL, "--tool-ref", TOOL, "--signing-key", privateKey, "--output", privateKey], /must not replace the signing key/],
+    [[PR_URL, "--tool-ref", TOOL, "--as-of", "2026-08-25"], /canonical RFC3339 UTC/],
+    [[PR_URL, "--tool-ref", TOOL, "--max-age-hours", "0"], /greater than zero/],
+    [[PR_URL, "--tool-ref", TOOL, "--max-age-hours", "8761"], /no more than one year/],
+    [[PR_URL, "--tool-ref", TOOL, "--max-age-hours", "nan"], /greater than zero/],
+  ];
+  for (const [args, pattern] of cases) {
+    const result = await captureCommand(args, { transport: transportFor(snapshot()) });
+    assert.equal(result.code, 2);
+    assert.match(result.stderr, pattern);
+  }
 });
 
 test("collector uses only read-only api.github.com metadata endpoints and retains no response text", async () => {

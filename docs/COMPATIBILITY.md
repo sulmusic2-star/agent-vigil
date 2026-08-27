@@ -1,6 +1,6 @@
 # Compatibility laboratory
 
-This file separates the v0.20.0 generated hosted contract from the broader
+This file separates the v0.21.0 generated hosted contract from the broader
 local CLI. It records completed local runs, not hosted CI, release, adoption,
 payment, or revenue evidence.
 
@@ -68,7 +68,7 @@ npm run lab:ecosystems -- --output /tmp/agent-vigil-ecosystem-lab.json
 
 The following 2026-08-24 historical local run created seven independent
 repositories and invoked installed toolchains rather than replaying sample
-output. It demonstrates the broader local CLI, not v0.20.0 hosted support:
+output. It demonstrates the broader local CLI, not v0.21.0 hosted support:
 
 | Repository shape | Command | Exact `3 tests` | Inflated `99 tests` | Portable receipt-only tail | Source change after receipt |
 |---|---|---:|---:|---:|---:|
@@ -136,8 +136,8 @@ integrity diff. Repairs now:
   therefore uses `go test -json ./...`.
 - Monorepos require an explicit command such as
   `npm --prefix packages/api test --silent`.
-- Historical hosted portability does not establish v0.20.0 candidate isolation.
-  The v0.20.0 hosted lane requires a GitHub-hosted Linux runner and Docker.
+- Historical hosted portability does not establish v0.21.0 candidate isolation.
+  The v0.21.0 hosted lane requires a GitHub-hosted Linux runner and Docker.
 - Local test execution runs repository code with the verifier process's host
   privileges. A detached worktree protects Git identity; it is not a sandbox.
 - Generated hosted support is intentionally smaller than local parser and test

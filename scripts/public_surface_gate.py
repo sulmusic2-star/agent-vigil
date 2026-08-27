@@ -11,7 +11,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_TEXT = [ROOT / "README.md", ROOT / "docs/index.html", ROOT / "docs/ATTESTED_RECEIPTS.md", ROOT / "docs/NOTARY_APP.md"]
-PUBLIC_HTML = [ROOT / "docs/index.html", ROOT / "docs/assets/agent-value-card-demo.html", ROOT / "docs/assets/agent-value-comparison-demo.html"]
+PUBLIC_HTML = [
+    ROOT / "docs/index.html",
+    ROOT / "docs/assets/agent-value-card-demo.html",
+    ROOT / "docs/assets/agent-value-comparison-demo.html",
+    ROOT / "docs/assets/outcome-verifier-demo.html",
+]
 INTERNAL_TERMS = {
     "product hypothesis", "commercial hypothesis", "commercial gate", "revenue hypothesis",
     "make millions", "guaranteed revenue", "internal talk", "workslop", "dogfood",
@@ -153,6 +158,24 @@ def html_failures() -> list[str]:
     for phrase in ["agent vigil", "check the work before it merges", "exact commits", "evidence is missing"]:
         if phrase not in first_screen:
             failures.append(f"docs/index.html first screen does not explain the product with: {phrase}")
+    result_page = (ROOT / "docs/assets/outcome-verifier-demo.html").read_text()
+    compact_result = re.sub(r"\s+", "", result_page.lower())
+    for required in [
+        'data-result-view-version="1"',
+        'aria-labelledby="result-title"',
+        'aria-label="checkcounts"',
+        'aria-label="resultactions"',
+        'failed</div>',
+        'passed</div>',
+        'notchecked</div>',
+        'reviewchangedfiles',
+        'copyreproducecommand',
+        'overflow-x:clip',
+        '@media(max-width:540px)',
+        'min-height:44px',
+    ]:
+        if required not in compact_result:
+            failures.append(f"docs/assets/outcome-verifier-demo.html is missing result-view requirement: {required}")
     return failures
 
 

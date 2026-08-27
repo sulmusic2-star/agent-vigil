@@ -1,6 +1,6 @@
 # Hosted evidence security contract
 
-**Applies to:** Agent Vigil v0.20.0 generated `init` and `protect` workflows
+**Applies to:** Agent Vigil v0.21.0 generated `init` and `protect` workflows
 
 Agent Vigil's generated hosted lane checks one GitHub pull-request head under a
 base-owned policy. It is intentionally narrower than the local CLI.
@@ -8,10 +8,10 @@ base-owned policy. It is intentionally narrower than the local CLI.
 ## Install from a reviewed commit
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.0/sulmusic-agent-vigil-0.21.0.tgz \
   protect --action-sha <reviewed-full-commit>
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.0/sulmusic-agent-vigil-0.21.0.tgz \
   doctor
 ```
 

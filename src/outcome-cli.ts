@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 import { publicKeyId } from "./signature.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
+import { renderResultText } from "./output.ts";
+import { buildOutcomeResultView } from "./result-view.ts";
 import {
   assessOutcome,
   buildSettlementAdapterPayload,
@@ -191,10 +193,13 @@ export function runMandateCommand(args: string[]): number {
           ...(parsed.values.has("--cost-usd") ? { costUsd: Number(parsed.values.get("--cost-usd")) } : {}),
         },
       );
-      writeJson(required(parsed, "--output"), outcome);
-      console.log(`Outcome: ${terminalSafe(outcome.verdict)}`);
+      const outputPath = resolve(required(parsed, "--output"));
+      writeJson(outputPath, outcome);
+      console.log(renderResultText(buildOutcomeResultView(outcome, {
+        trust: { trustedKeyIds: [outcome.verifierKeyId] },
+        reproduce: `vigil receipt verify '${outputPath}'`,
+      })));
       console.log(`Settlement signal: ${terminalSafe(outcome.settlementSignal.action)} (${terminalSafe(outcome.settlementSignal.adapter)}, dry run)`);
-      console.log(`Receipt: ${terminalSafe(outcome.outcomeHash)}`);
       return outcome.verdict === "PASS" ? 0 : outcome.verdict === "FAIL" ? 1 : 2;
     }
     throw new Error(`unknown mandate command: ${command ?? "<missing>"}`);
@@ -215,14 +220,26 @@ export function runOutcomeReceiptCommand(args: string[]): number {
       const parsed = parse(args.slice(1), new Set(["--verifier-public-key", "--trusted-key-ids"]));
       if (parsed.positional.length !== 1) throw new Error("receipt verify requires exactly one outcome receipt JSON path");
       const input = loadOutcomeJson(resolve(parsed.positional[0])) as OutcomeReceipt;
+      const verifierPublicKeyPath = parsed.values.get("--verifier-public-key") ? resolve(parsed.values.get("--verifier-public-key")!) : undefined;
+      const trustedKeyIds = csv(parsed.values.get("--trusted-key-ids"));
       const result = verifyOutcomeReceipt(
         input,
-        parsed.values.get("--verifier-public-key") ? resolve(parsed.values.get("--verifier-public-key")!) : undefined,
-        csv(parsed.values.get("--trusted-key-ids")),
+        verifierPublicKeyPath,
+        trustedKeyIds,
       );
       printVerification("Outcome receipt", result);
       if (!result.valid) return 1;
-      console.log(`Verdict: ${terminalSafe(input.verdict)}`);
+      if (result.keyPinned) {
+        console.log(renderResultText(buildOutcomeResultView(input, {
+          trust: {
+            ...(verifierPublicKeyPath ? { verifierPublicKeyPath } : {}),
+            ...(trustedKeyIds.length ? { trustedKeyIds } : {}),
+          },
+          reproduce: `vigil receipt verify '${resolve(parsed.positional[0])}'`,
+        })));
+      } else {
+        console.log(`Verdict: ${terminalSafe(input.verdict)}`);
+      }
       console.log(`Signal: ${terminalSafe(input.settlementSignal.action)} (${terminalSafe(input.settlementSignal.adapter)}, dry run)`);
       return input.verdict === "PASS" ? 0 : input.verdict === "FAIL" ? 1 : 2;
     }

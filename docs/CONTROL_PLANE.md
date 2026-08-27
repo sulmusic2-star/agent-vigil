@@ -1,6 +1,8 @@
 # Organization control plane: gated design
 
-**State:** design only. No hosted service or GitHub App is deployed in v0.20.0.
+**State:** design only for a hosted service. The repository may use a narrow
+Agent Vigil Gate App for its own exact-head branch check, but v0.21.0 does not
+ship a hosted multi-tenant control plane.
 
 The open verifier is the product wedge. A hosted control plane becomes justified
 only after external repositories demonstrate that the receipt is useful enough

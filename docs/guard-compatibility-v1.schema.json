@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/guard-compatibility-v1.schema.json",
+  "title": "Agent Vigil guard compatibility receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "vigilVersion", "generatedAt", "nonce", "scope", "status",
+    "deployment", "challengePack", "host", "control", "bindings", "challenges",
+    "summary", "reproduction", "limitations", "receiptHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-guard-compatibility/v1" },
+    "vigilVersion": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "nonce": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "scope": { "const": "PROCESS_CONFORMANCE" },
+    "status": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reasonCodes"],
+      "properties": {
+        "state": { "const": "HOLD" },
+        "reasonCodes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "contains": { "const": "LIVE_HOST_ROUTE_NOT_PROVEN" },
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "challengePack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256"],
+      "properties": {
+        "id": { "const": "agent-vigil-harmless-shell-canaries/v1" },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "version", "executableSha256"],
+      "properties": {
+        "kind": { "enum": ["claude", "codex"] },
+        "version": { "type": "string", "minLength": 1 },
+        "executableSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "launcherSha256", "artifactSha256", "argumentsSha256"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "launcherSha256": { "$ref": "#/$defs/digest" },
+        "artifactSha256": { "$ref": "#/$defs/digest" },
+        "argumentsSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policySha256", "configurationSha256", "operatingSystem"],
+      "properties": {
+        "policySha256": { "$ref": "#/$defs/digest" },
+        "configurationSha256": { "$ref": "#/$defs/digest" },
+        "operatingSystem": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["platform", "type", "release", "architecture", "machineIdentitySha256"],
+          "properties": {
+            "platform": { "type": "string", "minLength": 1 },
+            "type": { "type": "string", "minLength": 1 },
+            "release": { "type": "string", "minLength": 1 },
+            "architecture": { "type": "string", "minLength": 1 },
+            "machineIdentitySha256": { "$ref": "#/$defs/digest" }
+          }
+        }
+      }
+    },
+    "challenges": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/challenge" },
+            {
+              "type": "object",
+              "properties": {
+                "id": { "const": "allow-canary" },
+                "expected": { "const": "ALLOW" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/challenge" },
+            {
+              "type": "object",
+              "properties": {
+                "id": { "const": "deny-canary" },
+                "expected": { "const": "DENY" }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "total", "decisions"],
+      "properties": {
+        "passed": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "total": { "const": 2 },
+        "decisions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ALLOW", "DENY", "DEFER", "ERROR", "UNKNOWN"],
+          "properties": {
+            "ALLOW": { "type": "integer", "minimum": 0 },
+            "DENY": { "type": "integer", "minimum": 0 },
+            "DEFER": { "type": "integer", "minimum": 0 },
+            "ERROR": { "type": "integer", "minimum": 0 },
+            "UNKNOWN": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "reproduction": { "type": "string", "minLength": 1 },
+    "limitations": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "receiptHash": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "expected", "actual", "passed", "canarySha256", "observation"],
+      "properties": {
+        "id": { "enum": ["allow-canary", "deny-canary"] },
+        "expected": { "enum": ["ALLOW", "DENY"] },
+        "actual": { "enum": ["ALLOW", "DENY", "DEFER", "ERROR", "UNKNOWN"] },
+        "passed": { "type": "boolean" },
+        "canarySha256": { "$ref": "#/$defs/digest" },
+        "observation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rule", "process", "exit", "output"],
+          "properties": {
+            "rule": { "type": "string", "minLength": 1 },
+            "process": { "enum": ["EXITED", "TIMED_OUT", "SPAWN_ERROR", "SIGNALED", "OUTPUT_LIMIT"] },
+            "exit": { "enum": ["ZERO", "TWO", "OTHER", "NONE"] },
+            "output": { "enum": ["EMPTY", "TEXT", "JSON", "INVALID_JSON", "UNREADABLE"] }
+          }
+        }
+      }
+    }
+  }
+}

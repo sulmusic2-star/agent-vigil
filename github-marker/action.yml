@@ -1,0 +1,246 @@
+name: "Agent Vigil continuity marker"
+description: "Create a harmless marker only when a pinned short-lived Continuity Staple is CURRENT"
+author: "Tim Sullivan"
+branding:
+  icon: "shield"
+  color: "green"
+inputs:
+  test-vector:
+    description: "Run the bundled public installation vector; workflow_dispatch only and never valid for a protected action"
+    required: false
+    default: "false"
+  staple:
+    description: "Downloaded signed Continuity Staple JSON"
+    required: false
+  public-key:
+    description: "Pinned Ed25519 continuity-authority public key"
+    required: false
+  expected-receipt-hash:
+    description: "Original Agent Vigil receipt hash"
+    required: false
+  expected-head:
+    description: "Exact reviewed head commit"
+    required: false
+  environment:
+    description: "Protected environment"
+    required: false
+    default: "production"
+  expected-policy-sha256:
+    description: "SHA-256 of the exact protected policy bytes"
+    required: false
+  expected-chain-tip:
+    description: "Optional latest accepted continuity chain tip"
+    required: false
+  minimum-sequence:
+    description: "Optional minimum accepted evidence sequence"
+    required: false
+outputs:
+  status:
+    description: "SELF_TEST_PASS, CURRENT, HOLD, EXPIRED, REVOKED, or ERROR"
+    value: ${{ steps.marker.outputs.status }}
+  reason-code:
+    description: "One stable reason code"
+    value: ${{ steps.marker.outputs.reason_code }}
+  marker:
+    description: "Ephemeral marker path; present only for CURRENT"
+    value: ${{ steps.marker.outputs.marker }}
+  decision:
+    description: "Private runner path to the minimized verification result"
+    value: ${{ steps.marker.outputs.decision }}
+  duration-ms:
+    description: "Local verification and marker duration in milliseconds"
+    value: ${{ steps.marker.outputs.duration_ms }}
+runs:
+  using: "composite"
+  steps:
+    - id: marker
+      shell: bash
+      env:
+        VIGIL_TEST_VECTOR: ${{ inputs.test-vector }}
+        VIGIL_STAPLE: ${{ inputs.staple }}
+        VIGIL_PUBLIC_KEY: ${{ inputs.public-key }}
+        VIGIL_EXPECTED_RECEIPT_HASH: ${{ inputs.expected-receipt-hash }}
+        VIGIL_EXPECTED_HEAD: ${{ inputs.expected-head }}
+        VIGIL_ENVIRONMENT: ${{ inputs.environment }}
+        VIGIL_EXPECTED_POLICY_SHA256: ${{ inputs.expected-policy-sha256 }}
+        VIGIL_EXPECTED_CHAIN_TIP: ${{ inputs.expected-chain-tip }}
+        VIGIL_MINIMUM_SEQUENCE: ${{ inputs.minimum-sequence }}
+      run: |
+        set -uo pipefail
+
+        started_ms=$(node -e 'process.stdout.write(String(Date.now()))')
+        status="ERROR"
+        reason_code="STAPLE_INVALID"
+        sentence="Protected action stopped because the signed status could not be verified."
+        marker_path=""
+        decision_path=""
+        verification_time=""
+        test_mode="false"
+
+        finish() {
+          local exit_code="$1"
+          local ended_ms
+          ended_ms=$(node -e 'process.stdout.write(String(Date.now()))')
+          local duration_ms=$((ended_ms - started_ms))
+          {
+            printf 'status=%s\n' "$status"
+            printf 'reason_code=%s\n' "$reason_code"
+            printf 'marker=%s\n' "$marker_path"
+            printf 'decision=%s\n' "$decision_path"
+            printf 'duration_ms=%s\n' "$duration_ms"
+          } >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
+          printf '### Agent Vigil: %s\n\n`%s` — %s\n' "$status" "$reason_code" "$sentence" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          exit "$exit_code"
+        }
+
+        if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+          sentence="Protected action stopped because this marker must run inside GitHub Actions."
+          finish 2
+        fi
+
+        if [[ "$VIGIL_TEST_VECTOR" == "true" ]]; then
+          if [[ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ]]; then
+            reason_code="SELF_TEST_EVENT_REFUSED"
+            sentence="Installation drill stopped because the public vector is restricted to manual workflow runs."
+            finish 2
+          fi
+          test_mode="true"
+          vector_dir="$GITHUB_ACTION_PATH/../test-vectors/continuity-staple/v1"
+          IFS=$'\t' read -r VIGIL_EXPECTED_RECEIPT_HASH VIGIL_EXPECTED_HEAD VIGIL_ENVIRONMENT VIGIL_EXPECTED_POLICY_SHA256 VIGIL_EXPECTED_CHAIN_TIP VIGIL_MINIMUM_SEQUENCE verification_time < <(node - "$vector_dir/manifest.json" <<'NODE'
+        const manifest = require(require("node:path").resolve(process.argv[2]));
+        const b = manifest.bindings;
+        process.stdout.write([b.expectedReceiptHash,b.expectedHead,b.expectedEnvironment,b.expectedPolicySha256,b.expectedChainTip,b.minimumSequence,manifest.times.freshVerification].join("\t")+"\n");
+        NODE
+          ) || {
+            reason_code="SELF_TEST_VECTOR_INVALID"
+            sentence="Installation drill stopped because the bundled public vector is invalid."
+            finish 2
+          }
+          VIGIL_STAPLE="$vector_dir/current.staple.json"
+          VIGIL_PUBLIC_KEY="$vector_dir/authority-public.pem"
+        elif [[ "$VIGIL_TEST_VECTOR" != "false" ]]; then
+          reason_code="SELF_TEST_INPUT_INVALID"
+          sentence="Protected action stopped because test-vector must be true or false."
+          finish 2
+        elif [[ -z "$VIGIL_STAPLE" || -z "$VIGIL_PUBLIC_KEY" || -z "$VIGIL_EXPECTED_RECEIPT_HASH" || -z "$VIGIL_EXPECTED_HEAD" || -z "$VIGIL_ENVIRONMENT" || -z "$VIGIL_EXPECTED_POLICY_SHA256" ]]; then
+          reason_code="REQUIRED_BINDING_MISSING"
+          sentence="Protected action stopped because a required trusted binding is missing."
+          finish 2
+        fi
+
+        case "${GITHUB_EVENT_NAME:-}" in
+          pull_request)
+            reason_code="UNTRUSTED_WORKFLOW_CONTEXT"
+            sentence="Protected action stopped because candidate pull-request workflow code is not trusted."
+            finish 2
+            ;;
+          pull_request_target|merge_group|workflow_run)
+            if [[ -z "${GITHUB_EVENT_PATH:-}" || ! -f "$GITHUB_EVENT_PATH" || -L "$GITHUB_EVENT_PATH" ]]; then
+              reason_code="EVENT_BINDING_MISSING"
+              sentence="Protected action stopped because the trusted GitHub event binding is unavailable."
+              finish 2
+            fi
+            event_head=$(node - "$GITHUB_EVENT_PATH" "${GITHUB_EVENT_NAME}" <<'NODE'
+        const fs = require("node:fs");
+        const [path, kind] = process.argv.slice(2);
+        const event = JSON.parse(fs.readFileSync(path, "utf8"));
+        const head = kind === "pull_request_target"
+          ? event.pull_request?.head?.sha
+          : kind === "merge_group"
+            ? event.merge_group?.head_sha
+            : event.workflow_run?.head_sha;
+        if (typeof head !== "string") process.exit(2);
+        process.stdout.write(head);
+        NODE
+            ) || {
+              reason_code="EVENT_BINDING_INVALID"
+              sentence="Protected action stopped because the GitHub event did not name an exact head commit."
+              finish 2
+            }
+            if [[ "$event_head" != "$VIGIL_EXPECTED_HEAD" ]]; then
+              reason_code="HEAD_BINDING_MISMATCH"
+              sentence="Protected action stopped because the requested head does not match the trusted GitHub event."
+              finish 2
+            fi
+            ;;
+          workflow_dispatch|workflow_call|deployment|deployment_status)
+            ;;
+          *)
+            reason_code="UNSUPPORTED_EVENT"
+            sentence="Protected action stopped because this GitHub event is not supported."
+            finish 2
+            ;;
+        esac
+
+        result_dir=$(node -e 'const {mkdtempSync}=require("node:fs");const {join}=require("node:path");process.stdout.write(mkdtempSync(join(process.env.RUNNER_TEMP,"agent-vigil-marker-")))') || finish 2
+        decision_path="$result_dir/decision.json"
+        args=(
+          continuity verify-staple "$VIGIL_STAPLE"
+          --public-key "$VIGIL_PUBLIC_KEY"
+          --expected-receipt-hash "$VIGIL_EXPECTED_RECEIPT_HASH"
+          --expected-head "$VIGIL_EXPECTED_HEAD"
+          --environment "$VIGIL_ENVIRONMENT"
+          --expected-policy-sha256 "$VIGIL_EXPECTED_POLICY_SHA256"
+          --format json
+          --output "$decision_path"
+        )
+        if [[ -n "$VIGIL_EXPECTED_CHAIN_TIP" ]]; then args+=(--expected-chain-tip "$VIGIL_EXPECTED_CHAIN_TIP"); fi
+        if [[ -n "$VIGIL_MINIMUM_SEQUENCE" ]]; then args+=(--minimum-sequence "$VIGIL_MINIMUM_SEQUENCE"); fi
+        if [[ -n "$verification_time" ]]; then args+=(--now "$verification_time"); fi
+
+        set +e
+        node "$GITHUB_ACTION_PATH/../dist/cli.js" "${args[@]}" >/dev/null 2>&1
+        verify_exit=$?
+        set -e
+
+        if [[ ! -s "$decision_path" || -L "$decision_path" ]]; then
+          decision_path=""
+          finish 2
+        fi
+        IFS=$'\t' read -r parsed_status parsed_allowed < <(node - "$decision_path" <<'NODE'
+        const fs = require("node:fs");
+        const decision = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+        process.stdout.write(`${decision.effectiveContinuity ?? "ERROR"}\t${decision.allowsProtectedAction === true ? "true" : "false"}\n`);
+        NODE
+        ) || finish 2
+
+        case "$parsed_status:$verify_exit:$parsed_allowed" in
+          CURRENT:0:true)
+            if [[ "$test_mode" == "true" ]]; then
+              status="SELF_TEST_PASS"
+              reason_code="PUBLIC_VECTOR_PASS"
+              sentence="Installation drill passed; this public vector cannot authorize a protected action."
+              marker_path="$result_dir/SELF_TEST_PASS.marker"
+              marker_state="SELF_TEST_PASS"
+            else
+              status="CURRENT"
+              reason_code="CURRENT_STAPLE"
+              sentence="Protected action allowed because a fresh pinned status matches this exact head."
+              marker_path="$result_dir/CURRENT.marker"
+              marker_state="CURRENT"
+            fi
+            MARKER_PATH="$marker_path" MARKER_STATE="$marker_state" node -e 'require("node:fs").writeFileSync(process.env.MARKER_PATH,`agent-vigil-continuity-marker/v1\n${process.env.MARKER_STATE}\n`,{flag:"wx",mode:0o600})' || finish 2
+            finish 0
+            ;;
+          REVOKED:1:false)
+            status="REVOKED"
+            reason_code="LATER_EVIDENCE_REVOKED"
+            sentence="Protected action stopped because later evidence revoked the earlier approval."
+            finish 1
+            ;;
+          HOLD:3:false)
+            status="HOLD"
+            reason_code="EVIDENCE_HOLD"
+            sentence="Protected action stopped because required evidence is unavailable or unresolved."
+            finish 3
+            ;;
+          EXPIRED:4:false)
+            status="EXPIRED"
+            reason_code="STAPLE_EXPIRED"
+            sentence="Protected action stopped because the signed status is no longer fresh."
+            finish 4
+            ;;
+          *)
+            finish 2
+            ;;
+        esac

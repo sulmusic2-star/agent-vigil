@@ -4,7 +4,7 @@
 `vigil protect --action-sha <reviewed-full-commit>` prepare
 `.github/workflows/agent-vigil-outcomes.yml` beside the evidence workflow.
 
-The v0.20.0 observer handles one event: a completed `workflow_run` whose source
+The v0.21.0 observer handles one event: a completed `workflow_run` whose source
 event was `pull_request_target`. It downloads the retained receipt from that
 exact run ID and records a read-only snapshot of:
 

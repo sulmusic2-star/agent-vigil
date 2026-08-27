@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ import {
 } from "../src/outcome.ts";
 import { buildReport, type CheckResult, type TrustReport } from "../src/report.ts";
 import { generateSigningKey, publicKeyId, signReport } from "../src/signature.ts";
+import { runMandateCommand, runOutcomeReceiptCommand } from "../src/outcome-cli.ts";
 
 const BASE = "1".repeat(40);
 const HEAD = "2".repeat(40);
@@ -31,6 +33,15 @@ type CorpusCase = { id: string; stage: string; expected: string };
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function silent(operation: () => number): number {
+  const stdout = console.log;
+  const stderr = console.error;
+  console.log = () => {};
+  console.error = () => {};
+  try { return operation(); }
+  finally { console.log = stdout; console.error = stderr; }
 }
 
 function mutableObject(value: unknown, label = "fixture"): Record<string, unknown> {
@@ -191,7 +202,7 @@ test("Outcome Git identities and schemas accept exactly 40 or 64 lowercase hex c
   }
   assert.throws(
     () => createOutcomeMandate(fixture.mandateInput({ head: BASE }), fixture.requesterPrivate),
-    /task\.base and task\.head must differ/,
+    /base and head must differ/,
   );
   const base64 = "a".repeat(64);
   const head64 = "b".repeat(64);
@@ -475,6 +486,173 @@ test("Outcome assessment enforces signed limits and never attributes an invalid 
   assert.equal(invalidSignature.sourceEvidence.signerKeyId, undefined);
 });
 
+test("Outcome CLI creates, verifies, assesses, verifies, and renders one signed dry-run signal", () => {
+  const fixture = setup();
+  const root = fixture.directory;
+  const mandatePath = join(root, "mandate.json");
+  const reportPath = join(root, "report.json");
+  const receiptPath = join(root, "outcome-receipt.json");
+  const signalPath = join(root, "signal.json");
+  const evidenceKeyId = publicKeyId(fixture.evidencePublic);
+  const verifierKeyId = publicKeyId(fixture.verifierPublic);
+
+  assert.equal(silent(() => runMandateCommand([
+    "create",
+    "--requester", "acme/platform",
+    "--provider", "coding-agent-7",
+    "--task-id", "fix-1842",
+    "--task-class", "code-change",
+    "--description", "Fix the retry race without weakening its regression tests",
+    "--base", BASE,
+    "--head", HEAD,
+    "--created-at", CREATED,
+    "--expires", EXPIRES,
+    "--requester-key", fixture.requesterPrivate,
+    "--verifier-public-key", fixture.verifierPublic,
+    "--required-rules", "tests-pass,test-integrity",
+    "--min-verified", "2",
+    "--require-signed-evidence",
+    "--evidence-key-ids", evidenceKeyId,
+    "--max-attempts", "2",
+    "--max-budget-usd", "10",
+    "--adapter", "x402",
+    "--settlement-ref", "task-1842",
+    "--output", mandatePath,
+  ])), 0);
+  assert.equal(silent(() => runMandateCommand([
+    "verify", mandatePath, "--requester-public-key", fixture.requesterPublic, "--as-of", "2026-08-27T12:00:00.000Z",
+  ])), 0);
+
+  writeFileSync(reportPath, `${JSON.stringify(fixture.report(undefined, { signWith: fixture.evidencePrivate }), null, 2)}\n`);
+  assert.equal(silent(() => runMandateCommand([
+    "assess", mandatePath,
+    "--receipt", reportPath,
+    "--verifier-key", fixture.verifierPrivate,
+    "--requester-public-key", fixture.requesterPublic,
+    "--issued-at", "2026-08-27T12:00:00.000Z",
+    "--attempts", "1",
+    "--cost-usd", "5",
+    "--output", receiptPath,
+  ])), 0);
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as OutcomeReceipt;
+  assert.equal(receipt.verdict, "PASS");
+  assert.equal(receipt.sourceEvidence.signerKeyId, evidenceKeyId);
+  assert.equal(receipt.settlementSignal.networkAction, "NONE");
+
+  assert.equal(silent(() => runOutcomeReceiptCommand([
+    "verify", receiptPath, "--verifier-public-key", fixture.verifierPublic,
+  ])), 0);
+  assert.equal(silent(() => runOutcomeReceiptCommand([
+    "signal", receiptPath, "--trusted-key-ids", verifierKeyId, "--adapter", "a2a", "--output", signalPath,
+  ])), 0);
+  const signal = JSON.parse(readFileSync(signalPath, "utf8"));
+  assert.equal(signal.type, "agent-vigil/a2a-acceptance-extension-draft");
+  assert.equal(signal.metadata.decision, "accept");
+  assert.equal(signal.networkAction, "NONE");
+  assert.equal(signal.draft, true);
+  assert.equal(silent(() => runOutcomeReceiptCommand([
+    "signal", receiptPath, "--verifier-public-key", fixture.verifierPublic,
+  ])), 0);
+});
+
+test("Outcome CLI rejects expired, malformed, untrusted, and ambiguous requests without side effects", () => {
+  const fixture = setup();
+  const mandatePath = join(fixture.directory, "mandate.json");
+  const receiptPath = join(fixture.directory, "outcome-receipt.json");
+  writeFileSync(mandatePath, `${JSON.stringify(fixture.mandate(), null, 2)}\n`);
+  writeFileSync(receiptPath, `${JSON.stringify(assessOutcome(fixture.mandate(), fixture.report(), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
+  }), null, 2)}\n`);
+
+  assert.equal(silent(() => runMandateCommand(["verify", mandatePath, "--as-of", "2026-10-01T00:00:00.000Z"])), 1);
+  assert.equal(silent(() => runMandateCommand(["verify", mandatePath, "--as-of", "not-a-time"])), 2);
+  assert.equal(silent(() => runMandateCommand(["create", "--min-verified", "0"])), 2);
+  assert.equal(silent(() => runMandateCommand(["create", "--max-budget-usd", "0"])), 2);
+  assert.equal(silent(() => runMandateCommand(["create", "--adapter", "wire-transfer"])), 2);
+  assert.equal(silent(() => runMandateCommand(["create", "--requester", "one", "--requester", "two"])), 2);
+  assert.equal(silent(() => runMandateCommand(["unknown"])), 2);
+  assert.equal(silent(() => runOutcomeReceiptCommand(["signal", receiptPath])), 2);
+  assert.equal(silent(() => runOutcomeReceiptCommand(["verify", receiptPath, "--trusted-key-ids", `sha256:${"0".repeat(64)}`])), 1);
+  assert.equal(silent(() => runOutcomeReceiptCommand(["unknown"])), 2);
+});
+
+test("Outcome constructors and verifiers reject invalid keys, limits, identities, times, and files", () => {
+  const fixture = setup();
+  const input: OutcomeMandateInput = {
+    createdAt: CREATED,
+    expiresAt: EXPIRES,
+    requesterId: "acme/platform",
+    taskId: "fix-1842",
+    taskClass: "code-change",
+    description: "Fix the retry race",
+    base: BASE,
+    head: HEAD,
+    verifierKeyIds: [publicKeyId(fixture.verifierPublic)],
+  };
+  const create = (overrides: Partial<OutcomeMandateInput> = {}, key = fixture.requesterPrivate) =>
+    createOutcomeMandate({ ...input, ...overrides }, key);
+
+  assert.throws(() => create({ createdAt: "not-a-time" }), /createdAt/);
+  assert.throws(() => create({ expiresAt: CREATED }), /later than/);
+  assert.throws(() => create({ expiresAt: "2028-01-01T00:00:00.000Z" }), /366 days/);
+  assert.throws(() => create({ verifierKeyIds: [] }), /verifier key ID/);
+  assert.throws(() => create({ requireSignedEvidence: true }), /trusted evidence signer/);
+  assert.throws(() => create({ adapter: "wire-transfer" as OutcomeAdapter }), /unsupported settlement adapter/);
+  assert.throws(() => create({ settlementReference: " " }), /settlementReference/);
+  assert.throws(() => create({ settlementReference: "x".repeat(501) }), /settlementReference/);
+  assert.throws(() => create({ requesterId: "invalid id" }), /requesterId/);
+  assert.throws(() => create({ base: "bad" }), /base/);
+  assert.throws(() => create({ head: BASE }), /base and head must differ/);
+  assert.throws(() => create({ description: "x" }), /description/);
+  assert.throws(() => create({ minMeaningfulVerified: 0 }), /minMeaningfulVerified/);
+  assert.throws(() => create({ maxAttempts: 0 }), /maxAttempts/);
+  assert.throws(() => create({ maxBudgetUsd: 0 }), /maxBudgetUsd/);
+
+  const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const rsaPrivate = join(fixture.directory, "rsa-private.pem");
+  const rsaPublic = join(fixture.directory, "rsa-public.pem");
+  writeFileSync(rsaPrivate, rsa.privateKey.export({ type: "pkcs8", format: "pem" }));
+  writeFileSync(rsaPublic, rsa.publicKey.export({ type: "spki", format: "pem" }));
+  assert.throws(() => create({}, rsaPrivate), /Ed25519/);
+
+  const mandate = create();
+  assert.equal(verifyOutcomeMandate(mandate, fixture.requesterPublic, new Date(Number.NaN)).valid, false);
+  assert.equal(verifyOutcomeMandate(mandate, rsaPublic, new Date("2026-08-27T00:00:00.000Z")).valid, false);
+  const badMandateKey = clone(mandate);
+  badMandateKey.signature.publicKey = "not-base64";
+  assert.equal(verifyOutcomeMandate(badMandateKey, undefined, new Date("2026-08-27T00:00:00.000Z")).valid, false);
+
+  const receipt = assessOutcome(mandate, fixture.report([result("tests-pass", "verified")]), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
+  });
+  const unpinnedReceipt = verifyOutcomeReceipt(receipt);
+  assert.equal(unpinnedReceipt.valid, true);
+  assert.equal(unpinnedReceipt.keyPinned, false);
+  assert.equal(verifyOutcomeReceipt(receipt, undefined, ["bad"]).valid, false);
+  assert.equal(verifyOutcomeReceipt(receipt, undefined, [receipt.verifierKeyId, receipt.verifierKeyId]).valid, false);
+  assert.equal(verifyOutcomeReceipt(receipt, rsaPublic).valid, false);
+  const badReceiptKey = clone(receipt);
+  badReceiptKey.signature.publicKey = "not-base64";
+  assert.equal(verifyOutcomeReceipt(badReceiptKey, undefined, [receipt.verifierKeyId]).valid, false);
+  assert.throws(() => assessOutcome(mandate, fixture.report(), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic, attempts: 0,
+  }), /attempts/);
+  assert.throws(() => assessOutcome(mandate, fixture.report(), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic, attempts: 1, costUsd: Number.NaN,
+  }), /costUsd/);
+
+  const malformed = join(fixture.directory, "malformed.json");
+  const oversized = join(fixture.directory, "oversized.json");
+  writeFileSync(malformed, "{");
+  writeFileSync(oversized, "x".repeat(2 * 1024 * 1024 + 1));
+  assert.throws(() => loadOutcomeJson(malformed), /not valid JSON/);
+  assert.throws(() => loadOutcomeJson(oversized), /2097152 byte limit/);
+});
+
 function setup() {
   const directory = mkdtempSync(join(tmpdir(), "agent-vigil-outcome-"));
   const requesterPrivate = join(directory, "requester.pem");
@@ -527,5 +705,5 @@ function setup() {
     return options.signWith ? signReport(built, options.signWith) : built;
   };
 
-  return { requesterPrivate, requesterPublic, verifierPrivate, verifierPublic, evidencePrivate, evidencePublic, otherPrivate, otherPublic, mandateInput, mandate, report };
+  return { directory, requesterPrivate, requesterPublic, verifierPrivate, verifierPublic, evidencePrivate, evidencePublic, otherPrivate, otherPublic, mandateInput, mandate, report };
 }

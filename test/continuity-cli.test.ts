@@ -193,6 +193,89 @@ test("continuity status can load policy only from the named base revision", () =
   ])), 3, "the named base policy still requires deployment evidence");
 });
 
+test("short-lived continuity staples bind a pinned signer, exact change, policy, environment, and evidence sequence", () => {
+  const value = fixture();
+  const privateKey = join(value.root, "staple-private.pem");
+  const publicKey = join(value.root, "staple-public.pem");
+  const staplePath = join(value.root, "continuity-staple.json");
+  const verificationPath = join(value.root, "continuity-staple-verification.json");
+  generateSigningKey(privateKey, publicKey);
+  append(value, event(value.continuityRoot, "verification", "verification_refreshed", "2026-08-23T12:00:00.000Z"));
+  append(value, event(value.continuityRoot, "github-outcome", "merge_observed", "2026-08-23T12:01:00.000Z"));
+  const policyHash = sha256(readFileSync(value.policyPath));
+
+  assert.equal(silent(() => runContinuityCommand([
+    "staple", "--chain", value.chain, "--policy", value.policyPath, "--environment", "production",
+    "--signing-key", privateKey, "--output", staplePath, "--now", "2026-08-23T12:30:00.000Z", "--ttl-seconds", "300",
+  ])), 0);
+  const staple = JSON.parse(readFileSync(staplePath, "utf8")) as {
+    payload: { evidence: { chainTip: string; sequence: number }; decision: { continuity: string }; expiresAt: string };
+    payloadHash: string;
+  };
+  assert.equal(staple.payload.decision.continuity, "CURRENT");
+  assert.equal(staple.payload.evidence.sequence, 2);
+  assert.equal(staple.payload.expiresAt, "2026-08-23T12:35:00.000Z");
+
+  const verify = (now: string, extra: string[] = []) => silent(() => runContinuityCommand([
+    "verify-staple", staplePath, "--public-key", publicKey, "--expected-receipt-hash", value.continuityRoot.receiptHash, "--expected-head", HEAD,
+    "--environment", "production", "--expected-policy-sha256", policyHash, "--now", now,
+    "--output", verificationPath, ...extra,
+  ]));
+  assert.equal(verify("2026-08-23T12:31:00.000Z", ["--expected-chain-tip", staple.payload.evidence.chainTip, "--minimum-sequence", "2"]), 0);
+  const accepted = JSON.parse(readFileSync(verificationPath, "utf8")) as { allowsProtectedAction: boolean; signerPinned: boolean };
+  assert.equal(accepted.allowsProtectedAction, true);
+  assert.equal(accepted.signerPinned, true);
+  assert.equal(verify("2026-08-23T12:36:00.000Z"), 4);
+  assert.equal(verify("2026-08-23T12:20:00.000Z"), 2);
+  assert.equal(verify("2026-08-23T12:31:00.000Z", ["--minimum-sequence", "3"]), 2);
+  assert.equal(silent(() => runContinuityCommand([
+    "verify-staple", staplePath, "--public-key", publicKey, "--expected-receipt-hash", `sha256:${"0".repeat(64)}`, "--expected-head", HEAD,
+    "--environment", "production", "--expected-policy-sha256", policyHash,
+  ])), 2);
+  assert.equal(silent(() => runContinuityCommand([
+    "verify-staple", staplePath, "--public-key", publicKey, "--expected-receipt-hash", value.continuityRoot.receiptHash, "--expected-head", "d".repeat(40),
+    "--environment", "production", "--expected-policy-sha256", policyHash,
+  ])), 2);
+  const otherPrivateKey = join(value.root, "other-staple-private.pem");
+  const otherPublicKey = join(value.root, "other-staple-public.pem");
+  generateSigningKey(otherPrivateKey, otherPublicKey);
+  assert.equal(silent(() => runContinuityCommand([
+    "verify-staple", staplePath, "--public-key", otherPublicKey, "--expected-receipt-hash", value.continuityRoot.receiptHash, "--expected-head", HEAD,
+    "--environment", "production", "--expected-policy-sha256", policyHash,
+  ])), 2);
+  assert.equal(silent(() => runContinuityCommand([
+    "staple", "--chain", value.chain, "--policy", value.policyPath, "--environment", "production",
+    "--signing-key", privateKey, "--output", join(value.root, "too-long.json"),
+    "--now", "2026-08-23T12:30:00.000Z", "--ttl-seconds", "901",
+  ])), 2);
+
+  const tampered = JSON.parse(readFileSync(staplePath, "utf8"));
+  tampered.payload.decision.continuity = "HOLD";
+  writeFileSync(staplePath, `${JSON.stringify(tampered, null, 2)}\n`);
+  assert.equal(verify("2026-08-23T12:31:00.000Z"), 2);
+});
+
+test("a signed staple preserves sticky revocation after a later ordinary green event", () => {
+  const value = fixture();
+  const privateKey = join(value.root, "staple-private.pem");
+  const publicKey = join(value.root, "staple-public.pem");
+  const staplePath = join(value.root, "revoked-staple.json");
+  generateSigningKey(privateKey, publicKey);
+  append(value, event(value.continuityRoot, "verification", "verification_refreshed", "2026-08-23T12:00:00.000Z"));
+  append(value, event(value.continuityRoot, "github-outcome", "merge_observed", "2026-08-23T12:01:00.000Z"));
+  append(value, event(value.continuityRoot, "verification", "attestation_invalid", "2026-08-23T12:02:00.000Z", "revoke"));
+  append(value, event(value.continuityRoot, "verification", "verification_refreshed", "2026-08-23T12:03:00.000Z"));
+  assert.equal(silent(() => runContinuityCommand([
+    "staple", "--chain", value.chain, "--policy", value.policyPath, "--environment", "production",
+    "--signing-key", privateKey, "--output", staplePath, "--now", "2026-08-23T12:30:00.000Z",
+  ])), 1);
+  assert.equal(silent(() => runContinuityCommand([
+    "verify-staple", staplePath, "--public-key", publicKey, "--expected-receipt-hash", value.continuityRoot.receiptHash, "--expected-head", HEAD,
+    "--environment", "production", "--expected-policy-sha256", sha256(readFileSync(value.policyPath)),
+    "--now", "2026-08-23T12:31:00.000Z",
+  ])), 1);
+});
+
 test("continuity CLI help is non-mutating and parser errors exit two", () => {
   assert.equal(silent(() => runContinuityCommand(["--help"])), 0);
   assert.equal(silent(() => runContinuityCommand(["unknown"])), 2);
@@ -259,5 +342,12 @@ test("continuity output cannot replace chain or policy inputs", () => {
   ])), 2);
   assert.equal(silent(() => runContinuityCommand([
     "status", "--chain", value.chain, "--policy", value.policyPath, "--output", value.policyPath,
+  ])), 2);
+  const privateKey = join(value.root, "staple-private.pem");
+  const publicKey = join(value.root, "staple-public.pem");
+  generateSigningKey(privateKey, publicKey);
+  assert.equal(silent(() => runContinuityCommand([
+    "staple", "--chain", value.chain, "--policy", value.policyPath, "--environment", "production",
+    "--signing-key", privateKey, "--output", value.policyPath,
   ])), 2);
 });
