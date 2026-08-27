@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash23 } from "node:crypto";
+import { createHash as createHash24 } from "node:crypto";
 import { execFileSync as execFileSync19 } from "node:child_process";
-import { existsSync as existsSync12, mkdirSync as mkdirSync9, readFileSync as readFileSync25, realpathSync as realpathSync13, statSync as statSync10, writeFileSync as writeFileSync8 } from "node:fs";
-import { dirname as dirname12, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve26 } from "node:path";
+import { existsSync as existsSync12, mkdirSync as mkdirSync9, readFileSync as readFileSync26, realpathSync as realpathSync13, statSync as statSync10, writeFileSync as writeFileSync8 } from "node:fs";
+import { dirname as dirname12, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve27 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -693,8 +693,8 @@ function checkAgenticPatches(patches) {
       add(patch, hiddenUnicodeAdvisory(patch));
       add(patch, mixedScriptFinding(patch));
     }
-    for (const check of [oracleFalsifyFinding, ghostLoaderFinding, harnessGuardFinding, suppressionReceiptFinding]) {
-      add(patch, check(patch));
+    for (const check2 of [oracleFalsifyFinding, ghostLoaderFinding, harnessGuardFinding, suppressionReceiptFinding]) {
+      add(patch, check2(patch));
     }
   }
   return results;
@@ -3819,9 +3819,9 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
 function renderDoctor(checks) {
   const icon2 = { PASS: "\u2713", WARN: "!", FAIL: "\u2717" };
   const lines = ["Agent Vigil doctor", ""];
-  for (const check of checks) lines.push(`${icon2[check.status]} ${check.status.padEnd(4)} ${check.label}: ${check.detail}`);
-  const failed = checks.filter((check) => check.status === "FAIL").length;
-  const warned = checks.filter((check) => check.status === "WARN").length;
+  for (const check2 of checks) lines.push(`${icon2[check2.status]} ${check2.status.padEnd(4)} ${check2.label}: ${check2.detail}`);
+  const failed = checks.filter((check2) => check2.status === "FAIL").length;
+  const warned = checks.filter((check2) => check2.status === "WARN").length;
   lines.push("", `${failed} failure(s) \xB7 ${warned} warning(s)`);
   return lines.join("\n");
 }
@@ -3991,13 +3991,13 @@ function routeIntegrity(checks, mode = "advisory") {
   if (mode === "blocking") return { results: checks, advisories: [] };
   if (mode === "calibrated") {
     return {
-      results: checks.filter((check) => check.verdict !== "contradicted" || CALIBRATED_BLOCKING_RULES.has(check.ruleId ?? "")),
-      advisories: checks.filter((check) => check.verdict === "contradicted" && !CALIBRATED_BLOCKING_RULES.has(check.ruleId ?? ""))
+      results: checks.filter((check2) => check2.verdict !== "contradicted" || CALIBRATED_BLOCKING_RULES.has(check2.ruleId ?? "")),
+      advisories: checks.filter((check2) => check2.verdict === "contradicted" && !CALIBRATED_BLOCKING_RULES.has(check2.ruleId ?? ""))
     };
   }
   return {
-    results: checks.filter((check) => check.verdict !== "contradicted"),
-    advisories: checks.filter((check) => check.verdict === "contradicted")
+    results: checks.filter((check2) => check2.verdict !== "contradicted"),
+    advisories: checks.filter((check2) => check2.verdict === "contradicted")
   };
 }
 
@@ -4148,17 +4148,17 @@ function consistencyErrors(report) {
   if (!Number.isInteger(report.policy.minVerified) || report.policy.minVerified < 1) errors.push("minVerified is invalid");
   return errors;
 }
-function checkKey(check) {
-  return `${check.ruleId ?? check.claim.kind}|${check.claim.kind}|${check.claim.subject}`;
+function checkKey(check2) {
+  return `${check2.ruleId ?? check2.claim.kind}|${check2.claim.kind}|${check2.claim.subject}`;
 }
-function advisoryKey(check) {
-  return `${checkKey(check)}|${check.evidence}`;
+function advisoryKey(check2) {
+  return `${checkKey(check2)}|${check2.evidence}`;
 }
-function item(check, values) {
+function item(check2, values) {
   return {
-    key: checkKey(check),
-    ruleId: check.ruleId ?? check.claim.kind,
-    subject: check.claim.subject,
+    key: checkKey(check2),
+    ruleId: check2.ruleId ?? check2.claim.kind,
+    subject: check2.claim.subject,
     ...values
   };
 }
@@ -4202,8 +4202,8 @@ function reportStatusRank(status) {
 function verdictRank(verdict) {
   return verdict === "verified" ? 2 : verdict === "unverifiable" ? 1 : 0;
 }
-function isInvariant(check) {
-  return check.contributesToPass === false || check.blocksPass === true || check.claim.kind === "policy_attestation" || check.claim.kind === "integrity";
+function isInvariant(check2) {
+  return check2.contributesToPass === false || check2.blocksPass === true || check2.claim.kind === "policy_attestation" || check2.claim.kind === "integrity";
 }
 function compareReceipts(beforeReport, afterReport) {
   const before = verification(beforeReport);
@@ -4235,8 +4235,8 @@ function compareReceipts(beforeReport, afterReport) {
   if (beforeReport.repository.remote && afterReport.repository.remote && beforeReport.repository.remote !== afterReport.repository.remote) {
     notes.push("Repository remotes differ.");
   }
-  const beforeChecks = new Map(beforeReport.results.map((check) => [checkKey(check), check]));
-  const afterChecks = new Map(afterReport.results.map((check) => [checkKey(check), check]));
+  const beforeChecks = new Map(beforeReport.results.map((check2) => [checkKey(check2), check2]));
+  const afterChecks = new Map(afterReport.results.map((check2) => [checkKey(check2), check2]));
   let unchangedChecks = 0;
   for (const [key, prior] of beforeChecks) {
     const current = afterChecks.get(key);
@@ -4268,10 +4268,10 @@ function compareReceipts(beforeReport, afterReport) {
   } else if (reportStatusRank(afterReport.summary.status) > reportStatusRank(beforeReport.summary.status)) {
     improvements.push({ key: "report-status", ruleId: "report-status", subject: "overall receipt status", reason: `${beforeReport.summary.status} became ${afterReport.summary.status}` });
   }
-  const beforeAdvisories = new Map((beforeReport.advisories ?? []).map((check) => [advisoryKey(check), check]));
-  const afterAdvisories = new Map((afterReport.advisories ?? []).map((check) => [advisoryKey(check), check]));
-  const newAdvisories = [...afterAdvisories].filter(([key]) => !beforeAdvisories.has(key)).map(([, check]) => item(check, { before: "absent", after: "advisory", reason: "new receipt-bound advisory" }));
-  const resolvedAdvisories = [...beforeAdvisories].filter(([key]) => !afterAdvisories.has(key)).map(([, check]) => item(check, { before: "advisory", after: "absent", reason: "prior advisory is absent" }));
+  const beforeAdvisories = new Map((beforeReport.advisories ?? []).map((check2) => [advisoryKey(check2), check2]));
+  const afterAdvisories = new Map((afterReport.advisories ?? []).map((check2) => [advisoryKey(check2), check2]));
+  const newAdvisories = [...afterAdvisories].filter(([key]) => !beforeAdvisories.has(key)).map(([, check2]) => item(check2, { before: "absent", after: "advisory", reason: "new receipt-bound advisory" }));
+  const resolvedAdvisories = [...beforeAdvisories].filter(([key]) => !afterAdvisories.has(key)).map(([, check2]) => item(check2, { before: "advisory", after: "absent", reason: "prior advisory is absent" }));
   const signer = signerContinuity(before, after);
   if (signer.continuity === "removed") regressions.push({ key: "signer-removed", ruleId: "signer-continuity", subject: "receipt signer", reason: "after receipt removed a previously present signature" });
   if (signer.continuity === "changed") notes.push("Signer key changed; establish the rotation through a trusted policy or separate approval.");
@@ -6579,7 +6579,7 @@ function authorityPlanChecks(plan) {
   const advisories = [];
   for (const delta of plan.deltas) {
     const kind = receiptRuleKind(delta);
-    const check = {
+    const check2 = {
       claim: {
         kind: "authority_scope",
         subject: receiptSubject(delta, kind),
@@ -6591,13 +6591,13 @@ function authorityPlanChecks(plan) {
       contributesToPass: false,
       ...delta.disposition === "HOLD" ? { blocksPass: true } : {}
     };
-    if (delta.disposition === "ALLOW") advisories.push(check);
-    else results.push(check);
+    if (delta.disposition === "ALLOW") advisories.push(check2);
+    else results.push(check2);
     const atom2 = delta.after ?? delta.before;
     if (kind !== "network" && atom2?.effect === "network") {
       const networkCheck = {
-        ...check,
-        claim: { ...check.claim, subject: `network: ${atom2.resource}` },
+        ...check2,
+        claim: { ...check2.claim, subject: `network: ${atom2.resource}` },
         ruleId: "authority-network"
       };
       if (delta.disposition === "ALLOW") advisories.push(networkCheck);
@@ -6605,7 +6605,7 @@ function authorityPlanChecks(plan) {
     }
   }
   for (const gap of plan.gaps) {
-    const check = {
+    const check2 = {
       claim: {
         kind: "authority_scope",
         subject: `unrecognized setting: ${gap.sourcePath}:${gap.locator}`,
@@ -6617,8 +6617,8 @@ function authorityPlanChecks(plan) {
       contributesToPass: false,
       ...!plan.policy.allowUnknownChanges ? { blocksPass: true } : {}
     };
-    if (plan.policy.allowUnknownChanges) advisories.push(check);
-    else results.push(check);
+    if (plan.policy.allowUnknownChanges) advisories.push(check2);
+    else results.push(check2);
   }
   return { results, advisories };
 }
@@ -7416,9 +7416,9 @@ function subjectMatches(statement, expectedName, expectedDigest) {
   return subjects.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const subject = entry;
-    const digest7 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const digest8 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
     const name2 = String(subject.name ?? "");
-    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && digest7.sha256 === expectedDigest;
+    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && digest8.sha256 === expectedDigest;
   });
 }
 function predicateMatches(predicate, report, fileSha256) {
@@ -9059,7 +9059,7 @@ function doctorUpgrade(repositoryPath, configPath, dockerBin = "docker") {
     { status: templateCanary ? "HOLD" : "PASS", label: "canaries", detail: templateCanary ? "replace the fail-closed template with a repository-specific behavioral canary" : `${config.canaries.length} configured canary or canaries` }
   ];
   return {
-    status: checks.every((check) => check.status === "PASS") ? "READY" : "HOLD",
+    status: checks.every((check2) => check2.status === "PASS") ? "READY" : "HOLD",
     configPath: trustedConfig,
     imagePresent,
     templateCanary,
@@ -9072,8 +9072,8 @@ function renderUpgradeDoctor(result5) {
     `Agent Vigil Upgrade Guard doctor: ${terminalSafe(result5.status)}`,
     `  config: ${terminalSafe(result5.configPath)}`
   ];
-  for (const check of result5.checks) {
-    lines.push(`  ${check.status === "PASS" ? "\u2713" : "?"} ${terminalSafe(check.label)}: ${terminalSafe(check.detail)}`);
+  for (const check2 of result5.checks) {
+    lines.push(`  ${check2.status === "PASS" ? "\u2713" : "?"} ${terminalSafe(check2.label)}: ${terminalSafe(check2.detail)}`);
   }
   return `${lines.join("\n")}
 `;
@@ -9823,9 +9823,9 @@ function subjectMatches2(statement, expectedName, expectedDigest) {
   return subjects.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const subject = entry;
-    const digest7 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
+    const digest8 = subject.digest && typeof subject.digest === "object" ? subject.digest : {};
     const name2 = String(subject.name ?? "");
-    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && `sha256:${String(digest7.sha256 ?? "")}` === expectedDigest;
+    return (name2 === expectedName || name2.endsWith(`/${expectedName}`)) && `sha256:${String(digest8.sha256 ?? "")}` === expectedDigest;
   });
 }
 function predicateMatches2(value, proof, fileSha256) {
@@ -11728,7 +11728,7 @@ function runContinuityDemo() {
     const repairPublic = join10(directory, "repair-public.pem");
     generateSigningKey(rootPrivate, rootPublic);
     generateSigningKey(repairPrivate, repairPublic);
-    const check = {
+    const check2 = {
       claim: { kind: "tests_pass", quote: "the reviewed change passed", subject: "reviewed change" },
       verdict: "verified",
       evidence: "the required check completed"
@@ -11740,7 +11740,7 @@ function runContinuityDemo() {
       repo: "/private/demonstration-repository",
       base: BASE,
       head: HEAD,
-      results: [check],
+      results: [check2],
       policy: { minVerified: 1, strict: true, source: ".agent-vigil.json", sha256: sha2566("demonstration receipt policy") },
       repository: { remote: "https://github.com/example/demonstration.git", tree: TREE },
       reproduction: "private demonstration command"
@@ -12740,14 +12740,14 @@ function latestReviews(records) {
 function checkSummary(checkRuns, statuses) {
   const latestRuns = /* @__PURE__ */ new Map();
   for (const item2 of checkRuns) {
-    const check = object3(item2, "GitHub check run");
-    const app = check.app && typeof check.app === "object" && !Array.isArray(check.app) ? lower(check.app.slug) : "unknown-app";
-    const name2 = lower(check.name) || `id-${integer4(check.id) ?? latestRuns.size}`;
+    const check2 = object3(item2, "GitHub check run");
+    const app = check2.app && typeof check2.app === "object" && !Array.isArray(check2.app) ? lower(check2.app.slug) : "unknown-app";
+    const name2 = lower(check2.name) || `id-${integer4(check2.id) ?? latestRuns.size}`;
     const key = `${app}:${name2}`;
-    const selectedAt = timestamp6(check.completed_at) ?? timestamp6(check.started_at) ?? "1970-01-01T00:00:00.000Z";
+    const selectedAt = timestamp6(check2.completed_at) ?? timestamp6(check2.started_at) ?? "1970-01-01T00:00:00.000Z";
     const previous = latestRuns.get(key);
     const previousAt = previous ? timestamp6(previous.completed_at) ?? timestamp6(previous.started_at) ?? "1970-01-01T00:00:00.000Z" : void 0;
-    if (!previous || Date.parse(selectedAt) >= Date.parse(previousAt)) latestRuns.set(key, check);
+    if (!previous || Date.parse(selectedAt) >= Date.parse(previousAt)) latestRuns.set(key, check2);
   }
   const latestStatuses = /* @__PURE__ */ new Map();
   for (const item2 of statuses) {
@@ -12762,12 +12762,12 @@ function checkSummary(checkRuns, statuses) {
   let failing = 0;
   let pending = 0;
   let unknown = 0;
-  for (const check of latestRuns.values()) {
-    if (lower(check.status) !== "completed") {
+  for (const check2 of latestRuns.values()) {
+    if (lower(check2.status) !== "completed") {
       pending += 1;
       continue;
     }
-    const conclusion = lower(check.conclusion);
+    const conclusion = lower(check2.conclusion);
     if (SUCCESSFUL_CHECKS.has(conclusion)) passing += 1;
     else if (FAILED_CHECKS.has(conclusion)) failing += 1;
     else unknown += 1;
@@ -12820,39 +12820,39 @@ function unsignedReceipt(snapshot, rawUrl, options) {
   const rawAgeHours = (generatedAtEpoch - Date.parse(latestAt)) / 36e5;
   const ageHours = Math.max(0, rawAgeHours);
   let continuity = "HOLD";
-  const reasonCodes = [];
+  const reasonCodes2 = [];
   let summary = "The public evidence is incomplete or does not establish a current merged approval.";
   let nextAction = "Resolve the missing or non-passing evidence and obtain repository-owned approval before a protected action.";
   if (rawAgeHours < 0) {
-    reasonCodes.push("evidence-after-observation-time");
+    reasonCodes2.push("evidence-after-observation-time");
     summary = "The selected observation time predates evidence returned by GitHub.";
     nextAction = "Use a current observation time and regenerate the receipt.";
   } else if (pullState === "closed" && !merged && approvals > 0) {
     continuity = "REVOKED";
-    reasonCodes.push("approved-then-closed-unmerged");
+    reasonCodes2.push("approved-then-closed-unmerged");
     summary = "A formal approval exists, but the repository later closed the pull request without merging it.";
     nextAction = "Do not rely on the earlier approval; obtain a new repository-owned authorization for any successor change.";
   } else if (merged && approvals > 0 && changesRequested === 0 && checks.total > 0 && checks.failing === 0 && checks.pending === 0 && checks.unknown === 0 && snapshot.unavailable.length === 0) {
     if (ageHours > options.maxAgeHours) {
       continuity = "EXPIRED";
-      reasonCodes.push("evidence-older-than-policy-window");
+      reasonCodes2.push("evidence-older-than-policy-window");
       summary = "The merge, approval, and checks were observed, but the evidence is older than the selected freshness window.";
       nextAction = "Refresh the public observation before using it in a current decision.";
     } else {
       continuity = "CURRENT";
-      reasonCodes.push("merged-approved-checks-observed");
+      reasonCodes2.push("merged-approved-checks-observed");
       summary = "The public record currently shows a merge, formal approval, and completed non-failing checks.";
       nextAction = "Bind this receipt to a repository-owned policy before using it for any protected action.";
     }
   } else {
-    if (!merged) reasonCodes.push(pullState === "open" ? "pull-request-not-merged" : "closed-without-current-approval");
-    if (!approvals) reasonCodes.push("formal-approval-missing");
-    if (changesRequested) reasonCodes.push("changes-requested");
-    if (!checks.total) reasonCodes.push("check-evidence-missing");
-    if (checks.failing) reasonCodes.push("checks-failing");
-    if (checks.pending) reasonCodes.push("checks-pending");
-    if (checks.unknown) reasonCodes.push("check-conclusion-unknown");
-    if (snapshot.unavailable.length) reasonCodes.push("source-coverage-incomplete");
+    if (!merged) reasonCodes2.push(pullState === "open" ? "pull-request-not-merged" : "closed-without-current-approval");
+    if (!approvals) reasonCodes2.push("formal-approval-missing");
+    if (changesRequested) reasonCodes2.push("changes-requested");
+    if (!checks.total) reasonCodes2.push("check-evidence-missing");
+    if (checks.failing) reasonCodes2.push("checks-failing");
+    if (checks.pending) reasonCodes2.push("checks-pending");
+    if (checks.unknown) reasonCodes2.push("check-conclusion-unknown");
+    if (snapshot.unavailable.length) reasonCodes2.push("source-coverage-incomplete");
   }
   return {
     schemaVersion: PUBLIC_PR_RECEIPT_SCHEMA,
@@ -12868,7 +12868,7 @@ function unsignedReceipt(snapshot, rawUrl, options) {
       latestEvidenceAt: latestAt,
       ageHours: Number(ageHours.toFixed(3))
     },
-    decision: { continuity, allowsProtectedAction: false, reasonCodes: [...new Set(reasonCodes)].sort(), summary, nextAction },
+    decision: { continuity, allowsProtectedAction: false, reasonCodes: [...new Set(reasonCodes2)].sort(), summary, nextAction },
     claimBoundary: {
       executionObserved: true,
       sufficiencyAssessed: false,
@@ -13077,6 +13077,676 @@ async function runPublicPrReceiptCommand(args, options = {}) {
   }
 }
 
+// src/outcome-cli.ts
+import { resolve as resolve26 } from "node:path";
+
+// src/outcome.ts
+import {
+  createHash as createHash23,
+  createPrivateKey as createPrivateKey8,
+  createPublicKey as createPublicKey8,
+  sign as sign7,
+  verify as verify7
+} from "node:crypto";
+import { readFileSync as readFileSync25 } from "node:fs";
+var SHA2564 = /^sha256:[0-9a-f]{64}$/;
+var GIT_OID = /^[0-9a-f]{40,64}$/;
+var ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/;
+var ADAPTERS = /* @__PURE__ */ new Set(["generic", "a2a", "ap2", "x402", "erc-8004", "vcap"]);
+function digest7(value) {
+  return `sha256:${createHash23("sha256").update(canonical(value)).digest("hex")}`;
+}
+function requireObjectKeys(value, label, allowed2) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  const unexpected = Object.keys(value).filter((key) => !allowed2.includes(key));
+  if (unexpected.length) throw new Error(`${label} contains unsupported field(s): ${unexpected.sort().join(", ")}`);
+}
+function parseTime(value, label) {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${label} must be an RFC3339-compatible timestamp`);
+  return parsed;
+}
+function requireId(value, label) {
+  if (!ID.test(value)) throw new Error(`${label} must be 1-200 characters using letters, numbers, dot, colon, slash, at, underscore, or hyphen`);
+  return value;
+}
+function requireSha(value, label) {
+  if (!SHA2564.test(value)) throw new Error(`${label} must be a SHA-256 key ID`);
+  return value;
+}
+function requireGitOid(value, label) {
+  if (!GIT_OID.test(value)) throw new Error(`${label} must be an exact 40-64 character lowercase Git object ID`);
+  return value;
+}
+function uniqueStrings(values, label, maximum = 64) {
+  if (!Array.isArray(values) || values.length > maximum) throw new Error(`${label} must contain no more than ${maximum} values`);
+  if (values.some((value) => typeof value !== "string" || !value.trim())) throw new Error(`${label} must contain non-empty strings`);
+  if (new Set(values).size !== values.length) throw new Error(`${label} must not contain duplicates`);
+  return [...values].sort();
+}
+function outcomeAction(verdict) {
+  if (verdict === "PASS") return "RELEASE";
+  if (verdict === "FAIL") return "REFUND";
+  return "ESCALATE";
+}
+function payloadOfMandate(mandate) {
+  const { mandateId: _id, signature: _signature, ...payload } = mandate;
+  return payload;
+}
+function payloadOfReceipt(receipt) {
+  const { outcomeHash: _hash, signature: _signature, ...payload } = receipt;
+  return payload;
+}
+function validateMandateShape(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("outcome mandate must be an object");
+  const mandate = input;
+  requireObjectKeys(mandate, "outcome mandate", ["schemaVersion", "type", "createdAt", "expiresAt", "requester", "provider", "task", "acceptance", "limits", "verifier", "settlement", "mandateId", "signature"]);
+  if (mandate.schemaVersion !== "0.1" || mandate.type !== "agent-vigil/outcome-mandate") throw new Error("unsupported outcome mandate schema or type");
+  requireSha(mandate.mandateId, "mandateId");
+  parseTime(mandate.createdAt, "createdAt");
+  parseTime(mandate.expiresAt, "expiresAt");
+  if (Date.parse(mandate.expiresAt) <= Date.parse(mandate.createdAt)) throw new Error("expiresAt must be later than createdAt");
+  if (Date.parse(mandate.expiresAt) - Date.parse(mandate.createdAt) > 366 * 24 * 60 * 60 * 1e3) throw new Error("outcome mandates may not be valid for more than 366 days");
+  requireObjectKeys(mandate.requester, "requester", ["id"]);
+  requireId(mandate.requester?.id, "requester.id");
+  if (mandate.provider) {
+    requireObjectKeys(mandate.provider, "provider", ["id"]);
+    requireId(mandate.provider.id, "provider.id");
+  }
+  requireObjectKeys(mandate.task, "task", ["id", "class", "description", "base", "head"]);
+  requireId(mandate.task?.id, "task.id");
+  requireId(mandate.task?.class, "task.class");
+  if (typeof mandate.task?.description !== "string" || mandate.task.description.trim().length < 3 || mandate.task.description.length > 2e3) throw new Error("task.description must contain 3-2000 characters");
+  requireGitOid(mandate.task.base, "task.base");
+  requireGitOid(mandate.task.head, "task.head");
+  if (mandate.task.base === mandate.task.head) throw new Error("task.base and task.head must differ");
+  requireObjectKeys(mandate.acceptance, "acceptance", ["requiredReportStatus", "minMeaningfulVerified", "requireNoContradictions", "requiredRuleIds", "requireSignedEvidence", "trustedEvidenceSignerKeyIds", "missingEvidenceVerdict"]);
+  if (mandate.acceptance?.requiredReportStatus !== "PASS") throw new Error("acceptance.requiredReportStatus must be PASS");
+  if (!Number.isInteger(mandate.acceptance?.minMeaningfulVerified) || mandate.acceptance.minMeaningfulVerified < 1 || mandate.acceptance.minMeaningfulVerified > 1e4) throw new Error("acceptance.minMeaningfulVerified must be an integer between 1 and 10000");
+  if (mandate.acceptance?.requireNoContradictions !== true) throw new Error("acceptance.requireNoContradictions must be true");
+  uniqueStrings(mandate.acceptance?.requiredRuleIds, "acceptance.requiredRuleIds").forEach((value) => requireId(value, "acceptance.requiredRuleIds entry"));
+  if (typeof mandate.acceptance?.requireSignedEvidence !== "boolean") throw new Error("acceptance.requireSignedEvidence must be boolean");
+  uniqueStrings(mandate.acceptance?.trustedEvidenceSignerKeyIds, "acceptance.trustedEvidenceSignerKeyIds").forEach((value) => requireSha(value, "trusted evidence signer key ID"));
+  if (mandate.acceptance.requireSignedEvidence && mandate.acceptance.trustedEvidenceSignerKeyIds.length < 1) throw new Error("signed evidence requires at least one trusted evidence signer key ID");
+  if (mandate.acceptance.missingEvidenceVerdict !== "INCONCLUSIVE") throw new Error("missing evidence must resolve to INCONCLUSIVE");
+  requireObjectKeys(mandate.limits, "limits", ["maxAttempts", "maxBudgetUsd"]);
+  if (!Number.isInteger(mandate.limits?.maxAttempts) || mandate.limits.maxAttempts < 1 || mandate.limits.maxAttempts > 100) throw new Error("limits.maxAttempts must be an integer between 1 and 100");
+  if (mandate.limits.maxBudgetUsd !== void 0 && (!Number.isFinite(mandate.limits.maxBudgetUsd) || mandate.limits.maxBudgetUsd <= 0 || mandate.limits.maxBudgetUsd > 1e8)) throw new Error("limits.maxBudgetUsd must be greater than zero and no more than 100000000");
+  requireObjectKeys(mandate.verifier, "verifier", ["trustedKeyIds"]);
+  const verifierKeys = uniqueStrings(mandate.verifier?.trustedKeyIds, "verifier.trustedKeyIds");
+  if (verifierKeys.length < 1) throw new Error("verifier.trustedKeyIds must contain at least one key ID");
+  verifierKeys.forEach((value) => requireSha(value, "verifier trusted key ID"));
+  requireObjectKeys(mandate.settlement, "settlement", ["mode", "adapter", "reference", "networkAction"]);
+  if (mandate.settlement?.mode !== "signal-only" || mandate.settlement.networkAction !== "NONE") throw new Error("settlement must be signal-only with networkAction NONE");
+  if (!ADAPTERS.has(mandate.settlement.adapter)) throw new Error("settlement.adapter is unsupported");
+  if (mandate.settlement.reference !== void 0 && (typeof mandate.settlement.reference !== "string" || !mandate.settlement.reference.trim() || mandate.settlement.reference.length > 500)) throw new Error("settlement.reference must be a non-empty string of at most 500 characters");
+  requireObjectKeys(mandate.signature, "mandate signature", ["algorithm", "keyId", "publicKey", "value"]);
+  if (mandate.signature?.algorithm !== "Ed25519") throw new Error("mandate signature algorithm must be Ed25519");
+  requireSha(mandate.signature?.keyId, "mandate signature keyId");
+  if (typeof mandate.signature?.publicKey !== "string" || typeof mandate.signature?.value !== "string") throw new Error("mandate signature fields are required");
+  return mandate;
+}
+function createOutcomeMandate(input, requesterPrivateKeyPath) {
+  const createdAt = input.createdAt ?? (/* @__PURE__ */ new Date()).toISOString();
+  const created = parseTime(createdAt, "createdAt");
+  const expires = parseTime(input.expiresAt, "expiresAt");
+  if (expires <= created) throw new Error("expiresAt must be later than createdAt");
+  if (expires - created > 366 * 24 * 60 * 60 * 1e3) throw new Error("outcome mandates may not be valid for more than 366 days");
+  const privateKey = createPrivateKey8(readFileSync25(requesterPrivateKeyPath));
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("requester signing key must be Ed25519");
+  const publicKey = createPublicKey8(privateKey);
+  const der = publicKeyDer(publicKey);
+  const verifierKeyIds = uniqueStrings(input.verifierKeyIds, "verifierKeyIds").map((value) => requireSha(value, "verifier key ID"));
+  if (verifierKeyIds.length < 1) throw new Error("at least one verifier key ID is required");
+  const evidenceKeys = uniqueStrings(input.trustedEvidenceSignerKeyIds ?? [], "trustedEvidenceSignerKeyIds").map((value) => requireSha(value, "trusted evidence key ID"));
+  const requireSignedEvidence = input.requireSignedEvidence ?? false;
+  if (requireSignedEvidence && evidenceKeys.length < 1) throw new Error("--require-signed-evidence requires at least one trusted evidence signer key ID");
+  const adapter2 = input.adapter ?? "generic";
+  if (!ADAPTERS.has(adapter2)) throw new Error("unsupported settlement adapter");
+  if (input.settlementReference !== void 0 && (!input.settlementReference.trim() || input.settlementReference.length > 500)) throw new Error("settlementReference must contain 1-500 characters");
+  const payload = {
+    schemaVersion: "0.1",
+    type: "agent-vigil/outcome-mandate",
+    createdAt: new Date(created).toISOString(),
+    expiresAt: new Date(expires).toISOString(),
+    requester: { id: requireId(input.requesterId, "requesterId") },
+    ...input.providerId ? { provider: { id: requireId(input.providerId, "providerId") } } : {},
+    task: {
+      id: requireId(input.taskId, "taskId"),
+      class: requireId(input.taskClass, "taskClass"),
+      description: input.description.trim(),
+      base: requireGitOid(input.base, "base"),
+      head: requireGitOid(input.head, "head")
+    },
+    acceptance: {
+      requiredReportStatus: "PASS",
+      minMeaningfulVerified: input.minMeaningfulVerified ?? 1,
+      requireNoContradictions: true,
+      requiredRuleIds: uniqueStrings(input.requiredRuleIds ?? [], "requiredRuleIds").map((value) => requireId(value, "required rule ID")),
+      requireSignedEvidence,
+      trustedEvidenceSignerKeyIds: evidenceKeys,
+      missingEvidenceVerdict: "INCONCLUSIVE"
+    },
+    limits: {
+      maxAttempts: input.maxAttempts ?? 3,
+      ...input.maxBudgetUsd !== void 0 ? { maxBudgetUsd: input.maxBudgetUsd } : {}
+    },
+    verifier: { trustedKeyIds: verifierKeyIds },
+    settlement: {
+      mode: "signal-only",
+      adapter: adapter2,
+      ...input.settlementReference ? { reference: input.settlementReference } : {},
+      networkAction: "NONE"
+    }
+  };
+  if (payload.task.description.length < 3 || payload.task.description.length > 2e3) throw new Error("description must contain 3-2000 characters");
+  if (!Number.isInteger(payload.acceptance.minMeaningfulVerified) || payload.acceptance.minMeaningfulVerified < 1 || payload.acceptance.minMeaningfulVerified > 1e4) throw new Error("minMeaningfulVerified must be an integer between 1 and 10000");
+  if (!Number.isInteger(payload.limits.maxAttempts) || payload.limits.maxAttempts < 1 || payload.limits.maxAttempts > 100) throw new Error("maxAttempts must be an integer between 1 and 100");
+  if (payload.limits.maxBudgetUsd !== void 0 && (!Number.isFinite(payload.limits.maxBudgetUsd) || payload.limits.maxBudgetUsd <= 0 || payload.limits.maxBudgetUsd > 1e8)) throw new Error("maxBudgetUsd must be greater than zero and no more than 100000000");
+  const mandateId = digest7(payload);
+  return {
+    ...payload,
+    mandateId,
+    signature: {
+      algorithm: "Ed25519",
+      keyId: signingKeyId(der),
+      publicKey: der.toString("base64"),
+      value: sign7(null, Buffer.from(mandateId), privateKey).toString("base64")
+    }
+  };
+}
+function verifyOutcomeMandate(input, requesterPublicKeyPath, asOf = /* @__PURE__ */ new Date()) {
+  const errors = [];
+  if (!Number.isFinite(asOf.getTime())) return { valid: false, hashValid: false, signatureValid: false, keyPinned: Boolean(requesterPublicKeyPath), expired: false, errors: ["verification time is invalid"] };
+  let mandate;
+  try {
+    mandate = validateMandateShape(input);
+  } catch (error) {
+    return { valid: false, hashValid: false, signatureValid: false, keyPinned: Boolean(requesterPublicKeyPath), expired: false, errors: [error.message] };
+  }
+  const hashValid = digest7(payloadOfMandate(mandate)) === mandate.mandateId;
+  if (!hashValid) errors.push("mandate content hash is invalid");
+  const expired = asOf.getTime() > Date.parse(mandate.expiresAt);
+  if (expired) errors.push("mandate is expired");
+  let signatureValid = false;
+  let keyId;
+  try {
+    const embedded = createPublicKey8({ key: Buffer.from(mandate.signature.publicKey, "base64"), type: "spki", format: "der" });
+    if (embedded.asymmetricKeyType !== "ed25519") throw new Error("embedded requester key must be Ed25519");
+    const selected = requesterPublicKeyPath ? createPublicKey8(readFileSync25(requesterPublicKeyPath)) : embedded;
+    if (selected.asymmetricKeyType !== "ed25519") throw new Error("requester public key must be Ed25519");
+    keyId = signingKeyId(publicKeyDer(selected));
+    signatureValid = keyId === mandate.signature.keyId && verify7(null, Buffer.from(mandate.mandateId), selected, Buffer.from(mandate.signature.value, "base64"));
+    if (!signatureValid) errors.push("mandate signature is invalid or does not match the pinned requester key");
+  } catch (error) {
+    errors.push(`mandate signature could not be read: ${error.message}`);
+  }
+  return { valid: errors.length === 0, hashValid, signatureValid, keyPinned: Boolean(requesterPublicKeyPath), expired, ...keyId ? { keyId } : {}, errors };
+}
+function check(id, verdict, evidence) {
+  return { id, verdict, evidence };
+}
+function reasonCodes(checks) {
+  return checks.filter((item2) => item2.verdict !== "PASS").map((item2) => item2.id).sort();
+}
+function overallVerdict(checks) {
+  if (checks.some((item2) => item2.verdict === "FAIL")) return "FAIL";
+  if (checks.some((item2) => item2.verdict === "INCONCLUSIVE")) return "INCONCLUSIVE";
+  return "PASS";
+}
+function reportSummaryConsistency(report) {
+  if (!report || typeof report !== "object" || report.schemaVersion !== "2" || !Array.isArray(report.results) || !report.summary || !report.policy) {
+    return { valid: false, evidence: "trust report is missing required schema 2 result, summary, or policy fields" };
+  }
+  const verdicts = report.results.map((item2) => item2?.verdict);
+  if (verdicts.some((value) => !(/* @__PURE__ */ new Set(["verified", "contradicted", "unverifiable"])).has(value))) {
+    return { valid: false, evidence: "trust report contains an unsupported result verdict" };
+  }
+  const verified = verdicts.filter((value) => value === "verified").length;
+  const contradicted = verdicts.filter((value) => value === "contradicted").length;
+  const unverifiable = verdicts.filter((value) => value === "unverifiable").length;
+  const meaningfulVerified = report.results.filter((item2) => item2.verdict === "verified" && item2.contributesToPass !== false).length;
+  if (!Number.isInteger(report.policy.minVerified) || report.policy.minVerified < 1 || typeof report.policy.strict !== "boolean") {
+    return { valid: false, evidence: "trust report policy has an invalid evidence minimum or strict-mode value" };
+  }
+  let status;
+  if (contradicted > 0) status = "FAIL";
+  else if (meaningfulVerified < report.policy.minVerified || report.results.some((item2) => item2.verdict === "unverifiable" && item2.blocksPass) || report.policy.strict && unverifiable > 0) status = "INCONCLUSIVE";
+  else status = "PASS";
+  const expected = { verified, contradicted, unverifiable, meaningfulVerified, status, pass: status === "PASS" };
+  return canonical(report.summary) === canonical(expected) ? { valid: true, evidence: `summary is consistent with ${report.results.length} result(s)` } : { valid: false, evidence: "trust report summary disagrees with its result records and policy" };
+}
+function assessOutcome(mandateInput, report, verifierPrivateKeyPath, options) {
+  const issuedAt = options.issuedAt ?? (/* @__PURE__ */ new Date()).toISOString();
+  const issuedDate = new Date(parseTime(issuedAt, "issuedAt"));
+  const mandate = validateMandateShape(mandateInput);
+  const privateKey = createPrivateKey8(readFileSync25(verifierPrivateKeyPath));
+  if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("verifier signing key must be Ed25519");
+  const publicKey = createPublicKey8(privateKey);
+  const der = publicKeyDer(publicKey);
+  const verifierKeyId = signingKeyId(der);
+  if (!mandate.verifier.trustedKeyIds.includes(verifierKeyId)) throw new Error("verifier signing key is not trusted by the mandate");
+  const checks = [];
+  const mandateVerification = verifyOutcomeMandate(mandate, options.requesterPublicKeyPath, issuedDate);
+  checks.push(check("mandate-integrity", mandateVerification.hashValid && mandateVerification.signatureValid ? "PASS" : "FAIL", mandateVerification.errors.join("; ") || "mandate hash and requester signature are valid"));
+  checks.push(check("mandate-expiry", mandateVerification.expired ? "FAIL" : "PASS", mandateVerification.expired ? `mandate expired at ${mandate.expiresAt}` : `mandate is current until ${mandate.expiresAt}`));
+  const reportHashValid = recomputeReceiptHash(report) === report.receiptHash;
+  checks.push(check("evidence-integrity", reportHashValid ? "PASS" : "FAIL", reportHashValid ? `trust report hash ${report.receiptHash} is valid` : "trust report content does not match its receipt hash"));
+  const reportConsistency = reportSummaryConsistency(report);
+  checks.push(check("evidence-summary", reportConsistency.valid ? "PASS" : "FAIL", reportConsistency.evidence));
+  checks.push(check("exact-base", report.base === mandate.task.base ? "PASS" : "FAIL", `mandate ${mandate.task.base}; observed ${report.base}`));
+  checks.push(check("exact-head", report.head === mandate.task.head ? "PASS" : "FAIL", `mandate ${mandate.task.head}; observed ${report.head}`));
+  let verifiedEvidenceSignerKeyId;
+  if (!report.signature) {
+    checks.push(check("evidence-signature", mandate.acceptance.requireSignedEvidence ? "INCONCLUSIVE" : "PASS", mandate.acceptance.requireSignedEvidence ? "the mandate requires signed evidence but the trust report has no signature" : "the mandate permits unsigned trust-report evidence"));
+  } else {
+    const verification2 = verifyReport(report);
+    const trusted = Boolean(verification2.keyId) && mandate.acceptance.trustedEvidenceSignerKeyIds.includes(verification2.keyId);
+    const accepted = verification2.signatureValid && (!mandate.acceptance.requireSignedEvidence || trusted);
+    if (verification2.signatureValid) verifiedEvidenceSignerKeyId = verification2.keyId;
+    checks.push(check("evidence-signature", accepted ? "PASS" : "FAIL", accepted ? `evidence signature from ${verification2.keyId} is valid${trusted ? " and trusted" : ""}` : "evidence signature is invalid or its signer is not trusted by the mandate"));
+  }
+  if (options.attempts !== void 0 && (!Number.isInteger(options.attempts) || options.attempts < 1)) throw new Error("attempts must be a positive integer");
+  checks.push(check("attempt-limit", options.attempts === void 0 ? "INCONCLUSIVE" : options.attempts <= mandate.limits.maxAttempts ? "PASS" : "FAIL", options.attempts === void 0 ? "observed attempt count was not provided" : `maximum ${mandate.limits.maxAttempts}; observed ${options.attempts}`));
+  if (options.costUsd !== void 0 && (!Number.isFinite(options.costUsd) || options.costUsd < 0)) throw new Error("costUsd must be a non-negative number");
+  checks.push(check("budget-limit", mandate.limits.maxBudgetUsd === void 0 ? "PASS" : options.costUsd === void 0 ? "INCONCLUSIVE" : options.costUsd <= mandate.limits.maxBudgetUsd ? "PASS" : "FAIL", mandate.limits.maxBudgetUsd === void 0 ? "the mandate has no budget cap" : options.costUsd === void 0 ? "observed cost was not provided" : `maximum USD ${mandate.limits.maxBudgetUsd}; observed USD ${options.costUsd}`));
+  const statusVerdict = report.summary.status === "PASS" ? "PASS" : report.summary.status === "FAIL" ? "FAIL" : "INCONCLUSIVE";
+  checks.push(check("required-report-status", statusVerdict, `required PASS; observed ${report.summary.status}`));
+  checks.push(check("no-contradictions", report.summary.contradicted === 0 ? "PASS" : "FAIL", `observed ${report.summary.contradicted} contradicted claim(s)`));
+  checks.push(check("minimum-meaningful-verification", report.summary.meaningfulVerified >= mandate.acceptance.minMeaningfulVerified ? "PASS" : "INCONCLUSIVE", `required ${mandate.acceptance.minMeaningfulVerified}; observed ${report.summary.meaningfulVerified}`));
+  for (const ruleId of mandate.acceptance.requiredRuleIds) {
+    const matches = report.results.filter((item2) => item2.ruleId === ruleId);
+    if (!matches.length) checks.push(check(`required-rule:${ruleId}`, "INCONCLUSIVE", "required rule was not present in the trust report"));
+    else if (matches.some((item2) => item2.verdict === "contradicted")) checks.push(check(`required-rule:${ruleId}`, "FAIL", "required rule was contradicted"));
+    else if (matches.some((item2) => item2.verdict === "verified")) checks.push(check(`required-rule:${ruleId}`, "PASS", "required rule was independently verified"));
+    else checks.push(check(`required-rule:${ruleId}`, "INCONCLUSIVE", "required rule was present but unverifiable"));
+  }
+  const verdict = overallVerdict(checks);
+  const payload = {
+    schemaVersion: "0.1",
+    type: "agent-vigil/outcome-receipt",
+    mandateId: mandate.mandateId,
+    issuedAt: issuedDate.toISOString(),
+    verifierKeyId,
+    verdict,
+    reasonCodes: reasonCodes(checks),
+    checks,
+    sourceEvidence: {
+      type: "agent-vigil/trust-report",
+      reportHash: report.receiptHash,
+      base: report.base,
+      head: report.head,
+      status: report.summary.status,
+      ...verifiedEvidenceSignerKeyId ? { signerKeyId: verifiedEvidenceSignerKeyId } : {}
+    },
+    settlementSignal: {
+      mode: "signal-only",
+      adapter: mandate.settlement.adapter,
+      action: outcomeAction(verdict),
+      ...mandate.settlement.reference ? { reference: mandate.settlement.reference } : {},
+      dryRun: true,
+      networkAction: "NONE"
+    }
+  };
+  const outcomeHash = digest7(payload);
+  return {
+    ...payload,
+    outcomeHash,
+    signature: {
+      algorithm: "Ed25519",
+      keyId: verifierKeyId,
+      publicKey: der.toString("base64"),
+      value: sign7(null, Buffer.from(outcomeHash), privateKey).toString("base64")
+    }
+  };
+}
+function validateReceiptShape(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("outcome receipt must be an object");
+  const receipt = input;
+  requireObjectKeys(receipt, "outcome receipt", ["schemaVersion", "type", "mandateId", "issuedAt", "verifierKeyId", "verdict", "reasonCodes", "checks", "sourceEvidence", "settlementSignal", "outcomeHash", "signature"]);
+  if (receipt.schemaVersion !== "0.1" || receipt.type !== "agent-vigil/outcome-receipt") throw new Error("unsupported outcome receipt schema or type");
+  requireSha(receipt.mandateId, "mandateId");
+  requireSha(receipt.outcomeHash, "outcomeHash");
+  parseTime(receipt.issuedAt, "issuedAt");
+  requireSha(receipt.verifierKeyId, "verifierKeyId");
+  if (!(/* @__PURE__ */ new Set(["PASS", "FAIL", "INCONCLUSIVE"])).has(receipt.verdict)) throw new Error("receipt verdict is invalid");
+  if (!Array.isArray(receipt.reasonCodes) || receipt.reasonCodes.length > 2048 || !Array.isArray(receipt.checks) || receipt.checks.length < 1 || receipt.checks.length > 2048) throw new Error("receipt must contain 1-2048 checks and no more than 2048 reason codes");
+  if (new Set(receipt.reasonCodes).size !== receipt.reasonCodes.length) throw new Error("receipt reasonCodes must not contain duplicates");
+  for (const item2 of receipt.checks) {
+    requireObjectKeys(item2, "receipt check", ["id", "verdict", "evidence"]);
+    requireId(item2.id, "check.id");
+    if (!(/* @__PURE__ */ new Set(["PASS", "FAIL", "INCONCLUSIVE"])).has(item2.verdict)) throw new Error("check verdict is invalid");
+    if (typeof item2.evidence !== "string" || !item2.evidence || item2.evidence.length > 4e3) throw new Error("check evidence must contain 1-4000 characters");
+  }
+  const expectedVerdict = overallVerdict(receipt.checks);
+  if (receipt.verdict !== expectedVerdict) throw new Error(`receipt verdict ${receipt.verdict} disagrees with its checks (${expectedVerdict})`);
+  const expectedReasonCodes = reasonCodes(receipt.checks);
+  if (canonical(receipt.reasonCodes) !== canonical(expectedReasonCodes)) throw new Error("receipt reasonCodes disagree with its checks");
+  requireObjectKeys(receipt.sourceEvidence, "sourceEvidence", ["type", "reportHash", "base", "head", "status", "signerKeyId"]);
+  if (receipt.sourceEvidence?.type !== "agent-vigil/trust-report") throw new Error("source evidence type is unsupported");
+  requireSha(receipt.sourceEvidence.reportHash, "sourceEvidence.reportHash");
+  requireGitOid(receipt.sourceEvidence.base, "sourceEvidence.base");
+  requireGitOid(receipt.sourceEvidence.head, "sourceEvidence.head");
+  if (!(/* @__PURE__ */ new Set(["PASS", "FAIL", "INCONCLUSIVE"])).has(receipt.sourceEvidence.status)) throw new Error("source evidence status is invalid");
+  if (receipt.sourceEvidence.signerKeyId) requireSha(receipt.sourceEvidence.signerKeyId, "sourceEvidence.signerKeyId");
+  requireObjectKeys(receipt.settlementSignal, "settlementSignal", ["mode", "adapter", "action", "reference", "dryRun", "networkAction"]);
+  if (receipt.settlementSignal?.mode !== "signal-only" || receipt.settlementSignal.dryRun !== true || receipt.settlementSignal.networkAction !== "NONE") throw new Error("receipt settlement signal must be dry-run signal-only with networkAction NONE");
+  if (!ADAPTERS.has(receipt.settlementSignal.adapter)) throw new Error("receipt settlement adapter is unsupported");
+  if (receipt.settlementSignal.action !== outcomeAction(receipt.verdict)) throw new Error("receipt settlement action disagrees with verdict");
+  if (receipt.settlementSignal.reference !== void 0 && (typeof receipt.settlementSignal.reference !== "string" || !receipt.settlementSignal.reference.trim() || receipt.settlementSignal.reference.length > 500)) throw new Error("receipt settlement reference must be a non-empty string of at most 500 characters");
+  requireObjectKeys(receipt.signature, "receipt signature", ["algorithm", "keyId", "publicKey", "value"]);
+  if (receipt.signature?.algorithm !== "Ed25519") throw new Error("receipt signature algorithm must be Ed25519");
+  requireSha(receipt.signature?.keyId, "receipt signature keyId");
+  if (receipt.signature.keyId !== receipt.verifierKeyId) throw new Error("receipt signature key does not match verifierKeyId");
+  if (typeof receipt.signature.publicKey !== "string" || typeof receipt.signature.value !== "string" || !receipt.signature.publicKey || !receipt.signature.value) throw new Error("receipt signature fields are required");
+  return receipt;
+}
+function verifyOutcomeReceipt(input, verifierPublicKeyPath, trustedKeyIds = []) {
+  const errors = [];
+  try {
+    uniqueStrings(trustedKeyIds, "trustedKeyIds").forEach((value) => requireSha(value, "trusted verifier key ID"));
+  } catch (error) {
+    return { valid: false, hashValid: false, signatureValid: false, keyPinned: Boolean(verifierPublicKeyPath || trustedKeyIds.length), expired: false, errors: [error.message] };
+  }
+  let receipt;
+  try {
+    receipt = validateReceiptShape(input);
+  } catch (error) {
+    return { valid: false, hashValid: false, signatureValid: false, keyPinned: Boolean(verifierPublicKeyPath || trustedKeyIds.length), expired: false, errors: [error.message] };
+  }
+  const hashValid = digest7(payloadOfReceipt(receipt)) === receipt.outcomeHash;
+  if (!hashValid) errors.push("outcome receipt content hash is invalid");
+  let signatureValid = false;
+  let keyId;
+  try {
+    const embedded = createPublicKey8({ key: Buffer.from(receipt.signature.publicKey, "base64"), type: "spki", format: "der" });
+    if (embedded.asymmetricKeyType !== "ed25519") throw new Error("embedded verifier key must be Ed25519");
+    const selected = verifierPublicKeyPath ? createPublicKey8(readFileSync25(verifierPublicKeyPath)) : embedded;
+    if (selected.asymmetricKeyType !== "ed25519") throw new Error("verifier public key must be Ed25519");
+    keyId = signingKeyId(publicKeyDer(selected));
+    signatureValid = keyId === receipt.signature.keyId && verify7(null, Buffer.from(receipt.outcomeHash), selected, Buffer.from(receipt.signature.value, "base64"));
+    if (!signatureValid) errors.push("outcome receipt signature is invalid or does not match the pinned verifier key");
+  } catch (error) {
+    errors.push(`outcome receipt signature could not be read: ${error.message}`);
+  }
+  const keyPinned = Boolean(verifierPublicKeyPath) || Boolean(keyId) && trustedKeyIds.includes(keyId);
+  if (trustedKeyIds.length && (!keyId || !trustedKeyIds.includes(keyId))) errors.push("verifier key ID is not trusted");
+  return { valid: errors.length === 0, hashValid, signatureValid, keyPinned, expired: false, ...keyId ? { keyId } : {}, errors };
+}
+function buildSettlementAdapterPayload(receiptInput, adapterOverride, trust) {
+  const receipt = validateReceiptShape(receiptInput);
+  if (!trust.verifierPublicKeyPath && !trust.trustedKeyIds?.length) throw new Error("signal rendering requires a pinned verifier public key or trusted verifier key ID");
+  const verification2 = verifyOutcomeReceipt(receipt, trust.verifierPublicKeyPath, trust.trustedKeyIds ?? []);
+  if (!verification2.valid || !verification2.keyPinned) throw new Error(`cannot render a signal from an invalid or untrusted outcome receipt: ${verification2.errors.join("; ") || "verifier key is not pinned"}`);
+  const adapter2 = adapterOverride ?? receipt.settlementSignal.adapter;
+  if (!ADAPTERS.has(adapter2)) throw new Error("unsupported settlement adapter");
+  const decision = receipt.verdict === "PASS" ? "accept" : receipt.verdict === "FAIL" ? "reject" : "escalate";
+  const common = {
+    draft: true,
+    networkAction: "NONE",
+    mandateId: receipt.mandateId,
+    outcomeReceiptHash: receipt.outcomeHash,
+    verdict: receipt.verdict,
+    action: receipt.settlementSignal.action,
+    ...receipt.settlementSignal.reference ? { reference: receipt.settlementSignal.reference } : {}
+  };
+  if (adapter2 === "a2a") return {
+    type: "agent-vigil/a2a-acceptance-extension-draft",
+    extensionUri: "https://sulmusic2-star.github.io/agent-vigil/extensions/outcome/v0.1",
+    metadata: { decision, reasonCodes: receipt.reasonCodes, receiptHash: receipt.outcomeHash },
+    ...common
+  };
+  if (adapter2 === "ap2") return {
+    type: "agent-vigil/ap2-outcome-extension-draft",
+    releaseCondition: "delivery-confirmation",
+    decision,
+    ...common
+  };
+  if (adapter2 === "x402") return {
+    type: "agent-vigil/x402-outcome-signal-draft",
+    settlementDecision: receipt.settlementSignal.action.toLowerCase(),
+    ...common
+  };
+  if (adapter2 === "erc-8004") return {
+    type: "agent-vigil/erc-8004-validation-draft",
+    validationTag: "agent-vigil-outcome-v0.1",
+    response: receipt.verdict === "PASS" ? 100 : receipt.verdict === "FAIL" ? 0 : 50,
+    ...common
+  };
+  if (adapter2 === "vcap") return {
+    type: "agent-vigil/vcap-verification-callback-draft",
+    messageType: "verification_callback",
+    decision,
+    ...common
+  };
+  return { type: "agent-vigil/outcome-signal", decision, ...common };
+}
+function loadOutcomeJson(path) {
+  const raw = readFileSync25(path, "utf8");
+  if (Buffer.byteLength(raw) > 2 * 1024 * 1024) throw new Error("outcome JSON exceeds the 2 MiB limit");
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`outcome JSON is invalid: ${path}`);
+  }
+}
+
+// src/outcome-cli.ts
+function parse6(args, valueOptions, flagOptions = /* @__PURE__ */ new Set()) {
+  const positional2 = [];
+  const values = /* @__PURE__ */ new Map();
+  const flags = /* @__PURE__ */ new Set();
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (!arg.startsWith("--")) {
+      positional2.push(arg);
+      continue;
+    }
+    if (flagOptions.has(arg)) {
+      flags.add(arg);
+      continue;
+    }
+    if (!valueOptions.has(arg)) throw new Error(`unknown argument: ${arg}`);
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+    if (values.has(arg)) throw new Error(`${arg} may be supplied only once`);
+    values.set(arg, value);
+    index += 1;
+  }
+  return { positional: positional2, values, flags };
+}
+function required2(parsed, name2) {
+  const value = parsed.values.get(name2);
+  if (!value) throw new Error(`${name2} is required`);
+  return value;
+}
+function positiveInteger2(value, label, fallback) {
+  if (value === void 0) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${label} must be a positive integer`);
+  return parsed;
+}
+function positiveNumber(value, label) {
+  if (value === void 0) return void 0;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`${label} must be greater than zero`);
+  return parsed;
+}
+function csv(value) {
+  if (!value) return [];
+  const values = value.split(",").map((item2) => item2.trim()).filter(Boolean);
+  if (!values.length) throw new Error("comma-separated values must not be empty");
+  return values;
+}
+function adapter(value) {
+  const selected = value ?? "generic";
+  if (!(/* @__PURE__ */ new Set(["generic", "a2a", "ap2", "x402", "erc-8004", "vcap"])).has(selected)) throw new Error("--adapter must be generic, a2a, ap2, x402, erc-8004, or vcap");
+  return selected;
+}
+function writeJson(path, value) {
+  const json = `${JSON.stringify(value, null, 2)}
+`;
+  path ? writePrivateFileAtomic(resolve26(path), json) : console.log(json.trimEnd());
+}
+function printVerification(label, result5) {
+  console.log([`${label}: ${result5.valid ? "VALID" : "INVALID"}`, `Hash: ${result5.hashValid ? "valid" : "invalid"}`, `Signature: ${result5.signatureValid ? "valid" : "invalid"}`, `Key pinned: ${result5.keyPinned ? "yes" : "no"}`].join("\n"));
+  for (const line of [...result5.expired ? ["Expired: yes"] : [], ...result5.errors.map((error) => `- ${error}`)]) console.log(line);
+}
+function outcomeUsage() {
+  return `Outcome commands:
+  vigil mandate create --requester <id> --task-id <id> --task-class <name> --description <text> --base <sha> --head <sha> --expires <time> --requester-key <private.pem> --verifier-public-key <public.pem> --output <mandate.json> [options]
+  vigil mandate verify <mandate.json> [--requester-public-key <public.pem>] [--as-of <time>]
+  vigil mandate assess <mandate.json> --receipt <agent-vigil-receipt.json> --verifier-key <private.pem> --requester-public-key <public.pem> --output <outcome-receipt.json> --attempts <n> [--cost-usd <amount>] [--issued-at <time>]
+  vigil receipt verify <outcome-receipt.json> [--verifier-public-key <public.pem>] [--trusted-key-ids <sha256:...,...>]
+  vigil receipt signal <outcome-receipt.json> (--verifier-public-key <public.pem> | --trusted-key-ids <ids>) [--adapter generic|a2a|ap2|x402|erc-8004|vcap] [--output <signal.json>]
+
+Mandate options:
+  --provider <id>                  Optional provider-agent identity
+  --required-rules <id,id>        Rule IDs that must be independently verified
+  --min-verified <n>              Minimum meaningful verified claims (default: 1)
+  --require-signed-evidence       Require a signed Agent Vigil trust report
+  --evidence-key-ids <ids>        Trusted evidence signer key IDs
+  --max-attempts <n>              Maximum attempts recorded by the agreement (default: 3)
+  --max-budget-usd <amount>       Optional predeclared budget ceiling
+  --adapter <name>                Draft signal adapter; no network action (default: generic)
+  --settlement-ref <value>        External escrow, task, or payment reference
+
+All settlement output is signal-only, dry-run JSON. These commands never move money.`;
+}
+function runMandateCommand(args) {
+  try {
+    const command = args[0];
+    if (command === "create") {
+      const parsed = parse6(args.slice(1), /* @__PURE__ */ new Set([
+        "--requester",
+        "--provider",
+        "--task-id",
+        "--task-class",
+        "--description",
+        "--base",
+        "--head",
+        "--expires",
+        "--requester-key",
+        "--verifier-public-key",
+        "--required-rules",
+        "--min-verified",
+        "--evidence-key-ids",
+        "--max-attempts",
+        "--max-budget-usd",
+        "--adapter",
+        "--settlement-ref",
+        "--output",
+        "--created-at"
+      ]), /* @__PURE__ */ new Set(["--require-signed-evidence"]));
+      if (parsed.positional.length) throw new Error("mandate create does not accept positional arguments");
+      const verifierPublicKey = required2(parsed, "--verifier-public-key");
+      const mandate = createOutcomeMandate({
+        createdAt: parsed.values.get("--created-at"),
+        expiresAt: required2(parsed, "--expires"),
+        requesterId: required2(parsed, "--requester"),
+        providerId: parsed.values.get("--provider"),
+        taskId: required2(parsed, "--task-id"),
+        taskClass: required2(parsed, "--task-class"),
+        description: required2(parsed, "--description"),
+        base: required2(parsed, "--base"),
+        head: required2(parsed, "--head"),
+        minMeaningfulVerified: positiveInteger2(parsed.values.get("--min-verified"), "--min-verified", 1),
+        requiredRuleIds: csv(parsed.values.get("--required-rules")),
+        requireSignedEvidence: parsed.flags.has("--require-signed-evidence"),
+        trustedEvidenceSignerKeyIds: csv(parsed.values.get("--evidence-key-ids")),
+        maxAttempts: positiveInteger2(parsed.values.get("--max-attempts"), "--max-attempts", 3),
+        maxBudgetUsd: positiveNumber(parsed.values.get("--max-budget-usd"), "--max-budget-usd"),
+        verifierKeyIds: [publicKeyId(resolve26(verifierPublicKey))],
+        adapter: adapter(parsed.values.get("--adapter")),
+        settlementReference: parsed.values.get("--settlement-ref")
+      }, resolve26(required2(parsed, "--requester-key")));
+      writeJson(required2(parsed, "--output"), mandate);
+      console.log(`Outcome mandate created: ${mandate.mandateId}`);
+      console.log(`Trusted verifier: ${mandate.verifier.trustedKeyIds[0]}`);
+      console.log("Settlement mode: signal-only; no network action was performed.");
+      return 0;
+    }
+    if (command === "verify") {
+      const parsed = parse6(args.slice(1), /* @__PURE__ */ new Set(["--requester-public-key", "--as-of"]));
+      if (parsed.positional.length !== 1) throw new Error("mandate verify requires exactly one mandate JSON path");
+      const asOfValue = parsed.values.get("--as-of");
+      const asOf = asOfValue ? new Date(asOfValue) : /* @__PURE__ */ new Date();
+      if (!Number.isFinite(asOf.getTime())) throw new Error("--as-of must be an RFC3339-compatible timestamp");
+      const result5 = verifyOutcomeMandate(loadOutcomeJson(resolve26(parsed.positional[0])), parsed.values.get("--requester-public-key") ? resolve26(parsed.values.get("--requester-public-key")) : void 0, asOf);
+      printVerification("Outcome mandate", result5);
+      return result5.valid ? 0 : result5.expired ? 1 : 1;
+    }
+    if (command === "assess") {
+      const parsed = parse6(args.slice(1), /* @__PURE__ */ new Set(["--receipt", "--verifier-key", "--requester-public-key", "--issued-at", "--attempts", "--cost-usd", "--output"]));
+      if (parsed.positional.length !== 1) throw new Error("mandate assess requires exactly one mandate JSON path");
+      const report = loadOutcomeJson(resolve26(required2(parsed, "--receipt")));
+      const outcome = assessOutcome(
+        loadOutcomeJson(resolve26(parsed.positional[0])),
+        report,
+        resolve26(required2(parsed, "--verifier-key")),
+        {
+          requesterPublicKeyPath: resolve26(required2(parsed, "--requester-public-key")),
+          ...parsed.values.get("--issued-at") ? { issuedAt: parsed.values.get("--issued-at") } : {},
+          attempts: Number(required2(parsed, "--attempts")),
+          ...parsed.values.has("--cost-usd") ? { costUsd: Number(parsed.values.get("--cost-usd")) } : {}
+        }
+      );
+      writeJson(required2(parsed, "--output"), outcome);
+      console.log(`Outcome: ${outcome.verdict}`);
+      console.log(`Settlement signal: ${outcome.settlementSignal.action} (${outcome.settlementSignal.adapter}, dry run)`);
+      console.log(`Receipt: ${outcome.outcomeHash}`);
+      return outcome.verdict === "PASS" ? 0 : outcome.verdict === "FAIL" ? 1 : 2;
+    }
+    throw new Error(`unknown mandate command: ${command ?? "<missing>"}`);
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}
+
+${outcomeUsage()}`);
+    return 2;
+  }
+}
+function runOutcomeReceiptCommand(args) {
+  try {
+    const command = args[0];
+    if (command === "verify") {
+      const parsed = parse6(args.slice(1), /* @__PURE__ */ new Set(["--verifier-public-key", "--trusted-key-ids"]));
+      if (parsed.positional.length !== 1) throw new Error("receipt verify requires exactly one outcome receipt JSON path");
+      const input = loadOutcomeJson(resolve26(parsed.positional[0]));
+      const result5 = verifyOutcomeReceipt(
+        input,
+        parsed.values.get("--verifier-public-key") ? resolve26(parsed.values.get("--verifier-public-key")) : void 0,
+        csv(parsed.values.get("--trusted-key-ids"))
+      );
+      printVerification("Outcome receipt", result5);
+      if (!result5.valid) return 1;
+      console.log(`Verdict: ${input.verdict}`);
+      console.log(`Signal: ${input.settlementSignal.action} (${input.settlementSignal.adapter}, dry run)`);
+      return input.verdict === "PASS" ? 0 : input.verdict === "FAIL" ? 1 : 2;
+    }
+    if (command === "signal") {
+      const parsed = parse6(args.slice(1), /* @__PURE__ */ new Set(["--adapter", "--output", "--verifier-public-key", "--trusted-key-ids"]));
+      if (parsed.positional.length !== 1) throw new Error("receipt signal requires exactly one outcome receipt JSON path");
+      const verifierPublicKey = parsed.values.get("--verifier-public-key");
+      const trustedKeyIds = csv(parsed.values.get("--trusted-key-ids"));
+      if (!verifierPublicKey && !trustedKeyIds.length) throw new Error("receipt signal requires --verifier-public-key or --trusted-key-ids");
+      const signal = buildSettlementAdapterPayload(
+        loadOutcomeJson(resolve26(parsed.positional[0])),
+        parsed.values.get("--adapter") ? adapter(parsed.values.get("--adapter")) : void 0,
+        { ...verifierPublicKey ? { verifierPublicKeyPath: resolve26(verifierPublicKey) } : {}, ...trustedKeyIds.length ? { trustedKeyIds } : {} }
+      );
+      writeJson(parsed.values.get("--output"), signal);
+      if (parsed.values.get("--output")) console.log(`Draft signal written to ${resolve26(parsed.values.get("--output"))}. No network action was performed.`);
+      return 0;
+    }
+    throw new Error(`unknown receipt command: ${command ?? "<missing>"}`);
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}
+
+${outcomeUsage()}`);
+    return 2;
+  }
+}
+
 // src/cli.ts
 function usage4() {
   return `agent-vigil ${VERSION}
@@ -13088,6 +13758,8 @@ Usage:
   vigil init --profile maintainer [--repo <path>] [--force] [--attest]
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
+  vigil mandate <create|verify|assess> ...
+  vigil receipt <verify|signal> ...
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil certify record <control-proof.json> --organization <name> --repository <owner/name> --required-check <name> --output <path>
   vigil certify sign <proof-payload.json> --private-key <pem> --output <path>
@@ -13107,6 +13779,8 @@ Usage:
   vigil attest-control <control-proof.json> --predicate-output <path>
   vigil verify-control-attestation <control-proof.json> --repository <owner/name> [--signer-workflow <path>] [--signer-digest <sha>] [--allow-self-hosted]
   vigil notary <receipt.json> --repository <owner/name> --head <sha> --policy-sha256 <digest> [--signer-workflow <path>] [--allow-self-hosted] [--output <path>]
+
+${outcomeUsage()}
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
   vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
@@ -13171,7 +13845,7 @@ function runProve(args) {
         index += 1;
       }
     }
-    const repo = resolve26(optionValue(args, "--repo") ?? ".");
+    const repo = resolve27(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_SHA ?? "HEAD";
     if (!existsSync12(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef)) throw new Error(`invalid Git commit ${baseRef}`);
@@ -13179,7 +13853,7 @@ function runProve(args) {
     if (!(/* @__PURE__ */ new Set(["text", "json"])).has(format)) throw new Error("prove --format must be text or json");
     const report = buildControlProof(repo, baseRef, VERSION);
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve26(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderControlProof(report));
     return report.status === "PASS" ? 0 : 2;
@@ -13211,9 +13885,9 @@ function runCertify(args) {
       const requiredCheck = parsed.values.get("--required-check");
       const output = parsed.values.get("--output");
       if (!organization || !repository2 || !requiredCheck || !output) throw new Error("certify record requires --organization, --repository, --required-check, and --output");
-      const proof = readBoundedJson(resolve26(parsed.positional[0]), 2 * 1024 * 1024, "control proof");
+      const proof = readBoundedJson(resolve27(parsed.positional[0]), 2 * 1024 * 1024, "control proof");
       const certificate = createCertificate({ proof, organization, repository: repository2, requiredCheck });
-      writePrivateFileAtomic(resolve26(output), `${JSON.stringify(certificate, null, 2)}
+      writePrivateFileAtomic(resolve27(output), `${JSON.stringify(certificate, null, 2)}
 `);
       console.log(`Control certificate: ${certificate.proof.status} \xB7 ${certificate.certificateHash}`);
       return certificate.proof.status === "PASS" ? 0 : 2;
@@ -13223,8 +13897,8 @@ function runCertify(args) {
       const privateKey = parsed.values.get("--private-key");
       const output = parsed.values.get("--output");
       if (parsed.positional.length !== 1 || !privateKey || !output) throw new Error("certify sign requires <proof-payload.json> --private-key <pem> --output <path>");
-      const proof = signControlProof(readBoundedJson(resolve26(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve26(privateKey));
-      writePrivateFileAtomic(resolve26(output), `${JSON.stringify(proof, null, 2)}
+      const proof = signControlProof(readBoundedJson(resolve27(parsed.positional[0]), 2 * 1024 * 1024, "signed proof payload"), resolve27(privateKey));
+      writePrivateFileAtomic(resolve27(output), `${JSON.stringify(proof, null, 2)}
 `);
       console.log(`Signed control proof: ${proof.payload.status}`);
       console.log(`Control identity: ${signedControlIdentity(proof)}`);
@@ -13239,13 +13913,13 @@ function runCertify(args) {
       const output = parsed.values.get("--output");
       if (parsed.positional.length !== 1 || !publicKeyPath || !organization || !repository2 || !requiredCheck || !output) throw new Error("certify record-signed requires <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>");
       const certificate = createSignedCertificate({
-        proof: readBoundedJson(resolve26(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
-        publicKeyPath: resolve26(publicKeyPath),
+        proof: readBoundedJson(resolve27(parsed.positional[0]), 2 * 1024 * 1024, "signed control proof"),
+        publicKeyPath: resolve27(publicKeyPath),
         organization,
         repository: repository2,
         requiredCheck
       });
-      writePrivateFileAtomic(resolve26(output), `${JSON.stringify(certificate, null, 2)}
+      writePrivateFileAtomic(resolve27(output), `${JSON.stringify(certificate, null, 2)}
 `);
       console.log(`Signed control certificate: ${certificate.proof.payload.status} \xB7 ${certificate.certificateHash}`);
       console.log(`Control identity: ${signedControlIdentity(certificate.proof)}`);
@@ -13255,8 +13929,8 @@ function runCertify(args) {
       const parsed = parseCommandArgs(args.slice(1), /* @__PURE__ */ new Set(["--corpus"]));
       const corpus = parsed.values.get("--corpus");
       if (parsed.positional.length !== 1 || !corpus) throw new Error("certify add requires <certificate.json> --corpus <corpus.jsonl>");
-      const certificate = validateAnyCertificate(readBoundedJson(resolve26(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
-      const corpusPath = resolve26(corpus);
+      const certificate = validateAnyCertificate(readBoundedJson(resolve27(parsed.positional[0]), 2 * 1024 * 1024, "control certificate"));
+      const corpusPath = resolve27(corpus);
       const current = loadCorpus(corpusPath).map((entry2) => JSON.stringify(entry2)).join("\n");
       const { entry, line } = appendCorpusEntry(current, certificate);
       appendPrivateFileAtomic(corpusPath, line);
@@ -13270,12 +13944,12 @@ function runCertify(args) {
       if (!corpus || !policy || parsed.positional.length) throw new Error("certify status requires --corpus <corpus.jsonl> --policy <policy.json>");
       const format = parsed.values.get("--format") ?? "text";
       if (format !== "text" && format !== "json") throw new Error("certify status --format must be text or json");
-      const report = buildStatusReport(loadPolicy2(resolve26(policy)), loadCorpus(resolve26(corpus)), parsed.values.get("--as-of") ?? (/* @__PURE__ */ new Date()).toISOString());
+      const report = buildStatusReport(loadPolicy2(resolve27(policy)), loadCorpus(resolve27(corpus)), parsed.values.get("--as-of") ?? (/* @__PURE__ */ new Date()).toISOString());
       const rendered = format === "json" ? `${JSON.stringify(report, null, 2)}
 ` : `${renderStatusReport(report)}
 `;
       const output = parsed.values.get("--output");
-      if (output) writePrivateFileAtomic(resolve26(output), `${JSON.stringify(report, null, 2)}
+      if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(report, null, 2)}
 `);
       process.stdout.write(rendered);
       return report.status === "PASS" ? 0 : 2;
@@ -13292,7 +13966,7 @@ function runCertify(args) {
       const maxAgeRaw = parsed.values.get("--max-age-hours");
       const maxAgeHours = maxAgeRaw === void 0 ? void 0 : Number(maxAgeRaw);
       const generated = createSingleRepositoryPolicy({ organization, repository: repository2, requiredCheck, pack, ...maxAgeHours === void 0 ? {} : { maxAgeHours } });
-      writePrivateFileAtomic(resolve26(output), `${JSON.stringify(generated, null, 2)}
+      writePrivateFileAtomic(resolve27(output), `${JSON.stringify(generated, null, 2)}
 `);
       console.log(`Created ${pack} control policy with a ${generated.maxAgeHours}-hour proof window.`);
       return 0;
@@ -13315,7 +13989,7 @@ function runPlan(args) {
         index += 1;
       }
     }
-    const repo = resolve26(optionValue(args, "--repo") ?? ".");
+    const repo = resolve27(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_BASE_SHA ?? "HEAD~1";
     const headRef = optionValue(args, "--head") ?? process.env.GITHUB_HEAD_SHA ?? "HEAD";
     if (!existsSync12(repo)) throw new Error(`repository not found: ${repo}`);
@@ -13331,13 +14005,13 @@ function runPlan(args) {
 ` : format === "markdown" ? renderAuthorityPlanMarkdown(report) : `${renderAuthorityPlan(report)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve26(output), `${JSON.stringify(report, null, 2)}
+    if (output) writePrivateFileAtomic(resolve27(output), `${JSON.stringify(report, null, 2)}
 `);
     else process.stdout.write(rendered);
     if (args.includes("--github-summary")) {
       const summaryPath = process.env.GITHUB_STEP_SUMMARY;
       if (!summaryPath) throw new Error("--github-summary requires GITHUB_STEP_SUMMARY");
-      appendPrivateFileAtomic(resolve26(summaryPath), renderAuthorityPlanMarkdown(report));
+      appendPrivateFileAtomic(resolve27(summaryPath), renderAuthorityPlanMarkdown(report));
     }
     return report.status === "PASS" ? 0 : report.status === "BLOCK" ? 1 : 2;
   } catch (error) {
@@ -13349,10 +14023,10 @@ function runProofComment(args) {
   try {
     const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--verify-url", "--output"]));
     if (parsed.positional.length !== 1) throw new Error("proof-comment requires exactly one full receipt JSON path");
-    const { report } = loadReceipt(resolve26(parsed.positional[0]));
+    const { report } = loadReceipt(resolve27(parsed.positional[0]));
     const rendered = renderProofComment(report, { verifyUrl: parsed.values.get("--verify-url") });
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve26(output), rendered);
+    if (output) writePrivateFileAtomic(resolve27(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -13420,7 +14094,7 @@ function optionValue(args, name2) {
 }
 function runInit3(args) {
   try {
-    const repo = resolve26(optionValue(args, "--repo") ?? ".");
+    const repo = resolve27(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
     const profile = optionValue(args, "--profile") ?? "default";
@@ -13429,7 +14103,7 @@ function runInit3(args) {
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve26(publicKey)) : void 0, profile, attest);
+    const result5 = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve27(publicKey)) : void 0, profile, attest);
     console.log("Agent Vigil initialized.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
     for (const path of result5.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -13451,7 +14125,7 @@ function runProtect(args) {
       if (!allowed2.has(arg)) throw new Error(`unknown protect argument: ${arg}`);
       if (arg === "--repo") index += 1;
     }
-    const repo = resolve26(optionValue(args, "--repo") ?? ".");
+    const repo = resolve27(optionValue(args, "--repo") ?? ".");
     const result5 = initRepository(repo, args.includes("--force"), void 0, "protect", args.includes("--attest"));
     console.log("Agent Vigil protection installed.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
@@ -13461,7 +14135,7 @@ function runProtect(args) {
 ${renderDoctor(checks)}
 `);
     console.log("Next: review the discovered commands and limits in .agent-vigil.json, commit the setup, push one pull request, then require the Agent Vigil evidence check.");
-    return checks.some((check) => check.status === "FAIL") ? 2 : 0;
+    return checks.some((check2) => check2.status === "FAIL") ? 2 : 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -13483,8 +14157,8 @@ function runMaintainer(args) {
     const eventOption = optionValue(args, "--event");
     if (!eventOption) throw new Error("maintainer requires --event <pull_request event JSON>");
     const options = parseArgs(withoutOption(args.slice(1), "--event"));
-    const repo = resolve26(options.repo);
-    const eventPath = resolve26(eventOption);
+    const repo = resolve27(options.repo);
+    const eventPath = resolve27(eventOption);
     const policy = loadPolicy(repo, options.policy, options.policyRef);
     if (!policy.value.maintainer) throw new Error("base policy does not contain a maintainer profile");
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -13507,8 +14181,8 @@ function runMaintainer(args) {
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
-    const rawEvent = readFileSync25(eventPath);
-    const eventHash = `sha256:${createHash23("sha256").update(rawEvent).digest("hex")}`;
+    const rawEvent = readFileSync26(eventPath);
+    const eventHash = `sha256:${createHash24("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative14(repo, policy.path) : void 0;
     const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git9(repo, ["rev-parse", `${head}^{tree}`]);
@@ -13570,10 +14244,10 @@ function runMergeGroup(args) {
 }
 function runDoctor2(args) {
   try {
-    const repo = resolve26(optionValue(args, "--repo") ?? ".");
+    const repo = resolve27(optionValue(args, "--repo") ?? ".");
     const checks = doctorRepository(repo, optionValue(args, "--policy"), optionValue(args, "--transcript"));
     console.log(renderDoctor(checks));
-    return checks.some((check) => check.status === "FAIL") ? 2 : 0;
+    return checks.some((check2) => check2.status === "FAIL") ? 2 : 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -13584,9 +14258,9 @@ function runKeygen(args) {
     const privatePath = optionValue(args, "--private");
     const publicPath = optionValue(args, "--public");
     if (!privatePath || !publicPath) throw new Error("keygen requires --private and --public paths");
-    generateSigningKey(resolve26(privatePath), resolve26(publicPath));
+    generateSigningKey(resolve27(privatePath), resolve27(publicPath));
     console.log(`Created Ed25519 private key ${privatePath} and public key ${publicPath}. Keep the private key out of Git.`);
-    console.log(`Signer key ID: ${publicKeyId(resolve26(publicPath))}`);
+    console.log(`Signer key ID: ${publicKeyId(resolve27(publicPath))}`);
     return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
@@ -13604,10 +14278,10 @@ function runGate(args) {
     const options = parseArgs(args.slice(1));
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
-    const absoluteReceipt = resolve26(options.repo, receiptPath);
-    const receipt = JSON.parse(readFileSync25(absoluteReceipt, "utf8"));
+    const absoluteReceipt = resolve27(options.repo, receiptPath);
+    const receipt = JSON.parse(readFileSync26(absoluteReceipt, "utf8"));
     const report = buildPortableGateReport(receipt, {
-      repo: resolve26(options.repo),
+      repo: resolve27(options.repo),
       receiptPath: absoluteReceipt,
       base: options.base,
       head: options.head,
@@ -13626,10 +14300,10 @@ function runVerify3(args) {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync25(resolve26(receiptPath), "utf8"));
+    const report = JSON.parse(readFileSync26(resolve27(receiptPath), "utf8"));
     if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
     const publicKey = optionValue(args, "--public-key");
-    const result5 = verifyReport(report, publicKey ? resolve26(publicKey) : void 0);
+    const result5 = verifyReport(report, publicKey ? resolve27(publicKey) : void 0);
     console.log(`Receipt hash: ${result5.hashValid ? "VALID" : "INVALID"}`);
     if (result5.signatureValid !== void 0) {
       console.log(`Ed25519 signature: ${result5.signatureValid ? "VALID" : "INVALID"} \xB7 ${result5.keyPinned ? "pinned public key" : "embedded self-asserted key"}`);
@@ -13673,7 +14347,7 @@ function runAttest(args) {
     const predicateOutput = parsed.values.get("--predicate-output");
     if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest requires <receipt.json> and --predicate-output <path>");
     const receiptPath = parsed.positional[0];
-    const predicate = writeAttestationPredicate(resolve26(receiptPath), resolve26(predicateOutput));
+    const predicate = writeAttestationPredicate(resolve27(receiptPath), resolve27(predicateOutput));
     console.log("Agent Vigil attestation predicate prepared.");
     console.log(`  receipt:  ${predicate.receipt.receiptHash}`);
     console.log(`  decision: ${predicate.receipt.status}`);
@@ -13694,8 +14368,8 @@ function runVerifyAttestation(args) {
     if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-attestation requires <receipt.json> and --repository <owner/name>");
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve26(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const { report } = loadReceipt(resolve26(receiptPath));
+    const verification2 = verifyGitHubAttestation(resolve27(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const { report } = loadReceipt(resolve27(receiptPath));
     console.log(`GitHub attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
     console.log(`Receipt file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
     console.log(`Receipt contents: ${verification2.receiptHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
@@ -13715,7 +14389,7 @@ function runAttestControl(args) {
     const predicateOutput = parsed.values.get("--predicate-output");
     if (parsed.positional.length !== 1 || !predicateOutput) throw new Error("attest-control requires <control-proof.json> and --predicate-output <path>");
     const proofPath = parsed.positional[0];
-    const predicate = writeControlProofPredicate(resolve26(proofPath), resolve26(predicateOutput));
+    const predicate = writeControlProofPredicate(resolve27(proofPath), resolve27(predicateOutput));
     console.log("Agent Vigil control-proof attestation predicate prepared.");
     console.log(`  proof:    ${predicate.proof.receiptHash}`);
     console.log(`  decision: ${predicate.proof.status}`);
@@ -13736,12 +14410,12 @@ function runVerifyControlAttestation(args) {
     if (parsed.positional.length !== 1 || !repository2) throw new Error("verify-control-attestation requires <control-proof.json> and --repository <owner/name>");
     const proofPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil-control-proof.yml`;
-    const verification2 = verifyGitHubControlProofAttestation(resolve26(proofPath), repository2, {
+    const verification2 = verifyGitHubControlProofAttestation(resolve27(proofPath), repository2, {
       signerWorkflow,
       ...parsed.values.get("--signer-digest") ? { signerDigest: parsed.values.get("--signer-digest") } : {},
       allowSelfHosted: parsed.flags.has("--allow-self-hosted")
     });
-    const { proof } = loadControlProof(resolve26(proofPath));
+    const { proof } = loadControlProof(resolve27(proofPath));
     console.log(`GitHub control-proof attestation: ${verification2.valid ? "VALID" : "INVALID"}`);
     console.log(`Proof file: ${verification2.subjectDigestValid ? "VALID" : "INVALID"}`);
     console.log(`Proof contents: ${verification2.proofHashValid && verification2.predicateValid ? "VALID" : "INVALID"}`);
@@ -13768,12 +14442,12 @@ function runNotary(args) {
     }
     const receiptPath = parsed.positional[0];
     const signerWorkflow = parsed.values.get("--signer-workflow") ?? `${repository2}/.github/workflows/agent-vigil.yml`;
-    const verification2 = verifyGitHubAttestation(resolve26(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
-    const payload = buildNotaryCheck(resolve26(receiptPath), verification2, head, policySha256);
+    const verification2 = verifyGitHubAttestation(resolve27(receiptPath), repository2, { signerWorkflow, allowSelfHosted: parsed.flags.has("--allow-self-hosted") });
+    const payload = buildNotaryCheck(resolve27(receiptPath), verification2, head, policySha256);
     const rendered = `${JSON.stringify(payload, null, 2)}
 `;
     const output = parsed.values.get("--output");
-    if (output) writePrivateFileAtomic(resolve26(output), rendered);
+    if (output) writePrivateFileAtomic(resolve27(output), rendered);
     else process.stdout.write(rendered);
     return payload.conclusion === "success" ? 0 : payload.conclusion === "failure" ? 1 : 2;
   } catch (error) {
@@ -13787,15 +14461,15 @@ function runCompare(args) {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync25(resolve26(values[0]), "utf8"));
-    const after = JSON.parse(readFileSync25(resolve26(values[1]), "utf8"));
+    const before = JSON.parse(readFileSync26(resolve27(values[0]), "utf8"));
+    const after = JSON.parse(readFileSync26(resolve27(values[1]), "utf8"));
     if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}
 ` : `${renderReceiptDelta(delta)}
 `;
     const output = optionValue(args, "--output");
-    if (output) writePrivateFileAtomic(resolve26(output), rendered);
+    if (output) writePrivateFileAtomic(resolve27(output), rendered);
     else process.stdout.write(rendered);
     return delta.status === "PASS" ? 0 : delta.status === "FAIL" ? 1 : 2;
   } catch (error) {
@@ -13882,26 +14556,26 @@ function parseValueArgs(args) {
 function readBoundedFile(path, maximumBytes, label) {
   const size = statSync10(path).size;
   if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
-  return readFileSync25(path);
+  return readFileSync26(path);
 }
 function runValue(args) {
   try {
     const options = parseValueArgs(args);
-    const receiptPath = resolve26(options.receipt);
+    const receiptPath = resolve27(options.receipt);
     const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
     const report = JSON.parse(rawReceipt.toString("utf8"));
     if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
       throw new Error("value requires a full Agent Vigil receipt schema 2");
     }
-    const verification2 = verifyReport(report, options.publicKey ? resolve26(options.publicKey) : void 0);
+    const verification2 = verifyReport(report, options.publicKey ? resolve27(options.publicKey) : void 0);
     if (!verification2.hashValid) throw new Error("value receipt hash is invalid");
     if (verification2.signatureValid === false) throw new Error("value receipt signature is invalid");
     let transcriptPath;
-    if (options.transcript) transcriptPath = resolve26(options.transcript);
+    if (options.transcript) transcriptPath = resolve27(options.transcript);
     else if ((/* @__PURE__ */ new Set(["codex", "claude-code", "authority/codex", "authority/claude-code"])).has(report.transcriptFormat)) {
       const candidates = [
-        resolve26(dirname12(receiptPath), report.transcript),
-        ...isAbsolute11(report.repo) ? [resolve26(report.repo, report.transcript)] : []
+        resolve27(dirname12(receiptPath), report.transcript),
+        ...isAbsolute11(report.repo) ? [resolve27(report.repo, report.transcript)] : []
       ];
       transcriptPath = candidates.find((candidate) => existsSync12(candidate));
     }
@@ -13912,11 +14586,11 @@ function runValue(args) {
     }
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
-      const evidence = readBoundedFile(resolve26(path), 64 * 1024 * 1024, label);
-      return `sha256:${createHash23("sha256").update(evidence).digest("hex")}`;
+      const evidence = readBoundedFile(resolve27(path), 64 * 1024 * 1024, label);
+      return `sha256:${createHash24("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
-    const github = options.githubEvidence ? loadGitHubEvidence(resolve26(options.githubEvidence)) : void 0;
+    const github = options.githubEvidence ? loadGitHubEvidence(resolve27(options.githubEvidence)) : void 0;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;
     const inferredOutcome = options.outcome ?? github?.inference.outcome;
     const inferredOutcomeAsOf = options.outcomeAsOf ?? github?.inference.outcomeAsOf;
@@ -13958,7 +14632,7 @@ function runValue(args) {
     });
     const rendered = options.format === "json" ? `${JSON.stringify(card, null, 2)}
 ` : options.format === "markdown" ? renderValueCardMarkdown(card) : options.format === "html" ? renderValueCardHtml(card) : renderValueCardText(card);
-    if (options.output) writePrivateFileAtomic(resolve26(options.output), rendered);
+    if (options.output) writePrivateFileAtomic(resolve27(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
   } catch (error) {
@@ -13999,7 +14673,7 @@ function runGitHubEvidence(args) {
     const bundle = buildGitHubEvidence(inputs);
     const rendered = `${JSON.stringify(bundle, null, 2)}
 `;
-    if (output) writePrivateFileAtomic(resolve26(output), rendered);
+    if (output) writePrivateFileAtomic(resolve27(output), rendered);
     else process.stdout.write(rendered);
     return 0;
   } catch (error) {
@@ -14029,7 +14703,7 @@ function runCompareValue(args) {
     const comparison = compareValueCards(cards, paths.length);
     const rendered = format === "json" ? `${JSON.stringify(comparison, null, 2)}
 ` : format === "html" ? renderValueComparisonHtml(comparison) : renderValueComparisonText(comparison);
-    if (output) writePrivateFileAtomic(resolve26(output), rendered);
+    if (output) writePrivateFileAtomic(resolve27(output), rendered);
     else process.stdout.write(rendered);
     return comparison.status === "COMPARABLE" ? 0 : 2;
   } catch (error) {
@@ -14042,11 +14716,11 @@ function runAudit(args) {
     const options = parseArgs(args.slice(1));
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
-    const absolute = resolve26(diffPath);
-    const raw = readFileSync25(absolute);
+    const absolute = resolve27(diffPath);
+    const raw = readFileSync26(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest7 = `sha256:${createHash23("sha256").update(raw).digest("hex")}`;
+    const digest8 = `sha256:${createHash24("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -14058,14 +14732,14 @@ function runAudit(args) {
     }
     const report = buildReport({
       transcript: relative14(process.cwd(), absolute) || absolute,
-      transcriptSha256: digest7,
+      transcriptSha256: digest8,
       transcriptFormat: "unified-git-diff",
       repo: "static-diff-audit",
       base: "unavailable",
-      head: digest7,
+      head: digest8,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash23("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash24("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -14079,7 +14753,7 @@ function runAudit(args) {
 function runTestIntegrity(args) {
   try {
     const options = parseArgs(args.slice(1));
-    const repo = resolve26(options.repo);
+    const repo = resolve27(options.repo);
     if (!gitRefExists(repo, options.base) || options.head !== "WORKTREE" && !gitRefExists(repo, options.head)) {
       throw new Error(`invalid git range ${options.base}..${options.head}`);
     }
@@ -14096,16 +14770,16 @@ function runTestIntegrity(args) {
         contributesToPass: true
       });
     }
-    for (const check of integrity.results) {
-      if (check.ruleId === "integrity-scan" && check.verdict === "verified") check.contributesToPass = true;
+    for (const check2 of integrity.results) {
+      if (check2.ruleId === "integrity-scan" && check2.verdict === "verified") check2.contributesToPass = true;
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
     const diff = execFileSync19("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    const digest7 = `sha256:${createHash23("sha256").update(diff).digest("hex")}`;
+    const digest8 = `sha256:${createHash24("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
       transcript: `${base}..${head}`,
-      transcriptSha256: digest7,
+      transcriptSha256: digest8,
       transcriptFormat: "test-integrity-diff",
       repo,
       base,
@@ -14116,7 +14790,7 @@ function runTestIntegrity(args) {
         minVerified: 1,
         strict: true,
         source: policyName,
-        sha256: `sha256:${createHash23("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
+        sha256: `sha256:${createHash24("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
       },
       repository: {
         ...git9(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git9(repo, ["config", "--get", "remote.origin.url"]) } : {},
@@ -14138,7 +14812,7 @@ function runAuthority(args) {
       const output = optionValue(args, "--output");
       const rendered = authorityContractTemplate();
       if (output) {
-        writePrivateFileAtomic(resolve26(output), rendered);
+        writePrivateFileAtomic(resolve27(output), rendered);
         console.log(`Created task-scoped authority contract ${output}. Review every allowed action and replace the task ID before use.`);
       } else process.stdout.write(rendered);
       return 0;
@@ -14151,11 +14825,11 @@ function runAuthority(args) {
     const options = parseArgs(stripped);
     const transcriptOption = options.transcript;
     if (!transcriptOption) throw new Error("authority requires a structured agent transcript");
-    const repo = resolve26(options.repo);
+    const repo = resolve27(options.repo);
     if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) throw new Error(`invalid git range ${options.base}..${options.head}`);
     const base = resolveGitRef(repo, options.base);
     const head = resolveGitRef(repo, options.head);
-    const transcriptPath = isAbsolute11(transcriptOption) ? transcriptOption : resolve26(repo, transcriptOption);
+    const transcriptPath = isAbsolute11(transcriptOption) ? transcriptOption : resolve27(repo, transcriptOption);
     if (!existsSync12(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
     const contract = loadAuthorityContract(repo, contractOption, contractRef);
     const loaded = loadTranscript(transcriptPath);
@@ -14200,7 +14874,7 @@ function runAuthority(args) {
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve26(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve27(options.signingKey));
     writeOutputs(report, options);
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;
@@ -14232,6 +14906,8 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "init") return runInit3(argv);
   if (argv[0] === "doctor") return runDoctor2(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
+  if (argv[0] === "mandate") return runMandateCommand(argv.slice(1));
+  if (argv[0] === "receipt") return runOutcomeReceiptCommand(argv.slice(1));
   if (argv[0] === "verify") return runVerify3(argv);
   if (argv[0] === "attest") return runAttest(argv);
   if (argv[0] === "verify-attestation") return runVerifyAttestation(argv);
@@ -14264,7 +14940,7 @@ function run(argv = process.argv.slice(2)) {
 ${usage4()}`);
     return 2;
   }
-  const repo = resolve26(options.repo);
+  const repo = resolve27(options.repo);
   if (options.portableOutput && !options.signingKey) {
     console.error("agent-vigil: --portable-output requires --signing-key");
     return 2;
@@ -14281,7 +14957,7 @@ ${usage4()}`);
     console.error(usage4());
     return 2;
   }
-  const transcriptPath = isAbsolute11(transcript) ? transcript : resolve26(repo, transcript);
+  const transcriptPath = isAbsolute11(transcript) ? transcript : resolve27(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
@@ -14308,8 +14984,8 @@ ${usage4()}`);
     const workspaceInputs = [
       transcriptPath,
       ...policy.path ? [policy.path] : [],
-      ...options.signingKey ? [resolve26(options.signingKey)] : [],
-      ...options.portableOutput ? [resolve26(repo, options.portableOutput)] : []
+      ...options.signingKey ? [resolve27(options.signingKey)] : [],
+      ...options.portableOutput ? [resolve27(repo, options.portableOutput)] : []
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
     results.push(...checkTestsPass(claims, repo, testCmd));
@@ -14359,11 +15035,11 @@ ${usage4()}`);
       repository: { ...remote ? { remote } : {}, ...tree ? { tree } : {} },
       reproduction
     });
-    if (options.signingKey) report = signReport(report, resolve26(options.signingKey));
+    if (options.signingKey) report = signReport(report, resolve27(options.signingKey));
     writeOutputs(report, options);
     if (options.portableOutput) {
-      const portable = createPortableReceipt(report, resolve26(options.signingKey));
-      const portablePath = resolve26(repo, options.portableOutput);
+      const portable = createPortableReceipt(report, resolve27(options.signingKey));
+      const portablePath = resolve27(repo, options.portableOutput);
       mkdirSync9(dirname12(portablePath), { recursive: true });
       writeFileSync8(portablePath, `${JSON.stringify(portable, null, 2)}
 `);
