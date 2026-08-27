@@ -411,10 +411,24 @@ test("local candidate commands use the checkpoint PATH without inheriting verifi
 
 test("local candidate commands use the native Windows command processor", { skip: process.platform !== "win32" }, () => {
   const repo = temp("vigil-windows-command-");
+  const started = Date.now();
   const checks = checkTestsPass([
     { kind: "tests_pass", quote: "the Windows local command passed", subject: "Windows local shell" },
-  ], repo, 'node -e "console.log(\'# tests 1\\n# pass 1\\n# fail 0\')"');
+  ], repo, 'node -e "setTimeout(()=>console.log(\'# tests 1\\n# pass 1\\n# fail 0\'),250)"');
   assert.equal(checks[0]?.verdict, "verified");
+  assert.ok(Date.now() - started >= 200, "the Windows wrapper must await the candidate console process");
+
+  const failed = checkTestsPass([
+    { kind: "tests_pass", quote: "the Windows local command failed", subject: "Windows local shell" },
+  ], repo, 'node -e "setTimeout(()=>process.exit(7),250)"');
+  assert.equal(failed[0]?.verdict, "contradicted");
+  assert.match(failed[0]?.evidence ?? "", /exited 7/);
+});
+
+test("candidate wrapper detaches only where POSIX process-group termination requires it", () => {
+  const source = readFileSync(new URL("../src/candidate-command.ts", import.meta.url), "utf8");
+  assert.match(source, /detached:\s*!windows/);
+  assert.doesNotMatch(source, /detached:\s*true/);
 });
 
 test("Action candidate isolation uses a private digest-pinned container with minimal authority and deterministic cleanup", { skip: process.platform === "win32" }, () => {

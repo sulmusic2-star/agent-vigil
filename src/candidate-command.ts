@@ -29,7 +29,10 @@ const shellArgs = windows ? ["/d", "/s", "/c", command] : ["-c", "unset PWD\n" +
 // JavaScript stream re-piping can drop the final test summary on Windows.
 const child = spawn(shell, shellArgs, {
   env: process.env,
-  detached: true,
+  // POSIX needs a detached process group for the negative-PID kill below.
+  // On Windows, taskkill /T already terminates the process tree; detaching cmd
+  // lets it return before the candidate console program has actually exited.
+  detached: !windows,
   stdio: ["ignore", "pipe", "pipe"],
 });
 const captureLimit = ${MAX_WRAPPER_CAPTURE_BYTES};

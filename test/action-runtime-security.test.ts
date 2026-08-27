@@ -531,7 +531,13 @@ test("real isolated Action hides runner controls from candidate code", {
   assert.match(failingOutputs, /^status=FAIL$/m);
   const failingReport = failingOutputs.match(/^report=(.+)$/m)?.[1];
   assert.ok(failingReport, "Action emits its private failing report");
-  assert.match(readFileSync(failingReport, "utf8"), /candidate-legacy-failure/);
+  const failingReportText = readFileSync(failingReport, "utf8");
+  assert.doesNotMatch(failingReportText, /candidate-(?:legacy|modern)-failure/);
+  const failingChecks = (JSON.parse(failingReportText) as {
+    results: Array<{ evidence?: string; ruleId?: string; verdict?: string }>;
+  }).results;
+  assert.ok(failingChecks.some((check) => check.ruleId === "tests-pass"
+    && check.verdict === "contradicted" && /exited 1/.test(check.evidence ?? "")));
   assert.equal(readFileSync(eventPath, "utf8"), failingEventBody, "failing candidate cannot alter the trusted event source");
   assert.deepEqual(candidateContainersForRunner(runner), [], "failing Action leaves no candidate container behind");
 
