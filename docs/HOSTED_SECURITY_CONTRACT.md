@@ -29,6 +29,8 @@ The generated evidence workflow:
 
 - is selected from the base branch through `pull_request_target`;
 - accepts only an open pull-request event with exact full base and head commits;
+- selects exact Node.js `22.23.2` with the commit-pinned `setup-node` Action
+  before candidate files are checked out;
 - checks out the event head with `persist-credentials: false`;
 - gives the candidate job read-only metadata permissions and passes no GitHub
   token, OIDC authority, attestation authority, or write permission to Agent
@@ -39,6 +41,41 @@ The generated evidence workflow:
   or dirty workspace state; and
 - runs repository-controlled setup and tests only on a GitHub-hosted Linux
   runner through the fixed candidate-only Docker path.
+
+The composite Action accepts no ambient or system Node fallback. It admits only
+the canonical `setup-node` toolcache path for Node.js `22.23.2`, verifies the
+reviewed platform-specific SHA-256 before copying it, changes the private copy
+to mode `0500`, and verifies its digest and byte identity again before the first
+Node invocation. A missing, moved, differently versioned, or digest-mismatched
+runtime blocks the Action. Updating Node therefore requires a reviewed workflow
+pin and reviewed binary digests, not a floating `22` selector.
+
+The v0.21.0 runtime bindings were derived from the official Node.js v22.23.2
+release archives after each archive matched the release
+[`SHASUMS256.txt`](https://nodejs.org/download/release/v22.23.2/SHASUMS256.txt):
+
+| Hosted runtime | Official archive SHA-256 | Extracted `bin/node` SHA-256 |
+| --- | --- | --- |
+| Linux x64 (`node-v22.23.2-linux-x64.tar.xz`) | `d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307` | `3517c2df0b2f8cd7f422b4b8450ef81c6889f08eb03e281d6de9079b15e6a327` |
+| macOS x64 (`node-v22.23.2-darwin-x64.tar.gz`) | `58e99022c2ff89395576cc7fd4d98cea24bb68081475d5f88b801ee8729fb026` | `0b4f059915f3bf3c6cbb02422f4a529bfb21cbbec2d29851c9a5d833f78a04f6` |
+| macOS arm64 (`node-v22.23.2-darwin-arm64.tar.gz`) | `61130f394c1630d211dd50aecc4353d379480f36d3ac913cd85dbba1aed585c6` | `18e387c90ab8a8400183e8bdd396376e1e875b91b4c874b894dcade7b35bf572` |
+
+This bootstrap assumes a fresh GitHub-hosted job with no prior untrusted step or
+surviving untrusted process. The generated evidence workflow satisfies that
+assumption by selecting Node before checkout and by running candidate setup and
+tests only later inside the candidate-only Docker contract. Custom workflows
+must not execute repository code, package lifecycle scripts, or another
+untrusted process before Agent Vigil; doing so is outside this security
+contract even when the later Node digest matches.
+
+The digest, fingerprint, copy, and byte-comparison sequence detects changed
+source or destination bytes before the first Node execution. It is not a
+kernel-enforced exclusion lock. A pre-existing process with the runner's UID or
+root authority could race the source or private checkpoint between validation
+and use, including an ABA change-and-restore around a fingerprint or digest
+observation. The generated fresh-job ordering excludes such a process from the
+supported threat model; self-hosted runners, reused jobs, and workflows with a
+prior untrusted step need a separately reviewed isolation boundary.
 
 The dependency setup step, when needed, is the base-owned exact command
 `npm ci --ignore-scripts`. It receives a writable candidate mount and network

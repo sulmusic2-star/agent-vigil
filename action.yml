@@ -257,12 +257,16 @@ runs:
         unset GIT_CONFIG GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_COUNT GIT_ATTR_NOSYSTEM
         unset GIT_SSH GIT_SSH_COMMAND GIT_ASKPASS SSH_ASKPASS GIT_PROXY_COMMAND
 
-        # The fixed host files below are part of the GitHub-hosted runner image
-        # trust boundary. Writable ancestors are permitted because Ubuntu runner
-        # images intentionally expose writable tool roots; arbitrary PATH,
-        # workspace, Action, and runner-temp executables remain ineligible.
+        # Generic fixed host files remain ineligible when their bytes are
+        # group- or world-writable. setup-node's hosted-toolcache Node binary is
+        # the narrow exception: it must match an exact version, canonical path,
+        # and reviewed official-release binary digest before any Node execution.
         readonly VIGIL_HOSTED_NODE_ROOT='/opt/hostedtoolcache/node'
         readonly VIGIL_MACOS_HOSTED_NODE_ROOT='/Users/runner/hostedtoolcache/node'
+        readonly VIGIL_PINNED_NODE_VERSION='22.23.2'
+        readonly VIGIL_PINNED_LINUX_X64_NODE_SHA256='3517c2df0b2f8cd7f422b4b8450ef81c6889f08eb03e281d6de9079b15e6a327'
+        readonly VIGIL_PINNED_MACOS_X64_NODE_SHA256='0b4f059915f3bf3c6cbb02422f4a529bfb21cbbec2d29851c9a5d833f78a04f6'
+        readonly VIGIL_PINNED_MACOS_ARM64_NODE_SHA256='18e387c90ab8a8400183e8bdd396376e1e875b91b4c874b894dcade7b35bf572'
 
         bootstrap_host_file() {
           local selected="$1" parent canonical_parent
@@ -309,21 +313,10 @@ runs:
           printf '%s' "$selected"
         }
         valid_node_source() {
-          local selected="$1" relative version architecture
-          case "$selected" in
-            /usr/bin/node|/usr/local/bin/node) return 0 ;;
-            "$VIGIL_HOSTED_NODE_ROOT"/*/x64/bin/node)
-              relative="${selected#"$VIGIL_HOSTED_NODE_ROOT"/}"
-              version="${relative%%/*}"
-              [[ "$version" =~ ^22\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-              ;;
-            "$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/*/bin/node)
-              relative="${selected#"$VIGIL_MACOS_HOSTED_NODE_ROOT"/}"
-              version="${relative%%/*}"
-              architecture="${relative#*/}"; architecture="${architecture%%/*}"
-              [[ "$version" =~ ^22\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ \
-                && ( "$architecture" == x64 || "$architecture" == arm64 ) ]]
-              ;;
+          case "$1" in
+            "$VIGIL_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/x64/bin/node") return 0 ;;
+            "$VIGIL_MACOS_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/x64/bin/node") return 0 ;;
+            "$VIGIL_MACOS_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/arm64/bin/node") return 0 ;;
             *) return 1 ;;
           esac
         }
@@ -352,14 +345,50 @@ runs:
         for candidate in /usr/bin/sha256sum /usr/bin/shasum; do
           if resolved=$(canonical_host_file "$candidate"); then VIGIL_SHA_BIN="$resolved"; break; fi
         done
+        host_file_sha256() {
+          local selected="$1" digest
+          if [[ "$VIGIL_SHA_BIN" == */sha256sum ]]; then
+            digest=$("$VIGIL_SHA_BIN" "$selected" | { read -r value _; printf '%s' "$value"; })
+          else
+            digest=$("$VIGIL_SHA_BIN" -a 256 "$selected" | { read -r value _; printf '%s' "$value"; })
+          fi
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+          printf '%s' "$digest"
+        }
+        expected_hosted_node_sha256() {
+          case "$1" in
+            "$VIGIL_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/x64/bin/node")
+              printf '%s' "$VIGIL_PINNED_LINUX_X64_NODE_SHA256" ;;
+            "$VIGIL_MACOS_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/x64/bin/node")
+              printf '%s' "$VIGIL_PINNED_MACOS_X64_NODE_SHA256" ;;
+            "$VIGIL_MACOS_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/arm64/bin/node")
+              printf '%s' "$VIGIL_PINNED_MACOS_ARM64_NODE_SHA256" ;;
+            *) return 1 ;;
+          esac
+        }
+        canonical_pinned_hosted_node_file() {
+          local requested="$1" selected parent canonical_parent before after expected_sha observed_sha
+          parent="${requested%/*}"
+          canonical_parent=$(cd "$parent" 2>/dev/null && pwd -P) || return 1
+          selected="$canonical_parent/${requested##*/}"
+          [[ "$selected" == "$requested" && -f "$selected" && ! -L "$selected" && -x "$selected" ]] || return 1
+          valid_node_source "$selected" || return 1
+          if path_is_inside "$selected" "${GITHUB_WORKSPACE:-}" \
+            || path_is_inside "$selected" "${RUNNER_TEMP:-}" \
+            || path_is_inside "$selected" "${GITHUB_ACTION_PATH:-}"; then return 1; fi
+          before=$(file_fingerprint "$selected") || return 1
+          expected_sha=$(expected_hosted_node_sha256 "$selected") || return 1
+          observed_sha=$(host_file_sha256 "$selected") || return 1
+          after=$(file_fingerprint "$selected") || return 1
+          [[ "$before" == "$after" && "$observed_sha" == "$expected_sha" ]] || return 1
+          printf '%s' "$selected"
+        }
         VIGIL_NODE_SOURCE=''
         for candidate in \
-          "$VIGIL_HOSTED_NODE_ROOT"/*/x64/bin/node \
-          "$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/x64/bin/node \
-          "$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/arm64/bin/node \
-          /usr/bin/node \
-          /usr/local/bin/node; do
-          if resolved=$(canonical_host_file "$candidate") && valid_node_source "$resolved"; then
+          "$VIGIL_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/x64/bin/node" \
+          "$VIGIL_MACOS_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/x64/bin/node" \
+          "$VIGIL_MACOS_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/arm64/bin/node"; do
+          if resolved=$(canonical_pinned_hosted_node_file "$candidate"); then
             VIGIL_NODE_SOURCE="$resolved"
             break
           fi
@@ -404,42 +433,36 @@ runs:
         trap 'cleanup_runtime >/dev/null 2>&1 || true' EXIT
         VIGIL_NODE_BIN="$VIGIL_RUNTIME_DIR/node"
         node_source_before=$(file_fingerprint "$VIGIL_NODE_SOURCE") || exit 2
-        if [[ "$VIGIL_SHA_BIN" == */sha256sum ]]; then
-          node_source_sha=$("$VIGIL_SHA_BIN" "$VIGIL_NODE_SOURCE" | { read -r digest _; printf '%s' "$digest"; })
-        else
-          node_source_sha=$("$VIGIL_SHA_BIN" -a 256 "$VIGIL_NODE_SOURCE" | { read -r digest _; printf '%s' "$digest"; })
-        fi
-        [[ "$node_source_sha" =~ ^[0-9a-f]{64}$ ]] || exit 2
+        node_source_sha=$(host_file_sha256 "$VIGIL_NODE_SOURCE") || exit 2
+        expected_node_source_sha=$(expected_hosted_node_sha256 "$VIGIL_NODE_SOURCE") || exit 2
+        [[ "$node_source_sha" == "$expected_node_source_sha" ]] || exit 2
         "$VIGIL_CP_BIN" "$VIGIL_NODE_SOURCE" "$VIGIL_NODE_BIN"
         "$VIGIL_CHMOD_BIN" 500 "$VIGIL_NODE_BIN"
         VIGIL_TEST_HOME="$VIGIL_RUNTIME_DIR/home"
-        "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
-          "$VIGIL_NODE_BIN" -e 'const fs=require("node:fs"); fs.mkdirSync(process.argv[1], {mode:0o700}); fs.chmodSync(process.argv[1], 0o700)' "$VIGIL_TEST_HOME"
         node_source_after=$(file_fingerprint "$VIGIL_NODE_SOURCE") || exit 2
         [[ "$node_source_before" == "$node_source_after" ]] || exit 2
-        if [[ "$VIGIL_SHA_BIN" == */sha256sum ]]; then
-          node_checkpoint_sha=$("$VIGIL_SHA_BIN" "$VIGIL_NODE_BIN" | { read -r digest _; printf '%s' "$digest"; })
-        else
-          node_checkpoint_sha=$("$VIGIL_SHA_BIN" -a 256 "$VIGIL_NODE_BIN" | { read -r digest _; printf '%s' "$digest"; })
-        fi
+        node_checkpoint_sha=$(host_file_sha256 "$VIGIL_NODE_BIN") || exit 2
         [[ "$node_checkpoint_sha" == "$node_source_sha" ]] || exit 2
+        [[ "$node_checkpoint_sha" == "$expected_node_source_sha" ]] || exit 2
         "$VIGIL_CMP_BIN" -s "$VIGIL_NODE_SOURCE" "$VIGIL_NODE_BIN" || exit 2
         checkpoint_mode=$(file_mode "$VIGIL_NODE_BIN") || exit 2
         [[ "$checkpoint_mode" == 500 || "$checkpoint_mode" == 0500 ]] || exit 2
         node_checkpoint_fingerprint=$(file_fingerprint "$VIGIL_NODE_BIN") || exit 2
-        readonly VIGIL_RUNTIME_DIR VIGIL_NODE_BIN VIGIL_TEST_HOME node_source_before node_source_after node_source_sha node_checkpoint_sha checkpoint_mode node_checkpoint_fingerprint
+        readonly VIGIL_RUNTIME_DIR VIGIL_NODE_BIN VIGIL_TEST_HOME node_source_before node_source_after node_source_sha expected_node_source_sha node_checkpoint_sha checkpoint_mode node_checkpoint_fingerprint
         observed_node_version=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "$VIGIL_NODE_BIN" -p 'process.versions.node') || true
         if [[ ! "$observed_node_version" =~ ^22\.[0-9]+\.[0-9]+$ ]]; then
           echo "agent-vigil: the required trusted Node.js 22 runtime is unavailable (observed ${observed_node_version:-none})" >&2
           exit 2
         fi
         case "$VIGIL_NODE_SOURCE" in
-          "$VIGIL_HOSTED_NODE_ROOT"/*/x64/bin/node|"$VIGIL_MACOS_HOSTED_NODE_ROOT"/*/*/bin/node)
+          "$VIGIL_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/x64/bin/node"|"$VIGIL_MACOS_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/x64/bin/node"|"$VIGIL_MACOS_HOSTED_NODE_ROOT/$VIGIL_PINNED_NODE_VERSION/arm64/bin/node")
             expected_node_version="${VIGIL_NODE_SOURCE#*/node/}"; expected_node_version="${expected_node_version%%/*}"
             [[ "$observed_node_version" == "$expected_node_version" ]] || exit 2
             ;;
         esac
         readonly observed_node_version
+        "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
+          "$VIGIL_NODE_BIN" -e 'const fs=require("node:fs"); fs.mkdirSync(process.argv[1], {mode:0o700}); fs.chmodSync(process.argv[1], 0o700)' "$VIGIL_TEST_HOME"
         action_real=$(cd "$GITHUB_ACTION_PATH" 2>/dev/null && pwd -P) || exit 2
         [[ "$GITHUB_ACTION_PATH" == "$action_real" ]] || exit 2
         VIGIL_CLI_SOURCE="$action_real/dist/cli.js"

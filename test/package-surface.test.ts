@@ -451,7 +451,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "613b2b5da570e358deb919d4141b49524b8e56d9998bc2c680c393bb8ed5b171",
+    "control-proof-weekly.yml": "bb5fc8633828e9b1800f7ae4c1e2fe029e78d14c3bc6eeb2ee3194f3cb230738",
     "publish.yml": "031d026c06795f539c83aad60f6265a8376e0511d8e1d144afeead2a0c2f963d",
   };
 
@@ -671,6 +671,12 @@ test("trusted PR evidence and outcome observation retain separate least-privileg
   assert.match(evidence, /^\s{2}pull_request_target:\s*$/m);
   assert.doesNotMatch(evidence, /^\s{2}(?:pull_request|merge_group):/m);
   assert.match(evidence, /runs-on:\s*ubuntu-24\.04/);
+  assert.match(evidence, /node-version:\s*22\.23\.2/);
+  assert.doesNotMatch(evidence, /^\s*node-version:\s*22\s*$/m);
+  assert.ok(
+    evidence.indexOf("actions/setup-node@") < evidence.indexOf("actions/checkout@"),
+    "trusted Node selection must precede candidate checkout",
+  );
   assert.match(evidence, /persist-credentials:\s*false/);
   assert.match(evidence, /package-manager-cache:\s*false/);
   assert.match(evidence, /policy-ref:\s*\$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
@@ -683,9 +689,33 @@ test("trusted PR evidence and outcome observation retain separate least-privileg
   assert.match(outcome, /^\s{2}workflow_run:\s*$/m);
   assert.doesNotMatch(outcome, /^\s{2}(?:pull_request|pull_request_target|merge_group):/m);
   assert.doesNotMatch(outcome, /actions\/checkout@/);
+  assert.match(outcome, /actions\/setup-node@[0-9a-f]{40}/);
+  assert.match(outcome, /node-version:\s*22\.23\.2/);
+  assert.doesNotMatch(outcome, /^\s*node-version:\s*22\s*$/m);
+  assert.ok(
+    outcome.indexOf("actions/setup-node@") < outcome.indexOf("actions/download-artifact@"),
+    "outcome runtime selection must precede evidence download",
+  );
   assert.match(outcome, /mode:\s*outcome/);
   assert.match(outcome, /github-token:\s*\$\{\{ github\.token \}\}/);
   assert.doesNotMatch(outcome, /attest:\s*true|id-token:\s*write|attestations:\s*write|artifact-metadata:\s*write/);
+});
+
+test("README Action example preserves the fresh exact-runtime topology", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const start = readme.indexOf("## GitHub Action");
+  const end = readme.indexOf("\n## ", start + 1);
+  assert.ok(start >= 0);
+  const section = readme.slice(start, end < 0 ? undefined : end);
+  assert.match(section, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
+  assert.match(section, /node-version:\s*22\.23\.2/);
+  assert.match(section, /package-manager-cache:\s*false/);
+  assert.doesNotMatch(section, /^\s*node-version:\s*22\s*$/m);
+  assert.ok(section.indexOf("actions/setup-node@") < section.indexOf("actions/checkout@"));
+  assert.ok(section.indexOf("actions/setup-node@") < section.indexOf("sulmusic2-star/agent-vigil@"));
+  assert.match(section, /first executable step in a fresh hosted job/);
+  assert.match(section, /do not run untrusted code before it or carry forward a surviving untrusted\s+process/);
+  assert.match(section, /hosted security contract/);
 });
 
 test("reviewed self pin and source-dist identity are a visible release gate", (context) => {

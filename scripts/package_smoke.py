@@ -61,6 +61,7 @@ def require_workflow_contract(repo: pathlib.Path, *, setup: bool) -> None:
         "package-manager-cache: false",
         "persist-credentials: false",
         "allow-unsafe-pr-checkout: true",
+        "node-version: 22.23.2",
         "isolate-candidate: true",
         "github.event.pull_request.base.sha",
         "github.event.pull_request.head.sha",

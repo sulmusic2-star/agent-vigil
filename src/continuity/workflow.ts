@@ -6,6 +6,8 @@ import type { ContinuityPolicy } from "./contracts.ts";
 
 const ACTION_COMMIT = /^[0-9a-f]{40}$/;
 const CHECKOUT_COMMIT = "3d3c42e5aac5ba805825da76410c181273ba90b1";
+const SETUP_NODE_COMMIT = "820762786026740c76f36085b0efc47a31fe5020";
+const HOSTED_NODE_VERSION = "22.23.2";
 const DOWNLOAD_COMMIT = "634f93cb2916e3fdff6788551b99b062d0335ce0";
 const UPLOAD_COMMIT = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 
@@ -97,6 +99,11 @@ jobs:
       head: \${{ steps.identity.outputs.head }}
       environment: \${{ steps.source.outputs.environment }}
     steps:
+      - name: Select trusted Node.js 22 without dependency caching
+        uses: actions/setup-node@${SETUP_NODE_COMMIT}
+        with:
+          node-version: ${HOSTED_NODE_VERSION}
+          package-manager-cache: false
       - id: source
         name: Select the exact evidence run
         env:

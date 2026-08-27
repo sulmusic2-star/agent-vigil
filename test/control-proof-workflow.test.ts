@@ -45,9 +45,14 @@ test("keyless control-proof installer writes a schedule-only split exact-commit 
   assert.match(unprivileged, /fetch-depth: 0/);
   assert.match(unprivileged, /persist-credentials: false/);
   assert.match(unprivileged, new RegExp(`actions/setup-node@${SETUP_NODE_COMMIT}`));
-  assert.match(unprivileged, /node-version: 22/);
+  assert.match(unprivileged, /node-version: 22\.23\.2/);
+  assert.doesNotMatch(unprivileged, /^\s*node-version:\s*22\s*$/m);
   assert.match(unprivileged, /package-manager-cache: false/);
   assert.doesNotMatch(unprivileged, /cache: (?:npm|yarn|pnpm)/);
+  assert.ok(
+    unprivileged.indexOf(`actions/setup-node@${SETUP_NODE_COMMIT}`) < unprivileged.indexOf(`actions/checkout@${CHECKOUT_COMMIT}`),
+    "the exact trusted host Node.js runtime must be selected before repository code is checked out",
+  );
   assert.match(unprivileged, new RegExp(`sulmusic2-star/agent-vigil@${ACTION_COMMIT}`));
   assert.match(unprivileged, /mode: prove/);
   assert.match(unprivileged, /attest: false/);

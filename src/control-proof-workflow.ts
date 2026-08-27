@@ -5,6 +5,7 @@ import { writePrivateFileAtomicWithin } from "./safe-output.ts";
 
 const CHECKOUT_COMMIT = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE_COMMIT = "820762786026740c76f36085b0efc47a31fe5020";
+const HOSTED_NODE_VERSION = "22.23.2";
 const UPLOAD_COMMIT = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 const DOWNLOAD_COMMIT = "634f93cb2916e3fdff6788551b99b062d0335ce0";
 const ATTEST_COMMIT = "1e69f48acb82d1966a394da916b4c1698aa569d6";
@@ -37,17 +38,17 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Select trusted Node.js 22 without dependency caching
+        uses: actions/setup-node@${SETUP_NODE_COMMIT}
+        with:
+          node-version: ${HOSTED_NODE_VERSION}
+          package-manager-cache: false
       - name: Check out the exact scheduled commit without credentials
         uses: actions/checkout@${CHECKOUT_COMMIT}
         with:
           ref: \${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Select trusted Node.js 22 without dependency caching
-        uses: actions/setup-node@${SETUP_NODE_COMMIT}
-        with:
-          node-version: 22
-          package-manager-cache: false
       - id: vigil
         name: Challenge the installed control without signing authority
         uses: sulmusic2-star/agent-vigil@${actionCommit}

@@ -6510,6 +6510,7 @@ function authorityContractTemplate() {
 // src/setup.ts
 var CHECKOUT_ACTION_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 var SETUP_NODE_ACTION_SHA = "820762786026740c76f36085b0efc47a31fe5020";
+var HOSTED_NODE_VERSION = "22.23.2";
 var DOWNLOAD_ARTIFACT_ACTION_SHA = "634f93cb2916e3fdff6788551b99b062d0335ce0";
 var UPLOAD_ARTIFACT_ACTION_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 function evidenceWorkflow(mode, actionSha, setupCommand) {
@@ -6531,16 +6532,16 @@ jobs:
     if: github.event.pull_request.state == 'open'
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/setup-node@${SETUP_NODE_ACTION_SHA} # v7
+        with:
+          node-version: ${HOSTED_NODE_VERSION}
+          package-manager-cache: false
       - uses: actions/checkout@${CHECKOUT_ACTION_SHA} # v7.0.1
         with:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha }}
           persist-credentials: false
           allow-unsafe-pr-checkout: true
-      - uses: actions/setup-node@${SETUP_NODE_ACTION_SHA} # v7
-        with:
-          node-version: 22
-          package-manager-cache: false
       - id: vigil
         uses: sulmusic2-star/agent-vigil@${actionSha} # reviewed Agent Vigil runtime
         with:
@@ -6584,6 +6585,11 @@ jobs:
     if: github.event.workflow_run.event == 'pull_request_target'
     runs-on: ubuntu-24.04
     steps:
+      - name: Select the exact trusted host Node.js runtime
+        uses: actions/setup-node@${SETUP_NODE_ACTION_SHA} # v7
+        with:
+          node-version: ${HOSTED_NODE_VERSION}
+          package-manager-cache: false
       - id: source
         name: Locate the completed evidence run
         env:
@@ -13492,6 +13498,7 @@ import { closeSync as closeSync8, constants as constants9, fstatSync as fstatSyn
 import { dirname as dirname9, join as join11, resolve as resolve23, sep as sep14 } from "node:path";
 var CHECKOUT_COMMIT = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 var SETUP_NODE_COMMIT = "820762786026740c76f36085b0efc47a31fe5020";
+var HOSTED_NODE_VERSION2 = "22.23.2";
 var UPLOAD_COMMIT = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 var DOWNLOAD_COMMIT = "634f93cb2916e3fdff6788551b99b062d0335ce0";
 var ATTEST_COMMIT = "1e69f48acb82d1966a394da916b4c1698aa569d6";
@@ -13516,17 +13523,17 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Select trusted Node.js 22 without dependency caching
+        uses: actions/setup-node@${SETUP_NODE_COMMIT}
+        with:
+          node-version: ${HOSTED_NODE_VERSION2}
+          package-manager-cache: false
       - name: Check out the exact scheduled commit without credentials
         uses: actions/checkout@${CHECKOUT_COMMIT}
         with:
           ref: \${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Select trusted Node.js 22 without dependency caching
-        uses: actions/setup-node@${SETUP_NODE_COMMIT}
-        with:
-          node-version: 22
-          package-manager-cache: false
       - id: vigil
         name: Challenge the installed control without signing authority
         uses: sulmusic2-star/agent-vigil@${actionCommit}
@@ -17290,6 +17297,8 @@ import { existsSync as existsSync11, lstatSync as lstatSync23, mkdirSync as mkdi
 import { join as join17, resolve as resolve28, sep as sep16 } from "node:path";
 var ACTION_COMMIT = /^[0-9a-f]{40}$/;
 var CHECKOUT_COMMIT2 = "3d3c42e5aac5ba805825da76410c181273ba90b1";
+var SETUP_NODE_COMMIT2 = "820762786026740c76f36085b0efc47a31fe5020";
+var HOSTED_NODE_VERSION3 = "22.23.2";
 var DOWNLOAD_COMMIT2 = "634f93cb2916e3fdff6788551b99b062d0335ce0";
 var UPLOAD_COMMIT2 = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 function repositoryRoot2(path) {
@@ -17371,6 +17380,11 @@ jobs:
       head: \${{ steps.identity.outputs.head }}
       environment: \${{ steps.source.outputs.environment }}
     steps:
+      - name: Select trusted Node.js 22 without dependency caching
+        uses: actions/setup-node@${SETUP_NODE_COMMIT2}
+        with:
+          node-version: ${HOSTED_NODE_VERSION3}
+          package-manager-cache: false
       - id: source
         name: Select the exact evidence run
         env:

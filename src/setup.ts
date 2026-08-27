@@ -7,6 +7,7 @@ import { loadTranscript } from "./transcript.ts";
 import { trustedGit } from "./trusted-git.ts";
 const CHECKOUT_ACTION_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE_ACTION_SHA = "820762786026740c76f36085b0efc47a31fe5020";
+const HOSTED_NODE_VERSION = "22.23.2";
 const DOWNLOAD_ARTIFACT_ACTION_SHA = "634f93cb2916e3fdff6788551b99b062d0335ce0";
 const UPLOAD_ARTIFACT_ACTION_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts";
@@ -33,16 +34,16 @@ jobs:
     if: github.event.pull_request.state == 'open'
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/setup-node@${SETUP_NODE_ACTION_SHA} # v7
+        with:
+          node-version: ${HOSTED_NODE_VERSION}
+          package-manager-cache: false
       - uses: actions/checkout@${CHECKOUT_ACTION_SHA} # v7.0.1
         with:
           fetch-depth: 0
           ref: \${{ github.event.pull_request.head.sha }}
           persist-credentials: false
           allow-unsafe-pr-checkout: true
-      - uses: actions/setup-node@${SETUP_NODE_ACTION_SHA} # v7
-        with:
-          node-version: 22
-          package-manager-cache: false
       - id: vigil
         uses: sulmusic2-star/agent-vigil@${actionSha} # reviewed Agent Vigil runtime
         with:
@@ -84,6 +85,11 @@ jobs:
     if: github.event.workflow_run.event == 'pull_request_target'
     runs-on: ubuntu-24.04
     steps:
+      - name: Select the exact trusted host Node.js runtime
+        uses: actions/setup-node@${SETUP_NODE_ACTION_SHA} # v7
+        with:
+          node-version: ${HOSTED_NODE_VERSION}
+          package-manager-cache: false
       - id: source
         name: Locate the completed evidence run
         env:
