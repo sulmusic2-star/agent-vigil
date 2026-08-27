@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 import type { TrustReport } from "./report.ts";
 import { publicKeyId } from "./signature.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
+import { renderResultText } from "./output.ts";
+import { buildOutcomeResultView } from "./result-view.ts";
 import {
   assessOutcome,
   buildSettlementAdapterPayload,
@@ -164,10 +166,13 @@ export function runMandateCommand(args: string[]): number {
           ...(parsed.values.has("--cost-usd") ? { costUsd: Number(parsed.values.get("--cost-usd")) } : {}),
         },
       );
-      writeJson(required(parsed, "--output"), outcome);
-      console.log(`Outcome: ${outcome.verdict}`);
+      const outputPath = resolve(required(parsed, "--output"));
+      writeJson(outputPath, outcome);
+      console.log(renderResultText(buildOutcomeResultView(outcome, {
+        repo: report.repo,
+        reproduce: `vigil receipt verify '${outputPath}'`,
+      })));
       console.log(`Settlement signal: ${outcome.settlementSignal.action} (${outcome.settlementSignal.adapter}, dry run)`);
-      console.log(`Receipt: ${outcome.outcomeHash}`);
       return outcome.verdict === "PASS" ? 0 : outcome.verdict === "FAIL" ? 1 : 2;
     }
     throw new Error(`unknown mandate command: ${command ?? "<missing>"}`);
@@ -191,7 +196,9 @@ export function runOutcomeReceiptCommand(args: string[]): number {
       );
       printVerification("Outcome receipt", result);
       if (!result.valid) return 1;
-      console.log(`Verdict: ${input.verdict}`);
+      console.log(renderResultText(buildOutcomeResultView(input, {
+        reproduce: `vigil receipt verify '${resolve(parsed.positional[0])}'`,
+      })));
       console.log(`Signal: ${input.settlementSignal.action} (${input.settlementSignal.adapter}, dry run)`);
       return input.verdict === "PASS" ? 0 : input.verdict === "FAIL" ? 1 : 2;
     }

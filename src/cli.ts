@@ -21,7 +21,8 @@ import {
 } from "./detectors/reality.ts";
 import { buildReport, VERSION, type CheckResult } from "./report.ts";
 import type { TrustReport } from "./report.ts";
-import { renderMarkdown, renderText, toSarif, writeOutputs } from "./output.ts";
+import { renderMarkdown, renderResultMarkdown, renderResultText, renderText, toSarif, writeOutputs } from "./output.ts";
+import { buildReportResultView, renderResultViewHtml } from "./result-view.ts";
 import { runDemo } from "./demo.ts";
 import { loadPolicy } from "./config.ts";
 import { doctorRepository, initRepository, renderDoctor } from "./setup.ts";
@@ -122,6 +123,7 @@ Usage:
   vigil certify install-action --repo <path> --action-ref <full-commit-sha> [--force]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
+  vigil receipt-view <receipt.json> [--format text|markdown|html|json] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
@@ -368,6 +370,34 @@ function runProofComment(args: string[]): number {
     if (output) writePrivateFileAtomic(resolve(output), rendered);
     else process.stdout.write(rendered);
     return 0;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runReceiptView(args: string[]): number {
+  try {
+    const parsed = parseCommandArgs(args, new Set(["--format", "--output"]));
+    if (parsed.positional.length !== 1) throw new Error("receipt-view requires exactly one full receipt JSON path");
+    const format = parsed.values.get("--format") ?? "html";
+    if (!new Set(["text", "markdown", "html", "json"]).has(format)) throw new Error("receipt-view --format must be text, markdown, html, or json");
+    const report = readBoundedJson(resolve(parsed.positional[0]), 16 * 1024 * 1024, "receipt") as TrustReport;
+    if (report.schemaVersion !== "2" || !Array.isArray(report.results) || !report.summary || !report.policy) {
+      throw new Error("receipt-view requires an Agent Vigil schema 2 receipt");
+    }
+    const verification = verifyReport(report);
+    if (!verification.hashValid) throw new Error("receipt-view receipt content does not match receiptHash");
+    if (verification.signatureValid === false) throw new Error("receipt-view receipt signature is invalid");
+    const view = buildReportResultView(report);
+    const rendered = format === "html"
+      ? renderResultViewHtml(view)
+      : format === "markdown"
+        ? `${renderResultMarkdown(view)}\n`
+        : format === "json"
+          ? `${JSON.stringify(view, null, 2)}\n`
+          : `${renderResultText(view)}\n`;
+    const output = parsed.values.get("--output");
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return view.verdict === "PASS" ? 0 : view.verdict === "FAIL" ? 1 : 2;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -1187,6 +1217,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "certify") return runCertify(argv);
   if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "proof-comment") return runProofComment(argv);
+  if (argv[0] === "receipt-view") return runReceiptView(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);
   if (argv[0] === "init") return runInit(argv);
   if (argv[0] === "doctor") return runDoctor(argv);

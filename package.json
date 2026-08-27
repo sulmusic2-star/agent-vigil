@@ -26,6 +26,7 @@
     "demo:60s": "node scripts/demo_60s.mjs",
     "demo:value-comparison": "tsx scripts/value_comparison_demo.ts",
     "demo:outcome": "tsx scripts/outcome_demo.ts",
+    "demo:result-view": "tsx scripts/render_result_view_demo.ts",
     "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
     "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts",
     "benchmark:compare": "tsx scripts/benchmark_compare_static.ts"
@@ -125,6 +126,7 @@
     "proof/failure-patterns",
     "proof/outcome-cases",
     "scripts/public_adoption_census.py",
+    "scripts/render_result_view_demo.ts",
     "scripts/verify_failure_corpus.ts"
   ],
   "repository": {
