@@ -57,6 +57,7 @@ test("Outcome Mandate v0.1 passes a valid exact-state report and emits no networ
   const receipt = assessOutcome(fixture.mandate(), fixture.report(), fixture.verifierPrivate, {
     requesterPublicKeyPath: fixture.requesterPublic,
     issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
   });
   assert.equal(receipt.verdict, "PASS");
   assert.equal(receipt.settlementSignal.action, "RELEASE");
@@ -77,6 +78,7 @@ test("Outcome verification rejects unknown fields and a rehashed forged report s
   const receipt = assessOutcome(mandate, forged, fixture.verifierPrivate, {
     requesterPublicKeyPath: fixture.requesterPublic,
     issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
   });
   assert.equal(receipt.verdict, "FAIL");
   assert.equal(receipt.checks.find((item) => item.id === "evidence-summary")?.verdict, "FAIL");
@@ -94,6 +96,7 @@ test("50 adversarial outcome cases fail closed or stay network-inert", () => {
     const validReceipt = assessOutcome(mandate, validReport, fixture.verifierPrivate, {
       requesterPublicKeyPath: fixture.requesterPublic,
       issuedAt: "2026-08-27T12:00:00.000Z",
+      attempts: 1,
     });
 
     if (item.stage === "mandate-verify") {
@@ -135,7 +138,7 @@ test("50 adversarial outcome cases fail closed or stay network-inert", () => {
     }
 
     if (item.stage === "assess-error") {
-      assert.throws(() => assessOutcome(mandate, validReport, fixture.otherPrivate, { requesterPublicKeyPath: fixture.requesterPublic }), /not trusted/, item.id);
+      assert.throws(() => assessOutcome(mandate, validReport, fixture.otherPrivate, { requesterPublicKeyPath: fixture.requesterPublic, attempts: 1 }), /not trusted/, item.id);
       continue;
     }
 
@@ -162,6 +165,7 @@ test("50 adversarial outcome cases fail closed or stay network-inert", () => {
       const receipt = assessOutcome(selectedMandate, selectedReport, fixture.verifierPrivate, {
         requesterPublicKeyPath: fixture.requesterPublic,
         issuedAt,
+        attempts: 1,
       });
       assert.equal(receipt.verdict, item.expected, item.id);
       assert.equal(receipt.settlementSignal.networkAction, "NONE", item.id);
@@ -208,6 +212,30 @@ test("50 adversarial outcome cases fail closed or stay network-inert", () => {
 
     assert.fail(`unknown corpus stage ${item.stage}`);
   }
+});
+
+test("Outcome assessment enforces signed limits and never attributes an invalid optional signature", () => {
+  const fixture = setup();
+  const mandate = fixture.mandate({ maxAttempts: 2, maxBudgetUsd: 10 });
+  const overLimit = assessOutcome(mandate, fixture.report(), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic, attempts: 3, costUsd: 11,
+  });
+  assert.equal(overLimit.verdict, "FAIL");
+  assert.equal(overLimit.checks.find((item) => item.id === "attempt-limit")?.verdict, "FAIL");
+  assert.equal(overLimit.checks.find((item) => item.id === "budget-limit")?.verdict, "FAIL");
+
+  const missingUsage = assessOutcome(fixture.mandate(), fixture.report(), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+  });
+  assert.equal(missingUsage.verdict, "INCONCLUSIVE");
+
+  const forged = fixture.report(undefined, { signWith: fixture.otherPrivate });
+  forged.signature!.value = Buffer.from("bad signature").toString("base64");
+  const invalidSignature = assessOutcome(fixture.mandate(), forged, fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic, attempts: 1,
+  });
+  assert.equal(invalidSignature.verdict, "FAIL");
+  assert.equal(invalidSignature.sourceEvidence.signerKeyId, undefined);
 });
 
 function setup() {
