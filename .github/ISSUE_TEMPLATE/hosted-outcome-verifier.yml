@@ -1,0 +1,65 @@
+name: Tell us what check you need
+description: Describe the agent mistake you need a required check to catch. No call or card required.
+title: "Required check: "
+labels: ["hosted-verifier-reservation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        What went wrong, and what should have stopped it? Do not include source code, credentials, transcripts, or private incident details. This form records interest only. It is not a purchase.
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Which option would you actually use?
+      options:
+        - Hosted — $49/month for 200 checks
+        - Team — $249/month for 2,000 checks
+        - Isolated run — $5/check
+    validations:
+      required: true
+  - type: dropdown
+    id: volume
+    attributes:
+      label: About how often would you run it each month?
+      options:
+        - 1–25
+        - 26–200
+        - 201–2,000
+        - More than 2,000
+    validations:
+      required: true
+  - type: input
+    id: repository
+    attributes:
+      label: What kind of repository is this for?
+      description: Link a public repository or describe the repository type without sharing private information.
+      placeholder: github.com/example/project or private TypeScript monorepo
+    validations:
+      required: true
+  - type: textarea
+    id: failure
+    attributes:
+      label: What went wrong?
+      description: Describe the mistake in ordinary terms. What did the agent say, and what happened instead?
+      placeholder: The agent said the migration passed. It tested the wrong service, and the deployment failed.
+    validations:
+      required: true
+  - type: dropdown
+    id: action
+    attributes:
+      label: What should a failed check stop?
+      options:
+        - Block or allow a merge
+        - Accept or reject an agent task
+        - Send a payment release signal
+        - Block or allow a deployment
+        - Record evidence without taking action
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: Before you submit
+      options:
+        - label: I understand this records non-binding interest and does not create a purchase, contract, or payment.
+          required: true

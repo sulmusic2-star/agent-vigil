@@ -36,9 +36,19 @@
   arguments, policy, configuration, or the disposable-profile marker, and fail
   if an initially absent ordinary host configuration appears during a route
   drill.
-- Add signed Outcome Mandate and Outcome Receipt commands for exact-state,
-  bounded-attempt verification and dry-run settlement signals. The adapters
-  perform no network or payment action, and 50 adversarial cases fail closed.
+- Add signed Outcome Mandate and Outcome Receipt v0.1 contracts for exact-base,
+  exact-head agent-work acceptance. The verifier binds required rule IDs,
+  evidence minimums, trusted requester, evidence, and verifier keys, expiry,
+  and optional budget limits to `PASS`, `FAIL`, or `INCONCLUSIVE`.
+- Add draft generic, A2A, AP2, x402, ERC-8004, and VCAP outcome signals. Signal
+  rendering requires a pinned verifier and remains dry-run with no network or
+  money movement.
+- Publish closed JSON Schemas, a 50-case adversarial corpus, a local
+  red-to-green demonstration, and an inbound non-binding price-reservation
+  form. No hosted checkout or paid-demand claim is included.
+- Replace the Outcome Verifier landing-page layout with a compact pull-request
+  check. The example shows the failed check first, explains it in ordinary
+  language, and keeps pricing research off the main product surface.
 - Add a disposable two-replica Kubernetes admission lab with default-deny
   verifier egress and an unavailable-verifier drill. It allows fresh `CURRENT`,
   denies missing, tampered, expired, and revoked evidence, and removes its
