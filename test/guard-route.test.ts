@@ -79,7 +79,11 @@ function run(selected: Fixture, host: "claude" | "codex" = "codex"): GuardRouteR
   });
 }
 
-test("real-host drill binds process and live evidence for Claude and Codex but keeps deployment on HOLD", () => {
+const unsupportedWindows = process.platform === "win32"
+  ? "guard-route v1 supports macOS and Linux hosts only"
+  : false;
+
+test("real-host drill binds process and live evidence for Claude and Codex but keeps deployment on HOLD", { skip: unsupportedWindows }, () => {
   for (const host of ["claude", "codex"] as const) {
     const selected = fixture();
     try {
@@ -108,7 +112,7 @@ test("real-host drill binds process and live evidence for Claude and Codex but k
   }
 });
 
-test("unexpected calls, a deny bypass, and reused host call ids fail closed", () => {
+test("unexpected calls, a deny bypass, and reused host call ids fail closed", { skip: unsupportedWindows }, () => {
   for (const mode of ["extra", "bypass-deny", "same-id"] as const) {
     const selected = fixture(mode);
     try {
@@ -122,7 +126,7 @@ test("unexpected calls, a deny bypass, and reused host call ids fail closed", ()
   }
 });
 
-test("a host that exits before any routed call is inconclusive, never a route pass", () => {
+test("a host that exits before any routed call is inconclusive, never a route pass", { skip: unsupportedWindows }, () => {
   const selected = fixture("unavailable");
   try {
     const report = run(selected, "claude");
@@ -133,7 +137,7 @@ test("a host that exits before any routed call is inconclusive, never a route pa
   } finally { selected.cleanup(); }
 });
 
-test("the live host receives the bounded user identity variables required for macOS keychain lookup", () => {
+test("the live host receives the bounded user identity variables required for macOS keychain lookup", { skip: unsupportedWindows }, () => {
   const selected = fixture("require-user-environment");
   const originalUser = process.env.USER;
   const originalLogname = process.env.LOGNAME;
@@ -153,7 +157,7 @@ test("the live host receives the bounded user identity variables required for ma
   }
 });
 
-test("host-side configuration mutation is rejected and the temporary file is still removed", () => {
+test("host-side configuration mutation is rejected and the temporary file is still removed", { skip: unsupportedWindows }, () => {
   const selected = fixture("mutate-config");
   try {
     assert.throws(() => run(selected), /configuration changed during/);
@@ -162,7 +166,7 @@ test("host-side configuration mutation is rejected and the temporary file is sti
   } finally { selected.cleanup(); }
 });
 
-test("ordinary profiles, bad markers, and pre-existing route configuration are refused", () => {
+test("ordinary profiles, bad markers, and pre-existing route configuration are refused", { skip: unsupportedWindows }, () => {
   const selected = fixture();
   try {
     assert.throws(() => runGuardRoute({
@@ -180,7 +184,7 @@ test("ordinary profiles, bad markers, and pre-existing route configuration are r
   } finally { selected.cleanup(); }
 });
 
-test("the reduced receipt excludes host output, prompts, raw commands, paths, and profile contents", () => {
+test("the reduced receipt excludes host output, prompts, raw commands, paths, and profile contents", { skip: unsupportedWindows }, () => {
   const selected = fixture();
   try {
     writeFileSync(join(selected.profile, "auth.json"), '{"token":"DO_NOT_COPY_THIS_SECRET"}\n', { mode: 0o600 });
