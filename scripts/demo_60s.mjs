@@ -9,12 +9,20 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const temporary = mkdtempSync(join(tmpdir(), "agent-vigil-60s-"));
 const started = Date.now();
+const deadline = started + 60_000;
+
+function remainingMilliseconds() {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error("demo reached its 60-second deadline");
+  return remaining;
+}
 
 function run(command, args, options = {}) {
+  const remaining = remainingMilliseconds();
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? root,
     encoding: "utf8",
-    timeout: options.timeout ?? 20_000,
+    timeout: Math.max(1, Math.min(options.timeout ?? 20_000, remaining)),
     env: { ...process.env, NO_COLOR: "1" },
   });
   if (result.status !== 0) {

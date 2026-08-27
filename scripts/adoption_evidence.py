@@ -9,7 +9,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 RECEIPT_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -51,10 +51,25 @@ def https_url(value: Any, label: str, *, github: bool = False) -> str:
     return value
 
 
-def nullable_url(value: Any, label: str) -> str | None:
+def github_repository_url(value: Any, label: str, repository: str) -> str:
+    url = https_url(value, label, github=True)
+    parsed = urlparse(url)
+    segments = parsed.path.split("/")
+    owner, name = repository.split("/", 1)
+    require(
+        len(segments) >= 3
+        and segments[0] == ""
+        and unquote(segments[1]).lower() == owner.lower()
+        and unquote(segments[2]).lower() == name.lower(),
+        f"{label} must refer to {repository}",
+    )
+    return url
+
+
+def nullable_url(value: Any, label: str, repository: str) -> str | None:
     if value is None:
         return None
-    return https_url(value, label, github=True)
+    return github_repository_url(value, label, repository)
 
 
 def exact_fields(value: Any, fields: set[str], label: str) -> dict[str, Any]:
@@ -91,12 +106,9 @@ def validate(ledger: dict[str, Any]) -> dict[str, Any]:
         require(repository.lower() not in repositories, f"duplicate repository: {repository}")
         repositories.add(repository.lower())
 
-        consent = https_url(entry["ownerConsentUrl"], f"{label}.ownerConsentUrl", github=True)
-        workflow = https_url(entry["workflowUrl"], f"{label}.workflowUrl", github=True)
-        latest_run = https_url(entry["latestRunUrl"], f"{label}.latestRunUrl", github=True)
-        repo_prefix = f"/{owner.lower()}/{name.lower()}/"
-        for value, field in ((consent, "ownerConsentUrl"), (workflow, "workflowUrl"), (latest_run, "latestRunUrl")):
-            require(repo_prefix in urlparse(value).path.lower(), f"{label}.{field} must refer to {repository}")
+        github_repository_url(entry["ownerConsentUrl"], f"{label}.ownerConsentUrl", repository)
+        github_repository_url(entry["workflowUrl"], f"{label}.workflowUrl", repository)
+        github_repository_url(entry["latestRunUrl"], f"{label}.latestRunUrl", repository)
 
         first = timestamp(entry["firstObservedAt"], f"{label}.firstObservedAt")
         last = timestamp(entry["lastObservedAt"], f"{label}.lastObservedAt")
@@ -115,14 +127,12 @@ def validate(ledger: dict[str, Any]) -> dict[str, Any]:
             require(receipt not in receipts, f"duplicate receipt hash: {receipt}")
             receipts.add(receipt)
 
-        required_url = nullable_url(entry["requiredCheckEvidenceUrl"], f"{label}.requiredCheckEvidenceUrl")
-        retention_url = nullable_url(entry["retentionEvidenceUrl"], f"{label}.retentionEvidenceUrl")
+        required_url = nullable_url(entry["requiredCheckEvidenceUrl"], f"{label}.requiredCheckEvidenceUrl", repository)
+        retention_url = nullable_url(entry["retentionEvidenceUrl"], f"{label}.retentionEvidenceUrl", repository)
         if required_url is not None:
-            require(repo_prefix in urlparse(required_url).path.lower(), f"{label}.requiredCheckEvidenceUrl must refer to {repository}")
             require(entry["currentWorkflowConfigured"], f"{label} cannot claim a required check for a removed workflow")
             required_repositories.append(repository)
         if retention_url is not None:
-            require(repo_prefix in urlparse(retention_url).path.lower(), f"{label}.retentionEvidenceUrl must refer to {repository}")
             require(entry["currentWorkflowConfigured"], f"{label} cannot claim retention for a removed workflow")
             require((last - first).days >= 30, f"{label} retention evidence is less than 30 days after first observation")
             retained_repositories.append(repository)
@@ -137,8 +147,7 @@ def validate(ledger: dict[str, Any]) -> dict[str, Any]:
             require(receipt in entry_receipts, f"{contradiction_label}.receiptHash is not retained in this entry")
             require(receipt not in contradiction_receipts, f"duplicate accepted contradiction: {receipt}")
             contradiction_receipts.add(receipt)
-            contradiction_url = https_url(contradiction["evidenceUrl"], f"{contradiction_label}.evidenceUrl", github=True)
-            require(repo_prefix in urlparse(contradiction_url).path.lower(), f"{contradiction_label}.evidenceUrl must refer to {repository}")
+            github_repository_url(contradiction["evidenceUrl"], f"{contradiction_label}.evidenceUrl", repository)
             require(contradiction["disposition"] in CONTRADICTION_DISPOSITIONS, f"{contradiction_label}.disposition is invalid")
             accepted_at = timestamp(contradiction["acceptedAt"], f"{contradiction_label}.acceptedAt")
             require(first <= accepted_at <= last, f"{contradiction_label}.acceptedAt is outside the observation window")
@@ -149,8 +158,7 @@ def validate(ledger: dict[str, Any]) -> dict[str, Any]:
         for report_index, raw_report in enumerate(reports):
             report_label = f"{label}.falseVerdictReports[{report_index}]"
             report = exact_fields(raw_report, FALSE_VERDICT_FIELDS, report_label)
-            report_url = https_url(report["evidenceUrl"], f"{report_label}.evidenceUrl", github=True)
-            require(repo_prefix in urlparse(report_url).path.lower(), f"{report_label}.evidenceUrl must refer to {repository}")
+            github_repository_url(report["evidenceUrl"], f"{report_label}.evidenceUrl", repository)
             require(report["status"] in FALSE_VERDICT_STATUSES, f"{report_label}.status is invalid")
             reported_at = timestamp(report["reportedAt"], f"{report_label}.reportedAt")
             require(first <= reported_at <= last, f"{report_label}.reportedAt is outside the observation window")

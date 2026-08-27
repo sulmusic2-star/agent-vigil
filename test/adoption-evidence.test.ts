@@ -83,6 +83,30 @@ test("retention evidence cannot count before 30 days", () => {
   assert.match(result.stderr, /less than 30 days/);
 });
 
+test("evidence URLs must start with the claimed repository path", () => {
+  const malicious = "https://github.com/attacker/evidence/blob/main/outside/project/issues/7";
+  for (const field of ["ownerConsentUrl", "workflowUrl", "latestRunUrl", "requiredCheckEvidenceUrl", "retentionEvidenceUrl"]) {
+    const dir = mkdtempSync(join(tmpdir(), "vigil-adoption-evidence-"));
+    const ledger = join(dir, "ledger.json");
+    writeFileSync(ledger, JSON.stringify({ schemaVersion: 1, entries: [entry({ [field]: malicious })] }));
+    const result = spawnSync("python3", ["scripts/adoption_evidence.py", "--ledger", ledger], { cwd: process.cwd(), encoding: "utf8" });
+    assert.notEqual(result.status, 0, field);
+    assert.match(result.stderr, /must refer to outside\/project/, field);
+  }
+
+  for (const override of [
+    { maintainerAcceptedContradictions: [{ ...entry().maintainerAcceptedContradictions[0], evidenceUrl: malicious }] },
+    { falseVerdictReports: [{ ...entry().falseVerdictReports[0], evidenceUrl: malicious }] },
+  ]) {
+    const dir = mkdtempSync(join(tmpdir(), "vigil-adoption-evidence-"));
+    const ledger = join(dir, "ledger.json");
+    writeFileSync(ledger, JSON.stringify({ schemaVersion: 1, entries: [entry(override)] }));
+    const result = spawnSync("python3", ["scripts/adoption_evidence.py", "--ledger", ledger], { cwd: process.cwd(), encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must refer to outside\/project/);
+  }
+});
+
 test("unknown fields and duplicate receipt hashes fail closed", () => {
   const first = entry({ unexpected: true });
   const unknown = (() => {
