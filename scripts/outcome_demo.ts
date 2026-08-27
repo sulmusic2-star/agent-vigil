@@ -57,12 +57,12 @@ function report(results: CheckResult[]) {
 const failed = assessOutcome(mandate, report([
   check("tests-pass", "verified"),
   check("test-integrity", "contradicted"),
-]), verifierPrivate, { requesterPublicKeyPath: requesterPublic, issuedAt: "2026-08-27T12:00:00.000Z" });
+]), verifierPrivate, { requesterPublicKeyPath: requesterPublic, issuedAt: "2026-08-27T12:00:00.000Z", attempts: 1 });
 
 const passed = assessOutcome(mandate, report([
   check("tests-pass", "verified"),
   check("test-integrity", "verified"),
-]), verifierPrivate, { requesterPublicKeyPath: requesterPublic, issuedAt: "2026-08-27T12:05:00.000Z" });
+]), verifierPrivate, { requesterPublicKeyPath: requesterPublic, issuedAt: "2026-08-27T12:05:00.000Z", attempts: 2 });
 
 console.log("Agent Vigil Outcome Mandate demo");
 console.log("");
