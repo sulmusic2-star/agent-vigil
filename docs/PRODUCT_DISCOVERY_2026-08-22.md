@@ -316,7 +316,8 @@ platform capture, crowding, and evidence difficulty.
   review state, and a signed receipt.
 - `vigil explain`: concise timeline and deterministic remediation.
 - `vigil ledger`: local searchable SQLite/JSONL ledger with retention controls.
-- GitHub Action and merge-queue enforcement.
+- GitHub Action evidence plus externally controlled required-workflow or App
+  enforcement for pull requests and merge queues.
 - Portable public receipt with hashes and counts but no prompt or source text.
 - Transparent local comparison of agents and review tools using the user's own
   accepted/rejected outcomes.

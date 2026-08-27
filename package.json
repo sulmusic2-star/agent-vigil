@@ -1,6 +1,6 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "Fail-closed change control, upgrade preflight, and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
@@ -15,7 +15,11 @@
     "./package.json": "./package.json"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
+  },
+  "contentPolicy": {
+    "class": "dual-use"
   },
   "scripts": {
     "build": "npm run build:cli && npm run build:library",
@@ -61,6 +65,9 @@
   "engines": {
     "node": ">=20"
   },
+  "agentVigil": {
+    "hostedTestCommand": "node --test test/*.test.ts"
+  },
   "files": [
     "dist",
     "action.yml",
@@ -71,6 +78,7 @@
     "SECURITY.md",
     "CONTRIBUTING.md",
     "LICENSE",
+    "DISCLOSURE",
     "benchmarks",
     "docs/assets/agent-value-card-demo.html",
     "docs/assets/agent-value-comparison-demo.html",
@@ -95,6 +103,7 @@
     "docs/GUARD_CONTINUITY.md",
     "docs/LIVE_HOST_ROUTE.md",
     "docs/GITHUB_OUTCOME_EVIDENCE.md",
+    "docs/HOSTED_SECURITY_CONTRACT.md",
     "docs/GITHUB_MARKER.md",
     "docs/KUBERNETES_ADMISSION.md",
     "docs/MERGE_QUEUES.md",

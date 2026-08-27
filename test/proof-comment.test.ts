@@ -104,5 +104,5 @@ test("proof-comment CLI validates receipt integrity before writing private outpu
   } finally {
     console.error = original;
   }
-  assert.match(errors.join("\n"), /does not match receiptHash/);
+  assert.match(errors.join("\n"), /summary\.verified does not match results and policy/);
 });

@@ -1,35 +1,70 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readFileSync, readSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { runCandidateCommand, type CandidateCommandOutcome } from "../candidate-command.ts";
 import type { Claim, CheckResult } from "../report.ts";
+import { trustedGitOptional } from "../trusted-git.ts";
 import type { SessionToolCall } from "../transcript.ts";
 import { toolCallFingerprint } from "../transcript.ts";
 import { checkAgenticPatches, checkAgenticRepository, type AgenticPatch } from "./agentic.ts";
 
+const completedCandidateSetups = new Set<string>();
+// Integrity evidence is held in memory; oversized output is a blocking evidence gap, never an empty/clean scan.
+const INTEGRITY_CHANGED_PATHS_MAX_BUFFER = 1024 * 1024;
+const INTEGRITY_DIFF_MAX_BUFFER = 8 * 1024 * 1024;
+const INTEGRITY_TEST_BLOB_MAX_BUFFER = 4 * 1024 * 1024;
+
 function gitOptional(repo: string, args: string[]): string | undefined {
-  try {
-    return execFileSync("git", args, {
-      cwd: repo,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 64 * 1024 * 1024,
-    });
-  } catch {
-    return undefined;
-  }
+  return trustedGitOptional(repo, args);
 }
 
 function git(repo: string, args: string[]): string {
   return gitOptional(repo, args) ?? "";
 }
 
-export function gitRefExists(repo: string, ref: string): boolean {
-  try {
-    execFileSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { cwd: repo, stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
+type PorcelainPath = { path: string; untracked: boolean };
+
+function parseNameStatusZ(raw: string): Set<string> {
+  const records = raw.split("\0");
+  const paths = new Set<string>();
+  for (let index = 0; index < records.length;) {
+    const status = records[index++];
+    if (!status) continue;
+    if (!/^(?:[ADMRTUXB]|R\d{1,3})$/.test(status)) {
+      throw new Error(`Git changed-path status ${status.slice(0, 16)} could not be parsed safely`);
+    }
+    const first = records[index++];
+    if (!first) throw new Error("Git changed-path status is missing its exact path");
+    paths.add(first);
+    if (status.startsWith("R")) {
+      const second = records[index++];
+      if (!second) throw new Error("Git rename status is missing its exact destination path");
+      paths.add(second);
+    }
   }
+  return paths;
+}
+
+function parsePorcelainV1Z(raw: string): PorcelainPath[] {
+  const records = raw.split("\0");
+  const paths: PorcelainPath[] = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!record) continue;
+    if (record.length < 4 || record[2] !== " ") throw new Error("Git worktree status could not be parsed safely");
+    paths.push({ path: record.slice(3), untracked: record.startsWith("?? ") });
+    if (record[0] === "R" || record[0] === "C" || record[1] === "R" || record[1] === "C") {
+      const original = records[index + 1];
+      if (!original) throw new Error("Git worktree rename status could not be parsed safely");
+      paths.push({ path: original, untracked: false });
+      index += 1;
+    }
+  }
+  return paths;
+}
+
+export function gitRefExists(repo: string, ref: string): boolean {
+  return gitOptional(repo, ["rev-parse", "--verify", `${ref}^{commit}`]) !== undefined;
 }
 
 export function resolveGitRef(repo: string, ref: string): string {
@@ -40,15 +75,11 @@ export function resolveGitRef(repo: string, ref: string): string {
 export function changedPaths(repo: string, base: string, head: string): Set<string> {
   const out = new Set<string>();
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
-  const diff = git(repo, ["diff", "--name-only", "-z", ...diffRange]);
+  const diff = git(repo, ["diff", "--no-renames", "--name-only", "-z", ...diffRange]);
   for (const path of diff.split("\0")) if (path) out.add(path);
   if (head === "WORKTREE") {
     const status = git(repo, ["status", "--porcelain=v1", "-z"]);
-    const rows = status.split("\0").filter(Boolean);
-    for (const row of rows) {
-      const path = row.slice(3);
-      if (path) out.add(path.includes(" -> ") ? path.split(" -> ").at(-1)! : path);
-    }
+    for (const entry of parsePorcelainV1Z(status)) out.add(entry.path);
   }
   return out;
 }
@@ -151,7 +182,7 @@ export function checkWorkspaceMutation(repo: string, ignoredPaths: string[] = []
       }];
     }
   }
-  const raw = gitOptional(repo, ["diff", "HEAD", "--name-only", "-z"]);
+  const raw = gitOptional(repo, ["diff", "HEAD", "--no-renames", "--name-only", "-z"]);
   if (raw === undefined) {
     return [{ claim, verdict: "unverifiable", evidence: "post-verification Git state could not be read", ruleId: "workspace-mutated", contributesToPass: false, blocksPass: true }];
   }
@@ -342,42 +373,324 @@ export function inferTestCommand(repo: string, platform = process.platform): str
   return null;
 }
 
-export function checkTestsPass(claims: Claim[], repo: string, testCmd?: string): CheckResult[] {
+export function isHostedTestHarnessPath(path: string): boolean {
+  const name = path.split("/").at(-1) ?? "";
+  return /^(?:package\.json|package-lock\.json|npm-shrinkwrap\.json|\.npmrc|tsconfig(?:\.[^.]+)?\.json|(?:jest|vitest|vite|playwright|cypress|ava|babel|webpack|rollup)\.config\.[^.]+|\.mocharc(?:\.[^.]+)?|test(?:-runner)?\.config\.[^.]+)$/i.test(name);
+}
+
+function safeHostedTestPath(token: string): boolean {
+  if (!(token.length > 0
+    && token.length <= 240
+    && !token.startsWith("-")
+    && !token.startsWith("/")
+    && !token.split("/").includes("..")
+    && /^[A-Za-z0-9_@+.,/*?-]+$/.test(token))) return false;
+  if (/[*?]/.test(token)) {
+    const slash = token.indexOf("/");
+    if (slash <= 0) return false;
+    const prefix = token.slice(0, slash);
+    if (!/^[A-Za-z0-9_@+.,-]+$/.test(prefix) || prefix.startsWith("-") || prefix === ".") return false;
+  }
+  return true;
+}
+
+function isHostedTestSelection(token: string): boolean {
+  if (!safeHostedTestPath(token)) return false;
+  const segments = token.toLowerCase().split("/");
+  const basename = segments.at(-1) ?? "";
+  return segments.some((segment) => /^(?:tests?|specs?|__tests__)$/.test(segment))
+    || /(?:^|[._-])(?:test|spec)(?:[._*?-]|$)/.test(basename);
+}
+
+function safeHostedTestOption(token: string): boolean {
+  if (/^--test-reporter=(?:spec|tap)$/.test(token)) return true;
+  const numeric = token.match(/^--test-(concurrency|timeout)=([1-9][0-9]{0,7})$/);
+  if (!numeric) return false;
+  const value = Number(numeric[2]);
+  return numeric[1] === "concurrency" ? value <= 256 : value <= 3_600_000;
+}
+
+/**
+ * Hosted candidate verification accepts only commands whose dispatcher is not
+ * selected by candidate repository bytes. Dependency setup may install the
+ * npm/npx, third-party runners, shell syntax, loaders, and repository-local
+ * wrapper scripts remain outside this deliberately narrow contract.
+ */
+export function isHostedDirectTestCommand(command: string): boolean {
+  if (!command || command !== command.trim() || Buffer.byteLength(command) > 1024
+    || /[;&|><`$\\\n\r'"(){}\[\]]/.test(command)) return false;
+  const tokens = command.split(/\s+/);
+  const runner = tokens.shift();
+  if (runner === "node") {
+    return tokens[0] === "--test" && tokens.slice(1).every((token) =>
+      token.startsWith("--") ? safeHostedTestOption(token) : isHostedTestSelection(token));
+  }
+  return false;
+}
+
+export function isHostedCandidateSetupCommand(command: string): boolean {
+  return command === "npm ci --ignore-scripts";
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const row = value as Record<string, unknown>;
+    return `{${Object.keys(row).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(row[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function harnessProjection(repo: string, ref: string, path: string, allowRootVersionMetadata: boolean): string | undefined {
+  const raw = trustedGitOptional(repo, ["show", `${ref}:${path}`], INTEGRITY_DIFF_MAX_BUFFER);
+  if (raw === undefined) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const name = path.split("/").at(-1);
+    if (name === "package.json" || name === "package-lock.json" || name === "npm-shrinkwrap.json") {
+      const normalized = structuredClone(parsed) as Record<string, unknown>;
+      if (allowRootVersionMetadata && !path.includes("/")) {
+        delete normalized.version;
+        if (name !== "package.json") {
+          const root = (normalized.packages as Record<string, unknown> | undefined)?.[""];
+          if (root && typeof root === "object" && !Array.isArray(root)) delete (root as Record<string, unknown>).version;
+        }
+      }
+      return canonicalJson(normalized);
+    }
+    return raw;
+  } catch {
+    return undefined;
+  }
+}
+
+type HarnessTreeEntry = { mode: string; type: string; oid: string };
+
+function harnessTreeEntries(repo: string, ref: string): Map<string, HarnessTreeEntry> | undefined {
+  const raw = trustedGitOptional(repo, ["ls-tree", "-r", "-z", "--full-tree", ref], INTEGRITY_DIFF_MAX_BUFFER);
+  if (raw === undefined) return undefined;
+  const entries = new Map<string, HarnessTreeEntry>();
+  for (const record of raw.split("\0")) {
+    if (!record) continue;
+    const match = record.match(/^([0-7]{6}) (blob|commit) ([0-9a-f]{40,64})\t([\s\S]+)$/);
+    if (!match) return undefined;
+    if (isHostedTestHarnessPath(match[4])) entries.set(match[4], { mode: match[1], type: match[2], oid: match[3] });
+  }
+  return entries;
+}
+
+export function checkTestHarnessBinding(
+  repo: string,
+  base: string,
+  head: string,
+  commands: readonly string[] = [],
+  requireDirectCommands = false,
+  setupCommands: readonly string[] = [],
+): CheckResult {
+  const claim: Claim = {
+    kind: "integrity",
+    quote: "fresh verification used the unchanged base-selected test harness",
+    subject: "test harness is bound to the trusted base",
+  };
+  if (!base || !head || head === "WORKTREE") {
+    return {
+      claim,
+      verdict: "unverifiable",
+      evidence: "isolated verification requires exact base and head commits for test-harness binding",
+      ruleId: "test-harness-unbound",
+      blocksPass: true,
+    };
+  }
+  const baseHarnessTree = harnessTreeEntries(repo, base);
+  const headHarnessTree = harnessTreeEntries(repo, head);
+  if (!baseHarnessTree || !headHarnessTree) {
+    return {
+      claim,
+      verdict: "unverifiable",
+      evidence: "hosted verification could not enumerate exact test-harness Git modes within the bounded tree limit",
+      ruleId: "test-harness-unbound",
+      blocksPass: true,
+    };
+  }
+  const unsafeHarnessEntries = [...new Set([...baseHarnessTree.keys(), ...headHarnessTree.keys()])].filter((path) => {
+    const before = baseHarnessTree.get(path);
+    const after = headHarnessTree.get(path);
+    return (before && (before.type !== "blob" || !/^(?:100644|100755)$/.test(before.mode)))
+      || (after && (after.type !== "blob" || !/^(?:100644|100755)$/.test(after.mode)));
+  });
+  if (unsafeHarnessEntries.length) {
+    return {
+      claim,
+      verdict: "unverifiable",
+      evidence: `hosted package and test-harness inputs must be regular Git files, not symlinks or gitlinks: ${unsafeHarnessEntries.slice(0, 8).join(", ")}`,
+      ruleId: "test-harness-unbound",
+      blocksPass: true,
+    };
+  }
+  if (requireDirectCommands && [...new Set([...baseHarnessTree.keys(), ...headHarnessTree.keys()])]
+    .some((path) => path.split("/").at(-1) === ".npmrc")) {
+    return {
+      claim,
+      verdict: "unverifiable",
+      evidence: "hosted dependency setup does not accept repository .npmrc indirection; use the credential-free public npm registry contract",
+      ruleId: "test-harness-unbound",
+      blocksPass: true,
+    };
+  }
+  if (requireDirectCommands && (commands.length === 0 || commands.some((command) => !isHostedDirectTestCommand(command)))) {
+    return {
+      claim,
+      verdict: "unverifiable",
+      evidence: "hosted isolation requires every test, differential, and automated-review command to use the bounded direct node --test runner contract",
+      ruleId: "test-harness-unbound",
+      blocksPass: true,
+    };
+  }
+  if (requireDirectCommands && setupCommands.some((command) => !isHostedCandidateSetupCommand(command))) {
+    return {
+      claim,
+      verdict: "unverifiable",
+      evidence: "hosted isolation permits only exact locked npm ci --ignore-scripts dependency setup",
+      ruleId: "test-harness-unbound",
+      blocksPass: true,
+    };
+  }
+  const raw = trustedGitOptional(repo, ["diff", "--find-renames", "--name-status", "-z", base, head], INTEGRITY_CHANGED_PATHS_MAX_BUFFER);
+  if (raw === undefined) {
+    return {
+      claim,
+      verdict: "unverifiable",
+      evidence: "Git could not enumerate test-harness changes within the bounded evidence limit",
+      ruleId: "test-harness-unbound",
+      blocksPass: true,
+    };
+  }
+  let changed: Set<string>;
+  try { changed = parseNameStatusZ(raw); }
+  catch (error) {
+    return {
+      claim,
+      verdict: "unverifiable",
+      evidence: (error as Error).message,
+      ruleId: "test-harness-unbound",
+      blocksPass: true,
+    };
+  }
+  const harnessChanges = [...changed].filter(isHostedTestHarnessPath).sort();
+  const allowRootVersionMetadata = requireDirectCommands && commands.length > 0
+    && commands.every(isHostedDirectTestCommand);
+  const unsafeHarnessChanges = harnessChanges.filter((path) => {
+    const name = path.split("/").at(-1);
+    if (name !== "package.json" && name !== "package-lock.json" && name !== "npm-shrinkwrap.json") return true;
+    const before = harnessProjection(repo, base, path, allowRootVersionMetadata);
+    const after = harnessProjection(repo, head, path, allowRootVersionMetadata);
+    return before === undefined || after === undefined || before !== after;
+  });
+  if (unsafeHarnessChanges.length) {
+    return {
+      claim,
+      verdict: "unverifiable",
+      evidence: `candidate changes base-selected package, lock, or test-runner configuration: ${unsafeHarnessChanges.slice(0, 8).join(", ")}${unsafeHarnessChanges.length > 8 ? ", …" : ""}`,
+      ruleId: "test-harness-unbound",
+      blocksPass: true,
+    };
+  }
+  return {
+    claim,
+    verdict: "verified",
+    evidence: "package manifests, npm lock/config, and recognized test-runner configuration are unchanged from the trusted base",
+    ruleId: "test-harness-bound",
+    contributesToPass: false,
+  };
+}
+
+export function checkTestsPass(
+  claims: Claim[],
+  repo: string,
+  testCmd?: string,
+  candidateSetupCommand?: string,
+  base?: string,
+  head?: string,
+): CheckResult[] {
   const testClaims = claims.filter((claim) => claim.kind === "tests_pass");
   if (!testClaims.length) return [];
-  const command = testCmd ?? inferTestCommand(repo);
+  const isolated = process.env.AGENT_VIGIL_INTERNAL_ISOLATE_CANDIDATE === "true";
+  // Hosted isolation may only execute a command selected by the trusted base
+  // policy or Action input. Inferring from the live candidate checkout would
+  // make the host verifier parse attacker-controlled package/toolchain files
+  // before the container boundary.
+  const command = testCmd ?? (isolated ? null : inferTestCommand(repo));
   if (!command) {
     return testClaims.map((claim) => ({
       claim,
       verdict: "unverifiable",
-      evidence: "no supported test command found; pass --test-cmd explicitly",
+      evidence: isolated
+        ? "isolated verification requires an explicit base-owned test command"
+        : "no supported test command found; pass --test-cmd explicitly",
       ruleId: "tests-pass",
+      blocksPass: true,
     }));
   }
+  const setupCommand = isolated
+    ? (candidateSetupCommand ?? process.env.AGENT_VIGIL_INTERNAL_CANDIDATE_SETUP_COMMAND)?.trim()
+    : undefined;
+  if (isolated) {
+    const harness = checkTestHarnessBinding(
+      repo,
+      base ?? "",
+      head ?? "",
+      [command],
+      true,
+      setupCommand ? [setupCommand] : [],
+    );
+    if (harness.verdict !== "verified") {
+      return testClaims.map((claim) => ({ ...harness, claim }));
+    }
+  }
+  if (setupCommand) {
+    const setupKey = `${process.env.AGENT_VIGIL_INTERNAL_CANDIDATE_ROOT ?? ""}\0${realpathSync(repo)}\0${setupCommand}`;
+    if (!completedCandidateSetups.has(setupKey)) {
+      const setup = runCandidateCommand(setupCommand, repo, 300_000, { allowNetwork: true });
+      if (setup.status !== 0 || setup.signal || setup.error) {
+        const tail = setup.output.trim().split("\n").slice(-5).join(" | ").slice(0, 360);
+        return testClaims.map((claim) => ({
+          claim,
+          verdict: "unverifiable",
+          evidence: `candidate dependency setup did not complete normally${setup.error ? `: ${setup.error}` : ` (exit ${setup.status ?? "none"})`}${tail ? ` (${tail})` : ""}`,
+          ruleId: "tests-setup",
+          blocksPass: true,
+        }));
+      }
+      completedCandidateSetups.add(setupKey);
+    }
+  }
 
-  // Node's own test runner sets NODE_TEST_CONTEXT. Letting that leak into a
-  // nested verification command can suppress the child runner's TAP summary.
-  const childEnv = { ...process.env };
-  delete childEnv.NODE_TEST_CONTEXT;
-  const run = spawnSync(command, {
-    cwd: repo,
-    encoding: "utf8",
-    shell: true,
-    env: childEnv,
-    timeout: 300_000,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  const output = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
+  const run = runCandidateCommand(command, repo, 300_000);
+  return classifyCandidateTestOutcome(testClaims, command, run);
+}
+
+/** Apply the same fail-closed test-summary contract to an already executed command. */
+export function classifyCandidateTestOutcome(testClaims: Claim[], command: string, run: CandidateCommandOutcome): CheckResult[] {
+  const output = run.classificationOutput ?? run.output;
   const observed = parseTestSummary(output);
   const exitCode = run.status;
-  const tail = output.trim().split("\n").slice(-5).join(" | ").slice(0, 360);
+  const tail = run.output.trim().split("\n").slice(-5).join(" | ").slice(0, 360);
 
   return testClaims.map((claim) => {
-    if (run.error || exitCode !== 0) {
+    if (run.error || run.signal || exitCode === null) {
+      return {
+        claim,
+        verdict: "unverifiable",
+        evidence: `\`${command}\` did not complete in a trustworthy verifier context${run.error ? `: ${run.error}` : run.signal ? `: signal ${run.signal}` : ""}${tail ? ` (${tail})` : ""}`,
+        ruleId: "tests-pass",
+        blocksPass: true,
+      };
+    }
+    if (exitCode !== 0) {
       return {
         claim,
         verdict: "contradicted",
-        evidence: `\`${command}\` exited ${exitCode ?? "without a status"}${tail ? ` (${tail})` : ""}`,
+        evidence: `\`${command}\` exited ${exitCode}${tail ? ` (${tail})` : ""}`,
         ruleId: "tests-pass",
       };
     }
@@ -390,6 +703,15 @@ export function checkTestsPass(claims: Claim[], repo: string, testCmd?: string):
       };
     }
     const observedClaimCount = observed.passed ?? observed.total;
+    if (observedClaimCount === 0) {
+      return {
+        claim,
+        verdict: "unverifiable",
+        evidence: `\`${command}\` exited 0 but its summary reported no passing tests`,
+        ruleId: "tests-empty",
+        blocksPass: true,
+      };
+    }
     if (claim.expectedCount !== undefined && observedClaimCount === undefined) {
       return {
         claim,
@@ -484,10 +806,6 @@ export function checkStepRepetition(toolCalls: SessionToolCall[]): CheckResult[]
   }];
 }
 
-function gitShow(repo: string, ref: string, path: string): string {
-  return git(repo, ["show", `${ref}:${path}`]);
-}
-
 function isTestPath(path: string): boolean {
   if (isGeneratedOrVendorPath(path)) return false;
   return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|\.cy|_test)\.[^.]+$/i.test(path);
@@ -503,44 +821,203 @@ function isDocumentationPath(path: string): boolean {
 
 type FilePatch = AgenticPatch;
 
-function parseFilePatches(diff: string): FilePatch[] {
+type ParsedFilePatches = { patches: FilePatch[]; referencedPaths: Set<string>; invalidHeader?: string };
+
+function parseFilePatches(diff: string, repositoryAwareRenames = false): ParsedFilePatches {
   const patches: FilePatch[] = [];
-  let current: FilePatch | undefined;
+  const referencedPaths = new Set<string>();
+  let current: FilePatch[] = [];
   let currentPath = "";
-  for (const line of diff.split("\n")) {
+  let oldPath = "";
+  let headerState: "none" | "old" | "paired" = "none";
+  let hadHunkForFile = false;
+  let diffHeaderLine: string | undefined;
+  let similarityIndex: number | undefined;
+  let renameFrom = "";
+  let renameTo = "";
+  let modeMetadata = false;
+  let inHunk = false;
+  let oldLinesRemaining = 0;
+  let newLinesRemaining = 0;
+  const invalid = (detail: string): ParsedFilePatches => ({ patches, referencedPaths, invalidHeader: detail });
+  const headerPath = (marker: string, prefix: "a/" | "b/"): string | undefined => {
+    if (marker === "/dev/null") return "";
+    return marker.startsWith(prefix) ? marker.slice(2) : undefined;
+  };
+  const finishFile = (): string | undefined => {
+    if (!diffHeaderLine) return undefined;
+    if (headerState === "paired" && hadHunkForFile) return undefined;
+    if (repositoryAwareRenames
+      && headerState === "none"
+      && similarityIndex === 100
+      && renameFrom
+      && renameTo
+      && !modeMetadata
+      && diffHeaderLine === `diff --git a/${renameFrom} b/${renameTo}`) {
+      referencedPaths.add(renameFrom);
+      referencedPaths.add(renameTo);
+      return undefined;
+    }
+    if (headerState === "old") return "unified-diff file headers ended without a complete hunk";
+    if (headerState === "paired") return "unified-diff paired file headers ended without a complete hunk";
+    return "diff --git header ended without exact old/new headers and a complete hunk";
+  };
+  const lines = diff.split("\n");
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (inHunk && line === "\\ No newline at end of file") continue;
+    if (inHunk && oldLinesRemaining === 0 && newLinesRemaining === 0) {
+      current = [];
+      inHunk = false;
+    }
+    if (inHunk && current.length) {
+      if (line.startsWith("+")) {
+        if (newLinesRemaining === 0) return invalid(`hunk has more added lines than declared at input line ${index + 1}`);
+        for (const patch of current) patch.added.push(line.slice(1));
+        newLinesRemaining -= 1;
+      } else if (line.startsWith("-")) {
+        if (oldLinesRemaining === 0) return invalid(`hunk has more removed lines than declared at input line ${index + 1}`);
+        for (const patch of current) patch.removed.push(line.slice(1));
+        oldLinesRemaining -= 1;
+      } else if (line.startsWith(" ")) {
+        if (oldLinesRemaining === 0 || newLinesRemaining === 0) return invalid(`hunk has more context lines than declared at input line ${index + 1}`);
+        for (const patch of current) patch.context.push(line.slice(1));
+        oldLinesRemaining -= 1;
+        newLinesRemaining -= 1;
+      } else {
+        return invalid(`hunk contains an unprefixed or premature header line at input line ${index + 1}`);
+      }
+      continue;
+    }
+    if (line.startsWith("diff --git ")) {
+      const unfinished = finishFile();
+      if (unfinished) return invalid(`${unfinished} before input line ${index + 1}`);
+      current = [];
+      currentPath = "";
+      oldPath = "";
+      headerState = "none";
+      hadHunkForFile = false;
+      diffHeaderLine = line;
+      similarityIndex = undefined;
+      renameFrom = "";
+      renameTo = "";
+      modeMetadata = false;
+      inHunk = false;
+      oldLinesRemaining = 0;
+      newLinesRemaining = 0;
+      continue;
+    }
+    if (line.startsWith("similarity index ")) {
+      if (!diffHeaderLine || similarityIndex !== undefined) return invalid(`similarity metadata is not bound to one file diff at input line ${index + 1}`);
+      const match = /^similarity index (\d{1,3})%$/.exec(line);
+      if (!match || Number(match[1]) > 100) return invalid(`malformed similarity metadata at input line ${index + 1}`);
+      similarityIndex = Number(match[1]);
+      continue;
+    }
+    if (line.startsWith("rename from ") || line.startsWith("rename to ")) {
+      if (!repositoryAwareRenames || !diffHeaderLine || headerState !== "none") {
+        return invalid(`rename metadata is not permitted in a raw or partially parsed diff at input line ${index + 1}`);
+      }
+      const from = line.startsWith("rename from ");
+      const path = line.slice(from ? 12 : 10);
+      if (!path || path.startsWith('"') || (from ? renameFrom : renameTo)) {
+        return invalid(`unsupported, quoted, or duplicate rename metadata at input line ${index + 1}`);
+      }
+      if (from) renameFrom = path;
+      else renameTo = path;
+      continue;
+    }
+    if (/^(?:copy from |copy to |dissimilarity index )/.test(line)) {
+      return invalid(`copy or dissimilarity metadata is not supported at input line ${index + 1}`);
+    }
+    if (line.startsWith("--- ")) {
+      if (!diffHeaderLine || headerState !== "none") {
+        return invalid(`old path header must follow exactly one unconsumed diff --git header at input line ${index + 1}`);
+      }
+      const parsed = headerPath(line.slice(4), "a/");
+      if (parsed === undefined) return invalid(`unsupported or quoted unified-diff old path header: ${line.slice(4, 164)}`);
+      current = [];
+      currentPath = "";
+      oldPath = parsed;
+      headerState = "old";
+      hadHunkForFile = false;
+      continue;
+    }
     if (line.startsWith("+++ ")) {
-      const marker = line.slice(4).trim();
-      currentPath = marker === "/dev/null" ? "" : marker.replace(/^b\//, "");
-      current = undefined;
+      const marker = line.slice(4);
+      if (headerState !== "old") return invalid(`new path header has no single preceding old path header at input line ${index + 1}`);
+      const parsed = headerPath(marker, "b/");
+      if (parsed === undefined) return invalid(`unsupported or quoted unified-diff path header: ${marker.slice(0, 160)}`);
+      if (oldPath && parsed && oldPath !== parsed) {
+        if (!repositoryAwareRenames || renameFrom !== oldPath || renameTo !== parsed || similarityIndex === undefined) {
+          return invalid(`renamed unified-diff paths require exact repository-aware identity and cannot be audited as raw text`);
+        }
+      } else if (renameFrom || renameTo) {
+        return invalid(`rename metadata does not match distinct old/new path headers`);
+      }
+      if (diffHeaderLine) {
+        const identity = oldPath || parsed;
+        const destination = parsed || oldPath;
+        if (diffHeaderLine !== `diff --git a/${identity} b/${destination}`) {
+          return invalid(`diff --git identity does not match its exact old/new path headers`);
+        }
+      }
+      currentPath = parsed || oldPath;
+      if (oldPath) referencedPaths.add(oldPath);
+      if (parsed) referencedPaths.add(parsed);
+      current = [];
+      headerState = "paired";
       continue;
     }
-    if (line.startsWith("@@ ") && currentPath) {
-      current = { path: currentPath, added: [], removed: [], context: [] };
-      patches.push(current);
+    if (line.startsWith("@@ ")) {
+      if (!currentPath || headerState !== "paired") return invalid(`hunk header has no exact paired changed path at input line ${index + 1}`);
+      const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+      if (!hunk) return invalid(`malformed unified-diff hunk header at input line ${index + 1}`);
+      const patchPaths = oldPath && oldPath !== currentPath ? [oldPath, currentPath] : [currentPath];
+      current = patchPaths.map((path) => ({ path, added: [], removed: [], context: [] }));
+      patches.push(...current);
+      oldLinesRemaining = hunk[1] === undefined ? 1 : Number(hunk[1]);
+      newLinesRemaining = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      inHunk = true;
+      hadHunkForFile = true;
       continue;
     }
-    if (!current) continue;
-    if (line.startsWith("+") && !line.startsWith("+++")) current.added.push(line.slice(1));
-    if (line.startsWith("-") && !line.startsWith("---")) current.removed.push(line.slice(1));
-    if (line.startsWith(" ")) current.context.push(line.slice(1));
+    if (line.startsWith("+") || line.startsWith("-")) {
+      return invalid(`unexpected changed-content line outside a declared hunk at input line ${index + 1}`);
+    }
+    if (/^(?:old mode |new mode )/.test(line)) {
+      modeMetadata = true;
+      continue;
+    }
+    if (line === "" || /^(?:index |new file mode |deleted file mode )/.test(line)) {
+      continue;
+    }
+    if (/^(?:Binary files |GIT binary patch)/.test(line)) {
+      return invalid(`binary or non-text patch cannot be audited at input line ${index + 1}`);
+    }
+    return invalid(`unexpected unified-diff metadata at input line ${index + 1}`);
   }
-  return patches.filter((patch) => patch.path && !isGeneratedOrVendorPath(patch.path));
+  if (inHunk && (oldLinesRemaining !== 0 || newLinesRemaining !== 0)) {
+    return invalid(`unified-diff hunk ended before its declared line counts were satisfied`);
+  }
+  const unfinished = finishFile();
+  if (unfinished) return invalid(unfinished);
+  if (patches.some((patch) => patch.added.length === 0 && patch.removed.length === 0)) {
+    return invalid(`unified-diff hunk declares no changed lines`);
+  }
+  return { patches: patches.filter((patch) => patch.path && !isGeneratedOrVendorPath(patch.path)), referencedPaths };
 }
 
-function untrackedFilePatches(repo: string): FilePatch[] {
-  const paths = git(repo, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean);
+function untrackedFilePatches(repo: string, paths: string[]): { patches: FilePatch[]; error?: string } {
   const patches: FilePatch[] = [];
   for (const path of paths) {
     if (isGeneratedOrVendorPath(path)) continue;
-    const candidate = withinRepo(repo, path);
-    if (!candidate || !existingPathStaysInsideRepo(repo, candidate)) continue;
-    try {
-      const content = readFileSync(candidate);
-      if (content.byteLength > 1024 * 1024 || content.includes(0)) continue;
-      patches.push({ path, added: content.toString("utf8").split("\n"), removed: [], context: [] });
-    } catch {}
+    const content = readIntegrityWorktreeBlob(repo, path);
+    if (!content.ok) return { patches, error: content.evidence };
+    if (content.value.includes("\0")) return { patches, error: `untracked worktree path ${path} is binary and cannot be integrity-scanned` };
+    patches.push({ path, added: content.value.split("\n"), removed: [], context: [] });
   }
-  return patches;
+  return { patches };
 }
 
 function countTests(content: string): number {
@@ -558,9 +1035,57 @@ function countTests(content: string): number {
 }
 
 export function checkIntegrity(repo: string, base: string, head: string): CheckResult[] {
-  const paths = [...changedPaths(repo, base, head)];
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
-  const diff = git(repo, ["diff", "--unified=0", "--no-color", ...diffRange]);
+  const rawPaths = trustedGitOptional(repo, ["diff", "--find-renames", "--name-status", "-z", ...diffRange], INTEGRITY_CHANGED_PATHS_MAX_BUFFER);
+  if (rawPaths === undefined) {
+    return [unreadableIntegrityResult(
+      "changed paths available for integrity review",
+      "Git changed-path enumeration could not be read within the bounded integrity evidence limit",
+      "integrity-unreadable",
+    )];
+  }
+  let paths: Set<string>;
+  try { paths = parseNameStatusZ(rawPaths); }
+  catch (error) {
+    return [unreadableIntegrityResult(
+      "changed paths available for integrity review",
+      (error as Error).message,
+      "integrity-unreadable",
+    )];
+  }
+  const trackedPaths = new Set(paths);
+  const untrackedPaths: string[] = [];
+  if (head === "WORKTREE") {
+    const rawStatus = trustedGitOptional(repo, ["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z"], INTEGRITY_CHANGED_PATHS_MAX_BUFFER);
+    if (rawStatus === undefined) {
+      return [unreadableIntegrityResult(
+        "worktree paths available for integrity review",
+        "Git worktree status could not be read within the bounded integrity evidence limit",
+        "integrity-unreadable",
+      )];
+    }
+    let statusPaths: PorcelainPath[];
+    try { statusPaths = parsePorcelainV1Z(rawStatus); }
+    catch (error) {
+      return [unreadableIntegrityResult(
+        "worktree paths available for integrity review",
+        (error as Error).message,
+        "integrity-unreadable",
+      )];
+    }
+    for (const entry of statusPaths) {
+      paths.add(entry.path);
+      if (entry.untracked) untrackedPaths.push(entry.path);
+    }
+  }
+  const diff = trustedGitOptional(repo, ["diff", "--find-renames", "--text", "--unified=0", "--no-color", ...diffRange], INTEGRITY_DIFF_MAX_BUFFER);
+  if (diff === undefined) {
+    return [unreadableIntegrityResult(
+      "unified diff available for integrity review",
+      `Git unified diff could not be read within the ${INTEGRITY_DIFF_MAX_BUFFER / (1024 * 1024)} MiB integrity diff limit`,
+      "diff-unreadable",
+    )];
+  }
   const results: CheckResult[] = [];
   const finding = (subject: string, evidence: string, ruleId: string): CheckResult => ({
     claim: { kind: "integrity", quote: "automatic anti-reward-hacking check", subject },
@@ -572,37 +1097,170 @@ export function checkIntegrity(repo: string, base: string, head: string): CheckR
 
   let baselineTests = 0;
   let headTests = 0;
-  const deletedTestFiles: string[] = [];
-  for (const path of paths.filter(isTestPath)) {
-    const before = gitShow(repo, base, path);
-    const after = head === "WORKTREE" ? (existsSync(resolve(repo, path)) ? readFileSync(resolve(repo, path), "utf8") : "") : gitShow(repo, head, path);
-    const oldCount = countTests(before);
-    const newCount = countTests(after);
+  const deletedTestFiles: Array<{ path: string; identity: string }> = [];
+  const addedTestFiles: Array<{ path: string; identity: string }> = [];
+  for (const path of [...paths].filter(isTestPath)) {
+    const before = readIntegrityTreeBlob(repo, base, path);
+    if (!before.ok) return [unreadableIntegrityResult("changed test baseline available for integrity review", before.evidence, "integrity-unreadable")];
+    const after = head === "WORKTREE" ? readIntegrityWorktreeBlob(repo, path) : readIntegrityTreeBlob(repo, head, path);
+    if (!after.ok) return [unreadableIntegrityResult("changed test candidate available for integrity review", after.evidence, "integrity-unreadable")];
+    const oldCount = countTests(before.value);
+    const newCount = countTests(after.value);
     baselineTests += oldCount;
     headTests += newCount;
-    if (before && !after) deletedTestFiles.push(path);
+    if (before.value && !after.value) deletedTestFiles.push({ path, identity: before.identity });
+    if (!before.value && after.value) addedTestFiles.push({ path, identity: after.identity });
   }
   if (headTests < baselineTests) {
     results.push(finding("test surface shrank", `recognized test definitions across changed test files fell from ${baselineTests} to ${headTests}`, "test-count-drop"));
+  }
+  const consumedAddedTests = new Set<number>();
+  const exactTestMovePaths = new Set<string>();
+  const unmatchedDeletedTests = deletedTestFiles.filter((deleted) => {
+    const replacement = addedTestFiles.findIndex((added, index) => !consumedAddedTests.has(index) && added.identity === deleted.identity);
+    if (replacement < 0) return true;
+    consumedAddedTests.add(replacement);
+    exactTestMovePaths.add(deleted.path);
+    exactTestMovePaths.add(addedTestFiles[replacement].path);
+    return false;
+  });
+  if (unmatchedDeletedTests.length) {
+    results.push(finding(
+      "test file deleted without an exact replacement",
+      `${unmatchedDeletedTests.length} deleted test file(s) have no byte-identical added test path: ${unmatchedDeletedTests.slice(0, 5).map(({ path }) => path).join(", ")}`,
+      "test-file-deleted",
+    ));
   } else if (deletedTestFiles.length) {
     results.push({
       claim: { kind: "integrity", quote: "automatic anti-reward-hacking check", subject: "test files moved or replaced without shrinking the recognized surface" },
       verdict: "verified",
-      evidence: `${deletedTestFiles.length} test file(s) removed; recognized definitions across changed test files changed from ${baselineTests} to ${headTests}`,
+      evidence: `${deletedTestFiles.length} test file(s) moved byte-for-byte; recognized definitions across changed test files changed from ${baselineTests} to ${headTests}`,
       ruleId: "test-file-replaced",
       contributesToPass: false,
     });
   }
 
-  const patches = [...parseFilePatches(diff), ...(head === "WORKTREE" ? untrackedFilePatches(repo) : [])];
+  const parsed = parseFilePatches(diff, true);
+  if (parsed.invalidHeader
+    || [...parsed.referencedPaths].some((path) => !paths.has(path))
+    || [...trackedPaths].some((path) => !parsed.referencedPaths.has(path))) {
+    return [unreadableIntegrityResult(
+      "unified diff paths match exact changed paths",
+      parsed.invalidHeader ?? "a parsed unified-diff path did not match Git's exact NUL-delimited changed-path inventory",
+      "diff-unparseable",
+    )];
+  }
+  const untracked = head === "WORKTREE" ? untrackedFilePatches(repo, untrackedPaths) : { patches: [] as FilePatch[] };
+  if (untracked.error) {
+    return [unreadableIntegrityResult("untracked worktree evidence is readable", untracked.error, "integrity-unreadable")];
+  }
+  const patches = [...parsed.patches, ...untracked.patches].filter((patch) => !exactTestMovePaths.has(patch.path));
   results.push(...checkIntegrityPatches(patches));
   results.push(...checkAgenticPatches(patches));
   results.push(...checkAgenticRepository(repo, base, head, paths, patches));
 
   if (!results.length) {
-    results.push(cleanIntegrityResult(paths.length));
+    results.push(cleanIntegrityResult(paths.size));
   }
   return results;
+}
+
+type IntegrityBlobRead = { ok: true; value: string; identity: string } | { ok: false; evidence: string };
+
+function readIntegrityTreeBlob(repo: string, ref: string, path: string): IntegrityBlobRead {
+  const listed = trustedGitOptional(repo, ["ls-tree", "-z", ref, "--", path], INTEGRITY_CHANGED_PATHS_MAX_BUFFER);
+  if (listed === undefined) return { ok: false, evidence: `Git could not determine whether ${path} exists at ${ref}` };
+  if (!listed) return { ok: true, value: "", identity: "missing" };
+  const entries = listed.split("\0").filter(Boolean);
+  if (entries.length !== 1) return { ok: false, evidence: `Git returned an ambiguous tree entry for ${path} at ${ref}` };
+  const separator = entries[0].indexOf("\t");
+  if (separator < 0 || entries[0].slice(separator + 1) !== path) {
+    return { ok: false, evidence: `Git returned a mismatched tree path for ${path} at ${ref}` };
+  }
+  const [mode, type, oid, ...extra] = entries[0].slice(0, separator).split(" ");
+  if (extra.length || type !== "blob" || !/^(?:100644|100755)$/.test(mode) || !/^[0-9a-f]{40,64}$/.test(oid)) {
+    return { ok: false, evidence: `required changed-test tree entry ${path} at ${ref} is not one exact regular Git blob` };
+  }
+  const content = trustedGitOptional(repo, ["show", `${ref}:${path}`], INTEGRITY_TEST_BLOB_MAX_BUFFER);
+  return content === undefined
+    ? { ok: false, evidence: `required changed-test blob ${path} at ${ref} could not be read within the ${INTEGRITY_TEST_BLOB_MAX_BUFFER / (1024 * 1024)} MiB limit` }
+    : { ok: true, value: content, identity: `${mode}:${oid}` };
+}
+
+function readIntegrityWorktreeBlob(repo: string, path: string): IntegrityBlobRead {
+  let descriptor: number | undefined;
+  try {
+    const root = realpathSync(resolve(repo));
+    const candidate = resolve(root, path);
+    if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) {
+      return { ok: false, evidence: `changed test path ${path} escapes the repository boundary` };
+    }
+    if (!existsSync(candidate)) return { ok: true, value: "", identity: "missing" };
+    const parts = candidate.slice(root.length + 1).split(sep).filter(Boolean);
+    let cursor = root;
+    for (let index = 0; index < parts.length; index += 1) {
+      cursor = resolve(cursor, parts[index]);
+      const status = lstatSync(cursor);
+      if (status.isSymbolicLink() || (index < parts.length - 1 ? !status.isDirectory() : !status.isFile())) {
+        return { ok: false, evidence: `required changed-test worktree blob ${path} is not a regular no-symlink file` };
+      }
+    }
+    const expected = lstatSync(candidate);
+    if (expected.isSymbolicLink() || !expected.isFile()) {
+      return { ok: false, evidence: `required changed-test worktree blob ${path} is not a regular non-symbolic-link file` };
+    }
+    if (expected.size > INTEGRITY_TEST_BLOB_MAX_BUFFER) {
+      return { ok: false, evidence: `required changed-test worktree blob ${path} exceeds the ${INTEGRITY_TEST_BLOB_MAX_BUFFER / (1024 * 1024)} MiB limit` };
+    }
+    const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+    const nonBlock = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0;
+    descriptor = openSync(candidate, constants.O_RDONLY | noFollow | nonBlock);
+    const opened = fstatSync(descriptor);
+    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size
+      || opened.mtimeMs !== expected.mtimeMs || opened.ctimeMs !== expected.ctimeMs) {
+      return { ok: false, evidence: `required changed-test worktree blob ${path} changed while being opened` };
+    }
+    const content = Buffer.alloc(opened.size);
+    let offset = 0;
+    while (offset < content.length) {
+      const count = readSync(descriptor, content, offset, content.length - offset, offset);
+      if (count === 0) break;
+      offset += count;
+    }
+    const after = fstatSync(descriptor);
+    const finalPath = lstatSync(candidate);
+    if (offset !== content.length || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
+      || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs
+      || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino
+      || finalPath.size !== opened.size || finalPath.mtimeMs !== opened.mtimeMs || finalPath.ctimeMs !== opened.ctimeMs) {
+      return { ok: false, evidence: `required changed-test worktree blob ${path} changed while being read` };
+    }
+    const objectFormat = trustedGitOptional(repo, ["rev-parse", "--show-object-format"], 1024)?.trim();
+    if (objectFormat !== "sha1" && objectFormat !== "sha256") {
+      return { ok: false, evidence: `repository object format could not be bound while reading ${path}` };
+    }
+    const oid = createHash(objectFormat)
+      .update(Buffer.from(`blob ${content.length}\0`))
+      .update(content)
+      .digest("hex");
+    const mode = (expected.mode & 0o111) === 0 ? "100644" : "100755";
+    return { ok: true, value: content.toString("utf8"), identity: `${mode}:${oid}` };
+  } catch {
+    return { ok: false, evidence: `required changed-test worktree blob ${path} could not be read` };
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function unreadableIntegrityResult(subject: string, evidence: string, ruleId: "integrity-unreadable" | "diff-unreadable" | "diff-unparseable"): CheckResult {
+  return {
+    claim: { kind: "integrity", quote: "automatic anti-reward-hacking check", subject },
+    verdict: "unverifiable",
+    evidence,
+    ruleId,
+    contributesToPass: false,
+    blocksPass: true,
+  };
 }
 
 function finding(subject: string, evidence: string, ruleId: string): CheckResult {
@@ -801,17 +1459,18 @@ export function checkIntegrityDiff(diff: string): CheckResult[] {
       blocksPass: true,
     }];
   }
-  const patches = parseFilePatches(diff);
-  if (!patches.length) {
+  const parsed = parseFilePatches(diff);
+  if (parsed.invalidHeader || !parsed.patches.length) {
     return [{
       claim: { kind: "integrity", quote: "static unified-diff audit", subject: "parseable changed files" },
       verdict: "unverifiable",
-      evidence: "input contains no readable changed-file patches",
+      evidence: parsed.invalidHeader ?? "input contains no readable changed-file patches",
       ruleId: "diff-unparseable",
       contributesToPass: false,
       blocksPass: true,
     }];
   }
+  const patches = parsed.patches;
   const results = [...checkIntegrityPatches(patches), ...checkAgenticPatches(patches)];
   return results.length ? results : [cleanIntegrityResult(patches.length, true)];
 }
@@ -820,7 +1479,17 @@ export function checkCompletion(claims: Claim[], repo: string, base: string, hea
   const completion = claims.filter((claim) => claim.kind === "work_complete");
   if (!completion.length) return [];
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
-  const diff = git(repo, ["diff", "--unified=0", "--no-color", ...diffRange]);
+  const diff = trustedGitOptional(repo, ["diff", "--text", "--unified=0", "--no-color", ...diffRange], INTEGRITY_DIFF_MAX_BUFFER);
+  if (diff === undefined) {
+    return completion.map((claim) => ({
+      claim,
+      verdict: "unverifiable",
+      evidence: `completion diff could not be read within the ${INTEGRITY_DIFF_MAX_BUFFER / (1024 * 1024)} MiB evidence limit`,
+      ruleId: "completion-unreadable",
+      contributesToPass: false,
+      blocksPass: true,
+    }));
+  }
   const markers = diff.split("\n").filter((line) => /^\+.*\b(TODO|FIXME|XXX|HACK|NotImplementedError|not implemented)\b/i.test(line));
   const objectiveVerified = prior.filter((result) => result.verdict === "verified" && result.contributesToPass !== false).length;
   return completion.map((claim) => {

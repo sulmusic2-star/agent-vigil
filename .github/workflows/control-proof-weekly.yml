@@ -3,59 +3,211 @@ name: Weekly control proof
 on:
   schedule:
     - cron: "17 9 * * 1"
-  workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
-  attestations: write
-  artifact-metadata: write
+permissions: {}
 
 jobs:
-  certify:
-    runs-on: ubuntu-latest
+  build-proof:
+    name: Build the control proof without OIDC
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out the exact scheduled commit without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v7
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select trusted Node.js 22 without dependency caching
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - name: Challenge the installed control
-        run: node dist/cli.js prove --repo . --base "$GITHUB_SHA" --output "$RUNNER_TEMP/control-proof.json"
-      - id: predicate
-        name: Prepare the privacy-reduced control-proof predicate
+          package-manager-cache: false
+      - id: vigil
+        name: Challenge the installed control without signing authority
+        uses: sulmusic2-star/agent-vigil@ebf1d62c3bca4e5a549472e8c95e7075ea85887d
+        with:
+          mode: prove
+          attest: false
+          repo: .
+          head: ${{ github.sha }}
+      - name: Validate the prepared proof outputs
         if: always()
+        shell: /bin/bash --noprofile --norc -euo pipefail {0}
+        env:
+          CONTROL_PROOF: ${{ steps.vigil.outputs.report }}
+          CONTROL_PROOF_PREDICATE: ${{ steps.vigil.outputs.control-proof-predicate }}
         run: |
-          node dist/cli.js attest-control "$RUNNER_TEMP/control-proof.json" --predicate-output "$RUNNER_TEMP/control-proof-predicate.json"
-          echo "path=$RUNNER_TEMP/control-proof-predicate.json" >> "$GITHUB_OUTPUT"
+          [[ -n "$CONTROL_PROOF" && -f "$CONTROL_PROOF" && ! -L "$CONTROL_PROOF" && -s "$CONTROL_PROOF" ]]
+          [[ -n "$CONTROL_PROOF_PREDICATE" && -f "$CONTROL_PROOF_PREDICATE" && ! -L "$CONTROL_PROOF_PREDICATE" && -s "$CONTROL_PROOF_PREDICATE" ]]
+      - name: Upload only the unsigned proof and predicate
+        if: always() && steps.vigil.outputs.report != '' && steps.vigil.outputs.control-proof-predicate != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agent-vigil-control-proof-unsigned-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            ${{ steps.vigil.outputs.report }}
+            ${{ steps.vigil.outputs.control-proof-predicate }}
+
+  attest-proof:
+    name: Attest the prepared proof without repository code
+    needs: build-proof
+    if: always() && needs.build-proof.result != 'cancelled' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Download the exact prepared proof artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: agent-vigil-control-proof-unsigned-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/agent-vigil-control-proof
+      - name: Validate the bounded proof artifact before signing
+        env:
+          PROOF_DIRECTORY: ${{ runner.temp }}/agent-vigil-control-proof
+          EXPECTED_SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { createHash } = require("node:crypto");
+          const { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync } = require("node:fs");
+          const { join } = require("node:path");
+          const directory = process.env.PROOF_DIRECTORY;
+          const expectedSourceCommit = process.env.EXPECTED_SOURCE_COMMIT;
+          const limits = new Map([
+            ["agent-vigil-report.json", 16 * 1024 * 1024],
+            ["agent-vigil-control-proof-predicate.json", 1024 * 1024],
+          ]);
+          const expected = [...limits.keys()].sort();
+          const actual = readdirSync(directory).sort();
+          if (actual.join("\n") !== expected.join("\n")) {
+            throw new Error("control-proof artifact must contain exactly the proof and predicate");
+          }
+          function boundedRegularFile(name, maximumBytes) {
+            const path = join(directory, name);
+            const before = lstatSync(path, { bigint: true });
+            if (!before.isFile() || before.isSymbolicLink() || before.size < 2n || before.size > BigInt(maximumBytes)) {
+              throw new Error(name + " must be a bounded regular non-symlink file");
+            }
+            const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+            try {
+              const opened = fstatSync(descriptor, { bigint: true });
+              if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size) {
+                throw new Error(name + " changed while it was opened");
+              }
+              const bytes = readFileSync(descriptor);
+              const after = fstatSync(descriptor, { bigint: true });
+              const finalPath = lstatSync(path, { bigint: true });
+              if (BigInt(bytes.length) !== opened.size || after.dev !== opened.dev || after.ino !== opened.ino
+                || after.size !== opened.size || finalPath.isSymbolicLink() || !finalPath.isFile()
+                || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size) {
+                throw new Error(name + " changed while it was read");
+              }
+              return bytes;
+            } finally {
+              closeSync(descriptor);
+            }
+          }
+          function exactKeys(value, keys) {
+            if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+            const actual = Object.keys(value).sort();
+            const expected = [...keys].sort();
+            return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+          }
+          function plain(value, maximum) {
+            if (typeof value !== "string" || !value || value.length > maximum) return false;
+            for (const character of value) {
+              const point = character.codePointAt(0);
+              if (point <= 31 || point === 127 || (point >= 0x202a && point <= 0x202e) || (point >= 0x2066 && point <= 0x2069)) return false;
+            }
+            return true;
+          }
+          function canonical(value) {
+            if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
+            if (value && typeof value === "object") {
+              const entries = Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+              return "{" + entries.map(([key, item]) => JSON.stringify(key) + ":" + canonical(item)).join(",") + "}";
+            }
+            return JSON.stringify(value);
+          }
+          function sha256(value) {
+            return "sha256:" + createHash("sha256").update(value).digest("hex");
+          }
+          const proofBytes = boundedRegularFile("agent-vigil-report.json", limits.get("agent-vigil-report.json"));
+          const predicateBytes = boundedRegularFile("agent-vigil-control-proof-predicate.json", limits.get("agent-vigil-control-proof-predicate.json"));
+          const proof = JSON.parse(proofBytes.toString("utf8"));
+          const predicate = JSON.parse(predicateBytes.toString("utf8"));
+          const proofKeys = ["schemaVersion", "vigilVersion", "status", "sourceCommit", "generatedAt", "receiptHash", "challenges", "summary", "reproduction", "limits"];
+          if (!exactKeys(proof, proofKeys) || proof.schemaVersion !== "agent-vigil-control-proof/v1"
+            || !["PASS", "HOLD"].includes(proof.status) || !/^[0-9a-f]{40}$/.test(proof.sourceCommit)
+            || proof.sourceCommit !== expectedSourceCommit || !plain(proof.vigilVersion, 80)
+            || !plain(proof.generatedAt, 40) || new Date(proof.generatedAt).toISOString() !== proof.generatedAt
+            || !/^sha256:[0-9a-f]{64}$/.test(proof.receiptHash) || !plain(proof.reproduction, 400)
+            || !Array.isArray(proof.challenges) || proof.challenges.length < 1 || proof.challenges.length > 100
+            || !Array.isArray(proof.limits) || proof.limits.length > 32 || proof.limits.some((value) => !plain(value, 600))) {
+            throw new Error("control proof structure or source commit is invalid");
+          }
+          const ids = new Set();
+          for (const challenge of proof.challenges) {
+            if (!exactKeys(challenge, ["id", "claim", "expected", "actual", "passed", "base", "head", "evidence"])
+              || !plain(challenge.id, 80) || !/^[A-Za-z0-9_.-]+$/.test(challenge.id) || ids.has(challenge.id)
+              || !plain(challenge.claim, 400) || !plain(challenge.evidence, 1000)
+              || !["PASS", "BLOCK", "HOLD"].includes(challenge.expected)
+              || !["PASS", "BLOCK", "HOLD", "ERROR"].includes(challenge.actual)
+              || typeof challenge.passed !== "boolean" || challenge.passed !== (challenge.actual === challenge.expected)
+              || !/^[0-9a-f]{40}$/.test(challenge.base) || !/^[0-9a-f]{40}$/.test(challenge.head)) {
+              throw new Error("control proof challenge is invalid");
+            }
+            ids.add(challenge.id);
+          }
+          const passed = proof.challenges.filter((challenge) => challenge.passed).length;
+          if (!exactKeys(proof.summary, ["passed", "total"])
+            || !Number.isSafeInteger(proof.summary.passed) || !Number.isSafeInteger(proof.summary.total)
+            || proof.summary.passed !== passed || proof.summary.total !== proof.challenges.length
+            || proof.status !== (passed === proof.challenges.length ? "PASS" : "HOLD")) {
+            throw new Error("control proof summary is invalid");
+          }
+          const { receiptHash, ...proofPayload } = proof;
+          if (sha256(canonical(proofPayload)) !== receiptHash) throw new Error("control proof receipt hash is invalid");
+          if (!exactKeys(predicate, ["predicateVersion", "proof", "privacy"]) || predicate.predicateVersion !== "1"
+            || !exactKeys(predicate.proof, ["schemaVersion", "receiptHash", "fileSha256", "status", "sourceCommit", "generatedAt", "vigilVersion", "passed", "total", "challengeSetSha256"])
+            || !exactKeys(predicate.privacy, ["claimsIncluded", "evidenceIncluded", "repositoryPathIncluded"])) {
+            throw new Error("control proof predicate structure is invalid");
+          }
+          const challengeSet = proof.challenges.map(({ id, expected, actual, passed }) => ({ id, expected, actual, passed }));
+          if (predicate.proof.schemaVersion !== proof.schemaVersion || predicate.proof.receiptHash !== proof.receiptHash
+            || predicate.proof.fileSha256 !== sha256(proofBytes) || predicate.proof.status !== proof.status
+            || predicate.proof.sourceCommit !== proof.sourceCommit || predicate.proof.generatedAt !== proof.generatedAt
+            || predicate.proof.vigilVersion !== proof.vigilVersion || predicate.proof.passed !== proof.summary.passed
+            || predicate.proof.total !== proof.summary.total || predicate.proof.challengeSetSha256 !== sha256(canonical(challengeSet))
+            || predicate.privacy.claimsIncluded !== false || predicate.privacy.evidenceIncluded !== false
+            || predicate.privacy.repositoryPathIncluded !== false) {
+            throw new Error("control proof predicate is not bound to the exact proof");
+          }
+          NODE
       - id: attestation
         name: Sign the exact control proof with GitHub OIDC
-        if: always() && steps.predicate.outputs.path != ''
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
-          subject-path: ${{ runner.temp }}/control-proof.json
+          subject-path: ${{ runner.temp }}/agent-vigil-control-proof/agent-vigil-report.json
           predicate-type: https://sulmusic2-star.github.io/agent-vigil/control-proof-predicate-v1.schema.json
-          predicate-path: ${{ steps.predicate.outputs.path }}
-      - name: Build the weekly certificate bundle
-        run: |
-          node dist/cli.js certify record "$RUNNER_TEMP/control-proof.json" --organization sulmusic2-star --repository sulmusic2-star/agent-vigil --required-check "Agent Vigil evidence" --output "$RUNNER_TEMP/control-certificate.json"
-          node dist/cli.js certify add "$RUNNER_TEMP/control-certificate.json" --corpus "$RUNNER_TEMP/control-corpus.jsonl"
-          node dist/cli.js certify policy --organization sulmusic2-star --repository sulmusic2-star/agent-vigil --required-check "Agent Vigil evidence" --pack authority --output "$RUNNER_TEMP/control-policy.json"
-          node dist/cli.js certify status --corpus "$RUNNER_TEMP/control-corpus.jsonl" --policy "$RUNNER_TEMP/control-policy.json" --output "$RUNNER_TEMP/control-status.json"
-      - uses: actions/upload-artifact@v7
+          predicate-path: ${{ runner.temp }}/agent-vigil-control-proof/agent-vigil-control-proof-predicate.json
+      - name: Retain the proof, predicate, and attestation bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: control-certificate-${{ github.run_id }}
-          retention-days: 90
+          name: agent-vigil-control-proof-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
+          retention-days: 90
           path: |
-            ${{ runner.temp }}/control-proof.json
-            ${{ runner.temp }}/control-proof-predicate.json
+            ${{ runner.temp }}/agent-vigil-control-proof/agent-vigil-report.json
+            ${{ runner.temp }}/agent-vigil-control-proof/agent-vigil-control-proof-predicate.json
             ${{ steps.attestation.outputs.bundle-path }}
-            ${{ runner.temp }}/control-certificate.json
-            ${{ runner.temp }}/control-corpus.jsonl
-            ${{ runner.temp }}/control-policy.json
-            ${{ runner.temp }}/control-status.json

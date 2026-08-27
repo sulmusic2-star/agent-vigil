@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGitHubEvidence, loadGitHubEvidence, recomputeGitHubEvidenceHash } from "../src/github-evidence.ts";
 import { buildReport, type CheckResult } from "../src/report.ts";
 import { loadTranscript } from "../src/transcript.ts";
 import { run } from "../src/cli.ts";
+import { compositeActionRuntimeUnavailable, compositeActionScript } from "./action-runtime-fixture.ts";
 
 function json(root: string, name: string, value: unknown): string {
   const path = join(root, name);
@@ -137,28 +138,29 @@ test("GitHub evidence CLI writes an access-restricted bundle and value imports i
   assert.equal(card.github.actionsBilling, "UNAVAILABLE");
 });
 
-test("composite Action outcome mode closes a prior receipt without executing repository verification", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
-  const root = mkdtempSync(join(tmpdir(), "vigil-outcome-action-"));
+test("composite Action outcome mode closes a prior receipt without executing repository verification", { skip: compositeActionRuntimeUnavailable }, () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "vigil-outcome-action-")));
   const { receipt } = receiptFixture(root);
   const event = json(root, "workflow-run-event.json", { repository: { full_name: "owner/repo" }, workflow_run: { id: 99, event: "pull_request", pull_requests: [] } });
-  const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
-  assert.ok(block);
   const script = join(root, "run.sh");
   const output = join(root, "output");
   const summary = join(root, "summary");
   const runner = join(root, "runner");
   mkdirSync(runner);
-  writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
+  writeFileSync(script, compositeActionScript());
   writeFileSync(output, "");
   writeFileSync(summary, "");
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    GITHUB_ACTION_PATH: process.cwd(), GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: runner,
+    GITHUB_ACTION_PATH: process.cwd(), GITHUB_ACTIONS: "true", GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output,
+    GITHUB_REPOSITORY: "owner/repo", GITHUB_STEP_SUMMARY: summary, RUNNER_ENVIRONMENT: "github-hosted", RUNNER_OS: "Linux", RUNNER_TEMP: realpathSync(runner),
+    VIGIL_ATTEST: "false",
     VIGIL_TRANSCRIPT: "", VIGIL_RECEIPT: "", VIGIL_AUTHORITY_CONTRACT: "", VIGIL_AUTHORITY_CONTRACT_REF: "",
+    VIGIL_CONTINUITY_CHAIN: "", VIGIL_CONTINUITY_ENVIRONMENT: "production",
     VIGIL_MODE: "outcome", VIGIL_OUTCOME_RECEIPT: "receipt.json", VIGIL_ACTIONS_RUN_ID: "99",
-    VIGIL_REPO: ".", VIGIL_BASE: "HEAD~1", VIGIL_HEAD: "HEAD", VIGIL_TEST_CMD: "", VIGIL_POLICY: "", VIGIL_POLICY_REF: "",
-    VIGIL_STRICT: "true", VIGIL_MIN_VERIFIED: "1", VIGIL_GITHUB_TOKEN: "",
+    VIGIL_REPO: ".", VIGIL_BASE: "HEAD~1", VIGIL_HEAD: "HEAD", VIGIL_TEST_CMD: "", VIGIL_ISOLATE_CANDIDATE: "false",
+    VIGIL_CANDIDATE_SETUP_COMMAND: "", VIGIL_POLICY: "", VIGIL_POLICY_REF: "",
+    VIGIL_STRICT: "true", VIGIL_MIN_VERIFIED: "1", VIGIL_GITHUB_TOKEN: "", VIGIL_HAS_GITHUB_TOKEN: "false",
     VIGIL_VALUE_TASK_CLASS: "bugfix", VIGIL_VALUE_BUDGET_USD: "", VIGIL_VALUE_COST_USD: "", VIGIL_VALUE_COST_SOURCE: "",
     VIGIL_VALUE_COST_EVIDENCE: "", VIGIL_VALUE_REVIEW_MINUTES: "", VIGIL_REVERT_EVIDENCE: "", VIGIL_HOTFIX_EVIDENCE: "", VIGIL_INCIDENT_EVIDENCE: "",
   };
@@ -166,10 +168,34 @@ test("composite Action outcome mode closes a prior receipt without executing rep
   delete env.NODE_TEST_CONTEXT;
   const completed = spawnSync("bash", [script], { cwd: root, encoding: "utf8", env });
   assert.equal(completed.status, 0, `${completed.stdout}\n${completed.stderr}`);
-  assert.match(readFileSync(output, "utf8"), /^status=PASS$/m);
-  assert.match(readFileSync(output, "utf8"), /^value_card=.+agent-vigil-value-card\.json$/m);
-  assert.match(readFileSync(output, "utf8"), /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
-  assert.equal(JSON.parse(readFileSync(join(root, "agent-vigil-value-card.json"), "utf8")).task.taskClass, "bugfix");
+  const outputs = readFileSync(output, "utf8");
+  assert.match(outputs, /^status=PASS$/m);
+  assert.match(outputs, /^value_card=.+agent-vigil-value-card\.json$/m);
+  assert.match(outputs, /^github_evidence=.+agent-vigil-github-evidence\.json$/m);
+  const valueCardPath = outputs.match(/^value_card=(.+)$/m)?.[1];
+  assert.ok(valueCardPath);
+  assert.equal(JSON.parse(readFileSync(valueCardPath, "utf8")).task.taskClass, "bugfix");
+
+  const marker = join(root, "outcome-js-executed");
+  const executableReceipt = join(root, "prior-receipt.cjs");
+  writeFileSync(executableReceipt, `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "executed"); module.exports = {};\n`);
+  writeFileSync(output, "");
+  env.VIGIL_OUTCOME_RECEIPT = realpathSync(executableReceipt);
+  const executable = spawnSync("bash", [script], { cwd: root, encoding: "utf8", env });
+  assert.equal(executable.status, 2, `${executable.stdout}\n${executable.stderr}`);
+  assert.equal(existsSync(marker), false, "outcome receipt bytes are parsed as JSON and never executed");
+  assert.match(executable.stderr, /bounded regular JSON file/);
+
+  const tamperedPath = join(root, "tampered-receipt.json");
+  const tampered = JSON.parse(readFileSync(receipt, "utf8"));
+  tampered.summary.status = "FAIL";
+  writeFileSync(tamperedPath, `${JSON.stringify(tampered)}\n`);
+  writeFileSync(output, "");
+  env.VIGIL_OUTCOME_RECEIPT = realpathSync(tamperedPath);
+  const invalidHash = spawnSync("bash", [script], { cwd: root, encoding: "utf8", env });
+  assert.equal(invalidHash.status, 2, `${invalidHash.stdout}\n${invalidHash.stderr}`);
+  assert.match(invalidHash.stderr, /content hash or signature is invalid/);
+  assert.doesNotMatch(readFileSync(output, "utf8"), /^status=/m, "invalid prior receipt emits no trusted status output");
 });
 
 test("open PR event stays unreviewed and unknown instead of becoming accepted", () => {

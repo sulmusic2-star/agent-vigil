@@ -5,14 +5,16 @@ import {
   sign,
   verify,
 } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { canonical, recomputeReceiptHash, type ReportStatus, type TrustReport } from "./report.ts";
+import { readBoundedJson, readBoundedRegularFile } from "./continuity/contracts.ts";
+import { canonical, recomputeReceiptHash, validateTrustReport, type ReportStatus } from "./report.ts";
 import { publicKeyDer, signingKeyId, verifyReport } from "./signature.ts";
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
-const GIT_OID = /^[0-9a-f]{40,64}$/;
+const GIT_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/;
 const ADAPTERS = new Set(["generic", "a2a", "ap2", "x402", "erc-8004", "vcap"]);
+const MAX_OUTCOME_JSON_BYTES = 2 * 1024 * 1024;
+const MAX_OUTCOME_KEY_BYTES = 64 * 1024;
 
 export type OutcomeVerdict = ReportStatus;
 export type SettlementAction = "RELEASE" | "REFUND" | "ESCALATE";
@@ -151,31 +153,54 @@ function requireObjectKeys(value: unknown, label: string, allowed: string[]): vo
 }
 
 function parseTime(value: string, label: string): number {
+  if (typeof value !== "string") throw new Error(`${label} must be an RFC3339-compatible timestamp`);
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) throw new Error(`${label} must be an RFC3339-compatible timestamp`);
   return parsed;
 }
 
 function requireId(value: string, label: string): string {
-  if (!ID.test(value)) throw new Error(`${label} must be 1-200 characters using letters, numbers, dot, colon, slash, at, underscore, or hyphen`);
+  if (typeof value !== "string" || !ID.test(value)) throw new Error(`${label} must be 1-200 characters using letters, numbers, dot, colon, slash, at, underscore, or hyphen`);
   return value;
 }
 
 function requireSha(value: string, label: string): string {
-  if (!SHA256.test(value)) throw new Error(`${label} must be a SHA-256 key ID`);
+  if (typeof value !== "string" || !SHA256.test(value)) throw new Error(`${label} must be a SHA-256 key ID`);
   return value;
 }
 
 function requireGitOid(value: string, label: string): string {
-  if (!GIT_OID.test(value)) throw new Error(`${label} must be an exact 40-64 character lowercase Git object ID`);
+  if (typeof value !== "string" || !GIT_OID.test(value)) throw new Error(`${label} must be an exact 40- or 64-character lowercase Git object ID`);
   return value;
 }
 
-function uniqueStrings(values: string[], label: string, maximum = 64): string[] {
+function uniqueStrings(values: unknown, label: string, maximum = 64): string[] {
   if (!Array.isArray(values) || values.length > maximum) throw new Error(`${label} must contain no more than ${maximum} values`);
-  if (values.some((value) => typeof value !== "string" || !value.trim())) throw new Error(`${label} must contain non-empty strings`);
-  if (new Set(values).size !== values.length) throw new Error(`${label} must not contain duplicates`);
-  return [...values].sort();
+  const selected: string[] = [];
+  for (let index = 0; index < values.length; index += 1) {
+    if (!Object.hasOwn(values, index) || typeof values[index] !== "string" || !values[index].trim()) {
+      throw new Error(`${label} must contain a dense array of non-empty strings`);
+    }
+    selected.push(values[index]);
+  }
+  if (new Set(selected).size !== selected.length) throw new Error(`${label} must not contain duplicates`);
+  return selected.sort();
+}
+
+function detachedSnapshot<T>(value: unknown, label: string): T {
+  try { return structuredClone(value) as T; }
+  catch { throw new Error(`${label} must contain only data values`); }
+}
+
+function requireCanonicalBase64(value: string, label: string): string {
+  if (typeof value !== "string" || !value || value.length > 16 * 1024) throw new Error(`${label} must be bounded canonical base64`);
+  const bytes = Buffer.from(value, "base64");
+  if (!bytes.length || bytes.toString("base64") !== value) throw new Error(`${label} must be bounded canonical base64`);
+  return value;
+}
+
+function readOutcomeKey(path: string, label: string): Buffer {
+  return readBoundedRegularFile(path, MAX_OUTCOME_KEY_BYTES, label);
 }
 
 function outcomeAction(verdict: OutcomeVerdict): SettlementAction {
@@ -196,7 +221,7 @@ function payloadOfReceipt(receipt: OutcomeReceipt): OutcomeReceiptPayload {
 
 function validateMandateShape(input: unknown): OutcomeMandate {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("outcome mandate must be an object");
-  const mandate = input as OutcomeMandate;
+  const mandate = detachedSnapshot<OutcomeMandate>(input, "outcome mandate");
   requireObjectKeys(mandate, "outcome mandate", ["schemaVersion", "type", "createdAt", "expiresAt", "requester", "provider", "task", "acceptance", "limits", "verifier", "settlement", "mandateId", "signature"]);
   if (mandate.schemaVersion !== "0.1" || mandate.type !== "agent-vigil/outcome-mandate") throw new Error("unsupported outcome mandate schema or type");
   requireSha(mandate.mandateId, "mandateId");
@@ -206,7 +231,7 @@ function validateMandateShape(input: unknown): OutcomeMandate {
   if (Date.parse(mandate.expiresAt) - Date.parse(mandate.createdAt) > 366 * 24 * 60 * 60 * 1000) throw new Error("outcome mandates may not be valid for more than 366 days");
   requireObjectKeys(mandate.requester, "requester", ["id"]);
   requireId(mandate.requester?.id, "requester.id");
-  if (mandate.provider) { requireObjectKeys(mandate.provider, "provider", ["id"]); requireId(mandate.provider.id, "provider.id"); }
+  if (mandate.provider !== undefined) { requireObjectKeys(mandate.provider, "provider", ["id"]); requireId(mandate.provider.id, "provider.id"); }
   requireObjectKeys(mandate.task, "task", ["id", "class", "description", "base", "head"]);
   requireId(mandate.task?.id, "task.id");
   requireId(mandate.task?.class, "task.class");
@@ -237,7 +262,8 @@ function validateMandateShape(input: unknown): OutcomeMandate {
   requireObjectKeys(mandate.signature, "mandate signature", ["algorithm", "keyId", "publicKey", "value"]);
   if (mandate.signature?.algorithm !== "Ed25519") throw new Error("mandate signature algorithm must be Ed25519");
   requireSha(mandate.signature?.keyId, "mandate signature keyId");
-  if (typeof mandate.signature?.publicKey !== "string" || typeof mandate.signature?.value !== "string") throw new Error("mandate signature fields are required");
+  requireCanonicalBase64(mandate.signature?.publicKey, "mandate signature publicKey");
+  requireCanonicalBase64(mandate.signature?.value, "mandate signature value");
   return mandate;
 }
 
@@ -247,7 +273,7 @@ export function createOutcomeMandate(input: OutcomeMandateInput, requesterPrivat
   const expires = parseTime(input.expiresAt, "expiresAt");
   if (expires <= created) throw new Error("expiresAt must be later than createdAt");
   if (expires - created > 366 * 24 * 60 * 60 * 1000) throw new Error("outcome mandates may not be valid for more than 366 days");
-  const privateKey = createPrivateKey(readFileSync(requesterPrivateKeyPath));
+  const privateKey = createPrivateKey(readOutcomeKey(requesterPrivateKeyPath, "requester signing key"));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("requester signing key must be Ed25519");
   const publicKey = createPublicKey(privateKey);
   const der = publicKeyDer(publicKey);
@@ -300,7 +326,7 @@ export function createOutcomeMandate(input: OutcomeMandateInput, requesterPrivat
   if (!Number.isInteger(payload.limits.maxAttempts) || payload.limits.maxAttempts < 1 || payload.limits.maxAttempts > 100) throw new Error("maxAttempts must be an integer between 1 and 100");
   if (payload.limits.maxBudgetUsd !== undefined && (!Number.isFinite(payload.limits.maxBudgetUsd) || payload.limits.maxBudgetUsd <= 0 || payload.limits.maxBudgetUsd > 100000000)) throw new Error("maxBudgetUsd must be greater than zero and no more than 100000000");
   const mandateId = digest(payload);
-  return {
+  return validateMandateShape({
     ...payload,
     mandateId,
     signature: {
@@ -309,7 +335,7 @@ export function createOutcomeMandate(input: OutcomeMandateInput, requesterPrivat
       publicKey: der.toString("base64"),
       value: sign(null, Buffer.from(mandateId), privateKey).toString("base64"),
     },
-  };
+  });
 }
 
 export function verifyOutcomeMandate(input: unknown, requesterPublicKeyPath?: string, asOf = new Date()): VerificationResult {
@@ -327,7 +353,7 @@ export function verifyOutcomeMandate(input: unknown, requesterPublicKeyPath?: st
   try {
     const embedded = createPublicKey({ key: Buffer.from(mandate.signature.publicKey, "base64"), type: "spki", format: "der" });
     if (embedded.asymmetricKeyType !== "ed25519") throw new Error("embedded requester key must be Ed25519");
-    const selected = requesterPublicKeyPath ? createPublicKey(readFileSync(requesterPublicKeyPath)) : embedded;
+    const selected = requesterPublicKeyPath ? createPublicKey(readOutcomeKey(requesterPublicKeyPath, "requester public key")) : embedded;
     if (selected.asymmetricKeyType !== "ed25519") throw new Error("requester public key must be Ed25519");
     keyId = signingKeyId(publicKeyDer(selected));
     signatureValid = keyId === mandate.signature.keyId
@@ -351,43 +377,22 @@ function overallVerdict(checks: OutcomeCheck[]): OutcomeVerdict {
   return "PASS";
 }
 
-function reportSummaryConsistency(report: TrustReport): { valid: boolean; evidence: string } {
-  if (!report || typeof report !== "object" || report.schemaVersion !== "2" || !Array.isArray(report.results) || !report.summary || !report.policy) {
-    return { valid: false, evidence: "trust report is missing required schema 2 result, summary, or policy fields" };
-  }
-  const verdicts = report.results.map((item) => item?.verdict);
-  if (verdicts.some((value) => !new Set(["verified", "contradicted", "unverifiable"]).has(value))) {
-    return { valid: false, evidence: "trust report contains an unsupported result verdict" };
-  }
-  const verified = verdicts.filter((value) => value === "verified").length;
-  const contradicted = verdicts.filter((value) => value === "contradicted").length;
-  const unverifiable = verdicts.filter((value) => value === "unverifiable").length;
-  const meaningfulVerified = report.results.filter((item) => item.verdict === "verified" && item.contributesToPass !== false).length;
-  if (!Number.isInteger(report.policy.minVerified) || report.policy.minVerified < 1 || typeof report.policy.strict !== "boolean") {
-    return { valid: false, evidence: "trust report policy has an invalid evidence minimum or strict-mode value" };
-  }
-  let status: OutcomeVerdict;
-  if (contradicted > 0) status = "FAIL";
-  else if (meaningfulVerified < report.policy.minVerified
-    || report.results.some((item) => item.verdict === "unverifiable" && item.blocksPass)
-    || (report.policy.strict && unverifiable > 0)) status = "INCONCLUSIVE";
-  else status = "PASS";
-  const expected = { verified, contradicted, unverifiable, meaningfulVerified, status, pass: status === "PASS" };
-  return canonical(report.summary) === canonical(expected)
-    ? { valid: true, evidence: `summary is consistent with ${report.results.length} result(s)` }
-    : { valid: false, evidence: "trust report summary disagrees with its result records and policy" };
-}
-
 export function assessOutcome(
   mandateInput: unknown,
-  report: TrustReport,
+  reportInput: unknown,
   verifierPrivateKeyPath: string,
   options: { requesterPublicKeyPath: string; issuedAt?: string; attempts?: number; costUsd?: number },
 ): OutcomeReceipt {
+  // Parse the complete receipt boundary first and keep only its detached,
+  // normalized snapshot. A stale but otherwise well-formed receipt hash is an
+  // outcome check; malformed nested content or a forged summary is not.
+  const report = validateTrustReport(reportInput);
+  requireGitOid(report.base, "trust report base");
+  requireGitOid(report.head, "trust report head");
   const issuedAt = options.issuedAt ?? new Date().toISOString();
   const issuedDate = new Date(parseTime(issuedAt, "issuedAt"));
   const mandate = validateMandateShape(mandateInput);
-  const privateKey = createPrivateKey(readFileSync(verifierPrivateKeyPath));
+  const privateKey = createPrivateKey(readOutcomeKey(verifierPrivateKeyPath, "verifier signing key"));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("verifier signing key must be Ed25519");
   const publicKey = createPublicKey(privateKey);
   const der = publicKeyDer(publicKey);
@@ -401,8 +406,7 @@ export function assessOutcome(
 
   const reportHashValid = recomputeReceiptHash(report) === report.receiptHash;
   checks.push(check("evidence-integrity", reportHashValid ? "PASS" : "FAIL", reportHashValid ? `trust report hash ${report.receiptHash} is valid` : "trust report content does not match its receipt hash"));
-  const reportConsistency = reportSummaryConsistency(report);
-  checks.push(check("evidence-summary", reportConsistency.valid ? "PASS" : "FAIL", reportConsistency.evidence));
+  checks.push(check("evidence-summary", "PASS", `validated summary is consistent with ${report.results.length} result(s)`));
   checks.push(check("exact-base", report.base === mandate.task.base ? "PASS" : "FAIL", `mandate ${mandate.task.base}; observed ${report.base}`));
   checks.push(check("exact-head", report.head === mandate.task.head ? "PASS" : "FAIL", `mandate ${mandate.task.head}; observed ${report.head}`));
 
@@ -463,7 +467,7 @@ export function assessOutcome(
     },
   };
   const outcomeHash = digest(payload);
-  return {
+  return validateOutcomeReceipt({
     ...payload,
     outcomeHash,
     signature: {
@@ -472,12 +476,12 @@ export function assessOutcome(
       publicKey: der.toString("base64"),
       value: sign(null, Buffer.from(outcomeHash), privateKey).toString("base64"),
     },
-  };
+  }, { trustedKeyIds: [verifierKeyId] });
 }
 
 function validateReceiptShape(input: unknown): OutcomeReceipt {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("outcome receipt must be an object");
-  const receipt = input as OutcomeReceipt;
+  const receipt = detachedSnapshot<OutcomeReceipt>(input, "outcome receipt");
   requireObjectKeys(receipt, "outcome receipt", ["schemaVersion", "type", "mandateId", "issuedAt", "verifierKeyId", "verdict", "reasonCodes", "checks", "sourceEvidence", "settlementSignal", "outcomeHash", "signature"]);
   if (receipt.schemaVersion !== "0.1" || receipt.type !== "agent-vigil/outcome-receipt") throw new Error("unsupported outcome receipt schema or type");
   requireSha(receipt.mandateId, "mandateId");
@@ -513,7 +517,8 @@ function validateReceiptShape(input: unknown): OutcomeReceipt {
   if (receipt.signature?.algorithm !== "Ed25519") throw new Error("receipt signature algorithm must be Ed25519");
   requireSha(receipt.signature?.keyId, "receipt signature keyId");
   if (receipt.signature.keyId !== receipt.verifierKeyId) throw new Error("receipt signature key does not match verifierKeyId");
-  if (typeof receipt.signature.publicKey !== "string" || typeof receipt.signature.value !== "string" || !receipt.signature.publicKey || !receipt.signature.value) throw new Error("receipt signature fields are required");
+  requireCanonicalBase64(receipt.signature.publicKey, "receipt signature publicKey");
+  requireCanonicalBase64(receipt.signature.value, "receipt signature value");
   return receipt;
 }
 
@@ -531,7 +536,7 @@ export function verifyOutcomeReceipt(input: unknown, verifierPublicKeyPath?: str
   try {
     const embedded = createPublicKey({ key: Buffer.from(receipt.signature.publicKey, "base64"), type: "spki", format: "der" });
     if (embedded.asymmetricKeyType !== "ed25519") throw new Error("embedded verifier key must be Ed25519");
-    const selected = verifierPublicKeyPath ? createPublicKey(readFileSync(verifierPublicKeyPath)) : embedded;
+    const selected = verifierPublicKeyPath ? createPublicKey(readOutcomeKey(verifierPublicKeyPath, "verifier public key")) : embedded;
     if (selected.asymmetricKeyType !== "ed25519") throw new Error("verifier public key must be Ed25519");
     keyId = signingKeyId(publicKeyDer(selected));
     signatureValid = keyId === receipt.signature.keyId
@@ -543,15 +548,35 @@ export function verifyOutcomeReceipt(input: unknown, verifierPublicKeyPath?: str
   return { valid: errors.length === 0, hashValid, signatureValid, keyPinned, expired: false, ...(keyId ? { keyId } : {}), errors };
 }
 
+export function validateOutcomeReceipt(
+  input: unknown,
+  trust: { verifierPublicKeyPath?: string; trustedKeyIds?: string[] },
+): OutcomeReceipt {
+  requireObjectKeys(trust, "outcome receipt trust", ["verifierPublicKeyPath", "trustedKeyIds"]);
+  const verifierPublicKeyPath = trust.verifierPublicKeyPath;
+  if (verifierPublicKeyPath !== undefined && (typeof verifierPublicKeyPath !== "string" || !verifierPublicKeyPath)) {
+    throw new Error("outcome receipt verifierPublicKeyPath must be a non-empty string");
+  }
+  const trustedKeyIds = uniqueStrings(trust.trustedKeyIds ?? [], "outcome receipt trustedKeyIds");
+  trustedKeyIds.forEach((value) => requireSha(value, "trusted verifier key ID"));
+  if (!verifierPublicKeyPath && !trustedKeyIds.length) {
+    throw new Error("outcome receipt validation requires a pinned verifier public key or trusted verifier key ID");
+  }
+  const receipt = validateReceiptShape(input);
+  const verification = verifyOutcomeReceipt(receipt, verifierPublicKeyPath, trustedKeyIds);
+  if (!verification.valid || !verification.keyPinned) {
+    throw new Error(`outcome receipt is invalid or untrusted: ${verification.errors.join("; ") || "verifier key is not pinned"}`);
+  }
+  return receipt;
+}
+
 export function buildSettlementAdapterPayload(
   receiptInput: unknown,
   adapterOverride: OutcomeAdapter | undefined,
   trust: { verifierPublicKeyPath?: string; trustedKeyIds?: string[] },
 ): Record<string, unknown> {
-  const receipt = validateReceiptShape(receiptInput);
   if (!trust.verifierPublicKeyPath && !(trust.trustedKeyIds?.length)) throw new Error("signal rendering requires a pinned verifier public key or trusted verifier key ID");
-  const verification = verifyOutcomeReceipt(receipt, trust.verifierPublicKeyPath, trust.trustedKeyIds ?? []);
-  if (!verification.valid || !verification.keyPinned) throw new Error(`cannot render a signal from an invalid or untrusted outcome receipt: ${verification.errors.join("; ") || "verifier key is not pinned"}`);
+  const receipt = validateOutcomeReceipt(receiptInput, trust);
   const adapter = adapterOverride ?? receipt.settlementSignal.adapter;
   if (!ADAPTERS.has(adapter)) throw new Error("unsupported settlement adapter");
   const decision = receipt.verdict === "PASS" ? "accept" : receipt.verdict === "FAIL" ? "reject" : "escalate";
@@ -597,8 +622,5 @@ export function buildSettlementAdapterPayload(
 }
 
 export function loadOutcomeJson(path: string): unknown {
-  const raw = readFileSync(path, "utf8");
-  if (Buffer.byteLength(raw) > 2 * 1024 * 1024) throw new Error("outcome JSON exceeds the 2 MiB limit");
-  try { return JSON.parse(raw); }
-  catch { throw new Error(`outcome JSON is invalid: ${path}`); }
+  return readBoundedJson(path, MAX_OUTCOME_JSON_BYTES, "outcome JSON");
 }

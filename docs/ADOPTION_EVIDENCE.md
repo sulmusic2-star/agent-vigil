@@ -14,8 +14,10 @@ mentions, README links, and code-search hits remain discovery signals.
    `agent-vigil-receipt` in a configured external repository. The census counts
    artifacts, not unique receipt hashes or lifetime runs. This discovery count
    cannot by itself satisfy the 1,000-receipt milestone.
-5. **Required check** — a repository owner provides public ruleset/branch
-   protection evidence. Public code search cannot establish this state.
+5. **Enforceable check** — a repository owner provides evidence of an external
+   required-workflow ruleset or App-owned exact-head check. A plain required
+   job name does not establish workflow or event identity. Public code search
+   cannot establish this state.
 6. **Maintainer-accepted contradiction** — a maintainer links the failing
    receipt, the change it stopped, and the accepted fix or closure. Agent Vigil
    does not count its own demonstration fixtures.
@@ -48,8 +50,8 @@ All six conditions must be independently evidenced:
   fix, closure, or policy decision;
 - fewer than 1% unexplained false verdicts, with every report classified as
   resolved false verdict, expected behavior, product defect, or still open;
-- 3 external repositories with public owner-supplied evidence that the check is
-  required for merge.
+- 3 external repositories with public owner-supplied evidence that an external
+  required workflow or App-owned exact-head check is required for merge.
 
 The public census is a discovery aid for configured workflows and currently
 listed artifacts. It cannot observe retention intent, unique lifetime receipt

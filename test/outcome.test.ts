@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { run } from "../src/cli.ts";
 import {
   assessOutcome,
   buildSettlementAdapterPayload,
   createOutcomeMandate,
   loadOutcomeJson,
+  validateOutcomeReceipt,
   verifyOutcomeMandate,
   verifyOutcomeReceipt,
   type OutcomeAdapter,
@@ -16,7 +18,7 @@ import {
   type OutcomeMandateInput,
   type OutcomeReceipt,
 } from "../src/outcome.ts";
-import { buildReport, recomputeReceiptHash, type CheckResult, type TrustReport } from "../src/report.ts";
+import { buildReport, type CheckResult, type TrustReport } from "../src/report.ts";
 import { generateSigningKey, publicKeyId, signReport } from "../src/signature.ts";
 import { runMandateCommand, runOutcomeReceiptCommand } from "../src/outcome-cli.ts";
 
@@ -53,6 +55,20 @@ function nestedObject(parent: Record<string, unknown>, key: string): Record<stri
   return mutableObject(parent[key], key);
 }
 
+function captureConsole(callback: () => number): { code: number; stdout: string; stderr: string } {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const previousLog = console.log;
+  const previousError = console.error;
+  console.log = (...values: unknown[]) => { stdout.push(values.map(String).join(" ")); };
+  console.error = (...values: unknown[]) => { stderr.push(values.map(String).join(" ")); };
+  try { return { code: callback(), stdout: stdout.join("\n"), stderr: stderr.join("\n") }; }
+  finally {
+    console.log = previousLog;
+    console.error = previousError;
+  }
+}
+
 function result(ruleId: string, verdict: "verified" | "contradicted" | "unverifiable", contributesToPass = true, blocksPass = false): CheckResult {
   return {
     claim: { kind: "tests_pass", quote: ruleId, subject: ruleId },
@@ -78,7 +94,7 @@ test("Outcome Mandate v0.1 passes a valid exact-state report and emits no networ
   assert.equal(verifyOutcomeReceipt(receipt, fixture.verifierPublic).valid, true);
 });
 
-test("Outcome verification rejects unknown fields and a rehashed forged report summary", () => {
+test("Outcome verification rejects unknown fields and hard-rejects a forged report summary", () => {
   const fixture = setup();
   const mandate = fixture.mandate();
   const unknown = { ...mandate, paymentApi: "https://example.invalid/release" };
@@ -86,14 +102,234 @@ test("Outcome verification rejects unknown fields and a rehashed forged report s
 
   const forged = fixture.report([result("tests-pass", "contradicted")]);
   forged.summary = { verified: 1, contradicted: 0, unverifiable: 0, meaningfulVerified: 1, status: "PASS", pass: true };
-  forged.receiptHash = recomputeReceiptHash(forged);
-  const receipt = assessOutcome(mandate, forged, fixture.verifierPrivate, {
+  assert.throws(() => assessOutcome(mandate, forged, fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
+  }), /receipt summary\.verified does not match results and policy/);
+});
+
+test("Outcome assessment records a stale hash as FAIL but rejects malformed nested reports", () => {
+  const fixture = setup();
+  const mandate = fixture.mandate();
+  const stale = clone(fixture.report());
+  stale.results[0].evidence = "changed after the receipt hash was computed";
+  const failed = assessOutcome(mandate, stale, fixture.verifierPrivate, {
     requesterPublicKeyPath: fixture.requesterPublic,
     issuedAt: "2026-08-27T12:00:00.000Z",
     attempts: 1,
   });
-  assert.equal(receipt.verdict, "FAIL");
-  assert.equal(receipt.checks.find((item) => item.id === "evidence-summary")?.verdict, "FAIL");
+  assert.equal(failed.verdict, "FAIL");
+  assert.equal(failed.checks.find((item) => item.id === "evidence-integrity")?.verdict, "FAIL");
+  assert.equal(verifyOutcomeReceipt(failed, fixture.verifierPublic).valid, true);
+
+  const malformed = mutableObject(clone(fixture.report()));
+  const results = malformed.results as unknown[];
+  nestedObject(mutableObject(results[0]), "claim").unexpected = true;
+  assert.throws(() => assessOutcome(mandate, malformed, fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    attempts: 1,
+  }), /receipt results\[0\]\.claim has unsupported or missing fields/);
+});
+
+test("Outcome assessment uses the detached report snapshot returned by validateTrustReport", () => {
+  const fixture = setup();
+  const report = fixture.report();
+  const originalHash = report.receiptHash;
+  Object.defineProperty(report, "receiptHash", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      report.base = OTHER_BASE;
+      report.results[0].verdict = "contradicted";
+      return originalHash;
+    },
+  });
+  const receipt = assessOutcome(fixture.mandate(), report, fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
+  });
+  assert.equal(report.base, OTHER_BASE);
+  assert.equal(report.results[0].verdict, "contradicted");
+  assert.equal(receipt.verdict, "PASS");
+  assert.equal(receipt.sourceEvidence.base, BASE);
+  assert.equal(receipt.checks.find((item) => item.id === "exact-base")?.verdict, "PASS");
+});
+
+test("validateOutcomeReceipt requires closed signed content and pinned verifier trust", () => {
+  const fixture = setup();
+  const receipt = assessOutcome(fixture.mandate(), fixture.report(), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
+  });
+  const verifierKeyId = publicKeyId(fixture.verifierPublic);
+  const validated = validateOutcomeReceipt(receipt, { trustedKeyIds: [verifierKeyId] });
+  assert.deepEqual(validated, receipt);
+  assert.notEqual(validated, receipt);
+  receipt.checks[0].evidence = "mutated after validation";
+  assert.notEqual(validated.checks[0].evidence, receipt.checks[0].evidence);
+
+  const fresh = assessOutcome(fixture.mandate(), fixture.report(), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
+  });
+  assert.throws(() => validateOutcomeReceipt(fresh, {}), /requires a pinned verifier/);
+  assert.throws(() => validateOutcomeReceipt(fresh, { trustedKeyIds: [`sha256:${"0".repeat(64)}`] }), /verifier key ID is not trusted/);
+
+  const unknown = clone(fresh) as OutcomeReceipt & { unexpected?: boolean };
+  unknown.unexpected = true;
+  assert.throws(() => validateOutcomeReceipt(unknown, { verifierPublicKeyPath: fixture.verifierPublic }), /unsupported field/);
+
+  const stale = clone(fresh);
+  stale.checks[0].evidence = "changed after outcome signing";
+  assert.throws(() => validateOutcomeReceipt(stale, { verifierPublicKeyPath: fixture.verifierPublic }), /content hash is invalid/);
+
+  const badSignature = clone(fresh);
+  badSignature.signature.value = Buffer.from("bad signature").toString("base64");
+  assert.throws(() => validateOutcomeReceipt(badSignature, { verifierPublicKeyPath: fixture.verifierPublic }), /signature is invalid/);
+});
+
+test("Outcome Git identities and schemas accept exactly 40 or 64 lowercase hex characters", () => {
+  const fixture = setup();
+  for (const length of [41, 63]) {
+    assert.throws(
+      () => createOutcomeMandate(fixture.mandateInput({ base: "a".repeat(length) }), fixture.requesterPrivate),
+      /exact 40- or 64-character lowercase Git object ID/,
+    );
+  }
+  assert.throws(
+    () => createOutcomeMandate(fixture.mandateInput({ head: BASE }), fixture.requesterPrivate),
+    /base and head must differ/,
+  );
+  const base64 = "a".repeat(64);
+  const head64 = "b".repeat(64);
+  const mandate64 = fixture.mandate({ base: base64, head: head64 });
+  const receipt64 = assessOutcome(mandate64, fixture.report(undefined, { base: base64, head: head64 }), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
+  });
+  assert.equal(receipt64.verdict, "PASS");
+
+  const sparseRules: string[] = [];
+  sparseRules.length = 1;
+  assert.throws(() => fixture.mandate({ requiredRuleIds: sparseRules }), /dense array of non-empty strings/);
+
+  for (const schemaUrl of [
+    new URL("../docs/outcome-mandate-v0.1.schema.json", import.meta.url),
+    new URL("../docs/outcome-receipt-v0.1.schema.json", import.meta.url),
+  ]) {
+    const schema = JSON.parse(readFileSync(schemaUrl, "utf8")) as { $defs: { gitOid: { pattern: string } } };
+    const pattern = new RegExp(schema.$defs.gitOid.pattern);
+    assert.equal(pattern.test("a".repeat(40)), true);
+    assert.equal(pattern.test("a".repeat(64)), true);
+    assert.equal(pattern.test("a".repeat(41)), false);
+    assert.equal(pattern.test("a".repeat(63)), false);
+  }
+});
+
+test("Outcome JSON and signing-key reads reject links and oversized files", { skip: process.platform === "win32" }, () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-vigil-outcome-read-"));
+  const json = join(directory, "outcome.json");
+  const jsonLink = join(directory, "outcome-link.json");
+  writeFileSync(json, "{}\n");
+  symlinkSync(json, jsonLink);
+  assert.throws(() => loadOutcomeJson(jsonLink), /regular file, not a symbolic link/);
+
+  const oversizedJson = join(directory, "oversized.json");
+  writeFileSync(oversizedJson, Buffer.alloc(2 * 1024 * 1024 + 1, 0x20));
+  assert.throws(() => loadOutcomeJson(oversizedJson), /exceeds the 2097152 byte limit/);
+
+  const fixture = setup();
+  const requesterPrivateLink = join(directory, "requester-private-link.pem");
+  const requesterPublicLink = join(directory, "requester-public-link.pem");
+  const verifierPrivateLink = join(directory, "verifier-private-link.pem");
+  const verifierPublicLink = join(directory, "verifier-public-link.pem");
+  symlinkSync(fixture.requesterPrivate, requesterPrivateLink);
+  symlinkSync(fixture.requesterPublic, requesterPublicLink);
+  symlinkSync(fixture.verifierPrivate, verifierPrivateLink);
+  symlinkSync(fixture.verifierPublic, verifierPublicLink);
+
+  assert.throws(() => createOutcomeMandate(fixture.mandateInput(), requesterPrivateLink), /regular file, not a symbolic link/);
+  assert.match(verifyOutcomeMandate(fixture.mandate(), requesterPublicLink).errors.join("\n"), /regular file, not a symbolic link/);
+  assert.throws(() => assessOutcome(fixture.mandate(), fixture.report(), verifierPrivateLink, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    attempts: 1,
+  }), /regular file, not a symbolic link/);
+
+  const receipt = assessOutcome(fixture.mandate(), fixture.report(), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    attempts: 1,
+  });
+  assert.match(verifyOutcomeReceipt(receipt, verifierPublicLink).errors.join("\n"), /regular file, not a symbolic link/);
+
+  const oversizedKey = join(directory, "oversized.pem");
+  writeFileSync(oversizedKey, Buffer.alloc(64 * 1024 + 1, 0x41));
+  assert.throws(() => createOutcomeMandate(fixture.mandateInput(), oversizedKey), /exceeds the 65536 byte limit/);
+});
+
+test("Top-level outcome CLI dispatch exposes help and terminal-safes attacker-derived text", () => {
+  const help = captureConsole(() => run(["--help"]));
+  assert.equal(help.code, 0);
+  assert.match(help.stdout, /vigil mandate create/);
+  assert.match(help.stdout, /vigil receipt verify/);
+
+  const mandateHelp = captureConsole(() => run(["mandate", "--help"]));
+  const receiptHelp = captureConsole(() => run(["receipt", "--help"]));
+  assert.equal(mandateHelp.code, 0);
+  assert.equal(receiptHelp.code, 0);
+  assert.match(mandateHelp.stdout, /--max-attempts/);
+  assert.match(receiptHelp.stdout, /receipt signal/);
+
+  const hostile = captureConsole(() => run(["mandate", `unknown\u001b[31m\u202E`]));
+  assert.equal(hostile.code, 2);
+  assert.doesNotMatch(hostile.stderr, /\u001b|\u202e/);
+  assert.match(hostile.stderr, /\\u\{001B\}/);
+  assert.match(hostile.stderr, /\\u\{202E\}/);
+
+  const missingPath = join(tmpdir(), `missing-outcome\u001b[31m\u202E.json`);
+  const missing = captureConsole(() => run(["mandate", "verify", missingPath]));
+  assert.equal(missing.code, 2);
+  assert.doesNotMatch(missing.stderr, /\u001b|\u202e/);
+  assert.match(missing.stderr, /\\u\{001B\}/);
+  assert.match(missing.stderr, /\\u\{202E\}/);
+
+  const fixture = setup();
+  const hostileMandate = clone(fixture.mandate()) as OutcomeMandate & Record<string, unknown>;
+  hostileMandate[`unsupported\u001b[31m\u202E`] = true;
+  const hostilePath = join(mkdtempSync(join(tmpdir(), "agent-vigil-outcome-hostile-")), "mandate.json");
+  writeFileSync(hostilePath, `${JSON.stringify(hostileMandate)}\n`);
+  const verified = captureConsole(() => run(["mandate", "verify", hostilePath, "--requester-public-key", fixture.requesterPublic]));
+  assert.equal(verified.code, 1);
+  assert.doesNotMatch(verified.stdout, /\u001b|\u202e/);
+  assert.match(verified.stdout, /\\u\{001B\}/);
+  assert.match(verified.stdout, /\\u\{202E\}/);
+
+  const documentation = readFileSync(new URL("../docs/OUTCOME_MANDATES.md", import.meta.url), "utf8");
+  assert.match(documentation, /--attempts 1/);
+  assert.match(documentation, /`--attempts` is required by the CLI/);
+});
+
+test("CLI signal JSON escapes unsafe display code points without changing parsed data", () => {
+  const fixture = setup();
+  const reference = "task-safe\u202Ehidden";
+  const receipt = assessOutcome(fixture.mandate({ settlementReference: reference }), fixture.report(), fixture.verifierPrivate, {
+    requesterPublicKeyPath: fixture.requesterPublic,
+    issuedAt: "2026-08-27T12:00:00.000Z",
+    attempts: 1,
+  });
+  const receiptPath = join(mkdtempSync(join(tmpdir(), "agent-vigil-outcome-cli-")), "receipt.json");
+  writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`);
+  const rendered = captureConsole(() => run(["receipt", "signal", receiptPath, "--verifier-public-key", fixture.verifierPublic]));
+  assert.equal(rendered.code, 0);
+  assert.doesNotMatch(rendered.stdout, /\u202e/);
+  assert.match(rendered.stdout, /\\u202E/);
+  const parsed = JSON.parse(rendered.stdout) as { reference: string; networkAction: string };
+  assert.equal(parsed.reference, reference);
+  assert.equal(parsed.networkAction, "NONE");
 });
 
 test("50 adversarial outcome cases fail closed or stay network-inert", () => {
@@ -413,8 +649,8 @@ test("Outcome constructors and verifiers reject invalid keys, limits, identities
   const oversized = join(fixture.directory, "oversized.json");
   writeFileSync(malformed, "{");
   writeFileSync(oversized, "x".repeat(2 * 1024 * 1024 + 1));
-  assert.throws(() => loadOutcomeJson(malformed), /invalid/);
-  assert.throws(() => loadOutcomeJson(oversized), /2 MiB/);
+  assert.throws(() => loadOutcomeJson(malformed), /not valid JSON/);
+  assert.throws(() => loadOutcomeJson(oversized), /2097152 byte limit/);
 });
 
 function setup() {
@@ -432,7 +668,7 @@ function setup() {
   generateSigningKey(evidencePrivate, evidencePublic);
   generateSigningKey(otherPrivate, otherPublic);
 
-  const mandate = (overrides: Partial<OutcomeMandateInput> = {}): OutcomeMandate => createOutcomeMandate({
+  const mandateInput = (overrides: Partial<OutcomeMandateInput> = {}): OutcomeMandateInput => ({
     createdAt: CREATED,
     expiresAt: EXPIRES,
     requesterId: "acme/platform",
@@ -448,7 +684,9 @@ function setup() {
     adapter: "x402",
     settlementReference: "task-1842",
     ...overrides,
-  }, requesterPrivate);
+  });
+
+  const mandate = (overrides: Partial<OutcomeMandateInput> = {}): OutcomeMandate => createOutcomeMandate(mandateInput(overrides), requesterPrivate);
 
   const report = (
     results: CheckResult[] = [result("tests-pass", "verified"), result("test-integrity", "verified")],
@@ -457,7 +695,7 @@ function setup() {
     const built = buildReport({
       transcript: "fixture.jsonl",
       transcriptSha256: `sha256:${"a".repeat(64)}`,
-      transcriptFormat: "jsonl",
+      transcriptFormat: "codex",
       repo: directory,
       base: options.base ?? BASE,
       head: options.head ?? HEAD,
@@ -467,5 +705,5 @@ function setup() {
     return options.signWith ? signReport(built, options.signWith) : built;
   };
 
-  return { directory, requesterPrivate, requesterPublic, verifierPrivate, verifierPublic, evidencePrivate, evidencePublic, otherPrivate, otherPublic, mandate, report };
+  return { directory, requesterPrivate, requesterPublic, verifierPrivate, verifierPublic, evidencePrivate, evidencePublic, otherPrivate, otherPublic, mandateInput, mandate, report };
 }

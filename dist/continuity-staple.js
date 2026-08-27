@@ -3,13 +3,18 @@ import { createPrivateKey as createPrivateKey2, createPublicKey as createPublicK
 
 // src/signature.ts
 import {
-  createHash,
+  createHash as createHash2,
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
   sign,
   verify
 } from "node:crypto";
+
+// src/continuity/contracts.ts
+import { constants, closeSync, fstatSync, lstatSync, openSync, readSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+import { createHash } from "node:crypto";
 
 // src/report.ts
 function canonical(value) {
@@ -22,18 +27,7 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 
-// src/signature.ts
-function publicKeyDer(key) {
-  return key.export({ type: "spki", format: "der" });
-}
-function signingKeyId(der) {
-  return `sha256:${createHash("sha256").update(der).digest("hex")}`;
-}
-
 // src/continuity/contracts.ts
-import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
-import { createHash as createHash2 } from "node:crypto";
 var CONTINUITY_STATES = ["CURRENT", "HOLD", "EXPIRED", "REVOKED"];
 var SHA256 = /^sha256:[0-9a-f]{64}$/;
 var GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -87,24 +81,42 @@ function validateContinuitySubject(value) {
   };
 }
 function sha256(value) {
-  return `sha256:${createHash2("sha256").update(value).digest("hex")}`;
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 function canonicalSha256(value) {
   return sha256(canonical(value));
 }
 function readBoundedRegularFile(path, maximumBytes, label) {
   const absolute = resolve(path);
-  const expected = lstatSync(absolute);
+  const expected = lstatSync(absolute, { bigint: true });
   if (expected.isSymbolicLink() || !expected.isFile()) throw new Error(`${label} must be a regular file, not a symbolic link`);
-  if (expected.size > maximumBytes) throw new Error(`${label} exceeds the ${maximumBytes} byte limit`);
+  if (expected.size > BigInt(maximumBytes)) throw new Error(`${label} exceeds the ${maximumBytes} byte limit`);
   const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
-  const descriptor = openSync(absolute, constants.O_RDONLY | noFollow);
+  const nonBlock = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0;
+  const descriptor = openSync(absolute, constants.O_RDONLY | noFollow | nonBlock);
   try {
-    const opened = fstatSync(descriptor);
-    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size) {
+    const opened = fstatSync(descriptor, { bigint: true });
+    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeNs !== expected.mtimeNs || opened.ctimeNs !== expected.ctimeNs) {
       throw new Error(`${label} changed while being read`);
     }
-    return readFileSync(descriptor);
+    const bytes = Buffer.alloc(Number(opened.size));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(descriptor, bytes, offset, bytes.length - offset, offset);
+      if (count === 0) throw new Error(`${label} changed while being read`);
+      offset += count;
+    }
+    const after = fstatSync(descriptor, { bigint: true });
+    let finalPath;
+    try {
+      finalPath = lstatSync(absolute, { bigint: true });
+    } catch {
+      throw new Error(`${label} changed while being read`);
+    }
+    if (!after.isFile() || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size || finalPath.mtimeNs !== opened.mtimeNs || finalPath.ctimeNs !== opened.ctimeNs) {
+      throw new Error(`${label} changed while being read`);
+    }
+    return bytes;
   } finally {
     closeSync(descriptor);
   }
@@ -116,6 +128,15 @@ function readBoundedJson(path, maximumBytes, label) {
   } catch {
     throw new Error(`${label} is not valid JSON`);
   }
+}
+
+// src/signature.ts
+var MAX_SIGNING_KEY_BYTES = 64 * 1024;
+function publicKeyDer(key) {
+  return key.export({ type: "spki", format: "der" });
+}
+function signingKeyId(der) {
+  return `sha256:${createHash2("sha256").update(der).digest("hex")}`;
 }
 
 // src/continuity/staple.ts

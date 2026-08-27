@@ -12,6 +12,7 @@ export const CALIBRATED_BLOCKING_RULES = new Set([
   "render-gate",
   "test-count-drop",
   "test-empty-added",
+  "test-file-deleted",
   "test-oracle-constant",
   "test-skip-added",
   "verification-bypass",

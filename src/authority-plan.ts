@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { posix } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { canonical, type CheckResult } from "./report.ts";
+import { trustedGit } from "./trusted-git.ts";
 
 export type AuthorityPlatform = "mcp" | "claude-code" | "codex";
 export type AuthorityDecision = "ALLOW" | "ASK" | "DENY" | "UNKNOWN";
@@ -332,12 +332,7 @@ function hold(ruleId: string, reason: string, severity: AuthorityDelta["severity
 }
 
 function git(repo: string, args: string[], maxBuffer = 64 * 1024 * 1024): string {
-  return execFileSync("git", args, {
-    cwd: repo,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer,
-  });
+  return trustedGit(repo, args, maxBuffer);
 }
 
 function relevantFiles(repo: string, ref: string): string[] {

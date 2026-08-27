@@ -50,14 +50,20 @@ policy change invalidates that binding.
 
 ## Policy integrity
 
-A candidate change can edit a policy stored in its own worktree. GitHub Actions
-should therefore pass the event base SHA as `policy-ref` so Agent Vigil loads
-`.agent-vigil.json` from the trusted base commit. The generated `vigil init`
-workflow does this automatically for both `pull_request` and `merge_group`,
-checks out the exact event head, and rejects base/head or policy-ref inputs that
-do not match the GitHub event payload. The first setup pull request
-cannot use base anchoring because its base does not contain the policy; merge
-the installation under ordinary review, then make the check required.
+A candidate change can edit policy and workflow files stored in its own
+worktree. The v0.21.0 generated workflow is therefore selected from the base
+branch through `pull_request_target`. It passes the event base SHA as
+`policy-ref`, checks out the exact event head without persisted credentials,
+and rejects base, head, policy, Action, event, or workspace inputs that do not
+match the immutable snapshot. The first setup pull request cannot use base
+anchoring because its base does not contain the policy; merge the installation
+under ordinary review before relying on its evidence.
+
+That evidence is not enforceable merely because branch protection requires a
+job named `Agent Vigil evidence`. GitHub's plain required-status selection does
+not bind the name to the intended workflow or event. Use an organization or
+enterprise required-workflow ruleset, or an external GitHub App that validates
+the exact head and evidence source.
 
 The continuity Action adds two bindings. It compares the downloaded history
 with the exact commit named by the selected evidence run, and it reads
@@ -71,12 +77,14 @@ installation alone cannot authorize deployment. A repository owner must obtain
 the public keys separately, add their IDs under normal review, and commit the
 policy before a signed history can become `CURRENT`.
 
-For merge queues, the event's composed head can differ from every individual
-pull-request head. Agent Vigil verifies that exact composition, requires the
-event base to be its ancestor, and reruns the base-policy test and integrity
-lanes. The merge-group payload lacks a single PR body, so the queue phase does
-not claim to re-verify PR-body attestations or portable signatures. Those remain
-PR-phase checks. See [the merge-queue contract](MERGE_QUEUES.md).
+The generated repository workflow does not handle `merge_group`. A
+repository-owned merge-group workflow is candidate-selected and cannot be the
+trusted source of its own merge decision. The low-level merge-group verifier is
+available only for an externally controlled required workflow or App that
+binds the exact composed head. The merge-group payload also lacks one pull
+request's complete evidence context, so an external integration must not
+fabricate PR-body or portable-signature evidence. See
+[the merge-queue contract](MERGE_QUEUES.md).
 
 ## Execution boundary
 
@@ -88,10 +96,19 @@ local runs from attributing test results to a commit that was not actually
 executed. A fresh GitHub Actions checkout remains the preferred enforcement
 environment.
 
-Re-running tests executes repository code with the current process privileges.
-In CI, do not run Agent Vigil with write-capable secrets on untrusted fork code.
+Local test, setup, and automated-review commands execute repository code with
+the current process's host privileges. A detached worktree binds Git identity;
+it does not isolate processes, files, credentials, descendants, or the network.
 Never construct `--test-cmd` from issue text, PR descriptions, commit messages,
 or other untrusted strings.
+
+The v0.21.0 generated hosted lane instead requires a GitHub-hosted Linux runner
+and runs repository commands in fixed candidate-only Docker invocations. The
+candidate receives no GitHub token, OIDC, signing, or write authority. A
+base-owned `npm ci --ignore-scripts` setup may use network and a writable mount;
+tests use a read-only source mount without network. This boundary supports only
+plain repositories and root Node/npm repositories with a bounded direct
+`node --test` command. Unsupported shapes fail closed.
 
 Recommended GitHub permissions:
 
@@ -100,8 +117,10 @@ permissions:
   contents: read
 ```
 
-Use an isolated runner for hostile repositories. Agent Vigil is a verifier, not
-a sandbox.
+Use the generated hosted lane or a separately reviewed isolation system for
+hostile repositories. The local CLI is a verifier, not a sandbox. The Docker
+daemon, hosted runner, reviewed Action commit, pinned image, event payload, and
+base branch remain in the hosted trusted computing base.
 
 ### Upgrade Guard containment
 

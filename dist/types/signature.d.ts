@@ -9,6 +9,6 @@ export type VerificationResult = {
     keyPinned: boolean;
     keyId?: string;
 };
-export declare function verifyReport(report: TrustReport, publicKeyPath?: string): VerificationResult;
+export declare function verifyReport(value: unknown, publicKeyPath?: string): VerificationResult;
 export declare function generateSigningKey(privatePath: string, publicPath: string): void;
 export declare function publicKeyId(publicKeyPath: string): string;

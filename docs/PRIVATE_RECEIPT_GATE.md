@@ -67,41 +67,30 @@ vigil keygen \
 }
 ```
 
-Install the Action in receipt mode:
+Prepare the credential-free Action in portable-receipt mode:
 
-```yaml
-name: Agent Vigil
-on:
-  pull_request:
-  merge_group:
-    types: [checks_requested]
+```bash
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.0/sulmusic-agent-vigil-0.21.0.tgz \
+  init --portable \
+  --public-key ~/.config/agent-vigil/operator.pub \
+  --action-sha <reviewed-full-commit>
 
-permissions:
-  contents: read
-
-jobs:
-  evidence:
-    name: Agent Vigil evidence
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      - uses: sulmusic2-star/agent-vigil@v0.20.0
-        with:
-          receipt: .agent-vigil/receipt.json
-          policy: .agent-vigil.json
-          policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          repo: .
-          base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.0/sulmusic-agent-vigil-0.21.0.tgz \
+  doctor
 ```
+
+The generator writes a base-selected `pull_request_target` workflow, pins every
+Action to a full commit, checks out the exact head without persisted
+credentials, and verifies the candidate receipt plus base policy in the
+credential-free Linux Docker lane. It does not grant candidate code a GitHub
+token, OIDC, signing authority, or write permission.
 
 Merge this setup under ordinary review before requiring the check. The first
 setup pull request cannot load a policy that is not yet present in its base.
-On a merge queue, Agent Vigil reruns the base-policy tests and integrity checks
-against the composed queue head; see [the merge-queue contract](MERGE_QUEUES.md).
+A job name alone does not bind GitHub to the expected workflow and event. Use an
+external required-workflow ruleset or App exact-head check for enforcement and
+merge queues. See [the hosted security contract](HOSTED_SECURITY_CONTRACT.md)
+and [merge-queue boundary](MERGE_QUEUES.md).
 
 ## Per-change flow
 

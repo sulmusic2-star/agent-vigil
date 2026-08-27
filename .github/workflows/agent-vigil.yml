@@ -1,99 +1,170 @@
 name: Agent Vigil
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-  merge_group:
-    types: [checks_requested]
+  # The base branch selects these workflow bytes. Candidate code is checked out
+  # only after the job has entered the credential-free isolation contract.
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
-  issues: read
   pull-requests: read
-  id-token: write
-  attestations: write
-  artifact-metadata: write
 
 jobs:
   evidence:
     name: Agent Vigil evidence
-    runs-on: ubuntu-latest
+    if: github.event.pull_request.state == 'open'
+    runs-on: ubuntu-24.04
+    outputs:
+      vigil-status: ${{ steps.vigil.outputs.status }}
+      receipt-hash: ${{ steps.vigil.outputs['receipt-hash'] }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out the exact candidate revision without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      - name: Install dependencies for fresh verification
-        run: npm ci --ignore-scripts
-      - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.12.0
-        continue-on-error: true
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - name: Select the trusted host Node.js runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          attest: true
+          node-version: 22
+          package-manager-cache: false
+      - id: vigil
+        name: Verify in the candidate-only Docker contract
+        # Release gate: replace this literal with the reviewed 40-hex runtime
+        # commit only after source/dist identity is frozen and reviewed.
+        uses: sulmusic2-star/agent-vigil@ebf1d62c3bca4e5a549472e8c95e7075ea85887d
+        with:
           mode: maintainer
           policy: .agent-vigil.json
-          policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          policy-ref: ${{ github.event.pull_request.base.sha }}
           repo: .
-          base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-          github-token: ${{ github.token }}
-      - name: Enforce the evidence result or the exact approved exception
-        env:
-          VIGIL_STEP_OUTCOME: ${{ steps.vigil.outcome }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-          REPOSITORY: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          if [ "$VIGIL_STEP_OUTCOME" = "success" ]; then
-            exit 0
-          fi
-
-          node --input-type=module <<'NODE'
-          const expected = {
-            event: "pull_request",
-            pullRequest: "94",
-            issue: 95,
-            label: "scope-exception-approved",
-          };
-          const fail = (message) => {
-            console.error(`Agent Vigil evidence failed and no exact approved exception applies: ${message}`);
-            process.exit(1);
-          };
-          if (process.env.EVENT_NAME !== expected.event) fail("unsupported event");
-          if (process.env.PR_NUMBER !== expected.pullRequest) fail("pull request mismatch");
-          if (!/^[0-9a-f]{40}$/.test(process.env.HEAD_SHA || "")) fail("invalid head commit");
-          if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(process.env.REPOSITORY || "")) fail("invalid repository");
-
-          const response = await fetch(
-            `https://api.github.com/repos/${process.env.REPOSITORY}/issues/${expected.issue}`,
-            {
-              headers: {
-                Accept: "application/vnd.github+json",
-                Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-                "X-GitHub-Api-Version": "2022-11-28",
-              },
-            },
-          );
-          if (!response.ok) fail(`exception issue returned HTTP ${response.status}`);
-          const issue = await response.json();
-          const labels = new Set((issue.labels || []).map((label) => typeof label === "string" ? label : label.name));
-          if (issue.state !== "open") fail("exception issue is not open");
-          if (issue.author_association !== "OWNER") fail("exception was not recorded by the repository owner");
-          if (!labels.has(expected.label)) fail("approval label is missing");
-          if (!(issue.body || "").includes(`\`${process.env.HEAD_SHA}\``)) fail("exact head commit is not approved");
-          if (!/(?:pull request|PR) #94\b/i.test(issue.body || "")) fail("pull request number is not approved");
-          console.log(`Applied the one-time exact scope exception in issue #${expected.issue}.`);
-          NODE
-      - name: Retain auditable Agent Vigil receipt
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          isolate-candidate: true
+          candidate-setup-cmd: npm ci --ignore-scripts
+      - name: Retain only the Action-declared evidence outputs
         if: always() && steps.vigil.outputs.report != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: agent-vigil-receipt
           path: |
-            agent-vigil-report.json
-            agent-vigil.sarif
-            agent-vigil-value-card.json
-            agent-vigil-github-evidence.json
+            ${{ steps.vigil.outputs.report }}
+            ${{ steps.vigil.outputs.sarif }}
+            ${{ steps.vigil.outputs.value-card }}
+            ${{ steps.vigil.outputs.github-evidence }}
+          if-no-files-found: error
           retention-days: 30
+
+  governed-head-check:
+    name: Publish the App-bound exact-head result
+    needs: evidence
+    if: always()
+    runs-on: ubuntu-24.04
+    # The App private key is available only to a fresh, main-selected job that
+    # never checks out or executes candidate bytes.
+    environment: agent-vigil-gate
+    permissions:
+      pull-requests: read
+    steps:
+      - id: gate-token
+        name: Mint a least-privilege Agent Vigil Gate token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AGENT_VIGIL_GATE_APP_ID }}
+          private-key: ${{ secrets.AGENT_VIGIL_GATE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: agent-vigil
+          permission-checks: write
+      - name: Publish the non-spoofable exact-head check
+        env:
+          AGENT_VIGIL_GATE_TOKEN: ${{ steps.gate-token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVIDENCE_RESULT: ${{ needs.evidence.result }}
+          EVIDENCE_STATUS: ${{ needs.evidence.outputs['vigil-status'] }}
+          EVIDENCE_RECEIPT_HASH: ${{ needs.evidence.outputs['receipt-hash'] }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const env = process.env;
+          const sha = /^[0-9a-f]{40}$/;
+          const receipt = /^sha256:[0-9a-f]{64}$/;
+          const [owner, repository] = env.GITHUB_REPOSITORY.split("/");
+          const api = env.GITHUB_API_URL;
+          const expectedHead = env.EXPECTED_HEAD_SHA;
+          const expectedBase = env.EXPECTED_BASE_SHA;
+          const prNumber = Number(env.PR_NUMBER);
+
+          if (!owner || !repository || !api || !sha.test(expectedHead) || !sha.test(expectedBase) ||
+              env.EXPECTED_BASE_REF !== "main" || !Number.isSafeInteger(prNumber) || prNumber < 1) {
+            throw new Error("the governed check received an invalid pull-request identity");
+          }
+
+          async function request(path, token, options = {}) {
+            const response = await fetch(`${api}${path}`, {
+              ...options,
+              headers: {
+                Accept: "application/vnd.github+json",
+                Authorization: `Bearer ${token}`,
+                "X-GitHub-Api-Version": "2026-03-10",
+                ...options.headers,
+              },
+            });
+            const body = await response.text();
+            if (!response.ok) {
+              throw new Error(`GitHub API ${response.status} for ${path}: ${body.slice(0, 512)}`);
+            }
+            return body.length > 0 ? JSON.parse(body) : undefined;
+          }
+
+          const pull = await request(
+            `/repos/${owner}/${repository}/pulls/${prNumber}`,
+            env.GITHUB_TOKEN,
+          );
+          const identityCurrent = pull?.state === "open" &&
+            pull?.base?.ref === "main" &&
+            pull?.base?.sha === expectedBase &&
+            pull?.head?.sha === expectedHead;
+          const evidenceValid = env.EVIDENCE_RESULT === "success" &&
+            env.EVIDENCE_STATUS === "PASS" &&
+            receipt.test(env.EVIDENCE_RECEIPT_HASH ?? "");
+          const conclusion = identityCurrent && evidenceValid ? "success" : "failure";
+          const detailsUrl = `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+          const summary = [
+            `PR identity current: ${identityCurrent}`,
+            `Evidence job result: ${env.EVIDENCE_RESULT}`,
+            `Agent Vigil status: ${env.EVIDENCE_STATUS || "missing"}`,
+            `Receipt: ${env.EVIDENCE_RECEIPT_HASH || "missing"}`,
+            `Bound head: ${expectedHead}`,
+            `Bound base: ${expectedBase}`,
+          ].join("\n");
+
+          await request(
+            `/repos/${owner}/${repository}/check-runs`,
+            env.AGENT_VIGIL_GATE_TOKEN,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: "Agent Vigil governed evidence",
+                head_sha: expectedHead,
+                status: "completed",
+                conclusion,
+                details_url: detailsUrl,
+                external_id: `${env.GITHUB_RUN_ID}:${env.GITHUB_RUN_ATTEMPT}:${expectedHead}`,
+                output: {
+                  title: conclusion === "success" ? "Exact-head evidence passed" : "Exact-head evidence blocked",
+                  summary,
+                },
+              }),
+            },
+          );
+
+          if (conclusion !== "success") process.exitCode = 1;
+          NODE

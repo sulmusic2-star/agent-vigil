@@ -21,29 +21,49 @@ tarball, its SHA-256 checksum, and `proof/results.json`.
 
 ## npm
 
-The package publishes from `.github/workflows/publish.yml` through npm trusted
-publishing. The workflow uses GitHub's short-lived OIDC identity; it does not
-store an npm write token. Configure the npm package with these exact values:
+The package stages from `.github/workflows/publish.yml` through npm trusted
+publishing. Verification and packing must run in a job with no OIDC or registry
+write authority. A separate minimal staging job receives only the hash-bound
+tarball, verifies its digest and version with lifecycle scripts disabled, and
+then obtains GitHub's short-lived OIDC identity for `npm stage publish`.
+Repository code must not execute after that job receives staging authority. The
+workflow stores no npm write token and requires npm 11.15.0 or newer in both
+jobs. The package manifest and staging command both require provenance; npm
+also generates provenance automatically for this public-package, public-repo
+trusted-publishing path. Configure the npm package with these exact values:
 
 - provider: GitHub Actions;
 - organization or user: `sulmusic2-star`;
 - repository: `agent-vigil`;
 - workflow filename: `publish.yml`;
-- allowed action: `npm publish`.
+- environment: `npm-publish`, restricted in GitHub to protected release tags;
+- allowed action: `npm stage publish` only; disable direct `npm publish`.
 
-The workflow normally runs when a stable GitHub release is published. Use its
-manual `tag` input only to publish an existing release whose registry step was
-missed. It checks out that exact tag, requires the package version to match,
-runs the release checks, and compares package integrity before accepting an
-already-published version.
+The workflow runs only when a stable GitHub release is published. After an
+ambiguous staging failure, inspect npm's staged-package queue before rerunning;
+rerun the same release workflow only when that exact version is absent. There
+is no branch-selectable manual staging trigger. The workflow checks out the
+release event's exact commit, requires the package version to match, runs the
+release checks, and compares package integrity before accepting an
+already-published version. For a previously unpublished version, successful
+workflow completion means the package is staged, not public. Review the staged
+metadata and tarball, then approve it separately with 2FA. A matching version
+that is already public is reported as a no-op. After npm promotion and
+publish-time scanning complete, verify the public registry integrity and
+consumer path below.
+
+Agent Vigil declares npm's `dual-use` content class because it is a defensive
+security utility with command-inspection and controlled-execution features.
+The root `DISCLOSURE` file and `package.json` declaration must remain present in
+every later package version unless npm Trust & Safety approves their removal.
 
 Verify each release independently:
 
 ```bash
 npm whoami
 npm view @sulmusic/agent-vigil version dist-tags.latest
-npm view @sulmusic/agent-vigil@0.14.0 dist.integrity
-npx --yes @sulmusic/agent-vigil@0.14.0 doctor
+npm view @sulmusic/agent-vigil@0.21.0 dist.integrity
+npx --yes @sulmusic/agent-vigil@0.21.0 doctor
 ```
 
 The canonical npm name is scoped because npm rejected the unscoped

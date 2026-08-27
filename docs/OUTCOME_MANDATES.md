@@ -66,8 +66,13 @@ vigil mandate assess mandate.json \
   --receipt trust-report.json \
   --verifier-key verifier.pem \
   --requester-public-key requester.pub.pem \
+  --attempts 1 \
   --output outcome-receipt.json
 ```
+
+`--attempts` is required by the CLI and records the observed attempt count for
+this assessment. Pass `--attempts 1` for the first attempt. Library callers
+that omit the value receive an `INCONCLUSIVE` attempt-limit check.
 
 Verify the result using a pinned verifier key:
 

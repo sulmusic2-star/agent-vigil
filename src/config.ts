@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, normalize, resolve, win32 } from "node:path";
+import { trustedGit } from "./trusted-git.ts";
 
 export const DEFAULT_POLICY_FILE = ".agent-vigil.json";
 
@@ -208,9 +208,7 @@ export function loadPolicy(repo: string, requested?: string, ref?: string): Load
     if (isAbsolute(gitPath) || win32.isAbsolute(gitPath) || clean === ".." || clean.startsWith("../")) throw new Error("policy-ref requires a repository-relative policy path");
     let raw: string;
     try {
-      raw = execFileSync("git", ["show", `${ref}:${clean}`], {
-        cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 1024 * 1024,
-      });
+      raw = trustedGit(repo, ["show", `${ref}:${clean}`], 1024 * 1024);
     } catch { throw new Error(`policy not found at ${ref}:${clean}`); }
     const value = parsePolicy(raw, `${ref}:${clean}`);
     return {
@@ -266,7 +264,23 @@ export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: st
       maxChangedFiles: 20,
       maxChangedLines: 800,
       requireTestChange: true,
-      protectedPaths: [".github/workflows/**", ".agent-vigil.json"],
+      protectedPaths: [
+        ".github/workflows/**",
+        ".agent-vigil.json",
+        "package.json",
+        "package-lock.json",
+        "npm-shrinkwrap.json",
+        ".npmrc",
+        "tsconfig*.json",
+        "jest.config.*",
+        "vitest.config.*",
+        "vite.config.*",
+        "playwright.config.*",
+        "cypress.config.*",
+        "ava.config.*",
+        "babel.config.*",
+        ".mocharc*",
+      ],
       testPathPatterns: ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"],
       differentialTest: {
         command,

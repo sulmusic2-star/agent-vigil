@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { buildAuthorityPlan, discoverAuthorityProfile, renderAuthorityPlanMarkdown, renderAuthorityPlanText } from "../src/authority-plan.ts";
 import { run } from "../src/cli.ts";
+import { compositeActionRuntimeUnavailable, compositeActionScript } from "./action-runtime-fixture.ts";
 
 type Fixture = { repo: string; base: string };
 
@@ -871,11 +872,11 @@ test("plan CLI writes private deterministic output and returns fail-closed exit 
   assert.equal(run(["plan", "--repo", value.repo, "--base", "missing", "--head", head]), 2);
 });
 
-test("composite Action enforces an exact-SHA authority plan as a required check", { skip: Boolean(process.env.NODE_V8_COVERAGE) || process.platform === "win32" }, () => {
+test("composite Action enforces an exact-SHA authority plan as a required check", { skip: compositeActionRuntimeUnavailable }, () => {
   const value = fixture();
   json(value.repo, ".mcp.json", { mcpServers: { deploy: { command: "node", args: ["server.js"] } } });
   const head = commit(value.repo, "add deploy server");
-  const auxiliary = mkdtempSync(join(tmpdir(), "vigil-plan-action-"));
+  const auxiliary = realpathSync(mkdtempSync(join(tmpdir(), "vigil-plan-action-")));
   const event = join(auxiliary, "event.json");
   const output = join(auxiliary, "output");
   const summary = join(auxiliary, "summary");
@@ -885,19 +886,17 @@ test("composite Action enforces an exact-SHA authority plan as a required check"
   writeFileSync(summary, "");
   mkdirSync(runner);
 
-  const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
-  const block = action.match(/      run: \|\n([\s\S]+)$/)?.[1];
-  assert.ok(block);
   const script = join(auxiliary, "run.sh");
-  writeFileSync(script, block.split("\n").map((line) => line.startsWith("        ") ? line.slice(8) : line).join("\n"));
+  writeFileSync(script, compositeActionScript());
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GITHUB_ACTION_PATH: process.cwd(), GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output,
-    GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: runner, VIGIL_MODE: "plan", VIGIL_ATTEST: "false",
+    GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: realpathSync(runner), VIGIL_MODE: "plan", VIGIL_ATTEST: "false",
     VIGIL_TRANSCRIPT: "", VIGIL_RECEIPT: "", VIGIL_AUTHORITY_CONTRACT: "", VIGIL_AUTHORITY_CONTRACT_REF: "",
     VIGIL_OUTCOME_RECEIPT: "", VIGIL_ACTIONS_RUN_ID: "", VIGIL_REPO: value.repo,
-    VIGIL_BASE: value.base, VIGIL_HEAD: head, VIGIL_TEST_CMD: "", VIGIL_POLICY: "", VIGIL_POLICY_REF: "",
-    VIGIL_STRICT: "true", VIGIL_MIN_VERIFIED: "1", VIGIL_GITHUB_TOKEN: "",
+    VIGIL_BASE: value.base, VIGIL_HEAD: head, VIGIL_TEST_CMD: "", VIGIL_ISOLATE_CANDIDATE: "false",
+    VIGIL_CANDIDATE_SETUP_COMMAND: "", VIGIL_POLICY: "", VIGIL_POLICY_REF: "",
+    VIGIL_STRICT: "true", VIGIL_MIN_VERIFIED: "1", VIGIL_GITHUB_TOKEN: "", VIGIL_HAS_GITHUB_TOKEN: "false",
     VIGIL_VALUE_TASK_CLASS: "", VIGIL_VALUE_BUDGET_USD: "", VIGIL_VALUE_COST_USD: "",
     VIGIL_VALUE_COST_SOURCE: "", VIGIL_VALUE_COST_EVIDENCE: "", VIGIL_VALUE_REVIEW_MINUTES: "",
     VIGIL_REVERT_EVIDENCE: "", VIGIL_HOTFIX_EVIDENCE: "", VIGIL_INCIDENT_EVIDENCE: "",
@@ -910,14 +909,16 @@ test("composite Action enforces an exact-SHA authority plan as a required check"
   assert.match(readFileSync(output, "utf8"), /^receipt_hash=sha256:[a-f0-9]{64}$/m);
   assert.match(readFileSync(output, "utf8"), /^sarif=$/m);
   assert.match(readFileSync(output, "utf8"), /^value_card=$/m);
-  const report = JSON.parse(readFileSync(join(value.repo, "agent-vigil-report.json"), "utf8"));
+  const reportPath = readFileSync(output, "utf8").match(/^report=(.+)$/m)?.[1];
+  assert.ok(reportPath);
+  const report = JSON.parse(readFileSync(reportPath, "utf8"));
   assert.equal(report.status, "BLOCK");
   assert.equal(report.base, value.base);
   assert.equal(report.head, head);
 
   const attested = spawnSync("bash", [script], { cwd: value.repo, encoding: "utf8", env: { ...env, VIGIL_ATTEST: "true" } });
   assert.equal(attested.status, 2);
-  assert.match(attested.stderr, /plan mode does not yet support attestation/);
+  assert.match(attested.stderr, /attestation is restricted to the non-candidate prove mode/);
 });
 
 test("the published plan schema is parseable and names the implemented contract", () => {

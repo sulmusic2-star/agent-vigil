@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkOutOfDagReads } from "../src/detectors/agentic.ts";
+import { checkAgenticRepository, checkOutOfDagReads } from "../src/detectors/agentic.ts";
 import { checkIntegrity, checkIntegrityDiff } from "../src/detectors/reality.ts";
 import { routeIntegrity } from "../src/integrity-policy.ts";
 import { run } from "../src/cli.ts";
@@ -33,16 +33,30 @@ function commit(repo: string, message: string): string {
 }
 
 function diff(path: string, removed: string[], added: string[]): string {
+  const oldRange = removed.length === 0 ? "0,0" : `1,${removed.length}`;
+  const newRange = added.length === 0 ? "0,0" : `1,${added.length}`;
   return [
     `diff --git a/${path} b/${path}`,
     `--- a/${path}`,
     `+++ b/${path}`,
-    `@@ -1,${Math.max(1, removed.length)} +1,${Math.max(1, added.length)} @@`,
+    `@@ -${oldRange} +${newRange} @@`,
     ...removed.map((line) => `-${line}`),
     ...added.map((line) => `+${line}`),
     "",
   ].join("\n");
 }
+
+test("repository-aware WORKTREE reads reject a FIFO without opening it", { skip: process.platform === "win32" }, () => {
+  const repo = tempRepo();
+  write(repo, "package.json", JSON.stringify({ dependencies: { axios: "1.0.0" } }));
+  const base = commit(repo, "dependency baseline");
+  unlinkSync(join(repo, "package.json"));
+  execFileSync("mkfifo", [join(repo, "package.json")]);
+  const result = checkAgenticRepository(repo, base, "WORKTREE", ["package.json"], [])[0];
+  assert.equal(result.ruleId, "integrity-unreadable");
+  assert.equal(result.blocksPass, true);
+  assert.match(result.evidence, /regular no-symlink worktree file/);
+});
 
 test("Render Gate blocks hidden controls only when they are added", () => {
   const hidden = checkIntegrityDiff(diff("src/auth.ts", ["const user = 1;"], [`const us\u202Eer = 1;`])); // vigil:detector-pattern
@@ -168,6 +182,49 @@ test("lowering a non-zero coverage floor is calibrated blocking evidence", () =>
   const check = checkIntegrity(repo, base, head).find((result) => result.ruleId === "coverage-weakened");
   assert.ok(check);
   assert.ok(routeIntegrity([check], "calibrated").results.includes(check));
+});
+
+test("removing a coverage floor or its config is calibrated blocking evidence", () => {
+  for (const removeFile of [false, true]) {
+    const repo = tempRepo();
+    write(repo, "coverage.yml", "minimum_coverage: 90\nreporter: text\n");
+    const base = commit(repo, "coverage baseline");
+    if (removeFile) {
+      execFileSync("git", ["rm", "-q", "coverage.yml"], { cwd: repo });
+    } else {
+      write(repo, "coverage.yml", "reporter: text\n");
+    }
+    const head = commit(repo, removeFile ? "delete coverage config" : "remove coverage floor");
+    const check = checkIntegrity(repo, base, head).find((result) => result.ruleId === "coverage-weakened");
+    assert.equal(check?.verdict, "contradicted");
+    assert.match(check?.evidence ?? "", /minimum coverage floor of 90 was removed/);
+  }
+});
+
+test("repository-aware dependency checks block when a changed manifest exceeds the bounded read limit", () => {
+  const repo = tempRepo();
+  const padding = "x".repeat(1024 * 1024 + 1);
+  write(repo, "package.json", JSON.stringify({ padding, dependencies: { axios: "1.0.0" } }));
+  const base = commit(repo, "large dependency baseline");
+  write(repo, "package.json", JSON.stringify({ padding, dependencies: { axios: "1.0.0", axois: "1.0.0" } }));
+  const head = commit(repo, "large dependency change");
+  const check = checkIntegrity(repo, base, head).find((result) => result.ruleId === "integrity-unreadable");
+  assert.equal(check?.verdict, "unverifiable");
+  assert.equal(check?.blocksPass, true);
+  assert.match(check?.evidence ?? "", /package\.json.*exceeds the 1 MiB/);
+});
+
+test("repository-aware coverage checks block when a changed config exceeds the bounded read limit", () => {
+  const repo = tempRepo();
+  const padding = "x".repeat(1024 * 1024 + 1);
+  write(repo, "coverage.json", JSON.stringify({ minimum_coverage: 90, padding }));
+  const base = commit(repo, "large coverage baseline");
+  write(repo, "coverage.json", JSON.stringify({ minimum_coverage: 80, padding }));
+  const head = commit(repo, "large coverage change");
+  const check = checkIntegrity(repo, base, head).find((result) => result.ruleId === "integrity-unreadable");
+  assert.equal(check?.verdict, "unverifiable");
+  assert.equal(check?.blocksPass, true);
+  assert.match(check?.evidence ?? "", /coverage\.json.*exceeds the 1 MiB/);
 });
 
 test("Leak Gate records only out-of-change-history reads and does not infer copying", () => {

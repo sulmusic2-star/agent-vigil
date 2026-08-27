@@ -153,7 +153,14 @@ test("weekly dogfood signs and retains its control proof without a private key",
   const workflow = readFileSync(new URL("../.github/workflows/control-proof-weekly.yml", import.meta.url), "utf8");
   assert.match(workflow, /id-token: write/);
   assert.match(workflow, /attestations: write/);
-  assert.match(workflow, /attest-control "\$RUNNER_TEMP\/control-proof\.json"/);
+  assert.match(workflow, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
+  assert.match(workflow, /sulmusic2-star\/agent-vigil@ebf1d62c3bca4e5a549472e8c95e7075ea85887d/);
+  assert.match(workflow, /mode:\s*prove/);
+  assert.match(workflow, /attest:\s*false/);
+  assert.doesNotMatch(workflow, /npm\s|dist\/cli\.js|control-certificate|control-corpus|control-policy|control-status/);
+  assert.match(workflow, /must contain exactly the proof and predicate/);
+  assert.match(workflow, /predicate\.proof\.fileSha256 !== sha256\(proofBytes\)/);
+  assert.match(workflow, /predicate\.proof\.challengeSetSha256 !== sha256\(canonical\(challengeSet\)\)/);
   assert.match(workflow, /actions\/attest@[0-9a-f]{40}/);
   assert.match(workflow, /control-proof-predicate-v1\.schema\.json/);
   assert.match(workflow, /steps\.attestation\.outputs\.bundle-path/);

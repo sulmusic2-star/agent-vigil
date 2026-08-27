@@ -17,6 +17,7 @@ import {
 
 const OID_A = "a".repeat(40);
 const OID_B = "b".repeat(40);
+const POLICY_SHA = `sha256:${"c".repeat(64)}`;
 
 function report(verdict: "PASS" | "FAIL" | "INCONCLUSIVE") {
   const result = verdict === "PASS"
@@ -26,12 +27,12 @@ function report(verdict: "PASS" | "FAIL" | "INCONCLUSIVE") {
       : { claim: { kind: "command_ran" as const, subject: "build command", quote: "build ran" }, verdict: "unverifiable" as const, evidence: "no terminal result", ruleId: "command-ran", blocksPass: true };
   return buildReport({
     transcript: "fixture.jsonl",
-    transcriptFormat: "fixture",
+    transcriptFormat: "codex",
     repo: ".",
     base: OID_A,
     head: OID_B,
     results: [result],
-    policy: { strict: false, minVerified: 1, sha256: "sha256:policy" },
+    policy: { strict: false, minVerified: 1, sha256: POLICY_SHA },
     reproduction: `vigil verify --base ${OID_A} --head ${OID_B}`,
   });
 }
@@ -40,14 +41,14 @@ test("missing required evidence cannot display PASS", () => {
   const input = report("INCONCLUSIVE");
   input.summary.status = "PASS";
   input.summary.pass = true;
-  assert.throws(() => buildReportResultView(input), /content does not match its hash/);
+  assert.throws(() => buildReportResultView(input), /summary\.status does not match results and policy/);
 });
 
 test("claimed and observed test counts stay distinct and hostile display text is neutralized", () => {
   const longPath = `${"nested/".repeat(40)}test\u001b[31m\u202e.ts:321`;
   const input = buildReport({
     transcript: "fixture.jsonl",
-    transcriptFormat: "fixture",
+    transcriptFormat: "codex",
     repo: ".",
     base: OID_A,
     head: OID_B,
@@ -57,7 +58,7 @@ test("claimed and observed test counts stay distinct and hostile display text is
       evidence: `isolated runner observed 161 tests at ${longPath}\rspoofed`,
       ruleId: "test-count",
     }],
-    policy: { strict: true, sha256: "sha256:policy" },
+    policy: { strict: true, sha256: POLICY_SHA },
   });
   const view = buildReportResultView(input);
   assert.equal(view.findings[0].claimedTestCount, 184);

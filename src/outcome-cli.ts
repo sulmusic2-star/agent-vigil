@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
-import type { TrustReport } from "./report.ts";
 import { publicKeyId } from "./signature.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
+import { terminalSafe } from "./upgrade/presentation.ts";
 import { renderResultText } from "./output.ts";
 import { buildOutcomeResultView } from "./result-view.ts";
 import {
@@ -72,14 +72,38 @@ function adapter(value: string | undefined): OutcomeAdapter {
   return selected as OutcomeAdapter;
 }
 
+const UNSAFE_JSON_CODE_POINT = /[\u007f-\u009f\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu;
+
+function terminalSafeJson(value: unknown): string {
+  return JSON.stringify(value, null, 2).replace(UNSAFE_JSON_CODE_POINT, (character) => {
+    // Use the shared presentation policy to classify/render the code point,
+    // then translate that marker to JSON escapes so parsing preserves the
+    // original value while the terminal never receives the raw control text.
+    const rendered = terminalSafe(character);
+    const match = /^\\u\{([0-9A-F]+)\}$/.exec(rendered);
+    if (!match) return rendered;
+    const codePoint = Number.parseInt(match[1], 16);
+    if (codePoint <= 0xffff) return `\\u${codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
+    const adjusted = codePoint - 0x10000;
+    const high = 0xd800 + (adjusted >> 10);
+    const low = 0xdc00 + (adjusted & 0x3ff);
+    return `\\u${high.toString(16).toUpperCase()}\\u${low.toString(16).toUpperCase()}`;
+  });
+}
+
 function writeJson(path: string | undefined, value: unknown): void {
   const json = `${JSON.stringify(value, null, 2)}\n`;
-  path ? writePrivateFileAtomic(resolve(path), json) : console.log(json.trimEnd());
+  if (path) writePrivateFileAtomic(resolve(path), json);
+  else console.log(terminalSafeJson(value));
 }
 
 function printVerification(label: string, result: ReturnType<typeof verifyOutcomeMandate>): void {
-  console.log([`${label}: ${result.valid ? "VALID" : "INVALID"}`, `Hash: ${result.hashValid ? "valid" : "invalid"}`, `Signature: ${result.signatureValid ? "valid" : "invalid"}`, `Key pinned: ${result.keyPinned ? "yes" : "no"}`].join("\n"));
-  for (const line of [...(result.expired ? ["Expired: yes"] : []), ...result.errors.map((error) => `- ${error}`)]) console.log(line);
+  console.log([`${terminalSafe(label)}: ${result.valid ? "VALID" : "INVALID"}`, `Hash: ${result.hashValid ? "valid" : "invalid"}`, `Signature: ${result.signatureValid ? "valid" : "invalid"}`, `Key pinned: ${result.keyPinned ? "yes" : "no"}`].join("\n"));
+  for (const line of [...(result.expired ? ["Expired: yes"] : []), ...result.errors.map((error) => `- ${terminalSafe(error)}`)]) console.log(line);
+}
+
+function errorMessage(error: unknown): string {
+  return terminalSafe(error instanceof Error ? error.message : String(error));
 }
 
 export function outcomeUsage(): string {
@@ -106,6 +130,10 @@ All settlement output is signal-only, dry-run JSON. These commands never move mo
 
 export function runMandateCommand(args: string[]): number {
   try {
+    if (args.includes("--help")) {
+      console.log(outcomeUsage());
+      return 0;
+    }
     const command = args[0];
     if (command === "create") {
       const parsed = parse(args.slice(1), new Set([
@@ -136,8 +164,8 @@ export function runMandateCommand(args: string[]): number {
         settlementReference: parsed.values.get("--settlement-ref"),
       }, resolve(required(parsed, "--requester-key")));
       writeJson(required(parsed, "--output"), mandate);
-      console.log(`Outcome mandate created: ${mandate.mandateId}`);
-      console.log(`Trusted verifier: ${mandate.verifier.trustedKeyIds[0]}`);
+      console.log(`Outcome mandate created: ${terminalSafe(mandate.mandateId)}`);
+      console.log(`Trusted verifier: ${terminalSafe(mandate.verifier.trustedKeyIds[0])}`);
       console.log("Settlement mode: signal-only; no network action was performed.");
       return 0;
     }
@@ -154,10 +182,9 @@ export function runMandateCommand(args: string[]): number {
     if (command === "assess") {
       const parsed = parse(args.slice(1), new Set(["--receipt", "--verifier-key", "--requester-public-key", "--issued-at", "--attempts", "--cost-usd", "--output"]));
       if (parsed.positional.length !== 1) throw new Error("mandate assess requires exactly one mandate JSON path");
-      const report = loadOutcomeJson(resolve(required(parsed, "--receipt"))) as TrustReport;
       const outcome = assessOutcome(
         loadOutcomeJson(resolve(parsed.positional[0])),
-        report,
+        loadOutcomeJson(resolve(required(parsed, "--receipt"))),
         resolve(required(parsed, "--verifier-key")),
         {
           requesterPublicKeyPath: resolve(required(parsed, "--requester-public-key")),
@@ -169,37 +196,51 @@ export function runMandateCommand(args: string[]): number {
       const outputPath = resolve(required(parsed, "--output"));
       writeJson(outputPath, outcome);
       console.log(renderResultText(buildOutcomeResultView(outcome, {
-        repo: report.repo,
+        trust: { trustedKeyIds: [outcome.verifierKeyId] },
         reproduce: `vigil receipt verify '${outputPath}'`,
       })));
-      console.log(`Settlement signal: ${outcome.settlementSignal.action} (${outcome.settlementSignal.adapter}, dry run)`);
+      console.log(`Settlement signal: ${terminalSafe(outcome.settlementSignal.action)} (${terminalSafe(outcome.settlementSignal.adapter)}, dry run)`);
       return outcome.verdict === "PASS" ? 0 : outcome.verdict === "FAIL" ? 1 : 2;
     }
     throw new Error(`unknown mandate command: ${command ?? "<missing>"}`);
   } catch (error) {
-    console.error(`agent-vigil: ${(error as Error).message}\n\n${outcomeUsage()}`);
+    console.error(`agent-vigil: ${errorMessage(error)}\n\n${outcomeUsage()}`);
     return 2;
   }
 }
 
 export function runOutcomeReceiptCommand(args: string[]): number {
   try {
+    if (args.includes("--help")) {
+      console.log(outcomeUsage());
+      return 0;
+    }
     const command = args[0];
     if (command === "verify") {
       const parsed = parse(args.slice(1), new Set(["--verifier-public-key", "--trusted-key-ids"]));
       if (parsed.positional.length !== 1) throw new Error("receipt verify requires exactly one outcome receipt JSON path");
       const input = loadOutcomeJson(resolve(parsed.positional[0])) as OutcomeReceipt;
+      const verifierPublicKeyPath = parsed.values.get("--verifier-public-key") ? resolve(parsed.values.get("--verifier-public-key")!) : undefined;
+      const trustedKeyIds = csv(parsed.values.get("--trusted-key-ids"));
       const result = verifyOutcomeReceipt(
         input,
-        parsed.values.get("--verifier-public-key") ? resolve(parsed.values.get("--verifier-public-key")!) : undefined,
-        csv(parsed.values.get("--trusted-key-ids")),
+        verifierPublicKeyPath,
+        trustedKeyIds,
       );
       printVerification("Outcome receipt", result);
       if (!result.valid) return 1;
-      console.log(renderResultText(buildOutcomeResultView(input, {
-        reproduce: `vigil receipt verify '${resolve(parsed.positional[0])}'`,
-      })));
-      console.log(`Signal: ${input.settlementSignal.action} (${input.settlementSignal.adapter}, dry run)`);
+      if (result.keyPinned) {
+        console.log(renderResultText(buildOutcomeResultView(input, {
+          trust: {
+            ...(verifierPublicKeyPath ? { verifierPublicKeyPath } : {}),
+            ...(trustedKeyIds.length ? { trustedKeyIds } : {}),
+          },
+          reproduce: `vigil receipt verify '${resolve(parsed.positional[0])}'`,
+        })));
+      } else {
+        console.log(`Verdict: ${terminalSafe(input.verdict)}`);
+      }
+      console.log(`Signal: ${terminalSafe(input.settlementSignal.action)} (${terminalSafe(input.settlementSignal.adapter)}, dry run)`);
       return input.verdict === "PASS" ? 0 : input.verdict === "FAIL" ? 1 : 2;
     }
     if (command === "signal") {
@@ -214,12 +255,12 @@ export function runOutcomeReceiptCommand(args: string[]): number {
         { ...(verifierPublicKey ? { verifierPublicKeyPath: resolve(verifierPublicKey) } : {}), ...(trustedKeyIds.length ? { trustedKeyIds } : {}) },
       );
       writeJson(parsed.values.get("--output"), signal);
-      if (parsed.values.get("--output")) console.log(`Draft signal written to ${resolve(parsed.values.get("--output")!)}. No network action was performed.`);
+      if (parsed.values.get("--output")) console.log(`Draft signal written to ${terminalSafe(resolve(parsed.values.get("--output")!))}. No network action was performed.`);
       return 0;
     }
     throw new Error(`unknown receipt command: ${command ?? "<missing>"}`);
   } catch (error) {
-    console.error(`agent-vigil: ${(error as Error).message}\n\n${outcomeUsage()}`);
+    console.error(`agent-vigil: ${errorMessage(error)}\n\n${outcomeUsage()}`);
     return 2;
   }
 }

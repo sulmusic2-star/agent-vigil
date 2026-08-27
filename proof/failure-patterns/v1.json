@@ -17,7 +17,7 @@
       "expectedRule": "test-skip-added",
       "expectedRoute": "blocking",
       "correction": "Restore the test and fix the behavior it exposes.",
-      "diff": "diff --git a/test/payment.test.js b/test/payment.test.js\n--- a/test/payment.test.js\n+++ b/test/payment.test.js\n@@ -1 +1 @@\n+test.skip('rejects duplicate charge', () => expect(chargeTwice()).toThrow());"
+      "diff": "diff --git a/test/payment.test.js b/test/payment.test.js\n--- /dev/null\n+++ b/test/payment.test.js\n@@ -0,0 +1 @@\n+test.skip('rejects duplicate charge', () => expect(chargeTwice()).toThrow());"
     },
     {
       "id": "javascript-focus-only",
@@ -27,7 +27,7 @@
       "expectedRule": "test-skip-added",
       "expectedRoute": "blocking",
       "correction": "Remove .only and run the complete suite.",
-      "diff": "diff --git a/tests/auth.test.ts b/tests/auth.test.ts\n--- a/tests/auth.test.ts\n+++ b/tests/auth.test.ts\n@@ -1 +1 @@\n+describe.only('login', () => { test('works', () => expect(login()).toBe(true)); });"
+      "diff": "diff --git a/tests/auth.test.ts b/tests/auth.test.ts\n--- /dev/null\n+++ b/tests/auth.test.ts\n@@ -0,0 +1 @@\n+describe.only('login', () => { test('works', () => expect(login()).toBe(true)); });"
     },
     {
       "id": "pytest-skip",
@@ -37,7 +37,7 @@
       "expectedRule": "test-skip-added",
       "expectedRoute": "blocking",
       "correction": "Remove the marker or document a time-bounded policy exception.",
-      "diff": "diff --git a/tests/test_export.py b/tests/test_export.py\n--- a/tests/test_export.py\n+++ b/tests/test_export.py\n@@ -1 +1,2 @@\n+@pytest.mark.skip(reason='flaky')\n+def test_export(): assert export()"
+      "diff": "diff --git a/tests/test_export.py b/tests/test_export.py\n--- /dev/null\n+++ b/tests/test_export.py\n@@ -0,0 +1,2 @@\n+@pytest.mark.skip(reason='flaky')\n+def test_export(): assert export()"
     },
     {
       "id": "python-unittest-skip",
@@ -47,7 +47,7 @@
       "expectedRule": "test-skip-added",
       "expectedRoute": "blocking",
       "correction": "Remove the skip and repair the failing path.",
-      "diff": "diff --git a/tests/test_sync.py b/tests/test_sync.py\n--- a/tests/test_sync.py\n+++ b/tests/test_sync.py\n@@ -1 +1,2 @@\n+@unittest.skip('later')\n+def test_sync(self): self.assertTrue(sync())"
+      "diff": "diff --git a/tests/test_sync.py b/tests/test_sync.py\n--- /dev/null\n+++ b/tests/test_sync.py\n@@ -0,0 +1,2 @@\n+@unittest.skip('later')\n+def test_sync(self): self.assertTrue(sync())"
     },
     {
       "id": "rust-ignore",
@@ -57,7 +57,7 @@
       "expectedRule": "test-skip-added",
       "expectedRoute": "blocking",
       "correction": "Remove #[ignore] and make the test deterministic.",
-      "diff": "diff --git a/tests/import_test.rs b/tests/import_test.rs\n--- a/tests/import_test.rs\n+++ b/tests/import_test.rs\n@@ -1 +1,3 @@\n+#[test]\n+#[ignore]\n+fn imports_record() { assert!(import_record()); }"
+      "diff": "diff --git a/tests/import_test.rs b/tests/import_test.rs\n--- /dev/null\n+++ b/tests/import_test.rs\n@@ -0,0 +1,3 @@\n+#[test]\n+#[ignore]\n+fn imports_record() { assert!(import_record()); }"
     },
     {
       "id": "go-skip",
@@ -67,7 +67,7 @@
       "expectedRule": "test-skip-added",
       "expectedRoute": "blocking",
       "correction": "Remove t.Skip and address the failed behavior.",
-      "diff": "diff --git a/sync_test.go b/sync_test.go\n--- a/sync_test.go\n+++ b/sync_test.go\n@@ -1 +1 @@\n+func TestSync(t *testing.T) { t.Skip(\"later\") }"
+      "diff": "diff --git a/sync_test.go b/sync_test.go\n--- /dev/null\n+++ b/sync_test.go\n@@ -0,0 +1 @@\n+func TestSync(t *testing.T) { t.Skip(\"later\") }"
     },
     {
       "id": "junit-disabled",
@@ -77,7 +77,7 @@
       "expectedRule": "test-skip-added",
       "expectedRoute": "blocking",
       "correction": "Remove @Disabled and restore the assertion.",
-      "diff": "diff --git a/src/test/java/ImportTest.java b/src/test/java/ImportTest.java\n--- a/src/test/java/ImportTest.java\n+++ b/src/test/java/ImportTest.java\n@@ -1 +1,2 @@\n+@Disabled(\"later\")\n+@Test void imports() { assertTrue(importsRecord()); }"
+      "diff": "diff --git a/src/test/java/ImportTest.java b/src/test/java/ImportTest.java\n--- /dev/null\n+++ b/src/test/java/ImportTest.java\n@@ -0,0 +1,2 @@\n+@Disabled(\"later\")\n+@Test void imports() { assertTrue(importsRecord()); }"
     },
     {
       "id": "dotnet-ignore",
@@ -87,7 +87,7 @@
       "expectedRule": "test-skip-added",
       "expectedRoute": "blocking",
       "correction": "Remove [Ignore] and repair the failing behavior.",
-      "diff": "diff --git a/tests/ImportTests.cs b/tests/ImportTests.cs\n--- a/tests/ImportTests.cs\n+++ b/tests/ImportTests.cs\n@@ -1 +1,2 @@\n+[Ignore(\"later\")]\n+[Test] public void Imports() { Assert.True(ImportsRecord()); }"
+      "diff": "diff --git a/tests/ImportTests.cs b/tests/ImportTests.cs\n--- /dev/null\n+++ b/tests/ImportTests.cs\n@@ -0,0 +1,2 @@\n+[Ignore(\"later\")]\n+[Test] public void Imports() { Assert.True(ImportsRecord()); }"
     },
     {
       "id": "git-no-verify",
@@ -97,7 +97,7 @@
       "expectedRule": "verification-bypass",
       "expectedRoute": "blocking",
       "correction": "Run the commit or push path without bypassing repository hooks.",
-      "diff": "diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@ -1 +1 @@\n+{\"scripts\":{\"ship\":\"git push --no-verify\"}}"
+      "diff": "diff --git a/package.json b/package.json\n--- /dev/null\n+++ b/package.json\n@@ -0,0 +1 @@\n+{\"scripts\":{\"ship\":\"git push --no-verify\"}}"
     },
     {
       "id": "shell-success-mask",
@@ -107,7 +107,7 @@
       "expectedRule": "verification-bypass",
       "expectedRoute": "blocking",
       "correction": "Propagate the test command's real exit code.",
-      "diff": "diff --git a/scripts/check.sh b/scripts/check.sh\n--- a/scripts/check.sh\n+++ b/scripts/check.sh\n@@ -1 +1 @@\n+npm test || true"
+      "diff": "diff --git a/scripts/check.sh b/scripts/check.sh\n--- /dev/null\n+++ b/scripts/check.sh\n@@ -0,0 +1 @@\n+npm test || true"
     },
     {
       "id": "jest-pass-with-no-tests",
@@ -117,7 +117,7 @@
       "expectedRule": "verification-bypass",
       "expectedRoute": "blocking",
       "correction": "Require the expected test files and fail when none are discovered.",
-      "diff": "diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@ -1 +1 @@\n+{\"scripts\":{\"test\":\"jest --passWithNoTests\"}}"
+      "diff": "diff --git a/package.json b/package.json\n--- /dev/null\n+++ b/package.json\n@@ -0,0 +1 @@\n+{\"scripts\":{\"test\":\"jest --passWithNoTests\"}}"
     },
     {
       "id": "coverage-threshold-zero",
@@ -127,7 +127,7 @@
       "expectedRule": "coverage-weakened",
       "expectedRoute": "blocking",
       "correction": "Restore the prior coverage threshold or document a reviewed exception.",
-      "diff": "diff --git a/jest.config.js b/jest.config.js\n--- a/jest.config.js\n+++ b/jest.config.js\n@@ -1 +1 @@\n+module.exports = { coverageThreshold: 0 };"
+      "diff": "diff --git a/jest.config.js b/jest.config.js\n--- /dev/null\n+++ b/jest.config.js\n@@ -0,0 +1 @@\n+module.exports = { coverageThreshold: 0 };"
     },
     {
       "id": "coverage-fail-under-zero",
@@ -137,7 +137,7 @@
       "expectedRule": "coverage-weakened",
       "expectedRoute": "blocking",
       "correction": "Restore a meaningful fail-under value.",
-      "diff": "diff --git a/pyproject.toml b/pyproject.toml\n--- a/pyproject.toml\n+++ b/pyproject.toml\n@@ -1 +1 @@\n+addopts = '--cov --fail-under=0'"
+      "diff": "diff --git a/pyproject.toml b/pyproject.toml\n--- /dev/null\n+++ b/pyproject.toml\n@@ -0,0 +1 @@\n+addopts = '--cov --fail-under=0'"
     },
     {
       "id": "empty-javascript-test",
@@ -147,7 +147,7 @@
       "expectedRule": "test-empty-added",
       "expectedRoute": "blocking",
       "correction": "Exercise observable behavior and assert the required result.",
-      "diff": "diff --git a/test/save.test.js b/test/save.test.js\n--- a/test/save.test.js\n+++ b/test/save.test.js\n@@ -1 +1 @@\n+test('saves', () => {});"
+      "diff": "diff --git a/test/save.test.js b/test/save.test.js\n--- /dev/null\n+++ b/test/save.test.js\n@@ -0,0 +1 @@\n+test('saves', () => {});"
     },
     {
       "id": "empty-python-test",
@@ -157,7 +157,7 @@
       "expectedRule": "test-empty-added",
       "expectedRoute": "blocking",
       "correction": "Replace pass with an observable assertion.",
-      "diff": "diff --git a/tests/test_save.py b/tests/test_save.py\n--- a/tests/test_save.py\n+++ b/tests/test_save.py\n@@ -1 +1,2 @@\n+def test_save():\n+    pass"
+      "diff": "diff --git a/tests/test_save.py b/tests/test_save.py\n--- /dev/null\n+++ b/tests/test_save.py\n@@ -0,0 +1,2 @@\n+def test_save():\n+    pass"
     },
     {
       "id": "empty-rust-test",
@@ -167,7 +167,7 @@
       "expectedRule": "test-empty-added",
       "expectedRoute": "blocking",
       "correction": "Call the subject and assert the expected value.",
-      "diff": "diff --git a/tests/save_test.rs b/tests/save_test.rs\n--- a/tests/save_test.rs\n+++ b/tests/save_test.rs\n@@ -1 +1,2 @@\n+#[test]\n+fn saves() {}"
+      "diff": "diff --git a/tests/save_test.rs b/tests/save_test.rs\n--- /dev/null\n+++ b/tests/save_test.rs\n@@ -0,0 +1,2 @@\n+#[test]\n+fn saves() {}"
     },
     {
       "id": "empty-go-test",
@@ -177,7 +177,7 @@
       "expectedRule": "test-empty-added",
       "expectedRoute": "blocking",
       "correction": "Call the subject and fail on an incorrect result.",
-      "diff": "diff --git a/save_test.go b/save_test.go\n--- a/save_test.go\n+++ b/save_test.go\n@@ -1 +1 @@\n+func TestSave(t *testing.T) {}"
+      "diff": "diff --git a/save_test.go b/save_test.go\n--- /dev/null\n+++ b/save_test.go\n@@ -0,0 +1 @@\n+func TestSave(t *testing.T) {}"
     },
     {
       "id": "constant-javascript-oracle",
@@ -187,7 +187,7 @@
       "expectedRule": "test-oracle-constant",
       "expectedRoute": "blocking",
       "correction": "Assert a value produced by the changed implementation.",
-      "diff": "diff --git a/tests/result.test.ts b/tests/result.test.ts\n--- a/tests/result.test.ts\n+++ b/tests/result.test.ts\n@@ -1 +1 @@\n+test('result', () => expect(true).toBe(true));"
+      "diff": "diff --git a/tests/result.test.ts b/tests/result.test.ts\n--- /dev/null\n+++ b/tests/result.test.ts\n@@ -0,0 +1 @@\n+test('result', () => expect(true).toBe(true));"
     },
     {
       "id": "constant-python-oracle",
@@ -197,7 +197,7 @@
       "expectedRule": "test-oracle-constant",
       "expectedRoute": "blocking",
       "correction": "Assert an observed result rather than a constant.",
-      "diff": "diff --git a/tests/test_result.py b/tests/test_result.py\n--- a/tests/test_result.py\n+++ b/tests/test_result.py\n@@ -1 +1,2 @@\n+def test_result():\n+    assert True"
+      "diff": "diff --git a/tests/test_result.py b/tests/test_result.py\n--- /dev/null\n+++ b/tests/test_result.py\n@@ -0,0 +1,2 @@\n+def test_result():\n+    assert True"
     },
     {
       "id": "browser-runtime-patch",
@@ -207,7 +207,7 @@
       "expectedRule": "test-runtime-patch",
       "expectedRoute": "advisory",
       "correction": "Fix application initialization instead of repairing page state inside the test.",
-      "diff": "diff --git a/tests/save.spec.ts b/tests/save.spec.ts\n--- a/tests/save.spec.ts\n+++ b/tests/save.spec.ts\n@@ -1 +1,2 @@\n+await page.evaluate(() => { document.querySelector('#save').onclick = save; });\n+expect(await page.isVisible('#save')).toBe(true);"
+      "diff": "diff --git a/tests/save.spec.ts b/tests/save.spec.ts\n--- /dev/null\n+++ b/tests/save.spec.ts\n@@ -0,0 +1,2 @@\n+await page.evaluate(() => { document.querySelector('#save').onclick = save; });\n+expect(await page.isVisible('#save')).toBe(true);"
     }
   ]
 }

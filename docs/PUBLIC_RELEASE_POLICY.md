@@ -8,8 +8,13 @@ reviewed or approved the page.
 ## Checks
 
 - Package versions match across the CLI, README, and installation page.
-- Published test counts agree across the README, compatibility report, and
-  landing page.
+- Dated, locally validated test counts agree across the README, compatibility
+  report, and landing page. They are not labeled as hosted or released proof.
+- Every repository `init` and `protect` example supplies a reviewed full Action
+  commit. Candidate attestation, repository-owned merge-queue enforcement, and
+  plain job-name enforcement are not presented as supported security controls.
+- The generated hosted Linux/Node boundary and the broader unsandboxed local CLI
+  are described separately.
 - The first screen names the product, the merge decision, the exact-commit
   check, and the missing-evidence behavior.
 - Public entry points contain no internal planning or revenue language.

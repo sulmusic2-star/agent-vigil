@@ -1,12 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { run } from "../src/cli.ts";
 import { generateSigningKey, publicKeyId } from "../src/signature.ts";
 import { buildReport } from "../src/report.ts";
+import { doctorRepository } from "../src/setup.ts";
+
+const ACTION_SHA = "0123456789abcdef0123456789abcdef01234567";
 
 function repo() {
   const path = mkdtempSync(join(tmpdir(), "vigil-cli-"));
@@ -106,8 +109,9 @@ test("CLI compare emits a machine-readable receipt delta and returns its status"
   const root = mkdtempSync(join(tmpdir(), "vigil-compare-"));
   const check = { claim: { kind: "integrity" as const, quote: "bound", subject: "workspace" }, verdict: "verified" as const, evidence: "ok", ruleId: "workspace-bound", contributesToPass: false };
   const proof = { claim: { kind: "tests_pass" as const, quote: "tests", subject: "suite" }, verdict: "verified" as const, evidence: "ok", ruleId: "tests-pass" };
-  const before = buildReport({ transcript: "a", transcriptFormat: "markdown", repo: "repo", base: "base", head: "one", results: [check, proof], policy: { minVerified: 1, strict: true, sha256: "sha256:policy" } });
-  const after = buildReport({ transcript: "b", transcriptFormat: "markdown", repo: "repo", base: "base", head: "two", results: [check, proof], policy: { minVerified: 1, strict: true, sha256: "sha256:policy" } });
+  const policySha256 = `sha256:${"a".repeat(64)}`;
+  const before = buildReport({ transcript: "a", transcriptFormat: "markdown", repo: "repo", base: "base", head: "one", results: [check, proof], policy: { minVerified: 1, strict: true, sha256: policySha256 } });
+  const after = buildReport({ transcript: "b", transcriptFormat: "markdown", repo: "repo", base: "base", head: "two", results: [check, proof], policy: { minVerified: 1, strict: true, sha256: policySha256 } });
   const beforePath = join(root, "before.json"); const afterPath = join(root, "after.json"); const output = join(root, "delta.json");
   writeFileSync(beforePath, JSON.stringify(before)); writeFileSync(afterPath, JSON.stringify(after));
   assert.equal(run(["compare", beforePath, afterPath, "--format", "json", "--output", output]), 0);
@@ -131,6 +135,17 @@ test("CLI passing claim exits zero", () => {
   const r = repo(); const summary = join(r, "pass.md"); writeFileSync(summary, "The test suite passes.");
   assert.equal(run([summary, "--repo", r]), 0);
 });
+test("CLI executes an explicit base test command even when the transcript makes no test claim", () => {
+  const r = repo();
+  const summary = join(r, "neutral.md");
+  const output = join(r, "neutral-receipt.json");
+  writeFileSync(summary, "No fresh-test assertion appears in this narrative.\n");
+  assert.equal(run([
+    summary, "--repo", r, "--test-cmd", "node --test test.js", "--output", output, "--format", "json",
+  ]), 0);
+  const receipt = JSON.parse(readFileSync(output, "utf8"));
+  assert.ok(receipt.results.some((check: { ruleId: string; verdict: string }) => check.ruleId === "tests-pass" && check.verdict === "verified"));
+});
 test("CLI writes JSON receipt", () => {
   const r = repo(); const summary = join(r, "pass.md"); const output = join(r, "receipt.json"); writeFileSync(summary, "The test suite passes.");
   assert.equal(run([summary, "--repo", r, "--output", output, "--format", "json", "--test-cmd", "npm test --silent", "--min-verified", "1"]), 0);
@@ -138,6 +153,25 @@ test("CLI writes JSON receipt", () => {
   assert.equal(receipt.summary.status, "PASS");
   assert.match(receipt.reproduction, /--test-cmd 'npm test --silent'/);
   assert.match(receipt.reproduction, /--min-verified 1/);
+});
+
+test("CLI minimum override can strengthen but cannot weaken a trusted policy", () => {
+  const r = repo();
+  const summary = join(r, "policy-minimum.md");
+  const policy = join(r, ".agent-vigil.json");
+  const output = join(r, "policy-minimum-receipt.json");
+  writeFileSync(summary, "The test suite passes.\n");
+  writeFileSync(policy, `${JSON.stringify({ schemaVersion: 1, strict: true, minVerified: 2, testCommand: "node --test test.js" }, null, 2)}\n`);
+  execFileSync("git", ["add", ".agent-vigil.json"], { cwd: r });
+  execFileSync("git", ["commit", "-qm", "trusted policy minimum"], { cwd: r });
+
+  assert.equal(run([
+    summary, "--repo", r, "--policy", ".agent-vigil.json", "--min-verified", "1",
+    "--output", output, "--format", "json",
+  ]), 2);
+  const receipt = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(receipt.policy.minVerified, 2);
+  assert.equal(receipt.summary.status, "INCONCLUSIVE");
 });
 
 test("CLI guard-compat writes a process-only HOLD receipt", () => {
@@ -203,16 +237,45 @@ test("CLI guard-route refuses an output path that aliases its disposable profile
 
 test("CLI init and doctor provide a working exact-SHA scaffold", () => {
   const r = repo();
-  assert.equal(run(["init", "--repo", r]), 0);
+  assert.equal(run(["init", "--action-sha", ACTION_SHA, "--repo", r]), 0);
+  assert.equal(run(["doctor", "--repo", r]), 2, "uncommitted control inputs are not exact-head evidence");
+  execFileSync("git", ["add", "-A"], { cwd: r });
+  execFileSync("git", ["commit", "-qm", "install Agent Vigil"], { cwd: r });
   assert.equal(run(["doctor", "--repo", r]), 0);
   const workflow = readFileSync(join(r, ".github/workflows/agent-vigil.yml"), "utf8");
   assert.match(workflow, /policy-ref/);
   assert.match(workflow, /pull_request\.base\.sha/);
 });
 
+test("CLI hosted init fails closed without an exact Action SHA or with candidate attestation", () => {
+  const missing = repo();
+  assert.equal(run(["init", "--repo", missing]), 2);
+  assert.equal(run(["init", "--action-sha", ACTION_SHA.toUpperCase(), "--repo", missing]), 2);
+  assert.equal(run(["init", "--action-sha", ACTION_SHA, "--attest", "--repo", missing]), 2);
+  assert.equal(run(["protect", "--action-sha", ACTION_SHA, "--attest", "--repo", missing]), 2);
+});
+
+test("CLI init and protect reject unknown, missing, stray, and duplicate arguments", () => {
+  const cases = [
+    ["init", "--protfile", "authority", "--action-sha", ACTION_SHA],
+    ["init", "stray", "--action-sha", ACTION_SHA],
+    ["init", "--repo", "--action-sha", ACTION_SHA],
+    ["init", "--profile", "default", "--profile", "authority", "--action-sha", ACTION_SHA],
+    ["init", "--force", "--force", "--action-sha", ACTION_SHA],
+    ["protect", "--repo"],
+    ["protect", "stray", "--action-sha", ACTION_SHA],
+    ["protect", "--action-sha", ACTION_SHA, "--action-sha", ACTION_SHA],
+    ["protect", "--force", "--force", "--action-sha", ACTION_SHA],
+  ];
+  for (const args of cases) assert.equal(run(args), 2, args.join(" "));
+});
+
 test("CLI maintainer init exposes the profile without creating a transcript placeholder", () => {
   const r = repo();
-  assert.equal(run(["init", "--profile", "maintainer", "--repo", r]), 0);
+  assert.equal(run(["init", "--profile", "maintainer", "--action-sha", ACTION_SHA, "--repo", r]), 0);
+  assert.equal(run(["doctor", "--repo", r]), 2, "maintainer controls must be committed before doctor can pass");
+  execFileSync("git", ["add", "-A"], { cwd: r });
+  execFileSync("git", ["commit", "-qm", "install maintainer profile"], { cwd: r });
   assert.equal(run(["doctor", "--repo", r]), 0);
   const workflow = readFileSync(join(r, ".github/workflows/agent-vigil.yml"), "utf8");
   assert.match(workflow, /mode: maintainer/);
@@ -221,7 +284,7 @@ test("CLI maintainer init exposes the profile without creating a transcript plac
 
 test("CLI authority init creates a base-anchored task-boundary workflow", () => {
   const r = repo();
-  assert.equal(run(["init", "--profile", "authority", "--repo", r]), 0);
+  assert.equal(run(["init", "--profile", "authority", "--action-sha", ACTION_SHA, "--repo", r]), 0);
   const workflow = readFileSync(join(r, ".github/workflows/agent-vigil.yml"), "utf8");
   const contract = JSON.parse(readFileSync(join(r, ".agent-vigil-authority.json"), "utf8"));
   assert.match(workflow, /authority-contract: \.agent-vigil-authority\.json/);
@@ -235,7 +298,7 @@ test("CLI portable init pins a public key and scaffolds receipt mode", () => {
   const r = repo(); const keys = mkdtempSync(join(tmpdir(), "vigil-init-portable-"));
   const privateKey = join(keys, "private.pem"); const publicKey = join(keys, "public.pem");
   generateSigningKey(privateKey, publicKey);
-  assert.equal(run(["init", "--portable", "--public-key", publicKey, "--repo", r]), 0);
+  assert.equal(run(["init", "--portable", "--public-key", publicKey, "--action-sha", ACTION_SHA, "--repo", r]), 0);
   const policy = JSON.parse(readFileSync(join(r, ".agent-vigil.json"), "utf8"));
   const workflow = readFileSync(join(r, ".github/workflows/agent-vigil.yml"), "utf8");
   assert.deepEqual(policy.trustedSignerKeyIds, [publicKeyId(publicKey)]);
@@ -267,7 +330,7 @@ test("CLI verify rejects a tampered receipt", () => {
   assert.equal(run(["verify", output]), 1);
 });
 
-function portableRepo() {
+function portableRepo(minVerified = 1) {
   const path = mkdtempSync(join(tmpdir(), "vigil-portable-"));
   const keys = mkdtempSync(join(tmpdir(), "vigil-portable-keys-"));
   const privateKey = join(keys, "private.pem"); const publicKey = join(keys, "public.pem");
@@ -281,7 +344,7 @@ function portableRepo() {
     schemaVersion: 1,
     testCommand: "npm test --silent",
     strict: true,
-    minVerified: 1,
+    minVerified,
     portableReceipt: ".agent-vigil/receipt.json",
     trustedSignerKeyIds: [publicKeyId(publicKey)],
   }, null, 2));
@@ -292,7 +355,7 @@ function portableRepo() {
   const codeHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path, encoding: "utf8" }).trim();
   const summary = join(keys, "summary.md"); writeFileSync(summary, "The test suite passes.\n");
   const portable = ".agent-vigil/receipt.json";
-  assert.equal(run([summary, "--repo", path, "--base", base, "--head", codeHead, "--policy", ".agent-vigil.json", "--policy-ref", base, "--signing-key", privateKey, "--portable-output", portable]), 0);
+  assert.equal(run([summary, "--repo", path, "--base", base, "--head", codeHead, "--policy", ".agent-vigil.json", "--policy-ref", base, "--signing-key", privateKey, "--portable-output", portable]), minVerified === 1 ? 0 : 2);
   execFileSync("git", ["add", portable], { cwd: path }); execFileSync("git", ["commit", "-qm", "attach private receipt"], { cwd: path });
   const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path, encoding: "utf8" }).trim();
   return { path, keys, privateKey, publicKey, base, codeHead, head, portable };
@@ -306,6 +369,107 @@ test("CLI portable gate accepts a signed receipt-only tail and fresh CI check", 
   assert.equal(report.summary.status, "PASS");
   assert.ok(report.results.some((item: { ruleId: string }) => item.ruleId === "portable-git-binding"));
   assert.ok(report.results.some((item: { ruleId: string }) => item.ruleId === "tests-pass"));
+});
+
+test("portable receipt output refuses destination and parent symlinks", { skip: process.platform === "win32" }, () => {
+  const direct = portableRepo();
+  const directPath = join(direct.path, direct.portable);
+  const directTarget = join(direct.keys, "portable-target.json");
+  const directSummary = join(direct.keys, "direct-summary.md");
+  rmSync(directPath);
+  writeFileSync(directTarget, "must remain unchanged\n");
+  writeFileSync(directSummary, "The test suite passes.\n");
+  symlinkSync(directTarget, directPath);
+  assert.equal(run([
+    directSummary, "--repo", direct.path, "--base", direct.base, "--head", direct.codeHead,
+    "--policy", ".agent-vigil.json", "--policy-ref", direct.base,
+    "--signing-key", direct.privateKey, "--portable-output", direct.portable,
+  ]), 2);
+  assert.equal(readFileSync(directTarget, "utf8"), "must remain unchanged\n");
+
+  const parent = portableRepo();
+  const parentDirectory = join(parent.path, ".agent-vigil");
+  const outside = join(parent.keys, "outside-parent");
+  const parentSummary = join(parent.keys, "parent-summary.md");
+  rmSync(parentDirectory, { recursive: true });
+  mkdirSync(outside);
+  writeFileSync(parentSummary, "The test suite passes.\n");
+  symlinkSync(outside, parentDirectory, "dir");
+  assert.equal(run([
+    parentSummary, "--repo", parent.path, "--base", parent.base, "--head", parent.codeHead,
+    "--policy", ".agent-vigil.json", "--policy-ref", parent.base,
+    "--signing-key", parent.privateKey, "--portable-output", parent.portable,
+  ]), 2);
+  assert.equal(existsSync(join(outside, "receipt.json")), false);
+});
+
+test("CLI portable gate rejects a receipt tail that hides an old-path deletion as a rename", () => {
+  const fixture = portableRepo();
+  const oldReceipt = ".agent-vigil/old-receipt.json";
+  execFileSync("git", ["mv", fixture.portable, oldReceipt], { cwd: fixture.path });
+  execFileSync("git", ["commit", "-qm", "move first receipt aside"], { cwd: fixture.path });
+  const receiptHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: fixture.path, encoding: "utf8" }).trim();
+
+  const summary = join(fixture.keys, "second-summary.md");
+  const savedReceipt = join(fixture.keys, "second-receipt.json");
+  writeFileSync(summary, "The test suite passes.\n");
+  assert.equal(run([
+    summary, "--repo", fixture.path, "--base", fixture.base, "--head", receiptHead,
+    "--policy", ".agent-vigil.json", "--policy-ref", fixture.base,
+    "--signing-key", fixture.privateKey, "--portable-output", fixture.portable,
+  ]), 0);
+  const raw = readFileSync(join(fixture.path, fixture.portable), "utf8");
+  writeFileSync(savedReceipt, raw);
+  rmSync(join(fixture.path, fixture.portable));
+  execFileSync("git", ["mv", oldReceipt, fixture.portable], { cwd: fixture.path });
+  writeFileSync(join(fixture.path, fixture.portable), raw);
+  execFileSync("git", ["add", fixture.portable], { cwd: fixture.path });
+  execFileSync("git", ["commit", "-qm", "attach replacement receipt"], { cwd: fixture.path });
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: fixture.path, encoding: "utf8" }).trim();
+
+  const renameAware = execFileSync("git", ["diff", "--name-only", "-z", receiptHead, head], {
+    cwd: fixture.path,
+    encoding: "utf8",
+  }).split("\0").filter(Boolean);
+  assert.deepEqual(renameAware, [fixture.portable], "the regression must exercise Git's destination-only rename view");
+
+  const output = join(fixture.keys, "renamed-tail-gate-report.json");
+  assert.equal(run([
+    "gate", savedReceipt, "--receipt-git-path", fixture.portable,
+    "--repo", fixture.path, "--base", fixture.base, "--head", head,
+    "--policy", ".agent-vigil.json", "--policy-ref", fixture.base, "--output", output,
+  ]), 1);
+  const report = JSON.parse(readFileSync(output, "utf8"));
+  assert.ok(report.results.some((item: { ruleId: string; verdict: string }) =>
+    item.ruleId === "portable-git-binding" && item.verdict === "contradicted"));
+});
+
+test("CLI portable gate preserves a stronger trusted-policy evidence minimum", () => {
+  const fixture = portableRepo(99);
+  const output = join(fixture.keys, "strong-policy-gate-report.json");
+  assert.equal(run([
+    "gate", fixture.portable, "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head,
+    "--policy", ".agent-vigil.json", "--policy-ref", fixture.base, "--output", output,
+  ]), 2);
+  const report = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(report.policy.minVerified, 99);
+  assert.equal(report.summary.status, "INCONCLUSIVE");
+});
+
+test("CLI portable gate binds a private receipt snapshot to its exact logical Git path", () => {
+  const fixture = portableRepo();
+  const snapshot = join(fixture.keys, "private-receipt.json");
+  const raw = readFileSync(join(fixture.path, fixture.portable), "utf8");
+  writeFileSync(snapshot, raw);
+  const args = [
+    "gate", snapshot, "--receipt-git-path", fixture.portable,
+    "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head,
+    "--policy", ".agent-vigil.json", "--policy-ref", fixture.base,
+  ];
+  assert.equal(run(args), 0);
+
+  writeFileSync(snapshot, `${raw}\n`);
+  assert.equal(run(args), 1, "private bytes that differ from the exact head blob fail closed");
 });
 
 test("CLI portable gate accepts an exact code head with an untracked compact receipt", () => {
@@ -327,7 +491,10 @@ test("CLI portable gate rejects a receipt path not pinned by policy", () => {
 
 test("doctor recognizes an existing portable receipt", () => {
   const fixture = portableRepo();
-  assert.equal(run(["doctor", "--repo", fixture.path]), 0);
+  const checks = doctorRepository(fixture.path);
+  assert.ok(checks.some((check) => check.label === "Portable receipt" && check.status === "PASS"));
+  assert.ok(checks.some((check) => check.label === "GitHub Action" && check.status === "FAIL"));
+  assert.equal(run(["doctor", "--repo", fixture.path]), 2, "a committed receipt does not substitute for the missing hosted workflow");
 });
 
 test("CLI portable gate rejects receipt tampering", () => {

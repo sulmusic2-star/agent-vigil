@@ -1,70 +1,67 @@
 # GitHub merge queues
 
-GitHub requires workflows that provide required pull-request checks to also
-subscribe to `merge_group`. Without that trigger, the required check is never
-reported for the queued composition and the merge fails. Agent Vigil v0.10.1
-adds a separate fail-closed verification path for that event.
+Agent Vigil v0.21.0 does not generate a repository-owned `merge_group`
+workflow. Queue verification is available only as a low-level verifier for an
+externally controlled integration.
+
+## Why the generated workflow is pull-request only
+
+GitHub requires a check used by a merge queue to report on the
+`merge_group` event. A workflow file stored in the candidate repository is
+selected from candidate-controlled bytes for that event. It cannot be the
+trusted source of the policy that decides whether the same candidate may merge.
+
+There is a second boundary. A plain required status check selects a context or
+job name. It does not bind that name to the intended workflow file, event, or
+reviewed Agent Vigil commit. A candidate workflow can report the same name.
+Requiring `Agent Vigil evidence` by name alone therefore does not establish an
+enforceable Agent Vigil control.
+
+The v0.21.0 `init` and `protect` generators use base-selected
+`pull_request_target` for pull-request evidence and intentionally omit
+`merge_group`. `vigil doctor` reports a repository-owned merge-group path as a
+failure.
+
+## Enforceable queue integration
+
+Use one of these external trust sources:
+
+- an organization or enterprise ruleset that requires a workflow controlled
+  outside the candidate repository; or
+- a GitHub App that validates the exact queue head, expected event, policy
+  source, and evidence source before reporting its own check.
+
+The external workflow or App must bind:
+
+1. the caller-provided base and head to the event's full `base_sha` and
+   `head_sha`;
+2. the checkout and Git-visible workspace to the exact composed head;
+3. the event base as an ancestor of that head;
+4. policy to the event base, never the queued candidate;
+5. the reviewed Agent Vigil Action commit and expected workflow identity;
+6. credential-free repository execution; and
+7. the reported conclusion to the exact head GitHub is considering.
+
+The low-level `vigil merge-group --event <event.json>` command can evaluate the
+composition when that external controller supplies the trusted inputs. Its
+presence does not make a repository-owned workflow safe or required.
+
+## Evidence available at queue time
+
+The merge-group payload does not contain one pull request's complete evidence
+context. An external queue integration must not fabricate PR-body declarations,
+portable signatures, or task-authority facts that are absent from the event.
+It can rerun base-owned executable evidence and integrity checks against the
+actual composition, then join that result with separately retained PR evidence
+under its own policy.
+
+Missing event identity, policy anchor, Git object, test evidence, workflow
+identity, or exact-head status must remain a blocking or inconclusive result.
 
 Official GitHub references:
 
 - [Events that trigger workflows: `merge_group`](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#merge_group)
 - [Managing a merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)
 
-## Generated workflow
-
-`vigil init` now generates both triggers and selects exact event commits:
-
-```yaml
-on:
-  pull_request:
-  merge_group:
-    types: [checks_requested]
-
-steps:
-  - uses: actions/checkout@v7
-    with:
-      fetch-depth: 0
-      ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-  - uses: sulmusic2-star/agent-vigil@v0.20.0
-    with:
-      mode: maintainer
-      policy: .agent-vigil.json
-      policy-ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-      base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-      head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-```
-
-The composite Action recognizes the event type itself. A `merge_group` event
-always routes to the merge-group verifier, regardless of whether the PR phase
-uses transcript, portable-receipt, or maintainer evidence.
-
-## What is re-verified
-
-1. The caller-provided base and head equal the event's `base_sha` and
-   `head_sha`.
-2. The checked-out commit equals the event head and the Git-visible worktree is
-   otherwise clean.
-3. The event base is an ancestor of the composed queue head.
-4. `.agent-vigil.json` is loaded from the event base, not the queued candidate.
-5. The trusted policy test command is rerun against the composed head.
-6. Test execution must not mutate tracked inputs.
-7. Static integrity checks inspect the full base-to-composed-head diff under
-   the base policy's advisory or blocking mode.
-8. JSON, SARIF, job summary, receipt hash, and reproduction command bind the
-   result.
-
-Any missing event identity, policy anchor, Git object, test evidence, or clean
-workspace produces FAIL or INCONCLUSIVE rather than PASS.
-
-## Deliberate boundary
-
-GitHub's merge-group payload does not contain a single pull request's body.
-Agent Vigil therefore does not fabricate or reconstruct per-PR maintainer
-attestations or task-authority evidence at this phase. Those declarations,
-task contracts, and any portable-receipt signature are enforced on the
-pull-request check. The queue phase verifies the actual composed commit against
-the latest trusted base and reruns executable evidence, which is the evidence
-that can change when queued pull requests are combined.
-
-Use the same required status-check name, `Agent Vigil evidence`, for pull
-requests and merge groups.
+See the [hosted evidence security contract](HOSTED_SECURITY_CONTRACT.md) for
+the generated pull-request lane.

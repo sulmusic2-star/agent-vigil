@@ -1,92 +1,503 @@
-name: Publish npm package
+name: Stage npm package for approval
 
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing release tag to publish
-        required: true
-        default: v0.20.0
 
-permissions:
-  contents: read
-  id-token: write
+permissions: {}
 
 concurrency:
   group: npm-publish-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
-  publish:
-    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
-    runs-on: ubuntu-latest
+  verify-and-pack:
+    name: Verify and pack without OIDC
+    if: >-
+      github.event_name == 'release' &&
+      github.event.release.prerelease == false &&
+      github.ref == format('refs/tags/{0}', github.event.release.tag_name)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
-      - name: Select the release tag
+      - name: Select and validate the release tag
         id: release
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
+          set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Expected a stable vMAJOR.MINOR.PATCH tag, received: $RELEASE_TAG" >&2
             exit 1
           fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@v7
+      - name: Check out the immutable event revision without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ steps.release.outputs.tag }}
-
-      - uses: actions/setup-node@v7
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Select the npm trusted-publishing runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-
-      - name: Check release identity and npm OIDC support
+      - name: Check release identity and staged-publishing support
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "${RELEASE_TAG}^{commit}")" = "$GITHUB_SHA"
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           test "$RELEASE_TAG" = "v$PACKAGE_VERSION"
           node - "$(npm --version)" <<'NODE'
-          const [major, minor, patch] = process.argv[2].split('.').map(Number);
-          if (major < 11 || (major === 11 && minor < 5)) {
-            throw new Error(`npm 11.5.1 or newer is required; found ${major}.${minor}.${patch}`);
+          const version = process.argv[2];
+          const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
+          if (!match) throw new Error(`npm returned a non-canonical version: ${version}`);
+          const [major, minor] = match.slice(1, 3).map(Number);
+          if (major < 11 || (major === 11 && minor < 15)) {
+            throw new Error(`npm 11.15.0 or newer is required; found ${version}`);
           }
           NODE
-
       - name: Install without lifecycle scripts
         run: npm ci --ignore-scripts
-
       - name: Verify the exact release source
         run: |
+          set -euo pipefail
           npm run typecheck
           npm run build
           npm test --silent
           npm run smoke
           npm run review:public
-          npm audit --omit=dev
-
-      - name: Build the package rehearsal
-        run: npm pack --json > "$RUNNER_TEMP/npm-pack.json"
-
-      - name: Publish through npm trusted publishing
+          npm run test:package
+          npm audit
+      - name: Create and verify the fixed package artifact
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          set -euo pipefail
+          umask 077
+          artifact_dir="$RUNNER_TEMP/npm-release"
+          mkdir -m 700 "$artifact_dir"
+          npm pack --ignore-scripts --json --pack-destination "$artifact_dir" > "$artifact_dir/npm-pack.json"
+          node - "$artifact_dir" "$RELEASE_TAG" <<'NODE'
+          const { createHash } = require("node:crypto");
+          const { lstatSync, readFileSync, readdirSync, writeFileSync } = require("node:fs");
+          const { join } = require("node:path");
+          const [directory, tag] = process.argv.slice(2);
+          const fail = (message) => { throw new Error(message); };
+          const metadataName = "npm-pack.json";
+          const envelopeName = "release-envelope.json";
+          const version = tag.slice(1);
+          const expectedFile = `sulmusic-agent-vigil-${version}.tgz`;
+          const metadataPath = join(directory, metadataName);
+          const tarballPath = join(directory, expectedFile);
+          const initialFiles = readdirSync(directory).sort();
+          if (initialFiles.join("\n") !== [metadataName, expectedFile].sort().join("\n")) {
+            fail("release staging must initially contain only npm-pack.json and the fixed tarball");
+          }
+          for (const path of [metadataPath, tarballPath]) {
+            const stat = lstatSync(path);
+            if (!stat.isFile() || stat.isSymbolicLink()) fail("release staging entries must be regular non-symlink files");
+          }
+          const metadataBytes = lstatSync(metadataPath).size;
+          const tarballBytes = lstatSync(tarballPath).size;
+          if (metadataBytes < 2 || metadataBytes > 1024 * 1024) fail("npm-pack.json exceeds the 1 MiB bound");
+          if (tarballBytes < 1 || tarballBytes > 16 * 1024 * 1024) fail("release tarball exceeds the 16 MiB bound");
+          const entries = JSON.parse(readFileSync(metadataPath, "utf8"));
+          if (!Array.isArray(entries) || entries.length !== 1) throw new Error("npm pack must describe exactly one package");
+          const entry = entries[0];
+          if (entry.name !== "@sulmusic/agent-vigil" || entry.version !== version || entry.filename !== expectedFile) {
+            throw new Error("npm pack metadata does not match the release identity");
+          }
+          if (entry.size !== tarballBytes) fail("npm pack size does not match the tarball bytes");
+          if (!Number.isSafeInteger(entry.unpackedSize) || entry.unpackedSize < 1 || entry.unpackedSize > 64 * 1024 * 1024) {
+            fail("npm pack unpacked size exceeds the 64 MiB bound");
+          }
+          if (!Array.isArray(entry.files) || entry.files.length < 1 || entry.files.length > 512) {
+            fail("npm pack file count exceeds the 512-file bound");
+          }
+          const seen = new Set();
+          let unpackedBytes = 0;
+          for (const file of entry.files) {
+            if (typeof file?.path !== "string" || file.path.length === 0 || file.path.startsWith("/") ||
+                file.path.includes("\\") || /(?:^|\/)\.\.?(?:\/|$)/.test(file.path) || /[\0\r\n]/.test(file.path)) {
+              fail("npm pack reported an unsafe package path");
+            }
+            if (seen.has(file.path)) fail("npm pack reported a duplicate package path");
+            seen.add(file.path);
+            if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > 64 * 1024 * 1024) {
+              fail("npm pack reported an invalid package file size");
+            }
+            unpackedBytes += file.size;
+          }
+          if (entry.entryCount !== entry.files.length || unpackedBytes !== entry.unpackedSize) {
+            fail("npm pack file metadata is internally inconsistent");
+          }
+          const integrity = `sha512-${createHash("sha512").update(readFileSync(tarballPath)).digest("base64")}`;
+          if (entry.integrity !== integrity) throw new Error("npm pack integrity does not match the tarball bytes");
+          const envelope = {
+            schemaVersion: 1,
+            sourceRef: process.env.GITHUB_REF,
+            sourceSha: process.env.GITHUB_SHA,
+            releaseTag: tag,
+            packageName: entry.name,
+            packageVersion: entry.version,
+            filename: expectedFile,
+            tarballBytes,
+            unpackedBytes,
+            fileCount: entry.files.length,
+            integrity,
+          };
+          writeFileSync(join(directory, envelopeName), `${JSON.stringify(envelope, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+          const finalFiles = readdirSync(directory).sort();
+          if (finalFiles.join("\n") !== [metadataName, envelopeName, expectedFile].sort().join("\n")) {
+            fail("release artifact must contain exactly the metadata, envelope, and fixed tarball");
+          }
+          if (lstatSync(join(directory, envelopeName)).size > 64 * 1024) fail("release envelope exceeds the 64 KiB bound");
+          NODE
+      - name: Upload the fixed package artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-vigil-npm-package
+          path: ${{ runner.temp }}/npm-release
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Stage the verified tarball with OIDC
+    needs: verify-and-pack
+    if: >-
+      github.event_name == 'release' &&
+      github.event.release.prerelease == false &&
+      github.ref == format('refs/tags/{0}', github.event.release.tag_name)
+    runs-on: ubuntu-24.04
+    # External authorization boundary: configure this environment to allow only
+    # protected release tags, and require this same environment in npm Trusted Publisher.
+    # Allow only `npm stage publish` in that trust relationship; disable direct `npm publish`.
+    environment: npm-publish
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - name: Select the npm trusted-publishing runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Download the fixed package artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: agent-vigil-npm-package
+          path: ${{ runner.temp }}/npm-release
+      - name: Validate and stage only the verified tarball
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          node - "$(npm --version)" <<'NODE'
+          const version = process.argv[2];
+          const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
+          if (!match) throw new Error(`npm returned a non-canonical version: ${version}`);
+          const [major, minor] = match.slice(1, 3).map(Number);
+          if (major < 11 || (major === 11 && minor < 15)) {
+            throw new Error(`npm 11.15.0 or newer is required; found ${version}`);
+          }
+          NODE
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected a stable vMAJOR.MINOR.PATCH tag, received: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+
+          PACKAGE_NAME='@sulmusic/agent-vigil'
           PACKAGE_VERSION="${RELEASE_TAG#v}"
-          LOCAL_INTEGRITY="$(node -p "require(process.env.RUNNER_TEMP + '/npm-pack.json')[0].integrity")"
+          EXPECTED_FILENAME="sulmusic-agent-vigil-${PACKAGE_VERSION}.tgz"
+          ARTIFACT_DIR="$RUNNER_TEMP/npm-release"
+          PACK_METADATA="$ARTIFACT_DIR/npm-pack.json"
+          RELEASE_ENVELOPE="$ARTIFACT_DIR/release-envelope.json"
+          TARBALL="$ARTIFACT_DIR/$EXPECTED_FILENAME"
+          ARCHIVE_MANIFEST="$RUNNER_TEMP/npm-release-archive.json"
+          PACKAGE_MANIFEST="$RUNNER_TEMP/package-manifest.json"
+
+          node - "$ARTIFACT_DIR" "$PACK_METADATA" "$RELEASE_ENVELOPE" "$TARBALL" "$EXPECTED_FILENAME" <<'NODE'
+          const { lstatSync, readdirSync } = require("node:fs");
+          const [directory, metadataPath, envelopePath, tarballPath, expectedFilename] = process.argv.slice(2);
+          const directoryStat = lstatSync(directory);
+          if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+            throw new Error("release artifact root must be a regular non-symlink directory");
+          }
+          const expectedFiles = ["npm-pack.json", "release-envelope.json", expectedFilename].sort();
+          const actualFiles = readdirSync(directory).sort();
+          if (actualFiles.join("\n") !== expectedFiles.join("\n")) {
+            throw new Error("release artifact has an unexpected file set");
+          }
+          for (const [path, maximumBytes] of [
+            [metadataPath, 1024 * 1024],
+            [envelopePath, 64 * 1024],
+            [tarballPath, 16 * 1024 * 1024],
+          ]) {
+            const stat = lstatSync(path);
+            if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 1 || stat.size > maximumBytes) {
+              throw new Error("release artifact entry is not a bounded regular non-symlink file");
+            }
+          }
+          NODE
+
+          node - "$TARBALL" "$ARCHIVE_MANIFEST" "$PACKAGE_MANIFEST" <<'NODE'
+          const { readFileSync, writeFileSync } = require("node:fs");
+          const { gunzipSync } = require("node:zlib");
+          const [tarballPath, archiveManifestPath, packageManifestPath] = process.argv.slice(2);
+          const fail = (message) => { throw new Error(message); };
+          const MAX_FILES = 512;
+          const MAX_UNPACKED_BYTES = 64 * 1024 * 1024;
+          const MAX_PACKAGE_MANIFEST_BYTES = 256 * 1024;
+          const MAX_TAR_STREAM_BYTES = 68 * 1024 * 1024;
+          const BLOCK_BYTES = 512;
+          const decoder = new TextDecoder("utf-8", { fatal: true });
+
+          const compressed = readFileSync(tarballPath);
+          const archive = gunzipSync(compressed, { maxOutputLength: MAX_TAR_STREAM_BYTES });
+          if (archive.length < BLOCK_BYTES * 2 || archive.length % BLOCK_BYTES !== 0) {
+            fail("release archive is not a complete block-aligned tar stream");
+          }
+
+          const isZeroBlock = (block) => block.every((byte) => byte === 0);
+          const readString = (block, start, length, label) => {
+            const field = block.subarray(start, start + length);
+            const nul = field.indexOf(0);
+            const content = nul === -1 ? field : field.subarray(0, nul);
+            if (nul !== -1 && !field.subarray(nul).every((byte) => byte === 0)) {
+              fail(`${label} has non-zero bytes after its terminator`);
+            }
+            try {
+              return decoder.decode(content);
+            } catch {
+              fail(`${label} is not valid UTF-8`);
+            }
+          };
+          const readOctal = (block, start, length, label) => {
+            const field = block.subarray(start, start + length);
+            if ((field[0] & 0x80) !== 0) fail(`${label} uses an unsupported base-256 number`);
+            const text = field.toString("ascii").replace(/\0.*$/, "").trim();
+            if (!/^[0-7]+$/.test(text)) fail(`${label} is not canonical octal`);
+            const value = Number.parseInt(text, 8);
+            if (!Number.isSafeInteger(value) || value < 0) fail(`${label} is out of range`);
+            return value;
+          };
+
+          const entries = [];
+          const seen = new Set();
+          let totalBytes = 0;
+          let offset = 0;
+          let terminated = false;
+          let packageManifest;
+          let disclosureSeen = false;
+          while (offset + BLOCK_BYTES <= archive.length) {
+            const header = archive.subarray(offset, offset + BLOCK_BYTES);
+            if (isZeroBlock(header)) {
+              const second = archive.subarray(offset + BLOCK_BYTES, offset + BLOCK_BYTES * 2);
+              if (second.length !== BLOCK_BYTES || !isZeroBlock(second)) {
+                fail("release archive must end with two zero blocks");
+              }
+              if (!archive.subarray(offset + BLOCK_BYTES * 2).every((byte) => byte === 0)) {
+                fail("release archive has data after its end marker");
+              }
+              terminated = true;
+              break;
+            }
+
+            if (header.subarray(257, 263).toString("latin1") !== "ustar\0" ||
+                header.subarray(263, 265).toString("latin1") !== "00") {
+              fail("release archive entry is not canonical USTAR");
+            }
+            const storedChecksum = readOctal(header, 148, 8, "tar checksum");
+            let computedChecksum = 0;
+            for (let index = 0; index < BLOCK_BYTES; index += 1) {
+              computedChecksum += index >= 148 && index < 156 ? 0x20 : header[index];
+            }
+            if (storedChecksum !== computedChecksum) fail("release archive entry has an invalid checksum");
+            if (header[156] !== 0x30) {
+              fail("release archive entries must be regular files; links, devices, FIFOs, and PAX headers are forbidden");
+            }
+
+            const name = readString(header, 0, 100, "tar entry name");
+            const prefix = readString(header, 345, 155, "tar entry prefix");
+            const path = prefix.length > 0 ? `${prefix}/${name}` : name;
+            if (path.length === 0 || path.startsWith("/") || path.endsWith("/") || path.includes("\\") ||
+                /(?:^|\/)\.\.?(?:\/|$)/.test(path) || /[\0-\x1f\x7f]/.test(path)) {
+              fail("release archive contains an unsafe path");
+            }
+            if (seen.has(path)) fail("release archive contains duplicate paths");
+            seen.add(path);
+
+            const size = readOctal(header, 124, 12, `tar size for ${path}`);
+            totalBytes += size;
+            if (totalBytes > MAX_UNPACKED_BYTES) fail("release archive exceeds the 64 MiB unpacked bound");
+            entries.push({ path, size });
+            if (entries.length > MAX_FILES) fail("release archive exceeds the 512-entry bound");
+
+            const dataStart = offset + BLOCK_BYTES;
+            const dataEnd = dataStart + size;
+            const nextOffset = dataStart + Math.ceil(size / BLOCK_BYTES) * BLOCK_BYTES;
+            if (dataEnd > archive.length || nextOffset > archive.length) fail("release archive entry is truncated");
+            if (!archive.subarray(dataEnd, nextOffset).every((byte) => byte === 0)) {
+              fail("release archive entry has non-zero padding");
+            }
+            if (path === "package/package.json") {
+              if (size < 2 || size > MAX_PACKAGE_MANIFEST_BYTES) {
+                fail("package manifest is invalid or exceeds the 256 KiB bound");
+              }
+              packageManifest = archive.subarray(dataStart, dataEnd);
+            }
+            if (path === "package/DISCLOSURE") {
+              if (size < 1 || size > 64 * 1024) fail("DISCLOSURE is empty or exceeds the 64 KiB bound");
+              const disclosure = decoder.decode(archive.subarray(dataStart, dataEnd));
+              if (disclosure.includes("\0")) fail("DISCLOSURE must contain only text");
+              disclosureSeen = true;
+            }
+            offset = nextOffset;
+          }
+          if (!terminated) fail("release archive is missing its end marker");
+          if (entries.length < 1) fail("release archive is empty");
+          if (!packageManifest) fail("release archive must contain package/package.json exactly once");
+          if (!disclosureSeen) fail("release archive must contain a root DISCLOSURE file exactly once");
+
+          writeFileSync(archiveManifestPath, `${JSON.stringify(entries)}\n`, { flag: "wx", mode: 0o600 });
+          writeFileSync(packageManifestPath, packageManifest, { flag: "wx", mode: 0o600 });
+          NODE
+
+          node - "$ARTIFACT_DIR" "$PACK_METADATA" "$RELEASE_ENVELOPE" "$TARBALL" "$ARCHIVE_MANIFEST" "$PACKAGE_MANIFEST" "$PACKAGE_NAME" "$PACKAGE_VERSION" "$EXPECTED_FILENAME" "$RELEASE_TAG" "$GITHUB_REF" "$GITHUB_SHA" <<'NODE'
+          const { createHash } = require("node:crypto");
+          const { lstatSync, readFileSync, readdirSync } = require("node:fs");
+          const [directory, metadataPath, envelopePath, tarballPath, archiveManifestPath, manifestPath,
+            expectedName, expectedVersion, expectedFilename, expectedTag, expectedRef, expectedSha] = process.argv.slice(2);
+          const fail = (message) => { throw new Error(message); };
+          const expectedFiles = ["npm-pack.json", "release-envelope.json", expectedFilename].sort();
+          const actualFiles = readdirSync(directory).sort();
+          if (actualFiles.join("\n") !== expectedFiles.join("\n")) fail("release artifact has an unexpected file set");
+          for (const name of expectedFiles) {
+            const stat = lstatSync(`${directory}/${name}`);
+            if (!stat.isFile() || stat.isSymbolicLink()) fail("release artifact entries must be regular non-symlink files");
+          }
+          const metadataBytes = lstatSync(metadataPath).size;
+          const envelopeBytes = lstatSync(envelopePath).size;
+          const tarballBytes = lstatSync(tarballPath).size;
+          if (metadataBytes < 2 || metadataBytes > 1024 * 1024) fail("npm-pack.json exceeds the 1 MiB bound");
+          if (envelopeBytes < 2 || envelopeBytes > 64 * 1024) fail("release-envelope.json exceeds the 64 KiB bound");
+          if (tarballBytes < 1 || tarballBytes > 16 * 1024 * 1024) fail("release tarball exceeds the 16 MiB bound");
+          if (lstatSync(archiveManifestPath).size < 3 || lstatSync(archiveManifestPath).size > 256 * 1024) {
+            fail("archive manifest exceeds the 256 KiB bound");
+          }
+          if (lstatSync(manifestPath).size < 2 || lstatSync(manifestPath).size > 256 * 1024) {
+            fail("package manifest exceeds the 256 KiB bound");
+          }
+          const entries = JSON.parse(readFileSync(metadataPath, "utf8"));
+          if (!Array.isArray(entries) || entries.length !== 1) throw new Error("package metadata must contain exactly one entry");
+          const entry = entries[0];
+          if (entry.name !== expectedName || entry.version !== expectedVersion || entry.filename !== expectedFilename) {
+            throw new Error("tarball name or npm pack metadata does not match the event tag");
+          }
+          if (entry.size !== tarballBytes) fail("npm pack size does not match the downloaded tarball");
+          if (!Number.isSafeInteger(entry.unpackedSize) || entry.unpackedSize < 1 || entry.unpackedSize > 64 * 1024 * 1024) {
+            fail("npm pack unpacked size exceeds the 64 MiB bound");
+          }
+          if (!Array.isArray(entry.files) || entry.files.length < 1 || entry.files.length > 512) {
+            fail("npm pack file count exceeds the 512-file bound");
+          }
+          const packageEntries = [];
+          const seen = new Set();
+          let unpackedBytes = 0;
+          for (const file of entry.files) {
+            if (typeof file?.path !== "string" || file.path.length === 0 || file.path.startsWith("/") ||
+                file.path.includes("\\") || /(?:^|\/)\.\.?(?:\/|$)/.test(file.path) || /[\0\r\n]/.test(file.path)) {
+              fail("npm pack reported an unsafe package path");
+            }
+            if (seen.has(file.path)) fail("npm pack reported a duplicate package path");
+            seen.add(file.path);
+            packageEntries.push({ path: `package/${file.path}`, size: file.size });
+            if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > 64 * 1024 * 1024) {
+              fail("npm pack reported an invalid package file size");
+            }
+            unpackedBytes += file.size;
+          }
+          if (entry.entryCount !== entry.files.length || unpackedBytes !== entry.unpackedSize) {
+            fail("npm pack file metadata is internally inconsistent");
+          }
+          const archiveEntries = JSON.parse(readFileSync(archiveManifestPath, "utf8"));
+          if (!Array.isArray(archiveEntries) || archiveEntries.length < 1 || archiveEntries.length > 512) {
+            fail("archive manifest has an invalid entry count");
+          }
+          const archivePaths = archiveEntries.map((archiveEntry) => {
+            if (!archiveEntry || typeof archiveEntry !== "object" || Array.isArray(archiveEntry) ||
+                Object.keys(archiveEntry).sort().join("\n") !== "path\nsize" ||
+                typeof archiveEntry.path !== "string" || !Number.isSafeInteger(archiveEntry.size) || archiveEntry.size < 0) {
+              fail("archive manifest has an invalid entry");
+            }
+            return archiveEntry.path;
+          });
+          if (new Set(archivePaths).size !== archivePaths.length) fail("release archive contains duplicate paths");
+          if (archivePaths.filter((path) => path === "package/package.json").length !== 1) {
+            fail("release archive must contain package/package.json exactly once");
+          }
+          const byPath = (left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
+          if (JSON.stringify(archiveEntries.sort(byPath)) !== JSON.stringify(packageEntries.sort(byPath))) {
+            fail("release archive paths or sizes do not match npm-pack.json");
+          }
+          const integrity = `sha512-${createHash("sha512").update(readFileSync(tarballPath)).digest("base64")}`;
+          if (entry.integrity !== integrity) throw new Error("downloaded tarball integrity does not match npm-pack.json");
+          const envelope = JSON.parse(readFileSync(envelopePath, "utf8"));
+          const envelopeKeys = ["fileCount", "filename", "integrity", "packageName", "packageVersion", "releaseTag",
+            "schemaVersion", "sourceRef", "sourceSha", "tarballBytes", "unpackedBytes"].sort();
+          if (!envelope || typeof envelope !== "object" || Array.isArray(envelope) ||
+              Object.keys(envelope).sort().join("\n") !== envelopeKeys.join("\n")) {
+            fail("release envelope has an unexpected schema");
+          }
+          if (envelope.schemaVersion !== 1 || envelope.sourceRef !== expectedRef || envelope.sourceSha !== expectedSha ||
+              envelope.releaseTag !== expectedTag || envelope.packageName !== expectedName ||
+              envelope.packageVersion !== expectedVersion || envelope.filename !== expectedFilename ||
+              envelope.tarballBytes !== tarballBytes || envelope.unpackedBytes !== unpackedBytes ||
+              envelope.fileCount !== entry.files.length || envelope.integrity !== integrity) {
+            fail("release envelope does not bind the event identity to the tarball");
+          }
+          if (expectedRef !== `refs/tags/${expectedTag}` || !/^[0-9a-f]{40}$/.test(expectedSha)) {
+            fail("release event ref or SHA is invalid");
+          }
+          const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+          if (manifest.name !== expectedName || manifest.version !== expectedVersion) {
+            throw new Error("package manifest identity does not match the event tag");
+          }
+          if (!manifest.contentPolicy || typeof manifest.contentPolicy !== "object" ||
+              Array.isArray(manifest.contentPolicy) ||
+              Object.keys(manifest.contentPolicy).join("\n") !== "class" ||
+              manifest.contentPolicy.class !== "dual-use") {
+            fail("package manifest must declare the exact dual-use content policy");
+          }
+          if (!manifest.publishConfig || typeof manifest.publishConfig !== "object" ||
+              Array.isArray(manifest.publishConfig) ||
+              Object.keys(manifest.publishConfig).sort().join("\n") !== "access\nprovenance" ||
+              manifest.publishConfig.access !== "public" || manifest.publishConfig.provenance !== true) {
+            fail("package manifest must require public access and provenance");
+          }
+          NODE
+
+          LOCAL_INTEGRITY="$(node -e '
+            const fs = require("node:fs");
+            const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            process.stdout.write(value[0].integrity);
+          ' "$PACK_METADATA")"
+
           read_remote_integrity() {
             local output code
             set +e
-            output="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --json 2>&1)"
+            output="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --json --registry=https://registry.npmjs.org 2>&1)"
             code=$?
             set -e
-
             if [ "$code" -ne 0 ]; then
               if printf '%s' "$output" | grep -Eq 'E404|No match found for version'; then
                 return 0
@@ -94,19 +505,21 @@ jobs:
               printf '%s\n' "$output" >&2
               return "$code"
             fi
-
             printf '%s' "$output" | node -e '
-              const fs = require("node:fs");
-              const value = JSON.parse(fs.readFileSync(0, "utf8"));
-              if (typeof value !== "string" || !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(value)) {
-                throw new Error("npm returned an invalid integrity value");
-              }
-              process.stdout.write(value);
+              let raw = "";
+              process.stdin.setEncoding("utf8");
+              process.stdin.on("data", (chunk) => { raw += chunk; });
+              process.stdin.on("end", () => {
+                const value = JSON.parse(raw);
+                if (typeof value !== "string" || !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+                  throw new Error("npm returned an invalid integrity value");
+                }
+                process.stdout.write(value);
+              });
             '
           }
 
           REMOTE_INTEGRITY="$(read_remote_integrity)"
-
           if [ -n "$REMOTE_INTEGRITY" ]; then
             if [ "$REMOTE_INTEGRITY" != "$LOCAL_INTEGRITY" ]; then
               echo "$PACKAGE_NAME@$PACKAGE_VERSION already exists with different package bytes." >&2
@@ -116,14 +529,5 @@ jobs:
             exit 0
           fi
 
-          npm publish --access public
-
-          for attempt in 1 2 3 4 5 6; do
-            echo "Registry verification attempt $attempt of 6"
-            REMOTE_INTEGRITY="$(read_remote_integrity)"
-            [ "$REMOTE_INTEGRITY" = "$LOCAL_INTEGRITY" ] && exit 0
-            sleep 10
-          done
-
-          echo "The registry did not return the published package integrity within 60 seconds." >&2
-          exit 1
+          npm stage publish "$TARBALL" --ignore-scripts --access public --tag latest --provenance --registry=https://registry.npmjs.org
+          echo "$PACKAGE_NAME@$PACKAGE_VERSION is staged, not public; review and approve it separately with 2FA."

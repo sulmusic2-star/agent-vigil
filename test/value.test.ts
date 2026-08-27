@@ -259,9 +259,9 @@ test("card identity excludes render time but covers evidence fields", () => {
   assert.notEqual(recomputeValueCardHash(later), card.cardHash);
 });
 
-test("receipt repair in a fixture requires recomputing its integrity hash", () => {
+test("receipt hash recomputation rejects an inconsistent fixture summary", () => {
   const { report } = fixture();
   const changed = structuredClone(report);
   changed.summary.status = "FAIL";
-  assert.notEqual(recomputeReceiptHash(changed), changed.receiptHash);
+  assert.throws(() => recomputeReceiptHash(changed), /summary\.status does not match results and policy/);
 });

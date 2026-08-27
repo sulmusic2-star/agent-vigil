@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import type { CheckResult } from "../report.ts";
 import type { SessionToolCall } from "../transcript.ts";
+import { trustedGitOptional } from "../trusted-git.ts";
 
 export type AgenticPatch = {
   path: string;
@@ -15,16 +15,7 @@ export type AgenticPatch = {
 const MAX_FILE_BYTES = 1024 * 1024;
 
 function gitOptional(repo: string, args: string[]): string | undefined {
-  try {
-    return execFileSync("git", args, {
-      cwd: repo,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 34 * 1024 * 1024,
-    });
-  } catch {
-    return undefined;
-  }
+  return trustedGitOptional(repo, args, 34 * 1024 * 1024);
 }
 
 function finding(subject: string, evidence: string, ruleId: string): CheckResult {
@@ -67,33 +58,94 @@ function isDetectorPatternLine(line: string): boolean {
   return line.includes("vigil:detector-pattern");
 }
 
-function safeWorktreePath(repo: string, path: string): string | undefined {
-  const root = resolve(repo);
-  const candidate = resolve(root, path);
-  if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) return undefined;
-  if (!existsSync(candidate)) return undefined;
-  try {
-    const realRoot = realpathSync(root);
-    const realCandidate = realpathSync(candidate);
-    if (realCandidate !== realRoot && !realCandidate.startsWith(`${realRoot}${sep}`)) return undefined;
-    if (statSync(candidate).size > MAX_FILE_BYTES) return undefined;
-    return candidate;
-  } catch {
-    return undefined;
+type RefFileRead =
+  | { state: "readable"; content: string }
+  | { state: "missing" }
+  | { state: "unreadable"; evidence: string };
+
+function readRefFileResult(repo: string, ref: string, path: string): RefFileRead {
+  if (path.includes(":")) return { state: "unreadable", evidence: `${path} contains an unsupported Git path separator` };
+  if (ref === "WORKTREE") {
+    const realRoot = realpathSync(resolve(repo));
+    const candidate = resolve(realRoot, path);
+    if (candidate !== realRoot && !candidate.startsWith(`${realRoot}${sep}`)) {
+      return { state: "unreadable", evidence: `${path} escapes the repository boundary` };
+    }
+    if (!existsSync(candidate)) return { state: "missing" };
+    let descriptor: number | undefined;
+    try {
+      const relative = candidate.slice(realRoot.length + 1).split(sep).filter(Boolean);
+      let cursor = realRoot;
+      for (let index = 0; index < relative.length; index += 1) {
+        cursor = resolve(cursor, relative[index]);
+        const stat = lstatSync(cursor);
+        if (stat.isSymbolicLink() || (index < relative.length - 1 ? !stat.isDirectory() : !stat.isFile())) {
+          return { state: "unreadable", evidence: `${path} is not a regular no-symlink worktree file` };
+        }
+      }
+      const expected = lstatSync(candidate);
+      if (expected.size > MAX_FILE_BYTES) {
+        return { state: "unreadable", evidence: `${path} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
+      }
+      const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+      const nonBlock = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0;
+      descriptor = openSync(candidate, constants.O_RDONLY | noFollow | nonBlock);
+      const opened = fstatSync(descriptor);
+      if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size
+        || opened.mtimeMs !== expected.mtimeMs || opened.ctimeMs !== expected.ctimeMs) {
+        return { state: "unreadable", evidence: `${path} changed while being opened` };
+      }
+      const content = Buffer.alloc(opened.size);
+      let offset = 0;
+      while (offset < content.length) {
+        const count = readSync(descriptor, content, offset, content.length - offset, offset);
+        if (count === 0) break;
+        offset += count;
+      }
+      const after = fstatSync(descriptor);
+      const finalPath = lstatSync(candidate);
+      if (offset !== content.length || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
+        || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs
+        || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino
+        || finalPath.size !== opened.size || finalPath.mtimeMs !== opened.mtimeMs || finalPath.ctimeMs !== opened.ctimeMs) {
+        return { state: "unreadable", evidence: `${path} changed while being read` };
+      }
+      return { state: "readable", content: content.toString("utf8") };
+    } catch {
+      return { state: "unreadable", evidence: `${path} could not be read from the worktree` };
+    } finally {
+      if (descriptor !== undefined) closeSync(descriptor);
+    }
   }
+  const listed = gitOptional(repo, ["ls-tree", "--name-only", "-z", ref, "--", path]);
+  if (listed === undefined) return { state: "unreadable", evidence: `Git could not determine whether ${path} exists at ${ref}` };
+  if (!listed.split("\0").includes(path)) return { state: "missing" };
+  const sizeText = gitOptional(repo, ["cat-file", "-s", `${ref}:${path}`]);
+  const size = Number(sizeText?.trim());
+  if (!Number.isFinite(size) || size < 0) return { state: "unreadable", evidence: `${path} size at ${ref} could not be verified` };
+  if (size > MAX_FILE_BYTES) return { state: "unreadable", evidence: `${path} at ${ref} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
+  const content = gitOptional(repo, ["show", `${ref}:${path}`]);
+  return content === undefined
+    ? { state: "unreadable", evidence: `${path} at ${ref} could not be read` }
+    : { state: "readable", content };
 }
 
 function readRefFile(repo: string, ref: string, path: string): string | undefined {
-  if (path.includes(":")) return undefined;
-  if (ref === "WORKTREE") {
-    const candidate = safeWorktreePath(repo, path);
-    if (!candidate) return undefined;
-    try { return readFileSync(candidate, "utf8"); } catch { return undefined; }
-  }
-  const sizeText = gitOptional(repo, ["cat-file", "-s", `${ref}:${path}`]);
-  const size = Number(sizeText?.trim());
-  if (!Number.isFinite(size) || size < 0 || size > MAX_FILE_BYTES) return undefined;
-  return gitOptional(repo, ["show", `${ref}:${path}`]);
+  const result = readRefFileResult(repo, ref, path);
+  return result.state === "readable" ? result.content : undefined;
+}
+
+function unreadableRepositoryCheck(path: string, reads: RefFileRead[]): CheckResult | undefined {
+  const unreadable = reads.find((read): read is Extract<RefFileRead, { state: "unreadable" }> => read.state === "unreadable");
+  if (!unreadable) return undefined;
+  return {
+    claim: { kind: "integrity", quote: "automatic agent-authored-change check", subject: "repository-aware evidence is readable" },
+    verdict: "unverifiable",
+    evidence: `${path}: ${unreadable.evidence}`,
+    ruleId: "integrity-unreadable",
+    contributesToPass: false,
+    blocksPass: true,
+  };
 }
 
 function dangerousUnicodeFinding(patch: AgenticPatch): CheckResult | undefined {
@@ -321,7 +373,7 @@ function oracleEchoChecks(repo: string, base: string, head: string, changed: Set
   return results;
 }
 
-function dependencyMap(content: string | undefined): Set<string> {
+function dependencyMap(content: string): Set<string> | undefined {
   if (!content) return new Set();
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>;
@@ -333,7 +385,7 @@ function dependencyMap(content: string | undefined): Set<string> {
     }
     return names;
   } catch {
-    return new Set();
+    return undefined;
   }
 }
 
@@ -385,8 +437,15 @@ function addedImportNames(patches: AgenticPatch[]): Set<string> {
 function freshDependencyChecks(repo: string, base: string, head: string, changed: Set<string>, patches: AgenticPatch[]): CheckResult[] {
   const added = addedImportNames(patches);
   if (changed.has("package.json")) {
-    const before = dependencyMap(readRefFile(repo, base, "package.json"));
-    const after = dependencyMap(readRefFile(repo, head, "package.json"));
+    const beforeRead = readRefFileResult(repo, base, "package.json");
+    const afterRead = readRefFileResult(repo, head, "package.json");
+    const unreadable = unreadableRepositoryCheck("package.json", [beforeRead, afterRead]);
+    if (unreadable) return [unreadable];
+    const before = dependencyMap(beforeRead.state === "readable" ? beforeRead.content : "");
+    const after = dependencyMap(afterRead.state === "readable" ? afterRead.content : "");
+    if (!before || !after) {
+      return [unreadableRepositoryCheck("package.json", [{ state: "unreadable", evidence: "changed dependency manifest is not valid JSON" }])!];
+    }
     for (const name of after) {
       if (!before.has(name) && /^[a-z0-9][a-z0-9-]{1,213}$/.test(name)) added.add(name);
     }
@@ -424,12 +483,18 @@ function coverageFloor(content: string | undefined): number | undefined {
 function loweredCoverageChecks(repo: string, base: string, head: string, changed: Set<string>): CheckResult[] {
   for (const path of changed) {
     if (!/(?:^|\/)(?:package\.json|pyproject\.toml|pytest\.ini|setup\.cfg|tox\.ini|.*ya?ml|.*json)$/i.test(path)) continue;
-    const before = coverageFloor(readRefFile(repo, base, path));
-    const after = coverageFloor(readRefFile(repo, head, path));
-    if (before !== undefined && after !== undefined && after > 0 && after < before) {
+    const beforeRead = readRefFileResult(repo, base, path);
+    const afterRead = readRefFileResult(repo, head, path);
+    const unreadable = unreadableRepositoryCheck(path, [beforeRead, afterRead]);
+    if (unreadable) return [unreadable];
+    const before = coverageFloor(beforeRead.state === "readable" ? beforeRead.content : undefined);
+    const after = coverageFloor(afterRead.state === "readable" ? afterRead.content : undefined);
+    if (before !== undefined && (after === undefined || after < before)) {
       return [finding(
         "coverage requirement lowered",
-        `${path}: the recognized minimum coverage floor fell from ${before} to ${after}`,
+        after === undefined
+          ? `${path}: the recognized minimum coverage floor of ${before} was removed`
+          : `${path}: the recognized minimum coverage floor fell from ${before} to ${after}`,
         "coverage-weakened",
       )];
     }
@@ -454,12 +519,7 @@ export function checkAgenticRepository(
 }
 
 function isAncestor(repo: string, commit: string, ref: string): boolean {
-  try {
-    execFileSync("git", ["merge-base", "--is-ancestor", commit, ref], { cwd: repo, stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
+  return trustedGitOptional(repo, ["merge-base", "--is-ancestor", commit, ref]) !== undefined;
 }
 
 /**

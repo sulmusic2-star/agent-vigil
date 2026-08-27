@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { loadPolicy } from "./config.ts";
 import {
   checkIntegrity,
@@ -12,10 +11,15 @@ import {
 import { verifyPortableReceipt, type PortableReceipt } from "./portable.ts";
 import { buildReport, type CheckResult, type Claim, type TrustReport } from "./report.ts";
 import { routeIntegrity } from "./integrity-policy.ts";
+import { trustedGitOptional } from "./trusted-git.ts";
 
 export type GateOptions = {
   repo: string;
   receiptPath: string;
+  /** Logical repository path when receipt bytes were materialized into a private verifier snapshot. */
+  receiptGitPath?: string;
+  /** Exact UTF-8 bytes read from receiptPath, used to bind a private snapshot back to receiptGitPath. */
+  receiptRaw?: string;
   base: string;
   head: string;
   policy?: string;
@@ -23,8 +27,7 @@ export type GateOptions = {
 };
 
 function git(repo: string, args: string[]): string | undefined {
-  try { return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
-  catch { return undefined; }
+  return trustedGitOptional(repo, args)?.trim();
 }
 
 function result(
@@ -45,7 +48,7 @@ function result(
 }
 
 function receiptRelativePath(repo: string, path: string): string | undefined {
-  const value = relative(resolve(repo), resolve(path)).replaceAll("\\", "/");
+  const value = relative(resolve(repo), isAbsolute(path) ? resolve(path) : resolve(repo, path)).replaceAll("\\", "/");
   if (!value || value === ".." || value.startsWith("../") || value.startsWith(`..${sep}`)) return undefined;
   return value.replace(/^\.\//, "");
 }
@@ -99,15 +102,22 @@ export function buildPortableGateReport(receipt: PortableReceipt, options: GateO
     "portable-policy",
   ));
 
-  const relativeReceipt = receiptRelativePath(repo, receiptPath);
+  const relativeReceipt = receiptRelativePath(repo, options.receiptGitPath ?? receiptPath);
   const configuredReceipt = policy.value.portableReceipt?.replace(/^\.\//, "");
+  const committedReceipt = options.receiptGitPath && relativeReceipt
+    ? trustedGitOptional(repo, ["show", `${head}:${relativeReceipt}`], 17 * 1024 * 1024)
+    : undefined;
+  const snapshotBound = !options.receiptGitPath
+    || (options.receiptRaw !== undefined && committedReceipt !== undefined && committedReceipt === options.receiptRaw);
   if (configuredReceipt) {
     results.push(result(
       "receipt path is base-policy controlled",
-      relativeReceipt === configuredReceipt ? "verified" : "contradicted",
-      relativeReceipt === configuredReceipt
-        ? `${relativeReceipt} matches policy portableReceipt`
-        : `received ${relativeReceipt ?? "a path outside the repository"}; policy requires ${configuredReceipt}`,
+      relativeReceipt === configuredReceipt && snapshotBound ? "verified" : "contradicted",
+      relativeReceipt === configuredReceipt && snapshotBound
+        ? `${relativeReceipt} matches policy portableReceipt and its private snapshot matches the exact head blob`
+        : relativeReceipt !== configuredReceipt
+          ? `received ${relativeReceipt ?? "a path outside the repository"}; policy requires ${configuredReceipt}`
+          : "private receipt snapshot does not match the exact logical receipt blob at the selected head",
       "portable-path",
     ));
   } else {
@@ -126,7 +136,7 @@ export function buildPortableGateReport(receipt: PortableReceipt, options: GateO
   const exactHead = receiptHead === head;
   const ancestor = Boolean(receiptHead && git(repo, ["merge-base", "--is-ancestor", receiptHead, head]) !== undefined);
   const evidenceDelta = receiptHead && configuredReceipt
-    ? (git(repo, ["diff", "--name-only", "-z", receiptHead, head]) ?? "").split("\0").filter(Boolean)
+    ? (git(repo, ["diff", "--no-renames", "--name-only", "-z", receiptHead, head]) ?? "").split("\0").filter(Boolean)
     : [];
   const receiptOnlyTail = ancestor && evidenceDelta.length > 0 && evidenceDelta.every((path) => path === configuredReceipt);
   const expectedTree = receiptHead ? git(repo, ["rev-parse", `${receiptHead}^{tree}`]) : undefined;
@@ -149,10 +159,10 @@ export function buildPortableGateReport(receipt: PortableReceipt, options: GateO
     "portable-git-binding",
   ));
 
-  results.push(...checkWorkspaceBinding(repo, head, exactHead ? [receiptPath] : []));
+  results.push(...checkWorkspaceBinding(repo, head, exactHead && relativeReceipt ? [relativeReceipt] : []));
   const testClaim: Claim = { kind: "tests_pass", quote: "trusted policy verification passes in independent CI", subject: "trusted policy test command" };
-  results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand));
-  results.push(...checkWorkspaceMutation(repo, exactHead ? [receiptPath] : [], head));
+  results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand, undefined, base, head));
+  results.push(...checkWorkspaceMutation(repo, exactHead && relativeReceipt ? [relativeReceipt] : [], head));
   const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
@@ -172,7 +182,7 @@ export function buildPortableGateReport(receipt: PortableReceipt, options: GateO
     head,
     results,
     advisories,
-    policy: { minVerified: 1, strict: true, source: policySource, sha256: policy.sha256 },
+    policy: { minVerified: policy.value.minVerified ?? 1, strict: true, source: policySource, sha256: policy.sha256 },
     repository: { ...(currentRemote ? { remote: currentRemote } : {}), ...(git(repo, ["rev-parse", `${head}^{tree}`]) ? { tree: git(repo, ["rev-parse", `${head}^{tree}`]) } : {}) },
     reproduction,
   });

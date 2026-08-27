@@ -5,8 +5,8 @@ import {
   sign,
   verify,
 } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { canonical, recomputeReceiptHash, type ReportStatus, type TrustReport } from "./report.ts";
+import { readBoundedRegularFile } from "./continuity/contracts.ts";
+import { canonical, recomputeReceiptHash, validateTrustReport, type ReportStatus, type TrustReport } from "./report.ts";
 import { publicKeyDer, signingKeyId } from "./signature.ts";
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
@@ -51,12 +51,16 @@ function payloadOf(receipt: PortableReceipt): PortablePayload {
   return payload;
 }
 
-export function createPortableReceipt(report: TrustReport, privateKeyPath: string): PortableReceipt {
+export function createPortableReceipt(reportValue: TrustReport, privateKeyPath: string): PortableReceipt {
+  const report = validateTrustReport(reportValue);
   if (recomputeReceiptHash(report) !== report.receiptHash) throw new Error("full receipt hash is invalid; refusing to seal it");
+  if (!SHA256.test(report.transcriptSha256) || !SHA256.test(report.policy.sha256)) {
+    throw new Error("portable receipt requires concrete transcript and policy SHA-256 identifiers");
+  }
   if (!report.repository.tree) {
     throw new Error("portable receipt requires a committed head tree; rerun with --head <sha> instead of WORKTREE");
   }
-  const privateKey = createPrivateKey(readFileSync(privateKeyPath));
+  const privateKey = createPrivateKey(readBoundedRegularFile(privateKeyPath, 64 * 1024, "portable receipt signing key"));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signing key must be Ed25519");
   const publicKey = createPublicKey(privateKey);
   const der = publicKeyDer(publicKey);

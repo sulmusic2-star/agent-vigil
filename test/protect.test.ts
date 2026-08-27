@@ -5,10 +5,13 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPolicy } from "../src/config.ts";
-import { checkIntegrityDiff } from "../src/detectors/reality.ts";
+import { checkIntegrity, checkIntegrityDiff } from "../src/detectors/reality.ts";
 import { routeIntegrity } from "../src/integrity-policy.ts";
+import { buildReport } from "../src/report.ts";
 import { run } from "../src/cli.ts";
 import { initRepository } from "../src/setup.ts";
+
+const ACTION_SHA = "a".repeat(40);
 
 function repo(): string {
   const path = mkdtempSync(join(tmpdir(), "vigil-protect-"));
@@ -27,15 +30,27 @@ function repo(): string {
 
 test("protect discovers common repository checks and installs calibrated integrity", () => {
   const path = repo();
-  initRepository(path, false, undefined, "protect");
+  initRepository(path, false, undefined, "protect", false, ACTION_SHA);
   const policy = loadPolicy(path).value;
   assert.equal(policy.integrityMode, "calibrated");
-  assert.deepEqual(policy.maintainer?.automatedReview?.commands, [
-    "npm run typecheck", "npm run lint", "npm run build", "npm test --silent",
-  ]);
+  assert.deepEqual(policy.maintainer?.automatedReview?.commands, ["node --test"]);
   assert.equal(policy.maintainer?.reviewMode, "automated");
   assert.equal(policy.maintainer?.requireHumanAttestation, false);
   assert.match(readFileSync(join(path, ".github/workflows/agent-vigil-outcomes.yml"), "utf8"), /Agent Vigil outcomes/);
+});
+
+test("protect refuses candidate-executing attestation until a separate signer exists", () => {
+  const path = repo();
+  assert.equal(run(["protect", "--repo", path, "--action-sha", ACTION_SHA, "--attest"]), 2);
+});
+
+test("protect reports scaffold creation separately from committed doctor readiness", () => {
+  const path = repo();
+  assert.equal(run(["protect", "--repo", path, "--action-sha", ACTION_SHA]), 0);
+  assert.equal(run(["doctor", "--repo", path]), 2);
+  execFileSync("git", ["add", "-A"], { cwd: path });
+  execFileSync("git", ["commit", "-qm", "install protection controls"], { cwd: path });
+  assert.equal(run(["doctor", "--repo", path]), 0);
 });
 
 test("calibrated policy blocks direct test weakening but keeps broad heuristics advisory", () => {
@@ -43,7 +58,7 @@ test("calibrated policy blocks direct test weakening but keeps broad heuristics 
     "diff --git a/x.test.js b/x.test.js",
     "--- a/x.test.js",
     "+++ b/x.test.js",
-    "@@ -1 +1,3 @@",
+    "@@ -0,0 +1,3 @@",
     "+test.skip('critical', () => expect(run()).toBe(true));",
     "+test('empty', () => {});",
     "+test('constant', () => expect(true).toBe(true));",
@@ -54,12 +69,24 @@ test("calibrated policy blocks direct test weakening but keeps broad heuristics 
   assert.ok(routed.results.some((check) => check.ruleId === "test-oracle-constant"));
 });
 
+test("calibrated protect policy fails when a test file is deleted without an exact replacement", () => {
+  const path = repo();
+  const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path, encoding: "utf8" }).trim();
+  execFileSync("git", ["rm", "-q", "app.test.js"], { cwd: path });
+  execFileSync("git", ["commit", "-qm", "delete test"], { cwd: path });
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path, encoding: "utf8" }).trim();
+  const routed = routeIntegrity(checkIntegrity(path, base, head), "calibrated");
+  assert.ok(routed.results.some((check) => check.ruleId === "test-file-deleted"));
+  const report = buildReport({ transcript: "tests pass", transcriptFormat: "markdown", repo: path, base, head, results: routed.results, advisories: routed.advisories });
+  assert.equal(report.summary.status, "FAIL");
+});
+
 test("browser runtime patch and coverage exclusion remain visible advisories", () => {
   const checks = checkIntegrityDiff([
     "diff --git a/ui.test.ts b/ui.test.ts",
     "--- a/ui.test.ts",
     "+++ b/ui.test.ts",
-    "@@ -1 +1,4 @@",
+    "@@ -0,0 +1,3 @@",
     "+await page.evaluate(() => { document.querySelector('#save').onclick = save; });",
     "+/* istanbul ignore next */",
     "+expect(await page.isVisible('#save')).toBe(true);",

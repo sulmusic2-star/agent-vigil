@@ -23,6 +23,8 @@ import {
 } from "../src/output.ts";
 import { buildReport, type CheckResult } from "../src/report.ts";
 
+const POLICY_SHA = `sha256:${"c".repeat(64)}`;
+
 function report() {
   const result: CheckResult = {
     claim: { kind: "path_exists", quote: "receipt exists", subject: "receipt.json" },
@@ -62,7 +64,7 @@ function mixedReport(results: CheckResult[], advisories?: CheckResult[]) {
     head: "head`sha",
     results,
     advisories,
-    policy: { minVerified: 1, strict: true, sha256: "sha256:policy" },
+    policy: { minVerified: 1, strict: true, sha256: POLICY_SHA },
     reproduction: "vigil check `fixture`",
   });
 }
@@ -206,7 +208,7 @@ test("human-readable renderers distinguish pass, failure, unresolved evidence, a
   assert.match(renderDecisionCard(unresolved), /Main result: 2 required check\(s\) did not run\./);
 });
 
-test("decision card stays aggregate-only and escapes reproduction backticks", () => {
+test("decision card stays aggregate-only and omits reproduction details", () => {
   const open = Array.from({ length: 7 }, (_, index) => result(
     "contradicted",
     index === 0 ? undefined : `unknown-${index}`,
@@ -216,7 +218,7 @@ test("decision card stays aggregate-only and escapes reproduction backticks", ()
   assert.match(card, /Main result: 7 required check\(s\) failed\./);
   assert.doesNotMatch(card, /blocked item 0/);
   assert.doesNotMatch(card, /blocked item 6/);
-  assert.match(card, /\\`fixture\\`/);
+  assert.doesNotMatch(card, /fixture|vigil check|Reproduce/);
   assert.match(remediationFor(), /objective evidence/);
   assert.match(remediationFor("not-a-rule"), /objective evidence/);
   assert.match(remediationFor("portable-signature"), /trusted Ed25519 key/);

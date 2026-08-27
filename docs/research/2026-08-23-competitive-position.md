@@ -75,7 +75,11 @@ New skips, disabled verification, zeroed coverage gates, lost assertions and red
 
 ### 4. GitHub-native identity and enforcement
 
-The Action binds the GitHub event's exact base and head, supports `merge_group`, stores the receipt and can be made a required check. A future minimal GitHub App can become the expected ruleset source without moving verification into a proprietary reviewer.
+**v0.20.0 security update:** the generated Action binds a base-selected
+`pull_request_target` event's exact base and head and stores the receipt. It
+does not claim repository-owned `merge_group` or plain job-name enforcement.
+An external required-workflow ruleset or GitHub App exact-head check must own
+the enforceable pull-request and merge-queue decision.
 
 ### 5. Upgrade decisions use repository outcomes
 

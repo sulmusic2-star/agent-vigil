@@ -1,13 +1,18 @@
-export declare const VERSION = "0.20.0";
-export type ClaimKind = "tests_pass" | "file_changed" | "path_exists" | "command_ran" | "work_complete" | "session_behavior" | "integrity" | "policy_attestation" | "change_scope" | "differential_test" | "authority_scope" | "authority_action" | "telemetry";
+export declare const VERSION = "0.21.0";
+export declare const CLAIM_KINDS: readonly ["tests_pass", "file_changed", "path_exists", "command_ran", "work_complete", "session_behavior", "integrity", "policy_attestation", "change_scope", "differential_test", "authority_scope", "authority_action", "telemetry"];
+export type ClaimKind = typeof CLAIM_KINDS[number];
+export declare const TRANSCRIPT_FORMATS: readonly ["claude-code", "codex", "cursor", "gemini-cli", "github-copilot-cli", "opencode", "aider", "markdown", "portable-receipt", "pull-request-evidence", "unified-git-diff", "test-integrity-diff", "github-merge-group-event", "authority/claude-code", "authority/codex", "authority/cursor", "authority/gemini-cli", "authority/github-copilot-cli", "authority/opencode", "authority/aider", "authority/markdown"];
+export type TrustReportTranscriptFormat = typeof TRANSCRIPT_FORMATS[number];
 export type Claim = {
     kind: ClaimKind;
     quote: string;
     subject: string;
     expectedCount?: number;
 };
-export type Verdict = "verified" | "contradicted" | "unverifiable";
-export type ReportStatus = "PASS" | "FAIL" | "INCONCLUSIVE";
+export declare const VERDICTS: readonly ["verified", "contradicted", "unverifiable"];
+export type Verdict = typeof VERDICTS[number];
+export declare const REPORT_STATUSES: readonly ["PASS", "FAIL", "INCONCLUSIVE"];
+export type ReportStatus = typeof REPORT_STATUSES[number];
 export type CheckResult = {
     claim: Claim;
     verdict: Verdict;
@@ -35,7 +40,7 @@ export type TrustReport = {
     vigilVersion: string;
     transcript: string;
     transcriptSha256: string;
-    transcriptFormat: string;
+    transcriptFormat: TrustReportTranscriptFormat;
     repo: string;
     base: string;
     head: string;
@@ -49,7 +54,7 @@ export type TrustReport = {
     signature?: ReceiptSignature;
     results: CheckResult[];
     /** Non-blocking findings that are receipt-bound but do not affect status. */
-    advisories?: CheckResult[];
+    advisories: CheckResult[];
     summary: {
         verified: number;
         contradicted: number;
@@ -61,6 +66,11 @@ export type TrustReport = {
     policy: ReportPolicy;
 };
 export declare function canonical(value: unknown): string;
+/**
+ * Parse the full receipt-v2 trust boundary. The returned value is a normalized
+ * snapshot, so callers do not continue using unchecked nested input objects.
+ */
+export declare function validateTrustReport(value: unknown): TrustReport;
 export declare function buildReport(input: {
     transcript: string;
     transcriptSha256?: string;
@@ -77,4 +87,4 @@ export declare function buildReport(input: {
     };
     reproduction?: string;
 }): TrustReport;
-export declare function recomputeReceiptHash(report: TrustReport): string;
+export declare function recomputeReceiptHash(value: unknown): string;

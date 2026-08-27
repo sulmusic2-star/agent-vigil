@@ -1,11 +1,15 @@
 import type { CheckResult, TrustReport } from "./report.ts";
 import { remediationFor } from "./remediation.ts";
-import { buildReportResultView, type ResultFinding, type ResultView } from "./result-view.ts";
+import {
+  buildReportResultView,
+  validateReportForResult,
+  type ReportResultViewOptions,
+  type ResultFinding,
+  type ResultView,
+} from "./result-view.ts";
 import { appendPrivateFileAtomic, writePrivateFileAtomic } from "./safe-output.ts";
 
 export { remediationFor } from "./remediation.ts";
-
-const icon = { verified: "✓", contradicted: "✗", unverifiable: "?" } as const;
 
 function code(value: string): string {
   return `\`${value.replace(/`/g, "\\`")}\``;
@@ -73,8 +77,8 @@ export function renderResultText(view: ResultView): string {
   return lines.join("\n");
 }
 
-export function renderText(report: TrustReport): string {
-  return renderResultText(buildReportResultView(report));
+export function renderText(value: unknown, options: ReportResultViewOptions = {}): string {
+  return renderResultText(buildReportResultView(value, options));
 }
 
 export function renderResultMarkdown(view: ResultView, options: { aggregateOnly?: boolean } = {}): string {
@@ -114,22 +118,17 @@ export function renderResultMarkdown(view: ResultView, options: { aggregateOnly?
     `**Changed files:** ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}  `,
     `**Receipt:** ${code(view.receiptHash)}`,
     "",
-    `Reproduce: ${code(view.reproduce)}`,
-    "",
   );
+  if (!options.aggregateOnly) lines.push(`Reproduce: ${code(view.reproduce)}`, "");
   return lines.join("\n");
 }
 
-export function renderMarkdown(report: TrustReport): string {
-  return renderResultMarkdown(buildReportResultView(report));
+export function renderMarkdown(value: unknown, options: ReportResultViewOptions = {}): string {
+  return renderResultMarkdown(buildReportResultView(value, options));
 }
 
-export function renderDecisionCard(report: TrustReport): string {
-  return renderResultMarkdown(buildReportResultView(report), { aggregateOnly: true });
-}
-
-function escapeCell(value: string): string {
-  return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
+export function renderDecisionCard(value: unknown): string {
+  return renderResultMarkdown(buildReportResultView(value), { aggregateOnly: true });
 }
 
 function sarifResult(result: CheckResult, advisory = false) {
@@ -141,7 +140,7 @@ function sarifResult(result: CheckResult, advisory = false) {
   };
 }
 
-export function toSarif(report: TrustReport) {
+function sarifForValidatedReport(report: TrustReport) {
   const allResults = [...report.results, ...(report.advisories ?? [])];
   const rules = [...new Set(allResults.map((result) => result.ruleId ?? result.claim.kind))].map((id) => ({
     id,
@@ -161,13 +160,24 @@ export function toSarif(report: TrustReport) {
   };
 }
 
-export function writeOutputs(report: TrustReport, options: {
+export function toSarif(value: unknown) {
+  return sarifForValidatedReport(validateReportForResult(value));
+}
+
+export function writeOutputs(value: unknown, options: {
   output?: string;
   sarif?: string;
   githubSummary?: boolean;
 }): void {
-  if (options.output) writePrivateFileAtomic(options.output, `${JSON.stringify(report, null, 2)}\n`);
-  if (options.sarif) writePrivateFileAtomic(options.sarif, `${JSON.stringify(toSarif(report), null, 2)}\n`);
+  const report = validateReportForResult(value);
+  const output = options.output ? `${JSON.stringify(report, null, 2)}\n` : undefined;
+  const sarif = options.sarif ? `${JSON.stringify(sarifForValidatedReport(report), null, 2)}\n` : undefined;
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (options.githubSummary && summaryPath) appendPrivateFileAtomic(summaryPath, renderDecisionCard(report));
+  const summary = options.githubSummary && summaryPath ? renderDecisionCard(report) : undefined;
+
+  // All untrusted content is parsed, normalized, hash-checked, and rendered
+  // before the first destination can be mutated.
+  if (options.output && output !== undefined) writePrivateFileAtomic(options.output, output);
+  if (options.sarif && sarif !== undefined) writePrivateFileAtomic(options.sarif, sarif);
+  if (summaryPath && summary !== undefined) appendPrivateFileAtomic(summaryPath, summary);
 }

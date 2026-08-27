@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +18,7 @@ import {
 } from "../src/continuity/chain.ts";
 import {
   canonicalSha256,
+  readBoundedRegularFile,
   sha256,
   validateContinuityPolicy,
   validateEventDraft,
@@ -144,6 +146,47 @@ function verification(value: ReturnType<typeof fixture>, now = NOW): ChainVerifi
   return verifyContinuityChain(value.chain, { now, maxClockSkewSeconds: 300 });
 }
 
+test("bounded regular-file snapshots preserve exact bytes and reject symbolic links", (context) => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-bounded-read-"));
+  const source = join(root, "source.txt");
+  const linked = join(root, "linked.txt");
+  const expected = Buffer.from("bounded evidence\n");
+  writeFileSync(source, expected);
+  assert.deepEqual(readBoundedRegularFile(source, expected.length, "evidence"), expected);
+  try { symlinkSync(source, linked); }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (["EPERM", "EACCES", "UNKNOWN"].includes(code ?? "")) {
+      context.skip(`host does not permit symlinks (${code})`);
+      return;
+    }
+    throw error;
+  }
+  assert.throws(() => readBoundedRegularFile(linked, 1024, "evidence"), /regular file, not a symbolic link/);
+});
+
+test("bounded regular-file snapshots reject named pipes without blocking", (context) => {
+  if (process.platform === "win32") {
+    context.skip("POSIX named pipes are unavailable on Windows");
+    return;
+  }
+  const root = mkdtempSync(join(tmpdir(), "vigil-bounded-fifo-"));
+  const fifo = join(root, "evidence.fifo");
+  execFileSync("mkfifo", [fifo]);
+  assert.throws(() => readBoundedRegularFile(fifo, 1024, "evidence"), /regular file, not a symbolic link/);
+});
+
+test("bounded regular-file implementation binds the fixed-size read and final path snapshot", () => {
+  const source = readFileSync(new URL("../src/continuity/contracts.ts", import.meta.url), "utf8");
+  const implementation = source.match(/export function readBoundedRegularFile[\s\S]*?(?=\nexport function readBoundedJson)/)?.[0];
+  assert.ok(implementation);
+  assert.match(implementation, /O_RDONLY \| noFollow \| nonBlock/);
+  assert.match(implementation, /Buffer\.alloc\(Number\(opened\.size\)\)/);
+  assert.match(implementation, /readSync\(descriptor, bytes,/);
+  assert.match(implementation, /opened\.mtimeNs !== expected\.mtimeNs \|\| opened\.ctimeNs !== expected\.ctimeNs/);
+  assert.match(implementation, /finalPath\.dev !== opened\.dev \|\| finalPath\.ino !== opened\.ino/);
+});
+
 test("initializes an owner-only chain without changing original receipt bytes or verdict", () => {
   const value = fixture();
   assert.deepEqual(readFileSync(join(value.chain, "receipt.json")), readFileSync(value.receipt.path));
@@ -169,19 +212,19 @@ test("initialization rejects malformed, incomplete, and internally inconsistent 
   const cases: Array<[string | ((value: TrustReport) => unknown), RegExp]> = [
     ["{", /not valid JSON/],
     [() => [], /must be an object/],
-    [(value) => ({ ...value, schemaVersion: "3" }), /schema must be version 2/],
-    [(value) => ({ ...value, summary: { ...value.summary, status: "MAYBE" } }), /status is invalid/],
-    [(value) => ({ ...value, results: null }), /receipt is incomplete/],
+    [(value) => ({ ...value, schemaVersion: "3" }), /schema.*version 2/],
+    [(value) => ({ ...value, summary: { ...value.summary, status: "MAYBE" } }), /summary\.status.*unsupported/],
+    [(value) => ({ ...value, results: null }), /receipt results must be an array/],
     [(value) => ({ ...value, base: "main" }), /full base and head/],
     [(value) => ({ ...value, head: "HEAD" }), /full base and head/],
-    [(value) => ({ ...value, repository: { ...value.repository, tree: "tree" } }), /committed head tree/],
+    [(value) => ({ ...value, repository: { ...value.repository, tree: "tree" } }), /repository\.tree.*full lowercase Git object ID|committed head tree/],
     [(value) => ({ ...value, receiptHash: digest("wrong") }), /receipt hash is invalid/],
     [(value) => {
       const changed = structuredClone(value);
       changed.summary.verified += 1;
-      changed.receiptHash = recomputeReceiptHash(changed);
+      assert.throws(() => recomputeReceiptHash(changed), /summary\.verified does not match/);
       return changed;
-    }, /summary is internally inconsistent/],
+    }, /summary\.verified does not match/],
   ];
   for (const [mutation, pattern] of cases) {
     const root = mkdtempSync(join(tmpdir(), "vigil-continuity-bad-receipt-"));

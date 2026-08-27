@@ -45,7 +45,7 @@ function report(results: CheckResult[]) {
   return buildReport({
     transcript: "demo.jsonl",
     transcriptSha256: `sha256:${"a".repeat(64)}`,
-    transcriptFormat: "jsonl",
+    transcriptFormat: "codex",
     repo: "demo",
     base,
     head,

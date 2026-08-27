@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
-import type { OutcomeReceipt, OutcomeVerdict } from "./outcome.ts";
+import { validateOutcomeReceipt, type OutcomeVerdict } from "./outcome.ts";
 import { remediationFor } from "./remediation.ts";
-import { recomputeReceiptHash, type CheckResult, type ReportStatus, type TrustReport } from "./report.ts";
+import { recomputeReceiptHash, validateTrustReport, type CheckResult, type ReportStatus, type TrustReport } from "./report.ts";
+import { trustedGit } from "./trusted-git.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
 
 export type ResultState = "FAILED" | "PASSED" | "NOT_CHECKED";
@@ -51,7 +51,18 @@ export type ResultView = {
   changedFiles: ChangedFileManifest;
 };
 
-const GIT_OID = /^[0-9a-f]{40,64}$/;
+export type ReportResultViewOptions = {
+  /** Opt in to a hardened Git query against this caller-trusted repository. */
+  trustedRepo?: string;
+};
+
+export type OutcomeResultViewOptions = ReportResultViewOptions & {
+  trust: { verifierPublicKeyPath?: string; trustedKeyIds?: string[] };
+  reproduce?: string;
+};
+
+const GIT_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const CHANGED_FILES_MAX_BUFFER = 16 * 1024 * 1024;
 const COLON_LOCATION = /(?:^|[\s'"`(])([^\s'"`()]+\.[A-Za-z0-9]{1,12}):(\d+)(?=$|[\s'"`),.;])/;
 const CHANGED_LINE_LOCATION = /(?:^|[\s'"`(])([^\s'"`(),]+\.[A-Za-z0-9]{1,12}),\s*(?:changed\s+)?line\s+(\d+)\b/i;
 const OBSERVED_TEST_COUNTS = [
@@ -124,7 +135,7 @@ function deriveReportVerdict(report: TrustReport): ReportStatus {
 
 function assertReportConsistency(report: TrustReport): void {
   if (recomputeReceiptHash(report) !== report.receiptHash) {
-    throw new Error("result view refused a receipt whose content does not match its hash");
+    throw new Error("result view refused a receipt whose content does not match its hash (does not match receiptHash)");
   }
   const verdict = deriveReportVerdict(report);
   const counts = {
@@ -141,6 +152,16 @@ function assertReportConsistency(report: TrustReport): void {
     || counts.unverifiable !== report.summary.unverifiable
     || counts.meaningfulVerified !== report.summary.meaningfulVerified
   ) throw new Error("result view refused an inconsistent receipt summary");
+}
+
+/**
+ * Close the receipt-v2 result boundary before any rendering, Git query, or
+ * destination write. validateTrustReport returns a detached normalized copy.
+ */
+export function validateReportForResult(value: unknown): TrustReport {
+  const report = validateTrustReport(value);
+  assertReportConsistency(report);
+  return report;
 }
 
 function statusName(code: string): ChangedFile["status"] {
@@ -160,12 +181,7 @@ export function readChangedFileManifest(repo: string, base: string, head: string
     return { complete: false, files: [], evidence: "Exact base and head Git object IDs are required." };
   }
   try {
-    const output = execFileSync("git", ["diff", "--name-status", "-z", `${base}..${head}`], {
-      cwd: repo,
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const output = trustedGit(repo, ["diff", "--name-status", "-z", `${base}..${head}`], CHANGED_FILES_MAX_BUFFER);
     const fields = output.split("\0");
     if (fields.at(-1) === "") fields.pop();
     const files: ChangedFile[] = [];
@@ -184,13 +200,22 @@ export function readChangedFileManifest(repo: string, base: string, head: string
       }
     }
     return { complete: true, files, evidence: `Git reported ${files.length} changed file(s) for the exact range.` };
-  } catch (error) {
-    return { complete: false, files: [], evidence: `Changed files could not be read: ${safe((error as Error).message)}` };
+  } catch {
+    return { complete: false, files: [], evidence: "Changed files could not be read from the explicitly trusted repository." };
   }
 }
 
-function defaultManifest(report: TrustReport): ChangedFileManifest {
-  return readChangedFileManifest(report.repo, report.base, report.head);
+function changedFileManifest(
+  trustedRepo: string | undefined,
+  base: string,
+  head: string,
+): ChangedFileManifest {
+  if (trustedRepo) return readChangedFileManifest(trustedRepo, base, head);
+  return {
+    complete: false,
+    files: [],
+    evidence: "Changed files were not requested from an explicitly trusted repository.",
+  };
 }
 
 function mainCause(findings: ResultFinding[], verdict: ReportStatus, head: string): string {
@@ -202,10 +227,10 @@ function mainCause(findings: ResultFinding[], verdict: ReportStatus, head: strin
 }
 
 export function buildReportResultView(
-  report: TrustReport,
-  options: { changedFiles?: ChangedFileManifest } = {},
+  value: unknown,
+  options: ReportResultViewOptions = {},
 ): ResultView {
-  assertReportConsistency(report);
+  const report = validateReportForResult(value);
   const verdict = deriveReportVerdict(report);
   const findings = report.results.map((result) => findingFor(result));
   if (verdict === "INCONCLUSIVE" && report.summary.meaningfulVerified < report.policy.minVerified) {
@@ -235,14 +260,15 @@ export function buildReportResultView(
     receiptHash: safe(report.receiptHash),
     policyHash: safe(report.policy.sha256),
     reproduce: safe(report.reproduction),
-    changedFiles: options.changedFiles ?? defaultManifest(report),
+    changedFiles: changedFileManifest(options.trustedRepo, report.base, report.head),
   };
 }
 
 export function buildOutcomeResultView(
-  receipt: OutcomeReceipt,
-  options: { repo?: string; reproduce?: string; changedFiles?: ChangedFileManifest } = {},
+  value: unknown,
+  options: OutcomeResultViewOptions,
 ): ResultView {
+  const receipt = validateOutcomeReceipt(value, options.trust);
   const derived: ReportStatus = receipt.checks.some((check) => check.verdict === "FAIL")
     ? "FAIL"
     : receipt.checks.some((check) => check.verdict === "INCONCLUSIVE") ? "INCONCLUSIVE" : "PASS";
@@ -254,9 +280,11 @@ export function buildOutcomeResultView(
     evidence: safe(check.evidence),
     remediation: safe(remediationFor(check.id)),
   }));
-  const changedFiles = options.changedFiles ?? (options.repo
-    ? readChangedFileManifest(options.repo, receipt.sourceEvidence.base, receipt.sourceEvidence.head)
-    : { complete: false, files: [], evidence: "Repository path was not retained in this outcome receipt." });
+  const changedFiles = changedFileManifest(
+    options.trustedRepo,
+    receipt.sourceEvidence.base,
+    receipt.sourceEvidence.head,
+  );
   return {
     schemaVersion: "agent-vigil/result-view/v1",
     verdict: derived,

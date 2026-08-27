@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "corpusSha256": "sha256:abb18a2a06b8e0518183002dd4781203546c7bb35c769b1f125e434aa7e4cf9b",
+  "corpusSha256": "sha256:a2d9221345294c44c8a253fff3fb62146b44467d25741f6fcd6ff02a43c4d068",
   "detectorMode": "calibrated",
   "reproduction": "npm run proof:failure-corpus",
   "summary": {

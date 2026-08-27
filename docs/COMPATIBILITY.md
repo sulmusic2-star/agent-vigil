@@ -1,13 +1,20 @@
 # Compatibility laboratory
 
-Checked 2026-08-27. This file records executed proof, not a claim that every
-possible project is supported.
+This file separates the v0.21.0 generated hosted contract from the broader
+local CLI. It records completed local runs, not hosted CI, release, adoption,
+payment, or revenue evidence.
 
-## Generated-repository matrix
+## v0.20.0 source-suite snapshot
 
-The durable test laboratory creates a fresh Git repository for each scenario,
-runs a project-specific verification script through Agent Vigil, and checks both
-an exact claim and an inflated claim. It covers 18 output families:
+On 2026-08-25, the post-pin v0.20.0 candidate source ran the ordinary local
+suite once. `npm test` executes **637 tests** in that snapshot: 624 passed and
+13 opt-in or platform-specific tests skipped. A separate local coverage run
+contained the same 637 tests: 616 passed and 21 skipped because coverage mode
+adds its own coverage-specific skips. It reached 92.67% lines, 81.88% branches,
+and 96.36% functions. These numbers describe those exact local candidate runs,
+not hosted CI, a published release, adoption, payment, or revenue.
+
+The durable generated-repository laboratory covers 18 output families:
 
 - Node TAP and Node spec reporter;
 - Jest, Vitest, Mocha, AVA, Playwright, Cypress, Bun;
@@ -22,29 +29,31 @@ It also covers nonzero commands, skipped-test accounting, malformed and unknown
 JSONL, UTF-8 BOM input, Codex object-valued tool arguments, seven failure-output
 forms, semantic tool-loop fingerprints, and documentation false positives.
 
-Current durable result: **80/80 compatibility scenarios pass**. Combined with
-the core, CLI, adapter, setup, policy-anchor, signing, attestation,
-workspace-binding, remediation, continuity, and guard-compatibility suite, `npm test` executes **609 tests**:
- 604 pass and five opt-in Docker tests skip in
-the ordinary suite. The combined 13-test real-Docker containment,
-timeout-cleanup, verdict, signing, and index suite passes against the selected
-local test daemon and leaves no residual Upgrade Guard containers. This proves
-the tested daemon and platform only; it does not establish that every local
-transport is physically local or that Windows and Linux resolution paths have
-been exercised.
-
-`npm run test:package` additionally installs the generated tarball into a
-disposable consumer and exercises both standard and portable `init` plus
-`doctor` flows across 11 repository shapes: plain Git, Node, Python, Rust, Go,
-Maven, Gradle wrapper, Gradle build, Ruby, PHP, and .NET.
-
 A deterministic fuzz layer adds 9,000 mutated runner, dotted-term, traversal, and structured-tool cases.
 
 The Node coverage gate requires at least 90% lines, 80% branches, and 90%
-functions. The 2026-08-24 run stayed above all three gates at 93.18%
-lines, 81.13% branches, and 96.33% functions. Coverage percentages can move
-slightly with Node's experimental coverage accounting; the thresholds are the
-durable claim.
+functions. Coverage percentages can move with Node's experimental accounting;
+the thresholds, complete command output, and exact tested commit are the
+release evidence.
+
+## Generated hosted repository contract
+
+`init` and `protect` support only:
+
+- a plain Git repository with no inferred non-Node hosted test toolchain; or
+- a root Node/npm repository with one bounded direct `node --test` command in
+  `scripts.test` or `agentVigil.hostedTestCommand`.
+
+The hosted override does not allow an arbitrary shell command. A root npm lock
+permits base-owned `npm ci --ignore-scripts` during the isolated setup phase.
+Tests then run without network over a read-only source mount. Unsupported
+toolchains, package managers, layouts, indirection, repository `.npmrc` files,
+submodules, and unsafe setup inputs fail closed.
+
+`npm run test:package` installs the generated tarball into disposable consumers
+and checks supported plain and root Node paths plus expected fail-closed
+unsupported shapes. Treat each run's artifact and exit status as the evidence;
+this page does not claim a pending integrated run has passed.
 
 Run it:
 
@@ -57,8 +66,9 @@ npm run lab:ecosystems -- --output /tmp/agent-vigil-ecosystem-lab.json
 
 ## Real-toolchain repositories
 
-A second local run created seven independent repositories and invoked the actual
-installed toolchains rather than replaying sample output:
+The following 2026-08-24 historical local run created seven independent
+repositories and invoked installed toolchains rather than replaying sample
+output. It demonstrates the broader local CLI, not v0.21.0 hosted support:
 
 | Repository shape | Command | Exact `3 tests` | Inflated `99 tests` | Portable receipt-only tail | Source change after receipt |
 |---|---|---:|---:|---:|---:|
@@ -70,7 +80,7 @@ installed toolchains rather than replaying sample output:
 | Node monorepo | `npm --prefix packages/api test --silent` | PASS | FAIL | PASS | FAIL |
 | .NET / MSTest | inferred `dotnet test` | PASS | FAIL | PASS | FAIL |
 
-Result: **28/28 expected verdicts**. These were disposable repositories under
+Historical result: **28/28 expected verdicts**. These were disposable repositories under
 macOS using Node 22.22.3, Python 3.14.3 / pytest 9.0.3, Go 1.26.0, Ruby 2.6.10,
 pnpm 10.29.3, and .NET SDK 7.0.101.
 
@@ -126,7 +136,10 @@ integrity diff. Repairs now:
   therefore uses `go test -json ./...`.
 - Monorepos require an explicit command such as
   `npm --prefix packages/api test --silent`.
-- v0.4 passed hosted Windows and macOS portability jobs on Node 22. The v0.5
-  candidate's hosted result remains unverified until this branch is pushed and
-  CI completes.
-- Test execution runs repository code with the verifier's privileges.
+- Historical hosted portability does not establish v0.21.0 candidate isolation.
+  The v0.21.0 hosted lane requires a GitHub-hosted Linux runner and Docker.
+- Local test execution runs repository code with the verifier process's host
+  privileges. A detached worktree protects Git identity; it is not a sandbox.
+- Generated hosted support is intentionally smaller than local parser and test
+  ecosystem support. See the
+  [hosted evidence security contract](HOSTED_SECURITY_CONTRACT.md).

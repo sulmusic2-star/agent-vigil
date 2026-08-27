@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTranscript, extractClaims, extractRunClaims } from "./transcript.ts";
@@ -19,7 +18,7 @@ import {
   gitRefExists,
   resolveGitRef,
 } from "./detectors/reality.ts";
-import { buildReport, VERSION, type CheckResult } from "./report.ts";
+import { buildReport, validateTrustReport, VERSION, type CheckResult } from "./report.ts";
 import type { TrustReport } from "./report.ts";
 import { renderMarkdown, renderResultMarkdown, renderResultText, renderText, toSarif, writeOutputs } from "./output.ts";
 import { buildReportResultView, renderResultViewHtml } from "./result-view.ts";
@@ -34,7 +33,7 @@ import { routeIntegrity } from "./integrity-policy.ts";
 import { checkOutOfDagReads } from "./detectors/agentic.ts";
 import { compareReceipts, renderReceiptDelta } from "./receipt-diff.ts";
 import { buildMergeGroupReport } from "./merge-group.ts";
-import { appendPrivateFileAtomic, writePrivateFileAtomic } from "./safe-output.ts";
+import { appendPrivateFileAtomic, writePrivateFileAtomic, writePrivateFileAtomicWithin } from "./safe-output.ts";
 import { analyzeTrajectory, authorityContractTemplate, buildAuthorityChecks, classifyTranscriptActions, loadAuthorityContract } from "./authority.ts";
 import {
   buildValueCard,
@@ -79,8 +78,10 @@ import {
 } from "./certification.ts";
 import { signControlProof, signedControlIdentity } from "./signed-control-proof.ts";
 import { readBoundedJson } from "./upgrade/contracts.ts";
+import { readBoundedRegularFile } from "./continuity/contracts.ts";
 import { runContinuityCommand } from "./continuity/cli.ts";
 import { runPublicPrReceiptCommand } from "./public-pr-receipt-cli.ts";
+import { trustedGit, trustedGitOptional } from "./trusted-git.ts";
 import {
   loadControlArguments,
   renderGuardCompatibility,
@@ -103,6 +104,7 @@ type Options = {
   policyRef?: string;
   signingKey?: string;
   portableOutput?: string;
+  receiptGitPath?: string;
   githubSummary: boolean;
   strict?: boolean;
   minVerified?: number;
@@ -114,12 +116,10 @@ function usage(): string {
 Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
-  vigil init [--repo <path>] [--force] [--attest] [--portable --public-key <path>]
-  vigil init --profile maintainer [--repo <path>] [--force] [--attest]
-  vigil init --profile authority [--repo <path>] [--force] [--attest]
-  vigil protect [--repo <path>] [--force] [--attest]
-  vigil mandate <create|verify|assess> ...
-  vigil receipt <verify|signal> ...
+  vigil init --action-sha <40-hex> [--repo <path>] [--force] [--portable --public-key <path>]
+  vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
+  vigil init --profile authority --action-sha <40-hex> [--repo <path>] [--force]
+  vigil protect --action-sha <40-hex> [--repo <path>] [--force]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil guard-compat --host claude|codex --host-version <version> --host-executable <path> --control-name <name> --control-version <version> --control-executable <path> --policy <path> --configuration <path> [options]
   vigil guard-route --host claude|codex --host-version <version> --host-executable <path> --profile-home <disposable-path> [options]
@@ -563,7 +563,7 @@ function parseArgs(args: string[]): Options {
     format: "text",
     githubSummary: false,
   };
-  const takesValue = new Set(["--repo", "--base", "--head", "--test-cmd", "--format", "--output", "--sarif", "--min-verified", "--policy", "--policy-ref", "--signing-key", "--portable-output"]);
+  const takesValue = new Set(["--repo", "--base", "--head", "--test-cmd", "--format", "--output", "--sarif", "--min-verified", "--policy", "--policy-ref", "--signing-key", "--portable-output", "--receipt-git-path"]);
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (!arg.startsWith("--") && !options.transcript) { options.transcript = arg; continue; }
@@ -588,6 +588,7 @@ function parseArgs(args: string[]): Options {
     if (arg === "--policy-ref") options.policyRef = value;
     if (arg === "--signing-key") options.signingKey = value;
     if (arg === "--portable-output") options.portableOutput = value;
+    if (arg === "--receipt-git-path") options.receiptGitPath = value;
     if (arg === "--min-verified") options.minVerified = Number(value);
   }
   if (options.minVerified !== undefined && (!Number.isInteger(options.minVerified) || options.minVerified < 1)) {
@@ -603,19 +604,40 @@ function optionValue(args: string[], name: string): string | undefined {
   return args[index + 1];
 }
 
+function validateCommandArgs(args: string[], command: string, valueOptions: string[], flagOptions: string[]): void {
+  const values = new Set(valueOptions);
+  const flags = new Set(flagOptions);
+  const seen = new Set<string>();
+  for (let index = 1; index < args.length; index++) {
+    const arg = args[index];
+    if (!values.has(arg) && !flags.has(arg)) throw new Error(`unknown ${command} argument: ${arg}`);
+    if (seen.has(arg)) throw new Error(`${command} argument ${arg} may be provided only once`);
+    seen.add(arg);
+    if (values.has(arg)) {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--")) throw new Error(`${arg} requires a value`);
+      index += 1;
+    }
+  }
+}
+
 function runInit(args: string[]): number {
   try {
+    validateCommandArgs(args, "init", ["--repo", "--action-sha", "--profile", "--public-key"], ["--portable", "--attest", "--force"]);
     const repo = resolve(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
+    const actionSha = optionValue(args, "--action-sha");
     const profile = optionValue(args, "--profile") ?? "default";
     if (!new Set(["default", "maintainer", "authority", "protect"]).has(profile)) throw new Error("init --profile must be default, maintainer, authority, or protect");
     const publicKey = optionValue(args, "--public-key");
     if (portable && profile !== "default") throw new Error("init --portable cannot be combined with a named profile");
     if (portable && !publicKey) throw new Error("init --portable requires --public-key <Ed25519 public key>");
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
-    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer" | "authority" | "protect", attest);
-    console.log("Agent Vigil initialized.\n");
+    if (attest) throw new Error("init --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
+    if (!/^[0-9a-f]{40}$/.test(actionSha ?? "")) throw new Error("init requires --action-sha <40 lowercase hex>");
+    const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer" | "authority" | "protect", false, actionSha);
+    console.log("Agent Vigil scaffold prepared.\n");
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
     console.log(profile === "maintainer"
@@ -624,33 +646,27 @@ function runInit(args: string[]): number {
       ? "\nNext: replace the task ID, paths, action classes, and expiry; point the workflow at a structured agent transcript; merge the contract before the code change."
       : portable
       ? "\nNext: merge this base policy first, then generate a portable receipt after each code commit with --portable-output."
-      : attest
-      ? "\nNext: replace .agent-vigil/session.md with real evidence, push one PR, verify its GitHub attestation, then require the Agent Vigil evidence status check."
-      : "\nNext: replace .agent-vigil/session.md with a real agent transcript or summary, push one PR, then require the Agent Vigil evidence status check.");
-    if (attest && profile !== "default") {
-      console.log("Next for signing: push one pull request, download agent-vigil-report.json, and run vigil verify-attestation before making the check required.");
-    }
+      : "\nNext: replace .agent-vigil/session.md with a real transcript or summary and commit the controls. The generated job is evidence only; enforce it through an externally trusted required workflow or App check bound to the exact PR head, not the job name alone.");
     return 0;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
 function runProtect(args: string[]): number {
   try {
-    const allowed = new Set(["protect", "--repo", "--force", "--attest"]);
-    for (let index = 1; index < args.length; index++) {
-      const arg = args[index];
-      if (!allowed.has(arg)) throw new Error(`unknown protect argument: ${arg}`);
-      if (arg === "--repo") index += 1;
-    }
+    validateCommandArgs(args, "protect", ["--repo", "--action-sha"], ["--force", "--attest"]);
     const repo = resolve(optionValue(args, "--repo") ?? ".");
-    const result = initRepository(repo, args.includes("--force"), undefined, "protect", args.includes("--attest"));
-    console.log("Agent Vigil protection installed.\n");
+    if (args.includes("--attest")) throw new Error("protect --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
+    const actionSha = optionValue(args, "--action-sha");
+    if (!/^[0-9a-f]{40}$/.test(actionSha ?? "")) throw new Error("protect requires --action-sha <40 lowercase hex>");
+    const result = initRepository(repo, args.includes("--force"), undefined, "protect", false, actionSha);
+    console.log("Agent Vigil protection scaffold prepared.\n");
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
     const checks = doctorRepository(repo);
     console.log(`\n${renderDoctor(checks)}\n`);
-    console.log("Next: review the discovered commands and limits in .agent-vigil.json, commit the setup, push one pull request, then require the Agent Vigil evidence check.");
-    return checks.some((check) => check.status === "FAIL") ? 2 : 0;
+    console.log("Next: review and commit the generated controls, then rerun doctor. The job name alone is not a merge trust root; enforcement requires an externally trusted required workflow or App check bound to the exact PR head.");
+    const pendingGeneratedCommit = result.created.length > 0;
+    return pendingGeneratedCommit ? 0 : checks.some((check) => check.status === "FAIL") ? 2 : 0;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -681,12 +697,24 @@ function runMaintainer(args: string[]): number {
     const inputs = [eventPath, ...(policy.path ? [policy.path] : [])];
     const results: CheckResult[] = [...checkWorkspaceBinding(repo, head, inputs)];
     const advisories: CheckResult[] = [];
-    results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer));
+    results.push(...buildMaintainerChecks(repo, base, head, evidence, policy.value.maintainer, policy.value.testCommand));
     const authorityPlan = authorityPlanChecks(buildAuthorityPlan(repo, base, head, VERSION));
     results.push(...authorityPlan.results);
     advisories.push(...authorityPlan.advisories);
     if (policy.value.testCommand) {
-      results.push(...checkTestsPass([{ kind: "tests_pass", quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" }], repo, policy.value.testCommand));
+      const testClaim = { kind: "tests_pass" as const, quote: "base policy requires the candidate test suite to pass", subject: "fresh candidate test suite" };
+      const automatedReview = policy.value.maintainer.reviewMode === "automated" ? policy.value.maintainer.automatedReview : undefined;
+      if (automatedReview?.commands.includes(policy.value.testCommand)) {
+        if (!results.some((check) => check.ruleId === "tests-pass" && check.claim.quote === testClaim.quote)) results.push({
+          claim: testClaim,
+          verdict: "unverifiable",
+          evidence: "the exact top-level test command was configured in automated review but was not reached after an earlier review failure",
+          ruleId: "tests-pass",
+          blocksPass: true,
+        });
+      } else {
+        results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand, automatedReview?.setupCommand, base, head));
+      }
       results.push(...checkWorkspaceMutation(repo, inputs, head));
     }
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
@@ -774,10 +802,12 @@ function runGate(args: string[]): number {
     const receiptPath = options.transcript;
     if (!receiptPath) throw new Error("gate requires a portable receipt JSON path");
     const absoluteReceipt = resolve(options.repo, receiptPath);
-    const receipt = JSON.parse(readFileSync(absoluteReceipt, "utf8")) as PortableReceipt;
+    const receiptRaw = readBoundedRegularFile(absoluteReceipt, 16 * 1024 * 1024, "portable receipt").toString("utf8");
+    const receipt = JSON.parse(receiptRaw) as PortableReceipt;
     const report = buildPortableGateReport(receipt, {
       repo: resolve(options.repo),
       receiptPath: absoluteReceipt,
+      ...(options.receiptGitPath ? { receiptGitPath: options.receiptGitPath, receiptRaw } : {}),
       base: options.base,
       head: options.head,
       ...(options.policy ? { policy: options.policy } : {}),
@@ -793,8 +823,7 @@ function runVerify(args: string[]): number {
   try {
     const receiptPath = args.find((arg, index) => index > 0 && !arg.startsWith("--") && args[index - 1] !== "--public-key");
     if (!receiptPath) throw new Error("verify requires a receipt JSON path");
-    const report = JSON.parse(readFileSync(resolve(receiptPath), "utf8")) as TrustReport;
-    if (report.schemaVersion !== "2") throw new Error(`unsupported receipt schema: ${String(report.schemaVersion)}`);
+    const report = JSON.parse(readBoundedRegularFile(resolve(receiptPath), 16 * 1024 * 1024, "Agent Vigil receipt").toString("utf8")) as unknown;
     const publicKey = optionValue(args, "--public-key");
     const result = verifyReport(report, publicKey ? resolve(publicKey) : undefined);
     console.log(`Receipt hash: ${result.hashValid ? "VALID" : "INVALID"}`);
@@ -968,9 +997,8 @@ function runCompare(args: string[]): number {
     if (values.length !== 2) throw new Error("compare requires before and after full receipt JSON paths");
     const format = optionValue(args, "--format") ?? "text";
     if (format !== "text" && format !== "json") throw new Error("compare --format must be text or json");
-    const before = JSON.parse(readFileSync(resolve(values[0]), "utf8")) as TrustReport;
-    const after = JSON.parse(readFileSync(resolve(values[1]), "utf8")) as TrustReport;
-    if (before.schemaVersion !== "2" || after.schemaVersion !== "2") throw new Error("compare supports full receipt schema 2 only");
+    const before = JSON.parse(readBoundedRegularFile(resolve(values[0]), 16 * 1024 * 1024, "before Agent Vigil receipt").toString("utf8")) as unknown;
+    const after = JSON.parse(readBoundedRegularFile(resolve(values[1]), 16 * 1024 * 1024, "after Agent Vigil receipt").toString("utf8")) as unknown;
     const delta = compareReceipts(before, after);
     const rendered = format === "json" ? `${JSON.stringify(delta, null, 2)}\n` : `${renderReceiptDelta(delta)}\n`;
     const output = optionValue(args, "--output");
@@ -1063,9 +1091,7 @@ function parseValueArgs(args: string[]): ValueCliOptions {
 }
 
 function readBoundedFile(path: string, maximumBytes: number, label: string): Buffer {
-  const size = statSync(path).size;
-  if (size > maximumBytes) throw new Error(`${label} is ${size} bytes; maximum is ${maximumBytes}`);
-  return readFileSync(path);
+  return readBoundedRegularFile(path, maximumBytes, label);
 }
 
 function runValue(args: string[]): number {
@@ -1073,10 +1099,7 @@ function runValue(args: string[]): number {
     const options = parseValueArgs(args);
     const receiptPath = resolve(options.receipt);
     const rawReceipt = readBoundedFile(receiptPath, 16 * 1024 * 1024, "value receipt");
-    const report = JSON.parse(rawReceipt.toString("utf8")) as TrustReport;
-    if (report.schemaVersion !== "2" || !report.summary || typeof report.receiptHash !== "string") {
-      throw new Error("value requires a full Agent Vigil receipt schema 2");
-    }
+    const report = validateTrustReport(JSON.parse(rawReceipt.toString("utf8")));
     const verification = verifyReport(report, options.publicKey ? resolve(options.publicKey) : undefined);
     if (!verification.hashValid) throw new Error("value receipt hash is invalid");
     if (verification.signatureValid === false) throw new Error("value receipt signature is invalid");
@@ -1278,7 +1301,7 @@ function runTestIntegrity(args: string[]): number {
       if (check.ruleId === "integrity-scan" && check.verdict === "verified") check.contributesToPass = true;
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
-    const diff = execFileSync("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const diff = trustedGit(repo, diffArgs);
     const digest = `sha256:${createHash("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
@@ -1334,12 +1357,40 @@ function runAuthority(args: string[]): number {
     const transcriptPath = isAbsolute(transcriptOption) ? transcriptOption : resolve(repo, transcriptOption);
     if (!existsSync(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
     const contract = loadAuthorityContract(repo, contractOption, contractRef);
+    const verificationPolicy = options.policy || options.policyRef
+      ? loadPolicy(repo, options.policy, options.policyRef)
+      : undefined;
+    const testCommand = options.testCmd ?? verificationPolicy?.value.testCommand;
     const loaded = loadTranscript(transcriptPath);
-    const inputs = [transcriptPath, ...(contract.path ? [contract.path] : [])];
+    const inputs = [
+      transcriptPath,
+      ...(contract.path ? [contract.path] : []),
+      ...(verificationPolicy?.path ? [verificationPolicy.path] : []),
+    ];
     const results: CheckResult[] = [...checkWorkspaceBinding(repo, head, inputs)];
     const advisories: CheckResult[] = [];
     const authority = buildAuthorityChecks(repo, base, head, loaded, contract.value);
     results.push(...authority.results);
+    if (verificationPolicy) {
+      results.push({
+        claim: { kind: "integrity", quote: "base-selected verification policy", subject: "authority verification policy is bound" },
+        verdict: "verified",
+        evidence: `${verificationPolicy.sha256}${testCommand ? `; test command ${testCommand}` : "; no test command configured"}`,
+        ruleId: "authority-verification-policy",
+        contributesToPass: false,
+      });
+      if (testCommand) {
+        results.push(...checkTestsPass([{
+          kind: "tests_pass",
+          quote: "base policy requires the authority candidate test suite to pass",
+          subject: "fresh authority candidate tests",
+        }], repo, testCommand, undefined, base, head));
+      }
+      results.push(...checkWorkspaceMutation(repo, inputs, head));
+      const integrity = routeIntegrity(checkIntegrity(repo, base, head), verificationPolicy.value.integrityMode ?? "advisory");
+      results.push(...integrity.results);
+      advisories.push(...integrity.advisories);
+    }
     if (!contract.ref) advisories.push({
       claim: { kind: "authority_scope", subject: "authority trust root", quote: contract.source },
       verdict: "unverifiable",
@@ -1354,6 +1405,9 @@ function runAuthority(args: string[]): number {
       "vigil authority", shellQuote(relativeTranscript), "--contract", shellQuote(contract.gitPath ?? contractOption),
       ...(contract.ref ? ["--contract-ref", contract.ref] : []),
       "--repo", ".", "--base", base, "--head", head,
+      ...(verificationPolicy?.gitPath ? ["--policy", shellQuote(verificationPolicy.gitPath)] : []),
+      ...(verificationPolicy?.ref ? ["--policy-ref", verificationPolicy.ref] : []),
+      ...(options.testCmd ? ["--test-cmd", shellQuote(options.testCmd)] : []),
     ].join(" ");
     let report = buildReport({
       transcript: relativeTranscript,
@@ -1364,7 +1418,12 @@ function runAuthority(args: string[]): number {
       head,
       results,
       advisories,
-      policy: { minVerified: 1, strict: true, source: contract.source, sha256: contract.sha256 },
+      policy: {
+        minVerified: Math.max(options.minVerified ?? 0, verificationPolicy?.value.minVerified ?? 1),
+        strict: true,
+        source: contract.source,
+        sha256: contract.sha256,
+      },
       repository: { ...(remote ? { remote } : {}), ...(tree ? { tree } : {}) },
       reproduction,
     });
@@ -1376,8 +1435,7 @@ function runAuthority(args: string[]): number {
 }
 
 function git(repo: string, args: string[]): string | undefined {
-  try { return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
-  catch { return undefined; }
+  return trustedGitOptional(repo, args)?.trim();
 }
 
 function shellQuote(value: string): string {
@@ -1435,7 +1493,9 @@ export function run(argv = process.argv.slice(2)): number {
   const transcriptPath = isAbsolute(transcript) ? transcript : resolve(repo, transcript);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
-  const minVerified = options.minVerified ?? policy.value.minVerified ?? 1;
+  // Command-line input may strengthen a trusted policy, but it must never
+  // silently lower the policy's objective-evidence threshold.
+  const minVerified = Math.max(options.minVerified ?? 0, policy.value.minVerified ?? 1);
   if (!existsSync(transcriptPath)) { console.error(`agent-vigil: transcript not found: ${transcriptPath}`); return 2; }
   if (!existsSync(repo)) { console.error(`agent-vigil: repository not found: ${repo}`); return 2; }
   if (!gitRefExists(repo, options.base) || (options.head !== "WORKTREE" && !gitRefExists(repo, options.head))) {
@@ -1460,7 +1520,13 @@ export function run(argv = process.argv.slice(2)): number {
       ...(options.portableOutput ? [resolve(repo, options.portableOutput)] : []),
     ];
     results.push(...checkWorkspaceBinding(repo, head, workspaceInputs));
-    results.push(...checkTestsPass(claims, repo, testCmd));
+    const testClaims = claims.filter((claim) => claim.kind === "tests_pass");
+    if (testCmd && testClaims.length === 0) testClaims.push({
+      kind: "tests_pass",
+      quote: "base policy requires the candidate test suite to pass",
+      subject: "fresh candidate tests",
+    });
+    results.push(...checkTestsPass(testClaims, repo, testCmd, undefined, base, head));
     results.push(...checkWorkspaceMutation(repo, workspaceInputs, head));
     results.push(...checkFilesChanged(claims, repo, base, head));
     const changedClaims = new Set(claims.filter((claim) => claim.kind === "file_changed").map((claim) => claim.subject));
@@ -1505,9 +1571,7 @@ export function run(argv = process.argv.slice(2)): number {
     writeOutputs(report, options);
     if (options.portableOutput) {
       const portable = createPortableReceipt(report, resolve(options.signingKey!));
-      const portablePath = resolve(repo, options.portableOutput);
-      mkdirSync(dirname(portablePath), { recursive: true });
-      writeFileSync(portablePath, `${JSON.stringify(portable, null, 2)}\n`);
+      writePrivateFileAtomicWithin(repo, options.portableOutput, `${JSON.stringify(portable, null, 2)}\n`);
     }
     printReport(report, options);
     return report.summary.status === "PASS" ? 0 : report.summary.status === "FAIL" ? 1 : 2;

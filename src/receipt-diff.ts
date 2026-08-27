@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CheckResult, ReportStatus, TrustReport, Verdict } from "./report.ts";
-import { canonical } from "./report.ts";
+import { canonical, validateTrustReport } from "./report.ts";
 import { verifyReport } from "./signature.ts";
 
 export type ReceiptDelta = {
@@ -128,7 +128,9 @@ function isInvariant(check: CheckResult): boolean {
   return check.contributesToPass === false || check.blocksPass === true || check.claim.kind === "policy_attestation" || check.claim.kind === "integrity";
 }
 
-export function compareReceipts(beforeReport: TrustReport, afterReport: TrustReport): ReceiptDelta {
+export function compareReceipts(beforeValue: unknown, afterValue: unknown): ReceiptDelta {
+  const beforeReport = validateTrustReport(beforeValue);
+  const afterReport = validateTrustReport(afterValue);
   const before = verification(beforeReport);
   const after = verification(afterReport);
   const regressions: DeltaItem[] = [];
