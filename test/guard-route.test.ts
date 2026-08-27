@@ -16,15 +16,18 @@ type Fixture = {
   root: string;
   profile: string;
   host: string;
+  ordinaryHome: string;
   cleanup: () => void;
 };
 
-function fixture(mode: "pass" | "extra" | "bypass-deny" | "same-id" | "unavailable" | "mutate-config" | "require-user-environment" = "pass"): Fixture {
+function fixture(mode: "pass" | "extra" | "bypass-deny" | "same-id" | "unavailable" | "mutate-config" | "mutate-ordinary" | "require-user-environment" = "pass"): Fixture {
   const root = mkdtempSync(join(tmpdir(), "vigil-live-route-test-"));
   const profile = join(root, "profile");
+  const ordinaryHome = join(root, "ordinary-home");
   const host = join(root, "host.mjs");
   writeFileSync(join(root, "placeholder"), "test\n");
   mkdirSync(profile, { mode: 0o700 });
+  mkdirSync(join(ordinaryHome, ".codex"), { mode: 0o700, recursive: true });
   writeFileSync(join(profile, ".agent-vigil-disposable-profile"), DISPOSABLE_PROFILE_MARKER, { mode: 0o600 });
   writeFileSync(host, `#!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
@@ -60,10 +63,11 @@ const denyId = mode === "same-id" ? "host-call-allow" : "host-call-deny";
 invoke(deny, denyId);
 if (mode === "bypass-deny") writeFileSync(denyFile, token(deny) + "\\n");
 if (mode === "mutate-config") writeFileSync(process.env.HOME + "/hooks.json", "{}\\n");
+if (mode === "mutate-ordinary") writeFileSync(${JSON.stringify(join(ordinaryHome, ".codex", "hooks.json"))}, "{}\\n");
 process.stdout.write(JSON.stringify({ result: "ROUTE_DRILL_COMPLETE" }));
 `);
   chmodSync(host, 0o700);
-  return { root, profile, host, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { root, profile, host, ordinaryHome, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 function run(selected: Fixture, host: "claude" | "codex" = "codex"): GuardRouteReport {
@@ -164,6 +168,19 @@ test("host-side configuration mutation is rejected and the temporary file is sti
     assert.equal(existsSync(join(selected.profile, "hooks.json")), false);
     assert.equal(existsSync(join(selected.profile, "config.toml")), false);
   } finally { selected.cleanup(); }
+});
+
+test("an ordinary host configuration file that appears during the drill is rejected", { skip: unsupportedWindows }, () => {
+  const selected = fixture("mutate-ordinary");
+  const originalHome = process.env.HOME;
+  try {
+    process.env.HOME = selected.ordinaryHome;
+    assert.throws(() => run(selected), /ordinary hooks\.json appeared during/);
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    selected.cleanup();
+  }
 });
 
 test("ordinary profiles, bad markers, and pre-existing route configuration are refused", { skip: unsupportedWindows }, () => {

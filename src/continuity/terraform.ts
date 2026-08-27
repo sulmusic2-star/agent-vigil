@@ -6,6 +6,9 @@ import { canonicalSha256, type ContinuityState } from "./contracts.ts";
 import { assertGuardFileUnchanged, hashGuardFile } from "../guard-compat.ts";
 import { verifyContinuityStaple, type VerifyStapleOptions } from "./staple.ts";
 
+type WithoutNow<T> = T extends unknown ? Omit<T, "now"> : never;
+type TerraformStapleOptions = WithoutNow<VerifyStapleOptions>;
+
 export const TERRAFORM_PLAN_GATE_SCHEMA = "agent-vigil-terraform-plan-gate/v1" as const;
 export const MAX_TERRAFORM_PLAN_BYTES = 512 * 1024 * 1024;
 export const MAX_TERRAFORM_SHOW_BYTES = 64 * 1024 * 1024;
@@ -129,17 +132,18 @@ export function verifyTerraformSavedPlan(options: {
   planPath: string;
   terraformExecutable: string;
   staple: unknown;
-  stapleOptions: VerifyStapleOptions;
+  stapleOptions: TerraformStapleOptions;
   timeoutMs?: number;
 }): TerraformPlanGateResult {
-  const verification = verifyContinuityStaple(options.staple, options.stapleOptions);
+  const initialNow = new Date();
+  const verification = verifyContinuityStaple(options.staple, { ...options.stapleOptions, now: initialNow });
   const staple = {
     payloadHash: verification.payloadHash,
     signerKeyId: verification.signerKeyId,
     expiresAt: verification.expiresAt,
     sequence: verification.sequence,
   };
-  const generatedAt = (options.stapleOptions.now ?? new Date()).toISOString();
+  const generatedAt = initialNow.toISOString();
   if (!verification.allowsProtectedAction) {
     const unsigned = unsignedResult(generatedAt, verification.effectiveContinuity, staple, null, null);
     return { ...unsigned, authorizationHash: canonicalSha256(unsigned) };
@@ -183,6 +187,17 @@ export function verifyTerraformSavedPlan(options: {
     architecture: arch,
     networkCalls: 0 as const,
   };
-  const unsigned = unsignedResult(generatedAt, verification.effectiveContinuity, staple, plan, verifier);
+  // A saved-plan inspection can outlive a short staple. Recheck the signed
+  // evidence against the wall clock immediately before emitting permission;
+  // callers cannot inject a historical time into this protected-action path.
+  const finalNow = new Date();
+  const finalVerification = verifyContinuityStaple(options.staple, { ...options.stapleOptions, now: finalNow });
+  const finalStaple = {
+    payloadHash: finalVerification.payloadHash,
+    signerKeyId: finalVerification.signerKeyId,
+    expiresAt: finalVerification.expiresAt,
+    sequence: finalVerification.sequence,
+  };
+  const unsigned = unsignedResult(finalNow.toISOString(), finalVerification.effectiveContinuity, finalStaple, plan, verifier);
   return { ...unsigned, authorizationHash: canonicalSha256(unsigned) };
 }

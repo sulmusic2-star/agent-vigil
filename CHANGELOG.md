@@ -30,7 +30,12 @@
 - Add `vigil continuity terraform-plan-gate` to verify signed continuity before
   inspecting and fingerprinting one exact saved Terraform plan. It never runs
   `terraform apply` and retains hashes, versions, and action counts rather than
-  plan values.
+  plan values. The protected-action decision uses the verifier's wall clock
+  and rechecks staple expiry after plan inspection.
+- Refuse guard receipt outputs that replace or alias executables, controls,
+  arguments, policy, configuration, or the disposable-profile marker, and fail
+  if an initially absent ordinary host configuration appears during a route
+  drill.
 - Add a disposable two-replica Kubernetes admission lab with default-deny
   verifier egress and an unavailable-verifier drill. It allows fresh `CURRENT`,
   denies missing, tampered, expired, and revoked evidence, and removes its

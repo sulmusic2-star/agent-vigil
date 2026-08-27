@@ -47,7 +47,7 @@ Usage:
   vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
   vigil continuity staple --chain <directory> --policy <policy.json> --environment <name> --signing-key <private.pem> --output <staple.json> [--repo <path> --policy-ref <sha>] [--expected-head <sha>] [--now <RFC3339>] [--ttl-seconds <1-900>]
   vigil continuity verify-staple <staple.json> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--now <RFC3339>] [--format text|json] [--output <file>]
-  vigil continuity terraform-plan-gate <saved-plan> --staple <staple.json> --terraform-executable <path> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--now <RFC3339>] [--timeout-ms <1000-120000>] [--format text|json] [--output <file>]
+  vigil continuity terraform-plan-gate <saved-plan> --staple <staple.json> --terraform-executable <path> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--timeout-ms <1000-120000>] [--format text|json] [--output <file>]
 
 Examples:
   vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
@@ -411,7 +411,7 @@ function runTerraformPlanGate(args: string[]): number {
   const parsed = parse(args);
   allowed(parsed, [
     "--staple", "--terraform-executable", "--public-key", "--expected-receipt-hash", "--expected-head", "--environment",
-    "--expected-policy-sha256", "--expected-chain-tip", "--minimum-sequence", "--now", "--timeout-ms", "--format", "--output",
+    "--expected-policy-sha256", "--expected-chain-tip", "--minimum-sequence", "--timeout-ms", "--format", "--output",
   ], ["--json"]);
   if (parsed.positional.length !== 1) throw new Error("continuity terraform-plan-gate requires exactly one saved plan path");
   const planPath = resolve(parsed.positional[0]);
@@ -429,7 +429,6 @@ function runTerraformPlanGate(args: string[]): number {
       expectedHead: required(parsed, "--expected-head"),
       expectedEnvironment: required(parsed, "--environment"),
       expectedPolicySha256: required(parsed, "--expected-policy-sha256"),
-      now: selectedNow(parsed),
       ...(parsed.values.get("--expected-chain-tip") ? { expectedChainTip: parsed.values.get("--expected-chain-tip")! } : {}),
       ...(parsed.values.get("--minimum-sequence") !== undefined ? { minimumSequence: selectedInteger(parsed, "--minimum-sequence")! } : {}),
     },

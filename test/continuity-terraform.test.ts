@@ -29,6 +29,26 @@ function silent(operation: () => number): number {
   finally { process.stdout.write = stdout; process.stderr.write = stderr; }
 }
 
+function withClock<T>(times: string[], operation: () => T): T {
+  const ActualDate = Date;
+  let index = 0;
+  class ControlledDate extends ActualDate {
+    constructor(value?: string | number) {
+      super(arguments.length === 0 ? times[Math.min(index++, times.length - 1)] : value!);
+    }
+    static override now(): number {
+      return ActualDate.parse(times[Math.min(index, times.length - 1)]);
+    }
+  }
+  globalThis.Date = ControlledDate as DateConstructor;
+  try { return operation(); }
+  finally { globalThis.Date = ActualDate; }
+}
+
+function runGate(values: string[], times = [manifest.times.freshVerification, manifest.times.freshVerification]): number {
+  return withClock(times, () => silent(() => runContinuityCommand(values)));
+}
+
 type TerraformFixtureMode = "valid" | "empty-changes" | "mutate" | "malformed" | "invalid-document" | "invalid-version" | "invalid-actions" | "unsupported-actions" | "nonzero";
 
 function fakeTerraform(root: string, mode: TerraformFixtureMode = "valid"): { executable: string; invocation: string } {
@@ -55,7 +75,7 @@ function fakeTerraform(root: string, mode: TerraformFixtureMode = "valid"): { ex
   return { executable, invocation };
 }
 
-function args(root: string, terraform: string, plan: string, staple = "current.staple.json", now = manifest.times.freshVerification): { values: string[]; output: string } {
+function args(root: string, terraform: string, plan: string, staple = "current.staple.json"): { values: string[]; output: string } {
   const output = join(root, "terraform-gate.json");
   return {
     output,
@@ -70,7 +90,6 @@ function args(root: string, terraform: string, plan: string, staple = "current.s
       "--expected-policy-sha256", manifest.bindings.expectedPolicySha256,
       "--expected-chain-tip", manifest.bindings.expectedChainTip,
       "--minimum-sequence", String(manifest.bindings.minimumSequence),
-      "--now", now,
       "--timeout-ms", "5000",
       "--format", "json",
       "--output", output,
@@ -84,7 +103,7 @@ test("a CURRENT staple permits only the exact inspected saved Terraform plan", {
   writeFileSync(plan, "opaque saved plan fixture\n");
   const terraform = fakeTerraform(root);
   const command = args(root, terraform.executable, plan);
-  assert.equal(silent(() => runContinuityCommand(command.values)), 0);
+  assert.equal(runGate(command.values), 0);
   const result = JSON.parse(readFileSync(command.output, "utf8"));
   assert.equal(result.decision.authorization, "ALLOW");
   assert.equal(result.decision.continuity, "CURRENT");
@@ -101,8 +120,8 @@ test("expired or revoked authorization stops before Terraform is invoked", { ski
   const expiredPlan = join(expiredRoot, "tfplan");
   writeFileSync(expiredPlan, "opaque plan\n");
   const expiredTerraform = fakeTerraform(expiredRoot);
-  const expiredCommand = args(expiredRoot, expiredTerraform.executable, expiredPlan, "current.staple.json", manifest.times.expiredVerification);
-  assert.equal(silent(() => runContinuityCommand(expiredCommand.values)), 4);
+  const expiredCommand = args(expiredRoot, expiredTerraform.executable, expiredPlan, "current.staple.json");
+  assert.equal(runGate(expiredCommand.values, [manifest.times.expiredVerification]), 4);
   assert.equal(JSON.parse(readFileSync(expiredCommand.output, "utf8")).decision.authorization, "DENY");
   assert.equal(existsSync(expiredTerraform.invocation), false);
 
@@ -110,8 +129,8 @@ test("expired or revoked authorization stops before Terraform is invoked", { ski
   const revokedPlan = join(revokedRoot, "tfplan");
   writeFileSync(revokedPlan, "opaque plan\n");
   const revokedTerraform = fakeTerraform(revokedRoot);
-  const revokedCommand = args(revokedRoot, revokedTerraform.executable, revokedPlan, "revoked.staple.json", manifest.times.expiredVerification);
-  assert.equal(silent(() => runContinuityCommand(revokedCommand.values)), 1);
+  const revokedCommand = args(revokedRoot, revokedTerraform.executable, revokedPlan, "revoked.staple.json");
+  assert.equal(runGate(revokedCommand.values, [manifest.times.expiredVerification]), 1);
   assert.equal(JSON.parse(readFileSync(revokedCommand.output, "utf8")).decision.continuity, "REVOKED");
   assert.equal(existsSync(revokedTerraform.invocation), false);
 });
@@ -121,13 +140,13 @@ test("the Terraform gate refuses mutation, malformed show output, and symbolic p
   const mutatePlan = join(mutateRoot, "tfplan");
   writeFileSync(mutatePlan, "opaque plan\n");
   const mutator = fakeTerraform(mutateRoot, "mutate");
-  assert.equal(silent(() => runContinuityCommand(args(mutateRoot, mutator.executable, mutatePlan).values)), 2);
+  assert.equal(runGate(args(mutateRoot, mutator.executable, mutatePlan).values), 2);
 
   const malformedRoot = mkdtempSync(join(tmpdir(), "agent-vigil-terraform-malformed-"));
   const malformedPlan = join(malformedRoot, "tfplan");
   writeFileSync(malformedPlan, "opaque plan\n");
   const malformed = fakeTerraform(malformedRoot, "malformed");
-  assert.equal(silent(() => runContinuityCommand(args(malformedRoot, malformed.executable, malformedPlan).values)), 2);
+  assert.equal(runGate(args(malformedRoot, malformed.executable, malformedPlan).values), 2);
 
   const symlinkRoot = mkdtempSync(join(tmpdir(), "agent-vigil-terraform-symlink-"));
   const realPlan = join(symlinkRoot, "real-plan");
@@ -135,7 +154,7 @@ test("the Terraform gate refuses mutation, malformed show output, and symbolic p
   writeFileSync(realPlan, "opaque plan\n");
   symlinkSync(realPlan, linkedPlan);
   const terraform = fakeTerraform(symlinkRoot);
-  assert.equal(silent(() => runContinuityCommand(args(symlinkRoot, terraform.executable, linkedPlan).values)), 2);
+  assert.equal(runGate(args(symlinkRoot, terraform.executable, linkedPlan).values), 2);
   assert.equal(existsSync(terraform.invocation), false);
 });
 
@@ -145,7 +164,7 @@ test("the Terraform gate rejects unsafe plan and Terraform output shapes", { ski
     const plan = join(root, "tfplan");
     writeFileSync(plan, "opaque plan\n");
     const terraform = fakeTerraform(root, mode);
-    assert.equal(silent(() => runContinuityCommand(args(root, terraform.executable, plan).values)), 2, mode);
+    assert.equal(runGate(args(root, terraform.executable, plan).values), 2, mode);
   }
 
   const emptyChangesRoot = mkdtempSync(join(tmpdir(), "agent-vigil-terraform-empty-changes-"));
@@ -153,20 +172,41 @@ test("the Terraform gate rejects unsafe plan and Terraform output shapes", { ski
   writeFileSync(emptyChangesPlan, "opaque plan\n");
   const emptyChangesTerraform = fakeTerraform(emptyChangesRoot, "empty-changes");
   const emptyChangesCommand = args(emptyChangesRoot, emptyChangesTerraform.executable, emptyChangesPlan);
-  assert.equal(silent(() => runContinuityCommand(emptyChangesCommand.values)), 0);
+  assert.equal(runGate(emptyChangesCommand.values), 0);
   assert.equal(JSON.parse(readFileSync(emptyChangesCommand.output, "utf8")).plan.resourceChanges, 0);
 
   const emptyPlanRoot = mkdtempSync(join(tmpdir(), "agent-vigil-terraform-empty-plan-"));
   const emptyPlan = join(emptyPlanRoot, "tfplan");
   writeFileSync(emptyPlan, "");
   const emptyPlanTerraform = fakeTerraform(emptyPlanRoot);
-  assert.equal(silent(() => runContinuityCommand(args(emptyPlanRoot, emptyPlanTerraform.executable, emptyPlan).values)), 2);
+  assert.equal(runGate(args(emptyPlanRoot, emptyPlanTerraform.executable, emptyPlan).values), 2);
   assert.equal(existsSync(emptyPlanTerraform.invocation), false);
 
   const directoryRoot = mkdtempSync(join(tmpdir(), "agent-vigil-terraform-directory-plan-"));
   const directoryPlan = join(directoryRoot, "tfplan");
   mkdirSync(directoryPlan);
   const directoryTerraform = fakeTerraform(directoryRoot);
-  assert.equal(silent(() => runContinuityCommand(args(directoryRoot, directoryTerraform.executable, directoryPlan).values)), 2);
+  assert.equal(runGate(args(directoryRoot, directoryTerraform.executable, directoryPlan).values), 2);
   assert.equal(existsSync(directoryTerraform.invocation), false);
+});
+
+test("the Terraform gate rejects caller-selected time and rechecks expiry after plan inspection", { skip: process.platform === "win32" }, () => {
+  const injectedRoot = mkdtempSync(join(tmpdir(), "agent-vigil-terraform-injected-time-"));
+  const injectedPlan = join(injectedRoot, "tfplan");
+  writeFileSync(injectedPlan, "opaque plan\n");
+  const injectedTerraform = fakeTerraform(injectedRoot);
+  const injected = args(injectedRoot, injectedTerraform.executable, injectedPlan);
+  assert.equal(runGate([...injected.values, "--now", manifest.times.freshVerification]), 2);
+  assert.equal(existsSync(injectedTerraform.invocation), false);
+
+  const expiryRoot = mkdtempSync(join(tmpdir(), "agent-vigil-terraform-expiry-during-show-"));
+  const expiryPlan = join(expiryRoot, "tfplan");
+  writeFileSync(expiryPlan, "opaque plan\n");
+  const expiryTerraform = fakeTerraform(expiryRoot);
+  const expiry = args(expiryRoot, expiryTerraform.executable, expiryPlan);
+  assert.equal(runGate(expiry.values, [manifest.times.freshVerification, manifest.times.expiredVerification]), 4);
+  const result = JSON.parse(readFileSync(expiry.output, "utf8"));
+  assert.equal(result.decision.authorization, "DENY");
+  assert.equal(result.decision.continuity, "EXPIRED");
+  assert.equal(existsSync(expiryTerraform.invocation), true);
 });

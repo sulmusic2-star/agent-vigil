@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -157,19 +157,48 @@ console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", 
   writeFileSync(argumentsPath, JSON.stringify([script]));
   writeFileSync(policy, '{"deny":"PROCESS_CONFORMANCE_DENY"}\n');
   writeFileSync(configuration, '{"event":"PreToolUse"}\n');
-  assert.equal(run([
+  const command = [
     "guard-compat", "--host", "codex", "--host-version", "0.149.1", "--host-executable", process.execPath,
     "--control-name", "fixture", "--control-version", "1", "--control-executable", process.execPath,
     "--control-artifact", script, "--control-args", argumentsPath, "--policy", policy,
-    "--configuration", configuration, "--format", "json", "--output", output,
-  ]), 0);
+    "--configuration", configuration, "--format", "json",
+  ];
+  assert.equal(run([...command, "--output", output]), 0);
   const receipt = JSON.parse(readFileSync(output, "utf8"));
   assert.equal(receipt.schemaVersion, "agent-vigil-guard-compatibility/v1");
   assert.equal(receipt.status, "PASS");
   assert.equal(receipt.deployment.state, "HOLD");
   assert.deepEqual(receipt.deployment.reasonCodes, ["LIVE_HOST_ROUTE_NOT_PROVEN"]);
   assert.equal(JSON.stringify(receipt).includes(root), false);
+  for (const input of [script, argumentsPath, policy, configuration]) {
+    const before = readFileSync(input);
+    assert.equal(run([...command, "--output", input]), 2, input);
+    assert.deepEqual(readFileSync(input), before, input);
+  }
+  const hardLinkOutput = join(root, "policy-output-hardlink.json");
+  linkSync(policy, hardLinkOutput);
+  assert.equal(run([...command, "--output", hardLinkOutput]), 2);
+  assert.equal(readFileSync(policy, "utf8"), '{"deny":"PROCESS_CONFORMANCE_DENY"}\n');
+  if (process.platform !== "win32") {
+    const symbolicOutput = join(root, "configuration-output-symlink.json");
+    symlinkSync(configuration, symbolicOutput);
+    assert.equal(run([...command, "--output", symbolicOutput]), 2);
+    assert.equal(readFileSync(configuration, "utf8"), '{"event":"PreToolUse"}\n');
+  }
   assert.equal(run(["guard-compat", "--host", "cursor"]), 2);
+});
+
+test("CLI guard-route refuses an output path that aliases its disposable profile marker", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-guard-route-output-alias-"));
+  const profile = join(root, "profile");
+  const marker = join(profile, ".agent-vigil-disposable-profile");
+  mkdirSync(profile, { mode: 0o700 });
+  writeFileSync(marker, "agent-vigil disposable host profile v1\n", { mode: 0o600 });
+  assert.equal(run([
+    "guard-route", "--host", "codex", "--host-version", "fixture", "--host-executable", process.execPath,
+    "--profile-home", profile, "--output", marker,
+  ]), 2);
+  assert.equal(readFileSync(marker, "utf8"), "agent-vigil disposable host profile v1\n");
 });
 
 test("CLI init and doctor provide a working exact-SHA scaffold", () => {

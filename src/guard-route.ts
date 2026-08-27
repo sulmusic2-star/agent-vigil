@@ -329,17 +329,35 @@ function readHookLog(path: string): HookLog[] {
   });
 }
 
-function ordinaryConfiguration(host: GuardHost): Array<[string, FileIdentity]> {
+type OrdinaryConfigurationSnapshot = {
+  label: string;
+  path: string;
+  identity?: FileIdentity;
+};
+
+function pathEntryExists(path: string): boolean {
+  try { lstatSync(path); return true; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function ordinaryConfiguration(host: GuardHost): OrdinaryConfigurationSnapshot[] {
   const base = host === "codex" ? join(process.env.HOME ?? "", ".codex") : join(process.env.HOME ?? "", ".claude");
   const names = host === "codex" ? ["config.toml", "hooks.json"] : ["settings.json", "settings.local.json"];
-  return names.flatMap((name) => {
+  return names.map((name) => {
     const path = join(base, name);
-    return existsSync(path) ? [[`${host} ordinary ${name}`, hashGuardFile(path, `${host} ordinary ${name}`)] as [string, FileIdentity]] : [];
+    const label = `${host} ordinary ${name}`;
+    return pathEntryExists(path) ? { label, path, identity: hashGuardFile(path, label) } : { label, path };
   });
 }
 
-function assertOrdinaryConfigurationUnchanged(files: Array<[string, FileIdentity]>): void {
-  for (const [label, identity] of files) assertGuardFileUnchanged(identity, label);
+function assertOrdinaryConfigurationUnchanged(files: OrdinaryConfigurationSnapshot[]): void {
+  for (const snapshot of files) {
+    if (snapshot.identity) assertGuardFileUnchanged(snapshot.identity, snapshot.label);
+    else if (pathEntryExists(snapshot.path)) throw new Error(`${snapshot.label} appeared during the live-host route check`);
+  }
 }
 
 function assertDisposableProfile(host: GuardHost, requested: string): { profileHome: string; marker: FileIdentity } {

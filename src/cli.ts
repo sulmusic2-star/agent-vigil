@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTranscript, extractClaims, extractRunClaims } from "./transcript.ts";
 import {
@@ -235,22 +235,35 @@ function runGuardCompatibilityCommand(args: string[]): number {
     const timeoutValue = parsed.values.get("--timeout-ms");
     const timeoutMs = timeoutValue === undefined ? undefined : Number(timeoutValue);
     if (timeoutValue !== undefined && !Number.isInteger(timeoutMs)) throw new Error("guard-compat --timeout-ms must be an integer");
-    const argumentsPath = parsed.values.get("--control-args");
+    const hostExecutable = resolve(required("--host-executable"));
+    const controlExecutable = resolve(required("--control-executable"));
+    const controlArtifact = parsed.values.get("--control-artifact") ? resolve(parsed.values.get("--control-artifact")!) : undefined;
+    const argumentsPath = parsed.values.get("--control-args") ? resolve(parsed.values.get("--control-args")!) : undefined;
+    const policyPath = resolve(required("--policy"));
+    const configurationPath = resolve(required("--configuration"));
+    const output = parsed.values.get("--output");
+    assertGuardOutputIsDistinct(output, [
+      hostExecutable,
+      controlExecutable,
+      controlArtifact ?? "",
+      argumentsPath ?? "",
+      policyPath,
+      configurationPath,
+    ]);
     const report = runGuardCompatibility({
       host,
       hostVersion: required("--host-version"),
-      hostExecutable: resolve(required("--host-executable")),
+      hostExecutable,
       controlName: required("--control-name"),
       controlVersion: required("--control-version"),
-      controlExecutable: resolve(required("--control-executable")),
-      ...(parsed.values.get("--control-artifact") ? { controlArtifact: resolve(parsed.values.get("--control-artifact")!) } : {}),
-      ...(argumentsPath ? { controlArguments: loadControlArguments(resolve(argumentsPath)) } : {}),
-      policyPath: resolve(required("--policy")),
-      configurationPath: resolve(required("--configuration")),
+      controlExecutable,
+      ...(controlArtifact ? { controlArtifact } : {}),
+      ...(argumentsPath ? { controlArguments: loadControlArguments(argumentsPath) } : {}),
+      policyPath,
+      configurationPath,
       vigilVersion: VERSION,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     });
-    const output = parsed.values.get("--output");
     if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardCompatibility(report));
     return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
@@ -301,15 +314,18 @@ function runGuardRouteCommand(args: string[]): number {
     const timeoutValue = parsed.values.get("--timeout-ms");
     const timeoutMs = timeoutValue === undefined ? undefined : Number(timeoutValue);
     if (timeoutValue !== undefined && !Number.isInteger(timeoutMs)) throw new Error("guard-route --timeout-ms must be an integer");
+    const hostExecutable = resolve(required("--host-executable"));
+    const profileHome = resolve(required("--profile-home"));
+    const output = parsed.values.get("--output");
+    assertGuardOutputIsDistinct(output, [hostExecutable, join(profileHome, ".agent-vigil-disposable-profile")]);
     const report = runGuardRoute({
       host,
       hostVersion: required("--host-version"),
-      hostExecutable: resolve(required("--host-executable")),
-      profileHome: resolve(required("--profile-home")),
+      hostExecutable,
+      profileHome,
       vigilVersion: VERSION,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     });
-    const output = parsed.values.get("--output");
     if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardRoute(report));
     return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
@@ -785,6 +801,28 @@ function parseCommandArgs(args: string[], valueOptions: Set<string>, booleanOpti
     throw new Error(`unknown option: ${arg}`);
   }
   return { positional, values, flags };
+}
+
+function assertGuardOutputIsDistinct(output: string | undefined, inputs: string[]): void {
+  if (!output) return;
+  const selected = resolve(output);
+  const selectedExists = existsSync(selected);
+  const selectedReal = selectedExists ? realpathSync(selected) : selected;
+  const selectedStatus = selectedExists ? statSync(selected) : undefined;
+  for (const input of inputs) {
+    if (!input) continue;
+    const requestedInput = resolve(input);
+    if (selected === requestedInput) throw new Error("--output must not replace or alias a guard input");
+    if (!existsSync(requestedInput)) continue;
+    const realInput = realpathSync(requestedInput);
+    if (selectedReal === realInput) throw new Error("--output must not replace or alias a guard input");
+    if (selectedStatus) {
+      const inputStatus = statSync(realInput);
+      if (selectedStatus.dev === inputStatus.dev && selectedStatus.ino === inputStatus.ino) {
+        throw new Error("--output must not replace or alias a guard input");
+      }
+    }
+  }
 }
 
 function runAttest(args: string[]): number {

@@ -4,7 +4,7 @@
 import { createHash as createHash24 } from "node:crypto";
 import { execFileSync as execFileSync19 } from "node:child_process";
 import { existsSync as existsSync13, mkdirSync as mkdirSync11, readFileSync as readFileSync27, realpathSync as realpathSync15, statSync as statSync10, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname13, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve29 } from "node:path";
+import { dirname as dirname13, isAbsolute as isAbsolute11, join as join15, relative as relative14, resolve as resolve29 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -12517,16 +12517,29 @@ function readHookLog(path) {
     return value;
   });
 }
+function pathEntryExists(path) {
+  try {
+    lstatSync14(path);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
 function ordinaryConfiguration(host) {
   const base = host === "codex" ? join12(process.env.HOME ?? "", ".codex") : join12(process.env.HOME ?? "", ".claude");
   const names = host === "codex" ? ["config.toml", "hooks.json"] : ["settings.json", "settings.local.json"];
-  return names.flatMap((name2) => {
+  return names.map((name2) => {
     const path = join12(base, name2);
-    return existsSync11(path) ? [[`${host} ordinary ${name2}`, hashGuardFile(path, `${host} ordinary ${name2}`)]] : [];
+    const label = `${host} ordinary ${name2}`;
+    return pathEntryExists(path) ? { label, path, identity: hashGuardFile(path, label) } : { label, path };
   });
 }
 function assertOrdinaryConfigurationUnchanged(files) {
-  for (const [label, identity] of files) assertGuardFileUnchanged(identity, label);
+  for (const snapshot of files) {
+    if (snapshot.identity) assertGuardFileUnchanged(snapshot.identity, snapshot.label);
+    else if (pathEntryExists(snapshot.path)) throw new Error(`${snapshot.label} appeared during the live-host route check`);
+  }
 }
 function assertDisposableProfile(host, requested) {
   const profileHome = realpathSync13(requested);
@@ -13725,14 +13738,15 @@ function unsignedResult(generatedAt, continuity, staple, plan, verifier) {
   };
 }
 function verifyTerraformSavedPlan(options) {
-  const verification2 = verifyContinuityStaple(options.staple, options.stapleOptions);
+  const initialNow = /* @__PURE__ */ new Date();
+  const verification2 = verifyContinuityStaple(options.staple, { ...options.stapleOptions, now: initialNow });
   const staple = {
     payloadHash: verification2.payloadHash,
     signerKeyId: verification2.signerKeyId,
     expiresAt: verification2.expiresAt,
     sequence: verification2.sequence
   };
-  const generatedAt = (options.stapleOptions.now ?? /* @__PURE__ */ new Date()).toISOString();
+  const generatedAt = initialNow.toISOString();
   if (!verification2.allowsProtectedAction) {
     const unsigned2 = unsignedResult(generatedAt, verification2.effectiveContinuity, staple, null, null);
     return { ...unsigned2, authorizationHash: canonicalSha256(unsigned2) };
@@ -13773,7 +13787,15 @@ function verifyTerraformSavedPlan(options) {
     architecture: arch3,
     networkCalls: 0
   };
-  const unsigned = unsignedResult(generatedAt, verification2.effectiveContinuity, staple, plan, verifier);
+  const finalNow = /* @__PURE__ */ new Date();
+  const finalVerification = verifyContinuityStaple(options.staple, { ...options.stapleOptions, now: finalNow });
+  const finalStaple = {
+    payloadHash: finalVerification.payloadHash,
+    signerKeyId: finalVerification.signerKeyId,
+    expiresAt: finalVerification.expiresAt,
+    sequence: finalVerification.sequence
+  };
+  const unsigned = unsignedResult(finalNow.toISOString(), finalVerification.effectiveContinuity, finalStaple, plan, verifier);
   return { ...unsigned, authorizationHash: canonicalSha256(unsigned) };
 }
 
@@ -14137,7 +14159,7 @@ Usage:
   vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
   vigil continuity staple --chain <directory> --policy <policy.json> --environment <name> --signing-key <private.pem> --output <staple.json> [--repo <path> --policy-ref <sha>] [--expected-head <sha>] [--now <RFC3339>] [--ttl-seconds <1-900>]
   vigil continuity verify-staple <staple.json> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--now <RFC3339>] [--format text|json] [--output <file>]
-  vigil continuity terraform-plan-gate <saved-plan> --staple <staple.json> --terraform-executable <path> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--now <RFC3339>] [--timeout-ms <1000-120000>] [--format text|json] [--output <file>]
+  vigil continuity terraform-plan-gate <saved-plan> --staple <staple.json> --terraform-executable <path> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--timeout-ms <1000-120000>] [--format text|json] [--output <file>]
 
 Examples:
   vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
@@ -14522,7 +14544,6 @@ function runTerraformPlanGate(args) {
     "--expected-policy-sha256",
     "--expected-chain-tip",
     "--minimum-sequence",
-    "--now",
     "--timeout-ms",
     "--format",
     "--output"
@@ -14543,7 +14564,6 @@ function runTerraformPlanGate(args) {
       expectedHead: required(parsed, "--expected-head"),
       expectedEnvironment: required(parsed, "--environment"),
       expectedPolicySha256: required(parsed, "--expected-policy-sha256"),
-      now: selectedNow(parsed),
       ...parsed.values.get("--expected-chain-tip") ? { expectedChainTip: parsed.values.get("--expected-chain-tip") } : {},
       ...parsed.values.get("--minimum-sequence") !== void 0 ? { minimumSequence: selectedInteger(parsed, "--minimum-sequence") } : {}
     },
@@ -15298,22 +15318,35 @@ function runGuardCompatibilityCommand(args) {
     const timeoutValue = parsed.values.get("--timeout-ms");
     const timeoutMs = timeoutValue === void 0 ? void 0 : Number(timeoutValue);
     if (timeoutValue !== void 0 && !Number.isInteger(timeoutMs)) throw new Error("guard-compat --timeout-ms must be an integer");
-    const argumentsPath = parsed.values.get("--control-args");
+    const hostExecutable = resolve29(required2("--host-executable"));
+    const controlExecutable = resolve29(required2("--control-executable"));
+    const controlArtifact = parsed.values.get("--control-artifact") ? resolve29(parsed.values.get("--control-artifact")) : void 0;
+    const argumentsPath = parsed.values.get("--control-args") ? resolve29(parsed.values.get("--control-args")) : void 0;
+    const policyPath = resolve29(required2("--policy"));
+    const configurationPath = resolve29(required2("--configuration"));
+    const output = parsed.values.get("--output");
+    assertGuardOutputIsDistinct(output, [
+      hostExecutable,
+      controlExecutable,
+      controlArtifact ?? "",
+      argumentsPath ?? "",
+      policyPath,
+      configurationPath
+    ]);
     const report = runGuardCompatibility({
       host,
       hostVersion: required2("--host-version"),
-      hostExecutable: resolve29(required2("--host-executable")),
+      hostExecutable,
       controlName: required2("--control-name"),
       controlVersion: required2("--control-version"),
-      controlExecutable: resolve29(required2("--control-executable")),
-      ...parsed.values.get("--control-artifact") ? { controlArtifact: resolve29(parsed.values.get("--control-artifact")) } : {},
-      ...argumentsPath ? { controlArguments: loadControlArguments(resolve29(argumentsPath)) } : {},
-      policyPath: resolve29(required2("--policy")),
-      configurationPath: resolve29(required2("--configuration")),
+      controlExecutable,
+      ...controlArtifact ? { controlArtifact } : {},
+      ...argumentsPath ? { controlArguments: loadControlArguments(argumentsPath) } : {},
+      policyPath,
+      configurationPath,
       vigilVersion: VERSION,
       ...timeoutMs !== void 0 ? { timeoutMs } : {}
     });
-    const output = parsed.values.get("--output");
     if (output) writePrivateFileAtomic(resolve29(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardCompatibility(report));
@@ -15373,15 +15406,18 @@ function runGuardRouteCommand(args) {
     const timeoutValue = parsed.values.get("--timeout-ms");
     const timeoutMs = timeoutValue === void 0 ? void 0 : Number(timeoutValue);
     if (timeoutValue !== void 0 && !Number.isInteger(timeoutMs)) throw new Error("guard-route --timeout-ms must be an integer");
+    const hostExecutable = resolve29(required2("--host-executable"));
+    const profileHome = resolve29(required2("--profile-home"));
+    const output = parsed.values.get("--output");
+    assertGuardOutputIsDistinct(output, [hostExecutable, join15(profileHome, ".agent-vigil-disposable-profile")]);
     const report = runGuardRoute({
       host,
       hostVersion: required2("--host-version"),
-      hostExecutable: resolve29(required2("--host-executable")),
-      profileHome: resolve29(required2("--profile-home")),
+      hostExecutable,
+      profileHome,
       vigilVersion: VERSION,
       ...timeoutMs !== void 0 ? { timeoutMs } : {}
     });
-    const output = parsed.values.get("--output");
     if (output) writePrivateFileAtomic(resolve29(output), `${JSON.stringify(report, null, 2)}
 `);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardRoute(report));
@@ -15900,6 +15936,27 @@ function parseCommandArgs(args, valueOptions, booleanOptions = /* @__PURE__ */ n
     throw new Error(`unknown option: ${arg}`);
   }
   return { positional: positional2, values, flags };
+}
+function assertGuardOutputIsDistinct(output, inputs) {
+  if (!output) return;
+  const selected = resolve29(output);
+  const selectedExists = existsSync13(selected);
+  const selectedReal = selectedExists ? realpathSync15(selected) : selected;
+  const selectedStatus = selectedExists ? statSync10(selected) : void 0;
+  for (const input of inputs) {
+    if (!input) continue;
+    const requestedInput = resolve29(input);
+    if (selected === requestedInput) throw new Error("--output must not replace or alias a guard input");
+    if (!existsSync13(requestedInput)) continue;
+    const realInput = realpathSync15(requestedInput);
+    if (selectedReal === realInput) throw new Error("--output must not replace or alias a guard input");
+    if (selectedStatus) {
+      const inputStatus = statSync10(realInput);
+      if (selectedStatus.dev === inputStatus.dev && selectedStatus.ino === inputStatus.ino) {
+        throw new Error("--output must not replace or alias a guard input");
+      }
+    }
+  }
 }
 function runAttest(args) {
   try {
