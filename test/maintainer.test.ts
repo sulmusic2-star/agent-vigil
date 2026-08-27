@@ -583,18 +583,64 @@ test("automated review is inconclusive when a command times out", () => {
 test("automated review retains its deadline when a descendant holds the output pipes open", () => {
   const fixture = regressionRepo(true);
   const root = temp("vigil-command-descendant-");
+  const holder = join(root, "holder.cjs");
   const script = join(root, "descendant.cjs");
+  const pidPath = join(root, "holder.pid");
+  const stopPath = join(root, "holder.stop");
+  writeFileSync(holder, [
+    'const { existsSync, writeFileSync } = require("node:fs");',
+    "writeFileSync(process.argv[2], String(process.pid), { flag: \"wx\" });",
+    "setInterval(() => { if (existsSync(process.argv[3])) process.exit(0); }, 25);",
+    "",
+  ].join("\n"));
   writeFileSync(script, [
     'const { spawn } = require("node:child_process");',
-    'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], { stdio: ["ignore", "inherit", "inherit"] });',
+    // Windows only guarantees that the descendant can outlive this launcher
+    // when it is detached. Keep POSIX descendants in the wrapper process group
+    // so its negative-PID timeout cleanup still exercises the production path.
+    `const child = spawn(process.execPath, [${JSON.stringify(holder)}, ${JSON.stringify(pidPath)}, ${JSON.stringify(stopPath)}], { detached: process.platform === "win32", stdio: ["ignore", "inherit", "inherit"] });`,
     "child.unref();",
     "",
   ].join("\n"));
+  const waitCell = new Int32Array(new SharedArrayBuffer(4));
+  const pause = (): void => { Atomics.wait(waitCell, 0, 0, 25); };
+  const isAlive = (pid: number): boolean => {
+    try { process.kill(pid, 0); return true; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+      throw error;
+    }
+  };
   try {
+    const started = Date.now();
     const checks = checkAutomatedReview(fixture.repo, fixture.head, { commands: [`node ${JSON.stringify(script)}`], timeoutSeconds: 1 });
-    assert.ok(checks.some((check) => check.ruleId === "automated-review-command" && check.verdict === "unverifiable" && check.blocksPass));
+    const elapsed = Date.now() - started;
+    const command = checks.find((check) => check.ruleId === "automated-review-command");
+    assert.equal(command?.verdict, "unverifiable", JSON.stringify(checks, null, 2));
+    assert.equal(command?.blocksPass, true);
+    assert.match(command?.evidence ?? "", /(?:^| )error=command timed out(?: |$)/);
+    assert.ok(elapsed < 5_000, `descendant-held pipes exceeded the bounded deadline: ${elapsed}ms`);
+    assert.match(readFileSync(pidPath, "utf8"), /^[1-9]\d*$/);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    // The assertion is about bounded completion, not containment of a
+    // deliberately detached Windows process. Cooperatively stop that exact
+    // helper and wait for its recorded PID before deleting its control files.
+    writeFileSync(stopPath, "stop\n");
+    try {
+      const pidDeadline = Date.now() + 1_000;
+      while (!existsSync(pidPath) && Date.now() < pidDeadline) pause();
+      if (existsSync(pidPath)) {
+        const pid = Number(readFileSync(pidPath, "utf8"));
+        const exitDeadline = Date.now() + 2_000;
+        while (isAlive(pid) && Date.now() < exitDeadline) pause();
+        if (isAlive(pid)) process.kill(pid);
+        const killDeadline = Date.now() + 2_000;
+        while (isAlive(pid) && Date.now() < killDeadline) pause();
+        assert.equal(isAlive(pid), false, `holder PID ${pid} remained alive after cleanup`);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 
