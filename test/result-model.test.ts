@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { remediationFor } from "../src/remediation.ts";
-import { buildReport } from "../src/report.ts";
+import { buildReport, recomputeReceiptHash } from "../src/report.ts";
 import {
   buildReportResultView,
   readChangedFileManifest,
@@ -37,7 +37,14 @@ test("missing required evidence cannot display PASS", () => {
   const input = report("INCONCLUSIVE");
   input.summary.status = "PASS";
   input.summary.pass = true;
-  assert.throws(() => buildReportResultView(input), /refused an inconsistent receipt summary/);
+  assert.throws(() => buildReportResultView(input), /content does not match its hash/);
+});
+
+test("a changed result and matching changed summary cannot reuse the old receipt hash", () => {
+  const input = report("FAIL");
+  input.results[0].verdict = "verified";
+  input.summary = { verified: 1, contradicted: 0, unverifiable: 0, meaningfulVerified: 1, status: "PASS", pass: true };
+  assert.throws(() => buildReportResultView(input), /content does not match its hash/);
 });
 
 test("claimed and observed test counts stay distinct and hostile text is neutralized", () => {
@@ -63,6 +70,61 @@ test("claimed and observed test counts stay distinct and hostile text is neutral
   const web = renderResultViewHtml(view);
   assert.doesNotMatch(web, /\u001b|\u202e|\r/);
   assert.doesNotMatch(web, /<script>alert\(1\)<\/script>/);
+});
+
+test("normal detector mismatch evidence retains the observed test count", () => {
+  const input = buildReport({
+    transcript: "fixture.jsonl",
+    transcriptFormat: "fixture",
+    repo: ".",
+    base: OID_A,
+    head: OID_B,
+    results: [{
+      claim: { kind: "tests_pass", subject: "184 tests passed", quote: "184 tests passed", expectedCount: 184 },
+      verdict: "contradicted",
+      evidence: "runner reported 161 passed",
+      ruleId: "test-count",
+    }],
+    policy: { strict: true, sha256: "sha256:policy" },
+  });
+  assert.equal(buildReportResultView(input).findings[0].observedTestCount, 161);
+});
+
+test("an unmet minimum-evidence gate is shown as not checked", () => {
+  const input = buildReport({
+    transcript: "fixture.jsonl",
+    transcriptFormat: "fixture",
+    repo: ".",
+    base: OID_A,
+    head: OID_B,
+    results: [{
+      claim: { kind: "integrity", subject: "workspace bound", quote: "workspace bound" },
+      verdict: "verified",
+      evidence: "head matched",
+      ruleId: "workspace-bound",
+      contributesToPass: false,
+    }],
+    policy: { strict: false, minVerified: 1, sha256: "sha256:policy" },
+  });
+  const view = buildReportResultView(input);
+  assert.equal(view.verdict, "INCONCLUSIVE");
+  assert.equal(view.counts.notChecked, 1);
+  assert.ok(view.findings.some((finding) => finding.id === "completion-evidence" && finding.state === "NOT_CHECKED"));
+});
+
+test("advisory findings remain visible in the HTML view", () => {
+  const input = report("PASS");
+  input.advisories = [{
+    claim: { kind: "integrity", subject: "new skip marker", quote: "skip" },
+    verdict: "contradicted",
+    evidence: "test/a.test.ts:8 added a skip",
+    ruleId: "test-skip-added",
+    contributesToPass: false,
+  }];
+  input.receiptHash = recomputeReceiptHash(input);
+  const web = renderResultViewHtml(buildReportResultView(input));
+  assert.match(web, /Review notes/);
+  assert.match(web, /new skip marker/);
 });
 
 test("PASS, FAIL, and INCONCLUSIVE use the same result structure", () => {

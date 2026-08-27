@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import type { OutcomeReceipt, OutcomeVerdict } from "./outcome.ts";
 import { remediationFor } from "./remediation.ts";
-import type { CheckResult, ReportStatus, TrustReport } from "./report.ts";
+import { recomputeReceiptHash, type CheckResult, type ReportStatus, type TrustReport } from "./report.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
 
 export type ResultState = "FAILED" | "PASSED" | "NOT_CHECKED";
@@ -54,7 +54,10 @@ export type ResultView = {
 const GIT_OID = /^[0-9a-f]{40,64}$/;
 const COLON_LOCATION = /(?:^|[\s'"`(])([^\s'"`()]+\.[A-Za-z0-9]{1,12}):(\d+)(?=$|[\s'"`),.;])/;
 const CHANGED_LINE_LOCATION = /(?:^|[\s'"`(])([^\s'"`(),]+\.[A-Za-z0-9]{1,12}),\s*(?:changed\s+)?line\s+(\d+)\b/i;
-const OBSERVED_TEST_COUNT = /\b(?:observed|found|with)\s+(\d+)\s+(?:passing\s+)?tests?\b/i;
+const OBSERVED_TEST_COUNTS = [
+  /\b(?:observed|found|with)\s+(\d+)\s+(?:passing\s+)?tests?\b/i,
+  /\brunner\s+reported\s+(\d+)\s+passed\b/i,
+];
 
 function stateFor(verdict: CheckResult["verdict"]): ResultState {
   return verdict === "verified" ? "PASSED" : verdict === "contradicted" ? "FAILED" : "NOT_CHECKED";
@@ -83,8 +86,11 @@ function locationFor(result: CheckResult): ResultLocation | undefined {
 
 function observedTestCount(result: CheckResult): number | undefined {
   if (result.ruleId !== "test-count") return undefined;
-  const match = result.evidence.match(OBSERVED_TEST_COUNT);
-  return match ? Number(match[1]) : undefined;
+  for (const pattern of OBSERVED_TEST_COUNTS) {
+    const match = result.evidence.match(pattern);
+    if (match) return Number(match[1]);
+  }
+  return undefined;
 }
 
 function findingFor(result: CheckResult, advisory = false): ResultFinding {
@@ -117,6 +123,9 @@ function deriveReportVerdict(report: TrustReport): ReportStatus {
 }
 
 function assertReportConsistency(report: TrustReport): void {
+  if (recomputeReceiptHash(report) !== report.receiptHash) {
+    throw new Error("result view refused a receipt whose content does not match its hash");
+  }
   const verdict = deriveReportVerdict(report);
   const counts = {
     verified: report.results.filter((result) => result.verdict === "verified").length,
@@ -197,8 +206,17 @@ export function buildReportResultView(
   options: { changedFiles?: ChangedFileManifest } = {},
 ): ResultView {
   assertReportConsistency(report);
-  const findings = report.results.map((result) => findingFor(result));
   const verdict = deriveReportVerdict(report);
+  const findings = report.results.map((result) => findingFor(result));
+  if (verdict === "INCONCLUSIVE" && report.summary.meaningfulVerified < report.policy.minVerified) {
+    findings.push({
+      id: "completion-evidence",
+      state: "NOT_CHECKED",
+      title: "Required verification evidence is missing",
+      evidence: `${report.summary.meaningfulVerified} of ${report.policy.minVerified} required meaningful checks passed.`,
+      remediation: remediationFor("completion-evidence"),
+    });
+  }
   return {
     schemaVersion: "agent-vigil/result-view/v1",
     verdict,
@@ -274,6 +292,7 @@ function findingHtml(finding: ResultFinding): string {
 
 export function renderResultViewHtml(view: ResultView): string {
   const open = view.findings.filter((finding) => finding.state !== "PASSED");
+  const advisories = view.advisories.map(findingHtml).join("");
   const changed = view.changedFiles.files.map((file) => `<li><span>${html(file.status)}</span><code>${file.previousPath ? `${html(file.previousPath)} → ` : ""}${html(file.path)}</code></li>`).join("");
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Vigil ${view.verdict}</title>
@@ -282,6 +301,7 @@ export function renderResultViewHtml(view: ResultView): string {
 <div class="counts" aria-label="Check counts"><div class="count"><strong>${view.counts.failed}</strong>Failed</div><div class="count"><strong>${view.counts.passed}</strong>Passed</div><div class="count"><strong>${view.counts.notChecked}</strong>Not checked</div></div>
 <nav class="actions" aria-label="Result actions"><a href="#changed-files">Review changed files</a><button type="button" data-copy-reproduce>Copy reproduce command</button><a href="#evidence">Show evidence</a></nav>
 <section aria-labelledby="open-title"><h2 id="open-title">${open.length ? "Checks that need attention" : "Required checks passed"}</h2>${open.length ? open.map(findingHtml).join("") : "<p>No failed or missing required checks.</p>"}</section>
+${advisories ? `<section aria-labelledby="advisory-title"><h2 id="advisory-title">Review notes</h2>${advisories}</section>` : ""}
 <section id="changed-files" aria-labelledby="changed-title"><h2 id="changed-title">Changed files</h2><p>${html(view.changedFiles.evidence)}</p><ul class="changed">${changed || "<li><span>none shown</span><code>No changed-file records are available.</code></li>"}</ul></section>
 <section id="evidence" aria-labelledby="evidence-title"><h2 id="evidence-title">Evidence</h2><details open><summary>Exact change and receipt</summary><p class="meta">Base ${html(view.base)}<br>Head ${html(view.head)}<br>Receipt ${html(view.receiptHash)}<br>Generated ${html(view.generatedAt)}</p></details><details><summary>Reproduce</summary><code class="reproduce">${html(view.reproduce)}</code></details></section></section></main>
 <script>document.querySelector('[data-copy-reproduce]').addEventListener('click',async function(){await navigator.clipboard.writeText(${JSON.stringify(view.reproduce).replace(/</g, "\\u003c")});this.textContent='Copied';});</script></body></html>\n`;
