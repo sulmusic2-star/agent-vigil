@@ -45,7 +45,7 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ steps.source.outputs.run_id }}
       - id: outcome
-        uses: sulmusic2-star/agent-vigil@v0.11.2
+        uses: sulmusic2-star/agent-vigil@v0.17.0
         with:
           mode: outcome
           outcome-receipt: .agent-vigil-prior/agent-vigil-report.json

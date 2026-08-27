@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies for fresh verification
         run: npm ci --ignore-scripts
       - id: vigil
-        uses: sulmusic2-star/agent-vigil@v0.12.0
+        uses: sulmusic2-star/agent-vigil@v0.17.0
         continue-on-error: true
         with:
           attest: true
