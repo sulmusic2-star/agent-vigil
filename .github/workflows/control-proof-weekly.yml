@@ -27,7 +27,7 @@ jobs:
           package-manager-cache: false
       - id: vigil
         name: Challenge the installed control without signing authority
-        uses: sulmusic2-star/agent-vigil@d11579ef73f77b87a5c1d2bb57e80e66054da74b
+        uses: sulmusic2-star/agent-vigil@982238c1ef7d0e4182cccfd3f05f19f216c9e378
         with:
           mode: prove
           attest: false
