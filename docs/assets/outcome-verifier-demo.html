@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Agent Vigil — Check agent-written pull requests</title>
+  <style>
+    /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 */
+    :root {
+      color-scheme: light;
+      --color-page: #f6f5f2;
+      --color-panel: #ffffff;
+      --color-ink: #242421;
+      --color-muted: #64635d;
+      --color-line: #d8d6cf;
+      --color-line-dark: #aaa79d;
+      --color-soft: #eeede8;
+      --color-link: #245da7;
+      --color-fail: #a1261f;
+      --color-fail-soft: #fff4f2;
+      --color-pass: #247044;
+      --color-focus: #1f6feb;
+      --font-body: Arial, Helvetica, sans-serif;
+      --font-code: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { max-width: 100%; overflow-x: clip; }
+    body { margin: 0; background: var(--color-page); color: var(--color-ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+    a { color: var(--color-link); }
+    a:focus-visible, summary:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+    h1, h2, h3, p { overflow-wrap: anywhere; }
+    .shell { width: min(calc(100% - 32px), 880px); margin-inline: auto; }
+    .topbar { border-bottom: 1px solid var(--color-line); background: var(--color-panel); }
+    .topbar-inner { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { color: var(--color-ink); font-weight: 700; text-decoration: none; white-space: nowrap; }
+    .toplink { font-size: 14px; white-space: nowrap; }
+    main { padding-block: 42px 64px; }
+    .intro { max-width: 680px; margin-bottom: 28px; }
+    .eyebrow { margin: 0 0 8px; color: var(--color-muted); font-size: 13px; }
+    h1 { max-width: 650px; margin: 0; font-size: clamp(30px, 7.8vw, 44px); line-height: 1.12; letter-spacing: -0.025em; }
+    .intro p:last-child { max-width: 620px; margin: 14px 0 0; color: var(--color-muted); font-size: 17px; }
+    .check { border: 1px solid var(--color-line-dark); background: var(--color-panel); }
+    .check-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 20px; border-bottom: 1px solid var(--color-line); background: var(--color-fail-soft); }
+    .check-name { margin: 0; font-size: 16px; font-weight: 700; }
+    .check-summary { margin: 3px 0 0; color: var(--color-muted); font-size: 13px; }
+    .failed { flex: none; color: var(--color-fail); font-family: var(--font-code); font-size: 13px; font-weight: 700; white-space: nowrap; }
+    .message { padding: 20px; border-bottom: 1px solid var(--color-line); }
+    .message h2 { margin: 0 0 6px; font-size: 20px; line-height: 1.25; }
+    .message p { margin: 0; color: var(--color-muted); }
+    .finding { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--color-line); }
+    .mark { font-family: var(--font-code); font-weight: 700; }
+    .mark.fail { color: var(--color-fail); }
+    .mark.pass { color: var(--color-pass); }
+    .finding strong { display: block; margin-bottom: 2px; }
+    .finding p { margin: 0; color: var(--color-muted); }
+    code { font-family: var(--font-code); font-size: 0.88em; }
+    .command { padding: 16px 20px; background: var(--color-soft); overflow-x: auto; }
+    .command span { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; }
+    .command code { white-space: pre; }
+    .next { display: grid; gap: 24px; margin-top: 34px; }
+    .next h2 { margin: 0 0 8px; font-size: 21px; }
+    .next p { margin: 0; color: var(--color-muted); }
+    .steps { margin: 14px 0 0; padding-left: 22px; }
+    .steps li { margin: 8px 0; padding-left: 4px; }
+    details { border-top: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line); }
+    summary { padding: 13px 0; cursor: pointer; font-weight: 700; }
+    details p { padding: 0 0 14px; }
+    .install { display: inline-block; margin-top: 15px; padding: 10px 12px; border: 1px solid var(--color-line-dark); background: var(--color-panel); color: var(--color-ink); font-family: var(--font-code); font-size: 13px; text-decoration: none; white-space: nowrap; }
+    footer { padding-block: 22px 36px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 13px; }
+    footer .shell { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+    footer a { white-space: nowrap; }
+    @media (max-width: 420px) {
+      .toplink { display: none; }
+    }
+    @media (min-width: 700px) {
+      main { padding-block: 58px 80px; }
+      .next { grid-template-columns: minmax(0, 1fr) minmax(250px, 0.72fr); gap: 54px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="https://github.com/sulmusic2-star/agent-vigil">Agent Vigil</a>
+      <a class="toplink" href="../OUTCOME_MANDATES.md">How the check works</a>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="intro">
+      <p class="eyebrow">For pull requests written with coding agents</p>
+      <h1>Check the PR before you merge it.</h1>
+      <p>The agent says the fix is done. Agent Vigil shows which commit and commands were checked, what failed, and what still needs checking.</p>
+    </section>
+
+    <article class="check" aria-label="Example failed Agent Vigil check">
+      <div class="check-header">
+        <div><p class="check-name">Agent Vigil</p><p class="check-summary">Example check on the proposed commit</p></div>
+        <div class="failed">FAILED</div>
+      </div>
+      <div class="message">
+        <h2>Do not merge this change yet.</h2>
+        <p>The new test does not show that the fix changed the reported behavior.</p>
+      </div>
+      <div class="finding">
+        <span class="mark fail" aria-hidden="true">×</span>
+        <div><strong>The regression test also passed before the fix.</strong><p>Run it on the base commit and it still passes. This test would not have caught the bug.</p></div>
+      </div>
+      <div class="finding">
+        <span class="mark fail" aria-hidden="true">×</span>
+        <div><strong>A required check did not pass.</strong><p><code>test-integrity</code> was required when the task started.</p></div>
+      </div>
+      <div class="finding">
+        <span class="mark pass" aria-hidden="true">✓</span>
+        <div><strong>The commit matches.</strong><p>The base and proposed commit are the ones named in the task record.</p></div>
+      </div>
+      <div class="finding">
+        <span class="mark" aria-hidden="true">—</span>
+        <div><strong>Not checked: deployment and rollback.</strong><p>Those checks were not included in this task.</p></div>
+      </div>
+      <div class="command"><span>Run the same check</span><code>vigil mandate assess mandate.json --receipt trust-report.json --output outcome-receipt.json</code></div>
+    </article>
+
+    <section class="next">
+      <div>
+        <h2>What it checks</h2>
+        <ol class="steps">
+          <li>The exact base and proposed commit.</li>
+          <li>The commands the repository required.</li>
+          <li>Whether the change stayed inside the task.</li>
+          <li>Whether a regression test fails before the fix and passes after it.</li>
+        </ol>
+      </div>
+      <div>
+        <h2>Run it in your repository</h2>
+        <p>The CLI is open source and runs on your machine or GitHub runner. Agent transcripts do not have to leave the repository.</p>
+        <a class="install" href="https://github.com/sulmusic2-star/agent-vigil">npx @sulmusic/agent-vigil protect</a>
+        <details><summary>What does INCONCLUSIVE mean?</summary><p>The check could not verify something the task required. It does not turn missing evidence into a pass.</p></details>
+      </div>
+    </section>
+  </main>
+  <footer><div class="shell"><a href="https://github.com/sulmusic2-star/agent-vigil">GitHub</a><a href="../OUTCOME_MANDATES.md">Documentation</a><span>Open source · No hosted service available yet</span></div></footer>
+</body>
+</html>
