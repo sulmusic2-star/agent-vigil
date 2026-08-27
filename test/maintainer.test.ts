@@ -598,7 +598,7 @@ test("automated review retains its deadline when a descendant holds the output p
     // Windows only guarantees that the descendant can outlive this launcher
     // when it is detached. Keep POSIX descendants in the wrapper process group
     // so its negative-PID timeout cleanup still exercises the production path.
-    `const child = spawn(process.execPath, [${JSON.stringify(holder)}, ${JSON.stringify(pidPath)}, ${JSON.stringify(stopPath)}], { detached: process.platform === "win32", stdio: ["ignore", "inherit", "inherit"] });`,
+    `const child = spawn(process.execPath, [${JSON.stringify(holder)}, ${JSON.stringify(pidPath)}, ${JSON.stringify(stopPath)}], { cwd: ${JSON.stringify(root)}, detached: process.platform === "win32", stdio: ["ignore", "inherit", "inherit"] });`,
     "child.unref();",
     "",
   ].join("\n"));
