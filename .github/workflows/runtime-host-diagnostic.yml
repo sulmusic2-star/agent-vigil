@@ -1,0 +1,28 @@
+name: Runtime host diagnostic
+
+on:
+  push:
+    branches: [codex/v021-governed-check-smoke]
+
+permissions: {}
+
+jobs:
+  node-path:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Select Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Report non-secret runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          selected="$(command -v node)"
+          canonical="$(readlink -f -- "$selected")"
+          printf 'selected=%s\ncanonical=%s\n' "$selected" "$canonical"
+          stat -c 'node-mode=%a node-owner=%U node-group=%G node-type=%F' -- "$selected"
+          stat -c 'parent-mode=%a parent-owner=%U parent-group=%G parent-type=%F' -- "${selected%/*}"
+          if [[ -L "$selected" ]]; then printf 'node-symlink=true\n'; else printf 'node-symlink=false\n'; fi
+          node --version
