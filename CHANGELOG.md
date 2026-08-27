@@ -36,6 +36,9 @@
   arguments, policy, configuration, or the disposable-profile marker, and fail
   if an initially absent ordinary host configuration appears during a route
   drill.
+- Add signed Outcome Mandate and Outcome Receipt commands for exact-state,
+  bounded-attempt verification and dry-run settlement signals. The adapters
+  perform no network or payment action, and 50 adversarial cases fail closed.
 - Add a disposable two-replica Kubernetes admission lab with default-deny
   verifier egress and an unavailable-verifier drill. It allows fresh `CURRENT`,
   denies missing, tampered, expired, and revoked evidence, and removes its

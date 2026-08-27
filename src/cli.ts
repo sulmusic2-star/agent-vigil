@@ -87,6 +87,7 @@ import {
   type GuardHost,
 } from "./guard-compat.ts";
 import { renderGuardRoute, runGuardRoute } from "./guard-route.ts";
+import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
 
 type Options = {
   transcript?: string;
@@ -116,6 +117,8 @@ Usage:
   vigil init --profile maintainer [--repo <path>] [--force] [--attest]
   vigil init --profile authority [--repo <path>] [--force] [--attest]
   vigil protect [--repo <path>] [--force] [--attest]
+  vigil mandate <create|verify|assess> ...
+  vigil receipt <verify|signal> ...
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil guard-compat --host claude|codex --host-version <version> --host-executable <path> --control-name <name> --control-version <version> --control-executable <path> --policy <path> --configuration <path> [options]
   vigil guard-route --host claude|codex --host-version <version> --host-executable <path> --profile-home <disposable-path> [options]
@@ -137,6 +140,7 @@ Usage:
   vigil attest-control <control-proof.json> --predicate-output <path>
   vigil verify-control-attestation <control-proof.json> --repository <owner/name> [--signer-workflow <path>] [--signer-digest <sha>] [--allow-self-hosted]
   vigil notary <receipt.json> --repository <owner/name> --head <sha> --policy-sha256 <digest> [--signer-workflow <path>] [--allow-self-hosted] [--output <path>]
+\n${outcomeUsage()}
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
   vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
@@ -1365,6 +1369,8 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "init") return runInit(argv);
   if (argv[0] === "doctor") return runDoctor(argv);
   if (argv[0] === "keygen") return runKeygen(argv);
+  if (argv[0] === "mandate") return runMandateCommand(argv.slice(1));
+  if (argv[0] === "receipt") return runOutcomeReceiptCommand(argv.slice(1));
   if (argv[0] === "verify") return runVerify(argv);
   if (argv[0] === "attest") return runAttest(argv);
   if (argv[0] === "verify-attestation") return runVerifyAttestation(argv);

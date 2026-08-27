@@ -128,6 +128,8 @@
     "docs/continuity-policy-v1.schema.json",
     "docs/continuity-staple-v1.schema.json",
     "docs/notary-app-manifest.example.json",
+    "docs/outcome-mandate-v0.1.schema.json",
+    "docs/outcome-receipt-v0.1.schema.json",
     "docs/policy.schema.json",
     "docs/portable-receipt-v1.schema.json",
     "docs/public-pr-receipt-v1.schema.json",
@@ -141,6 +143,7 @@
     "proof/README.md",
     "proof/cases",
     "proof/failure-patterns",
+    "proof/outcome-cases",
     "scripts/public_adoption_census.py",
     "scripts/verify_failure_corpus.ts"
   ],
