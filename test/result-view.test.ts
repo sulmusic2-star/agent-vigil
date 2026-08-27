@@ -124,7 +124,8 @@ test("result text and web snapshot keep the decision, counts, SHAs, and changed 
     "  FAILED [test-count] Reported test count does not match the isolated run",
   ].join("\n"));
   const generated = renderResultViewHtml(demoResultView);
-  assert.equal(readFileSync("docs/assets/outcome-verifier-demo.html", "utf8"), generated);
+  const snapshot = readFileSync("docs/assets/outcome-verifier-demo.html", "utf8").replace(/\r\n/g, "\n");
+  assert.equal(snapshot, generated);
   assert.match(generated, /data-result-view-version="1"/);
   assert.match(generated, /4d407f7e171a1c3d67a80a55650f0966db304fb5/);
   assert.match(generated, /bf3b7458ebf672fbc4ba5358c02242368af602dc/);
