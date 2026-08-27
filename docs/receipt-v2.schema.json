@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.20.0/docs/receipt-v2.schema.json",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/v0.21.0/docs/receipt-v2.schema.json",
   "title": "Agent Vigil AI Change Receipt v2",
   "type": "object",
   "additionalProperties": false,

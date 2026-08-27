@@ -45,11 +45,12 @@ rerun the same release workflow only when that exact version is absent. There
 is no branch-selectable manual staging trigger. The workflow checks out the
 release event's exact commit, requires the package version to match, runs the
 release checks, and compares package integrity before accepting an
-already-published version.
-Successful workflow completion means the package is staged, not public. Review
-the staged metadata and tarball, then approve it separately with 2FA. After npm
-promotion and publish-time scanning complete, verify the public registry
-integrity and consumer path below.
+already-published version. For a previously unpublished version, successful
+workflow completion means the package is staged, not public. Review the staged
+metadata and tarball, then approve it separately with 2FA. A matching version
+that is already public is reported as a no-op. After npm promotion and
+publish-time scanning complete, verify the public registry integrity and
+consumer path below.
 
 Agent Vigil declares npm's `dual-use` content class because it is a defensive
 security utility with command-inspection and controlled-execution features.

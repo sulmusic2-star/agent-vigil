@@ -70,7 +70,7 @@ def validate_workflow(repo: pathlib.Path) -> None:
         "attest: true", "attestations: write", "artifact-metadata: write",
     ]
     if any(item not in workflow for item in required) or any(item in workflow for item in forbidden):
-        raise RuntimeError(f"generated workflow violates the v0.20 hosted contract:\n{workflow}")
+        raise RuntimeError(f"generated workflow violates the v0.21 hosted contract:\n{workflow}")
     if re.search(r"(?m)^  pull_request:\s*$|^\s+[a-z][a-z-]*:\s*write\s*$", workflow):
         raise RuntimeError(f"generated workflow has a candidate-selected trigger or write permission:\n{workflow}")
 
