@@ -178,8 +178,8 @@ test("human-readable renderers distinguish pass, failure, unresolved evidence, a
   const pass = mixedReport([result("verified", "tests-pass")]);
   assert.match(renderText(pass), /PASS/);
   assert.doesNotMatch(renderText(pass), /Missing or unresolved evidence/);
-  assert.match(renderMarkdown(pass), /^# ✅ Agent Vigil: PASS/);
-  assert.match(renderDecisionCard(pass), /required evidence is present/);
+  assert.match(renderMarkdown(pass), /^### Agent Vigil: PASS/);
+  assert.match(renderDecisionCard(pass), /Main result: All required checks passed\./);
 
   const fail = mixedReport([
     result("verified", "tests-pass"),
@@ -191,30 +191,30 @@ test("human-readable renderers distinguish pass, failure, unresolved evidence, a
   const failText = renderText(fail);
   assert.match(failText, /FAIL/);
   assert.match(failText, /Restore a meaningful coverage threshold/);
-  assert.match(failText, /unresolved advisory/);
-  assert.match(failText, /advisory finding/);
+  assert.match(failText, /ADVISORY/);
+  assert.match(failText, /Advisories \(2; non-blocking under this policy\)/);
   const failMarkdown = renderMarkdown(fail);
-  assert.match(failMarkdown, /^# ❌ Agent Vigil: FAIL/);
-  assert.match(failMarkdown, /What to do next/);
-  assert.match(failMarkdown, /claim \\| with spacing/);
-  assert.match(renderDecisionCard(fail), /required check contradicted/);
+  assert.match(failMarkdown, /^### Agent Vigil: FAIL/);
+  assert.match(failMarkdown, /Checks that need attention/);
+  assert.match(failMarkdown, /Evidence: evidence \| with/);
+  assert.match(renderDecisionCard(fail), /Main result: 1 required check\(s\) failed\./);
 
   const unresolved = mixedReport([result("unverifiable", "path-exists")]);
   assert.equal(unresolved.summary.status, "INCONCLUSIVE");
-  assert.match(renderText(unresolved), /Missing or unresolved evidence/);
-  assert.match(renderMarkdown(unresolved), /^# ⚠️ Agent Vigil: INCONCLUSIVE/);
-  assert.match(renderDecisionCard(unresolved), /not enough to approve/);
+  assert.match(renderText(unresolved), /Required verification evidence is missing/);
+  assert.match(renderMarkdown(unresolved), /^### Agent Vigil: INCONCLUSIVE/);
+  assert.match(renderDecisionCard(unresolved), /Main result: 2 required check\(s\) did not run\./);
 });
 
-test("decision card bounds the inline repair list and escapes reproduction backticks", () => {
+test("decision card stays aggregate-only and escapes reproduction backticks", () => {
   const open = Array.from({ length: 7 }, (_, index) => result(
     "contradicted",
     index === 0 ? undefined : `unknown-${index}`,
     `blocked item ${index}`,
   ));
   const card = renderDecisionCard(mixedReport(open));
-  assert.match(card, /blocked item 0/);
-  assert.match(card, /2 more item\(s\)/);
+  assert.match(card, /Main result: 7 required check\(s\) failed\./);
+  assert.doesNotMatch(card, /blocked item 0/);
   assert.doesNotMatch(card, /blocked item 6/);
   assert.match(card, /\\`fixture\\`/);
   assert.match(remediationFor(), /objective evidence/);
