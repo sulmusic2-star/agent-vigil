@@ -1,6 +1,6 @@
 # Compatibility laboratory
 
-Checked 2026-08-24. This file records executed proof, not a claim that every
+Checked 2026-08-27. This file records executed proof, not a claim that every
 possible project is supported.
 
 ## Generated-repository matrix
