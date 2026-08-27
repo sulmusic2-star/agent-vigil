@@ -29,7 +29,7 @@ function fixture(options: { headPath?: string; headContent?: string; transcript?
   mkdirSync(join(repo, "src"), { recursive: true });
   mkdirSync(join(repo, "test"), { recursive: true });
   writeFileSync(join(repo, "src", "value.ts"), "export const value = 1;\n");
-  writeFileSync(join(repo, "test", "value.test.ts"), "import test from 'node:test';import assert from 'node:assert/strict';test('value',()=>assert.equal(1,1));\n");
+  writeFileSync(join(repo, "test", "value.test.js"), "const test=require('node:test');const assert=require('node:assert/strict');test('value',()=>assert.equal(1,1));\n");
   const contract: AuthorityContract = {
     schemaVersion: 1,
     taskId: "AV-42",
@@ -46,7 +46,7 @@ function fixture(options: { headPath?: string; headContent?: string; transcript?
     { type: "response_item", payload: { type: "function_call_output", call_id: "read", output: JSON.stringify({ exit_code: 0, output: "" }) } },
     { type: "response_item", payload: { type: "function_call", call_id: "write", name: "apply_patch", arguments: "*** Begin Patch\n*** Update File: src/value.ts\n@@\n-old\n+new\n*** End Patch" } },
     { type: "response_item", payload: { type: "function_call_output", call_id: "write", output: "Done" } },
-    { type: "response_item", payload: { type: "function_call", call_id: "test", name: "exec_command", arguments: JSON.stringify({ cmd: "node --test test/value.test.ts" }) } },
+    { type: "response_item", payload: { type: "function_call", call_id: "test", name: "exec_command", arguments: JSON.stringify({ cmd: "node --test test/value.test.js" }) } },
     { type: "response_item", payload: { type: "function_call_output", call_id: "test", output: JSON.stringify({ exit_code: 0, output: "pass" }) } },
   ];
   const transcriptPath = join(repo, ".agent-session.jsonl");
@@ -55,7 +55,7 @@ function fixture(options: { headPath?: string; headContent?: string; transcript?
     schemaVersion: 1,
     strict: true,
     minVerified: options.policyMinVerified ?? 1,
-    testCommand: "node --test test/*.test.ts",
+    testCommand: "node --test test/*.test.js",
     integrityMode: "calibrated",
   }, null, 2)}\n`);
   writeFileSync(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);

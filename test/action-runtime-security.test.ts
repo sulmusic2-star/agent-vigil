@@ -286,6 +286,12 @@ test("Action rejects a candidate workspace whose exact HEAD differs from the sel
     VIGIL_ISOLATE_CANDIDATE: "true",
     VIGIL_TRANSCRIPT: "summary.md",
   };
+  const event = join(root, "commands", "event.json");
+  writeFileSync(event, JSON.stringify({
+    repository: { full_name: "owner/repository" },
+    pull_request: { number: 7, base: { sha: checkedOut }, head: { sha: selected } },
+  }));
+  environment.GITHUB_EVENT_PATH = event;
   delete environment.NODE_TEST_CONTEXT;
   delete environment.NODE_V8_COVERAGE;
   const result = spawnSync("/bin/bash", [script], { cwd: repo, encoding: "utf8", env: environment, timeout: 30_000 });
@@ -476,7 +482,10 @@ test("real isolated Action hides runner controls from candidate code", {
     env: environment,
     timeout: 180_000,
   });
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const resultOutputs = readFileSync(output, "utf8");
+  const resultReport = resultOutputs.match(/^report=(.+)$/m)?.[1];
+  const resultReportText = resultReport && existsSync(resultReport) ? readFileSync(resultReport, "utf8") : "";
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${resultOutputs}\n${resultReportText}`);
   assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /candidate-(?:legacy|modern)-command/);
   const outputs = readFileSync(output, "utf8");
   assert.match(outputs, /^status=PASS$/m);
@@ -660,8 +669,10 @@ test("real isolated Action validates a private portable-receipt snapshot against
   const script = join(root, "portable-action.sh");
   writeFileSync(script, compositeActionScript());
   const completed = spawnSync("/bin/bash", [script], { cwd: repo, encoding: "utf8", env: environment, timeout: 180_000 });
-  assert.equal(completed.status, 0, `${completed.stdout}\n${completed.stderr}`);
   const outputs = readFileSync(environment.GITHUB_OUTPUT as string, "utf8");
+  const completedReport = outputs.match(/^report=(.+)$/m)?.[1];
+  const completedReportText = completedReport && existsSync(completedReport) ? readFileSync(completedReport, "utf8") : "";
+  assert.equal(completed.status, 0, `${completed.stdout}\n${completed.stderr}\n${outputs}\n${completedReportText}`);
   assert.match(outputs, /^status=PASS$/m);
   const report = outputs.match(/^report=(.+)$/m)?.[1];
   assert.ok(report);

@@ -380,6 +380,11 @@ test("candidate CI never masquerades as trusted Agent Vigil evidence", () => {
   assert.match(ci, /AGENT_VIGIL_REQUIRE_REAL_DOCKER:\s*"true"/);
   assert.match(ci, /node@sha256:[0-9a-f]{64}/);
   assert.match(ci, /docker image inspect/);
+  const portability = ci.match(/\n  portability:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n)/)?.[1];
+  assert.ok(portability, "candidate CI retains its portability job");
+  const textContract = portability.indexOf("git config --global core.autocrlf false");
+  const checkout = portability.indexOf("uses: actions/checkout@");
+  assert.ok(textContract >= 0 && checkout > textContract, "Windows fixture text is stabilized before checkout");
 });
 
 test("workflow permissions and privileged steps are exact fail-closed contracts", () => {
