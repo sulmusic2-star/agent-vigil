@@ -40,7 +40,7 @@ export const demoResultView: ResultView = {
   generatedAt: "2026-08-27T16:00:00.000Z",
   receiptHash: "sha256:97e198ee9c5281a03f5bc3198a88c8b2df9427ce37518f3a4bf84d71a8ddf483",
   policyHash: "sha256:1f43070cb8b0a5e395e0e11de07db3eb3d9b9202d4d606d82eed3a76fb55e458",
-  reproduce: "npx @sulmusic/agent-vigil verify --base 4d407f7e171a1c3d67a80a55650f0966db304fb5 --head bf3b7458ebf672fbc4ba5358c02242368af602dc",
+  reproduce: "npx @sulmusic/agent-vigil receipt-view ./agent-vigil-receipt.json --format html --output ./agent-vigil-result.html",
   changedFiles: {
     complete: true,
     evidence: "Git reported 3 changed files for the exact range.",
