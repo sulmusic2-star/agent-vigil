@@ -1,6 +1,6 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "Fail-closed change control, upgrade preflight, and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
@@ -36,6 +36,7 @@
     "test:package": "python3 scripts/package_smoke.py",
     "proof:historical": "node scripts/historical_proof.mjs",
     "proof:failure-corpus": "tsx scripts/verify_failure_corpus.ts",
+    "adoption:evidence": "python3 scripts/adoption_evidence.py",
     "demo:60s": "node scripts/demo_60s.mjs",
     "demo:value-comparison": "tsx scripts/value_comparison_demo.ts",
     "demo:outcome": "tsx scripts/outcome_demo.ts",
@@ -86,6 +87,7 @@
     "docs/assets/agent-vigil-demo.gif",
     "docs/assets/outcome-verifier-demo.html",
     "docs/index.html",
+    "docs/60_SECOND_DEMO.md",
     "docs/ADOPTION_EVIDENCE.md",
     "docs/AGENT_VALUE_CARD.md",
     "docs/AI_CHANGE_EPISODE_V1.md",
@@ -124,6 +126,7 @@
     "docs/UPGRADE_GUARD.md",
     "docs/VALUE_COMPARISONS.md",
     "docs/authority-contract-v1.schema.json",
+    "docs/adoption-evidence-v1.schema.json",
     "docs/authority-plan-v1.schema.json",
     "docs/authority-plan-policy-v1.schema.json",
     "docs/ai-change-receipt-predicate-v1.schema.json",
@@ -154,10 +157,12 @@
     "examples",
     "test-vectors/continuity-staple/v1",
     "proof/README.md",
+    "proof/adoption",
     "proof/cases",
     "proof/failure-patterns",
     "proof/outcome-cases",
     "scripts/public_adoption_census.py",
+    "scripts/adoption_evidence.py",
     "scripts/verify_failure_corpus.ts"
   ],
   "repository": {

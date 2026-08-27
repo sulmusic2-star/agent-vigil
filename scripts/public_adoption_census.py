@@ -37,6 +37,28 @@ def gh_json(endpoint: str, fields: dict[str, str] | None = None) -> dict[str, An
     return json.loads(completed.stdout)
 
 
+def workflow_run_evidence(full_name: str, workflow_name: str) -> dict[str, Any]:
+    endpoint = f"repos/{full_name}/actions/workflows/{quote(workflow_name)}/runs"
+    newest = gh_json(endpoint, {"per_page": "100", "page": "1"})
+    total = int(newest.get("total_count", 0))
+    newest_runs = newest.get("workflow_runs", []) if isinstance(newest.get("workflow_runs"), list) else []
+    oldest_runs = newest_runs
+    if total > 100:
+        last_page = (total + 99) // 100
+        oldest = gh_json(endpoint, {"per_page": "100", "page": str(last_page)})
+        oldest_runs = oldest.get("workflow_runs", []) if isinstance(oldest.get("workflow_runs"), list) else []
+    sampled = newest_runs + ([] if oldest_runs is newest_runs else oldest_runs)
+    timestamps = sorted({str(run.get("created_at")) for run in sampled if run.get("created_at")})
+    days = sorted({value[:10] for value in timestamps})
+    return {
+        "total_count": total,
+        "first_observed_at": timestamps[0] if timestamps else None,
+        "last_observed_at": timestamps[-1] if timestamps else None,
+        "distinct_run_days_sampled": len(days),
+        "sample_complete": total <= 100,
+    }
+
+
 def live_input() -> dict[str, Any]:
     search = gh_json("search/code", {"q": '"sulmusic2-star/agent-vigil"', "per_page": "100"})
     rows: list[dict[str, Any]] = []
@@ -60,10 +82,12 @@ def live_input() -> dict[str, Any]:
                 repos.add(full_name)
             workflow_name = Path(path).name
             try:
-                runs = gh_json(f"repos/{full_name}/actions/workflows/{quote(workflow_name)}/runs", {"per_page": "1"})
-                row["workflow_runs"] = int(runs.get("total_count", 0))
+                evidence = workflow_run_evidence(full_name, workflow_name)
+                row["workflow_runs"] = evidence["total_count"]
+                row["workflow_run_evidence"] = evidence
             except subprocess.CalledProcessError:
                 row["workflow_runs"] = None
+                row["workflow_run_evidence"] = None
         rows.append(row)
     artifacts: dict[str, int | None] = {}
     for full_name in sorted(repos):
@@ -82,6 +106,25 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
     exact_action_repositories: set[str] = set()
     lab_repositories: dict[str, dict[str, Any]] = {}
     keyless_control_proof_repositories: dict[str, dict[str, Any]] = {}
+
+    def merge_run_evidence(target: dict[str, Any], row: dict[str, Any]) -> None:
+        evidence = row.get("workflow_run_evidence")
+        if not isinstance(evidence, dict):
+            return
+        first = evidence.get("first_observed_at")
+        last = evidence.get("last_observed_at")
+        if isinstance(first, str):
+            current = target.get("first_run_observed_at")
+            target["first_run_observed_at"] = min(current, first) if isinstance(current, str) else first
+        if isinstance(last, str):
+            current = target.get("last_run_observed_at")
+            target["last_run_observed_at"] = max(current, last) if isinstance(current, str) else last
+        distinct = evidence.get("distinct_run_days_sampled")
+        if isinstance(distinct, int) and not isinstance(distinct, bool):
+            target["distinct_run_days_sampled"] = max(target.get("distinct_run_days_sampled", 0), distinct)
+        sample_complete = evidence.get("sample_complete") is True
+        current_complete = target.get("run_sample_complete")
+        target["run_sample_complete"] = sample_complete if current_complete is None else bool(current_complete and sample_complete)
     for row in source.get("references", []):
         repository = str(row.get("repository", ""))
         path = str(row.get("path", ""))
@@ -108,32 +151,35 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
             "keyless_control_proof": keyless_control_proof,
         })
         if state == "configured":
-            configured.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False})
+            configured.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False, "run_sample_complete": None})
             configured[repository]["paths"].append(path)
             runs = row.get("workflow_runs")
             if runs is None:
                 configured[repository]["workflow_runs_unknown"] = True
             else:
                 configured[repository]["workflow_runs_observed"] += int(runs)
+            merge_run_evidence(configured[repository], row)
             if exact_commit_use:
                 exact_action_repositories.add(repository)
             if continuity_gate:
                 continuity_gates.add(repository)
             if keyless_control_proof:
-                keyless_control_proof_repositories.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False})
+                keyless_control_proof_repositories.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False, "run_sample_complete": None})
                 keyless_control_proof_repositories[repository]["paths"].append(path)
                 if runs is None:
                     keyless_control_proof_repositories[repository]["workflow_runs_unknown"] = True
                 else:
                     keyless_control_proof_repositories[repository]["workflow_runs_observed"] += int(runs)
+                merge_run_evidence(keyless_control_proof_repositories[repository], row)
         elif state == "continuity-lab":
-            lab_repositories.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False})
+            lab_repositories.setdefault(repository, {"paths": [], "workflow_runs_observed": 0, "workflow_runs_unknown": False, "run_sample_complete": None})
             lab_repositories[repository]["paths"].append(path)
             runs = row.get("workflow_runs")
             if runs is None:
                 lab_repositories[repository]["workflow_runs_unknown"] = True
             else:
                 lab_repositories[repository]["workflow_runs_observed"] += int(runs)
+            merge_run_evidence(lab_repositories[repository], row)
     artifact_source = source.get("receipt_artifacts", {})
     artifact_count = 0
     artifact_unknown: list[str] = []
@@ -146,6 +192,21 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
             artifact_count += int(count)
     run_observed = sum(1 for value in configured.values() if value["workflow_runs_observed"] > 0)
     repeat_action = sum(1 for value in configured.values() if value["workflow_runs_observed"] >= 2)
+    thirty_day_activity = 0
+    for value in configured.values():
+        first = value.get("first_run_observed_at")
+        last = value.get("last_run_observed_at")
+        span = None
+        if isinstance(first, str) and isinstance(last, str):
+            try:
+                start = dt.datetime.fromisoformat(first.replace("Z", "+00:00"))
+                end = dt.datetime.fromisoformat(last.replace("Z", "+00:00"))
+                span = max(0, (end - start).days)
+            except ValueError:
+                value["workflow_runs_unknown"] = True
+        value["observed_activity_span_days"] = span
+        if span is not None and span >= 30:
+            thirty_day_activity += 1
     lab_run_observed = sum(1 for value in lab_repositories.values() if value["workflow_runs_observed"] > 0)
     keyless_proof_run_observed = sum(1 for value in keyless_control_proof_repositories.values() if value["workflow_runs_observed"] > 0)
     return {
@@ -158,6 +219,7 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
             "required_check_detection": "not observable from the public code-search census",
             "continuity_lab_is_product_exploration_not_production_adoption": True,
             "repeat_use_means_two_or_more_current_workflow_runs_not_two_distinct_days": True,
+            "thirty_day_activity_span_is_public_run_timing_not_maintainer_confirmed_retention": True,
             "keyless_control_proof_is_signed_product_evidence_not_required_check_or_adoption_by_itself": True,
         },
         "counts": {
@@ -168,6 +230,7 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
             "external_repositories_using_exact_commit_action": len(exact_action_repositories),
             "external_repositories_with_continuity_gate": len(continuity_gates),
             "external_repositories_with_repeat_workflow_runs": repeat_action,
+            "external_repositories_with_30_day_activity_span": thirty_day_activity,
             "external_repositories_with_continuity_lab": len(lab_repositories),
             "external_continuity_labs_with_runs_observed": lab_run_observed,
             "external_repositories_with_keyless_control_proof": len(keyless_control_proof_repositories),

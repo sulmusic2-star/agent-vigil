@@ -10,6 +10,8 @@ mentions, README links, and code-search hits remain discovery signals.
    `uses: sulmusic2-star/agent-vigil@...` step.
 3. **Run observed** — GitHub publicly lists a run for that configured workflow.
    This proves execution activity, not a PASS or retained use.
+   A 30-day span between the oldest and newest observable runs is reported
+   separately. It is activity evidence, not maintainer-confirmed retention.
 4. **Receipt observed** — GitHub currently lists an artifact named
    `agent-vigil-receipt` in a configured external repository. The census counts
    artifacts, not unique receipt hashes or lifetime runs. This discovery count
@@ -35,8 +37,25 @@ python3 scripts/public_adoption_census.py --output adoption-census.json
 
 The script uses GitHub code search through the authenticated `gh` CLI, excludes
 repositories owned by `sulmusic2-star`, verifies workflow contents, checks for
-observable workflow runs, and counts currently listed receipt artifacts. API
-errors become unknown counts. They do not become zeros or successes.
+observable workflow runs, records the oldest and newest sampled run timestamps,
+and counts currently listed receipt artifacts. API errors become unknown
+counts. They do not become zeros or successes.
+
+Owner-consented evidence uses a separate closed ledger:
+
+```bash
+python3 scripts/adoption_evidence.py --output adoption-evidence.json
+```
+
+The validator reads `proof/adoption/ledger.json`. Each entry must name one
+external GitHub repository and link that repository's owner consent, current
+workflow, latest run, and any claimed required-check, 30-day-retention,
+contradiction, or false-verdict evidence. Receipt IDs are SHA-256 hashes and
+must be unique across the ledger. First-party repositories are rejected.
+
+The weekly `External adoption evidence` workflow retains both the discovery
+census and the validated consented ledger report for 90 days. An empty ledger
+is valid and produces zero counts with every milestone gate still closed.
 
 ## External proof threshold
 
@@ -53,12 +72,12 @@ All six conditions must be independently evidenced:
 - 3 external repositories with public owner-supplied evidence that an external
   required workflow or App-owned exact-head check is required for merge.
 
-The public census is a discovery aid for configured workflows and currently
-listed artifacts. It cannot observe retention intent, unique lifetime receipt
-hashes, maintainer acceptance, or private rulesets. Those claims require
-separate public or consented owner evidence. Compatibility labs, fuzz cases,
-the project's own CI, and Tim Sullivan's other repositories remain product
-evidence, not external adoption.
+The public census is a discovery aid for configured workflows, run timing, and
+currently listed artifacts. It cannot establish retention intent, unique
+lifetime receipt hashes, maintainer acceptance, or private rulesets. Those
+claims require the validated public or consented owner ledger. Compatibility
+labs, fuzz cases, the project's own CI, and Tim Sullivan's other repositories
+remain product evidence, not external adoption.
 
 ## Continuity product-learning signals
 
