@@ -25,4 +25,12 @@ jobs:
           stat -c 'node-mode=%a node-owner=%U node-group=%G node-type=%F' -- "$selected"
           stat -c 'parent-mode=%a parent-owner=%U parent-group=%G parent-type=%F' -- "${selected%/*}"
           if [[ -L "$selected" ]]; then printf 'node-symlink=true\n'; else printf 'node-symlink=false\n'; fi
+          for alternate in /usr/bin/node /usr/local/bin/node; do
+            if [[ -e "$alternate" || -L "$alternate" ]]; then
+              printf 'alternate=%s canonical=%s\n' "$alternate" "$(readlink -f -- "$alternate")"
+              stat -c 'alternate-mode=%a alternate-owner=%U alternate-group=%G alternate-type=%F' -- "$alternate"
+            else
+              printf 'alternate=%s missing=true\n' "$alternate"
+            fi
+          done
           node --version
