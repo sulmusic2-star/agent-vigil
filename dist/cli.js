@@ -1882,6 +1882,9 @@ var OBSERVED_TEST_COUNTS = [
 function stateFor(verdict) {
   return verdict === "verified" ? "PASSED" : verdict === "contradicted" ? "FAILED" : "NOT_CHECKED";
 }
+function outcomeState(verdict) {
+  return verdict === "PASS" ? "PASSED" : verdict === "FAIL" ? "FAILED" : "NOT_CHECKED";
+}
 function consequence(verdict) {
   if (verdict === "PASS") return "Ready to merge.";
   if (verdict === "FAIL") return "Do not merge yet.";
@@ -2027,6 +2030,62 @@ function buildReportResultView(report, options = {}) {
     reproduce: safe(report.reproduction),
     changedFiles: options.changedFiles ?? defaultManifest(report)
   };
+}
+function buildOutcomeResultView(receipt, options = {}) {
+  const derived = receipt.checks.some((check2) => check2.verdict === "FAIL") ? "FAIL" : receipt.checks.some((check2) => check2.verdict === "INCONCLUSIVE") ? "INCONCLUSIVE" : "PASS";
+  if (derived !== receipt.verdict) throw new Error("result view refused an inconsistent outcome receipt verdict");
+  const findings = receipt.checks.map((check2) => ({
+    id: safe(check2.id),
+    state: outcomeState(check2.verdict),
+    title: safe(check2.id.replace(/-/g, " ")),
+    evidence: safe(check2.evidence),
+    remediation: safe(remediationFor(check2.id))
+  }));
+  const changedFiles = options.changedFiles ?? (options.repo ? readChangedFileManifest(options.repo, receipt.sourceEvidence.base, receipt.sourceEvidence.head) : { complete: false, files: [], evidence: "Repository path was not retained in this outcome receipt." });
+  return {
+    schemaVersion: "agent-vigil/result-view/v1",
+    verdict: derived,
+    consequence: consequence(derived),
+    mainCause: mainCause(findings, derived, receipt.sourceEvidence.head),
+    counts: {
+      failed: findings.filter((finding3) => finding3.state === "FAILED").length,
+      passed: findings.filter((finding3) => finding3.state === "PASSED").length,
+      notChecked: findings.filter((finding3) => finding3.state === "NOT_CHECKED").length
+    },
+    findings,
+    advisories: [],
+    base: safe(receipt.sourceEvidence.base),
+    head: safe(receipt.sourceEvidence.head),
+    generatedAt: safe(receipt.issuedAt),
+    receiptHash: safe(receipt.outcomeHash),
+    reproduce: safe(options.reproduce ?? `vigil receipt verify ${receipt.outcomeHash}`),
+    changedFiles
+  };
+}
+function html(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function findingHtml(finding3) {
+  const location = finding3.location ? `<p class="location">${html(finding3.location.file)}${finding3.location.line ? `:${finding3.location.line}` : ""}</p>` : "";
+  const counts = finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0 ? `<dl class="test-counts"><div><dt>Claimed</dt><dd>${finding3.claimedTestCount ?? "Not stated"}</dd></div><div><dt>Observed</dt><dd>${finding3.observedTestCount ?? "Not found"}</dd></div></dl>` : "";
+  return `<article class="finding finding-${finding3.state.toLowerCase().replace("_", "-")}"><p class="eyebrow">${finding3.state.replace("_", " ")}</p><h3>${html(finding3.title)}</h3>${location}<p>${html(finding3.evidence)}</p>${counts}<p class="fix"><strong>Fix</strong> ${html(finding3.remediation)}</p></article>`;
+}
+function renderResultViewHtml(view) {
+  const open = view.findings.filter((finding3) => finding3.state !== "PASSED");
+  const advisories = view.advisories.map(findingHtml).join("");
+  const changed = view.changedFiles.files.map((file) => `<li><span>${html(file.status)}</span><code>${file.previousPath ? `${html(file.previousPath)} \u2192 ` : ""}${html(file.path)}</code></li>`).join("");
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Vigil ${view.verdict}</title>
+<style>/* Hallmark \xB7 pre-emit critique: P5 H5 E4 S5 R5 V4 \xB7 macrostructure: decision brief \xB7 theme: quiet */:root{color-scheme:light;--ink:#111827;--muted:#5b6472;--line:#d8dee8;--paper:#fff;--wash:#f4f6f8;--fail:#b42318;--pass:#137333;--hold:#8a4b00;--font-body:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-code:ui-monospace,SFMono-Regular,Menlo,monospace}*{box-sizing:border-box}html,body{overflow-x:clip}html{background:var(--wash)}body{margin:0;color:var(--ink);font-family:var(--font-body);line-height:1.5}main{width:min(880px,calc(100% - 32px));margin:40px auto 80px}.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:28px}.eyebrow{margin:0 0 8px;font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.status-fail{color:var(--fail)}.status-pass{color:var(--pass)}.status-inconclusive{color:var(--hold)}h1{min-width:0;margin:0;font-size:clamp(1.8rem,6vw,3.25rem);line-height:1.05;overflow-wrap:anywhere}h2{margin:34px 0 12px;font-size:1.15rem}h3{margin:4px 0 8px;font-size:1rem}p{margin:8px 0}.cause{font-size:1.08rem}.counts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:24px 0}.count{border:1px solid var(--line);border-radius:10px;padding:12px}.count strong{display:block;font-size:1.45rem}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.actions a,.actions button{min-height:44px;border:1px solid var(--ink);border-radius:8px;background:var(--paper);color:var(--ink);padding:10px 14px;font:inherit;font-weight:700;text-decoration:none;white-space:nowrap}.finding{border-top:1px solid var(--line);padding:18px 0}.finding-failed .eyebrow{color:var(--fail)}.finding-not-checked .eyebrow{color:var(--hold)}.location,code,.meta{overflow-wrap:anywhere}.location{color:var(--muted);font-family:var(--font-code)}.fix{background:var(--wash);border-radius:8px;padding:10px 12px}.test-counts{display:grid;grid-template-columns:repeat(2,minmax(0,180px));gap:8px}.test-counts div{border-left:3px solid var(--line);padding-left:10px}.test-counts dt{color:var(--muted);font-size:.8rem}.test-counts dd{margin:0;font-weight:800}.changed{padding:0;list-style:none}.changed li{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;border-top:1px solid var(--line);padding:10px 0}.changed span{color:var(--muted)}details{border-top:1px solid var(--line);padding:14px 0}summary{cursor:pointer;font-weight:800}.meta{color:var(--muted);font-size:.88rem}.reproduce{display:block;padding:12px;background:var(--ink);color:var(--paper);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:540px){main{width:min(100% - 20px,880px);margin:10px auto 40px}.card{padding:18px}.counts{grid-template-columns:1fr}.actions{display:grid}.actions a,.actions button{width:100%}.changed li{grid-template-columns:1fr;gap:2px}}</style></head>
+<body><main data-result-view-version="1"><section class="card" aria-labelledby="result-title"><p class="eyebrow status-${view.verdict.toLowerCase()}">Agent Vigil ${view.verdict}</p><h1 id="result-title">${html(view.consequence)}</h1><p class="cause">${html(view.mainCause)}</p>
+<div class="counts" aria-label="Check counts"><div class="count"><strong>${view.counts.failed}</strong>Failed</div><div class="count"><strong>${view.counts.passed}</strong>Passed</div><div class="count"><strong>${view.counts.notChecked}</strong>Not checked</div></div>
+<nav class="actions" aria-label="Result actions"><a href="#changed-files">Review changed files</a><button type="button" data-copy-reproduce>Copy reproduce command</button><a href="#evidence">Show evidence</a></nav>
+<section aria-labelledby="open-title"><h2 id="open-title">${open.length ? "Checks that need attention" : "Required checks passed"}</h2>${open.length ? open.map(findingHtml).join("") : "<p>No failed or missing required checks.</p>"}</section>
+${advisories ? `<section aria-labelledby="advisory-title"><h2 id="advisory-title">Review notes</h2>${advisories}</section>` : ""}
+<section id="changed-files" aria-labelledby="changed-title"><h2 id="changed-title">Changed files</h2><p>${html(view.changedFiles.evidence)}</p><ul class="changed">${changed || "<li><span>none shown</span><code>No changed-file records are available.</code></li>"}</ul></section>
+<section id="evidence" aria-labelledby="evidence-title"><h2 id="evidence-title">Evidence</h2><details open><summary>Exact change and receipt</summary><p class="meta">Base ${html(view.base)}<br>Head ${html(view.head)}<br>Receipt ${html(view.receiptHash)}<br>Generated ${html(view.generatedAt)}</p></details><details><summary>Reproduce</summary><code class="reproduce">${html(view.reproduce)}</code></details></section></section></main>
+<script>document.querySelector('[data-copy-reproduce]').addEventListener('click',async function(){await navigator.clipboard.writeText(${JSON.stringify(view.reproduce).replace(/</g, "\\u003c")});this.textContent='Copied';});</script></body></html>
+`;
 }
 
 // src/safe-output.ts
@@ -7086,7 +7145,7 @@ function renderValueCardMarkdown(card) {
     ""
   ].join("\n");
 }
-function html(value) {
+function html2(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 }
 function readableLabel(value) {
@@ -7097,23 +7156,23 @@ function renderValueCardHtml(card) {
   const statusClass = card.valueVerdict.toLowerCase();
   const verdict = readableLabel(card.valueVerdict);
   const tokenText = "status" in card.usage ? "Unavailable" : card.usage.totalTokens.toLocaleString("en-US");
-  const gapItems = card.gaps.length ? card.gaps.map((gap) => `<li>${html(gap)}</li>`).join("") : "<li>None recorded</li>";
+  const gapItems = card.gaps.length ? card.gaps.map((gap) => `<li>${html2(gap)}</li>`).join("") : "<li>None recorded</li>";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agent Vigil Value Card</title><style>
 :root{--paper:#f3f0e8;--ink:#18202a;--muted:#5f6870;--rule:#c9c1b4;--accent:#2d5f73;--pass:#28734e;--fail:#a13d32;--warn:#8a611c;--display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;--body:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;--code:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}*{box-sizing:border-box}html,body{overflow-x:clip}body{margin:0;padding:44px 20px;background:var(--paper);color:var(--ink);font:16px/1.55 var(--body)}.wrap{max-width:920px;margin:auto}.kicker{color:var(--accent);font-weight:700}.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,.55fr);gap:32px;align-items:end;margin:14px 0 32px;padding-bottom:28px;border-bottom:1px solid var(--rule)}.verdict{margin:0;font:600 clamp(46px,8vw,76px)/1 var(--display);letter-spacing:-.025em}.summary{margin:0;color:var(--muted)}.positive{color:var(--pass)}.negative{color:var(--fail)}.inconclusive{color:var(--warn)}.records{margin:0}.record{display:grid;grid-template-columns:minmax(150px,.5fr) minmax(0,1fr);gap:24px;padding:18px 0;border-bottom:1px solid var(--rule)}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}dd strong{display:block;font:600 23px/1.2 var(--display)}dd span{display:block;margin-top:5px;color:var(--muted)}.section{margin-top:34px}.section h2{font:600 25px/1.2 var(--display)}.hash{font:12px/1.6 var(--code);overflow-wrap:anywhere}footer{margin-top:38px;padding-top:20px;border-top:1px solid var(--rule);color:var(--muted);font-size:13px}a{color:var(--accent)}@media(max-width:620px){.hero,.record{grid-template-columns:1fr;gap:8px}.hero{align-items:start}}
 </style></head><body><main class="wrap">
-<div class="kicker">Agent Vigil value record</div><section class="hero"><h1 class="verdict ${statusClass}">${html(verdict)}</h1><p class="summary">${html(card.receipt.verificationStatus)} verification<br>${html(card.task.taskClass ?? "Task class not recorded")}</p></section>
+<div class="kicker">Agent Vigil value record</div><section class="hero"><h1 class="verdict ${statusClass}">${html2(verdict)}</h1><p class="summary">${html2(card.receipt.verificationStatus)} verification<br>${html2(card.task.taskClass ?? "Task class not recorded")}</p></section>
 <dl class="records">
-<div class="record"><dt>Agent</dt><dd><strong>${html(card.agent.adapter)}</strong><span>${html(card.agent.modelIds.join(", ") || "Model not recorded")}</span></dd></div>
-<div class="record"><dt>Attributed cost</dt><dd><strong>${html(money(card.cost.amountUsd))}</strong><span>${html(readableLabel(card.cost.status))}</span></dd></div>
-<div class="record"><dt>Budget</dt><dd><strong>${html(readableLabel(card.task.budgetStatus))}</strong><span>${html(money(card.task.budgetUsd))}</span></dd></div>
-<div class="record"><dt>Maintainer decision</dt><dd><strong>${html(readableLabel(card.human.disposition))}</strong><span>${html(`${readableLabel(card.human.evidence)}${card.human.reviewMinutes === void 0 ? " \xB7 review time not recorded" : ` \xB7 ${card.human.reviewMinutes} review ${card.human.reviewMinutes === 1 ? "minute" : "minutes"}`}`)}</span></dd></div>
-<div class="record"><dt>Later outcome</dt><dd><strong>${html(readableLabel(card.outcome.state))}</strong><span>${html(`${readableLabel(card.outcome.evidence)}${card.outcome.asOf ? ` \xB7 through ${card.outcome.asOf}` : " \xB7 date not recorded"}`)}</span></dd></div>
-<div class="record"><dt>Observed tokens</dt><dd><strong>${html(tokenText)}</strong><span>${html("status" in card.usage ? "No supported usage record" : readableLabel(card.usage.accounting))}</span></dd></div>
+<div class="record"><dt>Agent</dt><dd><strong>${html2(card.agent.adapter)}</strong><span>${html2(card.agent.modelIds.join(", ") || "Model not recorded")}</span></dd></div>
+<div class="record"><dt>Attributed cost</dt><dd><strong>${html2(money(card.cost.amountUsd))}</strong><span>${html2(readableLabel(card.cost.status))}</span></dd></div>
+<div class="record"><dt>Budget</dt><dd><strong>${html2(readableLabel(card.task.budgetStatus))}</strong><span>${html2(money(card.task.budgetUsd))}</span></dd></div>
+<div class="record"><dt>Maintainer decision</dt><dd><strong>${html2(readableLabel(card.human.disposition))}</strong><span>${html2(`${readableLabel(card.human.evidence)}${card.human.reviewMinutes === void 0 ? " \xB7 review time not recorded" : ` \xB7 ${card.human.reviewMinutes} review ${card.human.reviewMinutes === 1 ? "minute" : "minutes"}`}`)}</span></dd></div>
+<div class="record"><dt>Later outcome</dt><dd><strong>${html2(readableLabel(card.outcome.state))}</strong><span>${html2(`${readableLabel(card.outcome.evidence)}${card.outcome.asOf ? ` \xB7 through ${card.outcome.asOf}` : " \xB7 date not recorded"}`)}</span></dd></div>
+<div class="record"><dt>Observed tokens</dt><dd><strong>${html2(tokenText)}</strong><span>${html2("status" in card.usage ? "No supported usage record" : readableLabel(card.usage.accounting))}</span></dd></div>
 </dl>
 <section class="section"><h2>Evidence gaps</h2><ul>${gapItems}</ul></section>
-<section class="section"><h2>Integrity</h2><p class="hash">Receipt ${html(card.receipt.receiptHash)}</p><p class="hash">Card ${html(card.cardHash)}</p></section>
+<section class="section"><h2>Integrity</h2><p class="hash">Receipt ${html2(card.receipt.receiptHash)}</p><p class="hash">Card ${html2(card.cardHash)}</p></section>
 <footer>Local evidence card generated by <a href="https://github.com/sulmusic2-star/agent-vigil">Agent Vigil</a>. A PASS receipt is not proof that code is bug-free, and missing cost or outcome evidence remains INCONCLUSIVE.</footer>
 </main></body></html>
 `;
@@ -7497,15 +7556,15 @@ function renderValueComparisonText(comparison) {
   return `${lines.join("\n")}
 `;
 }
-function html2(value) {
+function html3(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 }
 function renderValueComparisonHtml(comparison) {
   const groups = comparison.groups.map((group) => {
     const interval = group.positiveRateWilson95;
-    return `<article class="record"><header><p>${html2(group.taskClass)}</p><h2>${html2(group.agent)}</h2><p>${html2(group.models.join(", ") || "Model not recorded")}</p></header><dl><div><dt>Sample</dt><dd>${group.episodes} changes</dd></div><div><dt>Positive records</dt><dd>${html2(percent(group.positiveRate))}${interval ? ` <span>95% range ${html2(percent(interval.lower))}\u2013${html2(percent(interval.upper))}</span>` : ""}</dd></div><div><dt>Cost records</dt><dd>${html2(percent(group.costEvidenceCompleteness))} complete${group.costPerPositiveUsd !== void 0 ? ` <span>$${group.costPerPositiveUsd.toFixed(2)} per positive record</span>` : ""}</dd></div><div><dt>Later problems</dt><dd>${group.revertedOrHotfixedOrIncident}</dd></div></dl></article>`;
+    return `<article class="record"><header><p>${html3(group.taskClass)}</p><h2>${html3(group.agent)}</h2><p>${html3(group.models.join(", ") || "Model not recorded")}</p></header><dl><div><dt>Sample</dt><dd>${group.episodes} changes</dd></div><div><dt>Positive records</dt><dd>${html3(percent(group.positiveRate))}${interval ? ` <span>95% range ${html3(percent(interval.lower))}\u2013${html3(percent(interval.upper))}</span>` : ""}</dd></div><div><dt>Cost records</dt><dd>${html3(percent(group.costEvidenceCompleteness))} complete${group.costPerPositiveUsd !== void 0 ? ` <span>$${group.costPerPositiveUsd.toFixed(2)} per positive record</span>` : ""}</dd></div><div><dt>Later problems</dt><dd>${group.revertedOrHotfixedOrIncident}</dd></div></dl></article>`;
   }).join("");
-  const warnings = comparison.warnings.length ? comparison.warnings.map((warning) => `<li>${html2(warning)}</li>`).join("") : "<li>None</li>";
+  const warnings = comparison.warnings.length ? comparison.warnings.map((warning) => `<li>${html3(warning)}</li>`).join("") : "<li>None</li>";
   const heading = comparison.status === "COMPARABLE" ? "Comparable records" : "Not enough comparable records";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Vigil Value Comparison</title><style>:root{--paper:#f3f0e8;--ink:#18202a;--muted:#5f6870;--rule:#c9c1b4;--accent:#2d5f73;--warn:#8a611c;--display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;--body:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}*{box-sizing:border-box}html,body{overflow-x:clip}body{margin:0;padding:44px 20px;background:var(--paper);color:var(--ink);font:16px/1.55 var(--body)}.wrap{max-width:1040px;margin:auto}.kicker{color:var(--accent);font-weight:700}h1{max-width:760px;margin:10px 0 14px;font:600 clamp(44px,7vw,72px)/1 var(--display);letter-spacing:-.025em}.summary{max-width:68ch;color:var(--muted)}.records{margin-top:36px;border-top:1px solid var(--rule)}.record{display:grid;grid-template-columns:minmax(200px,.55fr) minmax(0,1fr);gap:36px;padding:28px 0;border-bottom:1px solid var(--rule)}.record header p{margin:0;color:var(--muted)}.record h2{margin:4px 0;font:600 28px/1.2 var(--display)}dl{margin:0}dl div{display:grid;grid-template-columns:minmax(130px,.45fr) minmax(0,1fr);gap:18px;padding:8px 0}dt{color:var(--muted)}dd{margin:0;font-weight:650}dd span{display:block;color:var(--muted);font-weight:400}.warnings{margin-top:36px;padding:22px 0;border-block:1px solid var(--rule)}.warnings h2{font:600 25px/1.2 var(--display)}.note{margin-top:28px;color:var(--muted);font-size:13px}a{color:var(--accent)}@media(max-width:680px){.record,dl div{grid-template-columns:1fr;gap:6px}}</style></head><body><main class="wrap"><div class="kicker">Agent Vigil value comparison</div><h1>${heading}</h1><p class="summary">${comparison.uniqueEpisodes} unique changes \xB7 ${comparison.supersededCards} replaced records \xB7 ${comparison.comparableTaskClasses.length} comparable task classes</p><section class="records">${groups}</section><section class="warnings"><h2>Limits and warnings</h2><ul>${warnings}</ul></section><p class="note">Generated locally by <a href="https://github.com/sulmusic2-star/agent-vigil">Agent Vigil</a>. The 95% ranges show sampling uncertainty. They do not remove task-selection bias or prove that an agent caused the outcome.</p></main></body></html>
 `;
@@ -9045,18 +9104,18 @@ function renderUpgradeReceipt(receipt) {
   return `${lines.join("\n")}
 `;
 }
-function html3(value) {
+function html4(value) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 function renderBreakageIndex(entries) {
   const ordered = [...entries].sort((left, right) => right.generatedAt.localeCompare(left.generatedAt));
   const rows = ordered.map((entry) => `<tr>
-    <td><strong>${html3(entry.component.name)}</strong><small>${html3(entry.component.ecosystem)}</small></td>
-    <td>${html3(entry.component.currentVersion)} <span aria-hidden="true">\u2192</span> ${html3(entry.component.candidateVersion)}</td>
-    <td><span class="status ${entry.verdict.toLowerCase()}">${html3(entry.verdict)}</span></td>
+    <td><strong>${html4(entry.component.name)}</strong><small>${html4(entry.component.ecosystem)}</small></td>
+    <td>${html4(entry.component.currentVersion)} <span aria-hidden="true">\u2192</span> ${html4(entry.component.candidateVersion)}</td>
+    <td><span class="status ${entry.verdict.toLowerCase()}">${html4(entry.verdict)}</span></td>
     <td>${entry.canaries.filter((canary) => canary.matched).length}/${entry.canaries.length}</td>
-    <td>${html3(entry.changedCapabilities.join(", ") || "none observed")}</td>
-    <td><code>${html3(entry.entryHash.slice(0, 22))}\u2026</code></td>
+    <td>${html4(entry.changedCapabilities.join(", ") || "none observed")}</td>
+    <td><code>${html4(entry.entryHash.slice(0, 22))}\u2026</code></td>
   </tr>`).join("\n");
   const safe2 = ordered.filter((entry) => entry.verdict === "SAFE").length;
   const changed = ordered.filter((entry) => entry.verdict === "CHANGED").length;
@@ -13865,10 +13924,13 @@ function runMandateCommand(args) {
           ...parsed.values.has("--cost-usd") ? { costUsd: Number(parsed.values.get("--cost-usd")) } : {}
         }
       );
-      writeJson(required2(parsed, "--output"), outcome);
-      console.log(`Outcome: ${outcome.verdict}`);
+      const outputPath = resolve26(required2(parsed, "--output"));
+      writeJson(outputPath, outcome);
+      console.log(renderResultText(buildOutcomeResultView(outcome, {
+        repo: report.repo,
+        reproduce: `vigil receipt verify '${outputPath}'`
+      })));
       console.log(`Settlement signal: ${outcome.settlementSignal.action} (${outcome.settlementSignal.adapter}, dry run)`);
-      console.log(`Receipt: ${outcome.outcomeHash}`);
       return outcome.verdict === "PASS" ? 0 : outcome.verdict === "FAIL" ? 1 : 2;
     }
     throw new Error(`unknown mandate command: ${command ?? "<missing>"}`);
@@ -13893,7 +13955,9 @@ function runOutcomeReceiptCommand(args) {
       );
       printVerification("Outcome receipt", result5);
       if (!result5.valid) return 1;
-      console.log(`Verdict: ${input.verdict}`);
+      console.log(renderResultText(buildOutcomeResultView(input, {
+        reproduce: `vigil receipt verify '${resolve26(parsed.positional[0])}'`
+      })));
       console.log(`Signal: ${input.settlementSignal.action} (${input.settlementSignal.adapter}, dry run)`);
       return input.verdict === "PASS" ? 0 : input.verdict === "FAIL" ? 1 : 2;
     }
@@ -13944,6 +14008,7 @@ Usage:
   vigil certify install-action --repo <path> --action-ref <full-commit-sha> [--force]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
+  vigil receipt-view <receipt.json> [--format text|markdown|html|json] [--output <path>]
   vigil test-integrity [--repo <path>] [--base <sha>] [--head <sha>] [--strict] [--format <kind>] [--output <path>]
   vigil doctor [--repo <path>] [--policy <path>] [--transcript <path>]
   vigil keygen --private <path> --public <path>
@@ -14203,6 +14268,33 @@ function runProofComment(args) {
     if (output) writePrivateFileAtomic(resolve27(output), rendered);
     else process.stdout.write(rendered);
     return 0;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runReceiptView(args) {
+  try {
+    const parsed = parseCommandArgs(args, /* @__PURE__ */ new Set(["--format", "--output"]));
+    if (parsed.positional.length !== 1) throw new Error("receipt-view requires exactly one full receipt JSON path");
+    const format = parsed.values.get("--format") ?? "html";
+    if (!(/* @__PURE__ */ new Set(["text", "markdown", "html", "json"])).has(format)) throw new Error("receipt-view --format must be text, markdown, html, or json");
+    const report = readBoundedJson(resolve27(parsed.positional[0]), 16 * 1024 * 1024, "receipt");
+    if (report.schemaVersion !== "2" || !Array.isArray(report.results) || !report.summary || !report.policy) {
+      throw new Error("receipt-view requires an Agent Vigil schema 2 receipt");
+    }
+    const verification2 = verifyReport(report);
+    if (!verification2.hashValid) throw new Error("receipt-view receipt content does not match receiptHash");
+    if (verification2.signatureValid === false) throw new Error("receipt-view receipt signature is invalid");
+    const view = buildReportResultView(report);
+    const rendered = format === "html" ? renderResultViewHtml(view) : format === "markdown" ? `${renderResultMarkdown(view)}
+` : format === "json" ? `${JSON.stringify(view, null, 2)}
+` : `${renderResultText(view)}
+`;
+    const output = parsed.values.get("--output");
+    if (output) writePrivateFileAtomic(resolve27(output), rendered);
+    else process.stdout.write(rendered);
+    return view.verdict === "PASS" ? 0 : view.verdict === "FAIL" ? 1 : 2;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -15076,6 +15168,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "certify") return runCertify(argv);
   if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "proof-comment") return runProofComment(argv);
+  if (argv[0] === "receipt-view") return runReceiptView(argv);
   if (argv[0] === "test-integrity") return runTestIntegrity(argv);
   if (argv[0] === "init") return runInit3(argv);
   if (argv[0] === "doctor") return runDoctor2(argv);
