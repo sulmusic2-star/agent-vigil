@@ -15339,6 +15339,7 @@ function createOutcomeMandate(input, requesterPrivateKeyPath) {
       networkAction: "NONE"
     }
   };
+  if (payload.task.base === payload.task.head) throw new Error("base and head must differ");
   if (payload.task.description.length < 3 || payload.task.description.length > 2e3) throw new Error("description must contain 3-2000 characters");
   if (!Number.isInteger(payload.acceptance.minMeaningfulVerified) || payload.acceptance.minMeaningfulVerified < 1 || payload.acceptance.minMeaningfulVerified > 1e4) throw new Error("minMeaningfulVerified must be an integer between 1 and 10000");
   if (!Number.isInteger(payload.limits.maxAttempts) || payload.limits.maxAttempts < 1 || payload.limits.maxAttempts > 100) throw new Error("maxAttempts must be an integer between 1 and 100");

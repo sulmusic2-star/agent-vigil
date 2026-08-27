@@ -39,7 +39,8 @@
 - Add signed Outcome Mandate and Outcome Receipt v0.1 contracts for exact-base,
   exact-head agent-work acceptance. The verifier binds required rule IDs,
   evidence minimums, trusted requester, evidence, and verifier keys, expiry,
-  and optional budget limits to `PASS`, `FAIL`, or `INCONCLUSIVE`.
+  and optional budget limits to `PASS`, `FAIL`, or `INCONCLUSIVE`; constructors
+  reject identical base and head commits.
 - Add draft generic, A2A, AP2, x402, ERC-8004, and VCAP outcome signals. Signal
   rendering requires a pinned verifier and remains dry-run with no network or
   money movement.
