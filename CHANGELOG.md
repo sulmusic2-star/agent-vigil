@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.19.1 - 2026-08-27
+
+- Add one receipt-bound result model for PASS, FAIL, and INCONCLUSIVE across the CLI, GitHub proof comments, outcome verification, and retained HTML.
+- Keep claimed and observed test counts separate, verify receipt hashes before rendering, show unmet evidence gates as not checked, and retain advisory findings without exposing raw evidence in the GitHub job summary.
+- Add `vigil receipt-view` with text, Markdown, JSON, and responsive HTML output, including exact base/head SHAs, changed files, reproduction commands, evidence, and concrete fixes.
 - Add signed Outcome Mandate and Outcome Receipt v0.1 contracts for exact-base,
   exact-head agent-work acceptance. The verifier binds required rule IDs,
   evidence minimums, trusted requester, evidence, and verifier keys, expiry,
