@@ -21,6 +21,65 @@ function repo() {
 }
 
 test("CLI help exits zero", () => assert.equal(run(["--help"]), 0));
+test("CLI command parsers reject ambiguous or incomplete requests before side effects", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-cli-parser-"));
+  const first = join(root, "first.json");
+  const second = join(root, "second.json");
+  const malformed = join(root, "malformed.json");
+  writeFileSync(first, JSON.stringify({ schemaVersion: "wrong" }));
+  writeFileSync(second, JSON.stringify({ schemaVersion: "wrong" }));
+  writeFileSync(malformed, "{");
+
+  assert.equal(run(["--version"]), 0);
+  assert.equal(run(["guard-compat", "--help"]), 0);
+  assert.equal(run(["guard-route", "--help"]), 0);
+  const invalid: string[][] = [
+    ["--unknown"],
+    ["evidence.md", "--format", "yaml"],
+    ["evidence.md", "--min-verified", "0"],
+    ["evidence.md", "--output"],
+    ["evidence.md", "--portable-output", "portable.json"],
+    ["guard-compat", "positional"],
+    ["guard-compat", "--host"],
+    ["guard-compat", "--host", "claude", "--host", "codex"],
+    ["guard-compat", "--host", "cursor"],
+    ["guard-compat", "--host", "claude", "--format", "yaml"],
+    ["guard-compat", "--host", "claude", "--timeout-ms", "1.5"],
+    ["guard-route", "positional"],
+    ["guard-route", "--host"],
+    ["guard-route", "--host", "cursor"],
+    ["guard-route", "--host", "codex", "--format", "yaml"],
+    ["guard-route", "--host", "codex", "--timeout-ms", "slow"],
+    ["protect", "--unknown"],
+    ["prove", "--unknown"],
+    ["prove", "--repo"],
+    ["certify"],
+    ["certify", "record"],
+    ["certify", "status", "--corpus", first, "--policy", second, "--format", "yaml"],
+    ["plan", "--unknown"],
+    ["plan", "--repo"],
+    ["proof-comment"],
+    ["keygen"],
+    ["keygen", "--private"],
+    ["verify"],
+    ["verify", first],
+    ["gate"],
+    ["gate", malformed],
+    ["maintainer"],
+    ["merge-group"],
+    ["authority"],
+    ["compare"],
+    ["compare", first, second, "--format", "yaml"],
+    ["compare", first, second],
+    ["github-evidence"],
+    ["github-evidence", "--event"],
+    ["github-evidence", "--unknown", first],
+    ["compare-value"],
+    ["compare-value", "--format", "yaml"],
+    ["audit"],
+  ];
+  for (const args of invalid) assert.equal(run(args), 2, args.join(" "));
+});
 test("CLI adversarial demo catches all planted failures", () => assert.equal(run(["demo"]), 0));
 test("CLI static diff audit is advisory by default, blocking in strict mode, and fail-closed on malformed input", () => {
   const root = mkdtempSync(join(tmpdir(), "vigil-audit-"));
