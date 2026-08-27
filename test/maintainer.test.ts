@@ -165,22 +165,25 @@ test("scope evidence preserves odd Git paths and protects both sides of a rename
   git(repo, "config", "user.name", "Vigil Test");
   mkdirSync(join(repo, "protected"));
   mkdirSync(join(repo, "docs"));
-  const oddPaths = ["protected/back\\slash.ts", "protected/tab\tname.ts", "protected/new\nline.ts"];
+  const oddPaths = process.platform === "win32"
+    ? ["protected/unicode-é.ts"]
+    : ["protected/back\\slash.ts", "protected/tab\tname.ts", "protected/new\nline.ts"];
+  const binaryPath = process.platform === "win32" ? "protected/binary-é.dat" : "protected/binary\tvalue.dat";
   writeFileSync(join(repo, "protected", "guard.ts"), "export const guard = true;\n");
   for (const path of oddPaths) writeFileSync(join(repo, path), "export const value = 1;\n");
-  writeFileSync(join(repo, "protected", "binary\tvalue.dat"), Buffer.from([0, 1, 2]));
+  writeFileSync(join(repo, binaryPath), Buffer.from([0, 1, 2]));
   const base = commit(repo, "odd path baseline");
   git(repo, "mv", "protected/guard.ts", "docs/guard.ts");
   writeFileSync(join(repo, "docs", "guard.ts"), "export const guard = false;\n");
   for (const path of oddPaths) writeFileSync(join(repo, path), "export const value = 2;\n");
-  writeFileSync(join(repo, "protected", "binary\tvalue.dat"), Buffer.from([0, 3, 4]));
+  writeFileSync(join(repo, binaryPath), Buffer.from([0, 3, 4]));
   const head = commit(repo, "odd path changes and rename");
 
   const diff = collectDiffEvidence(repo, base, head);
-  for (const path of [...oddPaths, "protected/guard.ts", "docs/guard.ts", "protected/binary\tvalue.dat"]) {
+  for (const path of [...oddPaths, "protected/guard.ts", "docs/guard.ts", binaryPath]) {
     assert.ok(diff.paths.includes(path), `missing exact Git path ${JSON.stringify(path)}`);
   }
-  assert.deepEqual(diff.binaryPaths, ["protected/binary\tvalue.dat"]);
+  assert.deepEqual(diff.binaryPaths, [binaryPath]);
   assert.equal(diff.changedLines, undefined);
   const protectedCheck = checkChangeScope(diff, { protectedPaths: ["protected/**"] })
     .find((check) => check.ruleId === "protected-path");
@@ -227,7 +230,9 @@ test("differential base failure can be pinned to a trusted output pattern", () =
   assert.equal(check.ruleId, "differential-failure-pattern");
 });
 
-test("symlink test overlays fail closed", () => {
+test("symlink test overlays fail closed", {
+  skip: process.platform === "win32" ? "Git does not preserve symlink blobs in an unprivileged Windows checkout" : false,
+}, () => {
   const fixture = regressionRepo(true);
   symlinkSync("../math.js", join(fixture.repo, "test", "linked.test.js"));
   const head = commit(fixture.repo, "symlink test");
@@ -236,7 +241,9 @@ test("symlink test overlays fail closed", () => {
   assert.match(check.evidence, /symlink/);
 });
 
-test("differential overlays reject a trusted-base symlink ancestor before writing outside the worktree", () => {
+test("differential overlays reject a trusted-base symlink ancestor before writing outside the worktree", {
+  skip: process.platform === "win32" ? "Git does not preserve symlink blobs in an unprivileged Windows checkout" : false,
+}, () => {
   const root = temp("vigil-overlay-target-ancestor-");
   try {
     const repo = join(root, "repo");
@@ -291,7 +298,9 @@ test("differential overlays reject a non-directory target ancestor", () => {
   }
 });
 
-test("differential overlays reject a candidate source ancestor symlink", () => {
+test("differential overlays reject a candidate source ancestor symlink", {
+  skip: process.platform === "win32" ? "Git does not preserve symlink blobs in an unprivileged Windows checkout" : false,
+}, () => {
   const root = temp("vigil-overlay-source-ancestor-");
   try {
     const repo = join(root, "repo");
@@ -319,7 +328,9 @@ test("differential overlays reject a candidate source ancestor symlink", () => {
   }
 });
 
-test("differential overlays reject an existing symlink target", () => {
+test("differential overlays reject an existing symlink target", {
+  skip: process.platform === "win32" ? "Git does not preserve symlink blobs in an unprivileged Windows checkout" : false,
+}, () => {
   const root = temp("vigil-overlay-target-leaf-");
   try {
     const repo = join(root, "repo");
@@ -488,8 +499,10 @@ test("Action candidate isolation uses a private digest-pinned container with min
     assert.equal(option("--cap-drop"), "ALL");
     assert.equal(option("--security-opt"), "no-new-privileges");
     assert.equal(option("--user"), "1001:1001");
-    assert.equal(option("--pid"), "private");
+    assert.equal(args.some((argument) => argument === "--pid" || argument.startsWith("--pid=")), false,
+      "Docker's default private PID namespace must remain in effect");
     assert.equal(option("--ipc"), "private");
+    assert.equal(option("--pids-limit"), "512");
     assert.equal(option("--entrypoint"), "/usr/bin/env");
     assert.ok(args.includes(PINNED_CANDIDATE_IMAGE));
 

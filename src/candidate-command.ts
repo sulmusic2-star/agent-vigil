@@ -25,29 +25,37 @@ const child = spawn(shell, shellArgs, { env: process.env, detached: true });
 child.stdout.pipe(process.stdout);
 child.stderr.pipe(process.stderr);
 let timedOut = false;
+let finished = false;
+const finish = (code) => {
+  if (finished) return;
+  finished = true;
+  clearTimeout(timer);
+  // Setting exitCode lets piped child output drain before the wrapper exits.
+  // Calling process.exit() here can discard the test summary on Windows.
+  process.exitCode = code;
+};
 const timer = setTimeout(() => {
   timedOut = true;
   process.stderr.write("${TIMEOUT_MARKER}\\n");
   if (windows) {
-    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => process.exit(124));
+    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => finish(124));
   } else {
     try { process.kill(-child.pid, "SIGKILL"); } catch {}
-    setTimeout(() => process.exit(124), 50);
+    setTimeout(() => finish(124), 50);
   }
 }, timeout);
 child.on("error", (error) => {
-  clearTimeout(timer);
   process.stderr.write("${ABNORMAL_MARKER} " + error.message + "\\n");
-  process.exit(125);
+  finish(125);
 });
 child.on("close", (code, signal) => {
-  if (timedOut) return;
-  clearTimeout(timer);
+  if (timedOut || finished) return;
   if (signal || code === null) {
     process.stderr.write("${ABNORMAL_MARKER} signal=" + (signal || "unknown") + "\\n");
-    process.exit(125);
+    finish(125);
+    return;
   }
-  process.exit(code);
+  finish(code);
 });
 `;
 
@@ -604,7 +612,6 @@ function isolatedCommand(command: string, cwd: string, timeoutMs: number, option
     "--cap-drop", "ALL",
     "--security-opt", "no-new-privileges",
     "--user", "1001:1001",
-    "--pid", "private",
     "--ipc", "private",
     "--pids-limit", "512",
     "--memory", "4g",

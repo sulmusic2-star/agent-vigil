@@ -423,7 +423,10 @@ test("integrity scan forces text patches despite candidate diff attributes", () 
 
 test("integrity scan fails closed on Git-quoted changed paths", () => {
   const repo = initRepo(); mkdirSync(join(repo, "src"));
-  const path = join(repo, "src", "evil\\name.ts");
+  // Backslash is a valid POSIX filename byte but a Windows path separator.
+  // A non-ASCII name remains portable while still forcing Git quoting there.
+  if (process.platform === "win32") git(repo, "config", "core.quotePath", "true");
+  const path = join(repo, "src", process.platform === "win32" ? "evil-é.ts" : "evil\\name.ts");
   writeFileSync(path, "return value;\n"); commit(repo, "quoted path baseline");
   writeFileSync(path, "if (false) return fallback;\nreturn value;\n"); commit(repo, "quoted path change");
   const result = checkIntegrity(repo, "HEAD~1", "HEAD")[0];
@@ -474,11 +477,12 @@ test("WORKTREE integrity fails closed for unsafe untracked evidence", () => {
       create: (repo, path) => symlinkSync(join(repo, "README.md"), path),
       evidence: /not a regular (?:non-symbolic-link|no-symlink) file/,
     },
-    {
+    // chmod(0) does not make a file unreadable under Windows ACL semantics.
+    ...(process.platform === "win32" ? [] : [{
       name: "unreadable",
-      create: (_repo, path) => { writeFileSync(path, "unreadable\n"); chmodSync(path, 0); },
+      create: (_repo: string, path: string) => { writeFileSync(path, "unreadable\n"); chmodSync(path, 0); },
       evidence: /could not be read/,
-    },
+    }]),
   ];
   for (const fixture of fixtures) {
     const repo = initRepo(); mkdirSync(join(repo, "test"));

@@ -284,6 +284,8 @@ test("Action rejects a candidate workspace whose exact HEAD differs from the sel
     VIGIL_BASE: checkedOut,
     VIGIL_HEAD: selected,
     VIGIL_ISOLATE_CANDIDATE: "true",
+    VIGIL_POLICY: ".agent-vigil.json",
+    VIGIL_POLICY_REF: checkedOut,
     VIGIL_TRANSCRIPT: "summary.md",
   };
   const event = join(root, "commands", "event.json");
