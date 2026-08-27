@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -229,6 +229,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/AGENT_VALUE_CARD.md",
     "docs/AI_CHANGE_EPISODE_V1.md",
     "docs/AI_CHANGE_RECEIPT.md",
+    "docs/assets/outcome-verifier-demo.html",
     "docs/ATTESTED_RECEIPTS.md",
     "docs/AUTHORITY_PLAN.md",
     "docs/AUTHORITY_RECONCILIATION.md",
@@ -243,6 +244,8 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/NOTARY_APP.md",
     "docs/OUTCOME_OBSERVER.md",
     "docs/PRIVATE_RECEIPT_GATE.md",
+    "docs/HOSTED_OUTCOME_PRICING.md",
+    "docs/OUTCOME_MANDATES.md",
     "docs/PROOF_COMMENT.md",
     "docs/PUBLIC_PR_RECEIPT.md",
     "docs/PUBLIC_RELEASE_POLICY.md",
@@ -275,6 +278,8 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/policy.schema.json",
     "docs/portable-receipt-v1.schema.json",
     "docs/public-pr-receipt-v1.schema.json",
+    "docs/outcome-mandate-v0.1.schema.json",
+    "docs/outcome-receipt-v0.1.schema.json",
     "docs/receipt-v2.schema.json",
     "docs/signed-control-proof-v1.schema.json",
     "docs/upgrade-canary-v1.schema.json",
@@ -288,9 +293,11 @@ test("npm package surface excludes internal product and commercial working docum
     ...allowedPublishedDocs,
     "proof/README.md",
     "proof/cases",
+    "proof/outcome-cases",
   ];
   for (const publicPath of requiredPublicPaths) {
     assert.ok(files.includes(publicPath), `${publicPath} must ship with the npm package`);
+    assert.ok(existsSync(join(ROOT, publicPath)), `${publicPath} must exist before publishing`);
   }
 
   const packedPaths = packedPackagePaths();

@@ -7,7 +7,29 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**Require evidence before an AI-made change can merge.**
+**Check an agent-written pull request before you merge it.**
+
+## See what ran and what did not
+
+An agent can say a fix is done after running the wrong command, changing files
+outside the task, or adding a test that also passes on the old code. Agent Vigil
+checks the proposed commit against rules recorded when the task started. The
+result says `PASS`, `FAIL`, or `INCONCLUSIVE` and includes the command needed to
+run the check again.
+
+```bash
+vigil mandate assess mandate.json \
+  --receipt trust-report.json \
+  --verifier-key verifier.pem \
+  --requester-public-key requester.pub.pem \
+  --attempts 1 \
+  --output outcome-receipt.json
+```
+
+The same check can write a signed record for a task system to read. The current
+release only writes dry-run messages. It does not hold or move money and does
+not contact an agent or payment network. See
+[acceptance checks for agent work](docs/OUTCOME_MANDATES.md).
 
 ## No-workflow-change PR receipt
 

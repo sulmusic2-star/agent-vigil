@@ -59,6 +59,22 @@
   requires the separately protected `npm-publish` GitHub environment and npm
   Trusted Publisher authorization before it can be considered live.
 
+### Outcome and result model
+
+- Add signed Outcome Mandate and Outcome Receipt v0.1 contracts for exact-base,
+  exact-head agent-work acceptance. The verifier binds required rule IDs,
+  evidence minimums, trusted requester, evidence, and verifier keys, expiry,
+  and optional budget limits to `PASS`, `FAIL`, or `INCONCLUSIVE`.
+- Add draft generic, A2A, AP2, x402, ERC-8004, and VCAP outcome signals. Signal
+  rendering requires a pinned verifier and remains dry-run with no network or
+  money movement.
+- Publish closed JSON Schemas, a 50-case adversarial corpus, a local
+  red-to-green demonstration, and an inbound non-binding price-reservation
+  form. No hosted checkout or paid-demand claim is included.
+- Replace the Outcome Verifier landing-page layout with a compact pull-request
+  check. The example now shows the failed check first, explains it in ordinary
+  language, and keeps pricing research off the main product surface.
+
 ## 0.19.0 - 2026-08-25
 
 - Add `vigil pr-receipt` for a read-only, no-workflow-change observation of a

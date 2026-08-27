@@ -1,194 +1,134 @@
 import type { CheckResult, TrustReport } from "./report.ts";
+import { remediationFor } from "./remediation.ts";
+import {
+  buildReportResultView,
+  validateReportForResult,
+  type ReportResultViewOptions,
+  type ResultFinding,
+  type ResultView,
+} from "./result-view.ts";
 import { appendPrivateFileAtomic, writePrivateFileAtomic } from "./safe-output.ts";
 
-const icon = { verified: "✓", contradicted: "✗", unverifiable: "?" } as const;
+export { remediationFor } from "./remediation.ts";
 
-function advisoryLabel(result: CheckResult): string {
-  return result.verdict === "unverifiable" ? "unresolved advisory" : "advisory";
+function code(value: string): string {
+  return `\`${value.replace(/`/g, "\\`")}\``;
 }
 
-export function remediationFor(ruleId?: string): string {
-  const fixes: Record<string, string> = {
-    "test-count": "Run the configured test command without truncating its output, then report the observed passing count exactly; use `vigil doctor` to inspect command selection.",
-    "tests-pass": "Run `vigil doctor`, configure policy `testCommand` when inference is absent, and preserve the fresh runner's complete output.",
-    "file-changed": "Inspect `git diff --name-only <base>..<head>`, pass those exact SHAs, then correct the claimed path.",
-    "path-exists": "Create the claimed artifact or remove the unsupported claim.",
-    "path-outside-repo": "Reference a repository-relative path that resolves inside the checkout.",
-    "file-outside-repo": "Reference only repository-relative changed files.",
-    "command-ran": "Export the complete supported tool trajectory, rerun the claimed command, and preserve its terminal result event.",
-    "tool-loop": "Stop the repeated call, inspect its result, and record the next distinct action.",
-    "test-count-drop": "Restore removed tests or document and review the intentional test-surface change.",
-    "test-skip-added": "Remove the new skip/focus marker or obtain an explicit reviewed exception.",
-    "verification-bypass": "Remove the verification bypass and let the underlying check fail honestly.",
-    "suppression-added": "Remove the new suppression or narrow it with an explicit reviewed justification.",
-    "coverage-weakened": "Restore a meaningful coverage threshold.",
-    "coverage-exclusion-added": "Remove the new coverage exclusion, or document the unreachable/platform-specific path and review the advisory explicitly.",
-    "test-empty-added": "Add an assertion against observable behavior or remove the empty test.",
-    "test-oracle-constant": "Replace the constant or self-equal assertion with an assertion whose value comes from the subject under test.",
-    "test-runtime-patch": "Test the application as delivered; remove browser-side repair code or prove that the mutation is only fixture setup outside the behavior being asserted.",
-    "assertion-drop": "Restore equivalent assertions or review the intentional reduction explicitly.",
-    "test-assertion-relaxed": "Restore the exact assertion, or document why the weaker predicate preserves the same contract and review the exception.",
-    "subject-mocked": "Exercise the real subject or replace the self-fulfilling mock with a boundary fixture whose behavior is independently asserted.",
-    "dead-branch-added": "Remove the unreachable branch or replace the constant condition with the intended reachable control flow.",
-    "error-swallowed": "Handle, report, or deliberately propagate the error; if swallowing is intentional, keep advisory mode or review a blocking-policy exception.",
-    "exception-context-lost": "Rethrow the original error or attach it as the new error's cause so diagnostic context is preserved.",
-    "stale-refactor-caller": "Update remaining callers to the renamed symbol and run the focused regression test.",
-    "no-op-code-change": "Make the behavioral change explicit or remove the comment/whitespace-only edit from the claimed fix.",
-    "comment-only-change": "Implement the claimed behavior change, or move the comment-only edit out of the fix and avoid presenting it as implementation proof.",
-    "diff-unparseable": "Export a complete unified Git diff with `git diff --no-color <base>...<head>` and rerun the audit.",
-    "completion-marker": "Resolve the added unfinished-work marker before claiming completion.",
-    "completion-evidence": "Add at least one independently verifiable path, command, change, or test claim.",
-    "workspace-dirty": "Run `git status --short`, commit or remove unbound paths, then rerun with `--head $(git rev-parse HEAD)`.",
-    "workspace-unbound": "Commit the candidate change, then rerun with `--head $(git rev-parse HEAD)` instead of WORKTREE.",
-    "workspace-mutated": "Make the verification command read-only with respect to tracked inputs, restore the changed paths, and rerun.",
-    "portable-signature": "Regenerate the portable receipt from an intact full report with the trusted Ed25519 key.",
-    "portable-signer": "Pin the signer key ID in base policy `trustedSignerKeyIds`, or regenerate with an already pinned key.",
-    "portable-local-verdict": "Resolve the local FAIL or INCONCLUSIVE result, rerun Agent Vigil, and attach a new signed portable receipt.",
-    "portable-policy": "Regenerate the receipt using policy loaded from the pull request base commit.",
-    "portable-path": "Set base policy `portableReceipt` and pass that exact repository-relative path.",
-    "portable-git-binding": "Regenerate after the latest source commit; after signing, commit only the base-policy-controlled receipt path.",
-    "responsible-human": "Set `Responsible human` to the pull request author's exact GitHub login and accept responsibility for the change.",
-    "human-review-attestation": "Review every changed line, then check the exact declaration in the pull request template.",
-    "human-maintenance-attestation": "Confirm you can explain and maintain the change, then check the exact declaration.",
-    "automated-review-mode": "Review the base policy's automatedReview setup and commands; this record is automated evidence, not a human declaration.",
-    "automated-review-setup": "Fix the base-policy setup command so it completes in a clean isolated checkout of the exact candidate commit.",
-    "automated-review-command": "Run the failing base-policy command at the reported candidate commit, fix the failure or timeout, and rerun Agent Vigil.",
-    "automated-review-head": "Remove any checkout, reset, commit, or other command that moves HEAD during automated review.",
-    "automated-review-worktree": "Make automated review read-only for tracked files; generated outputs must be unchanged or written outside tracked paths.",
-    "ai-assistance-disclosure": "Set `AI assistance` to exactly `none`, `assisted`, or `agent`.",
-    "linked-issue": "Link the maintainer-approved issue as `#123` or a full GitHub issue URL.",
-    "changed-file-budget": "Split the change or obtain a reviewed base-policy exception before expanding the file budget.",
-    "changed-line-budget": "Split the change, remove unrelated edits, or obtain a reviewed base-policy exception.",
-    "test-change-required": "Add a focused regression test under a configured testPathPatterns path.",
-    "protected-path": "Remove the protected-path edit and change policy or workflow controls in a separately reviewed pull request.",
-    "differential-setup": "Make the base-policy setup command succeed in isolated base and head worktrees; do not hide setup errors.",
-    "differential-head-pass": "Fix the candidate until the trusted regression command passes in the isolated head worktree.",
-    "differential-base-fail": "Add a regression test that fails against base source and passes against the candidate; a test green on both sides is not catching evidence.",
-    "differential-failure-pattern": "Tighten the test or update the base-anchored expected failure pattern through separate review.",
-    "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs.",
-    "merge-group-binding": "Use the exact base_sha and head_sha from the GitHub merge_group event.",
-    "merge-group-range": "Recreate the merge group from the current target branch; the reported head must descend from the event base.",
-    "authority-validity": "Issue a new task-scoped contract with a short expiresAt window; do not silently extend expired authority.",
-    "authorized-change-paths": "Revert out-of-scope paths or issue a separately reviewed contract that explicitly includes them.",
-    "authorized-action-classes": "Remove the unauthorized action, or obtain new human authority before rerunning it; never edit the contract after the action to manufacture compliance.",
-    "unknown-action-risk": "Use a supported structured tool adapter or normalize the action explicitly; do not allow unknown_effect in a blocking policy.",
-    "complete-tool-results": "Export the complete session trajectory with terminal results for every tool call.",
-    "observed-action-coverage": "Provide a supported JSONL transcript with structured tool calls; narrative summaries cannot prove action boundaries.",
-    "authority-contract-anchor": "Store the contract in the trusted base revision and pass --contract-ref <base-sha> in CI.",
-    "authority-plan": "Review each blocking authority change below; remove it or approve the exact kind, subject, and value in the base revision policy before reopening the code change.",
-    "authority-server": "Remove the new or changed agent server, or approve its exact normalized identity in the base revision policy.",
-    "authority-tool": "Restore the prior tool boundary, or approve the exact tool grant in the base revision policy.",
-    "authority-network": "Remove the new network destination, or approve that exact host in the base revision policy.",
-    "authority-filesystem": "Narrow the filesystem scope, or approve that exact path in the base revision policy.",
-    "authority-secret": "Remove the new secret reference, or approve the exact variable or header name in the base revision policy; never commit the secret value.",
-    "authority-model": "Restore the pinned model or review the model-identity change; do not replace a pinned version with a mutable alias.",
-    "authority-approval": "Restore the prior approval mode or approve the weaker mode in the base revision policy.",
-    "authority-sandbox": "Restore the prior sandbox boundary or approve the weaker setting in the base revision policy.",
-    "authority-hook": "Remove the new hook or approve its exact hashed command identity in the base revision policy.",
-    "authority-setting-unknown": "Upgrade the adapter or remove the unrecognized setting change; use a separately reviewed base-policy exception only after inspecting its effect.",
-  };
-  return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
+function markdownText(value: string): string {
+  return value
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\\/g, "\\\\")
+    .replace(/([*_\[\]<>])/g, "\\$1");
 }
 
-export function renderText(report: TrustReport): string {
+function openFindings(view: ResultView): ResultFinding[] {
+  return view.findings.filter((finding) => finding.state !== "PASSED");
+}
+
+function countLine(view: ResultView): string {
+  return `Failed ${view.counts.failed} · Passed ${view.counts.passed} · Not checked ${view.counts.notChecked}`;
+}
+
+function textFinding(finding: ResultFinding): string[] {
+  const location = finding.location ? `      location: ${finding.location.file}${finding.location.line ? `:${finding.location.line}` : ""}` : undefined;
+  const testCounts = finding.claimedTestCount !== undefined || finding.observedTestCount !== undefined
+    ? `      tests:    claimed ${finding.claimedTestCount ?? "not stated"}; observed ${finding.observedTestCount ?? "not found"}`
+    : undefined;
+  return [
+    `  ${finding.state.replace("_", " ")} [${finding.id}] ${finding.title}`,
+    ...(location ? [location] : []),
+    `      evidence: ${finding.evidence}`,
+    ...(testCounts ? [testCounts] : []),
+    `      fix:      ${finding.remediation}`,
+  ];
+}
+
+export function renderResultText(view: ResultView): string {
+  const open = openFindings(view);
   const lines = [
-    `agent-vigil ${report.vigilVersion} — evidence receipt`,
-    `  transcript: ${report.transcript} (${report.transcriptFormat})`,
-    `  digest:     ${report.transcriptSha256}`,
-    `  repo:       ${report.repo}`,
-    `  range:      ${report.base}..${report.head}`,
-    `  policy:     ${report.policy.sha256}`,
+    `Agent Vigil: ${view.verdict}`,
+    view.consequence,
+    view.mainCause,
+    countLine(view),
     "",
   ];
-  for (const result of report.results) {
-    lines.push(`  ${icon[result.verdict]} [${result.ruleId ?? result.claim.kind}] ${result.claim.subject}`);
-    lines.push(`      claim:    "${result.claim.quote.slice(0, 140)}"`);
-    lines.push(`      evidence: ${result.evidence}`, "");
-    if (result.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result.ruleId)}`);
+  if (open.length) {
+    lines.push("Checks that need attention", ...open.flatMap(textFinding), "");
+  } else lines.push("All required checks passed.", "");
+  if (view.advisories.length) {
+    lines.push(
+      `Advisories (${view.advisories.length}; non-blocking under this policy)`,
+      ...view.advisories.flatMap((finding) => [
+        `  ADVISORY [${finding.id}] ${finding.title}`,
+        `      evidence: ${finding.evidence}`,
+        `      review:   ${finding.remediation}`,
+      ]),
+      "",
+    );
   }
-  for (const result of report.advisories ?? []) {
-    lines.push(`  ! [${result.ruleId ?? result.claim.kind}] ${result.claim.subject}`);
-    lines.push(`      ${advisoryLabel(result)}: ${result.evidence}`);
-    lines.push(`      review:   ${remediationFor(result.ruleId)}`, "");
-  }
-  const summary = report.summary;
-  lines.push(`  ${summary.verified} verified · ${summary.contradicted} contradicted · ${summary.unverifiable} unresolved`);
-  if (report.advisories?.length) lines.push(`  ${report.advisories.length} advisory finding(s) · non-blocking under this policy`);
-  lines.push(`  ${summary.status} · ${report.receiptHash}`);
-  lines.push(`  reproduce: ${report.reproduction}`);
-  if (summary.status === "INCONCLUSIVE") lines.push("  Missing or unresolved evidence prevents a trustworthy pass.");
+  lines.push(
+    `Change: ${view.base} -> ${view.head}`,
+    `Changed files: ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}`,
+    ...view.changedFiles.files.map((file) => `  ${file.status}: ${file.previousPath ? `${file.previousPath} -> ` : ""}${file.path}`),
+    `Receipt: ${view.receiptHash}`,
+    `Reproduce: ${view.reproduce}`,
+  );
   return lines.join("\n");
 }
 
-export function renderMarkdown(report: TrustReport): string {
-  const rows = report.results.map((result) =>
-    `| ${icon[result.verdict]} ${result.verdict} | \`${result.ruleId ?? result.claim.kind}\` | ${escapeCell(result.claim.subject)} | ${escapeCell(result.evidence)} |`,
-  );
-  const advisoryRows = (report.advisories ?? []).map((result) =>
-    `| ⚠️ ${advisoryLabel(result)} | \`${result.ruleId ?? result.claim.kind}\` | ${escapeCell(result.claim.subject)} | ${escapeCell(result.evidence)} |`,
-  );
-  return [
-    `# ${report.summary.status === "PASS" ? "✅" : report.summary.status === "FAIL" ? "❌" : "⚠️"} Agent Vigil: ${report.summary.status}`,
-    "",
-    `**Receipt:** \`${report.receiptHash}\`  `,
-    `**Range:** \`${report.base}..${report.head}\`  `,
-    `**Transcript:** \`${report.transcript}\` (${report.transcriptFormat})  `,
-    `**Policy:** \`${report.policy.sha256}\``,
-    "",
-    "| Verdict | Rule | Claim | Evidence |",
-    "|---|---|---|---|",
-    ...rows,
-    ...advisoryRows,
-    "",
-    `${report.summary.verified} verified · ${report.summary.contradicted} contradicted · ${report.summary.unverifiable} unresolved`,
-    ...((report.advisories?.length ?? 0) ? [`${report.advisories!.length} advisory finding(s) · non-blocking under this policy`] : []),
-    "",
-    ...(report.results.some((result) => result.verdict !== "verified") || (report.advisories?.length ?? 0) ? [
-      "## What to do next",
-      "",
-      ...report.results.filter((result) => result.verdict !== "verified").map((result) =>
-        `- **\`${result.ruleId ?? result.claim.kind}\`**: ${remediationFor(result.ruleId)}`,
-      ),
-      ...(report.advisories ?? []).map((result) =>
-        `- **\`${result.ruleId ?? result.claim.kind}\` (advisory)**: ${remediationFor(result.ruleId)}`,
-      ),
-      "",
-    ] : []),
-    `Reproduce: \`${report.reproduction.replace(/`/g, "\\`")}\``,
-    "",
-  ].join("\n");
+export function renderText(value: unknown, options: ReportResultViewOptions = {}): string {
+  return renderResultText(buildReportResultView(value, options));
 }
 
-export function renderDecisionCard(report: TrustReport): string {
-  const meaning = report.summary.status === "PASS"
-    ? "The required evidence is present for this exact change."
-    : report.summary.status === "FAIL"
-    ? "A required check contradicted the change, its claims, or the trusted policy."
-    : "The available evidence is not enough to approve this change.";
-  const open = report.results.filter((result) => result.verdict !== "verified");
-  return [
-    `### Agent Vigil: ${report.summary.status}`,
+export function renderResultMarkdown(view: ResultView, options: { aggregateOnly?: boolean } = {}): string {
+  const open = openFindings(view);
+  const lines = [
+    `### Agent Vigil: ${view.verdict}`,
     "",
-    meaning,
+    `**${markdownText(view.consequence)}**`,
     "",
-    `- **Change:** \`${report.base}\` → \`${report.head}\``,
-    `- **Evidence:** ${report.summary.verified} verified · ${report.summary.contradicted} contradicted · ${report.summary.unverifiable} unresolved`,
-    `- **Policy:** \`${report.policy.sha256}\``,
-    `- **Receipt:** \`${report.receiptHash}\``,
-    ...(open.length ? [
-      "",
-      "**Before this can pass:**",
-      ...open.slice(0, 5).map((result) => `- ${result.claim.subject}: ${remediationFor(result.ruleId)}`),
-      ...(open.length > 5 ? [`- ${open.length - 5} more item(s) are listed in the retained receipt.`] : []),
-    ] : []),
+    options.aggregateOnly ? `Main result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : `**Main result:** ${markdownText(view.mainCause)}`,
     "",
-    `Reproduce: \`${report.reproduction.replace(/`/g, "\\`")}\``,
+    `**Checks:** ${countLine(view)}`,
+  ];
+  if (!options.aggregateOnly && open.length) {
+    lines.push("", "#### Checks that need attention", "");
+    for (const finding of open) {
+      const location = finding.location ? ` at ${code(`${finding.location.file}${finding.location.line ? `:${finding.location.line}` : ""}`)}` : "";
+      lines.push(`- **${finding.state.replace("_", " ")}** ${code(finding.id)}${location}: ${markdownText(finding.title)}`);
+      lines.push(`  - Evidence: ${markdownText(finding.evidence)}`);
+      if (finding.claimedTestCount !== undefined || finding.observedTestCount !== undefined) {
+        lines.push(`  - Tests: claimed **${finding.claimedTestCount ?? "not stated"}**; observed **${finding.observedTestCount ?? "not found"}**`);
+      }
+      lines.push(`  - Fix: ${markdownText(finding.remediation)}`);
+    }
+  }
+  if (!options.aggregateOnly && view.advisories.length) {
+    lines.push("", `#### Advisories (${view.advisories.length}; non-blocking under this policy)`, "");
+    for (const finding of view.advisories) {
+      lines.push(`- **ADVISORY** ${code(finding.id)}: ${markdownText(finding.title)}`);
+      lines.push(`  - Evidence: ${markdownText(finding.evidence)}`);
+      lines.push(`  - Review: ${markdownText(finding.remediation)}`);
+    }
+  }
+  lines.push(
     "",
-  ].join("\n");
+    `**Change:** ${code(view.base)} -> ${code(view.head)}  `,
+    `**Changed files:** ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}  `,
+    `**Receipt:** ${code(view.receiptHash)}`,
+    "",
+  );
+  if (!options.aggregateOnly) lines.push(`Reproduce: ${code(view.reproduce)}`, "");
+  return lines.join("\n");
 }
 
-function escapeCell(value: string): string {
-  return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
+export function renderMarkdown(value: unknown, options: ReportResultViewOptions = {}): string {
+  return renderResultMarkdown(buildReportResultView(value, options));
+}
+
+export function renderDecisionCard(value: unknown): string {
+  return renderResultMarkdown(buildReportResultView(value), { aggregateOnly: true });
 }
 
 function sarifResult(result: CheckResult, advisory = false) {
@@ -200,7 +140,7 @@ function sarifResult(result: CheckResult, advisory = false) {
   };
 }
 
-export function toSarif(report: TrustReport) {
+function sarifForValidatedReport(report: TrustReport) {
   const allResults = [...report.results, ...(report.advisories ?? [])];
   const rules = [...new Set(allResults.map((result) => result.ruleId ?? result.claim.kind))].map((id) => ({
     id,
@@ -220,13 +160,24 @@ export function toSarif(report: TrustReport) {
   };
 }
 
-export function writeOutputs(report: TrustReport, options: {
+export function toSarif(value: unknown) {
+  return sarifForValidatedReport(validateReportForResult(value));
+}
+
+export function writeOutputs(value: unknown, options: {
   output?: string;
   sarif?: string;
   githubSummary?: boolean;
 }): void {
-  if (options.output) writePrivateFileAtomic(options.output, `${JSON.stringify(report, null, 2)}\n`);
-  if (options.sarif) writePrivateFileAtomic(options.sarif, `${JSON.stringify(toSarif(report), null, 2)}\n`);
+  const report = validateReportForResult(value);
+  const output = options.output ? `${JSON.stringify(report, null, 2)}\n` : undefined;
+  const sarif = options.sarif ? `${JSON.stringify(sarifForValidatedReport(report), null, 2)}\n` : undefined;
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (options.githubSummary && summaryPath) appendPrivateFileAtomic(summaryPath, renderDecisionCard(report));
+  const summary = options.githubSummary && summaryPath ? renderDecisionCard(report) : undefined;
+
+  // All untrusted content is parsed, normalized, hash-checked, and rendered
+  // before the first destination can be mutated.
+  if (options.output && output !== undefined) writePrivateFileAtomic(options.output, output);
+  if (options.sarif && sarif !== undefined) writePrivateFileAtomic(options.sarif, sarif);
+  if (summaryPath && summary !== undefined) appendPrivateFileAtomic(summaryPath, summary);
 }

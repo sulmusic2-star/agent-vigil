@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/outcome-mandate-v0.1.schema.json",
+  "title": "Agent Vigil Outcome Mandate v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "type", "createdAt", "expiresAt", "requester", "task", "acceptance", "limits", "verifier", "settlement", "mandateId", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "0.1" },
+    "type": { "const": "agent-vigil/outcome-mandate" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "requester": { "$ref": "#/$defs/identity" },
+    "provider": { "$ref": "#/$defs/identity" },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "class", "description", "base", "head"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "class": { "$ref": "#/$defs/id" },
+        "description": { "type": "string", "minLength": 3, "maxLength": 2000 },
+        "base": { "$ref": "#/$defs/gitOid" },
+        "head": { "$ref": "#/$defs/gitOid" }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredReportStatus", "minMeaningfulVerified", "requireNoContradictions", "requiredRuleIds", "requireSignedEvidence", "trustedEvidenceSignerKeyIds", "missingEvidenceVerdict"],
+      "properties": {
+        "requiredReportStatus": { "const": "PASS" },
+        "minMeaningfulVerified": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "requireNoContradictions": { "const": true },
+        "requiredRuleIds": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "requireSignedEvidence": { "type": "boolean" },
+        "trustedEvidenceSignerKeyIds": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/sha256" } },
+        "missingEvidenceVerdict": { "const": "INCONCLUSIVE" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxAttempts"],
+      "properties": {
+        "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "maxBudgetUsd": { "type": "number", "exclusiveMinimum": 0, "maximum": 100000000 }
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trustedKeyIds"],
+      "properties": {
+        "trustedKeyIds": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/sha256" } }
+      }
+    },
+    "settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "adapter", "networkAction"],
+      "properties": {
+        "mode": { "const": "signal-only" },
+        "adapter": { "enum": ["generic", "a2a", "ap2", "x402", "erc-8004", "vcap"] },
+        "reference": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "networkAction": { "const": "NONE" }
+      }
+    },
+    "mandateId": { "$ref": "#/$defs/sha256" },
+    "signature": { "$ref": "#/$defs/signature" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$" },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "gitOid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "identity": { "type": "object", "additionalProperties": false, "required": ["id"], "properties": { "id": { "$ref": "#/$defs/id" } } },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "publicKey", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "$ref": "#/$defs/sha256" },
+        "publicKey": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" },
+        "value": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" }
+      }
+    }
+  }
+}
