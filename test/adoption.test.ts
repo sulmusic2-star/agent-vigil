@@ -464,7 +464,21 @@ test("doctor fails portable mode without a pinned signer", () => {
 
 test("failure output includes a concrete remediation", () => {
   assert.match(remediationFor("test-count"), /observed passing count/);
-  const report = sampleReport();
-  report.results[0].verdict = "contradicted";
-  assert.match(renderMarkdown(report), /What to do next/);
+  const report = buildReport({
+    transcript: "session.md",
+    transcriptFormat: "markdown",
+    repo: ".",
+    base: "a",
+    head: "b",
+    results: [{
+      claim: { kind: "tests_pass", quote: "tests pass", subject: "test suite" },
+      verdict: "contradicted",
+      evidence: "fresh command failed",
+      ruleId: "tests-pass",
+    }],
+    policy: { minVerified: 1, strict: true, sha256: `sha256:${"2".repeat(64)}` },
+  });
+  const rendered = renderMarkdown(report);
+  assert.match(rendered, /Checks that need attention/);
+  assert.match(rendered, /Run `vigil doctor`/);
 });

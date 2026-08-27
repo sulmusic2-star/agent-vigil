@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { createHash as createHash24 } from "node:crypto";
-import { execFileSync as execFileSync19 } from "node:child_process";
+import { execFileSync as execFileSync20 } from "node:child_process";
 import { existsSync as existsSync12, mkdirSync as mkdirSync9, readFileSync as readFileSync26, realpathSync as realpathSync13, statSync as statSync10, writeFileSync as writeFileSync8 } from "node:fs";
 import { dirname as dirname12, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve27 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1775,6 +1775,260 @@ function recomputeReceiptHash(report) {
   return `sha256:${createHash3("sha256").update(canonical(payload)).digest("hex")}`;
 }
 
+// src/remediation.ts
+function remediationFor(ruleId) {
+  const fixes = {
+    "test-count": "Run the configured test command without truncating its output, then report the observed passing count exactly; use `vigil doctor` to inspect command selection.",
+    "tests-pass": "Run `vigil doctor`, configure policy `testCommand` when inference is absent, and preserve the fresh runner's complete output.",
+    "file-changed": "Inspect `git diff --name-only <base>..<head>`, pass those exact SHAs, then correct the claimed path.",
+    "path-exists": "Create the claimed artifact or remove the unsupported claim.",
+    "path-outside-repo": "Reference a repository-relative path that resolves inside the checkout.",
+    "file-outside-repo": "Reference only repository-relative changed files.",
+    "command-ran": "Export the complete supported tool trajectory, rerun the claimed command, and preserve its terminal result event.",
+    "tool-loop": "Stop the repeated call, inspect its result, and record the next distinct action.",
+    "test-count-drop": "Restore removed tests or document and review the intentional test-surface change.",
+    "test-skip-added": "Remove the new skip/focus marker or obtain an explicit reviewed exception.",
+    "verification-bypass": "Remove the verification bypass and let the underlying check fail honestly.",
+    "suppression-added": "Remove the new suppression or narrow it with an explicit reviewed justification.",
+    "coverage-weakened": "Restore a meaningful coverage threshold.",
+    "coverage-exclusion-added": "Remove the new coverage exclusion, or document the unreachable/platform-specific path and review the advisory explicitly.",
+    "test-empty-added": "Add an assertion against observable behavior or remove the empty test.",
+    "test-oracle-constant": "Replace the constant or self-equal assertion with an assertion whose value comes from the subject under test.",
+    "test-runtime-patch": "Test the application as delivered; remove browser-side repair code or prove that the mutation is only fixture setup outside the behavior being asserted.",
+    "assertion-drop": "Restore equivalent assertions or review the intentional reduction explicitly.",
+    "test-assertion-relaxed": "Restore the exact assertion, or document why the weaker predicate preserves the same contract and review the exception.",
+    "subject-mocked": "Exercise the real subject or replace the self-fulfilling mock with a boundary fixture whose behavior is independently asserted.",
+    "dead-branch-added": "Remove the unreachable branch or replace the constant condition with the intended reachable control flow.",
+    "error-swallowed": "Handle, report, or deliberately propagate the error; if swallowing is intentional, keep advisory mode or review a blocking-policy exception.",
+    "exception-context-lost": "Rethrow the original error or attach it as the new error's cause so diagnostic context is preserved.",
+    "stale-refactor-caller": "Update remaining callers to the renamed symbol and run the focused regression test.",
+    "no-op-code-change": "Make the behavioral change explicit or remove the comment/whitespace-only edit from the claimed fix.",
+    "comment-only-change": "Implement the claimed behavior change, or move the comment-only edit out of the fix and avoid presenting it as implementation proof.",
+    "diff-unparseable": "Export a complete unified Git diff with `git diff --no-color <base>...<head>` and rerun the audit.",
+    "completion-marker": "Resolve the added unfinished-work marker before claiming completion.",
+    "completion-evidence": "Add at least one independently verifiable path, command, change, or test claim.",
+    "workspace-dirty": "Run `git status --short`, commit or remove unbound paths, then rerun with `--head $(git rev-parse HEAD)`.",
+    "workspace-unbound": "Commit the candidate change, then rerun with `--head $(git rev-parse HEAD)` instead of WORKTREE.",
+    "workspace-mutated": "Make the verification command read-only with respect to tracked inputs, restore the changed paths, and rerun.",
+    "portable-signature": "Regenerate the portable receipt from an intact full report with the trusted Ed25519 key.",
+    "portable-signer": "Pin the signer key ID in base policy `trustedSignerKeyIds`, or regenerate with an already pinned key.",
+    "portable-local-verdict": "Resolve the local FAIL or INCONCLUSIVE result, rerun Agent Vigil, and attach a new signed portable receipt.",
+    "portable-policy": "Regenerate the receipt using policy loaded from the pull request base commit.",
+    "portable-path": "Set base policy `portableReceipt` and pass that exact repository-relative path.",
+    "portable-git-binding": "Regenerate after the latest source commit; after signing, commit only the base-policy-controlled receipt path.",
+    "responsible-human": "Set `Responsible human` to the pull request author's exact GitHub login and accept responsibility for the change.",
+    "human-review-attestation": "Review every changed line, then check the exact declaration in the pull request template.",
+    "human-maintenance-attestation": "Confirm you can explain and maintain the change, then check the exact declaration.",
+    "automated-review-mode": "Review the base policy's automatedReview setup and commands; this record is automated evidence, not a human declaration.",
+    "automated-review-setup": "Fix the base-policy setup command so it completes in a clean isolated checkout of the exact candidate commit.",
+    "automated-review-command": "Run the failing base-policy command at the reported candidate commit, fix the failure or timeout, and rerun Agent Vigil.",
+    "automated-review-head": "Remove any checkout, reset, commit, or other command that moves HEAD during automated review.",
+    "automated-review-worktree": "Make automated review read-only for tracked files; generated outputs must be unchanged or written outside tracked paths.",
+    "ai-assistance-disclosure": "Set `AI assistance` to exactly `none`, `assisted`, or `agent`.",
+    "linked-issue": "Link the maintainer-approved issue as `#123` or a full GitHub issue URL.",
+    "changed-file-budget": "Split the change or obtain a reviewed base-policy exception before expanding the file budget.",
+    "changed-line-budget": "Split the change, remove unrelated edits, or obtain a reviewed base-policy exception.",
+    "test-change-required": "Add a focused regression test under a configured testPathPatterns path.",
+    "protected-path": "Remove the protected-path edit and change policy or workflow controls in a separately reviewed pull request.",
+    "differential-setup": "Make the base-policy setup command succeed in isolated base and head worktrees; do not hide setup errors.",
+    "differential-head-pass": "Fix the candidate until the trusted regression command passes in the isolated head worktree.",
+    "differential-base-fail": "Add a regression test that fails against base source and passes against the candidate; a test green on both sides is not catching evidence.",
+    "differential-failure-pattern": "Tighten the test or update the base-anchored expected failure pattern through separate review.",
+    "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs.",
+    "merge-group-binding": "Use the exact base_sha and head_sha from the GitHub merge_group event.",
+    "merge-group-range": "Recreate the merge group from the current target branch; the reported head must descend from the event base.",
+    "authority-validity": "Issue a new task-scoped contract with a short expiresAt window; do not silently extend expired authority.",
+    "authorized-change-paths": "Revert out-of-scope paths or issue a separately reviewed contract that explicitly includes them.",
+    "authorized-action-classes": "Remove the unauthorized action, or obtain new human authority before rerunning it; never edit the contract after the action to manufacture compliance.",
+    "unknown-action-risk": "Use a supported structured tool adapter or normalize the action explicitly; do not allow unknown_effect in a blocking policy.",
+    "complete-tool-results": "Export the complete session trajectory with terminal results for every tool call.",
+    "observed-action-coverage": "Provide a supported JSONL transcript with structured tool calls; narrative summaries cannot prove action boundaries.",
+    "authority-contract-anchor": "Store the contract in the trusted base revision and pass --contract-ref <base-sha> in CI.",
+    "authority-plan": "Review each blocking authority change below; remove it or approve the exact kind, subject, and value in the base revision policy before reopening the code change.",
+    "authority-server": "Remove the new or changed agent server, or approve its exact normalized identity in the base revision policy.",
+    "authority-tool": "Restore the prior tool boundary, or approve the exact tool grant in the base revision policy.",
+    "authority-network": "Remove the new network destination, or approve that exact host in the base revision policy.",
+    "authority-filesystem": "Narrow the filesystem scope, or approve that exact path in the base revision policy.",
+    "authority-secret": "Remove the new secret reference, or approve the exact variable or header name in the base revision policy; never commit the secret value.",
+    "authority-model": "Restore the pinned model or review the model-identity change; do not replace a pinned version with a mutable alias.",
+    "authority-approval": "Restore the prior approval mode or approve the weaker mode in the base revision policy.",
+    "authority-sandbox": "Restore the prior sandbox boundary or approve the weaker setting in the base revision policy.",
+    "authority-hook": "Remove the new hook or approve its exact hashed command identity in the base revision policy.",
+    "authority-setting-unknown": "Upgrade the adapter or remove the unrecognized setting change; use a separately reviewed base-policy exception only after inspecting its effect."
+  };
+  return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
+}
+
+// src/result-view.ts
+import { execFileSync as execFileSync3 } from "node:child_process";
+
+// src/upgrade/presentation.ts
+var TERMINAL_UNSAFE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu;
+function terminalSafe(value) {
+  return value.replace(TERMINAL_UNSAFE, (character) => {
+    const codePoint = character.codePointAt(0);
+    return `\\u{${(codePoint ?? 0).toString(16).toUpperCase().padStart(4, "0")}}`;
+  });
+}
+
+// src/result-view.ts
+var GIT_OID = /^[0-9a-f]{40,64}$/;
+var COLON_LOCATION = /(?:^|[\s'"`(])([^\s'"`()]+\.[A-Za-z0-9]{1,12}):(\d+)(?=$|[\s'"`),.;])/;
+var CHANGED_LINE_LOCATION = /(?:^|[\s'"`(])([^\s'"`(),]+\.[A-Za-z0-9]{1,12}),\s*(?:changed\s+)?line\s+(\d+)\b/i;
+var OBSERVED_TEST_COUNTS = [
+  /\b(?:observed|found|with)\s+(\d+)\s+(?:passing\s+)?tests?\b/i,
+  /\brunner\s+reported\s+(\d+)\s+passed\b/i
+];
+function stateFor(verdict) {
+  return verdict === "verified" ? "PASSED" : verdict === "contradicted" ? "FAILED" : "NOT_CHECKED";
+}
+function consequence(verdict) {
+  if (verdict === "PASS") return "Ready to merge.";
+  if (verdict === "FAIL") return "Do not merge yet.";
+  return "A required check did not run.";
+}
+function safe(value) {
+  return terminalSafe(value);
+}
+function locationFor(result5) {
+  const value = `${result5.claim.subject} ${result5.evidence}`;
+  const match = value.match(COLON_LOCATION) ?? value.match(CHANGED_LINE_LOCATION);
+  if (!match) return void 0;
+  return { file: safe(match[1]), line: Number(match[2]) };
+}
+function observedTestCount(result5) {
+  if (result5.ruleId !== "test-count") return void 0;
+  for (const pattern of OBSERVED_TEST_COUNTS) {
+    const match = result5.evidence.match(pattern);
+    if (match) return Number(match[1]);
+  }
+  return void 0;
+}
+function findingFor(result5, advisory = false) {
+  const claimed = result5.ruleId === "test-count" ? result5.claim.expectedCount : void 0;
+  const observed = observedTestCount(result5);
+  const location = locationFor(result5);
+  return {
+    id: safe(result5.ruleId ?? result5.claim.kind),
+    state: advisory ? result5.verdict === "contradicted" ? "FAILED" : "NOT_CHECKED" : stateFor(result5.verdict),
+    title: safe(result5.claim.subject),
+    evidence: safe(result5.evidence),
+    remediation: safe(remediationFor(result5.ruleId)),
+    ...location ? { location } : {},
+    ...claimed !== void 0 ? { claimedTestCount: claimed } : {},
+    ...observed !== void 0 ? { observedTestCount: observed } : {}
+  };
+}
+function deriveReportVerdict(report) {
+  const failed = report.results.filter((result5) => result5.verdict === "contradicted").length;
+  const notChecked = report.results.filter((result5) => result5.verdict === "unverifiable").length;
+  const meaningful = report.results.filter((result5) => result5.verdict === "verified" && result5.contributesToPass !== false).length;
+  if (failed) return "FAIL";
+  if (meaningful < report.policy.minVerified || report.results.some((result5) => result5.verdict === "unverifiable" && result5.blocksPass) || report.policy.strict && notChecked) return "INCONCLUSIVE";
+  return "PASS";
+}
+function assertReportConsistency(report) {
+  if (recomputeReceiptHash(report) !== report.receiptHash) {
+    throw new Error("result view refused a receipt whose content does not match its hash");
+  }
+  const verdict = deriveReportVerdict(report);
+  const counts = {
+    verified: report.results.filter((result5) => result5.verdict === "verified").length,
+    contradicted: report.results.filter((result5) => result5.verdict === "contradicted").length,
+    unverifiable: report.results.filter((result5) => result5.verdict === "unverifiable").length,
+    meaningfulVerified: report.results.filter((result5) => result5.verdict === "verified" && result5.contributesToPass !== false).length
+  };
+  if (verdict !== report.summary.status || report.summary.pass !== (verdict === "PASS") || counts.verified !== report.summary.verified || counts.contradicted !== report.summary.contradicted || counts.unverifiable !== report.summary.unverifiable || counts.meaningfulVerified !== report.summary.meaningfulVerified) throw new Error("result view refused an inconsistent receipt summary");
+}
+function statusName(code3) {
+  const letter = code3[0];
+  if (letter === "A") return "added";
+  if (letter === "M") return "modified";
+  if (letter === "D") return "deleted";
+  if (letter === "R") return "renamed";
+  if (letter === "C") return "copied";
+  if (letter === "T") return "type-changed";
+  if (letter === "U") return "unmerged";
+  return "unknown";
+}
+function readChangedFileManifest(repo, base, head) {
+  if (!GIT_OID.test(base) || !GIT_OID.test(head)) {
+    return { complete: false, files: [], evidence: "Exact base and head Git object IDs are required." };
+  }
+  try {
+    const output = execFileSync3("git", ["diff", "--name-status", "-z", `${base}..${head}`], {
+      cwd: repo,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const fields = output.split("\0");
+    if (fields.at(-1) === "") fields.pop();
+    const files = [];
+    for (let index = 0; index < fields.length; ) {
+      const statusCode = fields[index++];
+      const status = statusName(statusCode);
+      if (status === "renamed" || status === "copied") {
+        const previousPath = fields[index++];
+        const path = fields[index++];
+        if (previousPath === void 0 || path === void 0) throw new Error("incomplete rename or copy record");
+        files.push({ status, path: safe(path), previousPath: safe(previousPath) });
+      } else {
+        const path = fields[index++];
+        if (path === void 0) throw new Error("incomplete changed-file record");
+        files.push({ status, path: safe(path) });
+      }
+    }
+    return { complete: true, files, evidence: `Git reported ${files.length} changed file(s) for the exact range.` };
+  } catch (error) {
+    return { complete: false, files: [], evidence: `Changed files could not be read: ${safe(error.message)}` };
+  }
+}
+function defaultManifest(report) {
+  return readChangedFileManifest(report.repo, report.base, report.head);
+}
+function mainCause(findings, verdict, head) {
+  const failed = findings.find((finding3) => finding3.state === "FAILED");
+  if (failed) return failed.title;
+  const missing = findings.find((finding3) => finding3.state === "NOT_CHECKED");
+  if (missing) return missing.title;
+  return `All required checks passed at ${safe(head.slice(0, 12))}.`;
+}
+function buildReportResultView(report, options = {}) {
+  assertReportConsistency(report);
+  const verdict = deriveReportVerdict(report);
+  const findings = report.results.map((result5) => findingFor(result5));
+  if (verdict === "INCONCLUSIVE" && report.summary.meaningfulVerified < report.policy.minVerified) {
+    findings.push({
+      id: "completion-evidence",
+      state: "NOT_CHECKED",
+      title: "Required verification evidence is missing",
+      evidence: `${report.summary.meaningfulVerified} of ${report.policy.minVerified} required meaningful checks passed.`,
+      remediation: remediationFor("completion-evidence")
+    });
+  }
+  return {
+    schemaVersion: "agent-vigil/result-view/v1",
+    verdict,
+    consequence: consequence(verdict),
+    mainCause: mainCause(findings, verdict, report.head),
+    counts: {
+      failed: findings.filter((finding3) => finding3.state === "FAILED").length,
+      passed: findings.filter((finding3) => finding3.state === "PASSED").length,
+      notChecked: findings.filter((finding3) => finding3.state === "NOT_CHECKED").length
+    },
+    findings,
+    advisories: (report.advisories ?? []).map((result5) => findingFor(result5, true)),
+    base: safe(report.base),
+    head: safe(report.head),
+    generatedAt: safe(report.generatedAt),
+    receiptHash: safe(report.receiptHash),
+    policyHash: safe(report.policy.sha256),
+    reproduce: safe(report.reproduction),
+    changedFiles: options.changedFiles ?? defaultManifest(report)
+  };
+}
+
 // src/safe-output.ts
 import { randomBytes } from "node:crypto";
 import {
@@ -1960,184 +2214,111 @@ function appendPrivateFileAtomic(destination, content) {
 }
 
 // src/output.ts
-var icon = { verified: "\u2713", contradicted: "\u2717", unverifiable: "?" };
-function advisoryLabel(result5) {
-  return result5.verdict === "unverifiable" ? "unresolved advisory" : "advisory";
+function code(value) {
+  return `\`${value.replace(/`/g, "\\`")}\``;
 }
-function remediationFor(ruleId) {
-  const fixes = {
-    "test-count": "Run the configured test command without truncating its output, then report the observed passing count exactly; use `vigil doctor` to inspect command selection.",
-    "tests-pass": "Run `vigil doctor`, configure policy `testCommand` when inference is absent, and preserve the fresh runner's complete output.",
-    "file-changed": "Inspect `git diff --name-only <base>..<head>`, pass those exact SHAs, then correct the claimed path.",
-    "path-exists": "Create the claimed artifact or remove the unsupported claim.",
-    "path-outside-repo": "Reference a repository-relative path that resolves inside the checkout.",
-    "file-outside-repo": "Reference only repository-relative changed files.",
-    "command-ran": "Export the complete supported tool trajectory, rerun the claimed command, and preserve its terminal result event.",
-    "tool-loop": "Stop the repeated call, inspect its result, and record the next distinct action.",
-    "test-count-drop": "Restore removed tests or document and review the intentional test-surface change.",
-    "test-skip-added": "Remove the new skip/focus marker or obtain an explicit reviewed exception.",
-    "verification-bypass": "Remove the verification bypass and let the underlying check fail honestly.",
-    "suppression-added": "Remove the new suppression or narrow it with an explicit reviewed justification.",
-    "coverage-weakened": "Restore a meaningful coverage threshold.",
-    "coverage-exclusion-added": "Remove the new coverage exclusion, or document the unreachable/platform-specific path and review the advisory explicitly.",
-    "test-empty-added": "Add an assertion against observable behavior or remove the empty test.",
-    "test-oracle-constant": "Replace the constant or self-equal assertion with an assertion whose value comes from the subject under test.",
-    "test-runtime-patch": "Test the application as delivered; remove browser-side repair code or prove that the mutation is only fixture setup outside the behavior being asserted.",
-    "assertion-drop": "Restore equivalent assertions or review the intentional reduction explicitly.",
-    "test-assertion-relaxed": "Restore the exact assertion, or document why the weaker predicate preserves the same contract and review the exception.",
-    "subject-mocked": "Exercise the real subject or replace the self-fulfilling mock with a boundary fixture whose behavior is independently asserted.",
-    "dead-branch-added": "Remove the unreachable branch or replace the constant condition with the intended reachable control flow.",
-    "error-swallowed": "Handle, report, or deliberately propagate the error; if swallowing is intentional, keep advisory mode or review a blocking-policy exception.",
-    "exception-context-lost": "Rethrow the original error or attach it as the new error's cause so diagnostic context is preserved.",
-    "stale-refactor-caller": "Update remaining callers to the renamed symbol and run the focused regression test.",
-    "no-op-code-change": "Make the behavioral change explicit or remove the comment/whitespace-only edit from the claimed fix.",
-    "comment-only-change": "Implement the claimed behavior change, or move the comment-only edit out of the fix and avoid presenting it as implementation proof.",
-    "diff-unparseable": "Export a complete unified Git diff with `git diff --no-color <base>...<head>` and rerun the audit.",
-    "completion-marker": "Resolve the added unfinished-work marker before claiming completion.",
-    "completion-evidence": "Add at least one independently verifiable path, command, change, or test claim.",
-    "workspace-dirty": "Run `git status --short`, commit or remove unbound paths, then rerun with `--head $(git rev-parse HEAD)`.",
-    "workspace-unbound": "Commit the candidate change, then rerun with `--head $(git rev-parse HEAD)` instead of WORKTREE.",
-    "workspace-mutated": "Make the verification command read-only with respect to tracked inputs, restore the changed paths, and rerun.",
-    "portable-signature": "Regenerate the portable receipt from an intact full report with the trusted Ed25519 key.",
-    "portable-signer": "Pin the signer key ID in base policy `trustedSignerKeyIds`, or regenerate with an already pinned key.",
-    "portable-local-verdict": "Resolve the local FAIL or INCONCLUSIVE result, rerun Agent Vigil, and attach a new signed portable receipt.",
-    "portable-policy": "Regenerate the receipt using policy loaded from the pull request base commit.",
-    "portable-path": "Set base policy `portableReceipt` and pass that exact repository-relative path.",
-    "portable-git-binding": "Regenerate after the latest source commit; after signing, commit only the base-policy-controlled receipt path.",
-    "responsible-human": "Set `Responsible human` to the pull request author's exact GitHub login and accept responsibility for the change.",
-    "human-review-attestation": "Review every changed line, then check the exact declaration in the pull request template.",
-    "human-maintenance-attestation": "Confirm you can explain and maintain the change, then check the exact declaration.",
-    "automated-review-mode": "Review the base policy's automatedReview setup and commands; this record is automated evidence, not a human declaration.",
-    "automated-review-setup": "Fix the base-policy setup command so it completes in a clean isolated checkout of the exact candidate commit.",
-    "automated-review-command": "Run the failing base-policy command at the reported candidate commit, fix the failure or timeout, and rerun Agent Vigil.",
-    "automated-review-head": "Remove any checkout, reset, commit, or other command that moves HEAD during automated review.",
-    "automated-review-worktree": "Make automated review read-only for tracked files; generated outputs must be unchanged or written outside tracked paths.",
-    "ai-assistance-disclosure": "Set `AI assistance` to exactly `none`, `assisted`, or `agent`.",
-    "linked-issue": "Link the maintainer-approved issue as `#123` or a full GitHub issue URL.",
-    "changed-file-budget": "Split the change or obtain a reviewed base-policy exception before expanding the file budget.",
-    "changed-line-budget": "Split the change, remove unrelated edits, or obtain a reviewed base-policy exception.",
-    "test-change-required": "Add a focused regression test under a configured testPathPatterns path.",
-    "protected-path": "Remove the protected-path edit and change policy or workflow controls in a separately reviewed pull request.",
-    "differential-setup": "Make the base-policy setup command succeed in isolated base and head worktrees; do not hide setup errors.",
-    "differential-head-pass": "Fix the candidate until the trusted regression command passes in the isolated head worktree.",
-    "differential-base-fail": "Add a regression test that fails against base source and passes against the candidate; a test green on both sides is not catching evidence.",
-    "differential-failure-pattern": "Tighten the test or update the base-anchored expected failure pattern through separate review.",
-    "differential-test": "Inspect isolated-worktree output, test-path patterns, setup, and timeout; rerun without secrets on the same exact SHAs.",
-    "merge-group-binding": "Use the exact base_sha and head_sha from the GitHub merge_group event.",
-    "merge-group-range": "Recreate the merge group from the current target branch; the reported head must descend from the event base.",
-    "authority-validity": "Issue a new task-scoped contract with a short expiresAt window; do not silently extend expired authority.",
-    "authorized-change-paths": "Revert out-of-scope paths or issue a separately reviewed contract that explicitly includes them.",
-    "authorized-action-classes": "Remove the unauthorized action, or obtain new human authority before rerunning it; never edit the contract after the action to manufacture compliance.",
-    "unknown-action-risk": "Use a supported structured tool adapter or normalize the action explicitly; do not allow unknown_effect in a blocking policy.",
-    "complete-tool-results": "Export the complete session trajectory with terminal results for every tool call.",
-    "observed-action-coverage": "Provide a supported JSONL transcript with structured tool calls; narrative summaries cannot prove action boundaries.",
-    "authority-contract-anchor": "Store the contract in the trusted base revision and pass --contract-ref <base-sha> in CI.",
-    "authority-plan": "Review each blocking authority change below; remove it or approve the exact kind, subject, and value in the base revision policy before reopening the code change.",
-    "authority-server": "Remove the new or changed agent server, or approve its exact normalized identity in the base revision policy.",
-    "authority-tool": "Restore the prior tool boundary, or approve the exact tool grant in the base revision policy.",
-    "authority-network": "Remove the new network destination, or approve that exact host in the base revision policy.",
-    "authority-filesystem": "Narrow the filesystem scope, or approve that exact path in the base revision policy.",
-    "authority-secret": "Remove the new secret reference, or approve the exact variable or header name in the base revision policy; never commit the secret value.",
-    "authority-model": "Restore the pinned model or review the model-identity change; do not replace a pinned version with a mutable alias.",
-    "authority-approval": "Restore the prior approval mode or approve the weaker mode in the base revision policy.",
-    "authority-sandbox": "Restore the prior sandbox boundary or approve the weaker setting in the base revision policy.",
-    "authority-hook": "Remove the new hook or approve its exact hashed command identity in the base revision policy.",
-    "authority-setting-unknown": "Upgrade the adapter or remove the unrecognized setting change; use a separately reviewed base-policy exception only after inspecting its effect."
-  };
-  return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
+function markdownText(value) {
+  return value.replace(/[\r\n]+/g, " ").replace(/\\/g, "\\\\").replace(/([*_\[\]<>])/g, "\\$1");
 }
-function renderText(report) {
+function openFindings(view) {
+  return view.findings.filter((finding3) => finding3.state !== "PASSED");
+}
+function countLine(view) {
+  return `Failed ${view.counts.failed} \xB7 Passed ${view.counts.passed} \xB7 Not checked ${view.counts.notChecked}`;
+}
+function textFinding(finding3) {
+  const location = finding3.location ? `      location: ${finding3.location.file}${finding3.location.line ? `:${finding3.location.line}` : ""}` : void 0;
+  const testCounts = finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0 ? `      tests:    claimed ${finding3.claimedTestCount ?? "not stated"}; observed ${finding3.observedTestCount ?? "not found"}` : void 0;
+  return [
+    `  ${finding3.state.replace("_", " ")} [${finding3.id}] ${finding3.title}`,
+    ...location ? [location] : [],
+    `      evidence: ${finding3.evidence}`,
+    ...testCounts ? [testCounts] : [],
+    `      fix:      ${finding3.remediation}`
+  ];
+}
+function renderResultText(view) {
+  const open = openFindings(view);
   const lines = [
-    `agent-vigil ${report.vigilVersion} \u2014 evidence receipt`,
-    `  transcript: ${report.transcript} (${report.transcriptFormat})`,
-    `  digest:     ${report.transcriptSha256}`,
-    `  repo:       ${report.repo}`,
-    `  range:      ${report.base}..${report.head}`,
-    `  policy:     ${report.policy.sha256}`,
+    `Agent Vigil: ${view.verdict}`,
+    view.consequence,
+    view.mainCause,
+    countLine(view),
     ""
   ];
-  for (const result5 of report.results) {
-    lines.push(`  ${icon[result5.verdict]} [${result5.ruleId ?? result5.claim.kind}] ${result5.claim.subject}`);
-    lines.push(`      claim:    "${result5.claim.quote.slice(0, 140)}"`);
-    lines.push(`      evidence: ${result5.evidence}`, "");
-    if (result5.verdict !== "verified") lines.splice(lines.length - 1, 0, `      fix:      ${remediationFor(result5.ruleId)}`);
+  if (open.length) {
+    lines.push("Checks that need attention", ...open.flatMap(textFinding), "");
+  } else lines.push("All required checks passed.", "");
+  if (view.advisories.length) {
+    lines.push(
+      `Advisories (${view.advisories.length}; non-blocking under this policy)`,
+      ...view.advisories.flatMap((finding3) => [
+        `  ADVISORY [${finding3.id}] ${finding3.title}`,
+        `      evidence: ${finding3.evidence}`,
+        `      review:   ${finding3.remediation}`
+      ]),
+      ""
+    );
   }
-  for (const result5 of report.advisories ?? []) {
-    lines.push(`  ! [${result5.ruleId ?? result5.claim.kind}] ${result5.claim.subject}`);
-    lines.push(`      ${advisoryLabel(result5)}: ${result5.evidence}`);
-    lines.push(`      review:   ${remediationFor(result5.ruleId)}`, "");
+  lines.push(
+    `Change: ${view.base} -> ${view.head}`,
+    `Changed files: ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}`,
+    ...view.changedFiles.files.map((file) => `  ${file.status}: ${file.previousPath ? `${file.previousPath} -> ` : ""}${file.path}`),
+    `Receipt: ${view.receiptHash}`,
+    `Reproduce: ${view.reproduce}`
+  );
+  return lines.join("\n");
+}
+function renderText(report) {
+  return renderResultText(buildReportResultView(report));
+}
+function renderResultMarkdown(view, options = {}) {
+  const open = openFindings(view);
+  const lines = [
+    `### Agent Vigil: ${view.verdict}`,
+    "",
+    `**${markdownText(view.consequence)}**`,
+    "",
+    options.aggregateOnly ? `Main result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : markdownText(view.mainCause),
+    "",
+    `**Checks:** ${countLine(view)}`
+  ];
+  if (!options.aggregateOnly && open.length) {
+    lines.push("", "#### Checks that need attention", "");
+    for (const finding3 of open) {
+      const location = finding3.location ? ` at ${code(`${finding3.location.file}${finding3.location.line ? `:${finding3.location.line}` : ""}`)}` : "";
+      lines.push(`- **${finding3.state.replace("_", " ")}** ${code(finding3.id)}${location}: ${markdownText(finding3.title)}`);
+      lines.push(`  - Evidence: ${markdownText(finding3.evidence)}`);
+      if (finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0) {
+        lines.push(`  - Tests: claimed **${finding3.claimedTestCount ?? "not stated"}**; observed **${finding3.observedTestCount ?? "not found"}**`);
+      }
+      lines.push(`  - Fix: ${markdownText(finding3.remediation)}`);
+    }
   }
-  const summary = report.summary;
-  lines.push(`  ${summary.verified} verified \xB7 ${summary.contradicted} contradicted \xB7 ${summary.unverifiable} unresolved`);
-  if (report.advisories?.length) lines.push(`  ${report.advisories.length} advisory finding(s) \xB7 non-blocking under this policy`);
-  lines.push(`  ${summary.status} \xB7 ${report.receiptHash}`);
-  lines.push(`  reproduce: ${report.reproduction}`);
-  if (summary.status === "INCONCLUSIVE") lines.push("  Missing or unresolved evidence prevents a trustworthy pass.");
+  if (!options.aggregateOnly && view.advisories.length) {
+    lines.push("", `#### Advisories (${view.advisories.length}; non-blocking under this policy)`, "");
+    for (const finding3 of view.advisories) {
+      lines.push(`- **ADVISORY** ${code(finding3.id)}: ${markdownText(finding3.title)}`);
+      lines.push(`  - Evidence: ${markdownText(finding3.evidence)}`);
+      lines.push(`  - Review: ${markdownText(finding3.remediation)}`);
+    }
+  }
+  lines.push(
+    "",
+    `**Change:** ${code(view.base)} -> ${code(view.head)}  `,
+    `**Changed files:** ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}  `,
+    `**Receipt:** ${code(view.receiptHash)}`,
+    "",
+    `Reproduce: ${code(view.reproduce)}`,
+    ""
+  );
   return lines.join("\n");
 }
 function renderMarkdown(report) {
-  const rows = report.results.map(
-    (result5) => `| ${icon[result5.verdict]} ${result5.verdict} | \`${result5.ruleId ?? result5.claim.kind}\` | ${escapeCell(result5.claim.subject)} | ${escapeCell(result5.evidence)} |`
-  );
-  const advisoryRows = (report.advisories ?? []).map(
-    (result5) => `| \u26A0\uFE0F ${advisoryLabel(result5)} | \`${result5.ruleId ?? result5.claim.kind}\` | ${escapeCell(result5.claim.subject)} | ${escapeCell(result5.evidence)} |`
-  );
-  return [
-    `# ${report.summary.status === "PASS" ? "\u2705" : report.summary.status === "FAIL" ? "\u274C" : "\u26A0\uFE0F"} Agent Vigil: ${report.summary.status}`,
-    "",
-    `**Receipt:** \`${report.receiptHash}\`  `,
-    `**Range:** \`${report.base}..${report.head}\`  `,
-    `**Transcript:** \`${report.transcript}\` (${report.transcriptFormat})  `,
-    `**Policy:** \`${report.policy.sha256}\``,
-    "",
-    "| Verdict | Rule | Claim | Evidence |",
-    "|---|---|---|---|",
-    ...rows,
-    ...advisoryRows,
-    "",
-    `${report.summary.verified} verified \xB7 ${report.summary.contradicted} contradicted \xB7 ${report.summary.unverifiable} unresolved`,
-    ...report.advisories?.length ?? 0 ? [`${report.advisories.length} advisory finding(s) \xB7 non-blocking under this policy`] : [],
-    "",
-    ...report.results.some((result5) => result5.verdict !== "verified") || (report.advisories?.length ?? 0) ? [
-      "## What to do next",
-      "",
-      ...report.results.filter((result5) => result5.verdict !== "verified").map(
-        (result5) => `- **\`${result5.ruleId ?? result5.claim.kind}\`**: ${remediationFor(result5.ruleId)}`
-      ),
-      ...(report.advisories ?? []).map(
-        (result5) => `- **\`${result5.ruleId ?? result5.claim.kind}\` (advisory)**: ${remediationFor(result5.ruleId)}`
-      ),
-      ""
-    ] : [],
-    `Reproduce: \`${report.reproduction.replace(/`/g, "\\`")}\``,
-    ""
-  ].join("\n");
+  return renderResultMarkdown(buildReportResultView(report));
 }
 function renderDecisionCard(report) {
-  const meaning = report.summary.status === "PASS" ? "The required evidence is present for this exact change." : report.summary.status === "FAIL" ? "A required check contradicted the change, its claims, or the trusted policy." : "The available evidence is not enough to approve this change.";
-  const open = report.results.filter((result5) => result5.verdict !== "verified");
-  return [
-    `### Agent Vigil: ${report.summary.status}`,
-    "",
-    meaning,
-    "",
-    `- **Change:** \`${report.base}\` \u2192 \`${report.head}\``,
-    `- **Evidence:** ${report.summary.verified} verified \xB7 ${report.summary.contradicted} contradicted \xB7 ${report.summary.unverifiable} unresolved`,
-    `- **Policy:** \`${report.policy.sha256}\``,
-    `- **Receipt:** \`${report.receiptHash}\``,
-    ...open.length ? [
-      "",
-      "**Before this can pass:**",
-      ...open.slice(0, 5).map((result5) => `- ${result5.claim.subject}: ${remediationFor(result5.ruleId)}`),
-      ...open.length > 5 ? [`- ${open.length - 5} more item(s) are listed in the retained receipt.`] : []
-    ] : [],
-    "",
-    `Reproduce: \`${report.reproduction.replace(/`/g, "\\`")}\``,
-    ""
-  ].join("\n");
-}
-function escapeCell(value) {
-  return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
+  return renderResultMarkdown(buildReportResultView(report));
 }
 function sarifResult(result5, advisory = false) {
   const level = advisory ? "warning" : result5.verdict === "contradicted" ? "error" : result5.verdict === "unverifiable" ? "warning" : "note";
@@ -2176,12 +2357,12 @@ function writeOutputs(report, options) {
 }
 
 // src/demo.ts
-import { execFileSync as execFileSync3 } from "node:child_process";
+import { execFileSync as execFileSync4 } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as join2 } from "node:path";
 function git2(repo, ...args) {
-  execFileSync3("git", args, { cwd: repo, stdio: "ignore" });
+  execFileSync4("git", args, { cwd: repo, stdio: "ignore" });
 }
 function runDemo(run2) {
   const repo = mkdtempSync(join2(tmpdir(), "agent-vigil-demo-"));
@@ -2218,8 +2399,8 @@ function runDemo(run2) {
   console.log("Agent Vigil adversarial demo\n");
   for (const [label, transcript] of scenarios) {
     console.log(`=== ${label} ===`);
-    const code2 = run2([transcript, "--repo", repo, "--base", "HEAD~1", "--head", "HEAD", "--strict"]);
-    if (code2 === 1) caught++;
+    const code3 = run2([transcript, "--repo", repo, "--base", "HEAD~1", "--head", "HEAD", "--strict"]);
+    if (code3 === 1) caught++;
     console.log("");
   }
   console.log(`${caught}/${scenarios.length} planted contradictions caught.`);
@@ -2228,7 +2409,7 @@ function runDemo(run2) {
 
 // src/config.ts
 import { createHash as createHash4 } from "node:crypto";
-import { execFileSync as execFileSync4 } from "node:child_process";
+import { execFileSync as execFileSync5 } from "node:child_process";
 import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
 import { isAbsolute as isAbsolute2, normalize, resolve as resolve4, win32 } from "node:path";
 var DEFAULT_POLICY_FILE = ".agent-vigil.json";
@@ -2391,7 +2572,7 @@ function loadPolicy(repo, requested, ref) {
     if (isAbsolute2(gitPath) || win32.isAbsolute(gitPath) || clean === ".." || clean.startsWith("../")) throw new Error("policy-ref requires a repository-relative policy path");
     let raw2;
     try {
-      raw2 = execFileSync4("git", ["show", `${ref}:${clean}`], {
+      raw2 = execFileSync5("git", ["show", `${ref}:${clean}`], {
         cwd: repo,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -2473,18 +2654,18 @@ function maintainerPolicyTemplate(testCommand, setupCommand, protectCommands) {
 }
 
 // src/setup.ts
-import { execFileSync as execFileSync7 } from "node:child_process";
+import { execFileSync as execFileSync8 } from "node:child_process";
 import { existsSync as existsSync5, mkdirSync as mkdirSync3, readFileSync as readFileSync8, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname3, relative as relative4, resolve as resolve7 } from "node:path";
 
 // src/authority.ts
 import { createHash as createHash5 } from "node:crypto";
-import { execFileSync as execFileSync6 } from "node:child_process";
+import { execFileSync as execFileSync7 } from "node:child_process";
 import { isAbsolute as isAbsolute3, normalize as normalize3, relative as relative3, resolve as resolve6, win32 as win322 } from "node:path";
 import { readFileSync as readFileSync7, statSync as statSync4 } from "node:fs";
 
 // src/maintainer.ts
-import { execFileSync as execFileSync5, spawnSync as spawnSync2 } from "node:child_process";
+import { execFileSync as execFileSync6, spawnSync as spawnSync2 } from "node:child_process";
 import { cpSync, existsSync as existsSync4, lstatSync as lstatSync2, mkdirSync as mkdirSync2, mkdtempSync as mkdtempSync2, readFileSync as readFileSync6, rmSync, statSync as statSync3 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { dirname as dirname2, join as join3, normalize as normalize2, resolve as resolve5, sep as sep4 } from "node:path";
@@ -2611,7 +2792,7 @@ function checkAttestations(evidence, policy) {
   return out;
 }
 function git3(repo, args) {
-  return execFileSync5("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 }).trim();
+  return execFileSync6("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 }).trim();
 }
 function globRegex(pattern) {
   let source2 = "";
@@ -2756,7 +2937,7 @@ function checkAutomatedReview(repo, head, policy) {
   const timeoutMs = (policy.timeoutSeconds ?? 300) * 1e3;
   let worktreeAdded = false;
   try {
-    execFileSync5("git", ["worktree", "add", "--detach", candidate, expectedHead], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    execFileSync6("git", ["worktree", "add", "--detach", candidate, expectedHead], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
     worktreeAdded = true;
     const initialHead = git3(candidate, ["rev-parse", "HEAD"]);
     if (initialHead !== expectedHead) {
@@ -2906,7 +3087,7 @@ function checkAutomatedReview(repo, head, policy) {
   } finally {
     if (worktreeAdded) {
       try {
-        execFileSync5("git", ["worktree", "remove", "--force", candidate], { cwd: repo, stdio: "ignore" });
+        execFileSync6("git", ["worktree", "remove", "--force", candidate], { cwd: repo, stdio: "ignore" });
       } catch {
       }
     }
@@ -2924,9 +3105,9 @@ function checkDifferentialTest(repo, base, head, testPaths, policy) {
   let baseAdded = false;
   let headAdded = false;
   try {
-    execFileSync5("git", ["worktree", "add", "--detach", baseWorktree, base], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    execFileSync6("git", ["worktree", "add", "--detach", baseWorktree, base], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
     baseAdded = true;
-    execFileSync5("git", ["worktree", "add", "--detach", headWorktree, head], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
+    execFileSync6("git", ["worktree", "add", "--detach", headWorktree, head], { cwd: repo, stdio: ["ignore", "ignore", "pipe"] });
     headAdded = true;
     if (policy.overlayChangedTests !== false) {
       const error = overlayTests(headWorktree, baseWorktree, testPaths);
@@ -2996,13 +3177,13 @@ function checkDifferentialTest(repo, base, head, testPaths, policy) {
   } finally {
     if (headAdded) {
       try {
-        execFileSync5("git", ["worktree", "remove", "--force", headWorktree], { cwd: repo, stdio: "ignore" });
+        execFileSync6("git", ["worktree", "remove", "--force", headWorktree], { cwd: repo, stdio: "ignore" });
       } catch {
       }
     }
     if (baseAdded) {
       try {
-        execFileSync5("git", ["worktree", "remove", "--force", baseWorktree], { cwd: repo, stdio: "ignore" });
+        execFileSync6("git", ["worktree", "remove", "--force", baseWorktree], { cwd: repo, stdio: "ignore" });
       } catch {
       }
     }
@@ -3144,7 +3325,7 @@ function loadAuthorityContract(repo, requested, ref) {
     }
     let raw;
     try {
-      raw = execFileSync6("git", ["show", `${ref}:${clean}`], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: MAX_CONTRACT_BYTES });
+      raw = execFileSync7("git", ["show", `${ref}:${clean}`], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: MAX_CONTRACT_BYTES });
     } catch {
       throw new Error(`authority contract not found at ${ref}:${clean}`);
     }
@@ -3624,7 +3805,7 @@ function inferProtectCommands(root, testCommand) {
 function initRepository(repo, force = false, portableSignerKeyId, profile = "default", attest = false) {
   const root = resolve7(repo);
   try {
-    execFileSync7("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
+    execFileSync8("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
   } catch {
     throw new Error(`not a Git repository: ${root}`);
   }
@@ -3648,7 +3829,7 @@ function initRepository(repo, force = false, portableSignerKeyId, profile = "def
 }
 function git4(repo, args) {
   try {
-    return execFileSync7("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync8("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -3817,9 +3998,9 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
   return checks;
 }
 function renderDoctor(checks) {
-  const icon2 = { PASS: "\u2713", WARN: "!", FAIL: "\u2717" };
+  const icon = { PASS: "\u2713", WARN: "!", FAIL: "\u2717" };
   const lines = ["Agent Vigil doctor", ""];
-  for (const check2 of checks) lines.push(`${icon2[check2.status]} ${check2.status.padEnd(4)} ${check2.label}: ${check2.detail}`);
+  for (const check2 of checks) lines.push(`${icon[check2.status]} ${check2.status.padEnd(4)} ${check2.label}: ${check2.detail}`);
   const failed = checks.filter((check2) => check2.status === "FAIL").length;
   const warned = checks.filter((check2) => check2.status === "WARN").length;
   lines.push("", `${failed} failure(s) \xB7 ${warned} warning(s)`);
@@ -3972,7 +4153,7 @@ function verifyPortableReceipt(receipt, trustedKeyIds = []) {
 }
 
 // src/gate.ts
-import { execFileSync as execFileSync8 } from "node:child_process";
+import { execFileSync as execFileSync9 } from "node:child_process";
 import { relative as relative5, resolve as resolve8, sep as sep5 } from "node:path";
 
 // src/integrity-policy.ts
@@ -4004,7 +4185,7 @@ function routeIntegrity(checks, mode = "advisory") {
 // src/gate.ts
 function git5(repo, args) {
   try {
-    return execFileSync8("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync9("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -4318,13 +4499,13 @@ function renderReceiptDelta(delta) {
 
 // src/merge-group.ts
 import { createHash as createHash10 } from "node:crypto";
-import { execFileSync as execFileSync10 } from "node:child_process";
+import { execFileSync as execFileSync11 } from "node:child_process";
 import { readFileSync as readFileSync11 } from "node:fs";
 import { relative as relative6, resolve as resolve9 } from "node:path";
 
 // src/authority-plan.ts
 import { createHash as createHash9 } from "node:crypto";
-import { execFileSync as execFileSync9 } from "node:child_process";
+import { execFileSync as execFileSync10 } from "node:child_process";
 import { posix } from "node:path";
 
 // node_modules/smol-toml/dist/date.js
@@ -5077,9 +5258,9 @@ function publicAtom(value) {
     removed: _removed,
     conditionalOn: _conditionalOn,
     compare: _compare,
-    ...safe
+    ...safe2
   } = value;
-  return safe;
+  return safe2;
 }
 function decisionRelation(before, after) {
   if (before === after) return "equal";
@@ -5147,7 +5328,7 @@ function hold(ruleId, reason, severity = "medium") {
   return { disposition: "HOLD", direction: "INCOMPARABLE", severity, ruleId, reason };
 }
 function git6(repo, args, maxBuffer = 64 * 1024 * 1024) {
-  return execFileSync9("git", args, {
+  return execFileSync10("git", args, {
     cwd: repo,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -6263,23 +6444,23 @@ function discoverAuthorityProfile(repo, ref) {
   internal.sources.sort((a, b) => a.path.localeCompare(b.path));
   internal.atoms.sort((a, b) => a.semanticKey.localeCompare(b.semanticKey));
   internal.gaps.sort((a, b) => `${a.sourcePath}:${a.locator}`.localeCompare(`${b.sourcePath}:${b.locator}`));
-  const safe = {
+  const safe2 = {
     ...internal,
     atoms: internal.atoms.map(publicAtom)
   };
-  return { ...safe, sha256: profileDigest(safe) };
+  return { ...safe2, sha256: profileDigest(safe2) };
 }
 function discoverInternal(repo, ref) {
-  const safe = discoverAuthorityProfile(repo, ref);
+  const safe2 = discoverAuthorityProfile(repo, ref);
   const internal = {
-    schemaVersion: safe.schemaVersion,
-    scope: safe.scope,
-    ref: safe.ref,
-    sources: [...safe.sources],
+    schemaVersion: safe2.schemaVersion,
+    scope: safe2.scope,
+    ref: safe2.ref,
+    sources: [...safe2.sources],
     atoms: [],
-    gaps: [...safe.gaps]
+    gaps: [...safe2.gaps]
   };
-  for (const source2 of safe.sources) {
+  for (const source2 of safe2.sources) {
     try {
       const raw = readGitFile(repo, ref, source2.path);
       const value = record(parseConfig(raw, source2.format));
@@ -6633,7 +6814,7 @@ function loadMergeGroupEvent(path) {
 }
 function git7(repo, args) {
   try {
-    return execFileSync10("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync11("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -7332,7 +7513,7 @@ function renderValueComparisonHtml(comparison) {
 
 // src/attestation.ts
 import { createHash as createHash13, createHmac, timingSafeEqual } from "node:crypto";
-import { execFileSync as execFileSync11 } from "node:child_process";
+import { execFileSync as execFileSync12 } from "node:child_process";
 import { readFileSync as readFileSync14, statSync as statSync7 } from "node:fs";
 import { basename as basename3, resolve as resolve12 } from "node:path";
 var ATTESTATION_PREDICATE_TYPE = "https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json";
@@ -7452,7 +7633,7 @@ function verifyGhAttestationOutput(reportPath, ghOutput) {
     ...matched ? { predicate: matched } : {}
   };
 }
-var runGitHubCli = (args) => execFileSync11("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+var runGitHubCli = (args) => execFileSync12("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 function verifyGitHubAttestation(reportPath, repository2, trust = {}, executeGh = runGitHubCli) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository2)) throw new Error("repository must be owner/name");
   const signerWorkflow = trust.signerWorkflow ?? `${repository2}/.github/workflows/agent-vigil.yml`;
@@ -7744,15 +7925,6 @@ import {
 } from "node:crypto";
 import { lstatSync as lstatSync5, readFileSync as readFileSync17, realpathSync as realpathSync7 } from "node:fs";
 import { dirname as dirname6, isAbsolute as isAbsolute6, relative as relative9, resolve as resolve15, sep as sep8 } from "node:path";
-
-// src/upgrade/presentation.ts
-var TERMINAL_UNSAFE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029]/gu;
-function terminalSafe(value) {
-  return value.replace(TERMINAL_UNSAFE, (character) => {
-    const codePoint = character.codePointAt(0);
-    return `\\u{${(codePoint ?? 0).toString(16).toUpperCase().padStart(4, "0")}}`;
-  });
-}
 
 // src/upgrade/decision.ts
 import { createHash as createHash14 } from "node:crypto";
@@ -8858,17 +9030,17 @@ function validatePublicCompatibilityEntry(input) {
   return entry;
 }
 function renderUpgradeReceipt(receipt) {
-  const safe = (value) => terminalSafe(value);
+  const safe2 = (value) => terminalSafe(value);
   const lines = [
-    `Agent Vigil Upgrade Guard ${safe(receipt.vigilVersion)}`,
-    `  component: ${safe(receipt.component.name)}`,
-    `  versions:  ${safe(receipt.current?.version ?? "unknown")} -> ${safe(receipt.candidate?.version ?? "unknown")}`,
-    `  runner:    ${safe(receipt.runner.image)}`,
+    `Agent Vigil Upgrade Guard ${safe2(receipt.vigilVersion)}`,
+    `  component: ${safe2(receipt.component.name)}`,
+    `  versions:  ${safe2(receipt.current?.version ?? "unknown")} -> ${safe2(receipt.candidate?.version ?? "unknown")}`,
+    `  runner:    ${safe2(receipt.runner.image)}`,
     `  canaries:  ${receipt.summary.comparedCanaries} comparable; ${receipt.summary.changedCanaries} changed`,
     `  surfaces:  ${receipt.summary.changedCapabilities} capability class change(s)`,
-    `  ${safe(receipt.summary.verdict)} \xB7 ${safe(receipt.receiptHash)}`
+    `  ${safe2(receipt.summary.verdict)} \xB7 ${safe2(receipt.receiptHash)}`
   ];
-  for (const reason of receipt.summary.reasons) lines.push(`  ${receipt.summary.verdict === "SAFE" ? "\u2713" : receipt.summary.verdict === "CHANGED" ? "!" : "?"} ${safe(reason)}`);
+  for (const reason of receipt.summary.reasons) lines.push(`  ${receipt.summary.verdict === "SAFE" ? "\u2713" : receipt.summary.verdict === "CHANGED" ? "!" : "?"} ${safe2(reason)}`);
   lines.push("  SAFE is bounded to these exact artifacts, canaries, and contained runner; it is not a universal safety claim.");
   return `${lines.join("\n")}
 `;
@@ -8886,7 +9058,7 @@ function renderBreakageIndex(entries) {
     <td>${html3(entry.changedCapabilities.join(", ") || "none observed")}</td>
     <td><code>${html3(entry.entryHash.slice(0, 22))}\u2026</code></td>
   </tr>`).join("\n");
-  const safe = ordered.filter((entry) => entry.verdict === "SAFE").length;
+  const safe2 = ordered.filter((entry) => entry.verdict === "SAFE").length;
   const changed = ordered.filter((entry) => entry.verdict === "CHANGED").length;
   const hold2 = ordered.filter((entry) => entry.verdict === "HOLD").length;
   return `<!doctype html>
@@ -8896,13 +9068,13 @@ function renderBreakageIndex(entries) {
 :root{color-scheme:light dark;font-family:ui-sans-serif,system-ui,sans-serif}body{max-width:1120px;margin:0 auto;padding:48px 24px;background:#07111f;color:#e7eef8}h1{font-size:clamp(2rem,5vw,4rem);margin:0 0 12px}.lede{max-width:760px;color:#a9b8ca;font-size:1.1rem;line-height:1.6}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:32px 0}.card{padding:20px;border:1px solid #2a3a50;border-radius:16px;background:#0d1a2b}.card strong{display:block;font-size:2rem}.table{overflow:auto;border:1px solid #2a3a50;border-radius:16px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:15px;border-bottom:1px solid #213147}th{color:#93a7bf;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em}td small{display:block;color:#7f94ac;margin-top:4px}.status{font-weight:800}.safe{color:#69e6a6}.changed{color:#ffcb6b}.hold{color:#ff8e9b}code{color:#b8c7db}footer{margin-top:28px;color:#8598ae;font-size:.9rem}@media(max-width:640px){body{padding:28px 16px}.cards{grid-template-columns:1fr}}
 </style></head><body><main><h1>Agent compatibility evidence</h1>
 <p class="lede">Signed, privacy-minimized results for exact coding-agent dependency version pairs. SAFE means no material change was detected by the recorded canaries under the recorded contained runner\u2014not that an update is universally safe.</p>
-<section class="cards" aria-label="Verdict counts"><div class="card"><strong>${safe}</strong>SAFE</div><div class="card"><strong>${changed}</strong>CHANGED</div><div class="card"><strong>${hold2}</strong>HOLD</div></section>
+<section class="cards" aria-label="Verdict counts"><div class="card"><strong>${safe2}</strong>SAFE</div><div class="card"><strong>${changed}</strong>CHANGED</div><div class="card"><strong>${hold2}</strong>HOLD</div></section>
 <section class="table"><table><thead><tr><th>Component</th><th>Version pair</th><th>Verdict</th><th>Matched canaries</th><th>Changed surfaces</th><th>Entry commitment</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No signed entries were supplied.</td></tr>'}</tbody></table></section>
 <footer>Generated by Agent Vigil Upgrade Guard. Raw repositories, commands, outputs, prompts, paths, and secrets are excluded from public entries.</footer></main></body></html>`;
 }
 
 // src/upgrade/setup.ts
-import { execFileSync as execFileSync12 } from "node:child_process";
+import { execFileSync as execFileSync13 } from "node:child_process";
 import {
   chmodSync as chmodSync2,
   existsSync as existsSync6,
@@ -8922,7 +9094,7 @@ function ensureRepository(path) {
   if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("--repo must be a regular directory, not a symbolic link");
   const repository2 = realpathSync8(requested);
   try {
-    const prefix = execFileSync12("git", ["rev-parse", "--show-prefix"], {
+    const prefix = execFileSync13("git", ["rev-parse", "--show-prefix"], {
       cwd: repository2,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
@@ -9311,7 +9483,7 @@ function runUpgradeCommand(args) {
 
 // src/proof-comment.ts
 var PROOF_COMMENT_MARKER = "<!-- agent-vigil-proof-comment:v1 -->";
-function code(value) {
+function code2(value) {
   return `\`${terminalSafe(value).replace(/`/g, "\\`")}\``;
 }
 function count(results, ruleId, verdict) {
@@ -9335,6 +9507,7 @@ function renderProofComment(report, options = {}) {
   const verification2 = verifyReport(report);
   if (!verification2.hashValid) throw new Error("proof comment receipt content does not match receiptHash");
   if (verification2.signatureValid === false) throw new Error("proof comment receipt signature is invalid");
+  const view = buildReportResultView(report);
   const results = report.results ?? [];
   const differentialEarned = count(results, "differential-test", "verified");
   const differentialAlsoPassedBase = count(results, "differential-base-fail", "contradicted");
@@ -9346,9 +9519,8 @@ function renderProofComment(report, options = {}) {
   ).length;
   const signature = verification2.signatureValid ? "valid embedded Ed25519 signature; signer identity is not pinned" : "absent; content hash only";
   const url = verifiedUrl(options.verifyUrl);
-  const title = report.summary.status === "PASS" ? "Required evidence is present for this exact change" : report.summary.status === "FAIL" ? "Required evidence was contradicted for this exact change" : "Evidence is incomplete for this exact change";
   const facts = [
-    `- **Evidence:** ${report.summary.verified} verified, ${report.summary.contradicted} contradicted, ${report.summary.unverifiable} unresolved`,
+    `- **Checks:** Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}`,
     `- **Candidate-only regression checks:** ${differentialEarned} verified`,
     `- **Changed regression checks that also passed on base:** ${differentialAlsoPassedBase}`,
     `- **Integrity-control contradictions:** ${integrityChanges}`,
@@ -9356,15 +9528,17 @@ function renderProofComment(report, options = {}) {
   ];
   return [
     PROOF_COMMENT_MARKER,
-    `### Agent Vigil: ${report.summary.status}`,
+    `### Agent Vigil: ${view.verdict}`,
     "",
-    title,
+    `**${view.consequence}**`,
+    "",
+    view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed.",
     "",
     ...facts,
     "",
-    `**Change:** ${code(report.base)} -> ${code(report.head)}  `,
-    `**Policy:** ${code(report.policy.sha256)}  `,
-    `**Receipt:** ${code(report.receiptHash)}  `,
+    `**Change:** ${code2(report.base)} -> ${code2(report.head)}  `,
+    `**Policy:** ${code2(report.policy.sha256)}  `,
+    `**Receipt:** ${code2(report.receiptHash)}  `,
     `**Signature:** ${signature}`,
     ...url ? ["", `[Verify this receipt](${url.replace(/[()]/g, (character) => `\\${character}`)})`] : [],
     "",
@@ -9375,7 +9549,7 @@ function renderProofComment(report, options = {}) {
 
 // src/control-proof.ts
 import { createHash as createHash17 } from "node:crypto";
-import { execFileSync as execFileSync13 } from "node:child_process";
+import { execFileSync as execFileSync14 } from "node:child_process";
 import {
   existsSync as existsSync7,
   lstatSync as lstatSync8,
@@ -9389,7 +9563,7 @@ import { tmpdir as tmpdir3 } from "node:os";
 import { dirname as dirname9, isAbsolute as isAbsolute8, join as join8, relative as relative12, resolve as resolve18, sep as sep11 } from "node:path";
 var FIXED_COMMIT_EPOCH = Date.parse("2000-01-01T00:00:00Z") / 1e3;
 function git8(repo, args, env) {
-  return execFileSync13("git", args, {
+  return execFileSync14("git", args, {
     cwd: repo,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -9474,7 +9648,7 @@ function buildControlProof(repo, base, vigilVersion) {
     }
   };
   try {
-    execFileSync13("git", ["clone", "--quiet", "--no-local", "--no-checkout", sourceRepo, clone], {
+    execFileSync14("git", ["clone", "--quiet", "--no-local", "--no-checkout", sourceRepo, clone], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 64 * 1024 * 1024
@@ -9648,7 +9822,7 @@ function renderControlProof(report) {
 
 // src/control-proof-attestation.ts
 import { createHash as createHash18 } from "node:crypto";
-import { execFileSync as execFileSync14 } from "node:child_process";
+import { execFileSync as execFileSync15 } from "node:child_process";
 import { closeSync as closeSync2, constants as constants3, fstatSync as fstatSync2, lstatSync as lstatSync9, openSync as openSync2, readFileSync as readFileSync20 } from "node:fs";
 import { basename as basename6, resolve as resolve19 } from "node:path";
 var CONTROL_PROOF_ATTESTATION_PREDICATE_TYPE = "https://sulmusic2-star.github.io/agent-vigil/control-proof-predicate-v1.schema.json";
@@ -9860,7 +10034,7 @@ function verifyGhControlProofAttestationOutput(path, ghOutput) {
     ...matched ? { predicate: matched } : {}
   };
 }
-var runGitHubCli2 = (args) => execFileSync14("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+var runGitHubCli2 = (args) => execFileSync15("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 function verifyGitHubControlProofAttestation(path, repository2, trust = {}, executeGh = runGitHubCli2) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository2)) throw new Error("repository must be owner/name");
   const signerWorkflow = trust.signerWorkflow ?? `${repository2}/.github/workflows/agent-vigil-control-proof.yml`;
@@ -9903,7 +10077,7 @@ function verifyGitHubControlProofAttestation(path, repository2, trust = {}, exec
 }
 
 // src/control-proof-workflow.ts
-import { execFileSync as execFileSync15 } from "node:child_process";
+import { execFileSync as execFileSync16 } from "node:child_process";
 import { existsSync as existsSync8, mkdirSync as mkdirSync6, writeFileSync as writeFileSync6 } from "node:fs";
 import { dirname as dirname10, resolve as resolve20 } from "node:path";
 var CHECKOUT_COMMIT = "11d5960a326750d5838078e36cf38b85af677262";
@@ -9957,7 +10131,7 @@ jobs:
 }
 function assertRepository(root) {
   try {
-    execFileSync15("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
+    execFileSync16("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, stdio: "ignore" });
   } catch {
     throw new Error(`not a Git repository: ${root}`);
   }
@@ -10524,12 +10698,12 @@ import {
   readdirSync as readdirSync2,
   realpathSync as realpathSync11
 } from "node:fs";
-import { execFileSync as execFileSync17 } from "node:child_process";
+import { execFileSync as execFileSync18 } from "node:child_process";
 import { createPrivateKey as createPrivateKey5, createPublicKey as createPublicKey5, sign as sign5, verify as verify5 } from "node:crypto";
 import { basename as basename7, join as join9, parse as parse3, resolve as resolve22, sep as sep12 } from "node:path";
 
 // src/continuity/contracts.ts
-import { execFileSync as execFileSync16 } from "node:child_process";
+import { execFileSync as execFileSync17 } from "node:child_process";
 import { constants as constants4, closeSync as closeSync3, fstatSync as fstatSync3, lstatSync as lstatSync11, openSync as openSync3, readFileSync as readFileSync23 } from "node:fs";
 import { isAbsolute as isAbsolute9, resolve as resolve21 } from "node:path";
 import { createHash as createHash21 } from "node:crypto";
@@ -10827,7 +11001,7 @@ function loadContinuityPolicy(options) {
     }
     const repo = resolve21(options.repo);
     try {
-      raw = execFileSync16("git", ["show", `${options.ref}:${options.path}`], {
+      raw = execFileSync17("git", ["show", `${options.ref}:${options.path}`], {
         cwd: repo,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -11065,19 +11239,19 @@ function verifyContinuityChain(chainDirectory, options = {}) {
   }
   if (options.repo) {
     try {
-      const head = execFileSync17("git", ["rev-parse", "--verify", `${root.subject.headSha}^{commit}`], {
+      const head = execFileSync18("git", ["rev-parse", "--verify", `${root.subject.headSha}^{commit}`], {
         cwd: resolve22(options.repo),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"]
       }).trim();
-      const tree = execFileSync17("git", ["rev-parse", "--verify", `${root.subject.headSha}^{tree}`], {
+      const tree = execFileSync18("git", ["rev-parse", "--verify", `${root.subject.headSha}^{tree}`], {
         cwd: resolve22(options.repo),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"]
       }).trim();
       if (head !== root.subject.headSha) errors.push("repository resolved the recorded head to a different commit");
       if (tree !== report.repository.tree) errors.push("repository head tree does not match the original receipt");
-      execFileSync17("git", ["merge-base", "--is-ancestor", root.subject.baseSha, root.subject.headSha], {
+      execFileSync18("git", ["merge-base", "--is-ancestor", root.subject.baseSha, root.subject.headSha], {
         cwd: resolve22(options.repo),
         stdio: ["ignore", "ignore", "ignore"]
       });
@@ -11918,7 +12092,7 @@ function renderContinuityDecision(value) {
 }
 
 // src/continuity/workflow.ts
-import { execFileSync as execFileSync18 } from "node:child_process";
+import { execFileSync as execFileSync19 } from "node:child_process";
 import { existsSync as existsSync11, lstatSync as lstatSync13, mkdirSync as mkdirSync8, realpathSync as realpathSync12 } from "node:fs";
 import { join as join11, resolve as resolve23, sep as sep13 } from "node:path";
 var ACTION_COMMIT = /^[0-9a-f]{40}$/;
@@ -11928,7 +12102,7 @@ var UPLOAD_COMMIT2 = "ea165f8d65b6e75b540449e92b4886f43607fa02";
 function repositoryRoot(path) {
   let root;
   try {
-    root = execFileSync18("git", ["rev-parse", "--show-toplevel"], {
+    root = execFileSync19("git", ["rev-parse", "--show-toplevel"], {
       cwd: resolve23(path),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
@@ -13090,7 +13264,7 @@ import {
 } from "node:crypto";
 import { readFileSync as readFileSync25 } from "node:fs";
 var SHA2564 = /^sha256:[0-9a-f]{64}$/;
-var GIT_OID = /^[0-9a-f]{40,64}$/;
+var GIT_OID2 = /^[0-9a-f]{40,64}$/;
 var ID = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/;
 var ADAPTERS = /* @__PURE__ */ new Set(["generic", "a2a", "ap2", "x402", "erc-8004", "vcap"]);
 function digest7(value) {
@@ -13115,7 +13289,7 @@ function requireSha(value, label) {
   return value;
 }
 function requireGitOid(value, label) {
-  if (!GIT_OID.test(value)) throw new Error(`${label} must be an exact 40-64 character lowercase Git object ID`);
+  if (!GIT_OID2.test(value)) throw new Error(`${label} must be an exact 40-64 character lowercase Git object ID`);
   return value;
 }
 function uniqueStrings(values, label, maximum = 64) {
@@ -14774,7 +14948,7 @@ function runTestIntegrity(args) {
       if (check2.ruleId === "integrity-scan" && check2.verdict === "verified") check2.contributesToPass = true;
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
-    const diff = execFileSync19("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const diff = execFileSync20("git", diffArgs, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
     const digest8 = `sha256:${createHash24("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
@@ -14885,7 +15059,7 @@ function runAuthority(args) {
 }
 function git9(repo, args) {
   try {
-    return execFileSync19("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return execFileSync20("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch {
     return void 0;
   }
@@ -15062,7 +15236,7 @@ function isMainModule() {
 if (isMainModule()) {
   const argv = process.argv.slice(2);
   if (argv[0] === "pr-receipt") {
-    void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION }).then((code2) => process.exit(code2));
+    void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION }).then((code3) => process.exit(code3));
   } else process.exit(run(argv));
 }
 export {
