@@ -72,24 +72,19 @@ function adapter(value: string | undefined): OutcomeAdapter {
 
 function writeJson(path: string | undefined, value: unknown): void {
   const json = `${JSON.stringify(value, null, 2)}\n`;
-  if (path) writePrivateFileAtomic(resolve(path), json);
-  else console.log(json.trimEnd());
+  path ? writePrivateFileAtomic(resolve(path), json) : console.log(json.trimEnd());
 }
 
 function printVerification(label: string, result: ReturnType<typeof verifyOutcomeMandate>): void {
-  console.log(`${label}: ${result.valid ? "VALID" : "INVALID"}`);
-  console.log(`Hash: ${result.hashValid ? "valid" : "invalid"}`);
-  console.log(`Signature: ${result.signatureValid ? "valid" : "invalid"}`);
-  console.log(`Key pinned: ${result.keyPinned ? "yes" : "no"}`);
-  if (result.expired) console.log("Expired: yes");
-  for (const error of result.errors) console.log(`- ${error}`);
+  console.log([`${label}: ${result.valid ? "VALID" : "INVALID"}`, `Hash: ${result.hashValid ? "valid" : "invalid"}`, `Signature: ${result.signatureValid ? "valid" : "invalid"}`, `Key pinned: ${result.keyPinned ? "yes" : "no"}`].join("\n"));
+  for (const line of [...(result.expired ? ["Expired: yes"] : []), ...result.errors.map((error) => `- ${error}`)]) console.log(line);
 }
 
 export function outcomeUsage(): string {
   return `Outcome commands:
   vigil mandate create --requester <id> --task-id <id> --task-class <name> --description <text> --base <sha> --head <sha> --expires <time> --requester-key <private.pem> --verifier-public-key <public.pem> --output <mandate.json> [options]
   vigil mandate verify <mandate.json> [--requester-public-key <public.pem>] [--as-of <time>]
-  vigil mandate assess <mandate.json> --receipt <agent-vigil-receipt.json> --verifier-key <private.pem> --requester-public-key <public.pem> --output <outcome-receipt.json> [--issued-at <time>]
+  vigil mandate assess <mandate.json> --receipt <agent-vigil-receipt.json> --verifier-key <private.pem> --requester-public-key <public.pem> --output <outcome-receipt.json> --attempts <n> [--cost-usd <amount>] [--issued-at <time>]
   vigil receipt verify <outcome-receipt.json> [--verifier-public-key <public.pem>] [--trusted-key-ids <sha256:...,...>]
   vigil receipt signal <outcome-receipt.json> (--verifier-public-key <public.pem> | --trusted-key-ids <ids>) [--adapter generic|a2a|ap2|x402|erc-8004|vcap] [--output <signal.json>]
 
@@ -155,7 +150,7 @@ export function runMandateCommand(args: string[]): number {
       return result.valid ? 0 : result.expired ? 1 : 1;
     }
     if (command === "assess") {
-      const parsed = parse(args.slice(1), new Set(["--receipt", "--verifier-key", "--requester-public-key", "--issued-at", "--output"]));
+      const parsed = parse(args.slice(1), new Set(["--receipt", "--verifier-key", "--requester-public-key", "--issued-at", "--attempts", "--cost-usd", "--output"]));
       if (parsed.positional.length !== 1) throw new Error("mandate assess requires exactly one mandate JSON path");
       const report = loadOutcomeJson(resolve(required(parsed, "--receipt"))) as TrustReport;
       const outcome = assessOutcome(
@@ -165,6 +160,8 @@ export function runMandateCommand(args: string[]): number {
         {
           requesterPublicKeyPath: resolve(required(parsed, "--requester-public-key")),
           ...(parsed.values.get("--issued-at") ? { issuedAt: parsed.values.get("--issued-at")! } : {}),
+          attempts: Number(required(parsed, "--attempts")),
+          ...(parsed.values.has("--cost-usd") ? { costUsd: Number(parsed.values.get("--cost-usd")) } : {}),
         },
       );
       writeJson(required(parsed, "--output"), outcome);

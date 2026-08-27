@@ -13336,14 +13336,20 @@ function assessOutcome(mandateInput, report, verifierPrivateKeyPath, options) {
   checks.push(check("evidence-summary", reportConsistency.valid ? "PASS" : "FAIL", reportConsistency.evidence));
   checks.push(check("exact-base", report.base === mandate.task.base ? "PASS" : "FAIL", `mandate ${mandate.task.base}; observed ${report.base}`));
   checks.push(check("exact-head", report.head === mandate.task.head ? "PASS" : "FAIL", `mandate ${mandate.task.head}; observed ${report.head}`));
-  if (mandate.acceptance.requireSignedEvidence) {
-    if (!report.signature) checks.push(check("evidence-signature", "INCONCLUSIVE", "the mandate requires signed evidence but the trust report has no signature"));
-    else {
-      const verification2 = verifyReport(report);
-      const trusted = Boolean(verification2.keyId) && mandate.acceptance.trustedEvidenceSignerKeyIds.includes(verification2.keyId);
-      checks.push(check("evidence-signature", verification2.signatureValid && trusted ? "PASS" : "FAIL", verification2.signatureValid && trusted ? `evidence signer ${verification2.keyId} is trusted` : "evidence signature is invalid or its signer is not trusted by the mandate"));
-    }
-  } else checks.push(check("evidence-signature", "PASS", "the mandate permits unsigned trust-report evidence"));
+  let verifiedEvidenceSignerKeyId;
+  if (!report.signature) {
+    checks.push(check("evidence-signature", mandate.acceptance.requireSignedEvidence ? "INCONCLUSIVE" : "PASS", mandate.acceptance.requireSignedEvidence ? "the mandate requires signed evidence but the trust report has no signature" : "the mandate permits unsigned trust-report evidence"));
+  } else {
+    const verification2 = verifyReport(report);
+    const trusted = Boolean(verification2.keyId) && mandate.acceptance.trustedEvidenceSignerKeyIds.includes(verification2.keyId);
+    const accepted = verification2.signatureValid && (!mandate.acceptance.requireSignedEvidence || trusted);
+    if (verification2.signatureValid) verifiedEvidenceSignerKeyId = verification2.keyId;
+    checks.push(check("evidence-signature", accepted ? "PASS" : "FAIL", accepted ? `evidence signature from ${verification2.keyId} is valid${trusted ? " and trusted" : ""}` : "evidence signature is invalid or its signer is not trusted by the mandate"));
+  }
+  if (options.attempts !== void 0 && (!Number.isInteger(options.attempts) || options.attempts < 1)) throw new Error("attempts must be a positive integer");
+  checks.push(check("attempt-limit", options.attempts === void 0 ? "INCONCLUSIVE" : options.attempts <= mandate.limits.maxAttempts ? "PASS" : "FAIL", options.attempts === void 0 ? "observed attempt count was not provided" : `maximum ${mandate.limits.maxAttempts}; observed ${options.attempts}`));
+  if (options.costUsd !== void 0 && (!Number.isFinite(options.costUsd) || options.costUsd < 0)) throw new Error("costUsd must be a non-negative number");
+  checks.push(check("budget-limit", mandate.limits.maxBudgetUsd === void 0 ? "PASS" : options.costUsd === void 0 ? "INCONCLUSIVE" : options.costUsd <= mandate.limits.maxBudgetUsd ? "PASS" : "FAIL", mandate.limits.maxBudgetUsd === void 0 ? "the mandate has no budget cap" : options.costUsd === void 0 ? "observed cost was not provided" : `maximum USD ${mandate.limits.maxBudgetUsd}; observed USD ${options.costUsd}`));
   const statusVerdict = report.summary.status === "PASS" ? "PASS" : report.summary.status === "FAIL" ? "FAIL" : "INCONCLUSIVE";
   checks.push(check("required-report-status", statusVerdict, `required PASS; observed ${report.summary.status}`));
   checks.push(check("no-contradictions", report.summary.contradicted === 0 ? "PASS" : "FAIL", `observed ${report.summary.contradicted} contradicted claim(s)`));
@@ -13371,7 +13377,7 @@ function assessOutcome(mandateInput, report, verifierPrivateKeyPath, options) {
       base: report.base,
       head: report.head,
       status: report.summary.status,
-      ...report.signature?.keyId ? { signerKeyId: report.signature.keyId } : {}
+      ...verifiedEvidenceSignerKeyId ? { signerKeyId: verifiedEvidenceSignerKeyId } : {}
     },
     settlementSignal: {
       mode: "signal-only",
@@ -13580,22 +13586,17 @@ function adapter(value) {
 function writeJson(path, value) {
   const json = `${JSON.stringify(value, null, 2)}
 `;
-  if (path) writePrivateFileAtomic(resolve26(path), json);
-  else console.log(json.trimEnd());
+  path ? writePrivateFileAtomic(resolve26(path), json) : console.log(json.trimEnd());
 }
 function printVerification(label, result5) {
-  console.log(`${label}: ${result5.valid ? "VALID" : "INVALID"}`);
-  console.log(`Hash: ${result5.hashValid ? "valid" : "invalid"}`);
-  console.log(`Signature: ${result5.signatureValid ? "valid" : "invalid"}`);
-  console.log(`Key pinned: ${result5.keyPinned ? "yes" : "no"}`);
-  if (result5.expired) console.log("Expired: yes");
-  for (const error of result5.errors) console.log(`- ${error}`);
+  console.log([`${label}: ${result5.valid ? "VALID" : "INVALID"}`, `Hash: ${result5.hashValid ? "valid" : "invalid"}`, `Signature: ${result5.signatureValid ? "valid" : "invalid"}`, `Key pinned: ${result5.keyPinned ? "yes" : "no"}`].join("\n"));
+  for (const line of [...result5.expired ? ["Expired: yes"] : [], ...result5.errors.map((error) => `- ${error}`)]) console.log(line);
 }
 function outcomeUsage() {
   return `Outcome commands:
   vigil mandate create --requester <id> --task-id <id> --task-class <name> --description <text> --base <sha> --head <sha> --expires <time> --requester-key <private.pem> --verifier-public-key <public.pem> --output <mandate.json> [options]
   vigil mandate verify <mandate.json> [--requester-public-key <public.pem>] [--as-of <time>]
-  vigil mandate assess <mandate.json> --receipt <agent-vigil-receipt.json> --verifier-key <private.pem> --requester-public-key <public.pem> --output <outcome-receipt.json> [--issued-at <time>]
+  vigil mandate assess <mandate.json> --receipt <agent-vigil-receipt.json> --verifier-key <private.pem> --requester-public-key <public.pem> --output <outcome-receipt.json> --attempts <n> [--cost-usd <amount>] [--issued-at <time>]
   vigil receipt verify <outcome-receipt.json> [--verifier-public-key <public.pem>] [--trusted-key-ids <sha256:...,...>]
   vigil receipt signal <outcome-receipt.json> (--verifier-public-key <public.pem> | --trusted-key-ids <ids>) [--adapter generic|a2a|ap2|x402|erc-8004|vcap] [--output <signal.json>]
 
@@ -13676,7 +13677,7 @@ function runMandateCommand(args) {
       return result5.valid ? 0 : result5.expired ? 1 : 1;
     }
     if (command === "assess") {
-      const parsed = parse6(args.slice(1), /* @__PURE__ */ new Set(["--receipt", "--verifier-key", "--requester-public-key", "--issued-at", "--output"]));
+      const parsed = parse6(args.slice(1), /* @__PURE__ */ new Set(["--receipt", "--verifier-key", "--requester-public-key", "--issued-at", "--attempts", "--cost-usd", "--output"]));
       if (parsed.positional.length !== 1) throw new Error("mandate assess requires exactly one mandate JSON path");
       const report = loadOutcomeJson(resolve26(required2(parsed, "--receipt")));
       const outcome = assessOutcome(
@@ -13685,7 +13686,9 @@ function runMandateCommand(args) {
         resolve26(required2(parsed, "--verifier-key")),
         {
           requesterPublicKeyPath: resolve26(required2(parsed, "--requester-public-key")),
-          ...parsed.values.get("--issued-at") ? { issuedAt: parsed.values.get("--issued-at") } : {}
+          ...parsed.values.get("--issued-at") ? { issuedAt: parsed.values.get("--issued-at") } : {},
+          attempts: Number(required2(parsed, "--attempts")),
+          ...parsed.values.has("--cost-usd") ? { costUsd: Number(parsed.values.get("--cost-usd")) } : {}
         }
       );
       writeJson(required2(parsed, "--output"), outcome);
