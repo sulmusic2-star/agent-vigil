@@ -31,3 +31,12 @@ jobs:
         env:
           REPORT: ${{ steps.vigil.outputs.report }}
         run: test -n "$REPORT" && test -s "$REPORT"
+      - name: Retain the exact hosted proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v0.21.1-hosted-runtime-proof-${{ github.run_id }}
+          path: |
+            ${{ steps.vigil.outputs.report }}
+            ${{ steps.vigil.outputs.control-proof-predicate }}
+          if-no-files-found: error
+          retention-days: 30
