@@ -1,4 +1,5 @@
 import type { CheckResult, TrustReport } from "./report.ts";
+import { buildReportResultView } from "./result-view.ts";
 import { verifyReport } from "./signature.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
 
@@ -32,6 +33,7 @@ export function renderProofComment(report: TrustReport, options: ProofCommentOpt
   const verification = verifyReport(report);
   if (!verification.hashValid) throw new Error("proof comment receipt content does not match receiptHash");
   if (verification.signatureValid === false) throw new Error("proof comment receipt signature is invalid");
+  const view = buildReportResultView(report);
   const results = report.results ?? [];
   const differentialEarned = count(results, "differential-test", "verified");
   const differentialAlsoPassedBase = count(results, "differential-base-fail", "contradicted");
@@ -48,13 +50,8 @@ export function renderProofComment(report: TrustReport, options: ProofCommentOpt
     ? "valid embedded Ed25519 signature; signer identity is not pinned"
     : "absent; content hash only";
   const url = verifiedUrl(options.verifyUrl);
-  const title = report.summary.status === "PASS"
-    ? "Required evidence is present for this exact change"
-    : report.summary.status === "FAIL"
-      ? "Required evidence was contradicted for this exact change"
-      : "Evidence is incomplete for this exact change";
   const facts = [
-    `- **Evidence:** ${report.summary.verified} verified, ${report.summary.contradicted} contradicted, ${report.summary.unverifiable} unresolved`,
+    `- **Checks:** Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}`,
     `- **Candidate-only regression checks:** ${differentialEarned} verified`,
     `- **Changed regression checks that also passed on base:** ${differentialAlsoPassedBase}`,
     `- **Integrity-control contradictions:** ${integrityChanges}`,
@@ -63,9 +60,15 @@ export function renderProofComment(report: TrustReport, options: ProofCommentOpt
 
   return [
     PROOF_COMMENT_MARKER,
-    `### Agent Vigil: ${report.summary.status}`,
+    `### Agent Vigil: ${view.verdict}`,
     "",
-    title,
+    `**${view.consequence}**`,
+    "",
+    view.counts.failed
+      ? `${view.counts.failed} required check(s) failed.`
+      : view.counts.notChecked
+        ? `${view.counts.notChecked} required check(s) did not run.`
+        : "All required checks passed.",
     "",
     ...facts,
     "",
