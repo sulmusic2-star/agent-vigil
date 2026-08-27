@@ -381,7 +381,7 @@ export function assessOutcome(
   mandateInput: unknown,
   report: TrustReport,
   verifierPrivateKeyPath: string,
-  options: { requesterPublicKeyPath: string; issuedAt?: string },
+  options: { requesterPublicKeyPath: string; issuedAt?: string; attempts?: number; costUsd?: number },
 ): OutcomeReceipt {
   const issuedAt = options.issuedAt ?? new Date().toISOString();
   const issuedDate = new Date(parseTime(issuedAt, "issuedAt"));
@@ -405,14 +405,21 @@ export function assessOutcome(
   checks.push(check("exact-base", report.base === mandate.task.base ? "PASS" : "FAIL", `mandate ${mandate.task.base}; observed ${report.base}`));
   checks.push(check("exact-head", report.head === mandate.task.head ? "PASS" : "FAIL", `mandate ${mandate.task.head}; observed ${report.head}`));
 
-  if (mandate.acceptance.requireSignedEvidence) {
-    if (!report.signature) checks.push(check("evidence-signature", "INCONCLUSIVE", "the mandate requires signed evidence but the trust report has no signature"));
-    else {
-      const verification = verifyReport(report);
-      const trusted = Boolean(verification.keyId) && mandate.acceptance.trustedEvidenceSignerKeyIds.includes(verification.keyId!);
-      checks.push(check("evidence-signature", verification.signatureValid && trusted ? "PASS" : "FAIL", verification.signatureValid && trusted ? `evidence signer ${verification.keyId} is trusted` : "evidence signature is invalid or its signer is not trusted by the mandate"));
-    }
-  } else checks.push(check("evidence-signature", "PASS", "the mandate permits unsigned trust-report evidence"));
+  let verifiedEvidenceSignerKeyId: string | undefined;
+  if (!report.signature) {
+    checks.push(check("evidence-signature", mandate.acceptance.requireSignedEvidence ? "INCONCLUSIVE" : "PASS", mandate.acceptance.requireSignedEvidence ? "the mandate requires signed evidence but the trust report has no signature" : "the mandate permits unsigned trust-report evidence"));
+  } else {
+    const verification = verifyReport(report);
+    const trusted = Boolean(verification.keyId) && mandate.acceptance.trustedEvidenceSignerKeyIds.includes(verification.keyId!);
+    const accepted = verification.signatureValid && (!mandate.acceptance.requireSignedEvidence || trusted);
+    if (verification.signatureValid) verifiedEvidenceSignerKeyId = verification.keyId;
+    checks.push(check("evidence-signature", accepted ? "PASS" : "FAIL", accepted ? `evidence signature from ${verification.keyId} is valid${trusted ? " and trusted" : ""}` : "evidence signature is invalid or its signer is not trusted by the mandate"));
+  }
+
+  if (options.attempts !== undefined && (!Number.isInteger(options.attempts) || options.attempts < 1)) throw new Error("attempts must be a positive integer");
+  checks.push(check("attempt-limit", options.attempts === undefined ? "INCONCLUSIVE" : options.attempts <= mandate.limits.maxAttempts ? "PASS" : "FAIL", options.attempts === undefined ? "observed attempt count was not provided" : `maximum ${mandate.limits.maxAttempts}; observed ${options.attempts}`));
+  if (options.costUsd !== undefined && (!Number.isFinite(options.costUsd) || options.costUsd < 0)) throw new Error("costUsd must be a non-negative number");
+  checks.push(check("budget-limit", mandate.limits.maxBudgetUsd === undefined ? "PASS" : options.costUsd === undefined ? "INCONCLUSIVE" : options.costUsd <= mandate.limits.maxBudgetUsd ? "PASS" : "FAIL", mandate.limits.maxBudgetUsd === undefined ? "the mandate has no budget cap" : options.costUsd === undefined ? "observed cost was not provided" : `maximum USD ${mandate.limits.maxBudgetUsd}; observed USD ${options.costUsd}`));
 
   const statusVerdict: OutcomeVerdict = report.summary.status === "PASS" ? "PASS" : report.summary.status === "FAIL" ? "FAIL" : "INCONCLUSIVE";
   checks.push(check("required-report-status", statusVerdict, `required PASS; observed ${report.summary.status}`));
@@ -443,7 +450,7 @@ export function assessOutcome(
       base: report.base,
       head: report.head,
       status: report.summary.status,
-      ...(report.signature?.keyId ? { signerKeyId: report.signature.keyId } : {}),
+      ...(verifiedEvidenceSignerKeyId ? { signerKeyId: verifiedEvidenceSignerKeyId } : {}),
     },
     settlementSignal: {
       mode: "signal-only",
