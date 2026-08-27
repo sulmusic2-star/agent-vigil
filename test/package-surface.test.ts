@@ -225,6 +225,7 @@ test("npm package surface excludes internal product and commercial working docum
   }
 
   const allowedPublishedDocs = [
+    "docs/60_SECOND_DEMO.md",
     "docs/ADOPTION_EVIDENCE.md",
     "docs/AGENT_VALUE_CARD.md",
     "docs/AI_CHANGE_EPISODE_V1.md",
@@ -269,6 +270,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/assets/agent-value-comparison-demo.json",
     "docs/assets/agent-vigil-demo.gif",
     "docs/authority-contract-v1.schema.json",
+    "docs/adoption-evidence-v1.schema.json",
     "docs/authority-plan-policy-v1.schema.json",
     "docs/authority-plan-v1.schema.json",
     "docs/compatibility-entry-v1.schema.json",
@@ -407,6 +409,7 @@ test("candidate CI never masquerades as trusted Agent Vigil evidence", () => {
 
 test("workflow permissions and privileged steps are exact fail-closed contracts", () => {
   const expectedTopLevelPermissions: Record<string, string[]> = {
+    "adoption-census.yml": ["contents:read"],
     "agent-vigil-continuity-lab.yml": ["contents:read"],
     "agent-vigil-outcomes.yml": ["actions:read", "contents:read", "pull-requests:read"],
     "agent-vigil.yml": ["contents:read", "pull-requests:read"],
@@ -416,6 +419,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "publish.yml": [],
   };
   const expectedEffectiveJobPermissions: Record<string, string[]> = {
+    "adoption-census.yml:census": ["contents:read"],
     "agent-vigil-continuity-lab.yml:blocked-deployment": ["contents:read"],
     "agent-vigil-continuity-lab.yml:demonstration": ["contents:read"],
     "agent-vigil-continuity-lab.yml:repaired-action": ["contents:read"],
@@ -451,7 +455,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "613b2b5da570e358deb919d4141b49524b8e56d9998bc2c680c393bb8ed5b171",
+    "control-proof-weekly.yml": "0d7c7371e30ac012e1e427b6621a36a5f43af634d06838a4c6b60ff4673993fe",
     "publish.yml": "031d026c06795f539c83aad60f6265a8376e0511d8e1d144afeead2a0c2f963d",
   };
 
