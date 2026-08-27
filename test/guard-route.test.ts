@@ -19,7 +19,7 @@ type Fixture = {
   cleanup: () => void;
 };
 
-function fixture(mode: "pass" | "extra" | "bypass-deny" | "same-id" | "unavailable" | "mutate-config" = "pass"): Fixture {
+function fixture(mode: "pass" | "extra" | "bypass-deny" | "same-id" | "unavailable" | "mutate-config" | "require-user-environment" = "pass"): Fixture {
   const root = mkdtempSync(join(tmpdir(), "vigil-live-route-test-"));
   const profile = join(root, "profile");
   const host = join(root, "host.mjs");
@@ -31,6 +31,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 const mode = ${JSON.stringify(mode)};
 if (mode === "unavailable") process.exit(1);
+if (mode === "require-user-environment" && (process.env.USER !== "route-user" || process.env.LOGNAME !== "route-logname")) process.exit(1);
 const hook = process.env.AGENT_VIGIL_ROUTE_HOOK_PATH;
 const allow = process.env.AGENT_VIGIL_ROUTE_ALLOW_COMMAND;
 const deny = process.env.AGENT_VIGIL_ROUTE_DENY_COMMAND;
@@ -130,6 +131,26 @@ test("a host that exits before any routed call is inconclusive, never a route pa
     assert.ok(report.deployment.reasonCodes.includes("HOST_UNAVAILABLE_BEFORE_ROUTE"));
     assert.equal(report.nextGate.state, "BLOCKED");
   } finally { selected.cleanup(); }
+});
+
+test("the live host receives the bounded user identity variables required for macOS keychain lookup", () => {
+  const selected = fixture("require-user-environment");
+  const originalUser = process.env.USER;
+  const originalLogname = process.env.LOGNAME;
+  try {
+    process.env.USER = "route-user";
+    process.env.LOGNAME = "route-logname";
+    const report = run(selected, "claude");
+    assert.equal(report.status, "PASS");
+    assert.equal(JSON.stringify(report).includes("route-user"), false);
+    assert.equal(JSON.stringify(report).includes("route-logname"), false);
+  } finally {
+    if (originalUser === undefined) delete process.env.USER;
+    else process.env.USER = originalUser;
+    if (originalLogname === undefined) delete process.env.LOGNAME;
+    else process.env.LOGNAME = originalLogname;
+    selected.cleanup();
+  }
 });
 
 test("host-side configuration mutation is rejected and the temporary file is still removed", () => {

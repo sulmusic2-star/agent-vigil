@@ -276,7 +276,11 @@ function hostEnvironment(host: GuardHost, profileHome: string, route: Record<str
     AGENT_VIGIL_LIVE_HOST_ROUTE: "1",
     ...route,
   };
-  for (const name of ["SystemRoot", "ComSpec", "PATHEXT", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]) {
+  for (const name of [
+    "USER", "LOGNAME", "USERNAME",
+    "SystemRoot", "ComSpec", "PATHEXT",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+  ]) {
     if (process.env[name] !== undefined) environment[name] = process.env[name];
   }
   if (host === "codex") environment.CODEX_HOME = profileHome;

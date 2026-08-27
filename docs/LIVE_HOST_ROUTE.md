@@ -26,6 +26,11 @@ The commands only use `printf` and relative files inside a fresh temporary
 workspace. The reduced receipt excludes the prompt, host output, transcript,
 commands, marker text, paths, user name, profile contents, and credentials.
 
+The host process receives only the bounded operating-system identity variables
+`USER`, `LOGNAME`, and `USERNAME` when they already exist. Claude Code needs
+these values to find the disposable macOS keychain. Agent Vigil does not retain
+their values in the receipt.
+
 ## Prepare a disposable profile
 
 Create a new private directory and place this exact marker in it:

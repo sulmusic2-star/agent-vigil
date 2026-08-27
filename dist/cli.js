@@ -12462,7 +12462,17 @@ function hostEnvironment(host, profileHome, route) {
     AGENT_VIGIL_LIVE_HOST_ROUTE: "1",
     ...route
   };
-  for (const name2 of ["SystemRoot", "ComSpec", "PATHEXT", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]) {
+  for (const name2 of [
+    "USER",
+    "LOGNAME",
+    "USERNAME",
+    "SystemRoot",
+    "ComSpec",
+    "PATHEXT",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS"
+  ]) {
     if (process.env[name2] !== void 0) environment[name2] = process.env[name2];
   }
   if (host === "codex") environment.CODEX_HOME = profileHome;
