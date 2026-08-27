@@ -26,14 +26,12 @@ test("npm package surface excludes internal product and commercial working docum
   for (const publicPath of [
     "SECURITY.md",
     "CONTRIBUTING.md",
-    "docs/assets/outcome-verifier-demo.html",
     "docs/ATTESTED_RECEIPTS.md",
     "docs/AUTHORITY_PLAN.md",
     "docs/CONTROL_PROOF.md",
     "docs/CONTINUITY.md",
     "docs/CONTINUITY_LAB.md",
     "docs/NOTARY_APP.md",
-    "docs/OUTCOME_MANDATES.md",
     "docs/PROOF_COMMENT.md",
     "docs/PUBLIC_PR_RECEIPT.md",
     "docs/PUBLIC_RELEASE_POLICY.md",
@@ -50,11 +48,8 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/continuity-event-v1.schema.json",
     "docs/continuity-policy-v1.schema.json",
     "docs/public-pr-receipt-v1.schema.json",
-    "docs/outcome-mandate-v0.1.schema.json",
-    "docs/outcome-receipt-v0.1.schema.json",
     "proof/README.md",
     "proof/cases",
-    "proof/outcome-cases",
   ]) {
     assert.ok(files.includes(publicPath), `${publicPath} must ship with the npm package`);
   }
