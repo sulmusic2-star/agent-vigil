@@ -1,0 +1,14 @@
+Agent Vigil is a defensive security and change-control utility for AI coding agents.
+
+Its dual-use capabilities include parsing agent transcripts and tool commands,
+evaluating repository changes against authorization and integrity policies,
+running maintainer-configured verification commands and isolated upgrade
+canaries, and producing evidence about blocked or permitted actions. These
+capabilities can inspect or execute user-supplied commands and can be repurposed
+outside their intended defensive context.
+
+Agent Vigil is intended for repository owners and maintainers to review agent
+behavior, enforce change-control boundaries, test upgrades, and create
+verifiable receipts for their own systems. It does not grant authorization to
+access or modify third-party systems. Use it only on systems and repositories
+you own or are explicitly authorized to assess.

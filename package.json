@@ -8,7 +8,11 @@
     "vigil": "dist/cli.js"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
+  },
+  "contentPolicy": {
+    "class": "dual-use"
   },
   "scripts": {
     "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
@@ -61,6 +65,7 @@
     "SECURITY.md",
     "CONTRIBUTING.md",
     "LICENSE",
+    "DISCLOSURE",
     "benchmarks",
     "docs/assets/agent-value-card-demo.html",
     "docs/assets/agent-value-comparison-demo.html",

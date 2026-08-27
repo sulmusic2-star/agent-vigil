@@ -1,4 +1,4 @@
-name: Publish npm package
+name: Stage npm package for approval
 
 on:
   release:
@@ -44,7 +44,7 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - name: Check release identity and npm OIDC support
+      - name: Check release identity and staged-publishing support
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
@@ -55,9 +55,12 @@ jobs:
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           test "$RELEASE_TAG" = "v$PACKAGE_VERSION"
           node - "$(npm --version)" <<'NODE'
-          const [major, minor, patch] = process.argv[2].split(".").map(Number);
-          if (major < 11 || (major === 11 && minor < 5) || (major === 11 && minor === 5 && patch < 1)) {
-            throw new Error(`npm 11.5.1 or newer is required; found ${major}.${minor}.${patch}`);
+          const version = process.argv[2];
+          const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
+          if (!match) throw new Error(`npm returned a non-canonical version: ${version}`);
+          const [major, minor] = match.slice(1, 3).map(Number);
+          if (major < 11 || (major === 11 && minor < 15)) {
+            throw new Error(`npm 11.15.0 or newer is required; found ${version}`);
           }
           NODE
       - name: Install without lifecycle scripts
@@ -166,7 +169,7 @@ jobs:
           retention-days: 1
 
   publish:
-    name: Publish the verified tarball with OIDC
+    name: Stage the verified tarball with OIDC
     needs: verify-and-pack
     if: >-
       github.event_name == 'release' &&
@@ -175,6 +178,7 @@ jobs:
     runs-on: ubuntu-24.04
     # External authorization boundary: configure this environment to allow only
     # protected release tags, and require this same environment in npm Trusted Publisher.
+    # Allow only `npm stage publish` in that trust relationship; disable direct `npm publish`.
     environment: npm-publish
     permissions:
       actions: read
@@ -191,11 +195,20 @@ jobs:
         with:
           name: agent-vigil-npm-package
           path: ${{ runner.temp }}/npm-release
-      - name: Validate and publish only the verified tarball
+      - name: Validate and stage only the verified tarball
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
+          node - "$(npm --version)" <<'NODE'
+          const version = process.argv[2];
+          const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
+          if (!match) throw new Error(`npm returned a non-canonical version: ${version}`);
+          const [major, minor] = match.slice(1, 3).map(Number);
+          if (major < 11 || (major === 11 && minor < 15)) {
+            throw new Error(`npm 11.15.0 or newer is required; found ${version}`);
+          }
+          NODE
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Expected a stable vMAJOR.MINOR.PATCH tag, received: $RELEASE_TAG" >&2
             exit 1
@@ -284,6 +297,7 @@ jobs:
           let offset = 0;
           let terminated = false;
           let packageManifest;
+          let disclosureSeen = false;
           while (offset + BLOCK_BYTES <= archive.length) {
             const header = archive.subarray(offset, offset + BLOCK_BYTES);
             if (isZeroBlock(header)) {
@@ -341,11 +355,18 @@ jobs:
               }
               packageManifest = archive.subarray(dataStart, dataEnd);
             }
+            if (path === "package/DISCLOSURE") {
+              if (size < 1 || size > 64 * 1024) fail("DISCLOSURE is empty or exceeds the 64 KiB bound");
+              const disclosure = decoder.decode(archive.subarray(dataStart, dataEnd));
+              if (disclosure.includes("\0")) fail("DISCLOSURE must contain only text");
+              disclosureSeen = true;
+            }
             offset = nextOffset;
           }
           if (!terminated) fail("release archive is missing its end marker");
           if (entries.length < 1) fail("release archive is empty");
           if (!packageManifest) fail("release archive must contain package/package.json exactly once");
+          if (!disclosureSeen) fail("release archive must contain a root DISCLOSURE file exactly once");
 
           writeFileSync(archiveManifestPath, `${JSON.stringify(entries)}\n`, { flag: "wx", mode: 0o600 });
           writeFileSync(packageManifestPath, packageManifest, { flag: "wx", mode: 0o600 });
@@ -451,6 +472,18 @@ jobs:
           if (manifest.name !== expectedName || manifest.version !== expectedVersion) {
             throw new Error("package manifest identity does not match the event tag");
           }
+          if (!manifest.contentPolicy || typeof manifest.contentPolicy !== "object" ||
+              Array.isArray(manifest.contentPolicy) ||
+              Object.keys(manifest.contentPolicy).join("\n") !== "class" ||
+              manifest.contentPolicy.class !== "dual-use") {
+            fail("package manifest must declare the exact dual-use content policy");
+          }
+          if (!manifest.publishConfig || typeof manifest.publishConfig !== "object" ||
+              Array.isArray(manifest.publishConfig) ||
+              Object.keys(manifest.publishConfig).sort().join("\n") !== "access\nprovenance" ||
+              manifest.publishConfig.access !== "public" || manifest.publishConfig.provenance !== true) {
+            fail("package manifest must require public access and provenance");
+          }
           NODE
 
           LOCAL_INTEGRITY="$(node -e '
@@ -496,14 +529,5 @@ jobs:
             exit 0
           fi
 
-          npm publish "$TARBALL" --ignore-scripts --access public --registry=https://registry.npmjs.org
-
-          for attempt in 1 2 3 4 5 6; do
-            echo "Registry verification attempt $attempt of 6"
-            REMOTE_INTEGRITY="$(read_remote_integrity)"
-            [ "$REMOTE_INTEGRITY" = "$LOCAL_INTEGRITY" ] && exit 0
-            sleep 10
-          done
-
-          echo "The registry did not return the published package integrity within 60 seconds." >&2
-          exit 1
+          npm stage publish "$TARBALL" --ignore-scripts --access public --tag latest --provenance --registry=https://registry.npmjs.org
+          echo "$PACKAGE_NAME@$PACKAGE_VERSION is staged, not public; review and approve it separately with 2FA."

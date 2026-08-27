@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { TextDecoder } from "node:util";
 import { buildSync } from "esbuild";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -182,8 +183,18 @@ function manifestEntryCoversPath(entry: string, path: string): boolean {
 
 test("npm package surface excludes internal product and commercial working documents", () => {
   const packageDocument = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+    contentPolicy?: unknown;
     files?: unknown;
+    publishConfig?: unknown;
   };
+  assert.deepEqual(packageDocument.contentPolicy, { class: "dual-use" });
+  assert.deepEqual(packageDocument.publishConfig, { access: "public", provenance: true });
+  const disclosure = new TextDecoder("utf-8", { fatal: true }).decode(
+    readFileSync(new URL("../DISCLOSURE", import.meta.url)),
+  );
+  assert.match(disclosure, /defensive security and change-control utility/);
+  assert.match(disclosure, /only on systems and repositories\s+you own or are explicitly authorized to assess/);
+  assert.doesNotMatch(disclosure, /\0/, "DISCLOSURE must contain only text");
   assert.ok(Array.isArray(packageDocument.files));
   const files = packageDocument.files as string[];
   for (const [index, entry] of files.entries()) {
@@ -271,6 +282,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/upgrade-receipt-v1.schema.json",
   ];
   const requiredPublicPaths = [
+    "DISCLOSURE",
     "SECURITY.md",
     "CONTRIBUTING.md",
     ...allowedPublishedDocs,
@@ -283,6 +295,7 @@ test("npm package surface excludes internal product and commercial working docum
 
   const packedPaths = packedPackagePaths();
   assert.equal(new Set(packedPaths).size, packedPaths.length, "npm pack manifest paths must be unique");
+  assert.ok(packedPaths.includes("DISCLOSURE"), "DISCLOSURE must be at the root of the concrete npm package");
   for (const packedPath of packedPaths) {
     assert.ok(
       packedPath === "package.json" || files.some((entry) => manifestEntryCoversPath(entry, packedPath)),
@@ -385,6 +398,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "agent-vigil-continuity-lab.yml:repaired-action": ["contents:read"],
     "agent-vigil-outcomes.yml:outcome": ["actions:read", "contents:read", "pull-requests:read"],
     "agent-vigil.yml:evidence": ["contents:read", "pull-requests:read"],
+    "agent-vigil.yml:governed-head-check": ["pull-requests:read"],
     "ci.yml:candidate-ci": ["contents:read"],
     "ci.yml:candidate-isolation-regression": ["contents:read"],
     "ci.yml:portability": ["contents:read"],
@@ -410,12 +424,12 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "publish.yml:publish": [
       "uses=actions/setup-node@820762786026740c76f36085b0efc47a31fe5020|67e07e2dfa04f8a7834dbd56f20be3c32ae679f3b5b9f0ce3476c9864f72a265",
       "uses=actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0|72a8e30d016a37162721c9d6a45a2d0594c127a2b8b2cf6ed3c5ee1fab47ad2b",
-      "run|c7f77643a99649166f7d9d08ac472abcbc2136bdc018f2ace938bf73f8cb2adf",
+      "run|6a3fc2091941a6b4077a05ca2f5a7effe72080ad94059dd62b01dc4f7c307bc3",
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
     "control-proof-weekly.yml": "5430351832b9faa55fba04ac9c93a450460f4f2307df5c9e5055e109941ca1b9",
-    "publish.yml": "a2a2f5326a2bed0621bc15a18245c93512135534e0a033b84293612fdaf6f7bb",
+    "publish.yml": "031d026c06795f539c83aad60f6265a8376e0511d8e1d144afeead2a0c2f963d",
   };
 
   const workflows = workflowSources();
@@ -505,7 +519,18 @@ test("privileged workflows bind event identity and validate bounded artifacts", 
   assert.match(publish, /release archive paths or sizes do not match npm-pack\.json/);
   assert.match(publish, /maxOutputLength: MAX_TAR_STREAM_BYTES/);
   assert.match(publish, /--registry=https:\/\/registry\.npmjs\.org/);
-  assert.match(publish, /npm publish "\$TARBALL" --ignore-scripts --access public --registry=https:\/\/registry\.npmjs\.org/);
+  assert.match(publish, /release archive must contain a root DISCLOSURE file exactly once/);
+  assert.match(publish, /package manifest must declare the exact dual-use content policy/);
+  assert.match(publish, /package manifest must require public access and provenance/);
+  for (const jobName of ["verify-and-pack", "publish"]) {
+    const job = jobBlocks(publish, "publish.yml").find(({ name }) => name === jobName);
+    assert.ok(job, `publish.yml must retain the ${jobName} job`);
+    assert.match(job.text, /npm 11\.15\.0 or newer is required/);
+    assert.match(job.text, /major < 11 \|\| \(major === 11 && minor < 15\)/);
+  }
+  assert.match(publish, /npm stage publish "\$TARBALL" --ignore-scripts --access public --tag latest --provenance --registry=https:\/\/registry\.npmjs\.org/);
+  assert.doesNotMatch(publish, /npm publish "\$TARBALL"/, "the OIDC job must not publish directly");
+  assert.doesNotMatch(publish, /Registry verification attempt|sleep 10/, "the staging job must not pretend the package is already public");
 
   assert.equal(
     (controlProof.match(/github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)/g) ?? []).length,
