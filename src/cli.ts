@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTranscript, extractClaims, extractRunClaims } from "./transcript.ts";
 import {
@@ -81,6 +81,13 @@ import { signControlProof, signedControlIdentity } from "./signed-control-proof.
 import { readBoundedJson } from "./upgrade/contracts.ts";
 import { runContinuityCommand } from "./continuity/cli.ts";
 import { runPublicPrReceiptCommand } from "./public-pr-receipt-cli.ts";
+import {
+  loadControlArguments,
+  renderGuardCompatibility,
+  runGuardCompatibility,
+  type GuardHost,
+} from "./guard-compat.ts";
+import { renderGuardRoute, runGuardRoute } from "./guard-route.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
 
 type Options = {
@@ -114,6 +121,8 @@ Usage:
   vigil mandate <create|verify|assess> ...
   vigil receipt <verify|signal> ...
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
+  vigil guard-compat --host claude|codex --host-version <version> --host-executable <path> --control-name <name> --control-version <version> --control-executable <path> --policy <path> --configuration <path> [options]
+  vigil guard-route --host claude|codex --host-version <version> --host-executable <path> --profile-home <disposable-path> [options]
   vigil certify record <control-proof.json> --organization <name> --repository <owner/name> --required-check <name> --output <path>
   vigil certify sign <proof-payload.json> --private-key <pem> --output <path>
   vigil certify record-signed <signed-proof.json> --public-key <pem> --organization <name> --repository <owner/name> --required-check <name> --output <path>
@@ -185,6 +194,151 @@ Value options:
   --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS · 1 FAIL · 2 INCONCLUSIVE or usage error`;
+}
+
+function guardCompatibilityUsage(): string {
+  return `Agent Vigil guard compatibility
+
+Usage:
+  vigil guard-compat \\
+    --host claude|codex \\
+    --host-version <version> \\
+    --host-executable <path> \\
+    --control-name <name> \\
+    --control-version <version> \\
+    --control-executable <path> \\
+    --policy <path> \\
+    --configuration <path> \\
+    [--control-artifact <path>] \\
+    [--control-args <json-array-file>] \\
+    [--timeout-ms <50-60000>] \\
+    [--format text|json] \\
+    [--output <path>]
+
+The two built-in Bash canaries only print distinct allow and deny markers.
+The control command is executed directly, without a shell. A process PASS
+still leaves deployment on HOLD until a separate live-host routing test passes.`;
+}
+
+function runGuardCompatibilityCommand(args: string[]): number {
+  try {
+    if (args.includes("--help")) { console.log(guardCompatibilityUsage()); return 0; }
+    const parsed = parseCommandArgs(args, new Set([
+      "--host", "--host-version", "--host-executable", "--control-name", "--control-version",
+      "--control-executable", "--control-artifact", "--control-args", "--policy", "--configuration",
+      "--timeout-ms", "--format", "--output",
+    ]));
+    if (parsed.positional.length) throw new Error("guard-compat accepts options only");
+    const required = (name: string): string => {
+      const value = parsed.values.get(name);
+      if (!value) throw new Error(`guard-compat requires ${name} <value>`);
+      return value;
+    };
+    const host = required("--host") as GuardHost;
+    if (host !== "claude" && host !== "codex") throw new Error("guard-compat --host must be claude or codex");
+    const format = parsed.values.get("--format") ?? "text";
+    if (format !== "text" && format !== "json") throw new Error("guard-compat --format must be text or json");
+    const timeoutValue = parsed.values.get("--timeout-ms");
+    const timeoutMs = timeoutValue === undefined ? undefined : Number(timeoutValue);
+    if (timeoutValue !== undefined && !Number.isInteger(timeoutMs)) throw new Error("guard-compat --timeout-ms must be an integer");
+    const hostExecutable = resolve(required("--host-executable"));
+    const controlExecutable = resolve(required("--control-executable"));
+    const controlArtifact = parsed.values.get("--control-artifact") ? resolve(parsed.values.get("--control-artifact")!) : undefined;
+    const argumentsPath = parsed.values.get("--control-args") ? resolve(parsed.values.get("--control-args")!) : undefined;
+    const policyPath = resolve(required("--policy"));
+    const configurationPath = resolve(required("--configuration"));
+    const output = parsed.values.get("--output");
+    assertGuardOutputIsDistinct(output, [
+      hostExecutable,
+      controlExecutable,
+      controlArtifact ?? "",
+      argumentsPath ?? "",
+      policyPath,
+      configurationPath,
+    ]);
+    const report = runGuardCompatibility({
+      host,
+      hostVersion: required("--host-version"),
+      hostExecutable,
+      controlName: required("--control-name"),
+      controlVersion: required("--control-version"),
+      controlExecutable,
+      ...(controlArtifact ? { controlArtifact } : {}),
+      ...(argumentsPath ? { controlArguments: loadControlArguments(argumentsPath) } : {}),
+      policyPath,
+      configurationPath,
+      vigilVersion: VERSION,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    });
+    if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
+    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardCompatibility(report));
+    return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${(error as Error).message}\n\n${guardCompatibilityUsage()}`);
+    return 2;
+  }
+}
+
+function guardRouteUsage(): string {
+  return `Agent Vigil live-host routing drill
+
+Usage:
+  vigil guard-route \\
+    --host claude|codex \\
+    --host-version <version> \\
+    --host-executable <path> \\
+    --profile-home <disposable-path> \\
+    [--timeout-ms <1000-300000>] \\
+    [--format text|json] \\
+    [--output <path>]
+
+The profile directory must contain a file named
+.agent-vigil-disposable-profile with the exact documented marker. The drill
+temporarily installs one fail-closed hook, runs only two harmless printf
+canaries in an empty workspace, removes its host configuration, and leaves
+the marked authentication profile for the operator to delete. A one-host
+PASS does not permit deployment or satisfy the two-host next-ticket gate.`;
+}
+
+function runGuardRouteCommand(args: string[]): number {
+  try {
+    if (args.includes("--help")) { console.log(guardRouteUsage()); return 0; }
+    const parsed = parseCommandArgs(args, new Set([
+      "--host", "--host-version", "--host-executable", "--profile-home",
+      "--timeout-ms", "--format", "--output",
+    ]));
+    if (parsed.positional.length) throw new Error("guard-route accepts options only");
+    const required = (name: string): string => {
+      const value = parsed.values.get(name);
+      if (!value) throw new Error(`guard-route requires ${name} <value>`);
+      return value;
+    };
+    const host = required("--host") as GuardHost;
+    if (host !== "claude" && host !== "codex") throw new Error("guard-route --host must be claude or codex");
+    const format = parsed.values.get("--format") ?? "text";
+    if (format !== "text" && format !== "json") throw new Error("guard-route --format must be text or json");
+    const timeoutValue = parsed.values.get("--timeout-ms");
+    const timeoutMs = timeoutValue === undefined ? undefined : Number(timeoutValue);
+    if (timeoutValue !== undefined && !Number.isInteger(timeoutMs)) throw new Error("guard-route --timeout-ms must be an integer");
+    const hostExecutable = resolve(required("--host-executable"));
+    const profileHome = resolve(required("--profile-home"));
+    const output = parsed.values.get("--output");
+    assertGuardOutputIsDistinct(output, [hostExecutable, join(profileHome, ".agent-vigil-disposable-profile")]);
+    const report = runGuardRoute({
+      host,
+      hostVersion: required("--host-version"),
+      hostExecutable,
+      profileHome,
+      vigilVersion: VERSION,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    });
+    if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
+    console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardRoute(report));
+    return report.status === "PASS" ? 0 : report.status === "FAIL" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${(error as Error).message}\n\n${guardRouteUsage()}`);
+    return 2;
+  }
 }
 
 function runProve(args: string[]): number {
@@ -681,6 +835,28 @@ function parseCommandArgs(args: string[], valueOptions: Set<string>, booleanOpti
     throw new Error(`unknown option: ${arg}`);
   }
   return { positional, values, flags };
+}
+
+function assertGuardOutputIsDistinct(output: string | undefined, inputs: string[]): void {
+  if (!output) return;
+  const selected = resolve(output);
+  const selectedExists = existsSync(selected);
+  const selectedReal = selectedExists ? realpathSync(selected) : selected;
+  const selectedStatus = selectedExists ? statSync(selected) : undefined;
+  for (const input of inputs) {
+    if (!input) continue;
+    const requestedInput = resolve(input);
+    if (selected === requestedInput) throw new Error("--output must not replace or alias a guard input");
+    if (!existsSync(requestedInput)) continue;
+    const realInput = realpathSync(requestedInput);
+    if (selectedReal === realInput) throw new Error("--output must not replace or alias a guard input");
+    if (selectedStatus) {
+      const inputStatus = statSync(realInput);
+      if (selectedStatus.dev === inputStatus.dev && selectedStatus.ino === inputStatus.ino) {
+        throw new Error("--output must not replace or alias a guard input");
+      }
+    }
+  }
 }
 
 function runAttest(args: string[]): number {
@@ -1214,6 +1390,8 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
   if (argv[0] === "prove") return runProve(argv);
+  if (argv[0] === "guard-compat") return runGuardCompatibilityCommand(argv);
+  if (argv[0] === "guard-route") return runGuardRouteCommand(argv);
   if (argv[0] === "certify") return runCertify(argv);
   if (argv[0] === "plan") return runPlan(argv);
   if (argv[0] === "proof-comment") return runProofComment(argv);

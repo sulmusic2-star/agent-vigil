@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shutil
 import subprocess
 import tempfile
 
@@ -25,6 +26,19 @@ def main() -> int:
     (consumer / "package.json").write_text('{"private":true}\n')
     run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", str(tarball)], consumer)
     vigil = consumer / "node_modules" / ".bin" / "vigil"
+    installed = consumer / "node_modules" / "@sulmusic" / "agent-vigil"
+    vector_dir = installed / "test-vectors" / "continuity-staple" / "v1"
+    library_check = consumer / "continuity-library-check.mjs"
+    library_check.write_text(
+        'import { readFileSync } from "node:fs";\n'
+        'import { parseContinuityStapleJson, verifyContinuityStaple } from "@sulmusic/agent-vigil/continuity-staple";\n'
+        f'const root={json.dumps(str(vector_dir))};\n'
+        'const manifest=JSON.parse(readFileSync(`${root}/manifest.json`,"utf8"));\n'
+        'const result=verifyContinuityStaple(parseContinuityStapleJson(readFileSync(`${root}/current.staple.json`,"utf8")),{publicKeyPem:readFileSync(`${root}/authority-public.pem`),...manifest.bindings,now:new Date(manifest.times.freshVerification)});\n'
+        'if(result.effectiveContinuity!=="CURRENT"||!result.allowsProtectedAction)throw new Error("packed library did not allow the signed CURRENT vector");\n'
+        'process.stdout.write(JSON.stringify({status:result.effectiveContinuity,allowed:result.allowsProtectedAction}));\n'
+    )
+    library_result = json.loads(run(["node", str(library_check)], consumer).stdout)
     continuity_help = run([str(vigil), "continuity", "--help"], consumer)
     required_continuity_help = ["continuity init", "continuity import-github", "continuity status", "continuity demo", "continuity install-action"]
     if any(item not in continuity_help.stdout for item in required_continuity_help):
@@ -33,6 +47,66 @@ def main() -> int:
     demo_value = json.loads(continuity_demo.stdout)
     if [step.get("result") for step in demo_value.get("steps", [])] != ["PASS", "CURRENT", "REVOKED", "REVOKED", "CURRENT"]:
         raise RuntimeError(f"packed continuity demonstration is incorrect: {continuity_demo.stdout}\n{continuity_demo.stderr}")
+    node = shutil.which("node")
+    if not node:
+        raise RuntimeError("node executable is unavailable for the packed guard compatibility check")
+    guard_script = lab / "guard-control.mjs"
+    guard_args = lab / "guard-args.json"
+    guard_policy = lab / "guard-policy.json"
+    guard_configuration = lab / "guard-configuration.json"
+    guard_output = lab / "guard-compatibility.json"
+    guard_script.write_text(
+        'import { readFileSync } from "node:fs";\n'
+        'const data=JSON.parse(readFileSync(0,"utf8"));\n'
+        'const deny=data.tool_input.command.includes("PROCESS_CONFORMANCE_DENY");\n'
+        'console.log(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:deny?"deny":"allow"}}));\n'
+    )
+    guard_args.write_text(json.dumps([str(guard_script)]))
+    guard_policy.write_text('{"deny":"PROCESS_CONFORMANCE_DENY"}\n')
+    guard_configuration.write_text('{"event":"PreToolUse"}\n')
+    guard_check = run([
+        str(vigil), "guard-compat", "--host", "codex", "--host-version", "package-fixture",
+        "--host-executable", node, "--control-name", "package fixture", "--control-version", "1",
+        "--control-executable", node, "--control-artifact", str(guard_script),
+        "--control-args", str(guard_args), "--policy", str(guard_policy),
+        "--configuration", str(guard_configuration), "--format", "json", "--output", str(guard_output),
+    ], consumer)
+    guard_receipt = json.loads(guard_output.read_text())
+    if guard_receipt.get("status") != "PASS" or guard_receipt.get("deployment") != {
+        "state": "HOLD", "reasonCodes": ["LIVE_HOST_ROUTE_NOT_PROVEN"]
+    }:
+        raise RuntimeError(f"packed guard compatibility check is incorrect: {guard_check.stdout}\n{guard_check.stderr}")
+    route_profile = lab / "route-profile"
+    route_profile.mkdir(mode=0o700)
+    (route_profile / ".agent-vigil-disposable-profile").write_text("agent-vigil disposable host profile v1\n")
+    route_host = lab / "route-host.mjs"
+    route_output = lab / "live-host-route.json"
+    route_host.write_text(
+        "#!/usr/bin/env node\n"
+        'import { spawnSync } from "node:child_process";\n'
+        'import { writeFileSync } from "node:fs";\n'
+        "const hook=process.env.AGENT_VIGIL_ROUTE_HOOK_PATH;\n"
+        "const allow=process.env.AGENT_VIGIL_ROUTE_ALLOW_COMMAND;\n"
+        "const deny=process.env.AGENT_VIGIL_ROUTE_DENY_COMMAND;\n"
+        "const invoke=(command,id)=>JSON.parse(spawnSync(process.execPath,[hook],{input:JSON.stringify({session_id:'package-route',turn_id:'package-turn',transcript_path:null,cwd:process.cwd(),hook_event_name:'PreToolUse',model:'fixture',permission_mode:'dontAsk',tool_name:'Bash',tool_input:{command},tool_use_id:id}),encoding:'utf8'}).stdout).hookSpecificOutput.permissionDecision;\n"
+        "const token=(command)=>command.match(/'([^']+)' > /)[1];\n"
+        "if(invoke(allow,'package-allow')==='allow')writeFileSync(process.env.AGENT_VIGIL_ROUTE_ALLOW_FILE,token(allow)+'\\n');\n"
+        "invoke(deny,'package-deny');\n"
+        "process.stdout.write(JSON.stringify({result:'ROUTE_DRILL_COMPLETE'}));\n"
+    )
+    route_host.chmod(0o700)
+    route_check = run([
+        str(vigil), "guard-route", "--host", "codex", "--host-version", "package-fixture",
+        "--host-executable", str(route_host), "--profile-home", str(route_profile),
+        "--timeout-ms", "5000", "--format", "json", "--output", str(route_output),
+    ], consumer)
+    route_receipt = json.loads(route_output.read_text())
+    if route_receipt.get("status") != "PASS" or route_receipt.get("summary") != {
+        "passed": 2, "total": 2, "routedCalls": 2, "unexpectedCalls": 0
+    } or route_receipt.get("deployment", {}).get("state") != "HOLD":
+        raise RuntimeError(f"packed live-host route check is incorrect: {route_check.stdout}\n{route_check.stderr}")
+    if (route_profile / "hooks.json").exists() or (route_profile / "config.toml").exists():
+        raise RuntimeError("packed live-host route check left temporary host configuration behind")
     private_key = lab / "operator.pem"
     public_key = lab / "operator.pub"
     run([str(vigil), "keygen", "--private", str(private_key), "--public", str(public_key)], consumer)
@@ -144,6 +218,12 @@ def main() -> int:
         "controlProof": control_proof_result,
         "continuityHelpExit": continuity_help.returncode,
         "continuityDemoExit": continuity_demo.returncode,
+        "continuityLibrary": library_result,
+        "guardCompatibilityExit": guard_check.returncode,
+        "guardDeploymentState": guard_receipt["deployment"]["state"],
+        "liveHostRouteExit": route_check.returncode,
+        "liveHostRouteStatus": route_receipt["status"],
+        "liveHostRouteDeploymentState": route_receipt["deployment"]["state"],
         "passed": len(results),
         "results": results,
     }, indent=2))

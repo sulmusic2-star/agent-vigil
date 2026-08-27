@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -21,6 +21,65 @@ function repo() {
 }
 
 test("CLI help exits zero", () => assert.equal(run(["--help"]), 0));
+test("CLI command parsers reject ambiguous or incomplete requests before side effects", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-cli-parser-"));
+  const first = join(root, "first.json");
+  const second = join(root, "second.json");
+  const malformed = join(root, "malformed.json");
+  writeFileSync(first, JSON.stringify({ schemaVersion: "wrong" }));
+  writeFileSync(second, JSON.stringify({ schemaVersion: "wrong" }));
+  writeFileSync(malformed, "{");
+
+  assert.equal(run(["--version"]), 0);
+  assert.equal(run(["guard-compat", "--help"]), 0);
+  assert.equal(run(["guard-route", "--help"]), 0);
+  const invalid: string[][] = [
+    ["--unknown"],
+    ["evidence.md", "--format", "yaml"],
+    ["evidence.md", "--min-verified", "0"],
+    ["evidence.md", "--output"],
+    ["evidence.md", "--portable-output", "portable.json"],
+    ["guard-compat", "positional"],
+    ["guard-compat", "--host"],
+    ["guard-compat", "--host", "claude", "--host", "codex"],
+    ["guard-compat", "--host", "cursor"],
+    ["guard-compat", "--host", "claude", "--format", "yaml"],
+    ["guard-compat", "--host", "claude", "--timeout-ms", "1.5"],
+    ["guard-route", "positional"],
+    ["guard-route", "--host"],
+    ["guard-route", "--host", "cursor"],
+    ["guard-route", "--host", "codex", "--format", "yaml"],
+    ["guard-route", "--host", "codex", "--timeout-ms", "slow"],
+    ["protect", "--unknown"],
+    ["prove", "--unknown"],
+    ["prove", "--repo"],
+    ["certify"],
+    ["certify", "record"],
+    ["certify", "status", "--corpus", first, "--policy", second, "--format", "yaml"],
+    ["plan", "--unknown"],
+    ["plan", "--repo"],
+    ["proof-comment"],
+    ["keygen"],
+    ["keygen", "--private"],
+    ["verify"],
+    ["verify", first],
+    ["gate"],
+    ["gate", malformed],
+    ["maintainer"],
+    ["merge-group"],
+    ["authority"],
+    ["compare"],
+    ["compare", first, second, "--format", "yaml"],
+    ["compare", first, second],
+    ["github-evidence"],
+    ["github-evidence", "--event"],
+    ["github-evidence", "--unknown", first],
+    ["compare-value"],
+    ["compare-value", "--format", "yaml"],
+    ["audit"],
+  ];
+  for (const args of invalid) assert.equal(run(args), 2, args.join(" "));
+});
 test("CLI adversarial demo catches all planted failures", () => assert.equal(run(["demo"]), 0));
 test("CLI static diff audit is advisory by default, blocking in strict mode, and fail-closed on malformed input", () => {
   const root = mkdtempSync(join(tmpdir(), "vigil-audit-"));
@@ -79,6 +138,67 @@ test("CLI writes JSON receipt", () => {
   assert.equal(receipt.summary.status, "PASS");
   assert.match(receipt.reproduction, /--test-cmd 'npm test --silent'/);
   assert.match(receipt.reproduction, /--min-verified 1/);
+});
+
+test("CLI guard-compat writes a process-only HOLD receipt", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-guard-compat-cli-"));
+  const script = join(root, "control.mjs");
+  const argumentsPath = join(root, "args.json");
+  const policy = join(root, "policy.json");
+  const configuration = join(root, "configuration.json");
+  const output = join(root, "receipt.json");
+  writeFileSync(script, `#!/usr/bin/env node
+import { readFileSync } from "node:fs";
+const data = JSON.parse(readFileSync(0, "utf8"));
+const deny = data.tool_input.command.includes("PROCESS_CONFORMANCE_DENY");
+console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: deny ? "deny" : "allow" } }));
+`);
+  chmodSync(script, 0o700);
+  writeFileSync(argumentsPath, JSON.stringify([script]));
+  writeFileSync(policy, '{"deny":"PROCESS_CONFORMANCE_DENY"}\n');
+  writeFileSync(configuration, '{"event":"PreToolUse"}\n');
+  const command = [
+    "guard-compat", "--host", "codex", "--host-version", "0.149.1", "--host-executable", process.execPath,
+    "--control-name", "fixture", "--control-version", "1", "--control-executable", process.execPath,
+    "--control-artifact", script, "--control-args", argumentsPath, "--policy", policy,
+    "--configuration", configuration, "--format", "json",
+  ];
+  assert.equal(run([...command, "--output", output]), 0);
+  const receipt = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(receipt.schemaVersion, "agent-vigil-guard-compatibility/v1");
+  assert.equal(receipt.status, "PASS");
+  assert.equal(receipt.deployment.state, "HOLD");
+  assert.deepEqual(receipt.deployment.reasonCodes, ["LIVE_HOST_ROUTE_NOT_PROVEN"]);
+  assert.equal(JSON.stringify(receipt).includes(root), false);
+  for (const input of [script, argumentsPath, policy, configuration]) {
+    const before = readFileSync(input);
+    assert.equal(run([...command, "--output", input]), 2, input);
+    assert.deepEqual(readFileSync(input), before, input);
+  }
+  const hardLinkOutput = join(root, "policy-output-hardlink.json");
+  linkSync(policy, hardLinkOutput);
+  assert.equal(run([...command, "--output", hardLinkOutput]), 2);
+  assert.equal(readFileSync(policy, "utf8"), '{"deny":"PROCESS_CONFORMANCE_DENY"}\n');
+  if (process.platform !== "win32") {
+    const symbolicOutput = join(root, "configuration-output-symlink.json");
+    symlinkSync(configuration, symbolicOutput);
+    assert.equal(run([...command, "--output", symbolicOutput]), 2);
+    assert.equal(readFileSync(configuration, "utf8"), '{"event":"PreToolUse"}\n');
+  }
+  assert.equal(run(["guard-compat", "--host", "cursor"]), 2);
+});
+
+test("CLI guard-route refuses an output path that aliases its disposable profile marker", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-guard-route-output-alias-"));
+  const profile = join(root, "profile");
+  const marker = join(profile, ".agent-vigil-disposable-profile");
+  mkdirSync(profile, { mode: 0o700 });
+  writeFileSync(marker, "agent-vigil disposable host profile v1\n", { mode: 0o600 });
+  assert.equal(run([
+    "guard-route", "--host", "codex", "--host-version", "fixture", "--host-executable", process.execPath,
+    "--profile-home", profile, "--output", marker,
+  ]), 2);
+  assert.equal(readFileSync(marker, "utf8"), "agent-vigil disposable host profile v1\n");
 });
 
 test("CLI init and doctor provide a working exact-SHA scaffold", () => {

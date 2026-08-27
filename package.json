@@ -1,20 +1,29 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Fail-closed change control, upgrade preflight, and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
     "agent-vigil": "dist/cli.js",
     "vigil": "dist/cli.js"
   },
+  "exports": {
+    "./continuity-staple": {
+      "types": "./dist/types/continuity-staple-library.d.ts",
+      "import": "./dist/continuity-staple.js"
+    },
+    "./package.json": "./package.json"
+  },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
+    "build": "npm run build:cli && npm run build:library",
+    "build:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
+    "build:library": "esbuild src/continuity-staple-library.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/continuity-staple.js && tsc -p tsconfig.library.json",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "test:coverage": "node --import tsx --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 --test test/*.test.ts",
+    "test:coverage": "node --import tsx --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 --test test/*.test.ts",
     "check": "npm run typecheck && npm run build && npm test && npm run smoke",
     "review:public": "python3 scripts/public_surface_gate.py --self-test && python3 scripts/public_surface_gate.py",
     "smoke": "node dist/cli.js demo",
@@ -28,7 +37,9 @@
     "demo:outcome": "tsx scripts/outcome_demo.ts",
     "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
     "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts",
-    "benchmark:compare": "tsx scripts/benchmark_compare_static.ts"
+    "benchmark:compare": "tsx scripts/benchmark_compare_static.ts",
+    "benchmark:continuity-staple": "tsx scripts/benchmark_continuity_staple.ts",
+    "generate:continuity-staple-vectors": "tsx scripts/generate_continuity_staple_vectors.ts"
   },
   "keywords": [
     "ai-agents",
@@ -53,6 +64,7 @@
   "files": [
     "dist",
     "action.yml",
+    "github-marker/action.yml",
     "README.md",
     "CHANGELOG.md",
     "ADOPTERS.md",
@@ -77,8 +89,14 @@
     "docs/COMPATIBILITY.md",
     "docs/CONTINUITY.md",
     "docs/CONTINUITY_LAB.md",
+    "docs/CONTINUITY_STAPLE.md",
     "docs/CONTROL_PROOF.md",
+    "docs/GUARD_COMPATIBILITY.md",
+    "docs/GUARD_CONTINUITY.md",
+    "docs/LIVE_HOST_ROUTE.md",
     "docs/GITHUB_OUTCOME_EVIDENCE.md",
+    "docs/GITHUB_MARKER.md",
+    "docs/KUBERNETES_ADMISSION.md",
     "docs/MERGE_QUEUES.md",
     "docs/NOTARY_APP.md",
     "docs/OUTCOME_OBSERVER.md",
@@ -92,6 +110,8 @@
     "docs/RECEIPT_DELTAS.md",
     "docs/THREAT_MODEL.md",
     "docs/TEST_INTEGRITY_GUARD.md",
+    "docs/TERRAFORM_PLAN_GATE.md",
+    "docs/TYPESCRIPT_CONTINUITY_LIBRARY.md",
     "docs/UPGRADE_GUARD.md",
     "docs/VALUE_COMPARISONS.md",
     "docs/authority-contract-v1.schema.json",
@@ -106,13 +126,16 @@
     "docs/control-corpus-entry-v2.schema.json",
     "docs/control-policy-v1.schema.json",
     "docs/control-status-v1.schema.json",
+    "docs/guard-compatibility-v1.schema.json",
+    "docs/live-host-route-v1.schema.json",
     "docs/continuity-event-v1.schema.json",
     "docs/continuity-policy-v1.schema.json",
+    "docs/continuity-staple-v1.schema.json",
     "docs/notary-app-manifest.example.json",
-    "docs/policy.schema.json",
-    "docs/portable-receipt-v1.schema.json",
     "docs/outcome-mandate-v0.1.schema.json",
     "docs/outcome-receipt-v0.1.schema.json",
+    "docs/policy.schema.json",
+    "docs/portable-receipt-v1.schema.json",
     "docs/public-pr-receipt-v1.schema.json",
     "docs/receipt-v2.schema.json",
     "docs/signed-control-proof-v1.schema.json",
@@ -120,6 +143,7 @@
     "docs/upgrade-config-v1.schema.json",
     "docs/upgrade-receipt-v1.schema.json",
     "examples",
+    "test-vectors/continuity-staple/v1",
     "proof/README.md",
     "proof/cases",
     "proof/failure-patterns",

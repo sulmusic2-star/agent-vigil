@@ -1,0 +1,23 @@
+# Installation smoke only. This public vector cannot authorize a real deployment.
+name: Agent Vigil continuity marker smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  marker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the public signed installation vector
+        id: vigil
+        uses: sulmusic2-star/agent-vigil/github-marker@REPLACE_WITH_EXACT_COMMIT
+        with:
+          test-vector: "true"
+      - name: Confirm the harmless installation marker
+        if: steps.vigil.outputs.status == 'SELF_TEST_PASS'
+        env:
+          MARKER: ${{ steps.vigil.outputs.marker }}
+        run: test "$(sed -n '2p' "$MARKER")" = "SELF_TEST_PASS"

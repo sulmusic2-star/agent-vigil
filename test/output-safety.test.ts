@@ -13,7 +13,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeOutputs } from "../src/output.ts";
+import {
+  remediationFor,
+  renderDecisionCard,
+  renderMarkdown,
+  renderText,
+  toSarif,
+  writeOutputs,
+} from "../src/output.ts";
 import { buildReport, type CheckResult } from "../src/report.ts";
 
 function report() {
@@ -29,6 +36,34 @@ function report() {
     base: "base",
     head: "head",
     results: [result],
+  });
+}
+
+function result(
+  verdict: CheckResult["verdict"],
+  ruleId: string | undefined,
+  subject = "subject",
+): CheckResult {
+  return {
+    claim: { kind: "integrity", quote: "claim | with spacing", subject },
+    verdict,
+    evidence: "evidence | with\nspacing",
+    ...(ruleId ? { ruleId } : {}),
+    ...(verdict === "unverifiable" ? { blocksPass: true } : {}),
+  };
+}
+
+function mixedReport(results: CheckResult[], advisories?: CheckResult[]) {
+  return buildReport({
+    transcript: "fixture`name.md",
+    transcriptFormat: "markdown",
+    repo: ".",
+    base: "base`sha",
+    head: "head`sha",
+    results,
+    advisories,
+    policy: { minVerified: 1, strict: true, sha256: "sha256:policy" },
+    reproduction: "vigil check `fixture`",
   });
 }
 
@@ -137,4 +172,81 @@ test("GitHub summary keeps existing content and becomes private", () => {
     assert.equal(statSync(summary).mode & 0o777, 0o600);
   }
   assert.deepEqual(readdirSync(directory), ["summary.md"]);
+});
+
+test("human-readable renderers distinguish pass, failure, unresolved evidence, and advisories", () => {
+  const pass = mixedReport([result("verified", "tests-pass")]);
+  assert.match(renderText(pass), /PASS/);
+  assert.doesNotMatch(renderText(pass), /Missing or unresolved evidence/);
+  assert.match(renderMarkdown(pass), /^### Agent Vigil: PASS/);
+  assert.match(renderDecisionCard(pass), /Main result: All required checks passed\./);
+
+  const fail = mixedReport([
+    result("verified", "tests-pass"),
+    result("contradicted", "coverage-weakened", "coverage contract"),
+  ], [
+    result("unverifiable", undefined, "optional evidence"),
+    result("contradicted", "assertion-drop", "assertion surface"),
+  ]);
+  const failText = renderText(fail);
+  assert.match(failText, /FAIL/);
+  assert.match(failText, /Restore a meaningful coverage threshold/);
+  assert.match(failText, /ADVISORY/);
+  assert.match(failText, /Advisories \(2; non-blocking under this policy\)/);
+  const failMarkdown = renderMarkdown(fail);
+  assert.match(failMarkdown, /^### Agent Vigil: FAIL/);
+  assert.match(failMarkdown, /Checks that need attention/);
+  assert.match(failMarkdown, /Evidence: evidence \| with/);
+  assert.match(renderDecisionCard(fail), /Main result: 1 required check\(s\) failed\./);
+
+  const unresolved = mixedReport([result("unverifiable", "path-exists")]);
+  assert.equal(unresolved.summary.status, "INCONCLUSIVE");
+  assert.match(renderText(unresolved), /Required verification evidence is missing/);
+  assert.match(renderMarkdown(unresolved), /^### Agent Vigil: INCONCLUSIVE/);
+  assert.match(renderDecisionCard(unresolved), /Main result: 2 required check\(s\) did not run\./);
+});
+
+test("decision card stays aggregate-only and escapes reproduction backticks", () => {
+  const open = Array.from({ length: 7 }, (_, index) => result(
+    "contradicted",
+    index === 0 ? undefined : `unknown-${index}`,
+    `blocked item ${index}`,
+  ));
+  const card = renderDecisionCard(mixedReport(open));
+  assert.match(card, /Main result: 7 required check\(s\) failed\./);
+  assert.doesNotMatch(card, /blocked item 0/);
+  assert.doesNotMatch(card, /blocked item 6/);
+  assert.match(card, /\\`fixture\\`/);
+  assert.match(remediationFor(), /objective evidence/);
+  assert.match(remediationFor("not-a-rule"), /objective evidence/);
+  assert.match(remediationFor("portable-signature"), /trusted Ed25519 key/);
+});
+
+test("SARIF emits only blocking findings and advisories at the correct levels", () => {
+  const value = mixedReport([
+    result("verified", "tests-pass"),
+    result("contradicted", "coverage-weakened"),
+    result("unverifiable", undefined),
+  ], [result("contradicted", "assertion-drop")]);
+  const sarif = toSarif(value);
+  assert.equal(sarif.version, "2.1.0");
+  assert.deepEqual(sarif.runs[0].results.map((entry) => entry.level), ["error", "warning", "warning"]);
+  assert.ok(sarif.runs[0].tool.driver.rules.some((entry) => entry.id === "integrity"));
+  assert.equal(sarif.runs[0].properties.advisoryCount, 1);
+});
+
+test("writeOutputs can persist JSON and SARIF together and skips an absent GitHub summary path", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vigil-output-complete-"));
+  const output = join(directory, "receipt.json");
+  const sarif = join(directory, "receipt.sarif");
+  const previous = process.env.GITHUB_STEP_SUMMARY;
+  delete process.env.GITHUB_STEP_SUMMARY;
+  try {
+    writeOutputs(report(), { output, sarif, githubSummary: true });
+  } finally {
+    if (previous !== undefined) process.env.GITHUB_STEP_SUMMARY = previous;
+  }
+  assert.equal(JSON.parse(readFileSync(output, "utf8")).summary.status, "PASS");
+  assert.equal(JSON.parse(readFileSync(sarif, "utf8")).version, "2.1.0");
+  assert.deepEqual(readdirSync(directory).sort(), ["receipt.json", "receipt.sarif"]);
 });

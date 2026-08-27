@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "agent-vigil-continuity-staple/v1",
+  "payload": {
+    "schemaVersion": "agent-vigil-continuity-staple/v1",
+    "subject": {
+      "episodeReceiptHash": "sha256:ddedb861d7521fb8ca2ac68a5c2a35f2e1cf396c2366ab7a8f6577c5094dc752",
+      "repositoryHash": "sha256:6ead42bae8e7cafd93dddf538a8a8240b6cada40b9f6d8f81b96b1f86b1e242f",
+      "baseSha": "1111111111111111111111111111111111111111",
+      "headSha": "2222222222222222222222222222222222222222"
+    },
+    "decision": {
+      "continuity": "REVOKED",
+      "allowsProtectedAction": false,
+      "evaluatedAt": "2030-01-01T00:00:00.000Z",
+      "decisionHash": "sha256:3bf1eac6acebe6ef32391b9bd5affdc77e230f052b7a37929fce57c87e234636"
+    },
+    "evidence": {
+      "rootHash": "sha256:c9964f8de99246327720c1da001824ed8cc72218ed43647a59f13ea4af67282e",
+      "chainTip": "sha256:4ac6fcca16556b66dbe2daebba18aa6ce22855c3ab738ae778756ff18f22cd54",
+      "sequence": 2,
+      "eventCount": 2
+    },
+    "policy": {
+      "sourceHash": "sha256:a6cf3d8ab879d997b4c5f331fe2b647e760eb4e413aca830990453fb066fcf6e",
+      "sha256": "sha256:769e2657173737b9764ef9fe11fed6caef1ac494dda6fd0177b359883fcb32d1"
+    },
+    "environment": "production",
+    "issuedAt": "2030-01-01T00:00:00.000Z",
+    "expiresAt": "2030-01-01T00:05:00.000Z"
+  },
+  "payloadHash": "sha256:bc59507bfdbd50c484e7d19a06ba8da22ac434fd3c9aba60c03489cf708b0e0c",
+  "signature": {
+    "algorithm": "Ed25519",
+    "keyId": "sha256:a050837d85070582ccf7394b0988847cc312cb88259b894899f6f239cf1791a5",
+    "publicKey": "MCowBQYDK2VwAyEAA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+    "value": "mLw1yQ3y2nyXXqXZtC21w6JJ7XIoAqy1X7UBwV/mStU/W9mn9E0PDD7IH8EHRA1x61Vb6J/y5+peNEVqi6hVAQ=="
+  }
+}

@@ -37,13 +37,13 @@ signed lifecycle receipt without opening a pull request, installing a GitHub
 Action, or changing the target repository:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz pr-receipt \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref <reviewed-full-Agent-Vigil-commit> \
   --signing-key operator-private.pem \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz pr-receipt verify pr-123.receipt.json
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz pr-receipt verify pr-123.receipt.json
 ```
 
 The command makes read-only requests to `api.github.com` for pull-request,
@@ -159,7 +159,7 @@ claim live model/provider behavior. See the precise
 It also adds the one-command protection profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz protect
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz protect
 ```
 
 `protect` discovers common test, typecheck, lint, and build commands; installs
@@ -212,6 +212,59 @@ unapproved MCP server, candidate self-approval, an unreadable authority file,
 a weaker sandbox, and a skipped test. It returns `PASS` only when every planted
 case produces the expected result and the temporary clone is removed. It does
 not change or push the source repository. See [Control Proof](docs/CONTROL_PROOF.md).
+
+To check one installed Claude Code or Codex control process with harmless
+markers, run:
+
+```bash
+vigil guard-compat \
+  --host codex \
+  --host-version <exact-version> \
+  --host-executable <codex-path> \
+  --control-name <name> \
+  --control-version <version> \
+  --control-executable <direct-executable> \
+  --policy <policy-file> \
+  --configuration <host-hook-configuration> \
+  --output guard-compatibility.json
+```
+
+When the direct process check passes, run the separate real-host drill in a
+marked disposable Claude Code or Codex profile:
+
+```bash
+vigil guard-route \
+  --host codex \
+  --host-version 0.149.1 \
+  --host-executable /exact/path/to/codex \
+  --profile-home /exact/path/to/disposable-codex-profile \
+  --output codex-live-route.json
+```
+
+The live drill permits only two harmless `printf` calls in an empty temporary
+workspace. One host passing cannot stand in for the other, and deployment stays
+on `HOLD`. See [the live-host route contract](docs/LIVE_HOST_ROUTE.md).
+
+After both host receipts pass, join them to the sticky continuity rule:
+
+```bash
+vigil continuity guard-demo \
+  --claude-route claude-live-route.json \
+  --codex-route codex-live-route.json \
+  --output guarded-host-continuity.json
+```
+
+The local demonstration reaches `CURRENT`, applies a clearly labeled controlled
+failure, stays `REVOKED` after a later green route, and returns to `CURRENT`
+only after independent signed repair. It does not claim a real host incident or
+deployment. See [Guarded-host continuity](docs/GUARD_CONTINUITY.md).
+
+The check sends one printable allow marker and one printable deny marker in the
+host's `PreToolUse` format. It records five explicit outcomes and binds the
+receipt to the selected host and control files, policy, configuration,
+arguments, and operating system. A process `PASS` still leaves deployment on
+`HOLD` because the command does not prove that a live host routed a real tool
+call through the control. See [Guard Compatibility](docs/GUARD_COMPATIBILITY.md).
 
 Install a scheduled, keyless GitHub proof with one command:
 
@@ -290,8 +343,8 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 Until the npm registry package is current, use the verified GitHub release package:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz init
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz init
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz doctor
 ```
 
 `init` creates a small JSON policy, a privacy warning and transcript placeholder,
@@ -309,8 +362,8 @@ that disagree with GitHub's event payload.
 To add a GitHub/Sigstore signature to each receipt:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz init --attest
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz init --attest
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz doctor
 ```
 
 The generated workflow adds GitHub signing permissions but does not gain write
@@ -318,7 +371,7 @@ access to repository contents. After a run, download
 `agent-vigil-report.json` and verify it with:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz verify-attestation \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz verify-attestation \
   agent-vigil-report.json --repository OWNER/REPOSITORY
 ```
 
@@ -328,7 +381,7 @@ the code is correct.
 Maintainer profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz init --profile maintainer
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz init --profile maintainer
 ```
 
 This creates base-anchored file, line, test, and protected-path limits; an
@@ -341,7 +394,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz init --profile authority
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz init --profile authority
 ```
 
 Review the generated task ID, expiry, paths, and action classes, then merge the
@@ -449,7 +502,7 @@ Node 20 or newer is required. Run the published npm package without installing
 it globally:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.19.0/sulmusic-agent-vigil-0.19.0.tgz --help
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.20.0/sulmusic-agent-vigil-0.20.0.tgz --help
 ```
 
 Or work from source:
@@ -566,7 +619,7 @@ steps:
       fetch-depth: 0
       ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
-  - uses: sulmusic2-star/agent-vigil@v0.19.0
+  - uses: sulmusic2-star/agent-vigil@v0.20.0
     with:
       transcript: agent-session.jsonl
       repo: .
@@ -600,7 +653,7 @@ Maintainer mode needs no transcript:
 
 ```yaml
   - id: vigil
-    uses: sulmusic2-star/agent-vigil@v0.19.0
+    uses: sulmusic2-star/agent-vigil@v0.20.0
     with:
       mode: maintainer
       policy: .agent-vigil.json
@@ -677,6 +730,9 @@ lab uses synthetic evidence and never deploys software. See the
 
 ```bash
 vigil continuity demo
+vigil continuity guard-demo \
+  --claude-route claude-live-route.json \
+  --codex-route codex-live-route.json
 vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
 vigil continuity import-github \
   --chain .agent-vigil/continuity \
@@ -694,7 +750,38 @@ vigil continuity status \
   --policy-ref <base-commit-sha> \
   --expected-head <reviewed-head-sha> \
   --environment production
+vigil continuity staple \
+  --chain .agent-vigil/continuity \
+  --policy .agent-vigil-continuity.json \
+  --environment production \
+  --signing-key continuity-authority-private.pem \
+  --output continuity-staple.json
+vigil continuity verify-staple continuity-staple.json \
+  --public-key continuity-authority-public.pem \
+  --expected-receipt-hash <original-receipt-hash> \
+  --expected-head <reviewed-head-sha> \
+  --environment production \
+  --expected-policy-sha256 <sha256-of-exact-policy-bytes>
+vigil continuity terraform-plan-gate tfplan \
+  --staple continuity-staple.json \
+  --terraform-executable "$(command -v terraform)" \
+  --public-key continuity-authority-public.pem \
+  --expected-receipt-hash <original-receipt-hash> \
+  --expected-head <reviewed-head-sha> \
+  --environment production \
+  --expected-policy-sha256 <sha256-of-exact-policy-bytes>
 ```
+
+Node.js consumers can import the same offline verifier from
+`@sulmusic/agent-vigil/continuity-staple`. The package includes deterministic
+signed vectors so the CLI and library can be checked against identical bytes.
+See the [TypeScript verifier guide](docs/TYPESCRIPT_CONTINUITY_LIBRARY.md).
+
+For the smallest removable GitHub check, use the manual public-vector workflow
+in [GitHub continuity marker](docs/GITHUB_MARKER.md). It reports
+`SELF_TEST_PASS`, never deployment permission. The measured two-replica dry-run
+fixture is described in
+[Kubernetes admission gate](docs/KUBERNETES_ADMISSION.md).
 
 The importer accepts authenticated GitHub webhook files for merges, exact
 reverts, labeled hotfixes, and explicitly linked incidents. It stores hashes
@@ -712,6 +799,15 @@ marked deployment placeholder. There is no hosted collector, crawler, or
 GitHub App in this version. See
 [`docs/CONTINUITY.md`](docs/CONTINUITY.md) for the operator guide and
 security limits.
+
+`vigil continuity staple` turns the current decision into a short-lived signed
+status statement that another deployment system can verify without receiving
+the full history. It binds the exact head, policy, environment, chain tip, and
+event sequence. The default lifetime is five minutes and the hard maximum is
+fifteen minutes. A fresh, pinned `CURRENT` staple is the only form that allows
+a protected action. See
+[`docs/CONTINUITY_STAPLE.md`](docs/CONTINUITY_STAPLE.md) for replay limits and
+the exact verifier contract.
 
 ## CLI
 
@@ -810,8 +906,8 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
 
 ## Evidence on this repository
 
-- 542 tests, including 80 generated-repository compatibility scenarios across
-  18 runner-output families. In the 2026-08-27 local run, 537
+- 609 tests, including 80 generated-repository compatibility scenarios across
+  18 runner-output families. In the 2026-08-27 exact-commit run, 604
   passed and five opt-in Docker tests skipped in the ordinary suite. With Docker enabled, the
   combined 13-test containment, timeout-cleanup, verdict, signing, and index
   suite passed against the selected local test daemon with no residual Upgrade

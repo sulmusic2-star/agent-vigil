@@ -6,8 +6,17 @@ import { appendContinuityEvent, initializeContinuityChain, verifyContinuityChain
 import { loadContinuityPolicy, loadEventDraft } from "./contracts.ts";
 import { renderContinuityDemo, runContinuityDemo } from "./demo.ts";
 import { evaluateContinuity } from "./decision.ts";
+import { renderGuardContinuityDemo, runGuardContinuityDemo } from "./guard-demo.ts";
+import { loadGuardRouteReport } from "./guard.ts";
 import { githubRepositoryFromRemote, importGitHubActionsOutcome, importGitHubOutcome } from "./github.ts";
 import { publicChainVerification, renderChainVerification, renderContinuityDecision } from "./presentation.ts";
+import {
+  DEFAULT_STAPLE_TTL_SECONDS,
+  issueContinuityStaple,
+  loadContinuityStaple,
+  verifyContinuityStaple,
+} from "./staple.ts";
+import { verifyTerraformSavedPlan } from "./terraform.ts";
 import { installContinuityAction } from "./workflow.ts";
 
 const VALUE_FLAGS = new Set([
@@ -16,6 +25,9 @@ const VALUE_FLAGS = new Set([
   "--webhook-signature", "--webhook-secret-file", "--observed-at", "--expected-head",
   "--action-ref", "--source-workflow",
   "--expected-github-repository",
+  "--claude-route", "--codex-route",
+  "--ttl-seconds", "--minimum-sequence", "--expected-policy-sha256", "--expected-chain-tip", "--expected-receipt-hash",
+  "--staple", "--terraform-executable", "--timeout-ms",
 ]);
 const BOOLEAN_FLAGS = new Set(["--json", "--unavailable", "--force", "--self-serve"]);
 
@@ -29,9 +41,13 @@ Usage:
   vigil continuity import-github --chain <directory> --unavailable --delivery-id <uuid> --observed-at <RFC3339> --signing-key <private.pem>
   vigil continuity import-github-actions --chain <directory> --signing-key <private.pem>
   vigil continuity demo [--format text|json] [--output <file>]
+  vigil continuity guard-demo --claude-route <receipt.json> --codex-route <receipt.json> [--format text|json] [--output <file>]
   vigil continuity install-action --repo <path> --action-ref <full-commit-sha> [--source-workflow <name>] [--self-serve] [--force] [--format text|json]
   vigil continuity verify --chain <directory> [--expected-head <sha>] [--public-key <public.pem>] [--format text|json] [--output <file>]
   vigil continuity status --chain <directory> --policy <policy.json> [--repo <path> --policy-ref <sha>] [--environment <name>] [--expected-head <sha>] [--expected-github-repository <owner/name>] [--now <RFC3339>] [--format text|json] [--output <file>]
+  vigil continuity staple --chain <directory> --policy <policy.json> --environment <name> --signing-key <private.pem> --output <staple.json> [--repo <path> --policy-ref <sha>] [--expected-head <sha>] [--now <RFC3339>] [--ttl-seconds <1-900>]
+  vigil continuity verify-staple <staple.json> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--now <RFC3339>] [--format text|json] [--output <file>]
+  vigil continuity terraform-plan-gate <saved-plan> --staple <staple.json> --terraform-executable <path> --public-key <public.pem> --expected-receipt-hash <sha256:...> --expected-head <sha> --environment <name> --expected-policy-sha256 <sha256:...> [--expected-chain-tip <sha256:...>] [--minimum-sequence <n>] [--timeout-ms <1000-120000>] [--format text|json] [--output <file>]
 
 Examples:
   vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
@@ -40,6 +56,9 @@ Examples:
   vigil continuity import-github-actions --chain .agent-vigil/continuity --signing-key "$RUNNER_TEMP/outcome-recorder.pem"
   vigil continuity verify --chain .agent-vigil/continuity --json
   vigil continuity status --chain .agent-vigil/continuity --policy .agent-vigil-continuity.json --repo . --policy-ref <base-commit-sha> --environment production
+  vigil continuity staple --chain .agent-vigil/continuity --policy .agent-vigil-continuity.json --environment production --signing-key continuity-authority.pem --output continuity-staple.json
+  vigil continuity verify-staple continuity-staple.json --public-key continuity-authority.pub --expected-receipt-hash <sha256:...> --expected-head <head-sha> --environment production --expected-policy-sha256 <sha256:...>
+  vigil continuity terraform-plan-gate tfplan --staple continuity-staple.json --terraform-executable "$(command -v terraform)" --public-key continuity-authority.pub --expected-receipt-hash <sha256:...> --expected-head <head-sha> --environment production --expected-policy-sha256 <sha256:...>
 
 Exit codes:
   0 valid or CURRENT
@@ -140,8 +159,23 @@ function selectedNow(parsed: Parsed): Date {
   return new Date(epoch);
 }
 
+function selectedInteger(parsed: Parsed, name: string, fallback?: number): number | undefined {
+  const raw = parsed.values.get(name);
+  if (raw === undefined) return fallback;
+  if (!/^(?:0|[1-9][0-9]*)$/.test(raw)) throw new Error(`${name} must be a non-negative integer`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) throw new Error(`${name} is too large`);
+  return value;
+}
+
 function outputJson(path: string | undefined, value: unknown): void {
   if (path) writePrivateFileAtomic(resolve(path), `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function protectNamedOutput(output: string | undefined, inputs: string[]): void {
+  if (!output) return;
+  const selected = resolve(output);
+  if (inputs.some((input) => resolve(input) === selected)) throw new Error("--output must not replace an input receipt");
 }
 
 function runInit(args: string[]): number {
@@ -276,6 +310,146 @@ function runStatus(args: string[]): number {
   return 4;
 }
 
+function continuityExitCode(continuity: "CURRENT" | "HOLD" | "EXPIRED" | "REVOKED"): number {
+  if (continuity === "CURRENT") return 0;
+  if (continuity === "REVOKED") return 1;
+  if (continuity === "HOLD") return 3;
+  return 4;
+}
+
+function runStaple(args: string[]): number {
+  const parsed = parse(args);
+  allowed(parsed, [
+    "--chain", "--policy", "--policy-ref", "--repo", "--now", "--environment",
+    "--expected-head", "--public-key", "--signing-key", "--ttl-seconds", "--format", "--output",
+  ], ["--json"]);
+  if (parsed.positional.length) throw new Error("continuity staple accepts only named options");
+  const chain = required(parsed, "--chain");
+  const policyPath = required(parsed, "--policy");
+  const signingKey = required(parsed, "--signing-key");
+  const output = required(parsed, "--output");
+  protectOutput(parsed, chain, [policyPath, signingKey, parsed.values.get("--public-key") ?? ""]);
+  const policyRef = parsed.values.get("--policy-ref");
+  const repo = parsed.values.get("--repo");
+  if (Boolean(policyRef) !== Boolean(repo)) throw new Error("--policy-ref and --repo must be provided together");
+  const policy = loadContinuityPolicy({ path: policyPath, ...(repo ? { repo: resolve(repo) } : {}), ...(policyRef ? { ref: policyRef } : {}) });
+  const now = selectedNow(parsed);
+  const pinned = parsed.values.get("--public-key") ? [publicKeyId(resolve(parsed.values.get("--public-key")!))] : undefined;
+  const verified = verifyContinuityChain(resolve(chain), {
+    now,
+    maxClockSkewSeconds: policy.value.maxClockSkewSeconds,
+    pinnedEventKeyIds: pinned,
+    ...(repo ? { repo: resolve(repo) } : {}),
+    ...(policyRef ? { expectedBase: policyRef } : {}),
+    ...(parsed.values.get("--expected-head") ? { expectedHead: parsed.values.get("--expected-head")! } : {}),
+  });
+  const decision = evaluateContinuity(verified, policy, { now, environment: required(parsed, "--environment") });
+  const staple = issueContinuityStaple({
+    verification: verified,
+    decision,
+    privateKeyPath: resolve(signingKey),
+    ttlSeconds: selectedInteger(parsed, "--ttl-seconds", DEFAULT_STAPLE_TTL_SECONDS),
+  });
+  outputJson(output, staple);
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(staple, null, 2)}\n`);
+  } else {
+    process.stdout.write([
+      "Agent Vigil continuity staple issued",
+      `  result: ${staple.payload.decision.continuity}`,
+      `  protected action: ${staple.payload.decision.allowsProtectedAction ? "allowed until expiry" : "stopped"}`,
+      `  head: ${staple.payload.subject.headSha}`,
+      `  evidence sequence: ${staple.payload.evidence.sequence}`,
+      `  expires: ${staple.payload.expiresAt}`,
+      `  signer: ${staple.signature.keyId}`,
+      `  output: ${resolve(output)}`,
+      "",
+    ].join("\n"));
+  }
+  return continuityExitCode(staple.payload.decision.continuity);
+}
+
+function runVerifyStaple(args: string[]): number {
+  const parsed = parse(args);
+  allowed(parsed, [
+    "--public-key", "--expected-receipt-hash", "--expected-head", "--environment", "--expected-policy-sha256",
+    "--expected-chain-tip", "--minimum-sequence", "--now", "--format", "--output",
+  ], ["--json"]);
+  if (parsed.positional.length !== 1) throw new Error("continuity verify-staple requires exactly one staple path");
+  const staplePath = resolve(parsed.positional[0]);
+  protectNamedOutput(parsed.values.get("--output"), [staplePath, required(parsed, "--public-key")]);
+  const result = verifyContinuityStaple(loadContinuityStaple(staplePath), {
+    publicKeyPath: resolve(required(parsed, "--public-key")),
+    expectedReceiptHash: required(parsed, "--expected-receipt-hash"),
+    expectedHead: required(parsed, "--expected-head"),
+    expectedEnvironment: required(parsed, "--environment"),
+    expectedPolicySha256: required(parsed, "--expected-policy-sha256"),
+    now: selectedNow(parsed),
+    ...(parsed.values.get("--expected-chain-tip") ? { expectedChainTip: parsed.values.get("--expected-chain-tip")! } : {}),
+    ...(parsed.values.get("--minimum-sequence") !== undefined ? { minimumSequence: selectedInteger(parsed, "--minimum-sequence")! } : {}),
+  });
+  outputJson(parsed.values.get("--output"), result);
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } else {
+    process.stdout.write([
+      `Continuity staple: ${result.effectiveContinuity}`,
+      `  signature: valid and pinned (${result.signerKeyId})`,
+      `  fresh: ${result.fresh ? "yes" : "no"}`,
+      `  protected action: ${result.allowsProtectedAction ? "allowed" : "stopped"}`,
+      `  head: ${result.subject.headSha}`,
+      `  environment: ${result.environment}`,
+      `  evidence sequence: ${result.sequence}`,
+      `  expires: ${result.expiresAt}`,
+      "",
+    ].join("\n"));
+  }
+  return continuityExitCode(result.effectiveContinuity);
+}
+
+function runTerraformPlanGate(args: string[]): number {
+  const parsed = parse(args);
+  allowed(parsed, [
+    "--staple", "--terraform-executable", "--public-key", "--expected-receipt-hash", "--expected-head", "--environment",
+    "--expected-policy-sha256", "--expected-chain-tip", "--minimum-sequence", "--timeout-ms", "--format", "--output",
+  ], ["--json"]);
+  if (parsed.positional.length !== 1) throw new Error("continuity terraform-plan-gate requires exactly one saved plan path");
+  const planPath = resolve(parsed.positional[0]);
+  const staplePath = resolve(required(parsed, "--staple"));
+  const publicKeyPath = resolve(required(parsed, "--public-key"));
+  const terraformExecutable = resolve(required(parsed, "--terraform-executable"));
+  protectNamedOutput(parsed.values.get("--output"), [planPath, staplePath, publicKeyPath, terraformExecutable]);
+  const result = verifyTerraformSavedPlan({
+    planPath,
+    terraformExecutable,
+    staple: loadContinuityStaple(staplePath),
+    stapleOptions: {
+      publicKeyPath,
+      expectedReceiptHash: required(parsed, "--expected-receipt-hash"),
+      expectedHead: required(parsed, "--expected-head"),
+      expectedEnvironment: required(parsed, "--environment"),
+      expectedPolicySha256: required(parsed, "--expected-policy-sha256"),
+      ...(parsed.values.get("--expected-chain-tip") ? { expectedChainTip: parsed.values.get("--expected-chain-tip")! } : {}),
+      ...(parsed.values.get("--minimum-sequence") !== undefined ? { minimumSequence: selectedInteger(parsed, "--minimum-sequence")! } : {}),
+    },
+    timeoutMs: selectedInteger(parsed, "--timeout-ms", 30_000),
+  });
+  outputJson(parsed.values.get("--output"), result);
+  if (selectedFormat(parsed) === "json") {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } else {
+    process.stdout.write([
+      `Terraform saved-plan gate: ${result.decision.authorization}`,
+      `  continuity: ${result.decision.continuity}`,
+      `  reason: ${result.decision.reasonCode}`,
+      ...(result.plan ? [`  plan: ${result.plan.sha256}`, `  resource changes: ${result.plan.resourceChanges}`] : []),
+      "  terraform apply: not run",
+      "",
+    ].join("\n"));
+  }
+  return continuityExitCode(result.decision.continuity);
+}
+
 function runDemo(args: string[]): number {
   const parsed = parse(args);
   allowed(parsed, ["--format", "--output"], ["--json"]);
@@ -283,6 +457,22 @@ function runDemo(args: string[]): number {
   const result = runContinuityDemo();
   outputJson(parsed.values.get("--output"), result);
   process.stdout.write(selectedFormat(parsed) === "json" ? `${JSON.stringify(result, null, 2)}\n` : `${renderContinuityDemo(result)}\n`);
+  return 0;
+}
+
+function runGuardDemo(args: string[]): number {
+  const parsed = parse(args);
+  allowed(parsed, ["--claude-route", "--codex-route", "--format", "--output"], ["--json"]);
+  if (parsed.positional.length) throw new Error("continuity guard-demo accepts only named options");
+  const claudePath = required(parsed, "--claude-route");
+  const codexPath = required(parsed, "--codex-route");
+  protectNamedOutput(parsed.values.get("--output"), [claudePath, codexPath]);
+  const result = runGuardContinuityDemo({
+    claudeRoute: loadGuardRouteReport(claudePath),
+    codexRoute: loadGuardRouteReport(codexPath),
+  });
+  outputJson(parsed.values.get("--output"), result);
+  process.stdout.write(selectedFormat(parsed) === "json" ? `${JSON.stringify(result, null, 2)}\n` : `${renderGuardContinuityDemo(result)}\n`);
   return 0;
 }
 
@@ -326,7 +516,11 @@ export function runContinuityCommand(args: string[]): number {
     if (command === "import-github-actions") return runImportGitHubActions(rest);
     if (command === "verify") return runVerify(rest);
     if (command === "status") return runStatus(rest);
+    if (command === "staple") return runStaple(rest);
+    if (command === "verify-staple") return runVerifyStaple(rest);
+    if (command === "terraform-plan-gate") return runTerraformPlanGate(rest);
     if (command === "demo") return runDemo(rest);
+    if (command === "guard-demo") return runGuardDemo(rest);
     if (command === "install-action") return runInstallAction(rest);
     throw new Error(`unknown continuity command: ${command}`);
   } catch (error) {

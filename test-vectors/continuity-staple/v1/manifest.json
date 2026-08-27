@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "agent-vigil-continuity-staple-test-vectors/v1",
+  "generatedBy": "scripts/generate_continuity_staple_vectors.ts",
+  "algorithm": "Ed25519",
+  "privateKeyIncluded": false,
+  "bindings": {
+    "expectedReceiptHash": "sha256:ddedb861d7521fb8ca2ac68a5c2a35f2e1cf396c2366ab7a8f6577c5094dc752",
+    "expectedHead": "2222222222222222222222222222222222222222",
+    "expectedEnvironment": "production",
+    "expectedPolicySha256": "sha256:769e2657173737b9764ef9fe11fed6caef1ac494dda6fd0177b359883fcb32d1",
+    "expectedChainTip": "sha256:4ac6fcca16556b66dbe2daebba18aa6ce22855c3ab738ae778756ff18f22cd54",
+    "minimumSequence": 2
+  },
+  "times": {
+    "freshVerification": "2030-01-01T00:01:00.000Z",
+    "expiredVerification": "2030-01-01T00:06:00.000Z"
+  },
+  "files": {
+    "authority-public.pem": "sha256:f0ff50dacf109dea7f716d7c03eb7a821aa3a283fd3fa02f4c14dbba7d3c3322",
+    "current.staple.json": "sha256:71cd09625f1916fe6bcbc2ff3cd9475223fdf8f49be238bae9540e3076dc0468",
+    "revoked.staple.json": "sha256:dbaa24e68273283169ce7a5485395eaa59c1e0554890d3bd6543f2b86bdf499a",
+    "tampered.staple.json": "sha256:dd9ae542f1bbdcf47ef478de7772e17047267d4b036ff688afcf1eb529b1946e"
+  },
+  "expectations": [
+    {
+      "file": "current.staple.json",
+      "time": "freshVerification",
+      "result": "CURRENT",
+      "allowsProtectedAction": true
+    },
+    {
+      "file": "current.staple.json",
+      "time": "expiredVerification",
+      "result": "EXPIRED",
+      "allowsProtectedAction": false
+    },
+    {
+      "file": "revoked.staple.json",
+      "time": "expiredVerification",
+      "result": "REVOKED",
+      "allowsProtectedAction": false
+    },
+    {
+      "file": "tampered.staple.json",
+      "time": "freshVerification",
+      "result": "ERROR",
+      "allowsProtectedAction": false
+    }
+  ],
+  "limits": [
+    "The public key and staples are test material and must not be trusted for a protected action.",
+    "Verification uses the manifest time so the fixed vector remains reproducible; production verification must use the current trusted clock."
+  ]
+}
