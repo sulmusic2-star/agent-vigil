@@ -12,7 +12,7 @@ import { recomputeGuardRouteReceiptHash, type GuardRouteReport } from "../src/gu
 function route(host: "claude" | "codex"): GuardRouteReport {
   const report: GuardRouteReport = {
     schemaVersion: "agent-vigil-live-host-route/v1",
-    vigilVersion: "0.19.0-test",
+    vigilVersion: "0.20.0-test",
     generatedAt: host === "claude" ? "2026-08-25T18:00:00.000Z" : "2026-08-25T18:00:01.000Z",
     nonce: host === "claude" ? "claude_route_fixture_000000001" : "codex_route_fixture_0000000001",
     scope: "LIVE_HOST_ROUTING",

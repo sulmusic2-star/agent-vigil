@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.20.0 - 2026-08-27
+
 - Add `vigil guard-compat` for process-only Claude Code and Codex control
   checks. It uses one harmless allow marker and one harmless deny marker,
   records `ALLOW`, `DENY`, `DEFER`, `ERROR`, or `UNKNOWN`, binds the receipt to

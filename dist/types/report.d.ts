@@ -1,4 +1,4 @@
-export declare const VERSION = "0.19.0";
+export declare const VERSION = "0.20.0";
 export type ClaimKind = "tests_pass" | "file_changed" | "path_exists" | "command_ran" | "work_complete" | "session_behavior" | "integrity" | "policy_attestation" | "change_scope" | "differential_test" | "authority_scope" | "authority_action" | "telemetry";
 export type Claim = {
     kind: ClaimKind;

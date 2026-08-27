@@ -1688,7 +1688,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash3 } from "node:crypto";
-var VERSION = "0.19.0";
+var VERSION = "0.20.0";
 function canonical(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -3444,7 +3444,7 @@ function authorityContractTemplate() {
 }
 
 // src/setup.ts
-var PUBLISHED_ACTION_VERSION = "0.19.0";
+var PUBLISHED_ACTION_VERSION = "0.20.0";
 function workflow(mode, setupCommand, attest = false) {
   return `name: Agent Vigil
 
@@ -4327,7 +4327,7 @@ import { createHash as createHash9 } from "node:crypto";
 import { execFileSync as execFileSync9 } from "node:child_process";
 import { posix } from "node:path";
 
-// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/date.js
+// node_modules/smol-toml/dist/date.js
 var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
 var TomlDate = class _TomlDate extends Date {
   #hasDate = false;
@@ -4419,7 +4419,7 @@ var TomlDate = class _TomlDate extends Date {
   }
 };
 
-// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/error.js
+// node_modules/smol-toml/dist/error.js
 function getLineColFromPtr(string3, ptr) {
   let lines = string3.slice(0, ptr).split(/\r\n|\n|\r/g);
   return [lines.length, lines.pop().length + 1];
@@ -4459,7 +4459,7 @@ ${codeblock}`, options);
   }
 };
 
-// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/util.js
+// node_modules/smol-toml/dist/util.js
 function indexOfNewline(str, start = 0) {
   let idx = str.indexOf("\n", start);
   if (str.charCodeAt(idx - 1) === 13)
@@ -4514,7 +4514,7 @@ function skipUntil(ctx, sep14, end) {
   });
 }
 
-// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/primitive.js
+// node_modules/smol-toml/dist/primitive.js
 var INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
 var FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
 var LEADING_ZERO = /^[+-]?0[0-9_]/;
@@ -4670,7 +4670,7 @@ function parseValue(ctx, integersAsBigInt, end) {
   return date;
 }
 
-// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/extract.js
+// node_modules/smol-toml/dist/extract.js
 function extractValue(ctx, end, integersAsBigInt) {
   let ptr = ctx.p;
   let c = ctx.s.charCodeAt(ptr);
@@ -4703,7 +4703,7 @@ function extractValue(ctx, end, integersAsBigInt) {
   return parseValue(ctx, integersAsBigInt, end);
 }
 
-// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/struct.js
+// node_modules/smol-toml/dist/struct.js
 var KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
 function parseKey(ctx, end = "=") {
   let start = ctx.p;
@@ -4845,7 +4845,7 @@ function parseArray(ctx, integersAsBigInt) {
   });
 }
 
-// ../agent-vigil-live-host-route-20260825.nosync/node_modules/smol-toml/dist/parse.js
+// node_modules/smol-toml/dist/parse.js
 function peekTable(key, table, meta, type3) {
   let t = table;
   let m = meta;
