@@ -120,6 +120,12 @@ def install_reference_failures(
     ):
         if url_version != asset_version or url_version != release_version:
             failures.append(f"{label} references an unrecorded or mismatched release package")
+    for registry_version in re.findall(
+        r"@sulmusic/agent-vigil@([0-9]+\.[0-9]+\.[0-9]+)",
+        text,
+    ):
+        if registry_version != release_version:
+            failures.append(f"{label} references an unrecorded npm package version")
     if candidate_version is not None:
         candidate_url = release_asset_url(candidate_version)
         candidate_registry_spec = f"@sulmusic/agent-vigil@{candidate_version}"
@@ -474,11 +480,36 @@ def self_test() -> None:
     candidate_version = install_state["source_release_candidate"]["version"]
     candidate_url = release_asset_url(candidate_version)
     assert install_reference_failures("fixture", public_url, install_state["latest_github_release"]["version"], candidate_version) == []
+    current_registry_spec = f"@sulmusic/agent-vigil@{install_state['latest_github_release']['version']}"
+    assert install_reference_failures(
+        "fixture",
+        public_url + "\n" + current_registry_spec,
+        install_state["latest_github_release"]["version"],
+        candidate_version,
+    ) == []
     assert any(
         "unpublished source candidate" in failure
         for failure in install_reference_failures(
             "fixture",
             public_url + "\n" + candidate_url,
+            install_state["latest_github_release"]["version"],
+            candidate_version,
+        )
+    )
+    assert any(
+        "unrecorded npm package version" in failure
+        for failure in install_reference_failures(
+            "fixture",
+            public_url + "\n" + current_registry_spec + "\n@sulmusic/agent-vigil@0.1.0",
+            install_state["latest_github_release"]["version"],
+            candidate_version,
+        )
+    )
+    assert any(
+        "unrecorded npm package version" in failure
+        for failure in install_reference_failures(
+            "fixture",
+            public_url + "\n@sulmusic/agent-vigil@99.0.0",
             install_state["latest_github_release"]["version"],
             candidate_version,
         )
