@@ -18,7 +18,7 @@ The currently published v0.21.1 package remains available at its immutable
 release asset, but it does not claim this v0.21.2 source-candidate contract:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz doctor
 ```
 
 `--action-sha` must be one reviewed lowercase 40-hex Agent Vigil commit. It is

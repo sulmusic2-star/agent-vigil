@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### 0.21.2 release candidate
+## 0.21.2 - 2026-08-28
 
 - Bind hosted execution to the reviewed Node.js 22.23.2 binaries for Linux x64,
   macOS x64, and macOS arm64. The composite Action now rejects wildcard
@@ -13,8 +13,8 @@
   repository-controlled work in the generated evidence, outcome, continuity,
   and Control Proof workflows. Add a direct hosted differential regression that
   fails on the prior runtime contract and passes on the repaired one.
-- Keep the immutable v0.21.1 release as historical evidence and advance the
-  package/runtime identity instead of moving or replacing that tag.
+- Keep the immutable v0.21.1 release as historical evidence and publish the
+  new package/runtime identity instead of moving or replacing that tag.
 
 ## 0.21.1 - 2026-08-28
 
