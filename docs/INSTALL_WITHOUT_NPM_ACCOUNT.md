@@ -6,7 +6,8 @@ npm publication of v0.22.0 is not claimed.
 
 ## Prepare and verify the repository gate
 
-Run these commands from the root of a Git repository:
+Run these commands from the root of a Node/npm Git repository whose test script
+is a direct Node test command such as `node --test test/*.test.js`:
 
 ```bash
 AGENT_VIGIL_PACKAGE=https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz
@@ -15,6 +16,12 @@ npx --yes "$AGENT_VIGIL_PACKAGE" protect
 
 git status --short
 ```
+
+The v0.22.0 hosted gate accepts this deliberately narrow test shape. It does
+not execute npm wrappers or infer a protected test command in a repository
+without a root `package.json`. If no safe direct command can be inferred,
+`protect` leaves `REPLACE_WITH_TEST_COMMAND` in the prepared policy and
+`doctor` fails closed instead of claiming the gate is ready.
 
 Review these four generated controls before committing them:
 
@@ -45,8 +52,8 @@ The package selects and prints the immutable reviewed Action commit embedded in
 the release, so this normal path does not require the user to find a SHA. An
 explicit `--action-sha` remains available for a separately reviewed override.
 
-A fresh disposable-repository measurement of this exact `protect`, commit, and
-`doctor` path was 3.05 seconds on August 28, 2026. Network and package-cache
+A fresh disposable Node-repository measurement of this exact `protect`, commit,
+and `doctor` path was 3.15 seconds on August 28, 2026. Network and package-cache
 state will affect another machine's time.
 
 ## Run the continuity proof

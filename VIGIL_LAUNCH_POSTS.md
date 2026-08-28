@@ -24,7 +24,8 @@ npx --yes \
   continuity demo --json
 ```
 
-Install the repository gate:
+Install the repository gate from a Node/npm repository whose test script is a
+direct Node test command such as `node --test test/*.test.js`:
 
 ```bash
 npx --yes \
@@ -36,6 +37,9 @@ npx --yes \
   https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
   doctor
 ```
+
+If Agent Vigil cannot infer that safe hosted command, it leaves a visible
+placeholder and `doctor` fails closed.
 
 Repository: https://github.com/sulmusic2-star/agent-vigil
 

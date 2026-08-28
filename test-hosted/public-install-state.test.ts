@@ -61,6 +61,10 @@ test("the five-minute guide preserves one complete value path", () => {
   assert.doesNotMatch(guide, /node dist\/cli\.js (?:protect|doctor)/);
   assert.match(guide, /doctor` intentionally reports HOLD while the controls are uncommitted/);
   assert.match(guide, /does not make the\s+check required in GitHub/);
+  assert.match(guide, /Node\/npm Git repository/);
+  assert.match(guide, /direct Node test command/);
+  assert.match(guide, /REPLACE_WITH_TEST_COMMAND/);
+  assert.match(guide, /doctor` fails closed/);
   assert.doesNotMatch(guide, /protect\s+\\\s+--action-sha/);
   assert.match(guide, /npm publication of v0\.22\.0 is not claimed/);
 });
