@@ -4,6 +4,8 @@ const RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/
 const PUBLIC_CLAIM_STATEMENT = "This receipt attests that selected public GitHub events and checks were observed. It does not establish that the checks were sufficient, that the change is safe, or that deployment is authorized.";
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const FULL_GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const RECEIPT_SHA256 = /^sha256:[0-9a-f]{64}$/;
+const REASON_CODE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const SAFE_REPOSITORY_PART = /^[A-Za-z0-9_.-]+$/;
 const SUCCESSFUL_CHECKS = new Set(["success", "neutral", "skipped"]);
 const FAILED_CHECKS = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale", "error"]);
@@ -312,6 +314,35 @@ export function installationCommand() {
   return `npx --yes ${RELEASE_PACKAGE} protect --repo .`;
 }
 
+export function prCommentMarkdown(receipt) {
+  const continuity = receipt?.decision?.continuity;
+  const subject = receipt?.subject;
+  const checks = receipt?.observation?.checks;
+  const reasonCodes = receipt?.decision?.reasonCodes;
+  const receiptHash = receipt?.receiptHash;
+  if (!["CURRENT", "HOLD", "EXPIRED", "REVOKED"].includes(continuity)
+    || !subject || !FULL_GIT_SHA.test(subject.baseSha) || !FULL_GIT_SHA.test(subject.headSha)
+    || !checks || ![checks.passing, checks.failing, checks.pending, checks.unknown].every((value) => integer(value) !== undefined)
+    || !Array.isArray(reasonCodes) || reasonCodes.length > 16 || !reasonCodes.every((value) => typeof value === "string" && REASON_CODE.test(value))
+    || typeof receiptHash !== "string" || !RECEIPT_SHA256.test(receiptHash)) {
+    throw new Error("A complete browser receipt is required before copying a PR result.");
+  }
+  const gaps = reasonCodes.length ? reasonCodes.join(", ") : "none recorded";
+  return [
+    `**Agent Vigil public evidence: ${continuity}**`,
+    "",
+    `Checks: ${checks.passing} passing · ${checks.failing} failing · ${checks.pending} pending · ${checks.unknown} unknown`,
+    `Base: \`${subject.baseSha}\``,
+    `Head: \`${subject.headSha}\``,
+    `Unresolved: ${gaps}`,
+    `Receipt: \`${receiptHash}\``,
+    "",
+    "[Check another public PR](https://sulmusic2-star.github.io/agent-vigil/check.html)",
+    "",
+    "_Read-only public metadata. This result does not authorize merge or deployment._",
+  ].join("\n");
+}
+
 function text(element, value) { element.textContent = value; }
 function setBusy(form, button, busy) {
   button.disabled = busy;
@@ -370,6 +401,13 @@ async function copyCommand(button, liveRegion) {
   setTimeout(() => text(button, "Copy install command"), 2200);
 }
 
+async function copyPrComment(receipt, button, liveRegion) {
+  await navigator.clipboard.writeText(prCommentMarkdown(receipt));
+  text(button, "PR result copied");
+  text(liveRegion, "A read-only Agent Vigil result was copied. Nothing was posted.");
+  setTimeout(() => text(button, "Copy result for PR"), 2200);
+}
+
 function initialize() {
   const form = document.querySelector("#pr-check-form");
   if (!(form instanceof HTMLFormElement)) return;
@@ -379,6 +417,7 @@ function initialize() {
   const result = document.querySelector("#check-result");
   const live = document.querySelector("#check-live");
   const download = document.querySelector("#download-receipt");
+  const copyResult = document.querySelector("#copy-pr-result");
   const copy = document.querySelector("#copy-install");
   let selectedReceipt;
 
@@ -421,6 +460,9 @@ function initialize() {
     }
   });
   download.addEventListener("click", () => { if (selectedReceipt) downloadReceipt(selectedReceipt); });
+  copyResult.addEventListener("click", () => {
+    if (selectedReceipt) copyPrComment(selectedReceipt, copyResult, live).catch(() => text(live, "Copy failed. The result was not posted."));
+  });
   copy.addEventListener("click", () => copyCommand(copy, live).catch(() => text(live, `Copy failed. Run: ${installationCommand()}`)));
 }
 
