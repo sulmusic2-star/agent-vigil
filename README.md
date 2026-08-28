@@ -7,6 +7,8 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
+**Distribution status, verified August 28, 2026:** GitHub release v0.21.1 is public and works without an npm account. The npm registry still reports version 0.11.3. See [the npm-free installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+
 **Check an agent-written pull request before you merge it.**
 
 ## Run the proof before installing it
