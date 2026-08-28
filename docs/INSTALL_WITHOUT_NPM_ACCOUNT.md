@@ -1,7 +1,8 @@
 # Install Agent Vigil in five minutes
 
 An npm sign-in is not required. Agent Vigil v0.21.2 is available from its
-immutable GitHub release. The npm registry currently remains on v0.21.1.
+immutable GitHub release. The npm registry reports version 0.21.1. v0.22.0 is
+a source candidate and is not claimed as a public package.
 
 ## Prepare and verify the repository gate
 
@@ -113,7 +114,8 @@ The facts below were checked on August 28, 2026:
 
 - GitHub release v0.21.2 is public and installable.
 - The public package SHA-256 is recorded above.
-- npm reports v0.21.1; npm publication of v0.21.2 is not claimed.
+- The npm registry reports version 0.21.1. npm publication of v0.21.1 is
+  public and separately verified; publication of v0.21.2 is not claimed.
 - Outside installation, repeat use, protected-action stops, payment, and
   revenue require separate evidence.
 

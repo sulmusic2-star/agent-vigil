@@ -240,13 +240,10 @@ def install_state_failures(package_version: str, install_state: dict[str, object
     elif not target_published and observed_version == target_version:
         failures.append("npm target is marked unpublished but the observed version matches")
     observed_published_instant = utc_instant(observed_published_at)
-    if target_published:
-        if observed_published_instant is None:
-            failures.append("published npm target has no exact UTC publication time")
-        elif verified_instant is not None and observed_published_instant > verified_instant:
-            failures.append("npm publication time is later than the state verification")
-    elif observed_published_at is not None:
-        failures.append("unpublished npm target records a publication time")
+    if observed_published_instant is None:
+        failures.append("observed npm version has no exact UTC publication time")
+    elif verified_instant is not None and observed_published_instant > verified_instant:
+        failures.append("npm publication time is later than the state verification")
     if isinstance(candidate, dict) and candidate.get("version") == observed_version:
         failures.append("unpublished source candidate already matches the observed npm version")
     return failures
@@ -274,7 +271,6 @@ def version_failures() -> list[str]:
     release_url = release["asset_url"]
     candidate = install_state.get("source_release_candidate")
     candidate_version = candidate.get("version") if isinstance(candidate, dict) else None
-    published_registry_version = registry["observed_version"]
     current_install_files = [
         ROOT / "README.md",
         ROOT / "docs/index.html",
@@ -292,7 +288,7 @@ def version_failures() -> list[str]:
                 path.read_text(),
                 release["version"],
                 candidate_version if isinstance(candidate_version, str) else None,
-                published_registry_version,
+                registry["observed_version"],
             )
         )
 
@@ -301,7 +297,7 @@ def version_failures() -> list[str]:
         npm_reference_failures(
             relative(publishing),
             publishing.read_text(),
-            published_registry_version,
+            registry["observed_version"],
         )
     )
 
@@ -314,9 +310,6 @@ def version_failures() -> list[str]:
         failures.append("npm-free guide presents the unpublished target as a registry package")
     if registry["target_published"] is True and registry_spec not in guide:
         failures.append("npm-free guide omits the independently verified public registry package")
-    observed_registry_spec = f"@sulmusic/agent-vigil@{registry['observed_version']}"
-    if registry["observed_version"] != release["version"] and observed_registry_spec not in guide:
-        failures.append("npm-free guide omits the currently observed older registry package")
 
     stale_package_url = "releases/download/v0.21.0/sulmusic-agent-vigil-0.21.0.tgz"
     for path in [
@@ -471,73 +464,91 @@ def self_test() -> None:
     assert any("SHA-256" in failure for failure in install_state_failures(package_version, changed))
     changed = json.loads(json.dumps(install_state))
     changed["npm_registry"]["target_published"] = True
+    changed["npm_registry"]["observed_version"] = "0.11.3"
     assert any("observed version differs" in failure for failure in install_state_failures(package_version, changed))
     changed = json.loads(json.dumps(install_state))
+    del changed["npm_registry"]["observed_published_at"]
+    assert any("no exact UTC publication time" in failure for failure in install_state_failures(package_version, changed))
+    changed = json.loads(json.dumps(install_state))
+    changed["npm_registry"]["observed_published_at"] = "2099-01-01T00:00:00Z"
+    assert any("later than the state verification" in failure for failure in install_state_failures(package_version, changed))
+    changed = json.loads(json.dumps(install_state))
     changed["npm_registry"]["observed_version"] = package_version
-    assert any("marked unpublished" in failure for failure in install_state_failures(package_version, changed))
+    assert any("already matches the observed npm version" in failure for failure in install_state_failures(package_version, changed))
     changed = json.loads(json.dumps(install_state))
-    changed["npm_registry"]["observed_published_at"] = "2026-08-28T16:01:40.782Z"
-    assert any("unpublished npm target records" in failure for failure in install_state_failures(package_version, changed))
+    del changed["source_release_candidate"]
+    assert any("without an explicit source candidate" in failure for failure in install_state_failures(package_version, changed))
     changed = json.loads(json.dumps(install_state))
-    changed["source_release_candidate"] = {
-        "version": package_version,
-        "github_release_published": False,
-        "npm_published": False,
-    }
-    assert any("candidate remains" in failure for failure in install_state_failures(package_version, changed))
+    changed["source_release_candidate"]["version"] = install_state["latest_github_release"]["version"]
+    assert any("differs from the stable package" in failure for failure in install_state_failures(package_version, changed))
+    assert any("not newer" in failure for failure in install_state_failures(package_version, changed))
+    changed = json.loads(json.dumps(install_state))
+    changed["source_release_candidate"]["github_release_published"] = True
+    assert any("current GitHub release" in failure for failure in install_state_failures(package_version, changed))
+    changed = json.loads(json.dumps(install_state))
+    changed["source_release_candidate"]["github_release_published"] = "false"
+    assert any("publication state is not boolean" in failure for failure in install_state_failures(package_version, changed))
+    changed = json.loads(json.dumps(install_state))
+    changed["source_release_candidate"]["npm_published"] = True
+    assert any("current npm state" in failure for failure in install_state_failures(package_version, changed))
+    changed = json.loads(json.dumps(install_state))
+    changed["source_release_candidate"]["unexpected"] = True
+    assert any("unexpected or missing" in failure for failure in install_state_failures(package_version, changed))
+    changed = json.loads(json.dumps(install_state))
+    del changed["source_release_candidate"]["npm_published"]
+    assert any("unexpected or missing" in failure for failure in install_state_failures(package_version, changed))
+    changed = json.loads(json.dumps(install_state))
+    changed["source_release_candidate"]["version"] = "not-semver"
+    assert any("not stable SemVer" in failure for failure in install_state_failures(package_version, changed))
     assert stable_version_tuple("01.2.3") is None
     release_version = install_state["latest_github_release"]["version"]
     public_url = release_asset_url(release_version)
-    observed_registry_version = install_state["npm_registry"]["observed_version"]
-    observed_registry_spec = f"@sulmusic/agent-vigil@{observed_registry_version}"
+    candidate_version = install_state["source_release_candidate"]["version"]
+    candidate_url = release_asset_url(candidate_version)
+    published_registry_version = install_state["npm_registry"]["observed_version"]
+    assert install_reference_failures("fixture", public_url, release_version, candidate_version, published_registry_version) == []
+    current_registry_spec = f"@sulmusic/agent-vigil@{published_registry_version}"
     assert install_reference_failures(
         "fixture",
-        public_url,
+        public_url + "\n" + current_registry_spec,
         release_version,
-        None,
-        observed_registry_version,
-    ) == []
-    assert install_reference_failures(
-        "fixture",
-        public_url + "\n" + observed_registry_spec,
-        release_version,
-        None,
-        observed_registry_version,
+        candidate_version,
+        published_registry_version,
     ) == []
     assert any(
-        "unrecorded npm package version" in failure
+        "unpublished source candidate" in failure
         for failure in install_reference_failures(
             "fixture",
-            public_url + f"\n@sulmusic/agent-vigil@{release_version}",
+            public_url + "\n" + candidate_url,
             release_version,
-            None,
-            observed_registry_version,
+            candidate_version,
+            release_version,
         )
     )
     assert any(
         "unrecorded npm package version" in failure
         for failure in install_reference_failures(
             "fixture",
-            public_url + "\n" + observed_registry_spec + "\n@sulmusic/agent-vigil@0.1.0",
+            public_url + "\n" + current_registry_spec + "\n@sulmusic/agent-vigil@0.1.0",
             release_version,
-            None,
-            observed_registry_version,
+            candidate_version,
+            release_version,
         )
     )
     for alternate_spec in [
-        f"^{observed_registry_version}",
-        f"~{observed_registry_version}",
+        f"^{candidate_version}",
+        f"~{release_version}",
         "latest",
-        f"v{observed_registry_version}",
-        f"{observed_registry_version}-beta.1",
-        f"{observed_registry_version}/extra",
+        f"v{release_version}",
+        f"{release_version}-beta.1",
+        f"{release_version}/extra",
     ]:
         assert any(
             "unrecorded npm package version or specifier" in failure
             for failure in npm_reference_failures(
                 "fixture",
                 f"npx --yes @sulmusic/agent-vigil@{alternate_spec}",
-                observed_registry_version,
+                release_version,
             )
         )
     assert any(
@@ -546,24 +557,46 @@ def self_test() -> None:
             "fixture",
             public_url + "\n@sulmusic/agent-vigil@99.0.0",
             release_version,
-            None,
-            observed_registry_version,
+            candidate_version,
+            release_version,
+        )
+    )
+    assert any(
+        "unpublished source candidate" in failure
+        for failure in install_reference_failures(
+            "fixture",
+            public_url + f"\n@sulmusic/agent-vigil@{candidate_version}",
+            release_version,
+            candidate_version,
+            release_version,
         )
     )
     assert any(
         "before publication is recorded" in failure
         for failure in install_reference_failures(
             "fixture",
-            public_url + "\n" + observed_registry_spec,
+            public_url + "\n" + current_registry_spec,
             release_version,
+            candidate_version,
             None,
+        )
+    )
+    promoted_version = candidate_version
+    promoted_url = release_asset_url(promoted_version)
+    assert any(
+        "unrecorded npm package version" in failure
+        for failure in install_reference_failures(
+            "fixture",
+            promoted_url + "\n@sulmusic/agent-vigil@0.21.1",
+            promoted_version,
             None,
+            promoted_version,
         )
     )
     assert npm_reference_failures(
         "docs/PUBLISHING.md",
         (ROOT / "docs/PUBLISHING.md").read_text(),
-        observed_registry_version,
+        published_registry_version,
     ) == []
     assert not version_failures()
     assert claim_consistency_failures() == []

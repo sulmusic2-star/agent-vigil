@@ -7,7 +7,7 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**Distribution status, verified August 28, 2026:** GitHub release v0.21.2 is public. npm currently reports v0.21.1. Use the immutable GitHub package for v0.21.2. See [the verified installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/454c24f41ee0c4377071720b91b6f30a1bce2317/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+**Distribution status, verified August 28, 2026:** GitHub release v0.21.2 and npm package v0.21.1 are public. v0.22.0 is the release candidate in this source tree and is not a public package yet. See [the npm-free installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/454c24f41ee0c4377071720b91b6f30a1bce2317/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 **Check an agent-written pull request before you merge it.**
 
@@ -150,7 +150,7 @@ and 95% Wilson intervals.
 
 The CLI can prepare and verify the legacy full-receipt GitHub/Sigstore
 predicate. Candidate-executing generated workflows cannot sign receipts in
-v0.21.2. Signing authority must live in a separately controlled job that never
+v0.22.0. Signing authority must live in a separately controlled job that never
 executes candidate code. Scheduled Control Proof signing remains separate and
 uses only planted non-candidate challenges. See
 [attestation boundaries](docs/ATTESTED_RECEIPTS.md).
@@ -180,15 +180,14 @@ It does not install an update, upload evidence, modify the GitHub Action, or
 claim live model/provider behavior. See the precise
 [Upgrade Guard contract](docs/UPGRADE_GUARD.md).
 
-Install the public v0.21.2 protection profile without an npm account:
+From a reviewed source checkout, the release candidate adds the protection profile:
 
 ```bash
-npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  protect --action-sha 33ae20140ffb2e25a034f291225849765ff8d217
+node dist/cli.js protect
 ```
 
-`protect` inspects the repository, prepares a base-selected exact-SHA
+`protect` inspects the repository, chooses the immutable reviewed public Action
+commit, prepares a base-selected exact-SHA
 pull-request workflow, anchors policy to the base commit, and prepares a
 completed-run outcome snapshot. Existing files are kept unless `--force` is
 explicit. Generated hosted execution supports plain repositories and root
@@ -370,32 +369,18 @@ An empty transcript is **INCONCLUSIVE**. A clean diff alone cannot earn PASS.
 If an agent claims 99 tests passed and the runner reports 42, the result is
 **FAIL** even though the command exited zero.
 
-## Five-minute installation
+## Two-minute setup
 
-Prepare the exact-pin repository gate from the public release:
+For release-candidate validation from a reviewed source checkout, use the built CLI. This is not a public installation path:
 
 ```bash
-npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  protect --action-sha 33ae20140ffb2e25a034f291225849765ff8d217
-
-git status --short
-git add .agent-vigil.json .github/pull_request_template.md \
-  .github/workflows/agent-vigil.yml \
-  .github/workflows/agent-vigil-outcomes.yml
-git commit -m "Install Agent Vigil"
-
-npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  doctor
+node dist/cli.js protect
 ```
 
-Review the four generated controls before committing them. `protect` prepares a
-small JSON policy, a pull-request checklist, and two exact-pin workflows.
-Existing files are kept unless `--force` is explicit. `doctor` intentionally
-reports HOLD before the controls are committed; rerun it after the commit to
-verify the installed state. A passing doctor does not make the check required
-in GitHub or prove outside adoption.
+`protect` prepares the policy, pull-request template, and two exact-pin
+workflows, then runs a disposable proof rehearsal. It reports `PREPARED — not
+active yet` until those files are reviewed, committed, merged, and the exact-head
+check is required. Existing files are kept unless `--force` is explicit.
 
 The evidence workflow is base-selected through `pull_request_target`. It loads
 policy from the pull-request base, checks out the exact head without persisted
@@ -536,16 +521,12 @@ the receipt. See the [operator guide](docs/PRIVATE_RECEIPT_GATE.md).
 
 ## Run locally
 
-Node 20 or newer is required. Run the current public GitHub release without
-installing it globally:
+Node 20 or newer is required. Run the public npm package without installing it
+globally:
 
 ```bash
-npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  --help
+npx --yes @sulmusic/agent-vigil@0.21.1 --help
 ```
-
-The npm registry currently provides the earlier v0.21.1 package.
 
 Or work from source:
 
@@ -872,7 +853,7 @@ vigil init --action-sha <40-hex> [--repo <path>] [--force]
 vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
 vigil init --profile authority --action-sha <40-hex> [--repo <path>] [--force]
 vigil init --portable --public-key <path> --action-sha <40-hex> [--repo <path>] [--force]
-vigil protect --action-sha <40-hex> [--repo <path>] [--force]
+vigil protect [--action-sha <40-hex>] [--repo <path>] [--force]
 vigil doctor [--repo <path>]
 vigil keygen --private <path> --public <path>
 vigil verify <receipt.json> [--public-key <path>]
