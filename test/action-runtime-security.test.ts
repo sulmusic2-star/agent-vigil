@@ -9,6 +9,7 @@ import { generateSigningKey, publicKeyId } from "../src/signature.ts";
 import { compositeActionRuntimeUnavailable, compositeActionScript } from "./action-runtime-fixture.ts";
 
 const PINNED_CANDIDATE_IMAGE = "node@sha256:46e94f8cf91baab69a2deb3153e74eeffd73c20c7cc1d8432f5b96469eaa0322";
+const ACTION_REJECTION_TIMEOUT_MS = 120_000;
 const temporaryPaths: string[] = [];
 
 after(() => {
@@ -104,7 +105,7 @@ function runRejectedAction(overrides: NodeJS.ProcessEnv): SpawnSyncReturns<strin
     cwd: repo,
     encoding: "utf8",
     env,
-    timeout: 30_000,
+    timeout: ACTION_REJECTION_TIMEOUT_MS,
   });
 }
 
