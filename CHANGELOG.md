@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.21.2 - 2026-08-28
+### 0.21.2 release candidate
 
 - Bind hosted execution to the reviewed Node.js 22.23.2 binaries for Linux x64,
   macOS x64, and macOS arm64. The composite Action now rejects wildcard
