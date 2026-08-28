@@ -100,7 +100,7 @@ function selectedAge(value: string | undefined): number {
 
 export async function runPublicPrReceiptCommand(
   args: string[],
-  options: { transport?: PublicPrTransport; token?: string; toolVersion?: string } = {},
+  options: { transport?: PublicPrTransport; token?: string; toolVersion?: string; toolCommit?: string } = {},
 ): Promise<number> {
   if (!args.length || args.includes("--help") || args.includes("-h")) {
     console.log(usage());
@@ -118,7 +118,10 @@ export async function runPublicPrReceiptCommand(
       return verifyReceipt(parsed.positional[1], format);
     }
     if (parsed.positional.length !== 1) throw new Error("pr-receipt requires exactly one public GitHub pull request URL");
-    const toolCommit = validateToolCommit(parsed.values.get("--tool-ref") ?? "");
+    if (options.toolCommit && parsed.values.has("--tool-ref")) {
+      throw new Error("--tool-ref cannot override the exact commit embedded in this package build");
+    }
+    const toolCommit = validateToolCommit(options.toolCommit ?? parsed.values.get("--tool-ref") ?? "");
     const signingKey = parsed.values.get("--signing-key");
     const output = parsed.values.get("--output");
     if (signingKey && output && resolve(signingKey) === resolve(output)) throw new Error("--output must not replace the signing key");

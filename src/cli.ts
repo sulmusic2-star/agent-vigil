@@ -81,6 +81,8 @@ import { readBoundedJson } from "./upgrade/contracts.ts";
 import { readBoundedRegularFile } from "./continuity/contracts.ts";
 import { runContinuityCommand } from "./continuity/cli.ts";
 import { runPublicPrReceiptCommand } from "./public-pr-receipt-cli.ts";
+import { defaultActionPin } from "./build-info.ts";
+import { renderProtectRehearsal, runProtectRehearsal } from "./protect-rehearsal.ts";
 import { trustedGit, trustedGitOptional } from "./trusted-git.ts";
 import {
   loadControlArguments,
@@ -119,7 +121,8 @@ Usage:
   vigil init --action-sha <40-hex> [--repo <path>] [--force] [--portable --public-key <path>]
   vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
   vigil init --profile authority --action-sha <40-hex> [--repo <path>] [--force]
-  vigil protect --action-sha <40-hex> [--repo <path>] [--force]
+  vigil protect [--repo <path>] [--force] [--action-sha <40-hex>]
+  vigil check <https://github.com/owner/repo/pull/number> [--format text|json] [--output <receipt.json>]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil guard-compat --host claude|codex --host-version <version> --host-executable <path> --control-name <name> --control-version <version> --control-executable <path> --policy <path> --configuration <path> [options]
   vigil guard-route --host claude|codex --host-version <version> --host-executable <path> --profile-home <disposable-path> [options]
@@ -656,18 +659,41 @@ function runProtect(args: string[]): number {
     validateCommandArgs(args, "protect", ["--repo", "--action-sha"], ["--force", "--attest"]);
     const repo = resolve(optionValue(args, "--repo") ?? ".");
     if (args.includes("--attest")) throw new Error("protect --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
-    const actionSha = optionValue(args, "--action-sha");
-    if (!/^[0-9a-f]{40}$/.test(actionSha ?? "")) throw new Error("protect requires --action-sha <40 lowercase hex>");
+    const selectedPin = defaultActionPin();
+    const actionSha = optionValue(args, "--action-sha") ?? selectedPin.sha;
+    if (!/^[0-9a-f]{40}$/.test(actionSha)) throw new Error("protect requires --action-sha to be a 40-character lowercase Git commit SHA");
     const result = initRepository(repo, args.includes("--force"), undefined, "protect", false, actionSha);
-    console.log("Agent Vigil protection scaffold prepared.\n");
+    console.log("Agent Vigil is ready to add.\n");
+    const policy = loadPolicy(repo).value;
+    const commands = policy.maintainer?.automatedReview?.commands ?? [];
+    if (commands.length) console.log(`  Found   ${safeSetupLine(commands.join(" && "))}`);
+    console.log(`  Pinned  ${actionSha}${optionValue(args, "--action-sha") ? " (operator selected)" : selectedPin.source === "package-build" ? " (this package build)" : " (reviewed public release)"}`);
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
+    if (result.created.length > 0) {
+      const rehearsal = runProtectRehearsal();
+      console.log(`\n${renderProtectRehearsal(rehearsal)}`);
+      if (rehearsal.regression !== "PASS" || rehearsal.plantedWeakTest !== "BLOCKED") {
+        console.error("\nAgent Vigil could not prove its disposable red/green rehearsal. The generated files remain prepared but must not be activated.");
+        return 2;
+      }
+      console.log("\nState: PREPARED — not active yet.");
+      console.log("\nNext:");
+      console.log("  1. Review the four generated files.");
+      console.log("  2. Commit and push them in a setup pull request.");
+      console.log("  3. After that setup merges, require the Agent Vigil exact-head check in GitHub.");
+      console.log("\nRun `npx @sulmusic/agent-vigil doctor` after the setup commit. Prepared files alone do not protect merges.");
+      return 0;
+    }
     const checks = doctorRepository(repo);
     console.log(`\n${renderDoctor(checks)}\n`);
-    console.log("Next: review and commit the generated controls, then rerun doctor. The job name alone is not a merge trust root; enforcement requires an externally trusted required workflow or App check bound to the exact PR head.");
-    const pendingGeneratedCommit = result.created.length > 0;
-    return pendingGeneratedCommit ? 0 : checks.some((check) => check.status === "FAIL") ? 2 : 0;
+    console.log("The job name alone is not a merge trust root; enforcement requires an externally trusted required workflow or App check bound to the exact PR head.");
+    return checks.some((check) => check.status === "FAIL") ? 2 : 0;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function safeSetupLine(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 function withoutOption(args: string[], name: string): string[] {
@@ -1591,5 +1617,12 @@ if (isMainModule()) {
   const argv = process.argv.slice(2);
   if (argv[0] === "pr-receipt") {
     void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION }).then((code) => process.exit(code));
+  } else if (argv[0] === "check") {
+    const pin = defaultActionPin();
+    if (pin.source !== "package-build") {
+      console.error("agent-vigil: this development build has no exact source commit; use pr-receipt --tool-ref <full-commit-sha> instead");
+      process.exit(2);
+    }
+    void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION, toolCommit: pin.sha }).then((code) => process.exit(code));
   } else process.exit(run(argv));
 }

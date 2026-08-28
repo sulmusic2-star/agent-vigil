@@ -16,6 +16,21 @@
 - Keep the immutable v0.21.1 release as historical evidence and advance the
   package/runtime identity instead of moving or replacing that tag.
 
+
+### Next release
+
+- Let `vigil protect` select and display an immutable reviewed Action commit when
+  the operator does not provide `--action-sha`; an explicit pin remains an
+  expert override.
+- Replace the first-run doctor failure wall with one truthful `PREPARED — not
+  active yet` state and exact activation steps.
+- Run a disposable differential-proof rehearsal during setup. It demonstrates
+  one real regression test that fails on old code and passes on proposed code,
+  then blocks a planted weak test that passes on both versions.
+- Add the zero-install `vigil check <public-pr-url>` entry point for exact clean
+  package builds. Development builds without an embedded source commit refuse
+  rather than writing a misleading tool identity.
+
 ## 0.21.1 - 2026-08-28
 
 - Replace the scripted demonstration with a bounded disposable-repository run
