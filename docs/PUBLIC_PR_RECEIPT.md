@@ -15,6 +15,21 @@ The command is intended for the first review conversation, where a repository
 owner is willing to inspect a receipt but will not accept an external workflow
 commit.
 
+## Browser evidence desk
+
+The static [public PR evidence desk](check.html) runs the same normalized
+unsigned receipt decision in a browser. Its receipt uses a distinct browser
+build version and the reviewed commit that introduced the browser verifier, so
+it does not claim that the v0.22.0 CLI release contained that code. It makes direct read-only requests from
+the browser to `api.github.com`, calculates response and receipt SHA-256 hashes
+with Web Crypto, and offers the normalized JSON as a local download.
+
+The page does not use cookies, browser storage, analytics, an Agent Vigil
+server, or a GitHub token. It shows the public pull-request title and check names
+on screen but does not put those fields or any response body in the downloaded
+receipt. The browser page cannot sign a receipt; use the CLI with a
+customer-controlled Ed25519 key when signer identity matters.
+
 ## Network and permission boundary
 
 The pull-request URL parser accepts only an uncredentialed

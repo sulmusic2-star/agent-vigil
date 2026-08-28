@@ -51,6 +51,11 @@ not contact an agent or payment network. See
 
 ## No-workflow-change PR receipt
 
+Use the [public PR evidence desk](https://sulmusic2-star.github.io/agent-vigil/check.html)
+to inspect a public pull request in the browser without an account, token,
+repository write, or source upload. The static page talks directly to the public
+GitHub API and can download the same normalized unsigned receipt used by the CLI.
+
 Paste a public GitHub pull-request URL to receive a normalized, optionally
 signed lifecycle receipt without opening a pull request, installing a GitHub
 Action, or changing the target repository:
