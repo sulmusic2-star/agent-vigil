@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.21.1 - 2026-08-27
+
+- Replace the scripted demonstration with a bounded disposable-repository run
+  that installs and diagnoses the base-selected protection, inspects immutable
+  Action and receipt-retention wiring, and replays three historical failures.
+- Add a closed, owner-consented adoption ledger and validator that keeps
+  configured repositories, unique receipt hashes, 30-day retention, required
+  checks, accepted contradictions, and false-verdict reports separate.
+- Extend the public adoption census with oldest and newest sampled workflow-run
+  timestamps and a separately labeled 30-day activity span. Public activity is
+  not presented as maintainer-confirmed retention.
+- Add a weekly evidence workflow that retains the public census and consented
+  ledger report for 90 days. The current external-adoption count remains zero.
+- Match the current GitHub-hosted `setup-node` runtime contract, where the
+  exact tool-cache Node binary is a regular 0777 file. Agent Vigil accepts only
+  the expected Node 22 cache path, copies it before candidate execution, and
+  verifies the source and private copy fingerprints before use.
+
 ## 0.21.0 - 2026-08-27
 
 ### Breaking security migration

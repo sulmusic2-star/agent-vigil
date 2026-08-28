@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/adoption-evidence-v1.schema.json",
+  "title": "Agent Vigil consented adoption evidence ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "entries"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "httpsUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "receiptHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "contradiction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receiptHash", "evidenceUrl", "disposition", "acceptedAt"],
+      "properties": {
+        "receiptHash": { "$ref": "#/$defs/receiptHash" },
+        "evidenceUrl": { "$ref": "#/$defs/httpsUrl" },
+        "disposition": {
+          "enum": ["fixed-change", "expected-behavior", "policy-decision", "product-defect"]
+        },
+        "acceptedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "falseVerdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceUrl", "status", "reportedAt", "resolvedAt"],
+      "properties": {
+        "evidenceUrl": { "$ref": "#/$defs/httpsUrl" },
+        "status": {
+          "enum": ["resolved-false-verdict", "expected-behavior", "product-defect", "still-open"]
+        },
+        "reportedAt": { "$ref": "#/$defs/timestamp" },
+        "resolvedAt": {
+          "oneOf": [
+            { "$ref": "#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "ownerConsentUrl",
+        "workflowUrl",
+        "latestRunUrl",
+        "firstObservedAt",
+        "lastObservedAt",
+        "currentWorkflowConfigured",
+        "verdictsObserved",
+        "receiptHashes",
+        "requiredCheckEvidenceUrl",
+        "retentionEvidenceUrl",
+        "maintainerAcceptedContradictions",
+        "falseVerdictReports"
+      ],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "ownerConsentUrl": { "$ref": "#/$defs/httpsUrl" },
+        "workflowUrl": { "$ref": "#/$defs/httpsUrl" },
+        "latestRunUrl": { "$ref": "#/$defs/httpsUrl" },
+        "firstObservedAt": { "$ref": "#/$defs/timestamp" },
+        "lastObservedAt": { "$ref": "#/$defs/timestamp" },
+        "currentWorkflowConfigured": { "type": "boolean" },
+        "verdictsObserved": { "type": "integer", "minimum": 0 },
+        "receiptHashes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/receiptHash" }
+        },
+        "requiredCheckEvidenceUrl": {
+          "oneOf": [{ "$ref": "#/$defs/httpsUrl" }, { "type": "null" }]
+        },
+        "retentionEvidenceUrl": {
+          "oneOf": [{ "$ref": "#/$defs/httpsUrl" }, { "type": "null" }]
+        },
+        "maintainerAcceptedContradictions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/contradiction" }
+        },
+        "falseVerdictReports": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/falseVerdict" }
+        }
+      }
+    }
+  }
+}

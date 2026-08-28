@@ -39,7 +39,10 @@ function hostedNodeRootFixture(): string {
   // the real executable bytes and process.execPath behavior without repeatedly
   // consuming another full Node binary for every generated Action script.
   copyFileSync(process.execPath, source, constants.COPYFILE_FICLONE);
-  chmodSync(source, 0o555);
+  // GitHub's setup-node cache currently exposes the selected regular Node
+  // binary as 0777. Mirror that hosted contract so tests exercise the narrow
+  // tool-cache exception rather than an unrealistically immutable fixture.
+  chmodSync(source, 0o777);
   cachedHostedNodeRoot = hostedNodeRoot;
   return hostedNodeRoot;
 }

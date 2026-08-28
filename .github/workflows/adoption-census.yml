@@ -1,0 +1,48 @@
+name: Public adoption census
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 13 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Observe public workflow activity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/public_adoption_census.py --output adoption-census.json
+      - name: Validate consented adoption evidence
+        run: python3 scripts/adoption_evidence.py --output adoption-evidence.json
+      - name: Write the evidence summary
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          census = json.load(open("adoption-census.json"))
+          evidence = json.load(open("adoption-evidence.json"))
+          observed = census["counts"]
+          consented = evidence["counts"]
+          print("# Agent Vigil adoption evidence")
+          print()
+          print(f"- Public repositories currently configured: {observed['external_repositories_configured']}")
+          print(f"- Public repositories with a 30-day run span: {observed['external_repositories_with_30_day_activity_span']}")
+          print(f"- Consented external repositories: {consented['externalRepositoriesConfigured']}")
+          print(f"- Unique consented receipt hashes: {consented['uniqueExternalReceiptHashes']}")
+          print(f"- Maintainer-confirmed 30-day retention: {consented['maintainersRetainedAfter30Days']}")
+          print(f"- Maintainer-accepted contradictions: {consented['maintainerAcceptedContradictions']}")
+          print(f"- Owner-evidenced required checks: {consented['externalRequiredChecks']}")
+          print()
+          print("Public workflow activity is discovery evidence. It does not replace owner consent, receipt hashes, required-check evidence, or maintainer disposition.")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-adoption-evidence
+          path: |
+            adoption-census.json
+            adoption-evidence.json
+          retention-days: 90

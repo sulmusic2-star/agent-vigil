@@ -118,6 +118,9 @@ test("Action leaves strictness and the evidence minimum under trusted-policy con
   assert.match(action, /if \[\[ -n "\$VIGIL_MIN_VERIFIED" \]\]; then args\+=\(--min-verified "\$VIGIL_MIN_VERIFIED"\); fi/);
   assert.match(action, /if \[\[ "\$VIGIL_STRICT" == "true" \]\]; then args\+=\(--strict\); fi/);
   assert.match(action, /O_RDONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
+  assert.match(action, /canonical_node_source\(\)/);
+  assert.match(action, /before any candidate command runs/);
+  assert.match(action, /resolved=\$\(canonical_node_source "\$candidate"\)/);
   const postVerificationNode = action.match(/post_verification_node\(\) \{([\s\S]*?)(?=\n        post_verification_node_empty\(\))/)?.[1];
   const postVerificationNodeEmpty = action.match(/post_verification_node_empty\(\) \{([\s\S]*?)(?=\n\n        if \[\[ -n "\$VIGIL_MODE")/)?.[1];
   assert.ok(postVerificationNode && postVerificationNodeEmpty);
