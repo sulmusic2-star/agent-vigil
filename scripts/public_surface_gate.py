@@ -83,7 +83,11 @@ def relative(path: Path) -> str:
 
 
 def stable_version_tuple(value: object) -> tuple[int, int, int] | None:
-    if not isinstance(value, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value):
+    stable_part = r"(?:0|[1-9][0-9]*)"
+    if not isinstance(value, str) or not re.fullmatch(
+        rf"{stable_part}\.{stable_part}\.{stable_part}",
+        value,
+    ):
         return None
     return tuple(int(part) for part in value.split("."))  # type: ignore[return-value]
 
@@ -110,6 +114,7 @@ def install_reference_failures(
     text: str,
     release_version: str,
     candidate_version: str | None,
+    published_registry_version: str | None,
 ) -> list[str]:
     failures: list[str] = []
     if release_asset_url(release_version) not in text:
@@ -124,7 +129,9 @@ def install_reference_failures(
         r"@sulmusic/agent-vigil@([0-9]+\.[0-9]+\.[0-9]+)",
         text,
     ):
-        if registry_version != release_version:
+        if published_registry_version is None:
+            failures.append(f"{label} presents an npm package before publication is recorded")
+        elif registry_version != published_registry_version:
             failures.append(f"{label} references an unrecorded npm package version")
     if candidate_version is not None:
         candidate_url = release_asset_url(candidate_version)
@@ -274,6 +281,7 @@ def version_failures() -> list[str]:
                 path.read_text(),
                 release["version"],
                 candidate_version if isinstance(candidate_version, str) else None,
+                registry["target_version"] if registry["target_published"] is True else None,
             )
         )
 
@@ -476,24 +484,28 @@ def self_test() -> None:
     changed = json.loads(json.dumps(install_state))
     changed["source_release_candidate"]["version"] = "not-semver"
     assert any("not stable SemVer" in failure for failure in install_state_failures(package_version, changed))
-    public_url = release_asset_url(install_state["latest_github_release"]["version"])
+    assert stable_version_tuple("01.2.3") is None
+    release_version = install_state["latest_github_release"]["version"]
+    public_url = release_asset_url(release_version)
     candidate_version = install_state["source_release_candidate"]["version"]
     candidate_url = release_asset_url(candidate_version)
-    assert install_reference_failures("fixture", public_url, install_state["latest_github_release"]["version"], candidate_version) == []
-    current_registry_spec = f"@sulmusic/agent-vigil@{install_state['latest_github_release']['version']}"
+    assert install_reference_failures("fixture", public_url, release_version, candidate_version, release_version) == []
+    current_registry_spec = f"@sulmusic/agent-vigil@{release_version}"
     assert install_reference_failures(
         "fixture",
         public_url + "\n" + current_registry_spec,
-        install_state["latest_github_release"]["version"],
+        release_version,
         candidate_version,
+        release_version,
     ) == []
     assert any(
         "unpublished source candidate" in failure
         for failure in install_reference_failures(
             "fixture",
             public_url + "\n" + candidate_url,
-            install_state["latest_github_release"]["version"],
+            release_version,
             candidate_version,
+            release_version,
         )
     )
     assert any(
@@ -501,8 +513,9 @@ def self_test() -> None:
         for failure in install_reference_failures(
             "fixture",
             public_url + "\n" + current_registry_spec + "\n@sulmusic/agent-vigil@0.1.0",
-            install_state["latest_github_release"]["version"],
+            release_version,
             candidate_version,
+            release_version,
         )
     )
     assert any(
@@ -510,8 +523,9 @@ def self_test() -> None:
         for failure in install_reference_failures(
             "fixture",
             public_url + "\n@sulmusic/agent-vigil@99.0.0",
-            install_state["latest_github_release"]["version"],
+            release_version,
             candidate_version,
+            release_version,
         )
     )
     assert any(
@@ -519,8 +533,31 @@ def self_test() -> None:
         for failure in install_reference_failures(
             "fixture",
             public_url + f"\n@sulmusic/agent-vigil@{candidate_version}",
-            install_state["latest_github_release"]["version"],
+            release_version,
             candidate_version,
+            release_version,
+        )
+    )
+    assert any(
+        "before publication is recorded" in failure
+        for failure in install_reference_failures(
+            "fixture",
+            public_url + "\n" + current_registry_spec,
+            release_version,
+            candidate_version,
+            None,
+        )
+    )
+    promoted_version = candidate_version
+    promoted_url = release_asset_url(promoted_version)
+    assert any(
+        "unrecorded npm package version" in failure
+        for failure in install_reference_failures(
+            "fixture",
+            promoted_url + "\n@sulmusic/agent-vigil@0.21.1",
+            promoted_version,
+            None,
+            promoted_version,
         )
     )
     assert not version_failures()
