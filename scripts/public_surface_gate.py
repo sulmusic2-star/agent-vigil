@@ -474,36 +474,46 @@ def self_test() -> None:
     assert any("later than the state verification" in failure for failure in install_state_failures(package_version, changed))
     changed = json.loads(json.dumps(install_state))
     changed["npm_registry"]["observed_version"] = package_version
-    assert any("already matches the observed npm version" in failure for failure in install_state_failures(package_version, changed))
-    changed = json.loads(json.dumps(install_state))
+    assert any("marked unpublished" in failure for failure in install_state_failures(package_version, changed))
+
+    release_major, release_minor, release_patch = stable_version_tuple(package_version)
+    candidate_package_version = f"{release_major}.{release_minor}.{release_patch + 1}"
+    candidate_state = json.loads(json.dumps(install_state))
+    candidate_state["source_release_candidate"] = {
+        "version": candidate_package_version,
+        "github_release_published": False,
+        "npm_published": False,
+    }
+    assert install_state_failures(candidate_package_version, candidate_state) == []
+    changed = json.loads(json.dumps(candidate_state))
     del changed["source_release_candidate"]
-    assert any("without an explicit source candidate" in failure for failure in install_state_failures(package_version, changed))
-    changed = json.loads(json.dumps(install_state))
+    assert any("without an explicit source candidate" in failure for failure in install_state_failures(candidate_package_version, changed))
+    changed = json.loads(json.dumps(candidate_state))
     changed["source_release_candidate"]["version"] = install_state["latest_github_release"]["version"]
-    assert any("differs from the stable package" in failure for failure in install_state_failures(package_version, changed))
-    assert any("not newer" in failure for failure in install_state_failures(package_version, changed))
-    changed = json.loads(json.dumps(install_state))
+    assert any("differs from the stable package" in failure for failure in install_state_failures(candidate_package_version, changed))
+    assert any("not newer" in failure for failure in install_state_failures(candidate_package_version, changed))
+    changed = json.loads(json.dumps(candidate_state))
     changed["source_release_candidate"]["github_release_published"] = True
-    assert any("current GitHub release" in failure for failure in install_state_failures(package_version, changed))
-    changed = json.loads(json.dumps(install_state))
+    assert any("current GitHub release" in failure for failure in install_state_failures(candidate_package_version, changed))
+    changed = json.loads(json.dumps(candidate_state))
     changed["source_release_candidate"]["github_release_published"] = "false"
-    assert any("publication state is not boolean" in failure for failure in install_state_failures(package_version, changed))
-    changed = json.loads(json.dumps(install_state))
+    assert any("publication state is not boolean" in failure for failure in install_state_failures(candidate_package_version, changed))
+    changed = json.loads(json.dumps(candidate_state))
     changed["source_release_candidate"]["npm_published"] = True
-    assert any("current npm state" in failure for failure in install_state_failures(package_version, changed))
-    changed = json.loads(json.dumps(install_state))
+    assert any("current npm state" in failure for failure in install_state_failures(candidate_package_version, changed))
+    changed = json.loads(json.dumps(candidate_state))
     changed["source_release_candidate"]["unexpected"] = True
-    assert any("unexpected or missing" in failure for failure in install_state_failures(package_version, changed))
-    changed = json.loads(json.dumps(install_state))
+    assert any("unexpected or missing" in failure for failure in install_state_failures(candidate_package_version, changed))
+    changed = json.loads(json.dumps(candidate_state))
     del changed["source_release_candidate"]["npm_published"]
-    assert any("unexpected or missing" in failure for failure in install_state_failures(package_version, changed))
-    changed = json.loads(json.dumps(install_state))
+    assert any("unexpected or missing" in failure for failure in install_state_failures(candidate_package_version, changed))
+    changed = json.loads(json.dumps(candidate_state))
     changed["source_release_candidate"]["version"] = "not-semver"
-    assert any("not stable SemVer" in failure for failure in install_state_failures(package_version, changed))
+    assert any("not stable SemVer" in failure for failure in install_state_failures(candidate_package_version, changed))
     assert stable_version_tuple("01.2.3") is None
     release_version = install_state["latest_github_release"]["version"]
     public_url = release_asset_url(release_version)
-    candidate_version = install_state["source_release_candidate"]["version"]
+    candidate_version = candidate_package_version
     candidate_url = release_asset_url(candidate_version)
     published_registry_version = install_state["npm_registry"]["observed_version"]
     assert install_reference_failures("fixture", public_url, release_version, candidate_version, published_registry_version) == []
@@ -522,7 +532,7 @@ def self_test() -> None:
             public_url + "\n" + candidate_url,
             release_version,
             candidate_version,
-            release_version,
+            published_registry_version,
         )
     )
     assert any(
@@ -532,7 +542,7 @@ def self_test() -> None:
             public_url + "\n" + current_registry_spec + "\n@sulmusic/agent-vigil@0.1.0",
             release_version,
             candidate_version,
-            release_version,
+            published_registry_version,
         )
     )
     for alternate_spec in [
@@ -548,7 +558,7 @@ def self_test() -> None:
             for failure in npm_reference_failures(
                 "fixture",
                 f"npx --yes @sulmusic/agent-vigil@{alternate_spec}",
-                release_version,
+                published_registry_version,
             )
         )
     assert any(
@@ -558,7 +568,7 @@ def self_test() -> None:
             public_url + "\n@sulmusic/agent-vigil@99.0.0",
             release_version,
             candidate_version,
-            release_version,
+            published_registry_version,
         )
     )
     assert any(
@@ -568,7 +578,7 @@ def self_test() -> None:
             public_url + f"\n@sulmusic/agent-vigil@{candidate_version}",
             release_version,
             candidate_version,
-            release_version,
+            published_registry_version,
         )
     )
     assert any(

@@ -12,11 +12,11 @@ base-owned policy. It is intentionally narrower than the local CLI.
 node dist/cli.js protect
 ```
 
-The currently published v0.21.2 package remains available at its immutable
+The currently published v0.22.0 GitHub package remains available at its immutable
 release asset, but it does not claim this v0.22.0 source-candidate contract:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz doctor
 ```
 
 `protect` selects the immutable reviewed public Action commit and writes it into
