@@ -73,3 +73,21 @@ test("the hosted Action accepts only the reviewed Node runtime before first exec
   assert.match(generator, /const HOSTED_NODE_VERSION = "22\.23\.2"/);
   assertBefore(generator, "actions/setup-node@", "actions/checkout@", "generated evidence selects Node before checkout");
 });
+
+test("the public package and generated hosted contract use one release identity", () => {
+  const manifest = JSON.parse(readFileSync("package.json", "utf8"));
+  const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+  const report = readFileSync("src/report.ts", "utf8");
+  const setup = readFileSync("src/setup.ts", "utf8");
+  const readme = readFileSync("README.md", "utf8");
+  const changelog = readFileSync("CHANGELOG.md", "utf8");
+
+  assert.equal(manifest.version, "0.21.2");
+  assert.equal(lock.version, manifest.version);
+  assert.equal(lock.packages[""].version, manifest.version);
+  assert.match(report, /VERSION = "0\.21\.2"/);
+  assert.match(setup, /generated v0\.21\.2 hosted workflow/);
+  assert.doesNotMatch(setup, /generated v0\.21\.1 hosted workflow/);
+  assert.match(readme, /releases\/download\/v0\.21\.2\/sulmusic-agent-vigil-0\.21\.2\.tgz/);
+  assert.match(changelog, /## 0\.21\.2 - 2026-08-28/);
+});

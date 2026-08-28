@@ -161,12 +161,12 @@
         <p class="section-lead">The read-only command observes public GitHub metadata. It does not fetch source, add an app, change the repository, or authorize deployment.</p>
         <div class="terminal" aria-label="Public pull-request receipt commands">
           <header>public PR receipt / no repository write</header>
-          <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz pr-receipt \
+          <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref FULL_AGENT_VIGIL_COMMIT \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz pr-receipt verify pr-123.receipt.json</pre>
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt verify pr-123.receipt.json</pre>
         </div>
         <div class="actions">
           <a class="button" href="PUBLIC_PR_RECEIPT.md">Read the receipt boundary</a>
@@ -260,7 +260,7 @@ npm run demo:60s</pre>
       <section id="attestation">
         <p class="eyebrow">Separate signing authority</p>
         <h2>Do not sign in the candidate job.</h2>
-        <p class="section-lead">Candidate receipt attestation is disabled in v0.21.1. The separately scheduled Control Proof workflow can ask GitHub to sign planted non-candidate challenges. It does not check out or execute pull-request code.</p>
+        <p class="section-lead">Candidate receipt attestation is disabled in v0.21.2. The separately scheduled Control Proof workflow can ask GitHub to sign planted non-candidate challenges. It does not check out or execute pull-request code.</p>
         <div class="status" aria-label="Attested receipt checks">
           <div><b>Exact file</b>The Control Proof signature covers the SHA-256 digest of the whole proof file.</div>
           <div><b>Exact runtime</b>The proof binds the reviewed Agent Vigil source commit and signer workflow.</div>
@@ -303,8 +303,8 @@ npm run demo:60s</pre>
       <section id="install" class="install">
         <div><p class="eyebrow">Install</p><h2>Prepare the exact-pin pull-request gate.</h2><p class="section-lead">The protection profile works without an agent transcript. It prepares a base-selected evidence workflow, calibrated Test Integrity Guard, receipt retention, and completed-run outcome snapshot.</p></div>
         <div>
-          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz protect --action-sha &lt;reviewed-full-commit&gt;</code>
-          <p>Then run <code>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz doctor</code>. Review and commit the prepared files before relying on them.</p>
+          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz protect --action-sha &lt;reviewed-full-commit&gt;</code>
+          <p>Then run <code>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz doctor</code>. Review and commit the prepared files before relying on them.</p>
           <p>GitHub Action: <code>sulmusic2-star/agent-vigil@&lt;reviewed-full-commit&gt;</code>.</p>
           <p class="fine">A required job name does not bind GitHub to the expected workflow or event. Use an external required-workflow ruleset or App exact-head check for enforcement and merge queues.</p>
           <p class="fine">Generated hosted execution supports plain or root Node/npm repositories with direct <code>node --test</code>. Local CLI commands use host privileges and are not sandboxed.</p>

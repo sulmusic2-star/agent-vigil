@@ -18,7 +18,7 @@ worktree protects commit identity; it is not a security sandbox. Run untrusted
 code on an isolated runner with read-only GitHub permissions and no deployment,
 package, cloud, or signing credentials.
 
-The v0.21.0 generated hosted lane is narrower. It is selected from the base
+The v0.21.2 generated hosted lane is narrower. It is selected from the base
 branch through `pull_request_target`, checks out the exact pull-request head
 without persisted credentials, and passes no token, OIDC, signing, or write
 authority to candidate verification. Repository-controlled setup and tests run
@@ -43,7 +43,7 @@ it does not sandbox repository code.
 
 ## GitHub enforcement and signing boundary
 
-Candidate-executing workflows cannot use receipt attestation in v0.21.0.
+Candidate-executing workflows cannot use receipt attestation in v0.21.2.
 `init --attest` and `protect --attest` fail closed. Keyless signing is confined
 to the separate Control Proof workflow, which runs planted non-candidate
 challenges and does not execute pull-request code.

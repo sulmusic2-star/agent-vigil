@@ -54,13 +54,13 @@ signed lifecycle receipt without opening a pull request, installing a GitHub
 Action, or changing the target repository:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz pr-receipt \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref <reviewed-full-Agent-Vigil-commit> \
   --signing-key operator-private.pem \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz pr-receipt verify pr-123.receipt.json
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt verify pr-123.receipt.json
 ```
 
 The command makes read-only requests to `api.github.com` for pull-request,
@@ -148,7 +148,7 @@ and 95% Wilson intervals.
 
 The CLI can prepare and verify the legacy full-receipt GitHub/Sigstore
 predicate. Candidate-executing generated workflows cannot sign receipts in
-v0.21.1. Signing authority must live in a separately controlled job that never
+v0.21.2. Signing authority must live in a separately controlled job that never
 executes candidate code. Scheduled Control Proof signing remains separate and
 uses only planted non-candidate challenges. See
 [attestation boundaries](docs/ATTESTED_RECEIPTS.md).
@@ -181,7 +181,7 @@ claim live model/provider behavior. See the precise
 It also adds the one-command protection profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
   protect --action-sha <reviewed-full-commit>
 ```
 
@@ -372,10 +372,10 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 Until the npm registry package is current, use the verified GitHub release package:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
   init --action-sha <reviewed-full-commit>
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
   doctor
 ```
 
@@ -407,7 +407,7 @@ exact-head check, including for merge queues. See the
 Maintainer profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
   init --profile maintainer --action-sha <reviewed-full-commit>
 ```
 
@@ -421,7 +421,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
   init --profile authority --action-sha <reviewed-full-commit>
 ```
 
@@ -530,7 +530,7 @@ Node 20 or newer is required. Run the published npm package without installing
 it globally:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz --help
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz --help
 ```
 
 Or work from source:
@@ -942,7 +942,7 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
   reached 92.67% lines, 81.88% branches, and 96.36% functions. These are local
   candidate results, not hosted or released evidence.
 - The broader local compatibility lab retains historical runner-output and
-  ecosystem evidence. Generated v0.21.1 hosted execution is deliberately
+  ecosystem evidence. Generated v0.21.2 hosted execution is deliberately
   narrower: plain Git or root Node/npm with direct `node --test`. Local CLI
   execution is host execution, not sandboxing.
 - `npm run review:public` checks the public wording, links, accessible labels,
