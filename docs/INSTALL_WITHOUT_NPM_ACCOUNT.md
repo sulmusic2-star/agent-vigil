@@ -1,44 +1,97 @@
-# Install without an npm account
+# Install Agent Vigil in five minutes
 
-An npm sign-in is not required to use the public GitHub release or GitHub
-Action. The npm registry package is a separate distribution path.
+An npm sign-in is not required. Agent Vigil v0.22.0 is available from its
+immutable GitHub release. The npm registry separately reports version 0.21.1;
+npm publication of v0.22.0 is not claimed.
 
-## Run the public release
+## Prepare and verify the repository gate
 
-Agent Vigil v0.22.0 is attached to its immutable GitHub release:
+Run these commands from the root of a Git repository:
 
 ```bash
-npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
-  --help
+AGENT_VIGIL_PACKAGE=https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz
+
+npx --yes "$AGENT_VIGIL_PACKAGE" protect
+
+git status --short
 ```
 
-The release package has this SHA-256 digest:
+Review these four generated controls before committing them:
 
 ```text
-2beaba44fb5988d04b25605462a81c1bc0d4d229bcd0b2ba0852e2d2f32de7eb
+.agent-vigil.json
+.github/pull_request_template.md
+.github/workflows/agent-vigil.yml
+.github/workflows/agent-vigil-outcomes.yml
 ```
 
-Verify a downloaded copy before using it:
+Commit only after the policy and workflow commands match the repository:
+
+```bash
+git add .agent-vigil.json .github/pull_request_template.md \
+  .github/workflows/agent-vigil.yml \
+  .github/workflows/agent-vigil-outcomes.yml
+git commit -m "Install Agent Vigil"
+
+npx --yes "$AGENT_VIGIL_PACKAGE" doctor
+```
+
+`doctor` intentionally reports HOLD while the controls are uncommitted. A
+passing post-commit `doctor` verifies the installed files. It does not make the
+check required in GitHub. Configure an externally trusted required workflow or
+App check before treating the result as merge or deployment enforcement.
+
+The package selects and prints the immutable reviewed Action commit embedded in
+the release, so this normal path does not require the user to find a SHA. An
+explicit `--action-sha` remains available for a separately reviewed override.
+
+A fresh disposable-repository measurement of this exact `protect`, commit, and
+`doctor` path was 3.05 seconds on August 28, 2026. Network and package-cache
+state will affect another machine's time.
+
+## Run the continuity proof
+
+This harmless local demonstration deploys nothing:
+
+```bash
+npx --yes "$AGENT_VIGIL_PACKAGE" continuity demo --json
+```
+
+It shows the intended sequence:
+
+```text
+PASS -> CURRENT -> REVOKED -> REVOKED -> CURRENT
+```
+
+A later ordinary green check cannot erase the revocation. Only independent
+signed remediation aimed at that revocation restores permission.
+
+## Verify the release package
+
+Download `sulmusic-agent-vigil-0.22.0.tgz` from the
+[v0.22.0 release](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.22.0),
+then run:
 
 ```bash
 shasum -a 256 sulmusic-agent-vigil-0.22.0.tgz
 ```
 
-The reported digest must match the value above.
+The expected SHA-256 digest is:
 
-## Use the TypeScript library
-
-The same package provides the continuity library without npm account
-credentials:
-
-```bash
-npm install --save-exact \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz
+```text
+2beaba44fb5988d04b25605462a81c1bc0d4d229bcd0b2ba0852e2d2f32de7eb
 ```
 
-This uses the local npm client as a downloader. It does not require registry
-publication or an npm sign-in.
+## npm registry status
+
+The newest registry version observed on August 28, 2026 was v0.21.1:
+
+```bash
+npx --yes @sulmusic/agent-vigil@0.21.1 --help
+```
+
+Use the GitHub v0.22.0 package above when the current release is required. Do
+not request registry v0.22.0 until npm publishes it.
 
 ## Pin the GitHub Action
 
@@ -53,12 +106,10 @@ install Agent Vigil from the npm registry.
 
 ## Remove it
 
-Agent Vigil does not require a hosted account. Remove the generated workflows
-and the files created by `init` to uninstall it from a repository.
-
-Remove any matching required-check or ruleset entry after reviewing the
-workflow deletion. Otherwise, the repository can retain an impossible required
-check.
+Agent Vigil does not require a hosted account. Remove the four generated files
+to uninstall it. Review and remove any matching required-check or ruleset entry
+as a separate step. Otherwise, the repository can retain an impossible
+required check.
 
 ## Verified distribution state
 
@@ -66,10 +117,10 @@ The facts below were checked on August 28, 2026:
 
 - GitHub release v0.22.0 is public and installable.
 - The public package SHA-256 is recorded above.
-- The npm registry reports version 0.21.1.
-- npm publication of v0.21.1 is public and separately verified as
-  `@sulmusic/agent-vigil@0.21.1`.
-- Outside installation, payment, and revenue require separate evidence.
+- The npm registry reports version 0.21.1. npm publication of v0.21.1 is
+  public and separately verified; publication of v0.22.0 is not claimed.
+- Outside installation, repeat use, protected-action stops, payment, and
+  revenue require separate evidence.
 
 Machine-readable details are in
 [`public-install-state.json`](public-install-state.json).
