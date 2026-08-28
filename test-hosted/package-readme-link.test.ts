@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 test("the packed README uses an immutable public link for the unpacked install guide", () => {
   const readme = readFileSync("README.md", "utf8");
   const guide = "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md";
-  const immutableSource = "36b3f243f5a557b2ecc81dba870d0c45cad9c13a";
+  const immutableSource = "4bcfafe377bac77519e652607048e2d69f7e85e9";
   const immutableUrl = `https://github.com/sulmusic2-star/agent-vigil/blob/${immutableSource}/${guide}`;
 
   assert.ok(existsSync(guide));
