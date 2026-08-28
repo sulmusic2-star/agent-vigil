@@ -328,13 +328,14 @@ export function prCommentMarkdown(receipt) {
     throw new Error("A complete browser receipt is required before copying a PR result.");
   }
   const gaps = reasonCodes.length ? reasonCodes.join(", ") : "none recorded";
+  const reasonLabel = continuity === "CURRENT" ? "Observed" : "Unresolved";
   return [
     `**Agent Vigil public evidence: ${continuity}**`,
     "",
     `Checks: ${checks.passing} passing · ${checks.failing} failing · ${checks.pending} pending · ${checks.unknown} unknown`,
     `Base: \`${subject.baseSha}\``,
     `Head: \`${subject.headSha}\``,
-    `Unresolved: ${gaps}`,
+    `${reasonLabel}: ${gaps}`,
     `Receipt: \`${receiptHash}\``,
     "",
     "[Check another public PR](https://sulmusic2-star.github.io/agent-vigil/check.html)",

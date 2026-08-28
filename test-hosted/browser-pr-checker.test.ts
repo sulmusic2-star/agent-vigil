@@ -125,10 +125,28 @@ test("the copied PR result is bounded, source-free, and never claims authorizati
   assert.match(card, /\*\*Agent Vigil public evidence: CURRENT\*\*/);
   assert.ok(card.includes("Base: `" + BASE + "`"));
   assert.ok(card.includes("Head: `" + HEAD + "`"));
+  assert.match(card, /Observed: merged-approved-checks-observed/);
+  assert.doesNotMatch(card, /Unresolved:/);
   assert.match(card, /does not authorize merge or deployment/);
   assert.match(card, /https:\/\/sulmusic2-star\.github\.io\/agent-vigil\/check\.html/);
   assert.doesNotMatch(card, /Keep the public evidence exact|tests|preview|prompt|transcript/);
   assert.ok(card.length < 1_500);
+});
+
+test("the copied HOLD result labels its reason codes as unresolved", async () => {
+  const browser = await browserModule();
+  const value = snapshot({
+    pull: {
+      state: "open",
+      merged: false,
+      merged_at: null,
+      updated_at: "2026-08-28T21:30:00Z",
+      base: { sha: BASE, repo: { private: false } },
+      head: { sha: HEAD, repo: { private: false } },
+    },
+  });
+  const receipt = await browser.buildBrowserReceipt(browserSnapshot(value), { generatedAt: GENERATED_AT });
+  assert.match(browser.prCommentMarkdown(receipt), /Unresolved: pull-request-not-merged/);
 });
 
 test("the copied PR result rejects hostile or unbounded receipt fields", async () => {
