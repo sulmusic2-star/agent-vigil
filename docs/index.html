@@ -132,7 +132,7 @@
             <a class="button secondary" href="#proof">Inspect failures</a>
           </div>
           <p class="fine">Runs in your repository with no runtime packages. Supports Codex, Claude Code, Copilot, Cursor, Gemini CLI, Aider, and OpenCode.</p>
-          <p class="fine">GitHub release v0.21.2 and npm package v0.21.1 are public. v0.22.0 is the unpublished source candidate.</p>
+          <p class="fine">GitHub release v0.22.0 and npm package v0.21.1 are public. npm v0.22.0 is staged but is not public in the registry yet.</p>
         </div>
         <div class="terminal" aria-label="Example failed receipt">
           <header>agent-vigil-report.json / exact base ↔ head</header>
@@ -162,12 +162,12 @@
         <p class="section-lead">The read-only command observes public GitHub metadata. It does not fetch source, add an app, change the repository, or authorize deployment.</p>
         <div class="terminal" aria-label="Public pull-request receipt commands">
           <header>public PR receipt / no repository write</header>
-          <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt \
+          <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref FULL_AGENT_VIGIL_COMMIT \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt verify pr-123.receipt.json</pre>
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt verify pr-123.receipt.json</pre>
         </div>
         <div class="actions">
           <a class="button" href="PUBLIC_PR_RECEIPT.md">Read the receipt boundary</a>

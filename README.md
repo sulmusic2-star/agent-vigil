@@ -7,7 +7,7 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**Distribution status, verified August 28, 2026:** GitHub release v0.21.2 and npm package v0.21.1 are public. v0.22.0 is the release candidate in this source tree and is not a public package yet. See [the npm-free installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/33ae20140ffb2e25a034f291225849765ff8d217/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+**Distribution status, verified August 28, 2026:** GitHub release v0.22.0 and npm package v0.21.1 are public. npm v0.22.0 has completed the trusted staging workflow but is not public in the registry yet. See [the npm-free installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/36b3f243f5a557b2ecc81dba870d0c45cad9c13a/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 **Check an agent-written pull request before you merge it.**
 
@@ -56,13 +56,13 @@ signed lifecycle receipt without opening a pull request, installing a GitHub
 Action, or changing the target repository:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref <reviewed-full-Agent-Vigil-commit> \
   --signing-key operator-private.pem \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt verify pr-123.receipt.json
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt verify pr-123.receipt.json
 ```
 
 The command makes read-only requests to `api.github.com` for pull-request,
