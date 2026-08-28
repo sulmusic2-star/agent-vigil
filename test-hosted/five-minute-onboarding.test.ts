@@ -13,7 +13,10 @@ test("a clean repository gets one truthful prepared result without selecting a r
   const repository = mkdtempSync(join(tmpdir(), "agent-vigil-five-minute-hosted-"));
   mkdirSync(join(repository, "test"));
   writeFileSync(join(repository, "package.json"), `${JSON.stringify({ scripts: { test: "node --test test/basic.test.cjs" } }, null, 2)}\n`);
-  writeFileSync(join(repository, "test/basic.test.cjs"), "const { test } = require('node:test'); test('works', () => {});\n");
+  writeFileSync(
+    join(repository, "test/basic.test.cjs"),
+    "const assert = require('node:assert/strict'); const { test } = require('node:test'); test('works', () => assert.equal(1, 1));\n",
+  );
   execFileSync("git", ["init", "-q"], { cwd: repository });
   execFileSync("git", ["config", "user.email", "hosted-test@example.invalid"], { cwd: repository });
   execFileSync("git", ["config", "user.name", "Hosted Test"], { cwd: repository });
