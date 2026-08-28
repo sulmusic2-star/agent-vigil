@@ -40,3 +40,27 @@ test("the public install state keeps GitHub and npm publication separate", () =>
   assert.equal(state.npm_registry.observed_published_at, undefined);
   assert.equal(state.npm_registry.target_published, false);
 });
+
+test("the five-minute guide preserves one complete value path", () => {
+  const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
+  const orderedSteps = [
+    "protect \\",
+    "git status --short",
+    "git add .agent-vigil.json",
+    'git commit -m "Install Agent Vigil"',
+    'npx --yes "$AGENT_VIGIL_PACKAGE" doctor',
+    'npx --yes "$AGENT_VIGIL_PACKAGE" continuity demo --json',
+    "PASS -> CURRENT -> REVOKED -> REVOKED -> CURRENT",
+    "## Remove it",
+  ];
+
+  let previous = -1;
+  for (const step of orderedSteps) {
+    const position = guide.indexOf(step);
+    assert.ok(position > previous, `missing or out-of-order installation step: ${step}`);
+    previous = position;
+  }
+  assert.doesNotMatch(guide, /node dist\/cli\.js (?:protect|doctor)/);
+  assert.match(guide, /doctor` intentionally reports HOLD while the controls are uncommitted/);
+  assert.match(guide, /does not make the\s+check required in GitHub/);
+});
