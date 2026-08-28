@@ -43,10 +43,11 @@ git commit -m "Install Agent Vigil"
 npx --yes "$AGENT_VIGIL_PACKAGE" doctor
 ```
 
-`doctor` intentionally reports HOLD while the controls are uncommitted. A
-passing post-commit `doctor` verifies the installed files. It does not make the
-check required in GitHub. Configure an externally trusted required workflow or
-App check before treating the result as merge or deployment enforcement.
+`doctor` fails its readiness checks while the controls are uncommitted because
+the hosted inputs are bound to committed `HEAD`. A passing post-commit `doctor`
+verifies the installed files. It does not make the check required in GitHub.
+Configure an externally trusted required workflow or App check before treating
+the result as merge or deployment enforcement.
 
 The package selects and prints the immutable reviewed Action commit embedded in
 the release, so this normal path does not require the user to find a SHA. An
