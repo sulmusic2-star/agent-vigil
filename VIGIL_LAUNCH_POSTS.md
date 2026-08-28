@@ -1,4 +1,4 @@
-# Agent Vigil v0.21.2 launch copy
+# Agent Vigil v0.22.0 launch copy
 
 Prepared August 28, 2026. Not posted.
 
@@ -20,7 +20,7 @@ Run the proof locally. It deploys nothing:
 
 ```bash
 npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
   continuity demo --json
 ```
 
@@ -28,18 +28,18 @@ Install the repository gate:
 
 ```bash
 npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  protect --action-sha 33ae20140ffb2e25a034f291225849765ff8d217
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
+  protect
 
 # Review and commit the generated controls, then verify the installed state.
 npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
   doctor
 ```
 
 Repository: https://github.com/sulmusic2-star/agent-vigil
 
-Release: https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.21.2
+Release: https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.22.0
 
 No source, prompts, or transcripts are uploaded. The demonstration proves the
 mechanism only. It does not prove outside adoption, a real production stop,
@@ -54,6 +54,6 @@ independent signed remediation.
 
 ```bash
 npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
   continuity demo --json
 ```

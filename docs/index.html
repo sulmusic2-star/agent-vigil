@@ -132,7 +132,7 @@
             <a class="button secondary" href="#proof">Inspect failures</a>
           </div>
           <p class="fine">Runs in your repository with no runtime packages. Supports Codex, Claude Code, Copilot, Cursor, Gemini CLI, Aider, and OpenCode.</p>
-          <p class="fine">GitHub release v0.21.2 and npm package v0.21.1 are public. v0.22.0 is the unpublished source candidate.</p>
+          <p class="fine">GitHub release v0.22.0 and npm package v0.21.1 are public. npm publication of v0.22.0 is not claimed.</p>
         </div>
         <div class="terminal" aria-label="Example failed receipt">
           <header>agent-vigil-report.json / exact base ↔ head</header>
@@ -162,12 +162,12 @@
         <p class="section-lead">The read-only command observes public GitHub metadata. It does not fetch source, add an app, change the repository, or authorize deployment.</p>
         <div class="terminal" aria-label="Public pull-request receipt commands">
           <header>public PR receipt / no repository write</header>
-          <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt \
+          <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref FULL_AGENT_VIGIL_COMMIT \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt verify pr-123.receipt.json</pre>
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt verify pr-123.receipt.json</pre>
         </div>
         <div class="actions">
           <a class="button" href="PUBLIC_PR_RECEIPT.md">Read the receipt boundary</a>
@@ -305,8 +305,8 @@ npm run demo:60s</pre>
       <section id="install" class="install">
         <div><p class="eyebrow">Install</p><h2>Prepare the exact-pin pull-request gate.</h2><p class="section-lead">The protection profile works without an agent transcript. It prepares a base-selected evidence workflow, calibrated Test Integrity Guard, receipt retention, and completed-run outcome snapshot.</p></div>
         <div>
-          <code class="command">node dist/cli.js protect --action-sha &lt;reviewed-full-commit&gt;</code>
-          <p>This source-checkout command is for release-candidate validation, not public installation. Run <code>node dist/cli.js doctor</code>, then review and commit the prepared files before relying on them.</p>
+          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz protect</code>
+          <p>Review and commit the prepared files, then run <code>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz doctor</code> before relying on them.</p>
           <p>GitHub Action: <code>sulmusic2-star/agent-vigil@&lt;reviewed-full-commit&gt;</code>.</p>
           <p class="fine">A required job name does not bind GitHub to the expected workflow or event. Use an external required-workflow ruleset or App exact-head check for enforcement and merge queues.</p>
           <p class="fine">Generated hosted execution supports plain or root Node/npm repositories with direct <code>node --test</code>. Local CLI commands use host privileges and are not sandboxed.</p>

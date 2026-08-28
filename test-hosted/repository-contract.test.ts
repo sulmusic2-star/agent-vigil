@@ -89,19 +89,15 @@ test("the public package and generated hosted contract use one release identity"
   assert.match(report, /VERSION = "0\.22\.0"/);
   assert.match(setup, /generated v0\.22\.0 hosted workflow/);
   assert.doesNotMatch(setup, /generated v0\.21\.2 hosted workflow/);
-  assert.equal(installState.latest_github_release.version, "0.21.2");
-  assert.deepEqual(installState.source_release_candidate, {
-    version: manifest.version,
-    github_release_published: false,
-    npm_published: false,
-  });
+  assert.equal(installState.latest_github_release.version, manifest.version);
+  assert.equal(installState.latest_github_release.commit, "5925e8bcbaf97f08c8c840252f486e96bf3f9775");
+  assert.equal(installState.source_release_candidate, null);
   assert.equal(installState.npm_registry.observed_version, "0.21.1");
   assert.equal(installState.npm_registry.target_published, false);
-  assert.match(readme, /v0\.22\.0 is the release candidate/);
-  assert.match(readme, /releases\/download\/v0\.21\.2\/sulmusic-agent-vigil-0\.21\.2\.tgz/);
-  assert.match(readme, /node dist\/cli\.js protect/);
-  assert.doesNotMatch(readme, /node dist\/cli\.js protect --action-sha/);
-  assert.doesNotMatch(readme, /releases\/download\/v0\.22\.0\/sulmusic-agent-vigil-0\.22\.0\.tgz/);
+  assert.match(readme, /GitHub release v0\.22\.0 and npm package v0\.21\.1 are public/);
+  assert.match(readme, /releases\/download\/v0\.22\.0\/sulmusic-agent-vigil-0\.22\.0\.tgz/);
+  assert.match(readme, /sulmusic-agent-vigil-0\.22\.0\.tgz \\\n+  protect/);
+  assert.doesNotMatch(readme, /protect --action-sha/);
   assert.doesNotMatch(readme, /@sulmusic\/agent-vigil@0\.22\.0/);
   assert.match(changelog, /## Unreleased\n\n## 0\.22\.0 - 2026-08-28/);
   assert.match(changelog, /## 0\.21\.2 - 2026-08-28/);
