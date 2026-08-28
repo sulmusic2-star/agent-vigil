@@ -10,8 +10,8 @@ test("public census separates references, configurations, runs, and receipt arti
   const fixture = join(dir, "fixture.json");
   writeFileSync(fixture, JSON.stringify({
     references: [
-      { repository: "external/installed", path: ".github/workflows/vigil.yml", content: "- uses: sulmusic2-star/agent-vigil@v0.7.0", workflow_runs: 9 },
-      { repository: "external/exact-continuity", path: ".github/workflows/continuity.yml", content: `- uses: sulmusic2-star/agent-vigil@${"a".repeat(40)}\n  with:\n    mode: continuity\n`, workflow_runs: 2 },
+      { repository: "external/installed", path: ".github/workflows/vigil.yml", content: "- uses: sulmusic2-star/agent-vigil@v0.7.0", workflow_runs: 9, workflow_run_evidence: { total_count: 9, first_observed_at: "2026-01-01T00:00:00Z", last_observed_at: "2026-02-15T00:00:00Z", distinct_run_days_sampled: 7, sample_complete: true } },
+      { repository: "external/exact-continuity", path: ".github/workflows/continuity.yml", content: `- uses: sulmusic2-star/agent-vigil@${"a".repeat(40)}\n  with:\n    mode: continuity\n`, workflow_runs: 2, workflow_run_evidence: { total_count: 2, first_observed_at: "2026-02-01T00:00:00Z", last_observed_at: "2026-02-02T00:00:00Z", distinct_run_days_sampled: 2, sample_complete: true } },
       { repository: "external/lab", path: ".github/workflows/continuity-lab.yml", content: "# agent-vigil-continuity-lab/v1\n", workflow_runs: 1 },
       { repository: "external/keyless-proof", path: ".github/workflows/agent-vigil-control-proof.yml", content: `# agent-vigil-keyless-control-proof/v1\n- uses: sulmusic2-star/agent-vigil@${"b".repeat(40)}\n  with:\n    mode: prove\n    attest: true\n`, workflow_runs: 3 },
       { repository: "external/catalog", path: "README.md", content: "uses: sulmusic2-star/agent-vigil@v0.7.0" },
@@ -29,6 +29,9 @@ test("public census separates references, configurations, runs, and receipt arti
   assert.equal(census.counts.external_repositories_using_exact_commit_action, 2);
   assert.equal(census.counts.external_repositories_with_continuity_gate, 1);
   assert.equal(census.counts.external_repositories_with_repeat_workflow_runs, 3);
+  assert.equal(census.counts.external_repositories_with_30_day_activity_span, 1);
+  assert.equal(census.configured_repositories["external/installed"].observed_activity_span_days, 45);
+  assert.equal(census.configured_repositories["external/installed"].distinct_run_days_sampled, 7);
   assert.equal(census.counts.external_repositories_with_continuity_lab, 1);
   assert.equal(census.counts.external_continuity_labs_with_runs_observed, 1);
   assert.equal(census.counts.external_repositories_with_keyless_control_proof, 1);

@@ -591,23 +591,23 @@ function inferredTestCommand(view: RepositoryView, packageManifest?: Record<stri
 function validateHostedRepositoryContract(view: RepositoryView): HostedRepositoryContract {
   const gitlink = [...view.entries].find(([, entry]) => entry.mode === "160000")?.[0];
   if (gitlink) {
-    throw new Error(`the generated v0.21.0 hosted workflow does not support Git submodules or gitlinks (${gitlink}); use a repository without submodules or the local CLI`);
+    throw new Error(`the generated v0.21.1 hosted workflow does not support Git submodules or gitlinks (${gitlink}); use a repository without submodules or the local CLI`);
   }
   const unsafeSetupLink = [...view.entries].find(([path, entry]) => isSetupRelevantPath(path) && entry.mode === "120000")?.[0];
   if (unsafeSetupLink) {
-    throw new Error(`the generated v0.21.0 hosted workflow requires setup input ${unsafeSetupLink} to be a regular Git file, not a symbolic link`);
+    throw new Error(`the generated v0.21.1 hosted workflow requires setup input ${unsafeSetupLink} to be a regular Git file, not a symbolic link`);
   }
   const unsafeSetupMode = [...view.entries].find(([path, entry]) => isSetupRelevantPath(path) && !isRegularGitBlobMode(entry.mode))?.[0];
   if (unsafeSetupMode) {
-    throw new Error(`the generated v0.21.0 hosted workflow requires setup input ${unsafeSetupMode} to be a regular 100644 or 100755 Git blob`);
+    throw new Error(`the generated v0.21.1 hosted workflow requires setup input ${unsafeSetupMode} to be a regular 100644 or 100755 Git blob`);
   }
   const npmConfig = [...view.entries.keys()].find((path) => path.split("/").at(-1) === ".npmrc");
   if (npmConfig) {
-    throw new Error(`the generated v0.21.0 hosted workflow does not support repository .npmrc (${npmConfig}) because registry, certificate, and install indirection are outside the hosted trust closure`);
+    throw new Error(`the generated v0.21.1 hosted workflow does not support repository .npmrc (${npmConfig}) because registry, certificate, and install indirection are outside the hosted trust closure`);
   }
   const unsupportedLock = UNSUPPORTED_ROOT_LOCKFILES.find((path) => view.entries.has(path));
   if (unsupportedLock) {
-    throw new Error(`the generated v0.21.0 hosted workflow does not support root ${unsupportedLock}; use the local CLI for pnpm, Yarn, or Bun repositories`);
+    throw new Error(`the generated v0.21.1 hosted workflow does not support root ${unsupportedLock}; use the local CLI for pnpm, Yarn, or Bun repositories`);
   }
 
   const hasRootPackage = view.entries.has("package.json");
@@ -615,26 +615,26 @@ function validateHostedRepositoryContract(view: RepositoryView): HostedRepositor
   let manifest: Record<string, unknown> | undefined;
   if (!hasRootPackage) {
     if (setupCommand) {
-      throw new Error("the generated v0.21.0 hosted workflow requires a root package.json beside an npm lockfile");
+      throw new Error("the generated v0.21.1 hosted workflow requires a root package.json beside an npm lockfile");
     }
     const nestedPackage = [...view.entries.keys()].find((path) => path !== "package.json" && path.endsWith("/package.json"));
     if (nestedPackage) {
-      throw new Error(`the generated v0.21.0 hosted workflow does not support a nested package.json-only layout (${nestedPackage}); use a root npm package or the local CLI`);
+      throw new Error(`the generated v0.21.1 hosted workflow does not support a nested package.json-only layout (${nestedPackage}); use a root npm package or the local CLI`);
     }
   } else {
     let packageManifest: unknown;
     try {
       packageManifest = JSON.parse(view.readText("package.json"));
     } catch {
-      throw new Error("the generated v0.21.0 hosted workflow requires root package.json to contain valid JSON");
+      throw new Error("the generated v0.21.1 hosted workflow requires root package.json to contain valid JSON");
     }
     if (!packageManifest || typeof packageManifest !== "object" || Array.isArray(packageManifest)) {
-      throw new Error("the generated v0.21.0 hosted workflow requires root package.json to contain a JSON object");
+      throw new Error("the generated v0.21.1 hosted workflow requires root package.json to contain a JSON object");
     }
     const packageManager = (packageManifest as Record<string, unknown>).packageManager;
     if (packageManager !== undefined
       && (typeof packageManager !== "string" || !(packageManager === "npm" || /^npm@[^\s]+$/.test(packageManager)))) {
-      throw new Error("the generated v0.21.0 hosted workflow requires packageManager to select npm when that field is present");
+      throw new Error("the generated v0.21.1 hosted workflow requires packageManager to select npm when that field is present");
     }
     manifest = packageManifest as Record<string, unknown>;
     let requiresInstall = false;
@@ -643,7 +643,7 @@ function validateHostedRepositoryContract(view: RepositoryView): HostedRepositor
       if (value === undefined) continue;
       if (!value || typeof value !== "object" || Array.isArray(value)
         || Object.values(value as Record<string, unknown>).some((entry) => typeof entry !== "string")) {
-        throw new Error(`the generated v0.21.0 hosted workflow requires package.json ${field} to be an object of package specifier strings`);
+        throw new Error(`the generated v0.21.1 hosted workflow requires package.json ${field} to be an object of package specifier strings`);
       }
       if (Object.keys(value).length > 0) requiresInstall = true;
     }
@@ -655,24 +655,24 @@ function validateHostedRepositoryContract(view: RepositoryView): HostedRepositor
         continue;
       }
       if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
-        throw new Error(`the generated v0.21.0 hosted workflow requires package.json ${field} to be a boolean or an array of package names`);
+        throw new Error(`the generated v0.21.1 hosted workflow requires package.json ${field} to be a boolean or an array of package names`);
       }
       if (value.length > 0) requiresInstall = true;
     }
     const workspaces = manifest.workspaces;
     if (workspaces !== undefined) {
       if (!Array.isArray(workspaces) || workspaces.some((entry) => typeof entry !== "string")) {
-        throw new Error("the generated v0.21.0 hosted workflow requires package.json workspaces to be an array of path patterns");
+        throw new Error("the generated v0.21.1 hosted workflow requires package.json workspaces to be an array of path patterns");
       }
       if (workspaces.length > 0) requiresInstall = true;
     }
     if (!setupCommand && requiresInstall) {
-      throw new Error("the generated v0.21.0 hosted workflow requires package-lock.json or npm-shrinkwrap.json when root package.json declares dependencies or workspaces");
+      throw new Error("the generated v0.21.1 hosted workflow requires package-lock.json or npm-shrinkwrap.json when root package.json declares dependencies or workspaces");
     }
   }
   const inferred = inferredTestCommand(view, manifest);
   if (inferred && !inferred.startsWith("node --test")) {
-    throw new Error("the generated isolated GitHub workflow supports Node/npm repositories in v0.21.0; use the CLI locally because custom hosted toolchain images are outside this generated contract");
+    throw new Error("the generated isolated GitHub workflow supports Node/npm repositories in v0.21.1; use the CLI locally because custom hosted toolchain images are outside this generated contract");
   }
   return { setupCommand, testCommand: inferred, hasRootPackage };
 }

@@ -225,6 +225,7 @@ test("npm package surface excludes internal product and commercial working docum
   }
 
   const allowedPublishedDocs = [
+    "docs/60_SECOND_DEMO.md",
     "docs/ADOPTION_EVIDENCE.md",
     "docs/AGENT_VALUE_CARD.md",
     "docs/AI_CHANGE_EPISODE_V1.md",
@@ -269,6 +270,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/assets/agent-value-comparison-demo.json",
     "docs/assets/agent-vigil-demo.gif",
     "docs/authority-contract-v1.schema.json",
+    "docs/adoption-evidence-v1.schema.json",
     "docs/authority-plan-policy-v1.schema.json",
     "docs/authority-plan-v1.schema.json",
     "docs/compatibility-entry-v1.schema.json",
@@ -342,7 +344,7 @@ test("repository protection runs one direct offline test contract after bounded 
       automatedReview?: { commands?: unknown; setupCommand?: unknown };
     };
   };
-  const directTest = "node --test test/*.test.ts";
+  const directTest = "node --test --test-concurrency=1 test-hosted/*.test.ts";
   assert.equal(policy.integrityMode, "calibrated");
   assert.equal(policy.testCommand, directTest);
   assert.equal(policy.maintainer?.differentialTest?.command, directTest);
@@ -407,6 +409,7 @@ test("candidate CI never masquerades as trusted Agent Vigil evidence", () => {
 
 test("workflow permissions and privileged steps are exact fail-closed contracts", () => {
   const expectedTopLevelPermissions: Record<string, string[]> = {
+    "adoption-census.yml": ["contents:read"],
     "agent-vigil-continuity-lab.yml": ["contents:read"],
     "agent-vigil-outcomes.yml": ["actions:read", "contents:read", "pull-requests:read"],
     "agent-vigil.yml": ["contents:read", "pull-requests:read"],
@@ -416,6 +419,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "publish.yml": [],
   };
   const expectedEffectiveJobPermissions: Record<string, string[]> = {
+    "adoption-census.yml:census": ["contents:read"],
     "agent-vigil-continuity-lab.yml:blocked-deployment": ["contents:read"],
     "agent-vigil-continuity-lab.yml:demonstration": ["contents:read"],
     "agent-vigil-continuity-lab.yml:repaired-action": ["contents:read"],
