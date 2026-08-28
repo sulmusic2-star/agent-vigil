@@ -1,33 +1,63 @@
-# Launch copy — prepared, not posted
+# Agent Vigil v0.22.0 launch copy
 
-## Primary
+Prepared August 28, 2026. Not posted.
 
-AI coding agents are good at writing the closing summary. That does not make the
-summary true.
+## GitHub launch demonstration
 
-Agent Vigil v0.4 turns a Claude Code or Codex session into a deterministic
-evidence receipt:
+A coding-agent change can pass every check at merge time and become unsafe
+later. Agent Vigil keeps the evidence history and changes deployment permission
+when later evidence contradicts the original result.
 
-- PASS, FAIL, or INCONCLUSIVE—empty evidence never passes
-- compares claimed and observed test counts across 18 runner formats
-- binds file claims to an explicit Git range
-- detects deleted/skipped tests, assertion loss, suppressions, bypasses, and
-  exact tool-call loops
-- emits JSON, Markdown, SARIF, and a GitHub job summary
-- fails loudly on transcript schema drift
-- backed by 133 tests and seven real-toolchain repository trials
-- local only, zero runtime dependencies, no LLM judge
+The harmless continuity demonstration is deterministic:
 
-The interesting part is not another confidence score. It is a falsifiable rule
-with the exact evidence beside it.
+1. The reviewed change passes.
+2. Fresh merge and verification evidence make it `CURRENT`.
+3. A verified revert makes it `REVOKED` and blocks deployment.
+4. A later ordinary green check cannot erase the revocation.
+5. Independent signed remediation aimed at that revocation restores `CURRENT`.
+
+Run the proof locally. It deploys nothing:
+
+```bash
+npx --yes \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
+  continuity demo --json
+```
+
+Install the repository gate from a Node/npm repository whose test script is a
+direct Node test command such as `node --test test/*.test.js`:
+
+```bash
+npx --yes \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
+  protect
+
+# Review and commit the generated controls, then verify the installed state.
+npx --yes \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
+  doctor
+```
+
+If Agent Vigil cannot infer that safe hosted command, it leaves a visible
+placeholder and `doctor` fails closed.
 
 Repository: https://github.com/sulmusic2-star/agent-vigil
 
-## First comment
+Release: https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.22.0
 
-The README includes the threat model and the complaint/competitor research that
-shaped the build. It also names what Vigil does not prove: semantic correctness,
-test quality, transcript authenticity, or safe execution of hostile repo code.
+No source, prompts, or transcripts are uploaded. The demonstration proves the
+mechanism only. It does not prove outside adoption, a real production stop,
+payment, or revenue.
 
-If you have a sanitized false PASS, false FAIL, or unexplained INCONCLUSIVE,
-that is the most useful issue you can open.
+## Short version
+
+Agent Vigil remembers when a previously trusted coding-agent change is later
+reverted or contradicted. Deployment moves from `CURRENT` to `REVOKED`, stays
+revoked through an ordinary green check, and returns to `CURRENT` only after
+independent signed remediation.
+
+```bash
+npx --yes \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
+  continuity demo --json
+```
