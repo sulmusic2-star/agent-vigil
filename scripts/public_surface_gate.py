@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_TEXT = [
     ROOT / "README.md",
     ROOT / "docs/index.html",
+    ROOT / "docs/check.html",
     ROOT / "docs/ATTESTED_RECEIPTS.md",
     ROOT / "docs/HOSTED_SECURITY_CONTRACT.md",
     ROOT / "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md",
@@ -21,6 +22,7 @@ PUBLIC_TEXT = [
 ]
 PUBLIC_HTML = [
     ROOT / "docs/index.html",
+    ROOT / "docs/check.html",
     ROOT / "docs/assets/agent-value-card-demo.html",
     ROOT / "docs/assets/agent-value-comparison-demo.html",
     ROOT / "docs/assets/outcome-verifier-demo.html",

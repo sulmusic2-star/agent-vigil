@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Agent Vigil checks AI-made code changes against exact commits, fresh tests, and a reviewable policy before they merge.">
-  <title>Agent Vigil: require evidence before merge</title>
+  <title>Agent Vigil. Require evidence before merge.</title>
   <style>
     /* Public page: editorial layout, warm paper, restrained motion. */
     :root {
@@ -119,7 +119,7 @@
   <div class="wrap">
     <nav aria-label="Primary">
       <a class="brand" href="#top">AGENT VIGIL</a>
-        <div><a href="#protect">Protection</a><a href="#continuity">After merge</a><a href="#authority">Authority changes</a><a href="#proof">Failures caught</a><a href="#try">Proof</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
+        <div><a href="check.html">Check a PR</a><a href="#protect">Protection</a><a href="#continuity">After merge</a><a href="#authority">Authority changes</a><a href="#proof">Failures caught</a><a href="#try">Proof</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
     </nav>
     <main id="top">
       <div class="hero">
@@ -128,8 +128,8 @@
           <h1>Check the work before it merges.</h1>
           <p class="lead">Agent Vigil checks the exact commits, runs the tests you trust, and compares the result with the work that was requested. If the evidence is missing, the check does not pass.</p>
           <div class="actions">
-            <a class="button" href="#install">Install the gate</a>
-            <a class="button secondary" href="#proof">Inspect failures</a>
+            <a class="button" href="check.html">Check a public PR</a>
+            <a class="button secondary" href="#install">Install the gate</a>
           </div>
           <p class="fine">Runs in your repository with no runtime packages. Supports Codex, Claude Code, Copilot, Cursor, Gemini CLI, Aider, and OpenCode.</p>
           <p class="fine">GitHub release v0.22.0 and npm package v0.21.1 are public. npm v0.22.0 is staged but is not public in the registry yet.</p>
@@ -159,7 +159,7 @@
       <section id="observe">
         <p class="eyebrow">No workflow changes</p>
         <h2>Paste one public pull request and keep the receipt.</h2>
-        <p class="section-lead">The read-only command observes public GitHub metadata. It does not fetch source, add an app, change the repository, or authorize deployment.</p>
+        <p class="section-lead">Use the browser evidence desk or the read-only command to observe public GitHub metadata. Neither path fetches source files, adds an app, changes the repository, or authorizes deployment.</p>
         <div class="terminal" aria-label="Public pull-request receipt commands">
           <header>public PR receipt / no repository write</header>
           <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt \
@@ -170,7 +170,8 @@
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt verify pr-123.receipt.json</pre>
         </div>
         <div class="actions">
-          <a class="button" href="PUBLIC_PR_RECEIPT.md">Read the receipt boundary</a>
+          <a class="button" href="check.html">Open the browser checker</a>
+          <a class="button secondary" href="PUBLIC_PR_RECEIPT.md">Read the receipt boundary</a>
           <a class="button secondary" href="INSTALL_WITHOUT_NPM_ACCOUNT.md">Install without an npm account</a>
           <a class="button secondary" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=public-pr-receipt-feedback.yml">Report a public receipt trial</a>
         </div>
@@ -262,7 +263,7 @@ npm run demo:60s</pre>
       <section id="attestation">
         <p class="eyebrow">Separate signing authority</p>
         <h2>Do not sign in the candidate job.</h2>
-        <p class="section-lead">Candidate receipt attestation is disabled in v0.21.2. The separately scheduled Control Proof workflow can ask GitHub to sign planted non-candidate challenges. It does not check out or execute pull-request code.</p>
+        <p class="section-lead">Candidate receipt attestation is disabled in v0.22.0. The separately scheduled Control Proof workflow can ask GitHub to sign planted non-candidate challenges. It does not check out or execute pull-request code.</p>
         <div class="status" aria-label="Attested receipt checks">
           <div><b>Exact file</b>The Control Proof signature covers the SHA-256 digest of the whole proof file.</div>
           <div><b>Exact runtime</b>The proof binds the reviewed Agent Vigil source commit and signer workflow.</div>
@@ -305,9 +306,9 @@ npm run demo:60s</pre>
       <section id="install" class="install">
         <div><p class="eyebrow">Install</p><h2>Prepare the exact-pin pull-request gate.</h2><p class="section-lead">The protection profile works without an agent transcript. It prepares a base-selected evidence workflow, calibrated Test Integrity Guard, receipt retention, and completed-run outcome snapshot.</p></div>
         <div>
-          <code class="command">node dist/cli.js protect --action-sha &lt;reviewed-full-commit&gt;</code>
-          <p>This source-checkout command is for release-candidate validation, not public installation. Run <code>node dist/cli.js doctor</code>, then review and commit the prepared files before relying on them.</p>
-          <p>GitHub Action: <code>sulmusic2-star/agent-vigil@&lt;reviewed-full-commit&gt;</code>.</p>
+          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz protect --repo .</code>
+          <p>The immutable v0.22.0 package carries its exact reviewed Action commit. Run <code>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz doctor --repo .</code>, then review and commit the prepared files before relying on them.</p>
+          <p>GitHub Action: <code>sulmusic2-star/agent-vigil@5925e8bcbaf97f08c8c840252f486e96bf3f9775</code>.</p>
           <p class="fine">A required job name does not bind GitHub to the expected workflow or event. Use an external required-workflow ruleset or App exact-head check for enforcement and merge queues.</p>
           <p class="fine">Generated hosted execution supports plain or root Node/npm repositories with direct <code>node --test</code>. Local CLI commands use host privileges and are not sandboxed.</p>
           <div class="actions">
