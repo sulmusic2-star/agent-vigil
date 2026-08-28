@@ -533,6 +533,14 @@ test("public PR preview can use the exact package build commit without a tool-re
   assert.equal(receipt.decision.allowsProtectedAction, false);
 });
 
+test("an exact package build rejects a tool-ref override", async () => {
+  const result = await captureCommand([PR_URL, "--tool-ref", "4".repeat(40), "--as-of", NOW], {
+    transport: transportFor(snapshot()), toolVersion: "test-version", toolCommit: TOOL,
+  });
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /--tool-ref cannot override the exact commit embedded in this package build/);
+});
+
 
 test("public PR receipt CLI rejects unsafe output aliases and invalid time windows", async () => {
   const root = mkdtempSync(join(tmpdir(), "vigil-public-pr-options-"));

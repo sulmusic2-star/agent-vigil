@@ -18920,7 +18920,10 @@ async function runPublicPrReceiptCommand(args, options = {}) {
       return verifyReceipt(parsed.positional[1], format);
     }
     if (parsed.positional.length !== 1) throw new Error("pr-receipt requires exactly one public GitHub pull request URL");
-    const toolCommit = validateToolCommit(parsed.values.get("--tool-ref") ?? options.toolCommit ?? "");
+    if (options.toolCommit && parsed.values.has("--tool-ref")) {
+      throw new Error("--tool-ref cannot override the exact commit embedded in this package build");
+    }
+    const toolCommit = validateToolCommit(options.toolCommit ?? parsed.values.get("--tool-ref") ?? "");
     const signingKey = parsed.values.get("--signing-key");
     const output = parsed.values.get("--output");
     if (signingKey && output && resolve30(signingKey) === resolve30(output)) throw new Error("--output must not replace the signing key");
