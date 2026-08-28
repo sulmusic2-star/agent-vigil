@@ -29,7 +29,7 @@ from the pull request base SHA; the candidate cannot grant itself permission by
 widening its worktree copy.
 
 The generated workflow is pull-request-target-only, credential-free, and
-limited to the v0.21.1 hosted Node contract. Local reconciliation below runs
+limited to the v0.21.2 hosted Node contract. Local reconciliation below runs
 with the local process's host privileges and is not a sandbox. See the
 [hosted security contract](HOSTED_SECURITY_CONTRACT.md).
 

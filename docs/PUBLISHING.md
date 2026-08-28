@@ -57,8 +57,8 @@ security utility with command-inspection and controlled-execution features.
 The root `DISCLOSURE` file and `package.json` declaration must remain present in
 every later package version unless npm Trust & Safety approves their removal.
 
-Verify each release independently. The v0.21.1 registry commands below are
-expected to fail until that version completes npm publication:
+Verify each release independently. The current public registry identity is
+v0.21.1; do not substitute an unpublished source-candidate version:
 
 ```bash
 npm whoami

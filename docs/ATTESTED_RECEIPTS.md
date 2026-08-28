@@ -1,7 +1,8 @@
 # Attestation boundaries
 
-Agent Vigil v0.21.1 keeps signing authority out of candidate-executing evidence
-jobs. A signature can prove the origin and integrity of a file. It does not
+The Agent Vigil v0.21.2 source candidate keeps signing authority out of
+candidate-executing evidence jobs. A signature can prove the origin and
+integrity of a file. It does not
 prove that candidate code is correct or that a live repository requires the
 check.
 
@@ -12,20 +13,19 @@ closed because the generated evidence job checks out and executes candidate
 repository code. That job receives no OIDC grant, attestation permission,
 write permission, or explicit GitHub token input.
 
-Install the credential-free evidence workflow from a reviewed exact commit:
+Validate the credential-free evidence workflow from a reviewed source
+checkout. This is not a public installation path:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
-  init --action-sha <reviewed-full-commit>
+node dist/cli.js init --action-sha <reviewed-full-commit>
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
-  doctor
+node dist/cli.js doctor
 ```
 
 If independent candidate-receipt signing is required, place it in a separately
 controlled workflow or service that never checks out or runs candidate code.
 That signer must independently bind the exact receipt digest, base, head,
-policy, repository, and expected evidence source. Agent Vigil v0.21.1 does not
+policy, repository, and expected evidence source. Agent Vigil v0.21.2 does not
 generate that signer.
 
 ## Control Proof signing is separate
@@ -43,7 +43,7 @@ vigil certify install-action \
   --action-ref <reviewed-full-commit>
 ```
 
-Verify one downloaded proof with:
+Verify one downloaded proof with the currently public v0.21.1 package:
 
 ```bash
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
@@ -65,7 +65,9 @@ change a ruleset, or that the control covers every detector. See
 ## Existing full-receipt attestation commands
 
 The CLI still understands the v1 full-receipt predicate and can verify an
-already signed receipt. Predicate preparation does not sign anything:
+already signed receipt. Predicate preparation does not sign anything. The
+public verification command remains pinned to v0.21.1 until v0.21.2 is
+published:
 
 ```bash
 vigil attest agent-vigil-report.json \
