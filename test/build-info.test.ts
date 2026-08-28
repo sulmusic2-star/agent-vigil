@@ -17,5 +17,5 @@ test("release builds embed only an explicitly supplied exact source commit", () 
   assert.match(script, /process\.env\.AGENT_VIGIL_BUILD_SHA/);
   assert.doesNotMatch(script, /git["'], \["rev-parse"/);
   assert.match(workflow, /AGENT_VIGIL_BUILD_SHA:\s*\$\{\{ github\.sha \}\}/);
-  assert.match(workflow, /npm run build:cli\s+grep -F "\$GITHUB_SHA" dist\/cli\.js/);
+  assert.match(workflow, /node scripts\/build_cli\.mjs\s+grep -F "\$GITHUB_SHA" dist\/cli\.js/);
 });

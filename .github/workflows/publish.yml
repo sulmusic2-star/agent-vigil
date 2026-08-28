@@ -81,7 +81,7 @@ jobs:
           AGENT_VIGIL_BUILD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          npm run build:cli
+          node scripts/build_cli.mjs
           grep -F "$GITHUB_SHA" dist/cli.js >/dev/null
           umask 077
           artifact_dir="$RUNNER_TEMP/npm-release"

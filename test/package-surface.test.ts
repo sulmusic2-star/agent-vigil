@@ -456,7 +456,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
     "control-proof-weekly.yml": "353fb2e0919203cbbf548c799be8490b335b4c0d94dac0c7a867009c8bf205d6",
-    "publish.yml": "8b7ff33f27b1f14f35e00b5542156da9e85c5fa9e7f9d64e625d0f7715157566",
+    "publish.yml": "a21f00af3e351ca29098ac6f8c4f72d4fcd925a00c6f858f933a9e59bf265005",
   };
 
   const workflows = workflowSources();
@@ -750,7 +750,6 @@ test("reviewed self pin and source-dist identity are a visible release gate", (c
     format: "esm",
     target: "node20",
     outfile: rebuilt,
-    define: { __AGENT_VIGIL_BUILD_SHA__: JSON.stringify("") },
     logLevel: "silent",
   });
   const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
