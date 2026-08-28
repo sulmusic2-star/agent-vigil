@@ -220,13 +220,25 @@ test("init creates a policy, evidence placeholder, and isolated base-selected wo
   assert.match(workflow, /actions\/setup-node@[0-9a-f]{40}/);
   assert.match(workflow, new RegExp(`uses: sulmusic2-star/agent-vigil@${ACTION_SHA}`));
   assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
-  assert.match(workflow, /node-version: 22/);
+  assert.match(workflow, /node-version: 22\.23\.2/);
+  assert.doesNotMatch(workflow, /^\s*node-version:\s*22\s*$/m);
+  assert.ok(
+    workflow.indexOf("actions/setup-node@") < workflow.indexOf("actions/checkout@"),
+    "the exact host runtime must be selected before candidate files are checked out",
+  );
   assert.doesNotMatch(workflow, /github-token:|attest: true|id-token: write|attestations: write|artifact-metadata: write/);
   assert.match(outcomes, /workflow_run:/);
   assert.match(outcomes, /workflow_run\.event == 'pull_request_target'/);
   assert.doesNotMatch(outcomes, /^\s+pull_request_target:/m);
   assert.doesNotMatch(outcomes, /HEAD_SHA|event=pull_request_target|types: \[closed\]/);
   assert.match(outcomes, /actions\/download-artifact@[0-9a-f]{40}/);
+  assert.match(outcomes, /actions\/setup-node@[0-9a-f]{40}/);
+  assert.match(outcomes, /node-version: 22\.23\.2/);
+  assert.doesNotMatch(outcomes, /^\s*node-version:\s*22\s*$/m);
+  assert.ok(
+    outcomes.indexOf("actions/setup-node@") < outcomes.indexOf("actions/download-artifact@"),
+    "the outcome observer must bind its host runtime before downloading evidence",
+  );
   assert.match(outcomes, new RegExp(`uses: sulmusic2-star/agent-vigil@${ACTION_SHA}`));
   assert.match(outcomes, /mode: outcome/);
   assert.doesNotMatch(outcomes, /actions\/checkout/);

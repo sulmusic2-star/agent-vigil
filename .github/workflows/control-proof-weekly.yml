@@ -14,20 +14,20 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Select trusted Node.js 22 without dependency caching
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.23.2
+          package-manager-cache: false
       - name: Check out the exact scheduled commit without credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Select trusted Node.js 22 without dependency caching
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: 22
-          package-manager-cache: false
       - id: vigil
         name: Challenge the installed control without signing authority
-        uses: sulmusic2-star/agent-vigil@4cf2a6014557388f25d0bda3500a060d84ebc480
+        uses: sulmusic2-star/agent-vigil@31776f209a57fe1a7ef544ee59144ef4fcdebb43
         with:
           mode: prove
           attest: false

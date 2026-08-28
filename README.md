@@ -646,6 +646,11 @@ permissions:
   pull-requests: read
 
 steps:
+  - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+    with:
+      node-version: 22.23.2
+      package-manager-cache: false
+
   - uses: actions/checkout@<reviewed-full-checkout-commit>
     with:
       fetch-depth: 0
@@ -664,13 +669,17 @@ steps:
       isolate-candidate: true
 ```
 
-The exact generated file also pins Node setup and artifact upload Actions. It
-validates the immutable event snapshot, verifies the Action is outside the
-candidate workspace, and creates a private exact-commit clone. A root npm
-repository may run base-owned `npm ci --ignore-scripts` with network during
-setup. Candidate tests use a read-only source mount with no network. The job
-passes no GitHub token, OIDC authority, signing permission, or write permission
-to candidate verification.
+The exact Node setup must be the first executable step in a fresh hosted job:
+do not run untrusted code before it or carry forward a surviving untrusted
+process. Agent Vigil accepts only the exact `22.23.2` setup-node toolcache bytes
+documented in the [hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md);
+it has no ambient or system Node fallback. The exact generated file also pins
+the artifact upload Action. It validates the immutable event snapshot, verifies
+the Action is outside the candidate workspace, and creates a private
+exact-commit clone. A root npm repository may run base-owned
+`npm ci --ignore-scripts` with network during setup. Candidate tests use a
+read-only source mount with no network. The job passes no GitHub token, OIDC
+authority, signing permission, or write permission to candidate verification.
 
 The generated maintainer profile uses `reviewMode: "automated"`. Its setup and
 review commands come from the base commit, run in the candidate-only Docker

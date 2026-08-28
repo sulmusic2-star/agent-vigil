@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -20,6 +20,17 @@ function temporary(prefix: string): string {
   const selected = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   temporaryPaths.push(selected);
   return selected;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function invalidatePinnedNodeDigests(script: string): string {
+  return script.replace(
+    /(readonly VIGIL_PINNED_(?:LINUX_X64|MACOS_X64|MACOS_ARM64)_NODE_SHA256=)'[0-9a-f]{64}'/g,
+    `$1'${"0".repeat(64)}'`,
+  );
 }
 
 function git(repo: string, ...args: string[]): string {
@@ -92,12 +103,15 @@ function baseActionEnvironment(root: string, repo: string): NodeJS.ProcessEnv {
   };
 }
 
-function runRejectedAction(overrides: NodeJS.ProcessEnv): SpawnSyncReturns<string> {
+function runRejectedAction(
+  overrides: NodeJS.ProcessEnv,
+  transformScript: (script: string) => string = (script) => script,
+): SpawnSyncReturns<string> {
   const root = temporary("vigil-action-rejection-");
   const repo = join(root, "repo");
   mkdirSync(repo);
   const script = join(root, "action.sh");
-  writeFileSync(script, compositeActionScript());
+  writeFileSync(script, transformScript(compositeActionScript()));
   const env = { ...baseActionEnvironment(root, repo), ...overrides };
   delete env.NODE_TEST_CONTEXT;
   delete env.NODE_V8_COVERAGE;
@@ -119,9 +133,6 @@ test("Action leaves strictness and the evidence minimum under trusted-policy con
   assert.match(action, /if \[\[ -n "\$VIGIL_MIN_VERIFIED" \]\]; then args\+=\(--min-verified "\$VIGIL_MIN_VERIFIED"\); fi/);
   assert.match(action, /if \[\[ "\$VIGIL_STRICT" == "true" \]\]; then args\+=\(--strict\); fi/);
   assert.match(action, /O_RDONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
-  assert.match(action, /canonical_node_source\(\)/);
-  assert.match(action, /before any candidate command runs/);
-  assert.match(action, /resolved=\$\(canonical_node_source "\$candidate"\)/);
   const postVerificationNode = action.match(/post_verification_node\(\) \{([\s\S]*?)(?=\n        post_verification_node_empty\(\))/)?.[1];
   const postVerificationNodeEmpty = action.match(/post_verification_node_empty\(\) \{([\s\S]*?)(?=\n\n        if \[\[ -n "\$VIGIL_MODE")/)?.[1];
   assert.ok(postVerificationNode && postVerificationNodeEmpty);
@@ -144,6 +155,115 @@ test("Action leaves strictness and the evidence minimum under trusted-policy con
   assert.match(reportReader, /finalPath\.dev !== opened\.dev \|\| finalPath\.ino !== opened\.ino/);
   assert.match(action, /else\n          echo "agent-vigil: verifier produced no bounded regular report" >&2\n          code=2\n          status=/);
   assert.doesNotMatch(action, /const e\s*=\s*require\(require\("node:path"\)\.resolve\(process\.argv\[1\]\)\)/);
+});
+
+test("Action binds writable setup-node bytes to an exact reviewed runtime before execution", () => {
+  const action = readFileSync(join(process.cwd(), "action.yml"), "utf8");
+  assert.match(action, /readonly VIGIL_PINNED_NODE_VERSION='22\.23\.2'/);
+  assert.match(action, /readonly VIGIL_PINNED_LINUX_X64_NODE_SHA256='3517c2df0b2f8cd7f422b4b8450ef81c6889f08eb03e281d6de9079b15e6a327'/);
+  assert.match(action, /readonly VIGIL_PINNED_MACOS_X64_NODE_SHA256='0b4f059915f3bf3c6cbb02422f4a529bfb21cbbec2d29851c9a5d833f78a04f6'/);
+  assert.match(action, /readonly VIGIL_PINNED_MACOS_ARM64_NODE_SHA256='18e387c90ab8a8400183e8bdd396376e1e875b91b4c874b894dcade7b35bf572'/);
+
+  const genericValidator = action.match(/canonical_host_file\(\) \{([\s\S]*?)(?=\n        valid_node_source\(\))/)?.[1];
+  const pinnedValidator = action.match(/canonical_pinned_hosted_node_file\(\) \{([\s\S]*?)(?=\n        VIGIL_NODE_SOURCE=)/)?.[1];
+  assert.ok(genericValidator && pinnedValidator);
+  assert.match(genericValidator, /\(\( \(8#\$mode & 022\) == 0 \)\)/, "generic host executables stay non-writable");
+  assert.match(pinnedValidator, /valid_node_source "\$selected"/);
+  assert.match(pinnedValidator, /expected_sha=\$\(expected_hosted_node_sha256 "\$selected"\)/);
+  assert.match(pinnedValidator, /observed_sha=\$\(host_file_sha256 "\$selected"\)/);
+  assert.match(pinnedValidator, /"\$before" == "\$after" && "\$observed_sha" == "\$expected_sha"/);
+  assert.doesNotMatch(pinnedValidator, /printf '%s' "\$selected"[\s\S]*host_file_sha256/);
+  const digestMap = action.match(/expected_hosted_node_sha256\(\) \{([\s\S]*?)(?=\n        canonical_pinned_hosted_node_file\(\))/)?.[1];
+  assert.ok(digestMap);
+  assert.match(digestMap, /VIGIL_HOSTED_NODE_ROOT\/\$VIGIL_PINNED_NODE_VERSION\/x64\/bin\/node"\)[\s\S]*VIGIL_PINNED_LINUX_X64_NODE_SHA256/);
+  assert.match(digestMap, /VIGIL_MACOS_HOSTED_NODE_ROOT\/\$VIGIL_PINNED_NODE_VERSION\/x64\/bin\/node"\)[\s\S]*VIGIL_PINNED_MACOS_X64_NODE_SHA256/);
+  assert.match(digestMap, /VIGIL_MACOS_HOSTED_NODE_ROOT\/\$VIGIL_PINNED_NODE_VERSION\/arm64\/bin\/node"\)[\s\S]*VIGIL_PINNED_MACOS_ARM64_NODE_SHA256/);
+  assert.match(action, /"\$VIGIL_HOSTED_NODE_ROOT\/\$VIGIL_PINNED_NODE_VERSION\/x64\/bin\/node"/);
+  assert.doesNotMatch(action, /VIGIL_HOSTED_NODE_ROOT"\/\*\/x64\/bin\/node/);
+  assert.doesNotMatch(action, /\/usr\/bin\/node\|\/usr\/local\/bin\/node/);
+  assert.doesNotMatch(action, /for candidate in \/usr\/bin\/node \/usr\/local\/bin\/node/);
+
+  const sourceDigest = action.indexOf('node_source_sha=$(host_file_sha256 "$VIGIL_NODE_SOURCE")');
+  const sourceBinding = action.indexOf('[[ "$node_source_sha" == "$expected_node_source_sha" ]]');
+  const checkpointDigest = action.indexOf('node_checkpoint_sha=$(host_file_sha256 "$VIGIL_NODE_BIN")');
+  const checkpointBinding = action.indexOf('[[ "$node_checkpoint_sha" == "$expected_node_source_sha" ]]');
+  const firstNodeExecution = action.indexOf('observed_node_version=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "$VIGIL_NODE_BIN"');
+  assert.ok(sourceDigest >= 0 && sourceBinding > sourceDigest);
+  assert.ok(checkpointDigest > sourceBinding && checkpointBinding > checkpointDigest);
+  assert.ok(firstNodeExecution > checkpointBinding, "the exact checkpoint digest is verified before the first Node invocation");
+});
+
+test("candidate, prove, and outcome modes reject a digest-mismatched hosted Node without system fallback", {
+  skip: compositeActionRuntimeUnavailable,
+}, () => {
+  for (const environment of [
+    { VIGIL_ISOLATE_CANDIDATE: "true", VIGIL_MODE: "maintainer" },
+    { VIGIL_ISOLATE_CANDIDATE: "false", VIGIL_MODE: "prove" },
+    { VIGIL_ISOLATE_CANDIDATE: "false", VIGIL_MODE: "outcome" },
+  ]) {
+    const result = runRejectedAction(environment, invalidatePinnedNodeDigests);
+    assert.equal(result.status, 2, `${environment.VIGIL_MODE}\n${result.stdout}\n${result.stderr}`);
+    assert.match(result.stderr, /trusted host runtime is unavailable:.* node/);
+  }
+});
+
+test("Action rejects a missing exact Node version and a symlinked exact Node path", {
+  skip: compositeActionRuntimeUnavailable,
+}, () => {
+  const missingVersion = runRejectedAction(
+    { VIGIL_ISOLATE_CANDIDATE: "false", VIGIL_MODE: "prove" },
+    (script) => script.replace(
+      /readonly VIGIL_PINNED_NODE_VERSION='[^']+'/,
+      "readonly VIGIL_PINNED_NODE_VERSION='0.0.0'",
+    ),
+  );
+  assert.equal(missingVersion.status, 2, `${missingVersion.stdout}\n${missingVersion.stderr}`);
+  assert.match(missingVersion.stderr, /trusted host runtime is unavailable:.* node/);
+
+  const fixture = temporary("vigil-action-symlinked-node-");
+  const rootVariable = process.platform === "darwin" ? "VIGIL_MACOS_HOSTED_NODE_ROOT" : "VIGIL_HOSTED_NODE_ROOT";
+  const inactiveRootVariable = process.platform === "darwin" ? "VIGIL_HOSTED_NODE_ROOT" : "VIGIL_MACOS_HOSTED_NODE_ROOT";
+  const architecture = process.platform === "darwin" ? process.arch : "x64";
+  const source = join(fixture, process.versions.node, architecture, "bin", "node");
+  mkdirSync(join(fixture, process.versions.node, architecture, "bin"), { recursive: true });
+  symlinkSync(process.execPath, source);
+  const linked = runRejectedAction(
+    { VIGIL_ISOLATE_CANDIDATE: "false", VIGIL_MODE: "prove" },
+    (script) => script.replace(
+      new RegExp(`readonly ${rootVariable}='[^']+'`),
+      `readonly ${rootVariable}=${shellQuote(fixture)}`,
+    ).replace(
+      new RegExp(`readonly ${inactiveRootVariable}='[^']+'`),
+      `readonly ${inactiveRootVariable}=${shellQuote(join(fixture, "inactive-root"))}`,
+    ),
+  );
+  assert.equal(linked.status, 2, `${linked.stdout}\n${linked.stderr}`);
+  assert.match(linked.stderr, /trusted host runtime is unavailable:.* node/);
+});
+
+test("Action verifies the private Node checkpoint before a poisoned destination can execute", {
+  skip: compositeActionRuntimeUnavailable,
+}, () => {
+  const fixture = temporary("vigil-action-poisoned-copy-");
+  const fakeCopy = join(fixture, "cp");
+  const executionMarker = join(fixture, "poison-executed");
+  writeFileSync(fakeCopy, [
+    "#!/bin/bash",
+    `printf '%s\\n' '#!/bin/bash' ${shellQuote(`printf executed > ${shellQuote(executionMarker)}`)} > "$2"`,
+    "exit 0",
+    "",
+  ].join("\n"));
+  chmodSync(fakeCopy, 0o555);
+
+  const result = runRejectedAction(
+    { VIGIL_ISOLATE_CANDIDATE: "false", VIGIL_MODE: "prove" },
+    (script) => script.replace(
+      "for candidate in /usr/bin/cp /bin/cp; do",
+      `for candidate in ${shellQuote(fakeCopy)}; do`,
+    ),
+  );
+  assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`);
+  assert.equal(existsSync(executionMarker), false, "digest-mismatched checkpoint bytes must never execute");
 });
 
 test("Action snapshots GitHub event JSON without executing or following caller files", {
