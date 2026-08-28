@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "integrityMode": "calibrated",
-  "testCommand": "node --test --test-concurrency=4 test/*.test.ts",
+  "testCommand": "node --test --test-concurrency=1 test-hosted/*.test.ts",
   "strict": true,
   "minVerified": 1,
   "maintainer": {
@@ -22,24 +22,21 @@
       "npm-shrinkwrap.json",
       ".npmrc",
       "tsconfig*.json",
-      "test/package-surface.test.ts"
+      "test/package-surface.test.ts",
+      "test-hosted/repository-contract.test.ts"
     ],
     "testPathPatterns": [
-      "test/**",
-      "tests/**",
-      "__tests__/**",
-      "**/*.test.*",
-      "**/*.spec.*"
+      "test-hosted/**"
     ],
     "automatedReview": {
       "setupCommand": "npm ci --ignore-scripts",
       "commands": [
-        "node --test --test-concurrency=4 test/*.test.ts"
+        "node --test --test-concurrency=1 test-hosted/*.test.ts"
       ],
       "timeoutSeconds": 300
     },
     "differentialTest": {
-      "command": "node --test --test-concurrency=4 test/*.test.ts",
+      "command": "node --test --test-concurrency=1 test-hosted/*.test.ts",
       "setupCommand": "npm ci --ignore-scripts",
       "timeoutSeconds": 300,
       "overlayChangedTests": true
