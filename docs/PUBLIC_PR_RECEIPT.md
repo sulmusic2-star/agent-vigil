@@ -18,7 +18,9 @@ commit.
 ## Browser evidence desk
 
 The static [public PR evidence desk](check.html) runs the same normalized
-unsigned receipt decision in a browser. It makes direct read-only requests from
+unsigned receipt decision in a browser. Its receipt uses a distinct browser
+build version and the reviewed commit that introduced the browser verifier, so
+it does not claim that the v0.22.0 CLI release contained that code. It makes direct read-only requests from
 the browser to `api.github.com`, calculates response and receipt SHA-256 hashes
 with Web Crypto, and offers the normalized JSON as a local download.
 

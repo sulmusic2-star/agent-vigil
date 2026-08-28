@@ -1,5 +1,5 @@
-const TOOL_VERSION = "0.22.0";
-const TOOL_COMMIT = "5925e8bcbaf97f08c8c840252f486e96bf3f9775";
+const TOOL_VERSION = "0.22.0-browser.1";
+const TOOL_COMMIT = "78751509c1be65d920e1dbb82d8eb45417452bb3";
 const RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz";
 const PUBLIC_CLAIM_STATEMENT = "This receipt attests that selected public GitHub events and checks were observed. It does not establish that the checks were sufficient, that the change is safe, or that deployment is authorized.";
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;

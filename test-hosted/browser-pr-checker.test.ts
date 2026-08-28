@@ -7,7 +7,7 @@ const BASE = "1".repeat(40);
 const HEAD = "2".repeat(40);
 const PR_URL = "https://github.com/example/project/pull/42";
 const GENERATED_AT = "2026-08-28T22:00:00.000Z";
-const TOOL_COMMIT = "5925e8bcbaf97f08c8c840252f486e96bf3f9775";
+const TOOL_COMMIT = "78751509c1be65d920e1dbb82d8eb45417452bb3";
 const SHA = `sha256:${"a".repeat(64)}`;
 
 async function browserModule(): Promise<any> {
@@ -56,7 +56,7 @@ test("the browser receipt matches the reviewed CLI receipt contract", async () =
   const cli = buildPublicPrReceipt(value, PR_URL, {
     generatedAt: GENERATED_AT,
     maxAgeHours: 168,
-    toolVersion: "0.22.0",
+    toolVersion: "0.22.0-browser.1",
     toolCommit: TOOL_COMMIT,
   });
   const web = await browser.buildBrowserReceipt(browserSnapshot(value), {
