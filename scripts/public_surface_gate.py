@@ -240,13 +240,10 @@ def install_state_failures(package_version: str, install_state: dict[str, object
     elif not target_published and observed_version == target_version:
         failures.append("npm target is marked unpublished but the observed version matches")
     observed_published_instant = utc_instant(observed_published_at)
-    if target_published:
-        if observed_published_instant is None:
-            failures.append("published npm target has no exact UTC publication time")
-        elif verified_instant is not None and observed_published_instant > verified_instant:
-            failures.append("npm publication time is later than the state verification")
-    elif observed_published_at is not None:
-        failures.append("unpublished npm target records a publication time")
+    if observed_published_instant is None:
+        failures.append("observed npm version has no exact UTC publication time")
+    elif verified_instant is not None and observed_published_instant > verified_instant:
+        failures.append("npm publication time is later than the state verification")
     if isinstance(candidate, dict) and candidate.get("version") == observed_version:
         failures.append("unpublished source candidate already matches the observed npm version")
     return failures
@@ -291,7 +288,7 @@ def version_failures() -> list[str]:
                 path.read_text(),
                 release["version"],
                 candidate_version if isinstance(candidate_version, str) else None,
-                registry["target_version"] if registry["target_published"] is True else None,
+                registry["observed_version"],
             )
         )
 
@@ -300,7 +297,7 @@ def version_failures() -> list[str]:
         npm_reference_failures(
             relative(publishing),
             publishing.read_text(),
-            registry["target_version"] if registry["target_published"] is True else None,
+            registry["observed_version"],
         )
     )
 
@@ -508,14 +505,15 @@ def self_test() -> None:
     public_url = release_asset_url(release_version)
     candidate_version = install_state["source_release_candidate"]["version"]
     candidate_url = release_asset_url(candidate_version)
-    assert install_reference_failures("fixture", public_url, release_version, candidate_version, release_version) == []
-    current_registry_spec = f"@sulmusic/agent-vigil@{release_version}"
+    published_registry_version = install_state["npm_registry"]["observed_version"]
+    assert install_reference_failures("fixture", public_url, release_version, candidate_version, published_registry_version) == []
+    current_registry_spec = f"@sulmusic/agent-vigil@{published_registry_version}"
     assert install_reference_failures(
         "fixture",
         public_url + "\n" + current_registry_spec,
         release_version,
         candidate_version,
-        release_version,
+        published_registry_version,
     ) == []
     assert any(
         "unpublished source candidate" in failure
@@ -598,7 +596,7 @@ def self_test() -> None:
     assert npm_reference_failures(
         "docs/PUBLISHING.md",
         (ROOT / "docs/PUBLISHING.md").read_text(),
-        release_version,
+        published_registry_version,
     ) == []
     assert not version_failures()
     assert claim_consistency_failures() == []
