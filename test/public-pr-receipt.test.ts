@@ -520,6 +520,20 @@ test("public PR receipt CLI creates private signed output and maps every continu
   }
 });
 
+test("public PR preview can use the exact package build commit without a tool-ref argument", async () => {
+  const result = await captureCommand([PR_URL, "--format", "json", "--as-of", NOW], {
+    transport: transportFor(snapshot()), toolVersion: "test-version", toolCommit: TOOL,
+  });
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  const receipt = JSON.parse(result.stdout);
+  assert.equal(receipt.tool.commit, TOOL);
+  assert.equal(receipt.tool.version, "test-version");
+  assert.equal(receipt.integration.workflowChangeRequired, false);
+  assert.equal(receipt.decision.allowsProtectedAction, false);
+});
+
+
 test("public PR receipt CLI rejects unsafe output aliases and invalid time windows", async () => {
   const root = mkdtempSync(join(tmpdir(), "vigil-public-pr-options-"));
   const privateKey = join(root, "operator-private.pem");

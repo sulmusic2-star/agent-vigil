@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Let `vigil protect` select and display an immutable reviewed Action commit when
+  the operator does not provide `--action-sha`; an explicit pin remains an
+  expert override.
+- Replace the first-run doctor failure wall with one truthful `PREPARED — not
+  active yet` state and exact activation steps.
+- Run a disposable differential-proof rehearsal during setup. It demonstrates
+  one real regression test that fails on old code and passes on proposed code,
+  then blocks a planted weak test that passes on both versions.
+- Add the zero-install `vigil check <public-pr-url>` entry point for exact clean
+  package builds. Development builds without an embedded source commit refuse
+  rather than writing a misleading tool identity.
+- Record the verified npm v0.21.1 publication, provenance, and byte-for-byte
+  parity with the GitHub release.
+
 ### 0.21.2 release candidate
 
 - Bind hosted execution to the reviewed Node.js 22.23.2 binaries for Linux x64,

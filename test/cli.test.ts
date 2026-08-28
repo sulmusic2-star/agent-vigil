@@ -247,12 +247,13 @@ test("CLI init and doctor provide a working exact-SHA scaffold", () => {
   assert.match(workflow, /pull_request\.base\.sha/);
 });
 
-test("CLI hosted init fails closed without an exact Action SHA or with candidate attestation", () => {
+test("CLI hosted init still requires an explicit pin while protect supplies its reviewed pin", () => {
   const missing = repo();
   assert.equal(run(["init", "--repo", missing]), 2);
   assert.equal(run(["init", "--action-sha", ACTION_SHA.toUpperCase(), "--repo", missing]), 2);
   assert.equal(run(["init", "--action-sha", ACTION_SHA, "--attest", "--repo", missing]), 2);
   assert.equal(run(["protect", "--action-sha", ACTION_SHA, "--attest", "--repo", missing]), 2);
+  assert.equal(run(["protect", "--repo", repo()]), 0);
 });
 
 test("CLI init and protect reject unknown, missing, stray, and duplicate arguments", () => {

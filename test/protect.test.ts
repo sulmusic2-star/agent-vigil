@@ -10,6 +10,7 @@ import { routeIntegrity } from "../src/integrity-policy.ts";
 import { buildReport } from "../src/report.ts";
 import { run } from "../src/cli.ts";
 import { initRepository } from "../src/setup.ts";
+import { REVIEWED_PUBLIC_ACTION_SHA } from "../src/build-info.ts";
 
 const ACTION_SHA = "a".repeat(40);
 
@@ -51,6 +52,26 @@ test("protect reports scaffold creation separately from committed doctor readine
   execFileSync("git", ["add", "-A"], { cwd: path });
   execFileSync("git", ["commit", "-qm", "install protection controls"], { cwd: path });
   assert.equal(run(["doctor", "--repo", path]), 0);
+});
+
+test("protect needs no SHA and reports one truthful prepared state", () => {
+  const path = repo();
+  const originalLog = console.log;
+  let output = "";
+  console.log = (...values: unknown[]) => { output += `${values.join(" ")}\n`; };
+  try {
+    assert.equal(run(["protect", "--repo", path]), 0);
+  } finally {
+    console.log = originalLog;
+  }
+  const workflow = readFileSync(join(path, ".github/workflows/agent-vigil.yml"), "utf8");
+  assert.match(workflow, new RegExp(`agent-vigil@${REVIEWED_PUBLIC_ACTION_SHA}`));
+  assert.match(output, /Agent Vigil is ready to add/);
+  assert.match(output, /State: PREPARED — not active yet/);
+  assert.match(output, /Found\s+node --test/);
+  assert.match(output, /real regression test failed on old code and passed on proposed code/);
+  assert.match(output, /planted weak test passed on both versions; merge proof blocked/);
+  assert.doesNotMatch(output, /13 failure|Agent Vigil doctor|✓ PASS|✗ FAIL/);
 });
 
 test("calibrated policy blocks direct test weakening but keeps broad heuristics advisory", () => {

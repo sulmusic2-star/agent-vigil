@@ -3,7 +3,7 @@
 // src/cli.ts
 import { createHash as createHash28 } from "node:crypto";
 import { existsSync as existsSync12, readFileSync as readFileSync21, realpathSync as realpathSync19, statSync as statSync8 } from "node:fs";
-import { dirname as dirname12, isAbsolute as isAbsolute15, join as join18, relative as relative16, resolve as resolve32 } from "node:path";
+import { dirname as dirname12, isAbsolute as isAbsolute15, join as join19, relative as relative16, resolve as resolve32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
@@ -18920,7 +18920,7 @@ async function runPublicPrReceiptCommand(args, options = {}) {
       return verifyReceipt(parsed.positional[1], format);
     }
     if (parsed.positional.length !== 1) throw new Error("pr-receipt requires exactly one public GitHub pull request URL");
-    const toolCommit = validateToolCommit(parsed.values.get("--tool-ref") ?? "");
+    const toolCommit = validateToolCommit(parsed.values.get("--tool-ref") ?? options.toolCommit ?? "");
     const signingKey = parsed.values.get("--signing-key");
     const output = parsed.values.get("--output");
     if (signingKey && output && resolve30(signingKey) === resolve30(output)) throw new Error("--output must not replace the signing key");
@@ -18947,6 +18947,64 @@ async function runPublicPrReceiptCommand(args, options = {}) {
     console.error(`agent-vigil: ${error instanceof Error ? error.message : String(error)}`);
     return 2;
   }
+}
+
+// src/build-info.ts
+var REVIEWED_PUBLIC_ACTION_SHA = "963f9070be9ac5e8e5cdf0b58ea703f151dba748";
+function defaultActionPin() {
+  const embedded = true ? "" : "";
+  if (/^[0-9a-f]{40}$/.test(embedded)) return { sha: embedded, source: "package-build" };
+  return { sha: REVIEWED_PUBLIC_ACTION_SHA, source: "reviewed-public-release" };
+}
+
+// src/protect-rehearsal.ts
+import { execFileSync as execFileSync11 } from "node:child_process";
+import { mkdtempSync as mkdtempSync9, rmSync as rmSync8, writeFileSync as writeFileSync10 } from "node:fs";
+import { tmpdir as tmpdir9 } from "node:os";
+import { join as join18 } from "node:path";
+function testExit(root) {
+  try {
+    execFileSync11(process.execPath, ["--test", "change.test.cjs"], {
+      cwd: root,
+      stdio: "ignore",
+      timeout: 1e4,
+      env: { PATH: process.env.PATH ?? "" }
+    });
+    return 0;
+  } catch (error) {
+    const status = error.status;
+    return typeof status === "number" ? status : 1;
+  }
+}
+function runProtectRehearsal() {
+  const root = mkdtempSync9(join18(tmpdir9(), "agent-vigil-protect-rehearsal-"));
+  try {
+    const app = join18(root, "app.cjs");
+    const test = join18(root, "change.test.cjs");
+    writeFileSync10(test, "const { test } = require('node:test'); const assert = require('node:assert/strict'); const { answer } = require('./app.cjs'); test('regression', () => assert.equal(answer, 42));\n");
+    writeFileSync10(app, "module.exports = { answer: 41 };\n");
+    const regressionOnOld = testExit(root);
+    writeFileSync10(app, "module.exports = { answer: 42 };\n");
+    const regressionOnProposed = testExit(root);
+    writeFileSync10(test, "const { test } = require('node:test'); const assert = require('node:assert/strict'); test('weak proof', () => assert.equal(true, true));\n");
+    writeFileSync10(app, "module.exports = { answer: 41 };\n");
+    const weakOnOld = testExit(root);
+    writeFileSync10(app, "module.exports = { answer: 42 };\n");
+    const weakOnProposed = testExit(root);
+    return {
+      regression: regressionOnOld !== 0 && regressionOnProposed === 0 ? "PASS" : "FAIL",
+      plantedWeakTest: weakOnOld === 0 && weakOnProposed === 0 ? "BLOCKED" : "MISSED"
+    };
+  } finally {
+    rmSync8(root, { recursive: true, force: true });
+  }
+}
+function renderProtectRehearsal(result5) {
+  return [
+    "Proof rehearsal (disposable files; no repository code executed)",
+    `  ${result5.regression === "PASS" ? "PASS" : "FAIL"}  real regression test failed on old code and passed on proposed code`,
+    `  ${result5.plantedWeakTest === "BLOCKED" ? "FAIL" : "MISS"}  planted weak test passed on both versions${result5.plantedWeakTest === "BLOCKED" ? "; merge proof blocked" : ""}`
+  ].join("\n");
 }
 
 // src/outcome-cli.ts
@@ -19216,7 +19274,8 @@ Usage:
   vigil init --action-sha <40-hex> [--repo <path>] [--force] [--portable --public-key <path>]
   vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
   vigil init --profile authority --action-sha <40-hex> [--repo <path>] [--force]
-  vigil protect --action-sha <40-hex> [--repo <path>] [--force]
+  vigil protect [--repo <path>] [--force] [--action-sha <40-hex>]
+  vigil check <https://github.com/owner/repo/pull/number> [--format text|json] [--output <receipt.json>]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil guard-compat --host claude|codex --host-version <version> --host-executable <path> --control-name <name> --control-version <version> --control-executable <path> --policy <path> --configuration <path> [options]
   vigil guard-route --host claude|codex --host-version <version> --host-executable <path> --profile-home <disposable-path> [options]
@@ -19441,7 +19500,7 @@ function runGuardRouteCommand(args) {
     const hostExecutable = resolve32(required3("--host-executable"));
     const profileHome = resolve32(required3("--profile-home"));
     const output = parsed.values.get("--output");
-    assertGuardOutputIsDistinct(output, [hostExecutable, join18(profileHome, ".agent-vigil-disposable-profile")]);
+    assertGuardOutputIsDistinct(output, [hostExecutable, join19(profileHome, ".agent-vigil-disposable-profile")]);
     const report = runGuardRoute({
       host,
       hostVersion: required3("--host-version"),
@@ -19795,23 +19854,46 @@ function runProtect(args) {
     validateCommandArgs(args, "protect", ["--repo", "--action-sha"], ["--force", "--attest"]);
     const repo = resolve32(optionValue(args, "--repo") ?? ".");
     if (args.includes("--attest")) throw new Error("protect --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
-    const actionSha = optionValue(args, "--action-sha");
-    if (!/^[0-9a-f]{40}$/.test(actionSha ?? "")) throw new Error("protect requires --action-sha <40 lowercase hex>");
+    const selectedPin = defaultActionPin();
+    const actionSha = optionValue(args, "--action-sha") ?? selectedPin.sha;
+    if (!/^[0-9a-f]{40}$/.test(actionSha)) throw new Error("protect requires --action-sha to be a 40-character lowercase Git commit SHA");
     const result5 = initRepository(repo, args.includes("--force"), void 0, "protect", false, actionSha);
-    console.log("Agent Vigil protection scaffold prepared.\n");
+    console.log("Agent Vigil is ready to add.\n");
+    const policy = loadPolicy(repo).value;
+    const commands = policy.maintainer?.automatedReview?.commands ?? [];
+    if (commands.length) console.log(`  Found   ${safeSetupLine(commands.join(" && "))}`);
+    console.log(`  Pinned  ${actionSha}${optionValue(args, "--action-sha") ? " (operator selected)" : selectedPin.source === "package-build" ? " (this package build)" : " (reviewed public release)"}`);
     for (const path of result5.created) console.log(`  created ${path}`);
     for (const path of result5.kept) console.log(`  kept    ${path} (use --force to replace)`);
+    if (result5.created.length > 0) {
+      const rehearsal = runProtectRehearsal();
+      console.log(`
+${renderProtectRehearsal(rehearsal)}`);
+      if (rehearsal.regression !== "PASS" || rehearsal.plantedWeakTest !== "BLOCKED") {
+        console.error("\nAgent Vigil could not prove its disposable red/green rehearsal. The generated files remain prepared but must not be activated.");
+        return 2;
+      }
+      console.log("\nState: PREPARED \u2014 not active yet.");
+      console.log("\nNext:");
+      console.log("  1. Review the four generated files.");
+      console.log("  2. Commit and push them in a setup pull request.");
+      console.log("  3. After that setup merges, require the Agent Vigil exact-head check in GitHub.");
+      console.log("\nRun `npx @sulmusic/agent-vigil doctor` after the setup commit. Prepared files alone do not protect merges.");
+      return 0;
+    }
     const checks = doctorRepository(repo);
     console.log(`
 ${renderDoctor(checks)}
 `);
-    console.log("Next: review and commit the generated controls, then rerun doctor. The job name alone is not a merge trust root; enforcement requires an externally trusted required workflow or App check bound to the exact PR head.");
-    const pendingGeneratedCommit = result5.created.length > 0;
-    return pendingGeneratedCommit ? 0 : checks.some((check2) => check2.status === "FAIL") ? 2 : 0;
+    console.log("The job name alone is not a merge trust root; enforcement requires an externally trusted required workflow or App check bound to the exact PR head.");
+    return checks.some((check2) => check2.status === "FAIL") ? 2 : 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
   }
+}
+function safeSetupLine(value) {
+  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
 }
 function withoutOption(args, name2) {
   const output = [];
@@ -20800,6 +20882,13 @@ if (isMainModule()) {
   const argv = process.argv.slice(2);
   if (argv[0] === "pr-receipt") {
     void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION }).then((code3) => process.exit(code3));
+  } else if (argv[0] === "check") {
+    const pin = defaultActionPin();
+    if (pin.source !== "package-build") {
+      console.error("agent-vigil: this development build has no exact source commit; use pr-receipt --tool-ref <full-commit-sha> instead");
+      process.exit(2);
+    }
+    void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION, toolCommit: pin.sha }).then((code3) => process.exit(code3));
   } else process.exit(run(argv));
 }
 export {
