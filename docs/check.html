@@ -161,6 +161,7 @@
         <p class="receipt-hash"><strong>Receipt:</strong> <span id="result-hash"></span></p>
         <div class="actions" aria-label="Result actions">
           <button id="download-receipt" type="button">Download receipt</button>
+          <button id="copy-pr-result" type="button">Copy result for PR</button>
           <button id="copy-install" type="button">Copy install command</button>
           <a class="button secondary" id="open-pr" href="https://github.com" target="_blank" rel="noreferrer">Open pull request</a>
           <a class="button secondary" href="INSTALL_WITHOUT_NPM_ACCOUNT.md">Review installation</a>
@@ -180,7 +181,7 @@
             <li><strong>Install the repository gate.</strong> The copied v0.22.0 command prepares an exact-pin workflow and base-owned policy for review.</li>
             <li><strong>Make the check required.</strong> A repository owner must configure enforcement. A prepared workflow alone does not protect merges.</li>
           </ol>
-          <p class="fine">Downloaded receipts contain normalized counts, commit IDs, endpoint hashes, and decision fields. They omit response bodies, check logs, review text, source, prompts, and transcripts.</p>
+          <p class="fine">Downloaded receipts contain normalized counts, commit IDs, endpoint hashes, and decision fields. Copied PR results contain only the verdict, counts, commits, gaps, and receipt hash. Nothing is posted automatically. Both omit response bodies, check logs, review text, source, prompts, and transcripts.</p>
         </div>
       </section>
     </main>

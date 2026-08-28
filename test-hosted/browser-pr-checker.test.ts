@@ -118,6 +118,48 @@ test("the installation handoff is immutable and requires an explicit local run",
   assert.doesNotMatch(command, /@(?:main|master|latest)|releases\/latest/);
 });
 
+test("the copied PR result is bounded, source-free, and never claims authorization", async () => {
+  const browser = await browserModule();
+  const receipt = await browser.buildBrowserReceipt(browserSnapshot(snapshot()), { generatedAt: GENERATED_AT });
+  const card = browser.prCommentMarkdown(receipt);
+  assert.match(card, /\*\*Agent Vigil public evidence: CURRENT\*\*/);
+  assert.ok(card.includes("Base: `" + BASE + "`"));
+  assert.ok(card.includes("Head: `" + HEAD + "`"));
+  assert.match(card, /Observed: merged-approved-checks-observed/);
+  assert.doesNotMatch(card, /Unresolved:/);
+  assert.match(card, /does not authorize merge or deployment/);
+  assert.match(card, /https:\/\/sulmusic2-star\.github\.io\/agent-vigil\/check\.html/);
+  assert.doesNotMatch(card, /Keep the public evidence exact|tests|preview|prompt|transcript/);
+  assert.ok(card.length < 1_500);
+});
+
+test("the copied HOLD result labels its reason codes as unresolved", async () => {
+  const browser = await browserModule();
+  const value = snapshot({
+    pull: {
+      state: "open",
+      merged: false,
+      merged_at: null,
+      updated_at: "2026-08-28T21:30:00Z",
+      base: { sha: BASE, repo: { private: false } },
+      head: { sha: HEAD, repo: { private: false } },
+    },
+  });
+  const receipt = await browser.buildBrowserReceipt(browserSnapshot(value), { generatedAt: GENERATED_AT });
+  assert.match(browser.prCommentMarkdown(receipt), /Unresolved: pull-request-not-merged/);
+});
+
+test("the copied PR result rejects hostile or unbounded receipt fields", async () => {
+  const browser = await browserModule();
+  const receipt = await browser.buildBrowserReceipt(browserSnapshot(snapshot()), { generatedAt: GENERATED_AT });
+  for (const candidate of [
+    { ...receipt, receiptHash: "sha256:`send me secrets`" },
+    { ...receipt, decision: { ...receipt.decision, reasonCodes: ["gap\n@everyone"] } },
+    { ...receipt, decision: { ...receipt.decision, reasonCodes: Array(17).fill("gap") } },
+    { ...receipt, observation: { ...receipt.observation, checks: { ...receipt.observation.checks, passing: "many" } } },
+  ]) assert.throws(() => browser.prCommentMarkdown(candidate), /complete browser receipt/);
+});
+
 test("the static checker has an accessible mobile result surface and no browser storage", () => {
   const html = readFileSync(new URL("../docs/check.html", import.meta.url), "utf8");
   const script = readFileSync(new URL("../docs/check.js", import.meta.url), "utf8");
@@ -126,6 +168,7 @@ test("the static checker has an accessible mobile result surface and no browser 
   assert.match(html, /id="check-live" aria-live="polite"/);
   assert.match(html, /id="check-result" aria-labelledby="result-title" tabindex="-1"/);
   assert.match(html, /aria-label="Result actions"/);
+  assert.match(html, /id="copy-pr-result"[^>]*>Copy result for PR/);
   assert.match(html, /min-height: 48px/);
   assert.match(html, /@media \(max-width: 760px\)/);
   assert.match(html, /prefers-reduced-motion/);
