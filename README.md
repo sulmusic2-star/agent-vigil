@@ -7,6 +7,8 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
+**Distribution status, verified August 28, 2026:** GitHub release v0.21.1 and npm package v0.21.1 are public. v0.21.2 is an unpublished release candidate; its release URLs are not usable until the machine-readable state records publication. See [the npm-free installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+
 **Check an agent-written pull request before you merge it.**
 
 ## Run the proof before installing it
@@ -54,13 +56,13 @@ signed lifecycle receipt without opening a pull request, installing a GitHub
 Action, or changing the target repository:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref <reviewed-full-Agent-Vigil-commit> \
   --signing-key operator-private.pem \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt verify pr-123.receipt.json
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz pr-receipt verify pr-123.receipt.json
 ```
 
 The command makes read-only requests to `api.github.com` for pull-request,
@@ -178,11 +180,10 @@ It does not install an update, upload evidence, modify the GitHub Action, or
 claim live model/provider behavior. See the precise
 [Upgrade Guard contract](docs/UPGRADE_GUARD.md).
 
-It also adds the one-command protection profile:
+From a reviewed source checkout, the release candidate adds the protection profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  protect --action-sha <reviewed-full-commit>
+node dist/cli.js protect --action-sha <reviewed-full-commit>
 ```
 
 `protect` inspects the repository, prepares a base-selected exact-SHA
@@ -369,14 +370,12 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 
 ## Two-minute setup
 
-Until the npm registry package is current, use the verified GitHub release package:
+For release-candidate validation from a reviewed source checkout, use the built CLI. This is not a public installation path:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  init --action-sha <reviewed-full-commit>
+node dist/cli.js init --action-sha <reviewed-full-commit>
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  doctor
+node dist/cli.js doctor
 ```
 
 `--action-sha` must name one reviewed lowercase 40-hex Agent Vigil commit.
@@ -407,8 +406,7 @@ exact-head check, including for merge queues. See the
 Maintainer profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  init --profile maintainer --action-sha <reviewed-full-commit>
+node dist/cli.js init --profile maintainer --action-sha <reviewed-full-commit>
 ```
 
 This creates base-anchored file, line, test, and protected-path limits; an
@@ -421,8 +419,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
-  init --profile authority --action-sha <reviewed-full-commit>
+node dist/cli.js init --profile authority --action-sha <reviewed-full-commit>
 ```
 
 Review the generated task ID, expiry, paths, and action classes, then merge the
@@ -526,11 +523,11 @@ the receipt. See the [operator guide](docs/PRIVATE_RECEIPT_GATE.md).
 
 ## Run locally
 
-Node 20 or newer is required. Run the published npm package without installing
-it globally:
+Node 20 or newer is required. Run the public npm package without installing it
+globally:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz --help
+npx --yes @sulmusic/agent-vigil@0.21.1 --help
 ```
 
 Or work from source:
