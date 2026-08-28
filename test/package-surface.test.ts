@@ -344,7 +344,7 @@ test("repository protection runs one direct offline test contract after bounded 
       automatedReview?: { commands?: unknown; setupCommand?: unknown };
     };
   };
-  const directTest = "node --test --test-concurrency=4 test/*.test.ts";
+  const directTest = "node --test --test-concurrency=1 test-hosted/*.test.ts";
   assert.equal(policy.integrityMode, "calibrated");
   assert.equal(policy.testCommand, directTest);
   assert.equal(policy.maintainer?.differentialTest?.command, directTest);
