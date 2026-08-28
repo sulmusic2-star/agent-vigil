@@ -7,7 +7,7 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**Distribution status, verified August 28, 2026:** GitHub release v0.21.2 and npm package v0.21.1 are public. v0.22.0 is the release candidate in this source tree and is not a public package yet. See [the npm-free installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/454c24f41ee0c4377071720b91b6f30a1bce2317/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+**Distribution status, verified August 28, 2026:** GitHub release v0.22.0 and npm package v0.21.1 are public. npm publication of v0.22.0 is not claimed. See [the npm-free installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/3f7bbdd8840da35d9e203e0c81260e86a8f9d350/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 **Check an agent-written pull request before you merge it.**
 
@@ -56,13 +56,13 @@ signed lifecycle receipt without opening a pull request, installing a GitHub
 Action, or changing the target repository:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref <reviewed-full-Agent-Vigil-commit> \
   --signing-key operator-private.pem \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt verify pr-123.receipt.json
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt verify pr-123.receipt.json
 ```
 
 The command makes read-only requests to `api.github.com` for pull-request,
@@ -180,10 +180,10 @@ It does not install an update, upload evidence, modify the GitHub Action, or
 claim live model/provider behavior. See the precise
 [Upgrade Guard contract](docs/UPGRADE_GUARD.md).
 
-From a reviewed source checkout, the release candidate adds the protection profile:
+The public v0.22.0 release includes the protection profile:
 
 ```bash
-node dist/cli.js protect
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz protect
 ```
 
 `protect` inspects the repository, chooses the immutable reviewed public Action
