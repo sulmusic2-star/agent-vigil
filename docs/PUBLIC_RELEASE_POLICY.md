@@ -7,7 +7,10 @@ reviewed or approved the page.
 
 ## Checks
 
-- Package versions match across the CLI, README, and installation page.
+- The source package version and latest public GitHub release match.
+- Public installation commands identify the immutable release asset and its
+  verified SHA-256 digest.
+- GitHub release and npm registry states remain separate.
 - Dated, locally validated test counts agree across the README, compatibility
   report, and landing page. They are not labeled as hosted or released proof.
 - Every repository `init` and `protect` example supplies a reviewed full Action
