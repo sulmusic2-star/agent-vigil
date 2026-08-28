@@ -66,8 +66,9 @@ The facts below were checked on August 28, 2026:
 
 - GitHub release v0.21.1 is public and installable.
 - The public package SHA-256 is recorded above.
-- The npm registry still reports version 0.11.3.
-- npm publication of v0.21.1 is not claimed.
+- The npm registry reports version 0.21.1.
+- npm publication of v0.21.1 is public and separately verified as
+  `@sulmusic/agent-vigil@0.21.1`.
 - Outside installation, payment, and revenue require separate evidence.
 
 Machine-readable details are in

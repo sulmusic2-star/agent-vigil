@@ -7,7 +7,7 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**Distribution status, verified August 28, 2026:** GitHub release v0.21.1 is public and works without an npm account. The npm registry still reports version 0.11.3. See [the npm-free installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+**Distribution status, verified August 28, 2026:** GitHub release v0.21.1 and npm package v0.21.1 are public. v0.21.2 is an unpublished release candidate; its release URLs are not usable until the machine-readable state records publication. See [the npm-free installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 **Check an agent-written pull request before you merge it.**
 
@@ -150,7 +150,7 @@ and 95% Wilson intervals.
 
 The CLI can prepare and verify the legacy full-receipt GitHub/Sigstore
 predicate. Candidate-executing generated workflows cannot sign receipts in
-v0.21.1. Signing authority must live in a separately controlled job that never
+v0.21.2. Signing authority must live in a separately controlled job that never
 executes candidate code. Scheduled Control Proof signing remains separate and
 uses only planted non-candidate challenges. See
 [attestation boundaries](docs/ATTESTED_RECEIPTS.md).
@@ -180,11 +180,10 @@ It does not install an update, upload evidence, modify the GitHub Action, or
 claim live model/provider behavior. See the precise
 [Upgrade Guard contract](docs/UPGRADE_GUARD.md).
 
-It also adds the one-command protection profile:
+From a reviewed source checkout, the release candidate adds the protection profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
-  protect --action-sha <reviewed-full-commit>
+node dist/cli.js protect --action-sha <reviewed-full-commit>
 ```
 
 `protect` inspects the repository, prepares a base-selected exact-SHA
@@ -371,14 +370,12 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 
 ## Two-minute setup
 
-Until the npm registry package is current, use the verified GitHub release package:
+For release-candidate validation from a reviewed source checkout, use the built CLI. This is not a public installation path:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
-  init --action-sha <reviewed-full-commit>
+node dist/cli.js init --action-sha <reviewed-full-commit>
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
-  doctor
+node dist/cli.js doctor
 ```
 
 `--action-sha` must name one reviewed lowercase 40-hex Agent Vigil commit.
@@ -409,8 +406,7 @@ exact-head check, including for merge queues. See the
 Maintainer profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
-  init --profile maintainer --action-sha <reviewed-full-commit>
+node dist/cli.js init --profile maintainer --action-sha <reviewed-full-commit>
 ```
 
 This creates base-anchored file, line, test, and protected-path limits; an
@@ -423,8 +419,7 @@ commands and limits before merging the setup.
 Authority profile:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
-  init --profile authority --action-sha <reviewed-full-commit>
+node dist/cli.js init --profile authority --action-sha <reviewed-full-commit>
 ```
 
 Review the generated task ID, expiry, paths, and action classes, then merge the
@@ -528,11 +523,11 @@ the receipt. See the [operator guide](docs/PRIVATE_RECEIPT_GATE.md).
 
 ## Run locally
 
-Node 20 or newer is required. Run the published npm package without installing
-it globally:
+Node 20 or newer is required. Run the public npm package without installing it
+globally:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz --help
+npx --yes @sulmusic/agent-vigil@0.21.1 --help
 ```
 
 Or work from source:
@@ -944,7 +939,7 @@ Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
   reached 92.67% lines, 81.88% branches, and 96.36% functions. These are local
   candidate results, not hosted or released evidence.
 - The broader local compatibility lab retains historical runner-output and
-  ecosystem evidence. Generated v0.21.1 hosted execution is deliberately
+  ecosystem evidence. Generated v0.21.2 hosted execution is deliberately
   narrower: plain Git or root Node/npm with direct `node --test`. Local CLI
   execution is host execution, not sandboxing.
 - `npm run review:public` checks the public wording, links, accessible labels,

@@ -7,7 +7,10 @@ reviewed or approved the page.
 
 ## Checks
 
-- The source package version and latest public GitHub release match.
+- The source package version and latest public GitHub release match, unless an
+  exact, strictly newer source candidate records both GitHub and npm as
+  unpublished. Candidate metadata never makes its download URL or npm spec
+  installable; public commands stay bound to the latest verified release.
 - Public installation commands identify the immutable release asset and its
   verified SHA-256 digest.
 - GitHub release and npm registry states remain separate.

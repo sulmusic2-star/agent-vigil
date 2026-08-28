@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-08-28T15:19:00Z",
+  "verified_at": "2026-08-28T16:40:57Z",
   "latest_github_release": {
     "version": "0.21.1",
     "commit": "963f9070be9ac5e8e5cdf0b58ea703f151dba748",
@@ -10,11 +10,17 @@
     "sha256": "19084c6981b19d60b89f902a8583f1f1db955fdcb71be3e3449db44fd5eeed91",
     "immutable": true
   },
+  "source_release_candidate": {
+    "version": "0.21.2",
+    "github_release_published": false,
+    "npm_published": false
+  },
   "npm_registry": {
     "package": "@sulmusic/agent-vigil",
     "target_version": "0.21.1",
-    "observed_version": "0.11.3",
-    "observed_integrity": "sha512-CXNmisCmqIOHXHS6yD3dc0EzxWMgYGHWRecu0ku9/vmf7ZvHn0MPLbxLqzFHAJXuGSi3RH/j5O4lkrYbY19Tig==",
-    "target_published": false
+    "observed_version": "0.21.1",
+    "observed_integrity": "sha512-svknWHc0DT9Jh77tatKFmvsr3lJr8dSDLBrXud1pr1DKkgW8Yx7uIvS1+Xkq72TQfyP091sWUZZzDH8ku6RjuA==",
+    "observed_published_at": "2026-08-28T16:01:40.782Z",
+    "target_published": true
   }
 }
