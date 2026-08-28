@@ -7,7 +7,7 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**Distribution status, verified August 28, 2026:** GitHub release v0.21.2 is public. npm currently reports v0.21.1. Use the immutable GitHub package for v0.21.2. See [the verified installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/9884dc938a6c282b9976acdbb79493d6dd1f378d/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+**Distribution status, verified August 28, 2026:** GitHub release v0.21.2 is public. npm currently reports v0.21.1. Use the immutable GitHub package for v0.21.2. See [the verified installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/454c24f41ee0c4377071720b91b6f30a1bce2317/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 **Check an agent-written pull request before you merge it.**
 
