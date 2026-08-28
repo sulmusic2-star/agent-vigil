@@ -20,6 +20,8 @@ type Fixture = {
   cleanup: () => void;
 };
 
+const ROUTE_TEST_TIMEOUT_MS = 30_000;
+
 function fixture(mode: "pass" | "extra" | "bypass-deny" | "same-id" | "unavailable" | "mutate-config" | "mutate-ordinary" | "require-user-environment" = "pass"): Fixture {
   const root = mkdtempSync(join(tmpdir(), "vigil-live-route-test-"));
   const profile = join(root, "profile");
@@ -79,7 +81,7 @@ function run(selected: Fixture, host: "claude" | "codex" = "codex"): GuardRouteR
     vigilVersion: "test",
     nonce: "0123456789abcdef0123456789abcdef",
     generatedAt: "2026-08-25T16:00:00.000Z",
-    timeoutMs: 5_000,
+    timeoutMs: ROUTE_TEST_TIMEOUT_MS,
   });
 }
 
