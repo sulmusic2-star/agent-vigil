@@ -50,7 +50,7 @@ workflow policy, or agent configuration.
 
 ## GitHub Action
 
-The generated v0.21.0 workflow is schedule-only. It is separate from
+The generated v0.21.2 workflow is schedule-only. It is separate from
 pull-request evidence and executes planted Control Proof challenges, not
 candidate repository code. The Action's `mode: prove` step runs with
 `attest: false` and always prepares two outputs: the full proof and its

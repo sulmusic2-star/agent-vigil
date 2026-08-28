@@ -62,8 +62,8 @@ Verify each release independently:
 ```bash
 npm whoami
 npm view @sulmusic/agent-vigil version dist-tags.latest
-npm view @sulmusic/agent-vigil@0.21.0 dist.integrity
-npx --yes @sulmusic/agent-vigil@0.21.0 doctor
+npm view @sulmusic/agent-vigil@0.21.2 dist.integrity
+npx --yes @sulmusic/agent-vigil@0.21.2 doctor
 ```
 
 The canonical npm name is scoped because npm rejected the unscoped

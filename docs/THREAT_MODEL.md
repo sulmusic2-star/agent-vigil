@@ -51,7 +51,7 @@ policy change invalidates that binding.
 ## Policy integrity
 
 A candidate change can edit policy and workflow files stored in its own
-worktree. The v0.21.0 generated workflow is therefore selected from the base
+worktree. The v0.21.2 generated workflow is therefore selected from the base
 branch through `pull_request_target`. It passes the event base SHA as
 `policy-ref`, checks out the exact event head without persisted credentials,
 and rejects base, head, policy, Action, event, or workspace inputs that do not
@@ -102,7 +102,7 @@ it does not isolate processes, files, credentials, descendants, or the network.
 Never construct `--test-cmd` from issue text, PR descriptions, commit messages,
 or other untrusted strings.
 
-The v0.21.0 generated hosted lane instead requires a GitHub-hosted Linux runner
+The v0.21.2 generated hosted lane instead requires a GitHub-hosted Linux runner
 and runs repository commands in fixed candidate-only Docker invocations. The
 candidate receives no GitHub token, OIDC, signing, or write authority. A
 base-owned `npm ci --ignore-scripts` setup may use network and a writable mount;

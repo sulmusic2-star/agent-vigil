@@ -1,6 +1,6 @@
 # GitHub merge queues
 
-Agent Vigil v0.21.1 does not generate a repository-owned `merge_group`
+Agent Vigil v0.21.2 does not generate a repository-owned `merge_group`
 workflow. Queue verification is available only as a low-level verifier for an
 externally controlled integration.
 
@@ -17,7 +17,7 @@ reviewed Agent Vigil commit. A candidate workflow can report the same name.
 Requiring `Agent Vigil evidence` by name alone therefore does not establish an
 enforceable Agent Vigil control.
 
-The v0.21.1 `init` and `protect` generators use base-selected
+The v0.21.2 `init` and `protect` generators use base-selected
 `pull_request_target` for pull-request evidence and intentionally omit
 `merge_group`. `vigil doctor` reports a repository-owned merge-group path as a
 failure.

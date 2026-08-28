@@ -1,13 +1,13 @@
 # Agent Vigil Notary App
 
 **State:** runnable verification core and GitHub App contract. No hosted Agent
-Vigil Notary service is deployed as part of version 0.21.0.
+Vigil Notary service is deployed as part of version 0.21.2.
 
 The Notary App is deliberately narrow. Customer code and test execution stay in
 the customer's credential-free runner. A future App must verify an independently
 signed receipt and its expected workflow source, then post one check for the
 exact commit. Candidate receipt signing is not performed by the generated
-v0.21.0 evidence job.
+v0.21.2 evidence job.
 
 ## Decision rule
 
