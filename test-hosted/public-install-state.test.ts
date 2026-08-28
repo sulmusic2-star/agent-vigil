@@ -2,14 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const releaseVersion = "0.21.1";
-const releaseCommit = "963f9070be9ac5e8e5cdf0b58ea703f151dba748";
+const releaseVersion = "0.21.2";
+const releaseCommit = "33ae20140ffb2e25a034f291225849765ff8d217";
 const releaseAsset = `sulmusic-agent-vigil-${releaseVersion}.tgz`;
 const releaseUrl = `https://github.com/sulmusic2-star/agent-vigil/releases/download/v${releaseVersion}/${releaseAsset}`;
-const releaseSha256 = "19084c6981b19d60b89f902a8583f1f1db955fdcb71be3e3449db44fd5eeed91";
+const releaseSha256 = "73deb639664fa1327e80250634fce134e24d591cdcb36add5d964149ba1b2545";
 const registryIntegrity = "sha512-svknWHc0DT9Jh77tatKFmvsr3lJr8dSDLBrXud1pr1DKkgW8Yx7uIvS1+Xkq72TQfyP091sWUZZzDH8ku6RjuA==";
 
-test("the npm-free guide binds the immutable v0.21.1 GitHub package", () => {
+test("the npm-free guide binds the immutable v0.21.2 GitHub package", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
 
   assert.match(guide, new RegExp(releaseUrl.replaceAll(".", "\\.")));
@@ -31,14 +31,14 @@ test("the public install state keeps GitHub and npm publication separate", () =>
   assert.equal(state.latest_github_release.sha256, releaseSha256);
   assert.equal(state.latest_github_release.immutable, true);
   assert.deepEqual(state.source_release_candidate, {
-    version: "0.21.2",
+    version: "0.22.0",
     github_release_published: false,
     npm_published: false,
   });
   assert.equal(state.npm_registry.package, "@sulmusic/agent-vigil");
   assert.equal(state.npm_registry.target_version, releaseVersion);
-  assert.equal(state.npm_registry.observed_version, releaseVersion);
+  assert.equal(state.npm_registry.observed_version, "0.21.1");
   assert.equal(state.npm_registry.observed_integrity, registryIntegrity);
   assert.equal(state.npm_registry.observed_published_at, "2026-08-28T16:01:40.782Z");
-  assert.equal(state.npm_registry.target_published, true);
+  assert.equal(state.npm_registry.target_published, false);
 });

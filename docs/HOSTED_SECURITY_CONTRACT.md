@@ -1,6 +1,6 @@
 # Hosted evidence security contract
 
-**Applies to:** Agent Vigil v0.21.2 source-candidate `init` and `protect`
+**Applies to:** Agent Vigil v0.22.0 source-candidate `init` and `protect`
 workflows
 
 Agent Vigil's generated hosted lane checks one GitHub pull-request head under a
@@ -9,21 +9,19 @@ base-owned policy. It is intentionally narrower than the local CLI.
 ## Validate from a reviewed source checkout
 
 ```bash
-node dist/cli.js protect --action-sha <reviewed-full-commit>
-
-node dist/cli.js doctor
+node dist/cli.js protect
 ```
 
-The currently published v0.21.1 package remains available at its immutable
-release asset, but it does not claim this v0.21.2 source-candidate contract:
+The currently published v0.21.2 package remains available at its immutable
+release asset, but it does not claim this v0.22.0 source-candidate contract:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz doctor
 ```
 
-`--action-sha` must be one reviewed lowercase 40-hex Agent Vigil commit. It is
-written into both generated workflows. A tag, branch, shortened commit, or
-different outcome-workflow commit is rejected.
+`protect` selects the immutable reviewed public Action commit and writes it into
+both generated workflows. An explicit `--action-sha` remains available for a
+reviewed full commit; tags, branches, and shortened commits are rejected.
 
 The generated files are a prepared installation, not proof that a live ruleset
 requires them. Commit and review the files first. Then configure an external
@@ -56,7 +54,7 @@ Node invocation. A missing, moved, differently versioned, or digest-mismatched
 runtime blocks the Action. Updating Node therefore requires a reviewed workflow
 pin and reviewed binary digests, not a floating `22` selector.
 
-The v0.21.2 source-candidate runtime bindings were derived from the official Node.js v22.23.2
+The v0.22.0 source-candidate runtime bindings were derived from the official Node.js v22.23.2
 release archives after each archive matched the release
 [`SHASUMS256.txt`](https://nodejs.org/download/release/v22.23.2/SHASUMS256.txt):
 

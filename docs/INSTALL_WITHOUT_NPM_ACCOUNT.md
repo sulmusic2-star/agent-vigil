@@ -5,24 +5,24 @@ Action. The npm registry package is a separate distribution path.
 
 ## Run the public release
 
-Agent Vigil v0.21.1 is attached to its immutable GitHub release:
+Agent Vigil v0.21.2 is attached to its immutable GitHub release:
 
 ```bash
 npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
   --help
 ```
 
 The release package has this SHA-256 digest:
 
 ```text
-19084c6981b19d60b89f902a8583f1f1db955fdcb71be3e3449db44fd5eeed91
+73deb639664fa1327e80250634fce134e24d591cdcb36add5d964149ba1b2545
 ```
 
 Verify a downloaded copy before using it:
 
 ```bash
-shasum -a 256 sulmusic-agent-vigil-0.21.1.tgz
+shasum -a 256 sulmusic-agent-vigil-0.21.2.tgz
 ```
 
 The reported digest must match the value above.
@@ -34,7 +34,7 @@ credentials:
 
 ```bash
 npm install --save-exact \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz
 ```
 
 This uses the local npm client as a downloader. It does not require registry
@@ -45,7 +45,7 @@ publication or an npm sign-in.
 Pin the released commit instead of a moving tag:
 
 ```yaml
-- uses: sulmusic2-star/agent-vigil@963f9070be9ac5e8e5cdf0b58ea703f151dba748
+- uses: sulmusic2-star/agent-vigil@33ae20140ffb2e25a034f291225849765ff8d217
 ```
 
 The Action executes the bundled `dist/cli.js` from that commit. It does not
@@ -64,7 +64,7 @@ check.
 
 The facts below were checked on August 28, 2026:
 
-- GitHub release v0.21.1 is public and installable.
+- GitHub release v0.21.2 is public and installable.
 - The public package SHA-256 is recorded above.
 - The npm registry reports version 0.21.1.
 - npm publication of v0.21.1 is public and separately verified as

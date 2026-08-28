@@ -46,7 +46,7 @@ vigil certify install-action \
 Verify one downloaded proof with the currently public v0.21.1 package:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
   verify-control-attestation control-proof.json \
   --repository OWNER/REPOSITORY \
   --signer-workflow OWNER/REPOSITORY/.github/workflows/agent-vigil-control-proof.yml
@@ -73,7 +73,7 @@ published:
 vigil attest agent-vigil-report.json \
   --predicate-output agent-vigil-attestation-predicate.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz \
   verify-attestation agent-vigil-report.json \
   --repository OWNER/REPOSITORY \
   --signer-workflow OWNER/REPOSITORY/.github/workflows/separate-receipt-signer.yml

@@ -7,7 +7,7 @@
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**Distribution status, verified August 28, 2026:** GitHub release v0.21.1 and npm package v0.21.1 are public. v0.21.2 is an unpublished release candidate; its release URLs are not usable until the machine-readable state records publication. See [the npm-free installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/9884dc938a6c282b9976acdbb79493d6dd1f378d/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+**Distribution status, verified August 28, 2026:** GitHub release v0.21.2 and npm package v0.21.1 are public. v0.22.0 is the release candidate in this source tree and is not a public package yet. See [the npm-free installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/33ae20140ffb2e25a034f291225849765ff8d217/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 **Check an agent-written pull request before you merge it.**
 
@@ -56,13 +56,13 @@ signed lifecycle receipt without opening a pull request, installing a GitHub
 Action, or changing the target repository:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz pr-receipt \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref <reviewed-full-Agent-Vigil-commit> \
   --signing-key operator-private.pem \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz pr-receipt verify pr-123.receipt.json
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.2/sulmusic-agent-vigil-0.21.2.tgz pr-receipt verify pr-123.receipt.json
 ```
 
 The command makes read-only requests to `api.github.com` for pull-request,
@@ -150,7 +150,7 @@ and 95% Wilson intervals.
 
 The CLI can prepare and verify the legacy full-receipt GitHub/Sigstore
 predicate. Candidate-executing generated workflows cannot sign receipts in
-v0.21.2. Signing authority must live in a separately controlled job that never
+v0.22.0. Signing authority must live in a separately controlled job that never
 executes candidate code. Scheduled Control Proof signing remains separate and
 uses only planted non-candidate challenges. See
 [attestation boundaries](docs/ATTESTED_RECEIPTS.md).
@@ -183,10 +183,11 @@ claim live model/provider behavior. See the precise
 From a reviewed source checkout, the release candidate adds the protection profile:
 
 ```bash
-node dist/cli.js protect --action-sha <reviewed-full-commit>
+node dist/cli.js protect
 ```
 
-`protect` inspects the repository, prepares a base-selected exact-SHA
+`protect` inspects the repository, chooses the immutable reviewed public Action
+commit, prepares a base-selected exact-SHA
 pull-request workflow, anchors policy to the base commit, and prepares a
 completed-run outcome snapshot. Existing files are kept unless `--force` is
 explicit. Generated hosted execution supports plain repositories and root
@@ -373,16 +374,13 @@ If an agent claims 99 tests passed and the runner reports 42, the result is
 For release-candidate validation from a reviewed source checkout, use the built CLI. This is not a public installation path:
 
 ```bash
-node dist/cli.js init --action-sha <reviewed-full-commit>
-
-node dist/cli.js doctor
+node dist/cli.js protect
 ```
 
-`--action-sha` must name one reviewed lowercase 40-hex Agent Vigil commit.
-`init` prepares a small JSON policy, a privacy warning, an evidence placeholder,
-and two exact-pin workflows. It does not prove that the files were committed,
-made required, or adopted. Existing files are kept unless `--force` is
-explicit.
+`protect` prepares the policy, pull-request template, and two exact-pin
+workflows, then runs a disposable proof rehearsal. It reports `PREPARED — not
+active yet` until those files are reviewed, committed, merged, and the exact-head
+check is required. Existing files are kept unless `--force` is explicit.
 
 The evidence workflow is base-selected through `pull_request_target`. It loads
 policy from the pull-request base, checks out the exact head without persisted
@@ -855,7 +853,7 @@ vigil init --action-sha <40-hex> [--repo <path>] [--force]
 vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
 vigil init --profile authority --action-sha <40-hex> [--repo <path>] [--force]
 vigil init --portable --public-key <path> --action-sha <40-hex> [--repo <path>] [--force]
-vigil protect --action-sha <40-hex> [--repo <path>] [--force]
+vigil protect [--action-sha <40-hex>] [--repo <path>] [--force]
 vigil doctor [--repo <path>]
 vigil keygen --private <path> --public <path>
 vigil verify <receipt.json> [--public-key <path>]

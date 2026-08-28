@@ -2,22 +2,7 @@
 
 ## Unreleased
 
-### 0.21.2 release candidate
-
-- Bind hosted execution to the reviewed Node.js 22.23.2 binaries for Linux x64,
-  macOS x64, and macOS arm64. The composite Action now rejects wildcard
-  tool-cache versions and system Node fallbacks, verifies the platform digest,
-  copies the runtime into a private mode-0500 checkpoint, and verifies that
-  checkpoint before its first Node invocation.
-- Select the exact Node runtime before checkout, artifact processing, or other
-  repository-controlled work in the generated evidence, outcome, continuity,
-  and Control Proof workflows. Add a direct hosted differential regression that
-  fails on the prior runtime contract and passes on the repaired one.
-- Keep the immutable v0.21.1 release as historical evidence and advance the
-  package/runtime identity instead of moving or replacing that tag.
-
-
-### Next release
+## 0.22.0 - 2026-08-28
 
 - Let `vigil protect` select and display an immutable reviewed Action commit when
   the operator does not provide `--action-sha`; an explicit pin remains an
@@ -30,6 +15,23 @@
 - Add the zero-install `vigil check <public-pr-url>` entry point for exact clean
   package builds. Development builds without an embedded source commit refuse
   rather than writing a misleading tool identity.
+
+- Bind `vigil check` to the exact commit embedded in the release package and reject a conflicting `--tool-ref` override.
+- Add a hosted five-minute onboarding test that creates a clean disposable repository and exercises the complete no-SHA setup path.
+
+## 0.21.2 - 2026-08-28
+
+- Bind hosted execution to the reviewed Node.js 22.23.2 binaries for Linux x64,
+  macOS x64, and macOS arm64. The composite Action now rejects wildcard
+  tool-cache versions and system Node fallbacks, verifies the platform digest,
+  copies the runtime into a private mode-0500 checkpoint, and verifies that
+  checkpoint before its first Node invocation.
+- Select the exact Node runtime before checkout, artifact processing, or other
+  repository-controlled work in the generated evidence, outcome, continuity,
+  and Control Proof workflows. Add a direct hosted differential regression that
+  fails on the prior runtime contract and passes on the repaired one.
+- Keep the immutable v0.21.1 release as historical evidence and advance the
+  package/runtime identity instead of moving or replacing that tag.
 
 ## 0.21.1 - 2026-08-28
 
