@@ -78,8 +78,11 @@ jobs:
       - name: Create and verify the fixed package artifact
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          AGENT_VIGIL_BUILD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          node scripts/build_cli.mjs
+          grep -F "$GITHUB_SHA" dist/cli.js >/dev/null
           umask 077
           artifact_dir="$RUNNER_TEMP/npm-release"
           mkdir -m 700 "$artifact_dir"
