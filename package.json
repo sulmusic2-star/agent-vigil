@@ -67,7 +67,7 @@
     "node": ">=20"
   },
   "agentVigil": {
-    "hostedTestCommand": "node --test test/*.test.ts"
+    "hostedTestCommand": "node --test --test-concurrency=4 test/*.test.ts"
   },
   "files": [
     "dist",

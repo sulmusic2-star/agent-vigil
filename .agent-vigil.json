@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "integrityMode": "calibrated",
-  "testCommand": "node --test test/*.test.ts",
+  "testCommand": "node --test --test-concurrency=4 test/*.test.ts",
   "strict": true,
   "minVerified": 1,
   "maintainer": {
@@ -34,12 +34,12 @@
     "automatedReview": {
       "setupCommand": "npm ci --ignore-scripts",
       "commands": [
-        "node --test test/*.test.ts"
+        "node --test --test-concurrency=4 test/*.test.ts"
       ],
       "timeoutSeconds": 300
     },
     "differentialTest": {
-      "command": "node --test test/*.test.ts",
+      "command": "node --test --test-concurrency=4 test/*.test.ts",
       "setupCommand": "npm ci --ignore-scripts",
       "timeoutSeconds": 300,
       "overlayChangedTests": true

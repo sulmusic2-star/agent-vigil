@@ -18,7 +18,7 @@ const ACTION_SHA = "a".repeat(40);
 
 test("the Agent Vigil package declares its bounded direct hosted test command", () => {
   const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  assert.equal(manifest.agentVigil?.hostedTestCommand, "node --test test/*.test.ts");
+  assert.equal(manifest.agentVigil?.hostedTestCommand, "node --test --test-concurrency=4 test/*.test.ts");
 });
 
 function temp(prefix = "vigil-adoption-") { return mkdtempSync(join(tmpdir(), prefix)); }
@@ -52,7 +52,7 @@ test("the Agent Vigil package's hosted override survives init and committed doct
   mkdirSync(join(path, "test"));
   writeFileSync(join(path, "test/self.test.ts"), 'import { test } from "node:test";\ntest("self", () => {});\n');
   initRepository(path, false, undefined, "default", false, ACTION_SHA);
-  assert.equal(JSON.parse(readFileSync(join(path, ".agent-vigil.json"), "utf8")).testCommand, "node --test test/*.test.ts");
+  assert.equal(JSON.parse(readFileSync(join(path, ".agent-vigil.json"), "utf8")).testCommand, "node --test --test-concurrency=4 test/*.test.ts");
   commitAll(path, "Agent Vigil hosted self-contract");
   const checks = doctorRepository(path);
   assert.ok(checks.some((check) => check.label === "Candidate isolation" && check.status === "PASS"));
