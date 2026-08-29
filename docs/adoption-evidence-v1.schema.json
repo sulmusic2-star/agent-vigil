@@ -85,6 +85,11 @@
         "requiredCheckObservedAt": {
           "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }]
         },
+        "configurationObservedAt": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/timestamp" }
+        },
         "retentionEvidenceUrl": {
           "oneOf": [{ "$ref": "#/$defs/httpsUrl" }, { "type": "null" }]
         },
