@@ -9,7 +9,10 @@ const REASON_CODE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const REPOSITORY_PART = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
 const ADOPTION_FORM = "https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml";
 const SAFE_REPOSITORY_PART = /^[A-Za-z0-9_.-]+$/;
-const SUCCESSFUL_CHECKS = new Set(["success", "neutral", "skipped"]);
+// GitHub accepts neutral and skipped required checks. This evidence view does
+// not call either conclusion a pass because no successful run was proved.
+const SUCCESSFUL_CHECKS = new Set(["success"]);
+const NON_PROVING_CHECKS = new Set(["neutral", "skipped"]);
 const FAILED_CHECKS = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale", "error"]);
 const EFFECTIVE_REVIEW_STATES = new Set(["approved", "changes_requested", "dismissed"]);
 export function parsePullRequestUrl(raw) {
@@ -188,8 +191,9 @@ export function latestVisibleChecks(checkRuns, statuses) {
     const at = timestamp(check.completed_at) ?? timestamp(check.started_at) ?? "1970-01-01T00:00:00.000Z";
     const previous = rows.get(key);
     if (!previous || Date.parse(at) >= Date.parse(previous.at)) {
-      const state = lower(check.status) !== "completed" ? "pending" : SUCCESSFUL_CHECKS.has(lower(check.conclusion)) ? "passing" : FAILED_CHECKS.has(lower(check.conclusion)) ? "failing" : "unknown";
-      rows.set(key, { name, state, at, url: typeof check.html_url === "string" ? check.html_url : undefined });
+      const conclusion = lower(check.conclusion);
+      const state = lower(check.status) !== "completed" ? "pending" : SUCCESSFUL_CHECKS.has(conclusion) ? "passing" : FAILED_CHECKS.has(conclusion) ? "failing" : "unknown";
+      rows.set(key, { name, state, conclusion, at, url: typeof check.html_url === "string" ? check.html_url : undefined });
     }
   }
   for (const item of statuses) {
@@ -201,7 +205,7 @@ export function latestVisibleChecks(checkRuns, statuses) {
     if (!previous || Date.parse(at) >= Date.parse(previous.at)) {
       const rawState = lower(status.state);
       const state = rawState === "success" ? "passing" : rawState === "pending" ? "pending" : FAILED_CHECKS.has(rawState) ? "failing" : "unknown";
-      rows.set(key, { name, state, at, url: typeof status.target_url === "string" ? status.target_url : undefined });
+      rows.set(key, { name, state, conclusion: rawState, at, url: typeof status.target_url === "string" ? status.target_url : undefined });
     }
   }
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -252,6 +256,7 @@ export async function buildBrowserReceipt(snapshot, options = {}) {
   const mergeAt = merged ? timestamp(snapshot.pull.merged_at) : undefined;
   const latestApprovalAt = approvedReviews.map((review) => timestamp(review.submitted_at)).filter(Boolean).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   const successfulCheckTimes = visibleChecks.filter((row) => row.state === "passing" && row.at !== "1970-01-01T00:00:00.000Z").map((row) => row.at);
+  const nonProvingConclusions = visibleChecks.filter((row) => NON_PROVING_CHECKS.has(row.conclusion)).length;
   const hasCompleteDecisiveTimestamps = Boolean(mergeAt && latestApprovalAt) && successfulCheckTimes.length === checks.total;
   const freshnessReferenceAt = hasCompleteDecisiveTimestamps ? [mergeAt, latestApprovalAt, ...successfulCheckTimes].sort((a, b) => Date.parse(a) - Date.parse(b))[0] : null;
   const rawLatestAgeHours = (generatedAtEpoch - Date.parse(latestAt)) / 3_600_000;
@@ -293,6 +298,7 @@ export async function buildBrowserReceipt(snapshot, options = {}) {
     if (checks.failing) reasonCodes.push("checks-failing");
     if (checks.pending) reasonCodes.push("checks-pending");
     if (checks.unknown) reasonCodes.push("check-conclusion-unknown");
+    if (nonProvingConclusions) reasonCodes.push("checks-neutral-or-skipped");
     if (checks.passing && successfulCheckTimes.length !== checks.passing) reasonCodes.push("check-timestamp-missing");
     if (snapshot.unavailable.length) reasonCodes.push("source-coverage-incomplete");
   }
@@ -404,7 +410,7 @@ function renderCheckRows(container, rows) {
     item.className = `check-row ${row.state}`;
     const state = document.createElement("span");
     state.className = "check-state";
-    text(state, row.state.toUpperCase());
+    text(state, NON_PROVING_CHECKS.has(row.conclusion) ? `NOT CHECKED (${row.conclusion.toUpperCase()})` : row.state.toUpperCase());
     const name = document.createElement(row.url && /^https:\/\/github\.com\//.test(row.url) ? "a" : "span");
     text(name, row.name);
     if (name instanceof HTMLAnchorElement) { name.href = row.url; name.target = "_blank"; name.rel = "noreferrer"; }
