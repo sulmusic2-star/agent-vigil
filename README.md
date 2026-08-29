@@ -5,13 +5,40 @@
 [![Node 20+](https://img.shields.io/badge/node-20%2B-339933.svg)](package.json)
 [![No runtime dependencies](https://img.shields.io/badge/runtime_dependencies-0-0f766e.svg)](package.json)
 
+**Agent Vigil is a required GitHub check for pull requests made with coding agents.**
+
+It verifies the exact proposed commit with rules and tests selected from the
+base branch. Missing, stale, contradictory, or weakened evidence does not pass.
+Every result names the base and head commits and includes a reproduction
+command.
+
+Agent Vigil does not replace code review and does not claim that passing tests
+make code correct. Review tools look for likely bugs. Agent Vigil answers a
+narrower question: **did this exact change produce the evidence the repository
+requires before merge?**
+
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-**Distribution status, verified August 28, 2026:** GitHub release v0.22.0 and npm package v0.21.1 are public. npm v0.22.0 has completed the trusted staging workflow but is not public in the registry yet. See [the five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/7531f549eb3f4c6c5bdc4a12245c8690a7a79a09/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+## Try it without changing a repository
 
-**Check an agent-written pull request before you merge it.**
+[Paste a public pull-request URL into the browser checker](https://sulmusic2-star.github.io/agent-vigil/check.html).
+No login, token, repository write, or source upload is required. This first
+check reads public GitHub metadata only; it does not run repository tests or
+authorize a merge.
 
-**Start here:** [paste a public pull-request URL into the browser checker](https://sulmusic2-star.github.io/agent-vigil/check.html). No login, token, repository write, or source upload is required. If the result is useful, [follow the exact v0.22.0 setup path](https://github.com/sulmusic2-star/agent-vigil/blob/7531f549eb3f4c6c5bdc4a12245c8690a7a79a09/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md); outside maintainers can optionally [register a trial](https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml) with public evidence and consent.
+Outside maintainers may optionally [register a trial](https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml)
+with public evidence and consent.
+
+The full hosted gate currently supports a deliberately narrow setup: a root
+Node/npm repository whose test script resolves to a direct `node --test`
+command. Local transcript adapters understand Codex, Claude Code, Copilot,
+Cursor, Gemini CLI, Aider, and OpenCode exports. Those adapters do not make an
+unsupported repository eligible for the hosted installer.
+
+**Distribution status, verified August 29, 2026:** GitHub release v0.22.0 and
+the Marketplace Action are public. npm currently serves v0.21.1. Use the
+[immutable v0.22.0 GitHub package and five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/7531f549eb3f4c6c5bdc4a12245c8690a7a79a09/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+until npm reaches release parity.
 
 ## Run the proof before installing it
 

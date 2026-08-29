@@ -119,20 +119,20 @@
   <div class="wrap">
     <nav aria-label="Primary">
       <a class="brand" href="#top">AGENT VIGIL</a>
-        <div><a href="check.html">Check a PR</a><a href="#protect">Protection</a><a href="#continuity">After merge</a><a href="#authority">Authority changes</a><a href="#proof">Failures caught</a><a href="#try">Proof</a><a href="#attestation">Signed receipts</a><a href="#benchmark">Benchmark</a><a href="#value">Outcomes</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
+        <div><a href="check.html">Check a PR</a><a href="#protect">How it works</a><a href="#proof">Evidence</a><a href="#install">Install</a><a href="https://github.com/sulmusic2-star/agent-vigil">Source</a></div>
     </nav>
     <main id="top">
       <div class="hero">
         <div>
-          <p class="eyebrow">For pull requests made with coding agents</p>
+          <p class="eyebrow">A required GitHub check for agent-written pull requests</p>
           <h1>Check the work before it merges.</h1>
-          <p class="lead">Agent Vigil checks the exact commits, runs the tests you trust, and compares the result with the work that was requested. If the evidence is missing, the check does not pass.</p>
+          <p class="lead">Agent Vigil checks exact commits with rules and tests selected from the base branch. If required evidence is missing, stale, contradictory, or weakened, the check does not pass.</p>
           <div class="actions">
             <a class="button" href="check.html">Check a public PR</a>
             <a class="button secondary" href="#install">Install the gate</a>
           </div>
-          <p class="fine">Runs in your repository with no runtime packages. Supports Codex, Claude Code, Copilot, Cursor, Gemini CLI, Aider, and OpenCode.</p>
-          <p class="fine">GitHub release v0.22.0 and npm package v0.21.1 are public. npm v0.22.0 is staged but is not public in the registry yet.</p>
+          <p class="fine"><strong>Hosted installer:</strong> root Node/npm repositories using a direct <code>node --test</code> command. Local transcript adapters support Codex, Claude Code, Copilot, Cursor, Gemini CLI, Aider, and OpenCode.</p>
+          <p class="fine"><strong>Current distribution:</strong> GitHub and Marketplace v0.22.0; npm v0.21.1. Use the immutable GitHub package until npm reaches release parity.</p>
         </div>
         <div class="terminal" aria-label="Example failed receipt">
           <header>agent-vigil-report.json / exact base ↔ head</header>
@@ -155,6 +155,12 @@
         <div><b class="fail">FAIL</b>A required check found a contradiction or policy violation.</div>
         <div><b class="warn">INCONCLUSIVE</b>There is not enough reliable evidence to approve the change.</div>
       </div>
+
+      <section id="purpose">
+        <p class="eyebrow">Where it fits</p>
+        <h2>Use review to find bugs. Use Agent Vigil to enforce evidence.</h2>
+        <p class="section-lead">Code review asks what might be wrong. Agent Vigil asks whether this exact change produced the evidence the repository required: the trusted tests ran, changed tests prove the intended regression, the test suite was not weakened, and the change stayed inside policy. It does not prove the code is correct or replace a maintainer's judgment.</p>
+      </section>
 
       <section id="observe">
         <p class="eyebrow">No workflow changes</p>

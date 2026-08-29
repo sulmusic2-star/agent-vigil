@@ -93,7 +93,7 @@ test("the public package and generated hosted contract use one release identity"
   assert.equal(installState.source_release_candidate, undefined);
   assert.equal(installState.npm_registry.observed_version, "0.21.1");
   assert.equal(installState.npm_registry.target_published, false);
-  assert.match(readme, /GitHub release v0\.22\.0 and npm package v0\.21\.1 are public/);
+  assert.match(readme, /GitHub release v0\.22\.0 and.*Marketplace Action are public.*npm currently serves v0\.21\.1/s);
   assert.match(readme, /node dist\/cli\.js protect/);
   assert.doesNotMatch(readme, /node dist\/cli\.js protect --action-sha/);
   assert.match(readme, /releases\/download\/v0\.22\.0\/sulmusic-agent-vigil-0\.22\.0\.tgz/);
