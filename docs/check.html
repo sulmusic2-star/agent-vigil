@@ -162,8 +162,9 @@
         <div class="actions" aria-label="Result actions">
           <button id="download-receipt" type="button">Download receipt</button>
           <button id="copy-pr-result" type="button">Copy result for PR</button>
-          <button id="copy-install" type="button">Copy install command</button>
+          <button id="copy-install" type="button">Copy setup steps</button>
           <a class="button secondary" id="open-pr" href="https://github.com" target="_blank" rel="noreferrer">Open pull request</a>
+          <a class="button secondary" id="register-trial" href="https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml" target="_blank" rel="noreferrer" hidden>Register this trial</a>
           <a class="button secondary" href="INSTALL_WITHOUT_NPM_ACCOUNT.md">Review installation</a>
         </div>
       </section>
@@ -179,9 +180,9 @@
             <li><strong>Check the public record.</strong> The browser receipt records exact commit identity, formal reviews, check counts, freshness, and missing coverage.</li>
             <li><strong>Inspect the limits.</strong> This page does not run trusted repository tests or decide whether those tests were sufficient.</li>
             <li><strong>Install the repository gate.</strong> The copied v0.22.0 command prepares an exact-pin workflow and base-owned policy for review.</li>
-            <li><strong>Make the check required.</strong> A repository owner must configure enforcement. A prepared workflow alone does not protect merges.</li>
+            <li><strong>Add real enforcement.</strong> Use an external required workflow or an App-owned exact-head check. Requiring an ordinary job name does not establish who supplied the workflow.</li>
           </ol>
-          <p class="fine">Downloaded receipts contain normalized counts, commit IDs, endpoint hashes, and decision fields. Copied PR results contain only the verdict, counts, commits, gaps, and receipt hash. Nothing is posted automatically. Both omit response bodies, check logs, review text, source, prompts, and transcripts.</p>
+          <p class="fine">Copied setup steps are labeled for the checked repository but run only in a local checkout. Trial registration is optional and opens a consent form; it does not install anything. Downloaded receipts and copied results omit response bodies, check logs, review text, source, prompts, and transcripts. Nothing is posted automatically.</p>
         </div>
       </section>
     </main>

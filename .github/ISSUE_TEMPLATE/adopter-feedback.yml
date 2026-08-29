@@ -1,5 +1,5 @@
-name: Adoption feedback
-description: Tell us what blocked or enabled a real repository installation.
+name: Register an outside trial
+description: Provide consented evidence from a repository you own or maintain. Opening this form does not count as an installation.
 title: "[adoption] "
 labels: ["adoption"]
 body:
@@ -58,6 +58,9 @@ body:
       options:
         - label: I own or maintain the repository and consent to Agent Vigil listing the linked public evidence in ADOPTERS.md.
           required: false
+  - type: markdown
+    attributes:
+      value: A public mention, browser receipt, or submitted form is not counted as a configured repository. Public adoption counts require a workflow that actually uses Agent Vigil. A required job name by itself does not count; required-check evidence needs an external required workflow or App-owned exact-head check.
   - type: textarea
     id: retain
     attributes:

@@ -26,6 +26,7 @@ function repo(): string {
   writeFileSync(join(path, "app.test.js"), "test('answer', () => expect(answer).toBe(42));\n");
   execFileSync("git", ["add", "-A"], { cwd: path });
   execFileSync("git", ["commit", "-qm", "base"], { cwd: path });
+  execFileSync("git", ["remote", "add", "origin", "https://github.com/example/project.git"], { cwd: path });
   return path;
 }
 
@@ -71,6 +72,12 @@ test("protect needs no SHA and reports one truthful prepared state", () => {
   assert.match(output, /Found\s+node --test/);
   assert.match(output, /real regression test failed on old code and passed on proposed code/);
   assert.match(output, /planted weak test passed on both versions; merge proof blocked/);
+  assert.match(output, /Optional workflow badge \(run status only; not proof of required-check enforcement\)/);
+  assert.match(output, /https:\/\/github\.com\/example\/project\/actions\/workflows\/agent-vigil\.yml\/badge\.svg/);
+  assert.match(output, /Register an outside trial only after the workflow runs/);
+  assert.match(output, /RUNNING IN CI, not enforced/);
+  assert.match(output, /plain required job name is not a workflow trust root/);
+  assert.match(output, /issues\/new\?template=adopter-feedback\.yml&title=%5Badoption%5D%20example%2Fproject/);
   assert.doesNotMatch(output, /13 failure|Agent Vigil doctor|✓ PASS|✗ FAIL/);
 });
 

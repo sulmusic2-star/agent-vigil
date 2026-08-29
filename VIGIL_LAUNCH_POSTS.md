@@ -2,6 +2,40 @@
 
 Prepared August 28, 2026. Not posted.
 
+## Browser-first public launch
+
+**Title:** Show HN: Check the public evidence behind a coding-agent PR without installing anything
+
+Paste a public GitHub pull request into:
+
+https://sulmusic2-star.github.io/agent-vigil/check.html
+
+Agent Vigil reads public pull-request, review, check-run, and commit-status
+metadata. It returns `CURRENT`, `HOLD`, `EXPIRED`, or `REVOKED`, with exact base
+and head commits and a downloadable receipt. It asks for no login or token,
+fetches no source code, and writes nothing to the repository.
+
+The page is deliberately conservative. A green public record does not prove
+that the tests were sufficient and never authorizes a merge or deployment.
+
+If the result is useful, the page copies the exact v0.22.0 local setup steps.
+The current hosted workflow supports a root Node/npm repository with a direct
+`node --test` command. Unsupported repository shapes fail closed.
+
+Source: https://github.com/sulmusic2-star/agent-vigil
+
+I am measuring configured outside workflows and repeat runs separately from
+page views, clones, stars, mentions, payments, and revenue. The starting count
+of verified outside installations is zero.
+
+**Short post:**
+
+Paste a public coding-agent PR into Agent Vigil. It checks the public reviews,
+checks, exact commits, and missing evidence without a login, token, source
+upload, or repository write. The result never authorizes merge or deployment.
+
+https://sulmusic2-star.github.io/agent-vigil/check.html
+
 ## GitHub launch demonstration
 
 A coding-agent change can pass every check at merge time and become unsafe

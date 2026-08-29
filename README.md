@@ -11,6 +11,8 @@
 
 **Check an agent-written pull request before you merge it.**
 
+**Start here:** [paste a public pull-request URL into the browser checker](https://sulmusic2-star.github.io/agent-vigil/check.html). No login, token, repository write, or source upload is required. If the result is useful, [follow the exact v0.22.0 setup path](https://github.com/sulmusic2-star/agent-vigil/blob/7531f549eb3f4c6c5bdc4a12245c8690a7a79a09/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md); outside maintainers can optionally [register a trial](https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml) with public evidence and consent.
+
 ## Run the proof before installing it
 
 From a checkout, this creates a disposable repository, installs and diagnoses
@@ -83,6 +85,9 @@ checks were sufficient. See the precise
 [public PR receipt boundary](docs/PUBLIC_PR_RECEIPT.md).
 Self-serve trial reports have a dedicated
 [public receipt feedback form](https://github.com/sulmusic2-star/agent-vigil/issues/new?template=public-pr-receipt-feedback.yml).
+The current [14-day adoption experiment](docs/ADOPTION_EXPERIMENT_2026-08-28.md)
+counts external workflows and maintainer evidence separately from page views,
+clones, mentions, payments, and revenue.
 
 Agent Vigil checks an exact code change against the task, policy, tests, and
 recorded tool actions behind it. It returns **PASS**, **FAIL**, or

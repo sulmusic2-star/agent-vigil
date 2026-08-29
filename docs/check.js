@@ -6,6 +6,8 @@ const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const FULL_GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const RECEIPT_SHA256 = /^sha256:[0-9a-f]{64}$/;
 const REASON_CODE = /^[a-z0-9][a-z0-9-]{0,80}$/;
+const REPOSITORY_PART = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
+const ADOPTION_FORM = "https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml";
 const SAFE_REPOSITORY_PART = /^[A-Za-z0-9_.-]+$/;
 const SUCCESSFUL_CHECKS = new Set(["success", "neutral", "skipped"]);
 const FAILED_CHECKS = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale", "error"]);
@@ -314,6 +316,33 @@ export function installationCommand() {
   return `npx --yes ${RELEASE_PACKAGE} protect --repo .`;
 }
 
+function validRepositorySlug(value) {
+  const parts = typeof value === "string" ? value.split("/") : [];
+  return parts.length === 2 && parts.every((part) => REPOSITORY_PART.test(part));
+}
+
+export function installationSteps(receipt) {
+  prCommentMarkdown(receipt);
+  const repository = receipt?.subject?.repository;
+  if (!validRepositorySlug(repository)) throw new Error("A valid public repository is required before copying setup steps.");
+  return [
+    `# In a local checkout of ${repository}:`,
+    installationCommand(),
+    "git status --short",
+    "# Review the four generated files, then commit them in a setup pull request.",
+    "# After that setup commit merges:",
+    `npx --yes ${RELEASE_PACKAGE} doctor --repo .`,
+    "# PREPARED is not enforced. A plain required job name is not a workflow trust root.",
+  ].join("\n");
+}
+
+export function adoptionRegistrationUrl(receipt) {
+  prCommentMarkdown(receipt);
+  const repository = receipt?.subject?.repository;
+  if (!validRepositorySlug(repository)) throw new Error("A valid public repository is required before registering a trial.");
+  return `${ADOPTION_FORM}&title=${encodeURIComponent(`[adoption] ${repository}`)}`;
+}
+
 export function prCommentMarkdown(receipt) {
   const continuity = receipt?.decision?.continuity;
   const subject = receipt?.subject;
@@ -394,12 +423,11 @@ function downloadReceipt(receipt) {
   URL.revokeObjectURL(url);
 }
 
-async function copyCommand(button, liveRegion) {
-  const command = installationCommand();
-  await navigator.clipboard.writeText(command);
-  text(button, "Install command copied");
-  text(liveRegion, "The exact v0.22.0 installation command was copied.");
-  setTimeout(() => text(button, "Copy install command"), 2200);
+async function copyCommand(receipt, button, liveRegion) {
+  await navigator.clipboard.writeText(installationSteps(receipt));
+  text(button, "Setup steps copied");
+  text(liveRegion, `Setup steps for ${receipt.subject.repository} were copied. Nothing was installed or posted.`);
+  setTimeout(() => text(button, "Copy setup steps"), 2200);
 }
 
 async function copyPrComment(receipt, button, liveRegion) {
@@ -420,6 +448,7 @@ function initialize() {
   const download = document.querySelector("#download-receipt");
   const copyResult = document.querySelector("#copy-pr-result");
   const copy = document.querySelector("#copy-install");
+  const register = document.querySelector("#register-trial");
   let selectedReceipt;
 
   form.addEventListener("submit", async (event) => {
@@ -447,6 +476,7 @@ function initialize() {
       text(document.querySelector("#result-gaps"), receipt.decision.reasonCodes.length ? receipt.decision.reasonCodes.join(" · ") : "none recorded");
       text(document.querySelector("#result-hash"), receipt.receiptHash);
       setLink(document.querySelector("#open-pr"), receipt.subject.url);
+      setLink(register, adoptionRegistrationUrl(receipt));
       renderCheckRows(document.querySelector("#check-list"), rows);
       result.hidden = false;
       result.focus();
@@ -464,7 +494,9 @@ function initialize() {
   copyResult.addEventListener("click", () => {
     if (selectedReceipt) copyPrComment(selectedReceipt, copyResult, live).catch(() => text(live, "Copy failed. The result was not posted."));
   });
-  copy.addEventListener("click", () => copyCommand(copy, live).catch(() => text(live, `Copy failed. Run: ${installationCommand()}`)));
+  copy.addEventListener("click", () => {
+    if (selectedReceipt) copyCommand(selectedReceipt, copy, live).catch(() => text(live, `Copy failed. Run: ${installationCommand()}`));
+  });
 }
 
 if (typeof document !== "undefined") initialize();
