@@ -124,7 +124,7 @@
       </section>
 
       <section class="desk" aria-labelledby="desk-title">
-        <div class="desk-head"><span id="desk-title">Read-only observation</span><span>browser 0.22.0-browser.1</span></div>
+        <div class="desk-head"><span id="desk-title">Read-only observation</span><span>browser 0.22.0-browser.2</span></div>
         <form id="pr-check-form" aria-describedby="form-note">
           <label for="pr-url">Public GitHub pull-request URL</label>
           <input id="pr-url" name="pull-request" type="url" required spellcheck="false" autocomplete="off" placeholder="https://github.com/owner/repository/pull/123">
@@ -156,6 +156,7 @@
         </div>
         <div class="checks">
           <h3>Latest visible checks</h3>
+          <p class="form-note">Skipped and neutral conclusions may satisfy GitHub branch protection. Agent Vigil reports them as not checked, not passing.</p>
           <ul class="check-list" id="check-list"></ul>
         </div>
         <p class="receipt-hash"><strong>Receipt:</strong> <span id="result-hash"></span></p>
