@@ -7944,7 +7944,7 @@ import { relative as relative8, resolve as resolve12 } from "node:path";
 import { createHash as createHash14 } from "node:crypto";
 import { posix } from "node:path";
 
-// ../agent-vigil-five-minute-value-20260828.nosync/node_modules/smol-toml/dist/date.js
+// node_modules/smol-toml/dist/date.js
 var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
 var TomlDate = class _TomlDate extends Date {
   #hasDate = false;
@@ -8036,7 +8036,7 @@ var TomlDate = class _TomlDate extends Date {
   }
 };
 
-// ../agent-vigil-five-minute-value-20260828.nosync/node_modules/smol-toml/dist/error.js
+// node_modules/smol-toml/dist/error.js
 function getLineColFromPtr(string4, ptr) {
   let lines = string4.slice(0, ptr).split(/\r\n|\n|\r/g);
   return [lines.length, lines.pop().length + 1];
@@ -8076,7 +8076,7 @@ ${codeblock}`, options);
   }
 };
 
-// ../agent-vigil-five-minute-value-20260828.nosync/node_modules/smol-toml/dist/util.js
+// node_modules/smol-toml/dist/util.js
 function indexOfNewline(str, start = 0) {
   let idx = str.indexOf("\n", start);
   if (str.charCodeAt(idx - 1) === 13)
@@ -8131,7 +8131,7 @@ function skipUntil(ctx, sep17, end) {
   });
 }
 
-// ../agent-vigil-five-minute-value-20260828.nosync/node_modules/smol-toml/dist/primitive.js
+// node_modules/smol-toml/dist/primitive.js
 var INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
 var FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
 var LEADING_ZERO = /^[+-]?0[0-9_]/;
@@ -8287,7 +8287,7 @@ function parseValue(ctx, integersAsBigInt, end) {
   return date;
 }
 
-// ../agent-vigil-five-minute-value-20260828.nosync/node_modules/smol-toml/dist/extract.js
+// node_modules/smol-toml/dist/extract.js
 function extractValue(ctx, end, integersAsBigInt) {
   let ptr = ctx.p;
   let c = ctx.s.charCodeAt(ptr);
@@ -8320,7 +8320,7 @@ function extractValue(ctx, end, integersAsBigInt) {
   return parseValue(ctx, integersAsBigInt, end);
 }
 
-// ../agent-vigil-five-minute-value-20260828.nosync/node_modules/smol-toml/dist/struct.js
+// node_modules/smol-toml/dist/struct.js
 var KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
 function parseKey(ctx, end = "=") {
   let start = ctx.p;
@@ -8462,7 +8462,7 @@ function parseArray(ctx, integersAsBigInt) {
   });
 }
 
-// ../agent-vigil-five-minute-value-20260828.nosync/node_modules/smol-toml/dist/parse.js
+// node_modules/smol-toml/dist/parse.js
 function peekTable(key, table, meta, type3) {
   let t = table;
   let m = meta;
