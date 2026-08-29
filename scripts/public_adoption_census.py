@@ -29,6 +29,13 @@ WORKFLOW_RE = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$", re.I)
 EXCLUDED_OWNERS = {"sulmusic2-star"}
 
 
+def calendar_date(value: str, label: str) -> dt.date:
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError(f"{label} must be YYYY-MM-DD") from error
+
+
 def gh_json(endpoint: str, fields: dict[str, str] | None = None) -> dict[str, Any]:
     command = ["gh", "api", "-X", "GET", endpoint]
     for key, value in (fields or {}).items():
@@ -37,15 +44,24 @@ def gh_json(endpoint: str, fields: dict[str, str] | None = None) -> dict[str, An
     return json.loads(completed.stdout)
 
 
-def workflow_run_evidence(full_name: str, workflow_name: str) -> dict[str, Any]:
+def workflow_run_evidence(
+    full_name: str,
+    workflow_name: str,
+    window_start: dt.date | None = None,
+    window_end: dt.date | None = None,
+) -> dict[str, Any]:
     endpoint = f"repos/{full_name}/actions/workflows/{quote(workflow_name)}/runs"
-    newest = gh_json(endpoint, {"per_page": "100", "page": "1"})
+    fields = {"per_page": "100", "page": "1"}
+    if window_start is not None and window_end is not None:
+        fields["created"] = f"{window_start.isoformat()}..{window_end.isoformat()}"
+    newest = gh_json(endpoint, fields)
     total = int(newest.get("total_count", 0))
     newest_runs = newest.get("workflow_runs", []) if isinstance(newest.get("workflow_runs"), list) else []
     oldest_runs = newest_runs
     if total > 100:
         last_page = (total + 99) // 100
-        oldest = gh_json(endpoint, {"per_page": "100", "page": str(last_page)})
+        oldest_fields = {**fields, "page": str(last_page)}
+        oldest = gh_json(endpoint, oldest_fields)
         oldest_runs = oldest.get("workflow_runs", []) if isinstance(oldest.get("workflow_runs"), list) else []
     sampled = newest_runs + ([] if oldest_runs is newest_runs else oldest_runs)
     timestamps = sorted({str(run.get("created_at")) for run in sampled if run.get("created_at")})
@@ -56,10 +72,12 @@ def workflow_run_evidence(full_name: str, workflow_name: str) -> dict[str, Any]:
         "last_observed_at": timestamps[-1] if timestamps else None,
         "distinct_run_days_sampled": len(days),
         "sample_complete": total <= 100,
+        "run_window_start": window_start.isoformat() if window_start is not None else None,
+        "run_window_end": window_end.isoformat() if window_end is not None else None,
     }
 
 
-def live_input() -> dict[str, Any]:
+def live_input(window_start: dt.date | None = None, window_end: dt.date | None = None) -> dict[str, Any]:
     search = gh_json("search/code", {"q": '"sulmusic2-star/agent-vigil"', "per_page": "100"})
     rows: list[dict[str, Any]] = []
     repos: set[str] = set()
@@ -82,7 +100,7 @@ def live_input() -> dict[str, Any]:
                 repos.add(full_name)
             workflow_name = Path(path).name
             try:
-                evidence = workflow_run_evidence(full_name, workflow_name)
+                evidence = workflow_run_evidence(full_name, workflow_name, window_start, window_end)
                 row["workflow_runs"] = evidence["total_count"]
                 row["workflow_run_evidence"] = evidence
             except subprocess.CalledProcessError:
@@ -99,7 +117,11 @@ def live_input() -> dict[str, Any]:
     return {"references": rows, "receipt_artifacts": artifacts}
 
 
-def classify(source: dict[str, Any]) -> dict[str, Any]:
+def classify(
+    source: dict[str, Any],
+    window_start: dt.date | None = None,
+    window_end: dt.date | None = None,
+) -> dict[str, Any]:
     references: list[dict[str, Any]] = []
     configured: dict[str, dict[str, Any]] = {}
     continuity_gates: set[str] = set()
@@ -125,7 +147,24 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
         sample_complete = evidence.get("sample_complete") is True
         current_complete = target.get("run_sample_complete")
         target["run_sample_complete"] = sample_complete if current_complete is None else bool(current_complete and sample_complete)
-    for row in source.get("references", []):
+    for raw_row in source.get("references", []):
+        row = dict(raw_row)
+        timestamps = row.get("workflow_run_timestamps")
+        if window_start is not None and window_end is not None and isinstance(timestamps, list):
+            bounded = sorted({
+                value for value in timestamps
+                if isinstance(value, str) and window_start.isoformat() <= value[:10] <= window_end.isoformat()
+            })
+            row["workflow_runs"] = len(bounded)
+            row["workflow_run_evidence"] = {
+                "total_count": len(bounded),
+                "first_observed_at": bounded[0] if bounded else None,
+                "last_observed_at": bounded[-1] if bounded else None,
+                "distinct_run_days_sampled": len({value[:10] for value in bounded}),
+                "sample_complete": True,
+                "run_window_start": window_start.isoformat(),
+                "run_window_end": window_end.isoformat(),
+            }
         repository = str(row.get("repository", ""))
         path = str(row.get("path", ""))
         content = str(row.get("content", ""))
@@ -221,6 +260,11 @@ def classify(source: dict[str, Any]) -> dict[str, Any]:
             "repeat_use_means_two_or_more_current_workflow_runs_not_two_distinct_days": True,
             "thirty_day_activity_span_is_public_run_timing_not_maintainer_confirmed_retention": True,
             "keyless_control_proof_is_signed_product_evidence_not_required_check_or_adoption_by_itself": True,
+            "workflow_run_window": {
+                "start": window_start.isoformat() if window_start is not None else None,
+                "end": window_end.isoformat() if window_end is not None else None,
+                "inclusive": window_start is not None,
+            },
         },
         "counts": {
             "external_repositories_configured": len(configured),
@@ -247,9 +291,20 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixture", type=Path, help="Classify a saved input instead of calling GitHub")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--run-window-start")
+    parser.add_argument("--run-window-end")
     args = parser.parse_args()
-    source = json.loads(args.fixture.read_text()) if args.fixture else live_input()
-    result = classify(source)
+    if bool(args.run_window_start) != bool(args.run_window_end):
+        parser.error("--run-window-start and --run-window-end must be provided together")
+    try:
+        window_start = calendar_date(args.run_window_start, "--run-window-start") if args.run_window_start else None
+        window_end = calendar_date(args.run_window_end, "--run-window-end") if args.run_window_end else None
+    except ValueError as error:
+        parser.error(str(error))
+    if window_start is not None and window_end is not None and window_end < window_start:
+        parser.error("--run-window-end must not precede --run-window-start")
+    source = json.loads(args.fixture.read_text()) if args.fixture else live_input(window_start, window_end)
+    result = classify(source, window_start, window_end)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

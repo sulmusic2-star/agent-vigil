@@ -85,7 +85,7 @@ checks were sufficient. See the precise
 [public PR receipt boundary](docs/PUBLIC_PR_RECEIPT.md).
 Self-serve trial reports have a dedicated
 [public receipt feedback form](https://github.com/sulmusic2-star/agent-vigil/issues/new?template=public-pr-receipt-feedback.yml).
-The current [14-day adoption experiment](docs/ADOPTION_EXPERIMENT_2026-08-28.md)
+The current [14-day adoption experiment](https://github.com/sulmusic2-star/agent-vigil/blob/f30b5b53630c1cc5a46f4781e24cd7ac9af4fdba/docs/ADOPTION_EXPERIMENT_2026-08-28.md)
 counts external workflows and maintainer evidence separately from page views,
 clones, mentions, payments, and revenue.
 

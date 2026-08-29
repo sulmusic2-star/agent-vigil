@@ -226,7 +226,6 @@ test("npm package surface excludes internal product and commercial working docum
 
   const allowedPublishedDocs = [
     "docs/60_SECOND_DEMO.md",
-    "docs/ADOPTION_EXPERIMENT_2026-08-28.md",
     "docs/ADOPTION_EVIDENCE.md",
     "docs/AGENT_VALUE_CARD.md",
     "docs/AI_CHANGE_EPISODE_V1.md",

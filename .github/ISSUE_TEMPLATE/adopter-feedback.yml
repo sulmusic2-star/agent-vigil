@@ -8,10 +8,6 @@ body:
     attributes:
       label: Installation state
       options:
-        - Public PR receipt created
-        - Public PR receipt verified offline
-        - Evaluating
-        - Installed locally
         - Running in CI
         - Receipt artifact retained
         - Required merge check
@@ -24,10 +20,8 @@ body:
     attributes:
       label: Evidence mode
       options:
-        - Public PR receipt
         - Full transcript or summary
         - Portable receipt
-        - Not installed
     validations:
       required: true
   - type: textarea
@@ -50,7 +44,7 @@ body:
       description: Link the repository, exact workflow, run, receipt artifact, and maintainer disposition when public. Private reports are welcome but are not added to public milestone counts.
       placeholder: "Repository: ...\nWorkflow: ...\nRun or receipt: ...\nMaintainer disposition: ..."
     validations:
-      required: false
+      required: true
   - type: checkboxes
     id: listing_consent
     attributes:

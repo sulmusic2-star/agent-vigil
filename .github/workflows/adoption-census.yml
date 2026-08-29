@@ -16,9 +16,9 @@ jobs:
       - name: Observe public workflow activity
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/public_adoption_census.py --output adoption-census.json
+        run: python3 scripts/public_adoption_census.py --run-window-start 2026-08-28 --run-window-end 2026-09-10 --output adoption-census.json
       - name: Validate consented adoption evidence
-        run: python3 scripts/adoption_evidence.py --output adoption-evidence.json
+        run: python3 scripts/adoption_evidence.py --window-start 2026-08-28 --window-end 2026-09-10 --output adoption-evidence.json
       - name: Write the evidence summary
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
@@ -27,6 +27,7 @@ jobs:
           evidence = json.load(open("adoption-evidence.json"))
           observed = census["counts"]
           consented = evidence["counts"]
+          experiment = evidence["experimentCounts"]
           print("# Agent Vigil adoption evidence")
           print()
           print("Experiment window: 2026-08-28 through 2026-09-10. The workflow may continue afterward as a public census; only observations inside the dated window belong to the experiment.")
@@ -38,6 +39,10 @@ jobs:
           print(f"- Maintainer-confirmed 30-day retention: {consented['maintainersRetainedAfter30Days']}")
           print(f"- Maintainer-accepted contradictions: {consented['maintainerAcceptedContradictions']}")
           print(f"- Owner-evidenced required checks: {consented['externalRequiredChecks']}")
+          print(f"- Experiment repositories first observed in-window: {experiment['externalRepositoriesConfigured']}")
+          print(f"- Experiment repositories with a seven-day observed span: {experiment['repositoriesWithSevenDayObservedSpan']}")
+          print(f"- Experiment accepted contradictions: {experiment['maintainerAcceptedContradictions']}")
+          print(f"- Experiment owner-evidenced required checks: {experiment['externalRequiredChecks']}")
           print()
           print("Public workflow activity is discovery evidence. It does not replace owner consent, receipt hashes, required-check evidence, or maintainer disposition.")
           PY
