@@ -112,10 +112,18 @@ test("the browser URL parser rejects credential, query, fragment, and non-GitHub
 });
 
 test("the installation handoff is immutable and requires an explicit local run", async () => {
-  const { installationCommand } = await browserModule();
+  const browser = await browserModule();
+  const { installationCommand } = browser;
   const command = installationCommand();
   assert.equal(command, "npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz protect --repo .");
   assert.doesNotMatch(command, /@(?:main|master|latest)|releases\/latest/);
+  const receipt = await browser.buildBrowserReceipt(browserSnapshot(snapshot()), { generatedAt: GENERATED_AT });
+  const steps = browser.installationSteps(receipt);
+  assert.match(steps, /^# In a local checkout of example\/project:/);
+  assert.match(steps, /doctor --repo \./);
+  assert.match(steps, /plain required job name is not a workflow trust root/);
+  assert.doesNotMatch(steps, /git push|gh pr create|curl|token/);
+  assert.match(browser.adoptionRegistrationUrl(receipt), /template=adopter-feedback\.yml&title=%5Badoption%5D%20example%2Fproject$/);
 });
 
 test("the copied PR result is bounded, source-free, and never claims authorization", async () => {
@@ -158,6 +166,14 @@ test("the copied PR result rejects hostile or unbounded receipt fields", async (
     { ...receipt, decision: { ...receipt.decision, reasonCodes: Array(17).fill("gap") } },
     { ...receipt, observation: { ...receipt.observation, checks: { ...receipt.observation.checks, passing: "many" } } },
   ]) assert.throws(() => browser.prCommentMarkdown(candidate), /complete browser receipt/);
+  assert.throws(
+    () => browser.installationSteps({ ...receipt, subject: { ...receipt.subject, repository: "example/project\n@everyone" } }),
+    /valid public repository/,
+  );
+  assert.throws(
+    () => browser.installationSteps({ ...receipt, subject: { ...receipt.subject, repository: "../project" } }),
+    /valid public repository/,
+  );
 });
 
 test("the static checker has an accessible mobile result surface and no browser storage", () => {
@@ -169,6 +185,8 @@ test("the static checker has an accessible mobile result surface and no browser 
   assert.match(html, /id="check-result" aria-labelledby="result-title" tabindex="-1"/);
   assert.match(html, /aria-label="Result actions"/);
   assert.match(html, /id="copy-pr-result"[^>]*>Copy result for PR/);
+  assert.match(html, /id="copy-install"[^>]*>Copy setup steps/);
+  assert.match(html, /id="register-trial"[^>]*hidden>Register this trial/);
   assert.match(html, /min-height: 48px/);
   assert.match(html, /@media \(max-width: 760px\)/);
   assert.match(html, /prefers-reduced-motion/);

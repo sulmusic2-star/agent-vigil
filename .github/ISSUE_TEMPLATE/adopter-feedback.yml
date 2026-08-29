@@ -1,5 +1,5 @@
-name: Adoption feedback
-description: Tell us what blocked or enabled a real repository installation.
+name: Register an outside trial
+description: Provide consented evidence from a repository you own or maintain. Opening this form does not count as an installation.
 title: "[adoption] "
 labels: ["adoption"]
 body:
@@ -8,10 +8,6 @@ body:
     attributes:
       label: Installation state
       options:
-        - Public PR receipt created
-        - Public PR receipt verified offline
-        - Evaluating
-        - Installed locally
         - Running in CI
         - Receipt artifact retained
         - Required merge check
@@ -24,10 +20,8 @@ body:
     attributes:
       label: Evidence mode
       options:
-        - Public PR receipt
         - Full transcript or summary
         - Portable receipt
-        - Not installed
     validations:
       required: true
   - type: textarea
@@ -50,7 +44,7 @@ body:
       description: Link the repository, exact workflow, run, receipt artifact, and maintainer disposition when public. Private reports are welcome but are not added to public milestone counts.
       placeholder: "Repository: ...\nWorkflow: ...\nRun or receipt: ...\nMaintainer disposition: ..."
     validations:
-      required: false
+      required: true
   - type: checkboxes
     id: listing_consent
     attributes:
@@ -58,6 +52,9 @@ body:
       options:
         - label: I own or maintain the repository and consent to Agent Vigil listing the linked public evidence in ADOPTERS.md.
           required: false
+  - type: markdown
+    attributes:
+      value: A public mention, browser receipt, or submitted form is not counted as a configured repository. Public adoption counts require a workflow that actually uses Agent Vigil. A required job name by itself does not count; required-check evidence needs an external required workflow or App-owned exact-head check.
   - type: textarea
     id: retain
     attributes:

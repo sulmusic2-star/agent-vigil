@@ -19,6 +19,7 @@ function entry(overrides: Record<string, unknown> = {}) {
     verdictsObserved: 200,
     receiptHashes: [receipt],
     requiredCheckEvidenceUrl: "https://github.com/outside/project/issues/8",
+    requiredCheckObservedAt: "2026-01-20T00:00:00Z",
     retentionEvidenceUrl: "https://github.com/outside/project/issues/9",
     maintainerAcceptedContradictions: [{
       receiptHash: receipt,
@@ -81,6 +82,24 @@ test("retention evidence cannot count before 30 days", () => {
   const result = spawnSync("python3", ["scripts/adoption_evidence.py", "--ledger", ledger], { cwd: process.cwd(), encoding: "utf8" });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /less than 30 days/);
+});
+
+test("required-check observation timestamps are optional for v1 but fail closed when supplied", () => {
+  assert.equal(runLedger([entry({ requiredCheckObservedAt: null })]).counts.externalRequiredChecks, 1);
+  const { requiredCheckObservedAt: omitted, ...withoutTimestamp } = entry();
+  assert.equal(typeof omitted, "string");
+  assert.equal(runLedger([withoutTimestamp]).counts.externalRequiredChecks, 1);
+  for (const overrides of [
+    { requiredCheckObservedAt: "2025-12-31T23:59:59Z" },
+    { requiredCheckEvidenceUrl: null },
+  ]) {
+    const dir = mkdtempSync(join(tmpdir(), "vigil-adoption-evidence-"));
+    const ledger = join(dir, "ledger.json");
+    writeFileSync(ledger, JSON.stringify({ schemaVersion: 1, entries: [entry(overrides)] }));
+    const result = spawnSync("python3", ["scripts/adoption_evidence.py", "--ledger", ledger], { cwd: process.cwd(), encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /requiredCheckObservedAt/);
+  }
 });
 
 test("evidence URLs must start with the claimed repository path", () => {

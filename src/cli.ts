@@ -92,6 +92,7 @@ import {
 } from "./guard-compat.ts";
 import { renderGuardRoute, runGuardRoute } from "./guard-route.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
+import { adoptionRegistrationUrl, githubRepositorySlug, releasedDoctorCommand, workflowBadge } from "./adoption.ts";
 
 type Options = {
   transcript?: string;
@@ -665,6 +666,7 @@ function runProtect(args: string[]): number {
     const result = initRepository(repo, args.includes("--force"), undefined, "protect", false, actionSha);
     console.log("Agent Vigil is ready to add.\n");
     const policy = loadPolicy(repo).value;
+    const slug = githubRepositorySlug(git(repo, ["config", "--get", "remote.origin.url"]));
     const commands = policy.maintainer?.automatedReview?.commands ?? [];
     if (commands.length) console.log(`  Found   ${safeSetupLine(commands.join(" && "))}`);
     console.log(`  Pinned  ${actionSha}${optionValue(args, "--action-sha") ? " (operator selected)" : selectedPin.source === "package-build" ? " (this package build)" : " (reviewed public release)"}`);
@@ -681,8 +683,14 @@ function runProtect(args: string[]): number {
       console.log("\nNext:");
       console.log("  1. Review the four generated files.");
       console.log("  2. Commit and push them in a setup pull request.");
-      console.log("  3. After that setup merges, require the Agent Vigil exact-head check in GitHub.");
-      console.log("\nRun `npx @sulmusic/agent-vigil doctor` after the setup commit. Prepared files alone do not protect merges.");
+      console.log(`  3. After that setup merges, run \`${releasedDoctorCommand()}\`.`);
+      console.log("\nState after setup: RUNNING IN CI, not enforced. A plain required job name is not a workflow trust root; enforcement needs an external required workflow or App-owned exact-head check.");
+      if (slug) {
+        console.log("\nOptional workflow badge (run status only; not proof of required-check enforcement):");
+        console.log(`  ${workflowBadge(slug)}`);
+      }
+      console.log("\nRegister an outside trial only after the workflow runs. Registration is optional and requires maintainer consent:");
+      console.log(`  ${adoptionRegistrationUrl(slug)}`);
       return 0;
     }
     const checks = doctorRepository(repo);
