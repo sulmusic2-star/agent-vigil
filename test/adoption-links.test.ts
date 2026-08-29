@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adoptionRegistrationUrl, githubRepositorySlug, workflowBadge } from "../src/adoption.ts";
+import { adoptionRegistrationUrl, githubRepositorySlug, releasedDoctorCommand, workflowBadge } from "../src/adoption.ts";
 
 test("GitHub repository identity accepts common exact remotes", () => {
   for (const remote of [
@@ -33,4 +33,8 @@ test("badge and registration links contain only validated repository identity", 
   );
   assert.match(adoptionRegistrationUrl("example/project"), /title=%5Badoption%5D%20example%2Fproject$/);
   assert.throws(() => workflowBadge("example/project/extra"));
+  assert.equal(
+    releasedDoctorCommand(),
+    "npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz doctor --repo .",
+  );
 });

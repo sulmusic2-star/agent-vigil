@@ -18,7 +18,8 @@ test("the dated census runs daily and the experiment keeps traffic separate from
   const workflow = read(".github/workflows/adoption-census.yml");
   const experiment = read("docs/ADOPTION_EXPERIMENT_2026-08-28.md");
   assert.match(workflow, /cron: "17 13 \* \* \*"/);
-  assert.match(workflow, /2026-08-28 through 2026-09-11/);
+  assert.match(workflow, /2026-08-28 through 2026-09-10/);
+  assert.match(experiment, /2026-08-28 through 2026-09-10, inclusive/);
   assert.match(experiment, /clones may include bots, CI, mirrors, and repeated automation/);
   assert.match(experiment, /required job name by itself does not count/);
   assert.match(experiment, /zero configured external repositories/);

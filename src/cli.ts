@@ -92,7 +92,7 @@ import {
 } from "./guard-compat.ts";
 import { renderGuardRoute, runGuardRoute } from "./guard-route.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
-import { adoptionRegistrationUrl, githubRepositorySlug, workflowBadge } from "./adoption.ts";
+import { adoptionRegistrationUrl, githubRepositorySlug, releasedDoctorCommand, workflowBadge } from "./adoption.ts";
 
 type Options = {
   transcript?: string;
@@ -683,7 +683,7 @@ function runProtect(args: string[]): number {
       console.log("\nNext:");
       console.log("  1. Review the four generated files.");
       console.log("  2. Commit and push them in a setup pull request.");
-      console.log("  3. After that setup merges, run `vigil doctor --repo .` from the same v0.22.0 package.");
+      console.log(`  3. After that setup merges, run \`${releasedDoctorCommand()}\`.`);
       console.log("\nState after setup: RUNNING IN CI, not enforced. A plain required job name is not a workflow trust root; enforcement needs an external required workflow or App-owned exact-head check.");
       if (slug) {
         console.log("\nOptional workflow badge (run status only; not proof of required-check enforcement):");

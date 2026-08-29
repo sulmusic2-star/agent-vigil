@@ -1,6 +1,6 @@
 # Fourteen-day outside-use experiment
 
-**Window:** 2026-08-28 through 2026-09-11  
+**Window:** 2026-08-28 through 2026-09-10, inclusive
 **State at start:** public distribution, zero verified outside installations, zero payments, and zero revenue.
 
 ## Question

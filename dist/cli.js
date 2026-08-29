@@ -19270,6 +19270,7 @@ ${outcomeUsage()}`);
 // src/adoption.ts
 var REPOSITORY_PART = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
 var ADOPTION_FORM = "https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml";
+var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz";
 function githubRepositorySlug(remote) {
   if (!remote || /[\u0000-\u001f\u007f-\u009f]/.test(remote)) return void 0;
   let path;
@@ -19297,6 +19298,9 @@ function workflowBadge(slug) {
 }
 function adoptionRegistrationUrl(slug) {
   return slug ? `${ADOPTION_FORM}&title=${encodeURIComponent(`[adoption] ${slug}`)}` : ADOPTION_FORM;
+}
+function releasedDoctorCommand() {
+  return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
 }
 
 // src/cli.ts
@@ -19913,7 +19917,7 @@ ${renderProtectRehearsal(rehearsal)}`);
       console.log("\nNext:");
       console.log("  1. Review the four generated files.");
       console.log("  2. Commit and push them in a setup pull request.");
-      console.log("  3. After that setup merges, run `vigil doctor --repo .` from the same v0.22.0 package.");
+      console.log(`  3. After that setup merges, run \`${releasedDoctorCommand()}\`.`);
       console.log("\nState after setup: RUNNING IN CI, not enforced. A plain required job name is not a workflow trust root; enforcement needs an external required workflow or App-owned exact-head check.");
       if (slug) {
         console.log("\nOptional workflow badge (run status only; not proof of required-check enforcement):");

@@ -29,7 +29,7 @@ jobs:
           consented = evidence["counts"]
           print("# Agent Vigil adoption evidence")
           print()
-          print("Experiment window: 2026-08-28 through 2026-09-11. The workflow may continue afterward as a public census; only observations inside the dated window belong to the experiment.")
+          print("Experiment window: 2026-08-28 through 2026-09-10. The workflow may continue afterward as a public census; only observations inside the dated window belong to the experiment.")
           print()
           print(f"- Public repositories currently configured: {observed['external_repositories_configured']}")
           print(f"- Public repositories with a 30-day run span: {observed['external_repositories_with_30_day_activity_span']}")
