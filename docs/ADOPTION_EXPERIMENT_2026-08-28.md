@@ -17,9 +17,9 @@ The GitHub owner traffic snapshot on 2026-08-28 reported 60 views from 17 unique
 
 - An **external configured repository** has a public workflow that actually invokes Agent Vigil.
 - **Repeat use** requires at least two currently observable workflow runs.
-- **Seven-day retention** requires observable activity at least seven days apart during this experiment; it is not the existing 30-day retention milestone.
+- **Seven-day retention** requires two actual observations at least 168 hours apart, both inside this experiment; an observation after the deadline is not clipped or counted.
 - A **maintainer-accepted block** requires a public receipt or run plus the maintainer's recorded disposition.
-- A **required check** counts only with owner evidence of an external required-workflow ruleset or an App-owned exact-head check. A required job name by itself does not count.
+- A **required check** counts only with owner evidence of an external required-workflow ruleset or an App-owned exact-head check, plus the timestamp when that evidence was observed. A required job name by itself does not count.
 
 Page views, clones, stars, mentions, browser receipts, submitted forms without workflow evidence, first-party repositories, payments, and revenue are recorded separately.
 

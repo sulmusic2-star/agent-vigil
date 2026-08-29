@@ -18,7 +18,7 @@ ENTRY_FIELDS = {
     "repository", "ownerConsentUrl", "workflowUrl", "latestRunUrl",
     "firstObservedAt", "lastObservedAt", "currentWorkflowConfigured",
     "verdictsObserved", "receiptHashes", "requiredCheckEvidenceUrl",
-    "retentionEvidenceUrl", "maintainerAcceptedContradictions",
+    "requiredCheckObservedAt", "retentionEvidenceUrl", "maintainerAcceptedContradictions",
     "falseVerdictReports",
 }
 CONTRADICTION_FIELDS = {"receiptHash", "evidenceUrl", "disposition", "acceptedAt"}
@@ -79,9 +79,15 @@ def nullable_url(value: Any, label: str, repository: str) -> str | None:
     return github_repository_url(value, label, repository)
 
 
-def exact_fields(value: Any, fields: set[str], label: str) -> dict[str, Any]:
+def exact_fields(
+    value: Any,
+    fields: set[str],
+    label: str,
+    *,
+    optional: set[str] | None = None,
+) -> dict[str, Any]:
     require(isinstance(value, dict), f"{label} must be an object")
-    missing = fields - set(value)
+    missing = fields - (optional or set()) - set(value)
     extra = set(value) - fields
     require(not missing, f"{label} is missing: {', '.join(sorted(missing))}")
     require(not extra, f"{label} has unknown fields: {', '.join(sorted(extra))}")
@@ -110,10 +116,25 @@ def validate(
     experiment_seven_day: list[str] = []
     experiment_required: list[str] = []
     experiment_contradictions = 0
+    window_start_at = (
+        dt.datetime.combine(window_start, dt.time.min, tzinfo=dt.timezone.utc)
+        if window_start is not None else None
+    )
+    window_end_after = (
+        dt.datetime.combine(window_end + dt.timedelta(days=1), dt.time.min, tzinfo=dt.timezone.utc)
+        if window_end is not None else None
+    )
+
+    def observed_in_window(value: dt.datetime) -> bool:
+        return (
+            window_start_at is not None
+            and window_end_after is not None
+            and window_start_at <= value < window_end_after
+        )
 
     for index, raw_entry in enumerate(ledger["entries"]):
         label = f"entries[{index}]"
-        entry = exact_fields(raw_entry, ENTRY_FIELDS, label)
+        entry = exact_fields(raw_entry, ENTRY_FIELDS, label, optional={"requiredCheckObservedAt"})
         repository = entry["repository"]
         require(isinstance(repository, str) and bool(REPOSITORY_RE.fullmatch(repository)), f"{label}.repository is invalid")
         owner, name = repository.split("/", 1)
@@ -133,15 +154,12 @@ def validate(
         verdicts_observed += entry["verdictsObserved"]
         if entry["currentWorkflowConfigured"]:
             configured_repositories.append(repository)
-        first_in_window = (
-            window_start is not None
-            and window_end is not None
-            and window_start <= first.date() <= window_end
-        )
+        first_in_window = observed_in_window(first)
         if first_in_window and entry["currentWorkflowConfigured"]:
             experiment_configured.append(repository)
-            observed_end = min(last.date(), window_end)
-            if (observed_end - first.date()).days >= 7:
+            # Count only a real later observation inside the window. Clipping an
+            # after-window timestamp to the deadline would invent retention.
+            if observed_in_window(last) and last - first >= dt.timedelta(days=7):
                 experiment_seven_day.append(repository)
 
         entry_receipts = entry["receiptHashes"]
@@ -153,12 +171,21 @@ def validate(
             receipts.add(receipt)
 
         required_url = nullable_url(entry["requiredCheckEvidenceUrl"], f"{label}.requiredCheckEvidenceUrl", repository)
+        required_observed_raw = entry.get("requiredCheckObservedAt")
+        required_observed = (
+            timestamp(required_observed_raw, f"{label}.requiredCheckObservedAt")
+            if required_observed_raw is not None else None
+        )
         retention_url = nullable_url(entry["retentionEvidenceUrl"], f"{label}.retentionEvidenceUrl", repository)
         if required_url is not None:
             require(entry["currentWorkflowConfigured"], f"{label} cannot claim a required check for a removed workflow")
+            if required_observed is not None:
+                require(first <= required_observed <= last, f"{label}.requiredCheckObservedAt is outside the observation window")
             required_repositories.append(repository)
-            if first_in_window:
+            if first_in_window and required_observed is not None and observed_in_window(required_observed):
                 experiment_required.append(repository)
+        else:
+            require(required_observed is None, f"{label}.requiredCheckObservedAt must be null without requiredCheckEvidenceUrl")
         if retention_url is not None:
             require(entry["currentWorkflowConfigured"], f"{label} cannot claim retention for a removed workflow")
             require((last - first).days >= 30, f"{label} retention evidence is less than 30 days after first observation")
@@ -178,7 +205,7 @@ def validate(
             require(contradiction["disposition"] in CONTRADICTION_DISPOSITIONS, f"{contradiction_label}.disposition is invalid")
             accepted_at = timestamp(contradiction["acceptedAt"], f"{contradiction_label}.acceptedAt")
             require(first <= accepted_at <= last, f"{contradiction_label}.acceptedAt is outside the observation window")
-            if first_in_window and window_start <= accepted_at.date() <= window_end:
+            if first_in_window and observed_in_window(accepted_at):
                 experiment_contradictions += 1
 
         reports = entry["falseVerdictReports"]

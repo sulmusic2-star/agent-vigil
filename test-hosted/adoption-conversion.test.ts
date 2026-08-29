@@ -64,7 +64,7 @@ test("experiment evidence includes both boundary dates and excludes adjacent dat
     latestRunUrl: `https://github.com/outside/project-${suffix}/actions/runs/123`,
     firstObservedAt: `${day}T12:00:00Z`, lastObservedAt: `${day}T13:00:00Z`,
     currentWorkflowConfigured: true, verdictsObserved: 0, receiptHashes: [],
-    requiredCheckEvidenceUrl: null, retentionEvidenceUrl: null,
+    requiredCheckEvidenceUrl: null, requiredCheckObservedAt: null, retentionEvidenceUrl: null,
     maintainerAcceptedContradictions: [], falseVerdictReports: [],
   });
   writeFileSync(ledger, JSON.stringify({ schemaVersion: 1, entries: [
@@ -77,4 +77,37 @@ test("experiment evidence includes both boundary dates and excludes adjacent dat
   ], { encoding: "utf8" }));
   assert.equal(consented.experimentCounts.externalRepositoriesConfigured, 2);
   assert.deepEqual(consented.experimentWindow, { start: "2026-08-28", end: "2026-09-10", inclusive: true });
+});
+
+test("experiment retention and required checks use actual in-window timestamps", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vigil-adoption-observations-"));
+  const ledger = join(dir, "ledger.json");
+  const makeEntry = (suffix: string, first: string, last: string, requiredAt: string | null) => ({
+    repository: `outside/observed-${suffix}`,
+    ownerConsentUrl: `https://github.com/outside/observed-${suffix}/issues/7`,
+    workflowUrl: `https://github.com/outside/observed-${suffix}/blob/main/.github/workflows/vigil.yml`,
+    latestRunUrl: `https://github.com/outside/observed-${suffix}/actions/runs/123`,
+    firstObservedAt: first,
+    lastObservedAt: last,
+    currentWorkflowConfigured: true,
+    verdictsObserved: 0,
+    receiptHashes: [],
+    requiredCheckEvidenceUrl: requiredAt === null ? null : `https://github.com/outside/observed-${suffix}/issues/8`,
+    requiredCheckObservedAt: requiredAt,
+    retentionEvidenceUrl: null,
+    maintainerAcceptedContradictions: [],
+    falseVerdictReports: [],
+  });
+  writeFileSync(ledger, JSON.stringify({ schemaVersion: 1, entries: [
+    makeEntry("real-seven-days", "2026-08-28T00:00:00Z", "2026-09-04T00:00:00Z", "2026-09-04T00:00:00Z"),
+    makeEntry("short-elapsed", "2026-08-28T23:59:59Z", "2026-09-04T00:00:00Z", null),
+    makeEntry("after-window", "2026-09-03T00:00:00Z", "2026-09-11T00:00:00Z", "2026-09-11T00:00:00Z"),
+  ] }));
+  const result = JSON.parse(execFileSync("python3", [
+    "scripts/adoption_evidence.py", "--ledger", ledger,
+    "--window-start", "2026-08-28", "--window-end", "2026-09-10",
+  ], { encoding: "utf8" }));
+  assert.equal(result.experimentCounts.externalRepositoriesConfigured, 3);
+  assert.equal(result.experimentCounts.repositoriesWithSevenDayObservedSpan, 1);
+  assert.equal(result.experimentCounts.externalRequiredChecks, 1);
 });

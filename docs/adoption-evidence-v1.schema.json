@@ -82,6 +82,9 @@
         "requiredCheckEvidenceUrl": {
           "oneOf": [{ "$ref": "#/$defs/httpsUrl" }, { "type": "null" }]
         },
+        "requiredCheckObservedAt": {
+          "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }]
+        },
         "retentionEvidenceUrl": {
           "oneOf": [{ "$ref": "#/$defs/httpsUrl" }, { "type": "null" }]
         },
