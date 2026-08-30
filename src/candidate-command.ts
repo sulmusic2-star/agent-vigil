@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes, createHash } from "node:crypto";
-import { closeSync, constants, existsSync, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readlinkSync, readSync, realpathSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, fchmodSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, readlinkSync, readSync, realpathSync, writeSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { trustedGit } from "./trusted-git.ts";
@@ -529,7 +529,13 @@ function copyOverlayPaths(source: string, destination: string, paths: string[]):
         throw new Error(`trusted differential overlay target is not a regular file: ${path}`);
       }
       output = openSync(to, constants.O_WRONLY | constants.O_NOFOLLOW
-        | (target ? constants.O_TRUNC : constants.O_CREAT | constants.O_EXCL), opened.mode & 0o777);
+        | (target ? 0 : constants.O_CREAT | constants.O_EXCL), opened.mode & 0o777);
+      const targetOpened = fstatSync(output);
+      if (!targetOpened.isFile()
+        || (target && (targetOpened.dev !== target.dev || targetOpened.ino !== target.ino))) {
+        throw new Error(`trusted differential overlay target changed while opened: ${path}`);
+      }
+      if (target) ftruncateSync(output, 0);
       const buffer = Buffer.allocUnsafe(Math.min(1024 * 1024, Math.max(1, opened.size)));
       let copied = 0;
       for (;;) {

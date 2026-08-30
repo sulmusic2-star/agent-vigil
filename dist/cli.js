@@ -21,7 +21,7 @@ function readRegularFileSnapshot(requestedPath, maximumBytes, label = "input") {
     descriptor = openSync(absolutePath, constants.O_RDONLY | noFollow | nonBlock);
   } catch (error) {
     if (error.code === "ELOOP") {
-      throw new Error(`${label} must be a regular file, not a symbolic link`);
+      throw new Error(`${label} must be a regular non-symbolic-link file (symbolic link refused)`);
     }
     throw error;
   }
@@ -29,7 +29,7 @@ function readRegularFileSnapshot(requestedPath, maximumBytes, label = "input") {
     const opened = fstatSync(descriptor, { bigint: true });
     const linked2 = lstatSync(absolutePath, { bigint: true });
     if (linked2.isSymbolicLink() || !linked2.isFile() || !opened.isFile()) {
-      throw new Error(`${label} must be a regular file, not a symbolic link`);
+      throw new Error(`${label} must be a regular non-symbolic-link file (symbolic link refused)`);
     }
     if (opened.dev !== linked2.dev || opened.ino !== linked2.ino || opened.size !== linked2.size || opened.mtimeNs !== linked2.mtimeNs || opened.ctimeNs !== linked2.ctimeNs) {
       throw new Error(`${label} changed while it was opened`);
@@ -523,7 +523,7 @@ import { isAbsolute as isAbsolute3, relative as relative2, resolve as resolve5, 
 // src/candidate-command.ts
 import { spawnSync } from "node:child_process";
 import { randomBytes, createHash as createHash3 } from "node:crypto";
-import { closeSync as closeSync2, constants as constants2, existsSync, fchmodSync, fstatSync as fstatSync2, lstatSync as lstatSync2, mkdirSync, openSync as openSync2, readlinkSync, readSync as readSync2, realpathSync, writeSync } from "node:fs";
+import { closeSync as closeSync2, constants as constants2, existsSync, fchmodSync, fstatSync as fstatSync2, ftruncateSync, lstatSync as lstatSync2, mkdirSync, openSync as openSync2, readlinkSync, readSync as readSync2, realpathSync, writeSync } from "node:fs";
 import { isAbsolute as isAbsolute2, join, relative, resolve as resolve3, sep } from "node:path";
 
 // src/trusted-git.ts
@@ -1075,7 +1075,12 @@ function copyOverlayPaths(source2, destination, paths) {
       if (target2 && (target2.isSymbolicLink() || !target2.isFile())) {
         throw new Error(`trusted differential overlay target is not a regular file: ${path}`);
       }
-      output = openSync2(to, constants2.O_WRONLY | constants2.O_NOFOLLOW | (target2 ? constants2.O_TRUNC : constants2.O_CREAT | constants2.O_EXCL), opened.mode & 511);
+      output = openSync2(to, constants2.O_WRONLY | constants2.O_NOFOLLOW | (target2 ? 0 : constants2.O_CREAT | constants2.O_EXCL), opened.mode & 511);
+      const targetOpened = fstatSync2(output);
+      if (!targetOpened.isFile() || target2 && (targetOpened.dev !== target2.dev || targetOpened.ino !== target2.ino)) {
+        throw new Error(`trusted differential overlay target changed while opened: ${path}`);
+      }
+      if (target2) ftruncateSync(output, 0);
       const buffer = Buffer.allocUnsafe(Math.min(1024 * 1024, Math.max(1, opened.size)));
       let copied = 0;
       for (; ; ) {
@@ -5388,7 +5393,7 @@ function maintainerPolicyTemplate(testCommand, setupCommand, protectCommands, te
 }
 
 // src/setup.ts
-import { chmodSync as chmodSync2, closeSync as closeSync7, constants as constants7, existsSync as existsSync5, fstatSync as fstatSync7, ftruncateSync, lstatSync as lstatSync9, mkdirSync as mkdirSync5, mkdtempSync as mkdtempSync3, openSync as openSync7, readSync as readSync6, readdirSync, realpathSync as realpathSync6, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { chmodSync as chmodSync2, closeSync as closeSync7, constants as constants7, existsSync as existsSync5, fstatSync as fstatSync7, ftruncateSync as ftruncateSync2, lstatSync as lstatSync9, mkdirSync as mkdirSync5, mkdtempSync as mkdtempSync3, openSync as openSync7, readSync as readSync6, readdirSync, realpathSync as realpathSync6, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { extname, join as join5, relative as relative6, resolve as resolve11, sep as sep6 } from "node:path";
 
@@ -6805,7 +6810,7 @@ function writeScaffold(root, path, content, force, result5) {
         throw new Error(`scaffold parent ${relative6(root, expected.path) || "."} changed or is unsafe`);
       }
     }
-    ftruncateSync(descriptor, 0);
+    ftruncateSync2(descriptor, 0);
     writeFileSync4(descriptor, content);
   } finally {
     if (descriptor !== void 0) closeSync7(descriptor);
@@ -13156,7 +13161,7 @@ function safeWrite(repo, gitPath, content) {
     mkdirSync7(current, { recursive: true });
   }
   if (existsSync7(target2)) rmSync3(target2, { recursive: true, force: true });
-  writeFileSync5(target2, content, { encoding: "utf8", mode: 384 });
+  writeFileSync5(target2, content, { encoding: "utf8", mode: 384, flag: "wx" });
 }
 function commit(repo, message, sequence) {
   git8(repo, ["add", "-A"]);
@@ -15496,7 +15501,6 @@ import {
   lstatSync as lstatSync20,
   mkdirSync as mkdirSync10,
   mkdtempSync as mkdtempSync7,
-  readFileSync as readFileSync15,
   realpathSync as realpathSync17,
   rmSync as rmSync6,
   unlinkSync as unlinkSync2,
@@ -16112,10 +16116,13 @@ function hostProcess(input) {
   return { process: "EXITED", exit: input.status === 0 ? "ZERO" : "NONZERO", output: outputKind2(input.stdout || input.stderr) };
 }
 function readHookLog(path) {
-  if (!existsSync10(path)) return [];
-  const status = lstatSync20(path);
-  if (!status.isFile() || status.size > MAX_HOOK_LOG_BYTES) throw new Error("live-host hook log is missing, unsafe, or oversized");
-  const body = readFileSync15(path, "utf8");
+  let body;
+  try {
+    body = readRegularUtf8(path, MAX_HOOK_LOG_BYTES, "live-host hook log");
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
   if (!body.trim()) return [];
   const rows = body.trimEnd().split("\n");
   if (rows.length > 32) throw new Error("live-host hook emitted too many events");
@@ -16158,7 +16165,7 @@ function assertDisposableProfile(host, requested) {
   if (forbidden.includes(resolve25(profileHome))) throw new Error("guard-route refuses the ordinary user profile; use a disposable profile");
   const markerPath = join15(profileHome, ".agent-vigil-disposable-profile");
   const marker2 = hashGuardFile(markerPath, "disposable profile marker");
-  if (readFileSync15(marker2.realPath, "utf8") !== DISPOSABLE_PROFILE_MARKER) {
+  if (readRegularUtf8(marker2.realPath, DISPOSABLE_PROFILE_MARKER.length + 1, "disposable profile marker") !== DISPOSABLE_PROFILE_MARKER) {
     throw new Error("disposable profile marker has unexpected content");
   }
   const collisions = host === "codex" ? ["hooks.json", "config.toml"] : ["settings.json", "settings.local.json"];
@@ -16305,8 +16312,13 @@ function runGuardRoute(input) {
     const denyLog = routed.filter((row) => row.route === "LIVE_DENY");
     const allowPath = join15(workspace, allow.file);
     const denyPath = join15(workspace, deny.file);
-    const allowExecuted = existsSync10(allowPath) && lstatSync20(allowPath).isFile() && readFileSync15(allowPath, "utf8") === `${allow.token}
+    let allowExecuted = false;
+    try {
+      allowExecuted = readRegularUtf8(allowPath, 512, "live-host allow marker") === `${allow.token}
 `;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
     const denyExecuted = existsSync10(denyPath);
     const observations = [
       {

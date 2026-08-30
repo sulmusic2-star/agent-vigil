@@ -13,7 +13,7 @@ export function readRegularFileSnapshot(requestedPath: string, maximumBytes: num
     descriptor = openSync(absolutePath, constants.O_RDONLY | noFollow | nonBlock);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ELOOP") {
-      throw new Error(`${label} must be a regular file, not a symbolic link`);
+      throw new Error(`${label} must be a regular non-symbolic-link file (symbolic link refused)`);
     }
     throw error;
   }
@@ -21,7 +21,7 @@ export function readRegularFileSnapshot(requestedPath: string, maximumBytes: num
     const opened = fstatSync(descriptor, { bigint: true });
     const linked = lstatSync(absolutePath, { bigint: true });
     if (linked.isSymbolicLink() || !linked.isFile() || !opened.isFile()) {
-      throw new Error(`${label} must be a regular file, not a symbolic link`);
+      throw new Error(`${label} must be a regular non-symbolic-link file (symbolic link refused)`);
     }
     if (opened.dev !== linked.dev || opened.ino !== linked.ino || opened.size !== linked.size
       || opened.mtimeNs !== linked.mtimeNs || opened.ctimeNs !== linked.ctimeNs) {

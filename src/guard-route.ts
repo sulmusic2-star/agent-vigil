@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { arch, hostname, platform, release, tmpdir, type } from "node:os";
+import { readRegularUtf8 } from "./safe-fs.ts";
 import { join, resolve } from "node:path";
 import { canonical } from "./report.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
@@ -315,10 +316,12 @@ function hostProcess(input: {
 }
 
 function readHookLog(path: string): HookLog[] {
-  if (!existsSync(path)) return [];
-  const status = lstatSync(path);
-  if (!status.isFile() || status.size > MAX_HOOK_LOG_BYTES) throw new Error("live-host hook log is missing, unsafe, or oversized");
-  const body = readFileSync(path, "utf8");
+  let body: string;
+  try { body = readRegularUtf8(path, MAX_HOOK_LOG_BYTES, "live-host hook log"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
   if (!body.trim()) return [];
   const rows = body.trimEnd().split("\n");
   if (rows.length > 32) throw new Error("live-host hook emitted too many events");
@@ -369,7 +372,7 @@ function assertDisposableProfile(host: GuardHost, requested: string): { profileH
   if (forbidden.includes(resolve(profileHome))) throw new Error("guard-route refuses the ordinary user profile; use a disposable profile");
   const markerPath = join(profileHome, ".agent-vigil-disposable-profile");
   const marker = hashGuardFile(markerPath, "disposable profile marker");
-  if (readFileSync(marker.realPath, "utf8") !== DISPOSABLE_PROFILE_MARKER) {
+  if (readRegularUtf8(marker.realPath, DISPOSABLE_PROFILE_MARKER.length + 1, "disposable profile marker") !== DISPOSABLE_PROFILE_MARKER) {
     throw new Error("disposable profile marker has unexpected content");
   }
   const collisions = host === "codex" ? ["hooks.json", "config.toml"] : ["settings.json", "settings.local.json"];
@@ -522,7 +525,11 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
   const denyLog = routed.filter((row) => row.route === "LIVE_DENY");
   const allowPath = join(workspace, allow.file);
   const denyPath = join(workspace, deny.file);
-  const allowExecuted = existsSync(allowPath) && lstatSync(allowPath).isFile() && readFileSync(allowPath, "utf8") === `${allow.token}\n`;
+  let allowExecuted = false;
+  try { allowExecuted = readRegularUtf8(allowPath, 512, "live-host allow marker") === `${allow.token}\n`; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   const denyExecuted = existsSync(denyPath);
   const observations: RouteObservation[] = [
     {

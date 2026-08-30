@@ -56,7 +56,10 @@ test("proof comment neutralizes unsafe identity text and accepts only HTTPS veri
   const output = renderProofComment(receipt, { verifyUrl: "https://verify.example.test/r/abc" });
 
   assert.ok(output.includes("``abc`\\u{202E}\\u{001B}[2J``"));
-  assert.ok(output.includes("https://verify.example.test/r/abc"));
+  assert.equal(
+    output.split("\n").find((line) => line.startsWith("[Verify this receipt]")),
+    "[Verify this receipt](https://verify.example.test/r/abc)",
+  );
   assert.doesNotMatch(output.replaceAll("\n", ""), /[\p{Cc}\p{Cf}\u2028\u2029]/u);
   assert.throws(() => renderProofComment(receipt, { verifyUrl: "http://verify.example.test" }), /absolute HTTPS URL/);
   assert.throws(() => renderProofComment(receipt, { verifyUrl: "https://user:secret@example.test" }), /without credentials/);
