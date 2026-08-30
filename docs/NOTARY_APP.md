@@ -68,7 +68,10 @@ are intentionally combined and the larger trust boundary is reviewed.
 
 ## Webhook handling
 
-Subscribe to `workflow_run`, `pull_request`, and `merge_group` events. A production service must:
+The receipt-notary App subscribes to `workflow_run` and `pull_request`. The
+dedicated queue App subscribes only to `merge_group` and sends those deliveries
+to `/github/merge-group`; do not route them to the receipt service's
+`/github/webhook` endpoint. A production receipt-notary service must:
 
 1. preserve the raw request bytes;
 2. verify `X-Hub-Signature-256` before parsing JSON;

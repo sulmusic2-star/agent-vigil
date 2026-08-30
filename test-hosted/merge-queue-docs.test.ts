@@ -42,6 +42,8 @@ test("dispatcher instructions name the exact current contract", () => {
   assert.match(dispatcher, /GITHUB_APP_PRIVATE_KEY/);
   assert.match(notary, /Receipt-notary App permissions/);
   assert.match(notary, /queue App separately needs Actions write and Merge queues read/);
+  assert.match(notary, /receipt-notary App subscribes to `workflow_run` and `pull_request`/i);
+  assert.match(notary, /dedicated queue App subscribes only to `merge_group`/);
 });
 
 test("queue App manifest matches the authenticated dispatcher and workflow", () => {
