@@ -154,7 +154,6 @@ jobs:
           node --input-type=module <<'NODE'
           import { appendFileSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
           import { join } from "node:path";
-
           const env = process.env;
           const root = realpathSync(env.RUNNER_TEMP);
           const rootStat = lstatSync(root);
