@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { run } from "../src/cli.ts";
 import { generateSigningKey, publicKeyId } from "../src/signature.ts";
 import { buildReport } from "../src/report.ts";
-import { doctorRepository } from "../src/setup.ts";
+import { doctorRepository, OFFICIAL_COMMON_RUNNER_IMAGE } from "../src/setup.ts";
 
 const ACTION_SHA = "0123456789abcdef0123456789abcdef01234567";
 
@@ -54,6 +54,9 @@ test("CLI command parsers reject ambiguous or incomplete requests before side ef
     ["guard-route", "--host", "codex", "--format", "yaml"],
     ["guard-route", "--host", "codex", "--timeout-ms", "slow"],
     ["protect", "--unknown"],
+    ["protect", "--repo", root, "--runner", "common"],
+    ["protect", "--repo", root, "--runner", "unknown", "--test-cmd", "go test ./..."],
+    ["protect", "--repo", root, "--runner", "common", "--runner-image", `ghcr.io/example/runner@sha256:${"a".repeat(64)}`, "--test-cmd", "go test ./..."],
     ["prove", "--unknown"],
     ["prove", "--repo"],
     ["certify"],
@@ -82,6 +85,21 @@ test("CLI command parsers reject ambiguous or incomplete requests before side ef
     ["audit"],
   ];
   for (const args of invalid) assert.equal(run(args), 2, args.join(" "));
+});
+
+test("CLI common runner preset writes the published immutable image", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-cli-common-runner-"));
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  writeFileSync(join(root, "pyproject.toml"), "[project]\nname = 'common-runner-fixture'\n");
+  writeFileSync(join(root, "test_example.py"), "def test_example():\n    assert 2 + 2 == 4\n");
+
+  assert.equal(run([
+    "protect", "--repo", root, "--action-sha", ACTION_SHA,
+    "--runner", "common", "--test-cmd", "python3 -m pytest -q",
+  ]), 0);
+  const contract = JSON.parse(readFileSync(join(root, ".agent-vigil-runner.json"), "utf8"));
+  assert.equal(contract.image, OFFICIAL_COMMON_RUNNER_IMAGE);
+  assert.equal(contract.testCommand, "python3 -m pytest -q");
 });
 test("CLI adversarial demo catches all planted failures", () => assert.equal(run(["demo"]), 0));
 test("CLI static diff audit is advisory by default, blocking in strict mode, and fail-closed on malformed input", () => {

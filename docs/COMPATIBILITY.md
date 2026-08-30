@@ -56,7 +56,7 @@ grammar:
 
 ```bash
 vigil protect --repo . \
-  --runner-image ghcr.io/your-org/runner@sha256:<64-hex-digest> \
+  --runner common \
   --test-cmd "go test -json ./..."
 ```
 
@@ -66,10 +66,11 @@ image must contain the standard Node runtime used by the sandbox wrapper and
 all test dependencies; custom setup and test-time network access are forbidden.
 The exact image digest and test command appear in the retained harness evidence.
 
-`runners/common/Dockerfile` is the reviewed common-runner recipe. It is not a
-supported binary input until the hosted publication workflow succeeds and the
-public GHCR digest is captured. Runtime policy accepts digests, never that
-recipe's moving tag.
+`--runner common` resolves to
+`ghcr.io/sulmusic2-star/agent-vigil-runner@sha256:efdaa365db14cb8d64408beac91361ed0875111e4c07254e2b3729801df606a0`.
+The image was built by the repository's hosted publication workflow with
+provenance and an SBOM. `runners/common/Dockerfile` is its reviewed recipe.
+Runtime policy accepts the immutable digest, never the recipe's moving tag.
 
 `npm run test:package` installs the generated tarball into disposable consumers
 and checks supported plain and root Node paths plus expected fail-closed

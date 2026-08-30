@@ -24,7 +24,7 @@ import { renderMarkdown, renderResultMarkdown, renderResultText, renderText, toS
 import { buildReportResultView, renderResultViewHtml } from "./result-view.ts";
 import { runDemo } from "./demo.ts";
 import { loadPolicy } from "./config.ts";
-import { doctorRepository, initRepository, renderDoctor } from "./setup.ts";
+import { doctorRepository, initRepository, OFFICIAL_COMMON_RUNNER_IMAGE, renderDoctor, type HostedRunnerOverride } from "./setup.ts";
 import { generateSigningKey, publicKeyId, signReport, verifyReport } from "./signature.ts";
 import { createPortableReceipt, type PortableReceipt } from "./portable.ts";
 import { buildPortableGateReport } from "./gate.ts";
@@ -119,10 +119,10 @@ function usage(): string {
 Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
-  vigil init --action-sha <40-hex> [--repo <path>] [--force] [--runner-image <digest> --test-cmd <command>] [--portable --public-key <path>]
+  vigil init --action-sha <40-hex> [--repo <path>] [--force] [--runner common|--runner-image <digest> --test-cmd <command>] [--portable --public-key <path>]
   vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
   vigil init --profile authority --action-sha <40-hex> [--repo <path>] [--force]
-  vigil protect [--repo <path>] [--force] [--action-sha <40-hex>] [--runner-image <digest> --test-cmd <command>]
+  vigil protect [--repo <path>] [--force] [--action-sha <40-hex>] [--runner common|--runner-image <digest> --test-cmd <command>]
   vigil check <https://github.com/owner/repo/pull/number> [--format text|json] [--output <receipt.json>]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil guard-compat --host claude|codex --host-version <version> --host-executable <path> --control-name <name> --control-version <version> --control-executable <path> --policy <path> --configuration <path> [options]
@@ -625,9 +625,22 @@ function validateCommandArgs(args: string[], command: string, valueOptions: stri
   }
 }
 
+function hostedRunnerOverride(args: string[], command: "init" | "protect"): HostedRunnerOverride | undefined {
+  const runner = optionValue(args, "--runner");
+  const explicitImage = optionValue(args, "--runner-image");
+  const testCommand = optionValue(args, "--test-cmd");
+  if (runner && explicitImage) throw new Error(`${command} accepts --runner or --runner-image, not both`);
+  if (runner && runner !== "common") throw new Error(`${command} --runner must be common`);
+  const image = runner === "common" ? OFFICIAL_COMMON_RUNNER_IMAGE : explicitImage;
+  if (Boolean(image) !== Boolean(testCommand)) {
+    throw new Error(`${command} requires --test-cmd together with --runner or --runner-image`);
+  }
+  return image && testCommand ? { image, testCommand } : undefined;
+}
+
 function runInit(args: string[]): number {
   try {
-    validateCommandArgs(args, "init", ["--repo", "--action-sha", "--profile", "--public-key", "--runner-image", "--test-cmd"], ["--portable", "--attest", "--force"]);
+    validateCommandArgs(args, "init", ["--repo", "--action-sha", "--profile", "--public-key", "--runner", "--runner-image", "--test-cmd"], ["--portable", "--attest", "--force"]);
     const repo = resolve(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
@@ -640,11 +653,9 @@ function runInit(args: string[]): number {
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
     if (attest) throw new Error("init --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
     if (!/^[0-9a-f]{40}$/.test(actionSha ?? "")) throw new Error("init requires --action-sha <40 lowercase hex>");
-    const runnerImage = optionValue(args, "--runner-image");
-    const runnerTest = optionValue(args, "--test-cmd");
-    if (Boolean(runnerImage) !== Boolean(runnerTest)) throw new Error("init requires --runner-image and --test-cmd together");
+    const runnerOverride = hostedRunnerOverride(args, "init");
     const result = initRepository(repo, args.includes("--force"), publicKey ? publicKeyId(resolve(publicKey)) : undefined, profile as "default" | "maintainer" | "authority" | "protect", false, actionSha,
-      runnerImage && runnerTest ? { image: runnerImage, testCommand: runnerTest } : undefined);
+      runnerOverride);
     console.log("Agent Vigil scaffold prepared.\n");
     for (const path of result.created) console.log(`  created ${path}`);
     for (const path of result.kept) console.log(`  kept    ${path} (use --force to replace)`);
@@ -661,17 +672,15 @@ function runInit(args: string[]): number {
 
 function runProtect(args: string[]): number {
   try {
-    validateCommandArgs(args, "protect", ["--repo", "--action-sha", "--runner-image", "--test-cmd"], ["--force", "--attest"]);
+    validateCommandArgs(args, "protect", ["--repo", "--action-sha", "--runner", "--runner-image", "--test-cmd"], ["--force", "--attest"]);
     const repo = resolve(optionValue(args, "--repo") ?? ".");
     if (args.includes("--attest")) throw new Error("protect --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
     const selectedPin = defaultActionPin();
     const actionSha = optionValue(args, "--action-sha") ?? selectedPin.sha;
     if (!/^[0-9a-f]{40}$/.test(actionSha)) throw new Error("protect requires --action-sha to be a 40-character lowercase Git commit SHA");
-    const runnerImage = optionValue(args, "--runner-image");
-    const runnerTest = optionValue(args, "--test-cmd");
-    if (Boolean(runnerImage) !== Boolean(runnerTest)) throw new Error("protect requires --runner-image and --test-cmd together");
+    const runnerOverride = hostedRunnerOverride(args, "protect");
     const result = initRepository(repo, args.includes("--force"), undefined, "protect", false, actionSha,
-      runnerImage && runnerTest ? { image: runnerImage, testCommand: runnerTest } : undefined);
+      runnerOverride);
     console.log("Agent Vigil is ready to add.\n");
     const policy = loadPolicy(repo).value;
     const slug = githubRepositorySlug(git(repo, ["config", "--get", "remote.origin.url"]));
