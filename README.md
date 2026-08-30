@@ -34,15 +34,15 @@ with public evidence and consent.
 
 ## Install the full gate
 
-The currently verified public package is the immutable v0.22.0 GitHub artifact:
+The currently verified public package is the immutable v0.23.0 GitHub artifact:
 
 ```bash
 curl -fL -o agent-vigil.tgz \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.0/sulmusic-agent-vigil-0.23.0.tgz
 mkdir agent-vigil-package
 tar -xzf agent-vigil.tgz -C agent-vigil-package --strip-components=1
 node agent-vigil-package/dist/cli.js protect --repo . \
-  --action-sha 7531f549eb3f4c6c5bdc4a12245c8690a7a79a09
+  --action-sha eed2cd0db000099f86d29186bdb2fd1c7784356a
 ```
 
 Review the four generated files, commit them in a setup pull request, and run:
@@ -55,11 +55,12 @@ The setup PR starts the check. To make it an enforceable trust boundary, require
 an externally controlled exact-head check or GitHub App. A required job name
 alone does not prove who supplied the workflow.
 
-[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/7531f549eb3f4c6c5bdc4a12245c8690a7a79a09/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/21be5c21d21f4e1845ccc70c9dd0f66f32c65ef1/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
-**Distribution status, verified August 30, 2026:** GitHub release v0.22.0 and
-the Marketplace Action are public. npm currently serves v0.21.1. Do not use an
-npm command as proof of v0.22.0 until the registry reaches release parity.
+**Distribution status, verified August 30, 2026:** GitHub release v0.23.0 and
+the versioned Action are public; the Marketplace listing exposes v0.23.0. npm
+currently serves v0.21.1. Use the immutable GitHub package until npm reaches
+release parity.
 
 ## What a result means
 
@@ -106,26 +107,19 @@ clone. See the [hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md).
 
 ## Current hosted compatibility
 
-The v0.22.0 generated workflow supports a plain Git repository or a root
-Node/npm repository whose selected test command is a bounded direct
-`node --test` command. A root npm lock can select
-`npm ci --ignore-scripts` for setup.
-
-Python, Rust, Go, Java, Ruby, PHP, .NET, pnpm, Yarn, Bun, nested-only npm,
-custom registry configuration, and arbitrary package scripts remain local-only
-in v0.22.0. The local CLI can parse and verify many of those result formats.
-Those adapters do not make an unsupported repository eligible for the hosted installer.
-
-The next source release adds an explicit hermetic-runner path for those
-toolchains. The published common runner is pinned by its immutable digest:
+The v0.23.0 generated workflow can infer a bounded direct `node --test`
+command for a root Node/npm repository. Plain Git repositories and other
+toolchains use an explicit hermetic runner and an explicit test command:
 
 ```bash
-node dist/cli.js protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.0/sulmusic-agent-vigil-0.23.0.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
 
-The image must be selected in the base commit, pinned by digest, contain the
+The common image includes Node, Python, Rust, Go, Java, Ruby, PHP, .NET, pnpm,
+Yarn, and Bun. It does not install project dependencies at test time. The image
+must be selected in the base commit, pinned by digest, contain the
 standard Node runtime used by the sandbox wrapper, and include every dependency
 needed by the test command. Custom setup and test-time network access stay
 disabled. The receipt records the exact image digest and command. Agent Vigil
@@ -181,7 +175,7 @@ Pin the Action to a reviewed 40-character commit SHA:
     fetch-depth: 0
     persist-credentials: false
 - id: vigil
-  uses: sulmusic2-star/agent-vigil@7531f549eb3f4c6c5bdc4a12245c8690a7a79a09
+  uses: sulmusic2-star/agent-vigil@eed2cd0db000099f86d29186bdb2fd1c7784356a
   with:
     mode: maintainer
     policy: .agent-vigil.json
@@ -209,9 +203,9 @@ The browser and CLI can record the public lifecycle evidence for a pull request:
 
 ```bash
 npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.0/sulmusic-agent-vigil-0.23.0.tgz \
   pr-receipt https://github.com/OWNER/REPOSITORY/pull/123 \
-  --tool-ref 7531f549eb3f4c6c5bdc4a12245c8690a7a79a09 \
+  --tool-ref eed2cd0db000099f86d29186bdb2fd1c7784356a \
   --output pr-123.receipt.json
 ```
 

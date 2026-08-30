@@ -12,7 +12,8 @@ test("the public entry point leads with a no-account PR check and keeps trial re
   const form = read(".github/ISSUE_TEMPLATE/adopter-feedback.yml");
   assert.match(readme, /Agent Vigil is a required GitHub check for pull requests made with coding agents/);
   assert.match(readme, /Paste a public pull-request URL.*No login, token, repository write, or source upload/s);
-  assert.match(readme, /Those adapters do not make an\s+unsupported repository eligible for the hosted installer/s);
+  assert.match(readme, /Plain Git repositories and other\s+toolchains use an explicit hermetic runner and an explicit test command/s);
+  assert.match(readme, /--runner common/);
   assert.match(readme, /optionally.*register a trial/s);
   assert.match(form, /Opening this form does not count as an installation/);
   assert.match(form, /workflow that actually uses Agent Vigil/);

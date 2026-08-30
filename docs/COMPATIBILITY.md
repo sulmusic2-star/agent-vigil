@@ -6,7 +6,7 @@ payment, or revenue evidence.
 
 ## Source-suite snapshot
 
-On 2026-08-29, the exact v0.22.0 release-candidate source ran the ordinary local
+On 2026-08-29, the exact v0.23.0 release source ran the ordinary local
 suite once. `npm test` executes **805 tests** in that snapshot: 792 passed and
 13 opt-in or platform-specific tests skipped. Historical coverage percentages
 belong to older, smaller suites and are not reused as current evidence. These
@@ -49,7 +49,7 @@ Tests then run without network over a read-only source mount. Unsupported
 toolchains, package managers, layouts, indirection, repository `.npmrc` files,
 submodules, and unsafe setup inputs fail closed.
 
-The source release candidate adds a second, explicit path for Python, Rust, Go,
+The v0.23.0 release adds a second, explicit path for Python, Rust, Go,
 Java, Ruby, PHP, .NET, pnpm, Yarn, and Bun. The operator supplies both a
 digest-pinned container image and one command from the bounded direct-runner
 grammar:

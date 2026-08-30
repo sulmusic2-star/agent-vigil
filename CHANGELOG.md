@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.23.1 - 2026-08-30
+
+- Point the post-install doctor handoff at the same v0.23.1 package used to
+  install the gate, so hermetic-runner repositories do not fall back to the
+  pre-runner v0.22.0 CLI.
+- List `.agent-vigil-runner.json` in the review, commit, and removal steps when
+  an explicit hermetic runner is selected.
+- Publish the verified v0.23 compatibility, package digest, browser handoff,
+  and distribution state without claiming npm parity.
+
 ## 0.23.0 - 2026-08-30
 
 - Add a base-owned `.agent-vigil-runner.json` contract so Python, Rust, Go,
