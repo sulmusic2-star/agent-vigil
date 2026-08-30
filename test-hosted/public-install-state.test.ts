@@ -2,14 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const releaseVersion = "0.22.0";
-const releaseCommit = "5925e8bcbaf97f08c8c840252f486e96bf3f9775";
+const releaseVersion = "0.23.0";
+const releaseCommit = "eed2cd0db000099f86d29186bdb2fd1c7784356a";
 const releaseAsset = `sulmusic-agent-vigil-${releaseVersion}.tgz`;
 const releaseUrl = `https://github.com/sulmusic2-star/agent-vigil/releases/download/v${releaseVersion}/${releaseAsset}`;
-const releaseSha256 = "2beaba44fb5988d04b25605462a81c1bc0d4d229bcd0b2ba0852e2d2f32de7eb";
+const releaseSha256 = "bf6303c18e1de85c19fe5df7b5fc2401451a14a4a92999cf7c6385304e8242d0";
 const registryIntegrity = "sha512-svknWHc0DT9Jh77tatKFmvsr3lJr8dSDLBrXud1pr1DKkgW8Yx7uIvS1+Xkq72TQfyP091sWUZZzDH8ku6RjuA==";
 
-test("the npm-free guide binds the immutable v0.22.0 GitHub package", () => {
+test("the npm-free guide binds the immutable v0.23.0 GitHub package", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
 
   assert.match(guide, new RegExp(releaseUrl.replaceAll(".", "\\.")));
@@ -30,11 +30,7 @@ test("the public install state keeps GitHub and npm publication separate", () =>
   assert.equal(state.latest_github_release.asset_url, releaseUrl);
   assert.equal(state.latest_github_release.sha256, releaseSha256);
   assert.equal(state.latest_github_release.immutable, true);
-  assert.deepEqual(state.source_release_candidate, {
-    version: "0.23.0",
-    github_release_published: false,
-    npm_published: false,
-  });
+  assert.equal(state.source_release_candidate, undefined);
   assert.equal(state.npm_registry.package, "@sulmusic/agent-vigil");
   assert.equal(state.npm_registry.target_version, releaseVersion);
   assert.equal(state.npm_registry.observed_version, "0.21.1");
@@ -65,10 +61,11 @@ test("the five-minute guide preserves one complete value path", () => {
   assert.doesNotMatch(guide, /node dist\/cli\.js (?:protect|doctor)/);
   assert.match(guide, /doctor` fails its readiness checks while the controls are uncommitted/);
   assert.match(guide, /does not make the\s+check required in GitHub/);
-  assert.match(guide, /Node\/npm Git repository/);
+  assert.match(guide, /root of a Git repository/);
   assert.match(guide, /direct Node test command/);
   assert.match(guide, /REPLACE_WITH_TEST_COMMAND/);
   assert.match(guide, /doctor` fails closed/);
   assert.doesNotMatch(guide, /protect\s+\\\s+--action-sha/);
-  assert.match(guide, /npm publication of v0\.22\.0 is not claimed/);
+  assert.match(guide, /--runner common/);
+  assert.match(guide, /npm publication of v0\.23\.0 is not claimed/);
 });

@@ -1,6 +1,6 @@
-const TOOL_VERSION = "0.22.0-browser.2";
-const TOOL_COMMIT = "ff7f53f6d5a35491fce8a4bc7b4982025d189124";
-const RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz";
+const TOOL_VERSION = "0.23.0-browser.1";
+const TOOL_COMMIT = "eed2cd0db000099f86d29186bdb2fd1c7784356a";
+const RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.0/sulmusic-agent-vigil-0.23.0.tgz";
 const PUBLIC_CLAIM_STATEMENT = "This receipt attests that selected public GitHub events and checks were observed. It does not establish that the checks were sufficient, that the change is safe, or that deployment is authorized.";
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const FULL_GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;

@@ -1,27 +1,42 @@
 # Install Agent Vigil in five minutes
 
-An npm sign-in is not required. Agent Vigil v0.22.0 is available from its
+An npm sign-in is not required. Agent Vigil v0.23.0 is available from its
 immutable GitHub release. The npm registry separately reports version 0.21.1;
-npm publication of v0.22.0 is not claimed.
+npm publication of v0.23.0 is not claimed.
 
 ## Prepare and verify the repository gate
 
-Run these commands from the root of a Node/npm Git repository whose test script
-is a direct Node test command such as `node --test test/*.test.js`:
+Run these commands from the root of a Git repository. Agent Vigil can infer a
+bounded direct Node test command such as `node --test test/*.test.js`; other
+toolchains require an explicit hermetic runner and test command:
 
 ```bash
-AGENT_VIGIL_PACKAGE=https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz
+AGENT_VIGIL_PACKAGE=https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.0/sulmusic-agent-vigil-0.23.0.tgz
 
 npx --yes "$AGENT_VIGIL_PACKAGE" protect
 
 git status --short
 ```
 
-The v0.22.0 hosted gate accepts this deliberately narrow test shape. It does
+The inferred v0.23.0 Node/npm path accepts this deliberately narrow test shape. It does
 not execute npm wrappers or infer a protected test command in a repository
 without a root `package.json`. If no safe direct command can be inferred,
 `protect` leaves `REPLACE_WITH_TEST_COMMAND` in the prepared policy and
 `doctor` fails closed instead of claiming the gate is ready.
+
+For Python, Rust, Go, Java, Ruby, PHP, .NET, pnpm, Yarn, Bun, or another
+non-inferred layout, select the immutable common runner and provide the bounded
+test command yourself:
+
+```bash
+npx --yes "$AGENT_VIGIL_PACKAGE" protect --repo . \
+  --runner common \
+  --test-cmd "python3 -m pytest -q"
+```
+
+The common image contains the toolchains, not your project dependencies. Test
+execution remains networkless. Use `--runner-image` with an organization-owned
+digest-pinned image when dependencies must be preinstalled.
 
 Review these four generated controls before committing them:
 
@@ -76,37 +91,37 @@ signed remediation aimed at that revocation restores permission.
 
 ## Verify the release package
 
-Download `sulmusic-agent-vigil-0.22.0.tgz` from the
-[v0.22.0 release](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.22.0),
+Download `sulmusic-agent-vigil-0.23.0.tgz` from the
+[v0.23.0 release](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.23.0),
 then run:
 
 ```bash
-shasum -a 256 sulmusic-agent-vigil-0.22.0.tgz
+shasum -a 256 sulmusic-agent-vigil-0.23.0.tgz
 ```
 
 The expected SHA-256 digest is:
 
 ```text
-2beaba44fb5988d04b25605462a81c1bc0d4d229bcd0b2ba0852e2d2f32de7eb
+bf6303c18e1de85c19fe5df7b5fc2401451a14a4a92999cf7c6385304e8242d0
 ```
 
 ## npm registry status
 
-The newest registry version observed on August 28, 2026 was v0.21.1:
+The newest registry version observed on August 30, 2026 was v0.21.1:
 
 ```bash
 npx --yes @sulmusic/agent-vigil@0.21.1 --help
 ```
 
-Use the GitHub v0.22.0 package above when the current release is required. Do
-not request registry v0.22.0 until npm publishes it.
+Use the GitHub v0.23.0 package above when the current release is required. Do
+not request registry v0.23.0 until npm publishes it.
 
 ## Pin the GitHub Action
 
 Pin the released commit instead of a moving tag:
 
 ```yaml
-- uses: sulmusic2-star/agent-vigil@5925e8bcbaf97f08c8c840252f486e96bf3f9775
+- uses: sulmusic2-star/agent-vigil@eed2cd0db000099f86d29186bdb2fd1c7784356a
 ```
 
 The Action executes the bundled `dist/cli.js` from that commit. It does not
@@ -121,12 +136,12 @@ required check.
 
 ## Verified distribution state
 
-The facts below were checked on August 28, 2026:
+The facts below were checked on August 30, 2026:
 
-- GitHub release v0.22.0 is public and installable.
+- GitHub release v0.23.0 is public and installable.
 - The public package SHA-256 is recorded above.
 - The npm registry reports version 0.21.1. npm publication of v0.21.1 is
-  public and separately verified; publication of v0.22.0 is not claimed.
+  public and separately verified; publication of v0.23.0 is not claimed.
 - Outside installation, repeat use, protected-action stops, payment, and
   revenue require separate evidence.
 
