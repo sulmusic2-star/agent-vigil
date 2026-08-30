@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-vigil-merge-queue-dispatcher",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-08-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ALLOWED_REPOSITORY": "sulmusic2-star/agent-vigil",
+    "ALLOWED_BASE_REF": "refs/heads/main",
+    "WORKFLOW_FILE": "agent-vigil-merge-group.yml",
+    "TRUSTED_REF": "main"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DELIVERY_LEDGER",
+        "class_name": "DeliveryLedger"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DeliveryLedger"]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

@@ -1,0 +1,311 @@
+name: Agent Vigil merge queue
+
+on:
+  # Only the external GitHub App dispatcher can authenticate these inputs. The
+  # workflow itself is selected from the trusted default branch.
+  workflow_dispatch:
+    inputs:
+      delivery_id:
+        required: true
+        type: string
+      repository:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_ref:
+        required: true
+        type: string
+      head_ref:
+        required: true
+        type: string
+      dispatch_signature:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  authenticate:
+    name: Authenticate the external merge-group delivery
+    runs-on: ubuntu-24.04
+    environment: agent-vigil-gate
+    outputs:
+      base-sha: ${{ steps.bind.outputs.base_sha }}
+      head-sha: ${{ steps.bind.outputs.head_sha }}
+      base-ref: ${{ steps.bind.outputs.base_ref }}
+      head-ref: ${{ steps.bind.outputs.head_ref }}
+      delivery-id: ${{ steps.bind.outputs.delivery_id }}
+    steps:
+      - id: bind
+        name: Verify the App actor, HMAC, repository, refs, and commits
+        env:
+          DISPATCH_SECRET: ${{ secrets.AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET }}
+          ACTOR: ${{ github.actor }}
+          EXPECTED_ACTOR: agent-vigil-gate[bot]
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          INPUT_DELIVERY_ID: ${{ github.event.inputs.delivery_id }}
+          INPUT_REPOSITORY: ${{ github.event.inputs.repository }}
+          INPUT_BASE_SHA: ${{ github.event.inputs.base_sha }}
+          INPUT_HEAD_SHA: ${{ github.event.inputs.head_sha }}
+          INPUT_BASE_REF: ${{ github.event.inputs.base_ref }}
+          INPUT_HEAD_REF: ${{ github.event.inputs.head_ref }}
+          INPUT_SIGNATURE: ${{ github.event.inputs.dispatch_signature }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHmac, timingSafeEqual } from "node:crypto";
+          import { appendFileSync } from "node:fs";
+
+          const env = process.env;
+          const sha = /^[0-9a-f]{40}$/;
+          const delivery = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          const signaturePattern = /^sha256=[0-9a-f]{64}$/;
+          const values = [
+            "agent-vigil-merge-group-v1",
+            env.INPUT_DELIVERY_ID,
+            env.INPUT_REPOSITORY,
+            env.INPUT_BASE_SHA,
+            env.INPUT_HEAD_SHA,
+            env.INPUT_BASE_REF,
+            env.INPUT_HEAD_REF,
+          ];
+
+          if (!env.DISPATCH_SECRET || env.DISPATCH_SECRET.length < 32) throw new Error("merge-group dispatch secret is missing or too short");
+          if (env.ACTOR !== env.EXPECTED_ACTOR) throw new Error("workflow_dispatch actor is not the Agent Vigil GitHub App");
+          if (env.INPUT_REPOSITORY !== env.EXPECTED_REPOSITORY) throw new Error("dispatched repository does not match this repository");
+          if (!delivery.test(env.INPUT_DELIVERY_ID ?? "")) throw new Error("delivery ID is invalid");
+          if (!sha.test(env.INPUT_BASE_SHA ?? "") || !sha.test(env.INPUT_HEAD_SHA ?? "") || env.INPUT_BASE_SHA === env.INPUT_HEAD_SHA) {
+            throw new Error("merge-group commit identity is invalid");
+          }
+          if (env.INPUT_BASE_REF !== "refs/heads/main") throw new Error("merge-group base ref is not main");
+          if (!(env.INPUT_HEAD_REF ?? "").startsWith("refs/heads/gh-readonly-queue/main/") || /[\u0000-\u001f\u007f]/.test(env.INPUT_HEAD_REF ?? "")) {
+            throw new Error("merge-group head ref is invalid");
+          }
+          if (!signaturePattern.test(env.INPUT_SIGNATURE ?? "")) throw new Error("dispatch signature is invalid");
+
+          const expected = `sha256=${createHmac("sha256", env.DISPATCH_SECRET).update(values.join("\n")).digest("hex")}`;
+          const expectedBytes = Buffer.from(expected);
+          const actualBytes = Buffer.from(env.INPUT_SIGNATURE);
+          if (expectedBytes.length !== actualBytes.length || !timingSafeEqual(expectedBytes, actualBytes)) {
+            throw new Error("dispatch signature does not match the queue identity");
+          }
+
+          const output = process.env.GITHUB_OUTPUT;
+          if (!output) throw new Error("GITHUB_OUTPUT is unavailable");
+          appendFileSync(output, [
+            `delivery_id=${env.INPUT_DELIVERY_ID}`,
+            `base_sha=${env.INPUT_BASE_SHA}`,
+            `head_sha=${env.INPUT_HEAD_SHA}`,
+            `base_ref=${env.INPUT_BASE_REF}`,
+            `head_ref=${env.INPUT_HEAD_REF}`,
+            "",
+          ].join("\n"));
+          NODE
+
+  evidence:
+    name: Verify the exact composed queue head without credentials
+    needs: authenticate
+    runs-on: ubuntu-24.04
+    outputs:
+      vigil-status: ${{ steps.vigil.outputs.status }}
+      receipt-hash: ${{ steps.vigil.outputs['receipt-hash'] }}
+    steps:
+      - name: Confirm the live queue ref still resolves to the signed head
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD_SHA: ${{ needs.authenticate.outputs.head-sha }}
+          EXPECTED_HEAD_REF: ${{ needs.authenticate.outputs.head-ref }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const env = process.env;
+          const ref = env.EXPECTED_HEAD_REF.replace(/^refs\//, "");
+          const response = await fetch(`${env.GITHUB_API_URL}/repos/${env.GITHUB_REPOSITORY}/git/ref/${ref}`, {
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+              "X-GitHub-Api-Version": "2026-03-10",
+            },
+          });
+          const body = await response.text();
+          if (!response.ok) throw new Error(`queue ref lookup failed with ${response.status}: ${body.slice(0, 256)}`);
+          const value = JSON.parse(body);
+          if (value?.object?.type !== "commit" || value?.object?.sha !== env.EXPECTED_HEAD_SHA) {
+            throw new Error("live queue ref does not resolve to the signed merge-group head");
+          }
+          NODE
+      - id: queue-event
+        name: Materialize the authenticated queue envelope outside the checkout
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_BASE_SHA: ${{ needs.authenticate.outputs.base-sha }}
+          EXPECTED_HEAD_SHA: ${{ needs.authenticate.outputs.head-sha }}
+          EXPECTED_BASE_REF: ${{ needs.authenticate.outputs.base-ref }}
+          EXPECTED_HEAD_REF: ${{ needs.authenticate.outputs.head-ref }}
+          DELIVERY_ID: ${{ needs.authenticate.outputs.delivery-id }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const env = process.env;
+          const root = realpathSync(env.RUNNER_TEMP);
+          const rootStat = lstatSync(root);
+          if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error("runner temporary directory is not a real directory");
+          const delivery = env.DELIVERY_ID;
+          if (!/^[0-9a-f-]{36}$/i.test(delivery ?? "")) throw new Error("authenticated delivery ID is invalid");
+          const eventPath = join(root, `agent-vigil-merge-group-${delivery}.json`);
+          const event = {
+            action: "checks_requested",
+            repository: { full_name: env.EXPECTED_REPOSITORY },
+            merge_group: {
+              base_sha: env.EXPECTED_BASE_SHA,
+              head_sha: env.EXPECTED_HEAD_SHA,
+              base_ref: env.EXPECTED_BASE_REF,
+              head_ref: env.EXPECTED_HEAD_REF,
+            },
+          };
+          writeFileSync(eventPath, `${JSON.stringify(event)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+          appendFileSync(env.GITHUB_OUTPUT, `path=${eventPath}\n`);
+          NODE
+      - name: Select the exact trusted host Node.js runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.2
+          package-manager-cache: false
+      - name: Check out the signed queue head without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.authenticate.outputs.head-sha }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - id: vigil
+        name: Verify the composed head in the candidate-only Docker contract
+        uses: sulmusic2-star/agent-vigil@60476e1255ca2359c0fbeee08c5640d3cf4e46fa # reviewed merge-group runtime bytes
+        with:
+          mode: merge-group
+          merge-group-event: ${{ steps.queue-event.outputs.path }}
+          policy: .agent-vigil.json
+          policy-ref: ${{ needs.authenticate.outputs.base-sha }}
+          repo: .
+          base: ${{ needs.authenticate.outputs.base-sha }}
+          head: ${{ needs.authenticate.outputs.head-sha }}
+          isolate-candidate: true
+          candidate-setup-cmd: npm ci --ignore-scripts
+      - name: Retain the exact queue-head evidence
+        if: always() && steps.vigil.outputs.report != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-vigil-merge-group-${{ needs.authenticate.outputs.head-sha }}
+          path: |
+            ${{ steps.vigil.outputs.report }}
+            ${{ steps.vigil.outputs.sarif }}
+            ${{ steps.vigil.outputs.value-card }}
+            ${{ steps.vigil.outputs.github-evidence }}
+          if-no-files-found: error
+          retention-days: 30
+
+  governed-queue-check:
+    name: Publish the App-bound queue result
+    needs: [authenticate, evidence]
+    if: always() && needs.authenticate.result == 'success'
+    runs-on: ubuntu-24.04
+    environment: agent-vigil-gate
+    steps:
+      - id: gate-token
+        name: Mint a least-privilege Agent Vigil Gate token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AGENT_VIGIL_GATE_APP_ID }}
+          private-key: ${{ secrets.AGENT_VIGIL_GATE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: agent-vigil
+          permission-checks: write
+      - name: Publish the non-spoofable exact-queue-head check
+        env:
+          AGENT_VIGIL_GATE_TOKEN: ${{ steps.gate-token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_BASE_SHA: ${{ needs.authenticate.outputs.base-sha }}
+          EXPECTED_HEAD_SHA: ${{ needs.authenticate.outputs.head-sha }}
+          EXPECTED_HEAD_REF: ${{ needs.authenticate.outputs.head-ref }}
+          DELIVERY_ID: ${{ needs.authenticate.outputs.delivery-id }}
+          EVIDENCE_RESULT: ${{ needs.evidence.result }}
+          EVIDENCE_STATUS: ${{ needs.evidence.outputs['vigil-status'] }}
+          EVIDENCE_RECEIPT_HASH: ${{ needs.evidence.outputs['receipt-hash'] }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const env = process.env;
+          const sha = /^[0-9a-f]{40}$/;
+          const receipt = /^sha256:[0-9a-f]{64}$/;
+          const [owner, repository] = env.GITHUB_REPOSITORY.split("/");
+          const api = env.GITHUB_API_URL;
+          if (!owner || !repository || !api || !sha.test(env.EXPECTED_HEAD_SHA ?? "") || !sha.test(env.EXPECTED_BASE_SHA ?? "")) {
+            throw new Error("governed queue check received an invalid commit identity");
+          }
+
+          async function request(path, token, options = {}) {
+            const response = await fetch(`${api}${path}`, {
+              ...options,
+              headers: {
+                Accept: "application/vnd.github+json",
+                Authorization: `Bearer ${token}`,
+                "X-GitHub-Api-Version": "2026-03-10",
+                ...options.headers,
+              },
+            });
+            const body = await response.text();
+            if (!response.ok) throw new Error(`GitHub API ${response.status} for ${path}: ${body.slice(0, 256)}`);
+            return body.length > 0 ? JSON.parse(body) : undefined;
+          }
+
+          let queueCurrent = false;
+          try {
+            const ref = env.EXPECTED_HEAD_REF.replace(/^refs\//, "");
+            const live = await request(`/repos/${owner}/${repository}/git/ref/${ref}`, env.GITHUB_TOKEN);
+            queueCurrent = live?.object?.type === "commit" && live?.object?.sha === env.EXPECTED_HEAD_SHA;
+          } catch {
+            queueCurrent = false;
+          }
+
+          const evidenceValid = env.EVIDENCE_RESULT === "success" &&
+            env.EVIDENCE_STATUS === "PASS" &&
+            receipt.test(env.EVIDENCE_RECEIPT_HASH ?? "");
+          const conclusion = queueCurrent && evidenceValid ? "success" : "failure";
+          const detailsUrl = `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+          const summary = [
+            `Queue ref current: ${queueCurrent}`,
+            `Evidence job result: ${env.EVIDENCE_RESULT}`,
+            `Agent Vigil status: ${env.EVIDENCE_STATUS || "missing"}`,
+            `Receipt: ${env.EVIDENCE_RECEIPT_HASH || "missing"}`,
+            `Bound head: ${env.EXPECTED_HEAD_SHA}`,
+            `Bound base: ${env.EXPECTED_BASE_SHA}`,
+            `GitHub delivery: ${env.DELIVERY_ID}`,
+          ].join("\n");
+
+          await request(`/repos/${owner}/${repository}/check-runs`, env.AGENT_VIGIL_GATE_TOKEN, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: "Agent Vigil governed evidence",
+              head_sha: env.EXPECTED_HEAD_SHA,
+              status: "completed",
+              conclusion,
+              details_url: detailsUrl,
+              external_id: `merge-group:${env.DELIVERY_ID}:${env.EXPECTED_HEAD_SHA}`,
+              output: {
+                title: conclusion === "success" ? "Exact queue-head evidence passed" : "Exact queue-head evidence blocked",
+                summary,
+              },
+            }),
+          });
+
+          if (conclusion !== "success") process.exitCode = 1;
+          NODE
