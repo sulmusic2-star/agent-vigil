@@ -6,6 +6,9 @@ const queues = readFileSync(new URL("../docs/MERGE_QUEUES.md", import.meta.url),
 const notary = readFileSync(new URL("../docs/NOTARY_APP.md", import.meta.url), "utf8");
 const dispatcher = readFileSync(new URL("../hosted/merge-queue-dispatcher/README.md", import.meta.url), "utf8");
 const queueWorkflow = readFileSync(new URL("../.github/workflows/agent-vigil-merge-group.yml", import.meta.url), "utf8");
+const queueConfig = JSON.parse(
+  readFileSync(new URL("../hosted/merge-queue-dispatcher/wrangler.jsonc", import.meta.url), "utf8"),
+) as { vars: { ALLOWED_REPOSITORY: string; WORKFLOW_FILE: string } };
 const queueManifest = JSON.parse(
   readFileSync(new URL("../hosted/merge-queue-dispatcher/github-app-manifest.example.json", import.meta.url), "utf8"),
 ) as {
@@ -58,6 +61,8 @@ test("dispatcher instructions name the exact current contract", () => {
   assert.match(dispatcher, /AGENT_VIGIL_GATE_PRIVATE_KEY/);
   assert.match(dispatcher, /GITHUB_APP_ID/);
   assert.match(dispatcher, /GITHUB_APP_PRIVATE_KEY/);
+  assert.match(dispatcher, /replace\s+`REPLACE_WITH_OWNER\/REPLACE_WITH_REPOSITORY`/);
+  assert.match(dispatcher, /Copy the packaged `\.github\/workflows\/agent-vigil-merge-group\.yml`/);
   assert.match(dispatcher, /allow only `main`/);
   assert.match(dispatcher, /candidate branch must not be able to\s+request this environment/);
   assert.match(dispatcher, /disposable negative test from a non-`main`\s+branch/);
@@ -75,6 +80,10 @@ test("queue App manifest matches the authenticated dispatcher and workflow", () 
   assert.match(dispatcher, /After deployment and secret configuration[\s\S]*enable the App webhook/);
   assert.deepEqual(queueManifest.default_events, ["merge_group"]);
   assert.match(queueWorkflow, /EXPECTED_ACTOR: agent-vigil-gate\[bot\]/);
+  assert.match(queueWorkflow, /repositories: \$\{\{ github\.event\.repository\.name \}\}/);
+  assert.doesNotMatch(queueWorkflow, /repositories: agent-vigil/);
+  assert.equal(queueConfig.vars.ALLOWED_REPOSITORY, "REPLACE_WITH_OWNER/REPLACE_WITH_REPOSITORY");
+  assert.equal(queueConfig.vars.WORKFLOW_FILE, "agent-vigil-merge-group.yml");
   assert.match(queueWorkflow, /DISPATCH_SECRET: \$\{\{ secrets\.AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET \}\}/);
   assert.equal(queueManifest.default_permissions.actions, "write");
   assert.equal(queueManifest.default_permissions.checks, "write");

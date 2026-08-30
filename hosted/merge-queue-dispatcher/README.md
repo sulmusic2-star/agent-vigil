@@ -44,6 +44,14 @@ The App needs `Actions: write`, `Checks: write`, `Contents: read`,
 Limit its installation to the intended repository. Do not enable the webhook
 or make its check required yet.
 
+Copy the packaged `.github/workflows/agent-vigil-merge-group.yml` into that
+same path on the target repository's `main` branch. In `wrangler.jsonc`, replace
+`REPLACE_WITH_OWNER/REPLACE_WITH_REPOSITORY` with that repository's exact
+`owner/name`. Keep `WORKFLOW_FILE` equal to the installed workflow filename.
+The workflow scopes its short-lived App token to
+`${{ github.event.repository.name }}`; do not replace that expression with a
+fixed repository name.
+
 ## Required secrets
 
 Run every Wrangler command in this guide from the directory that contains the
