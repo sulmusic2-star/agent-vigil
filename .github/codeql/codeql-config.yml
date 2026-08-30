@@ -1,0 +1,16 @@
+name: agent-vigil-codeql
+
+# Analyze maintained source and automation. The browser/CLI bundles under dist
+# are deterministic generated copies of src and are checked by the package
+# identity gate. Test fixtures intentionally contain hostile strings and
+# vulnerable patterns and are not production runtime code.
+paths:
+  - src
+  - scripts
+  - .github
+  - action.yml
+paths-ignore:
+  - dist
+  - test
+  - test-hosted
+
