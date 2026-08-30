@@ -2,20 +2,53 @@
 
 // src/cli.ts
 import { createHash as createHash28 } from "node:crypto";
-import { existsSync as existsSync12, readFileSync as readFileSync21, realpathSync as realpathSync19, statSync as statSync8 } from "node:fs";
+import { existsSync as existsSync12, readFileSync as readFileSync16, realpathSync as realpathSync19, statSync as statSync5 } from "node:fs";
 import { dirname as dirname12, isAbsolute as isAbsolute15, join as join19, relative as relative16, resolve as resolve32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/transcript.ts
-import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
+
+// src/safe-fs.ts
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
+import { resolve } from "node:path";
+function readRegularFileSnapshot(requestedPath, maximumBytes, label = "input") {
+  const absolutePath = resolve(requestedPath);
+  const expected = lstatSync(absolutePath, { bigint: true });
+  if (expected.isSymbolicLink() || !expected.isFile()) throw new Error(`${label} must be a regular non-symbolic-link file`);
+  if (expected.size > BigInt(maximumBytes)) throw new Error(`${label} is ${expected.size} bytes; maximum is ${maximumBytes}`);
+  const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+  const nonBlock = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0;
+  const descriptor = openSync(absolutePath, constants.O_RDONLY | noFollow | nonBlock);
+  try {
+    const opened = fstatSync(descriptor, { bigint: true });
+    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeNs !== expected.mtimeNs || opened.ctimeNs !== expected.ctimeNs) {
+      throw new Error(`${label} changed while it was opened`);
+    }
+    const bytes = Buffer.alloc(Number(opened.size));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count3 = readSync(descriptor, bytes, offset, bytes.length - offset, offset);
+      if (count3 === 0) throw new Error(`${label} changed while it was read`);
+      offset += count3;
+    }
+    const after = fstatSync(descriptor, { bigint: true });
+    if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs) {
+      throw new Error(`${label} changed while it was read`);
+    }
+    return { absolutePath, bytes, mode: Number(opened.mode & 0o7777n) };
+  } finally {
+    closeSync(descriptor);
+  }
+}
+function readRegularUtf8(requestedPath, maximumBytes, label = "input") {
+  return readRegularFileSnapshot(requestedPath, maximumBytes, label).bytes.toString("utf8");
+}
+
+// src/transcript.ts
 var MAX_TRANSCRIPT_BYTES = 50 * 1024 * 1024;
 function readBounded(path) {
-  const size = statSync(path).size;
-  if (size > MAX_TRANSCRIPT_BYTES) {
-    throw new Error(`transcript is ${size} bytes; maximum is ${MAX_TRANSCRIPT_BYTES}`);
-  }
-  return readFileSync(path, "utf8");
+  return readRegularUtf8(path, MAX_TRANSCRIPT_BYTES, "transcript");
 }
 function safeJson(text5) {
   try {
@@ -474,20 +507,19 @@ function snippet(text5, at2) {
 
 // src/detectors/reality.ts
 import { createHash as createHash5 } from "node:crypto";
-import { closeSync as closeSync3, constants as constants3, existsSync as existsSync3, fstatSync as fstatSync3, lstatSync as lstatSync4, openSync as openSync3, readFileSync as readFileSync3, readSync as readSync3, realpathSync as realpathSync3 } from "node:fs";
-import { isAbsolute as isAbsolute3, relative as relative2, resolve as resolve4, sep as sep3 } from "node:path";
+import { closeSync as closeSync4, constants as constants4, existsSync as existsSync3, fstatSync as fstatSync4, lstatSync as lstatSync4, openSync as openSync4, readFileSync, readSync as readSync4, realpathSync as realpathSync3 } from "node:fs";
+import { isAbsolute as isAbsolute3, relative as relative2, resolve as resolve5, sep as sep3 } from "node:path";
 
 // src/candidate-command.ts
 import { spawnSync } from "node:child_process";
 import { randomBytes, createHash as createHash3 } from "node:crypto";
-import { closeSync, constants, existsSync, fchmodSync, fstatSync, lstatSync as lstatSync2, mkdirSync, openSync, readlinkSync, readSync, realpathSync, writeSync } from "node:fs";
-import { isAbsolute as isAbsolute2, join, relative, resolve as resolve2, sep } from "node:path";
+import { closeSync as closeSync2, constants as constants2, existsSync, fchmodSync, fstatSync as fstatSync2, lstatSync as lstatSync2, mkdirSync, openSync as openSync2, readlinkSync, readSync as readSync2, realpathSync, writeSync } from "node:fs";
+import { isAbsolute as isAbsolute2, join, relative, resolve as resolve3, sep } from "node:path";
 
 // src/trusted-git.ts
 import { execFileSync } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
-import { lstatSync, readFileSync as readFileSync2 } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve as resolve2 } from "node:path";
 var ACTION_GIT_PATH = "/usr/bin:/bin";
 var checkpoints = /* @__PURE__ */ new Map();
 var TrustedGitIntegrityError = class extends Error {
@@ -543,17 +575,13 @@ function hardenedArguments(args) {
 function fixedBinary() {
   const configured = process.env.AGENT_VIGIL_INTERNAL_GIT_BIN;
   if (!configured) return "git";
-  if (!isAbsolute(configured) || resolve(configured) !== configured) throw new TrustedGitIntegrityError("trusted Git binary path must be absolute and normalized");
+  if (!isAbsolute(configured) || resolve2(configured) !== configured) throw new TrustedGitIntegrityError("trusted Git binary path must be absolute and normalized");
   try {
-    const stat = lstatSync(configured);
-    if (stat.isSymbolicLink() || !stat.isFile()) throw new TrustedGitIntegrityError("trusted Git binary must be a regular non-symlink file");
-    const current = {
-      identity: [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs, stat.mode, stat.uid, stat.gid].join(":"),
-      sha256: createHash2("sha256").update(readFileSync2(configured)).digest("hex")
-    };
+    const snapshot = readRegularFileSnapshot(configured, 512 * 1024 * 1024, "trusted Git binary");
+    const current = createHash2("sha256").update(snapshot.bytes).digest("hex");
     const checkpoint = checkpoints.get(configured);
     if (!checkpoint) checkpoints.set(configured, current);
-    else if (checkpoint.identity !== current.identity || checkpoint.sha256 !== current.sha256) throw new TrustedGitIntegrityError("trusted Git binary changed during verification");
+    else if (checkpoint !== current) throw new TrustedGitIntegrityError("trusted Git binary changed during verification");
     return configured;
   } catch (error) {
     if (error instanceof TrustedGitIntegrityError) throw error;
@@ -720,22 +748,22 @@ function identity(path, kind) {
 }
 function sha256File(path) {
   const digest12 = createHash3("sha256");
-  const descriptor = openSync(path, "r");
+  const descriptor = openSync2(path, "r");
   const buffer = Buffer.allocUnsafe(1024 * 1024);
   try {
     for (; ; ) {
-      const bytes = readSync(descriptor, buffer, 0, buffer.length, null);
+      const bytes = readSync2(descriptor, buffer, 0, buffer.length, null);
       if (bytes === 0) break;
       digest12.update(buffer.subarray(0, bytes));
     }
   } finally {
-    closeSync(descriptor);
+    closeSync2(descriptor);
   }
   return digest12.digest("hex");
 }
 function executableIsIntact(path) {
   try {
-    const executable = resolve2(path);
+    const executable = resolve3(path);
     if (!isAbsolute2(path) || executable !== path) return false;
     const current = { identity: identity(executable, "file"), sha256: sha256File(executable) };
     const checkpoint = executableCheckpoints.get(executable);
@@ -750,8 +778,8 @@ function executableIsIntact(path) {
 }
 function trustedRuntimeIsIntact(internalTestPath) {
   try {
-    const directory = resolve2(internalTestPath.split(":", 1)[0]);
-    const executable = resolve2(process.execPath);
+    const directory = resolve3(internalTestPath.split(":", 1)[0]);
+    const executable = resolve3(process.execPath);
     if (executable !== join(directory, "node")) return false;
     if (!runtimeCheckpoint) {
       runtimeCheckpoint = {
@@ -823,7 +851,7 @@ function inside(parent, child) {
 }
 function commonGitDirectory(repository2) {
   const selected = trustedGit(repository2, ["rev-parse", "--git-common-dir"]).trim();
-  return realpathSync(isAbsolute2(selected) ? selected : resolve2(repository2, selected));
+  return realpathSync(isAbsolute2(selected) ? selected : resolve3(repository2, selected));
 }
 function validateSourceRepository(cwd, trustedSourceWorktree) {
   const source2 = realpathSync(cwd);
@@ -856,7 +884,7 @@ function checkedPath(root, path) {
   if (isAbsolute2(path) || path === ".." || path.startsWith(`..${sep}`) || path.split(/[\\/]/).includes(".git")) {
     throw new Error(`unsafe candidate source path: ${path}`);
   }
-  const selected = resolve2(root, path);
+  const selected = resolve3(root, path);
   if (!inside(root, selected)) throw new Error(`candidate source path escaped its repository: ${path}`);
   return selected;
 }
@@ -881,12 +909,12 @@ function sha256Descriptor(descriptor, expectedSize) {
   const buffer = Buffer.allocUnsafe(Math.min(1024 * 1024, Math.max(1, expectedSize)));
   let remaining = expectedSize;
   while (remaining > 0) {
-    const bytes = readSync(descriptor, buffer, 0, Math.min(buffer.length, remaining), null);
+    const bytes = readSync2(descriptor, buffer, 0, Math.min(buffer.length, remaining), null);
     if (bytes === 0) throw new Error("candidate manifest file ended before its recorded size");
     digest12.update(buffer.subarray(0, bytes));
     remaining -= bytes;
   }
-  if (readSync(descriptor, Buffer.allocUnsafe(1), 0, 1, null) !== 0) {
+  if (readSync2(descriptor, Buffer.allocUnsafe(1), 0, 1, null) !== 0) {
     throw new Error("candidate manifest file grew beyond its recorded size");
   }
   return digest12.digest("hex");
@@ -904,9 +932,9 @@ function manifestEntry(root, path, expected) {
     return { kind: "symlink", mode: after.mode & 4095, identity: statIdentity(after), value: target2 };
   }
   if (!before.isFile()) throw new Error(`candidate manifest path has unsupported file type: ${path}`);
-  const descriptor = openSync(selected, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const descriptor = openSync2(selected, constants2.O_RDONLY | constants2.O_NOFOLLOW);
   try {
-    const opened = fstatSync(descriptor);
+    const opened = fstatSync2(descriptor);
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
       throw new Error(`candidate manifest file identity changed while opened: ${path}`);
     }
@@ -920,13 +948,13 @@ function manifestEntry(root, path, expected) {
       return { ...current, value: "" };
     }
     const value = sha256Descriptor(descriptor, opened.size);
-    const after = fstatSync(descriptor);
+    const after = fstatSync2(descriptor);
     if (statIdentity(after) !== current.identity) {
       throw new Error(`candidate manifest file changed while read: ${path}`);
     }
     return { ...current, value };
   } finally {
-    closeSync(descriptor);
+    closeSync2(descriptor);
   }
 }
 function sourceStatusPaths(source2) {
@@ -1020,10 +1048,10 @@ function copyOverlayPaths(source2, destination, paths) {
     if (before.isSymbolicLink() || !before.isFile()) {
       throw new Error(`trusted differential overlay source is not a regular file: ${path}`);
     }
-    const input = openSync(from, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const input = openSync2(from, constants2.O_RDONLY | constants2.O_NOFOLLOW);
     let output;
     try {
-      const opened = fstatSync(input);
+      const opened = fstatSync2(input);
       if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
         throw new Error(`trusted differential overlay source changed while opened: ${path}`);
       }
@@ -1037,25 +1065,25 @@ function copyOverlayPaths(source2, destination, paths) {
       if (target2 && (target2.isSymbolicLink() || !target2.isFile())) {
         throw new Error(`trusted differential overlay target is not a regular file: ${path}`);
       }
-      output = openSync(to, constants.O_WRONLY | constants.O_NOFOLLOW | (target2 ? constants.O_TRUNC : constants.O_CREAT | constants.O_EXCL), opened.mode & 511);
+      output = openSync2(to, constants2.O_WRONLY | constants2.O_NOFOLLOW | (target2 ? constants2.O_TRUNC : constants2.O_CREAT | constants2.O_EXCL), opened.mode & 511);
       const buffer = Buffer.allocUnsafe(Math.min(1024 * 1024, Math.max(1, opened.size)));
       let copied = 0;
       for (; ; ) {
-        const bytes = readSync(input, buffer, 0, buffer.length, null);
+        const bytes = readSync2(input, buffer, 0, buffer.length, null);
         if (bytes === 0) break;
         let written = 0;
         while (written < bytes) written += writeSync(output, buffer, written, bytes - written);
         copied += bytes;
       }
       fchmodSync(output, opened.mode & 511);
-      const sourceAfter = fstatSync(input);
-      const targetAfter = fstatSync(output);
+      const sourceAfter = fstatSync2(input);
+      const targetAfter = fstatSync2(output);
       if (statIdentity(sourceAfter) !== statIdentity(opened) || !targetAfter.isFile() || targetAfter.size !== copied || copied !== opened.size) {
         throw new Error(`trusted differential overlay changed while copied: ${path}`);
       }
     } finally {
-      if (output !== void 0) closeSync(output);
-      closeSync(input);
+      if (output !== void 0) closeSync2(output);
+      closeSync2(input);
     }
   }
 }
@@ -1271,10 +1299,15 @@ function runCandidateCommand(command, cwd, timeoutMs, options = {}) {
   return outcome;
 }
 
+// src/regex.ts
+function escapeRegExpLiteral(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // src/detectors/agentic.ts
 import { createHash as createHash4 } from "node:crypto";
-import { closeSync as closeSync2, constants as constants2, existsSync as existsSync2, fstatSync as fstatSync2, lstatSync as lstatSync3, openSync as openSync2, readSync as readSync2, realpathSync as realpathSync2 } from "node:fs";
-import { resolve as resolve3, sep as sep2 } from "node:path";
+import { closeSync as closeSync3, constants as constants3, existsSync as existsSync2, fstatSync as fstatSync3, lstatSync as lstatSync3, openSync as openSync3, readSync as readSync3, realpathSync as realpathSync2 } from "node:fs";
+import { resolve as resolve4, sep as sep2 } from "node:path";
 var MAX_FILE_BYTES = 1024 * 1024;
 function gitOptional(repo, args) {
   return trustedGitOptional(repo, args, 34 * 1024 * 1024);
@@ -1309,8 +1342,8 @@ function isDetectorPatternLine(line) {
 function readRefFileResult(repo, ref, path) {
   if (path.includes(":")) return { state: "unreadable", evidence: `${path} contains an unsupported Git path separator` };
   if (ref === "WORKTREE") {
-    const realRoot = realpathSync2(resolve3(repo));
-    const candidate = resolve3(realRoot, path);
+    const realRoot = realpathSync2(resolve4(repo));
+    const candidate = resolve4(realRoot, path);
     if (candidate !== realRoot && !candidate.startsWith(`${realRoot}${sep2}`)) {
       return { state: "unreadable", evidence: `${path} escapes the repository boundary` };
     }
@@ -1320,7 +1353,7 @@ function readRefFileResult(repo, ref, path) {
       const relative17 = candidate.slice(realRoot.length + 1).split(sep2).filter(Boolean);
       let cursor = realRoot;
       for (let index = 0; index < relative17.length; index += 1) {
-        cursor = resolve3(cursor, relative17[index]);
+        cursor = resolve4(cursor, relative17[index]);
         const stat = lstatSync3(cursor);
         if (stat.isSymbolicLink() || (index < relative17.length - 1 ? !stat.isDirectory() : !stat.isFile())) {
           return { state: "unreadable", evidence: `${path} is not a regular no-symlink worktree file` };
@@ -1330,21 +1363,21 @@ function readRefFileResult(repo, ref, path) {
       if (expected.size > MAX_FILE_BYTES) {
         return { state: "unreadable", evidence: `${path} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
       }
-      const noFollow = typeof constants2.O_NOFOLLOW === "number" ? constants2.O_NOFOLLOW : 0;
-      const nonBlock = typeof constants2.O_NONBLOCK === "number" ? constants2.O_NONBLOCK : 0;
-      descriptor = openSync2(candidate, constants2.O_RDONLY | noFollow | nonBlock);
-      const opened = fstatSync2(descriptor);
+      const noFollow = typeof constants3.O_NOFOLLOW === "number" ? constants3.O_NOFOLLOW : 0;
+      const nonBlock = typeof constants3.O_NONBLOCK === "number" ? constants3.O_NONBLOCK : 0;
+      descriptor = openSync3(candidate, constants3.O_RDONLY | noFollow | nonBlock);
+      const opened = fstatSync3(descriptor);
       if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeMs !== expected.mtimeMs || opened.ctimeMs !== expected.ctimeMs) {
         return { state: "unreadable", evidence: `${path} changed while being opened` };
       }
       const content2 = Buffer.alloc(opened.size);
       let offset = 0;
       while (offset < content2.length) {
-        const count3 = readSync2(descriptor, content2, offset, content2.length - offset, offset);
+        const count3 = readSync3(descriptor, content2, offset, content2.length - offset, offset);
         if (count3 === 0) break;
         offset += count3;
       }
-      const after = fstatSync2(descriptor);
+      const after = fstatSync3(descriptor);
       const finalPath = lstatSync3(candidate);
       if (offset !== content2.length || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size || finalPath.mtimeMs !== opened.mtimeMs || finalPath.ctimeMs !== opened.ctimeMs) {
         return { state: "unreadable", evidence: `${path} changed while being read` };
@@ -1353,7 +1386,7 @@ function readRefFileResult(repo, ref, path) {
     } catch {
       return { state: "unreadable", evidence: `${path} could not be read from the worktree` };
     } finally {
-      if (descriptor !== void 0) closeSync2(descriptor);
+      if (descriptor !== void 0) closeSync3(descriptor);
     }
   }
   const listed = gitOptional(repo, ["ls-tree", "--name-only", "-z", ref, "--", path]);
@@ -1855,7 +1888,7 @@ function checkWorkspaceBinding(repo, head, ignoredPaths = []) {
     }];
   }
   const ignored = new Set(ignoredPaths.map((path) => {
-    const value = isAbsolute3(path) ? relative2(resolve4(repo), resolve4(path)) : path;
+    const value = isAbsolute3(path) ? relative2(resolve5(repo), resolve5(path)) : path;
     if (!value || value === ".." || value.startsWith(`..${sep3}`)) return "";
     return value.replaceAll("\\", "/").replace(/^\.\//, "");
   }).filter(Boolean));
@@ -1909,7 +1942,7 @@ function checkWorkspaceMutation(repo, ignoredPaths = [], expectedHead) {
     subject: "test command did not mutate tracked inputs"
   };
   const ignored = new Set(ignoredPaths.map((path) => {
-    const value = isAbsolute3(path) ? relative2(resolve4(repo), resolve4(path)) : path;
+    const value = isAbsolute3(path) ? relative2(resolve5(repo), resolve5(path)) : path;
     if (!value || value === ".." || value.startsWith(`..${sep3}`)) return "";
     return value.replaceAll("\\", "/").replace(/^\.\//, "");
   }).filter(Boolean));
@@ -1946,8 +1979,8 @@ function checkWorkspaceMutation(repo, ignoredPaths = [], expectedHead) {
 }
 function withinRepo(repo, subject) {
   if (isAbsolute3(subject)) return null;
-  const root = resolve4(repo);
-  const candidate = resolve4(root, subject);
+  const root = resolve5(repo);
+  const candidate = resolve5(root, subject);
   return candidate === root || candidate.startsWith(`${root}${sep3}`) ? candidate : null;
 }
 function existingPathStaysInsideRepo(repo, candidate) {
@@ -2078,24 +2111,24 @@ function parseTestSummary(output) {
   return summary;
 }
 function inferTestCommand(repo, platform4 = process.platform) {
-  const pkg = resolve4(repo, "package.json");
+  const pkg = resolve5(repo, "package.json");
   if (existsSync3(pkg)) {
     try {
-      const script = JSON.parse(readFileSync3(pkg, "utf8"))?.scripts?.test;
+      const script = JSON.parse(readFileSync(pkg, "utf8"))?.scripts?.test;
       if (script && !/no test specified/i.test(script)) return "npm test --silent";
     } catch {
     }
   }
-  if (existsSync3(resolve4(repo, "pytest.ini")) || existsSync3(resolve4(repo, "pyproject.toml"))) return "python3 -m pytest -q";
-  if (existsSync3(resolve4(repo, "Cargo.toml"))) return "cargo test --quiet";
-  if (existsSync3(resolve4(repo, "go.mod"))) return "go test -json ./...";
-  if (existsSync3(resolve4(repo, "pom.xml"))) return "mvn test";
-  if (platform4 === "win32" && existsSync3(resolve4(repo, "gradlew.bat"))) return "gradlew.bat test";
-  if (existsSync3(resolve4(repo, "gradlew"))) return "./gradlew test";
-  if (existsSync3(resolve4(repo, "build.gradle")) || existsSync3(resolve4(repo, "build.gradle.kts"))) return "gradle test";
-  if (existsSync3(resolve4(repo, "Gemfile")) && existsSync3(resolve4(repo, "spec"))) return "bundle exec rspec";
-  if (existsSync3(resolve4(repo, "composer.json"))) return "./vendor/bin/phpunit";
-  if (existsSync3(resolve4(repo, "global.json")) || existsSync3(resolve4(repo, "Directory.Build.props"))) return "dotnet test";
+  if (existsSync3(resolve5(repo, "pytest.ini")) || existsSync3(resolve5(repo, "pyproject.toml"))) return "python3 -m pytest -q";
+  if (existsSync3(resolve5(repo, "Cargo.toml"))) return "cargo test --quiet";
+  if (existsSync3(resolve5(repo, "go.mod"))) return "go test -json ./...";
+  if (existsSync3(resolve5(repo, "pom.xml"))) return "mvn test";
+  if (platform4 === "win32" && existsSync3(resolve5(repo, "gradlew.bat"))) return "gradlew.bat test";
+  if (existsSync3(resolve5(repo, "gradlew"))) return "./gradlew test";
+  if (existsSync3(resolve5(repo, "build.gradle")) || existsSync3(resolve5(repo, "build.gradle.kts"))) return "gradle test";
+  if (existsSync3(resolve5(repo, "Gemfile")) && existsSync3(resolve5(repo, "spec"))) return "bundle exec rspec";
+  if (existsSync3(resolve5(repo, "composer.json"))) return "./vendor/bin/phpunit";
+  if (existsSync3(resolve5(repo, "global.json")) || existsSync3(resolve5(repo, "Directory.Build.props"))) return "dotnet test";
   return null;
 }
 function isHostedTestHarnessPath(path) {
@@ -2865,8 +2898,8 @@ function readIntegrityTreeBlob(repo, ref, path) {
 function readIntegrityWorktreeBlob(repo, path) {
   let descriptor;
   try {
-    const root = realpathSync3(resolve4(repo));
-    const candidate = resolve4(root, path);
+    const root = realpathSync3(resolve5(repo));
+    const candidate = resolve5(root, path);
     if (candidate !== root && !candidate.startsWith(`${root}${sep3}`)) {
       return { ok: false, evidence: `changed test path ${path} escapes the repository boundary` };
     }
@@ -2874,7 +2907,7 @@ function readIntegrityWorktreeBlob(repo, path) {
     const parts = candidate.slice(root.length + 1).split(sep3).filter(Boolean);
     let cursor = root;
     for (let index = 0; index < parts.length; index += 1) {
-      cursor = resolve4(cursor, parts[index]);
+      cursor = resolve5(cursor, parts[index]);
       const status = lstatSync4(cursor);
       if (status.isSymbolicLink() || (index < parts.length - 1 ? !status.isDirectory() : !status.isFile())) {
         return { ok: false, evidence: `required changed-test worktree blob ${path} is not a regular no-symlink file` };
@@ -2887,21 +2920,21 @@ function readIntegrityWorktreeBlob(repo, path) {
     if (expected.size > INTEGRITY_TEST_BLOB_MAX_BUFFER) {
       return { ok: false, evidence: `required changed-test worktree blob ${path} exceeds the ${INTEGRITY_TEST_BLOB_MAX_BUFFER / (1024 * 1024)} MiB limit` };
     }
-    const noFollow = typeof constants3.O_NOFOLLOW === "number" ? constants3.O_NOFOLLOW : 0;
-    const nonBlock = typeof constants3.O_NONBLOCK === "number" ? constants3.O_NONBLOCK : 0;
-    descriptor = openSync3(candidate, constants3.O_RDONLY | noFollow | nonBlock);
-    const opened = fstatSync3(descriptor);
+    const noFollow = typeof constants4.O_NOFOLLOW === "number" ? constants4.O_NOFOLLOW : 0;
+    const nonBlock = typeof constants4.O_NONBLOCK === "number" ? constants4.O_NONBLOCK : 0;
+    descriptor = openSync4(candidate, constants4.O_RDONLY | noFollow | nonBlock);
+    const opened = fstatSync4(descriptor);
     if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeMs !== expected.mtimeMs || opened.ctimeMs !== expected.ctimeMs) {
       return { ok: false, evidence: `required changed-test worktree blob ${path} changed while being opened` };
     }
     const content = Buffer.alloc(opened.size);
     let offset = 0;
     while (offset < content.length) {
-      const count3 = readSync3(descriptor, content, offset, content.length - offset, offset);
+      const count3 = readSync4(descriptor, content, offset, content.length - offset, offset);
       if (count3 === 0) break;
       offset += count3;
     }
-    const after = fstatSync3(descriptor);
+    const after = fstatSync4(descriptor);
     const finalPath = lstatSync4(candidate);
     if (offset !== content.length || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size || finalPath.mtimeMs !== opened.mtimeMs || finalPath.ctimeMs !== opened.ctimeMs) {
       return { ok: false, evidence: `required changed-test worktree blob ${path} changed while being read` };
@@ -2916,7 +2949,7 @@ function readIntegrityWorktreeBlob(repo, path) {
   } catch {
     return { ok: false, evidence: `required changed-test worktree blob ${path} could not be read` };
   } finally {
-    if (descriptor !== void 0) closeSync3(descriptor);
+    if (descriptor !== void 0) closeSync4(descriptor);
   }
 }
 function unreadableIntegrityResult(subject, evidence, ruleId) {
@@ -2996,7 +3029,7 @@ function checkIntegrityPatches(patches) {
     const candidateText = [...patch.added, ...patch.context].join("\n");
     for (const oldName of removedNames) {
       if (addedNames.has(oldName)) continue;
-      const oldReference = new RegExp(`\\b${oldName.replace(/[$]/g, "\\$")}\\s*\\(`);
+      const oldReference = new RegExp(`\\b${escapeRegExpLiteral(oldName)}\\s*\\(`);
       if (oldReference.test(candidateText)) {
         results.push(finding2("removed or renamed symbol leaves an old caller", `${patch.path} removes the declaration of ${oldName} while ${oldName} is still called`, "stale-refactor-caller"));
         break;
@@ -3043,7 +3076,7 @@ function checkIntegrityPatches(patches) {
     if (!addedNames.size) continue;
     for (const oldName of removedNames) {
       if (addedNames.has(oldName)) continue;
-      const oldCall = new RegExp(`\\b${oldName.replace(/[$]/g, "\\$")}\\s*\\(`);
+      const oldCall = new RegExp(`\\b${escapeRegExpLiteral(oldName)}\\s*\\(`);
       if (oldCall.test(remainingChangedText) && !results.some((result5) => result5.ruleId === "stale-refactor-caller")) {
         results.push(finding2("removed or renamed symbol leaves an old caller", `${patch.path} removes ${oldName} while another changed-file context still calls it`, "stale-refactor-caller"));
       }
@@ -3549,8 +3582,8 @@ import {
 
 // src/continuity/contracts.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
-import { constants as constants4, closeSync as closeSync4, fstatSync as fstatSync4, lstatSync as lstatSync5, openSync as openSync4, readSync as readSync4 } from "node:fs";
-import { isAbsolute as isAbsolute4, resolve as resolve5 } from "node:path";
+import { constants as constants5, closeSync as closeSync5, fstatSync as fstatSync5, lstatSync as lstatSync5, openSync as openSync5, readSync as readSync5 } from "node:fs";
+import { isAbsolute as isAbsolute4, resolve as resolve6 } from "node:path";
 import { createHash as createHash7 } from "node:crypto";
 var CONTINUITY_EVENT_KINDS = [
   "merge_observed",
@@ -3808,26 +3841,26 @@ function canonicalSha256(value) {
   return sha256(canonical(value));
 }
 function readBoundedRegularFile(path, maximumBytes, label) {
-  const absolute = resolve5(path);
+  const absolute = resolve6(path);
   const expected = lstatSync5(absolute, { bigint: true });
   if (expected.isSymbolicLink() || !expected.isFile()) throw new Error(`${label} must be a regular file, not a symbolic link`);
   if (expected.size > BigInt(maximumBytes)) throw new Error(`${label} exceeds the ${maximumBytes} byte limit`);
-  const noFollow = typeof constants4.O_NOFOLLOW === "number" ? constants4.O_NOFOLLOW : 0;
-  const nonBlock = typeof constants4.O_NONBLOCK === "number" ? constants4.O_NONBLOCK : 0;
-  const descriptor = openSync4(absolute, constants4.O_RDONLY | noFollow | nonBlock);
+  const noFollow = typeof constants5.O_NOFOLLOW === "number" ? constants5.O_NOFOLLOW : 0;
+  const nonBlock = typeof constants5.O_NONBLOCK === "number" ? constants5.O_NONBLOCK : 0;
+  const descriptor = openSync5(absolute, constants5.O_RDONLY | noFollow | nonBlock);
   try {
-    const opened = fstatSync4(descriptor, { bigint: true });
+    const opened = fstatSync5(descriptor, { bigint: true });
     if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeNs !== expected.mtimeNs || opened.ctimeNs !== expected.ctimeNs) {
       throw new Error(`${label} changed while being read`);
     }
     const bytes = Buffer.alloc(Number(opened.size));
     let offset = 0;
     while (offset < bytes.length) {
-      const count3 = readSync4(descriptor, bytes, offset, bytes.length - offset, offset);
+      const count3 = readSync5(descriptor, bytes, offset, bytes.length - offset, offset);
       if (count3 === 0) throw new Error(`${label} changed while being read`);
       offset += count3;
     }
-    const after = fstatSync4(descriptor, { bigint: true });
+    const after = fstatSync5(descriptor, { bigint: true });
     let finalPath;
     try {
       finalPath = lstatSync5(absolute, { bigint: true });
@@ -3839,7 +3872,7 @@ function readBoundedRegularFile(path, maximumBytes, label) {
     }
     return bytes;
   } finally {
-    closeSync4(descriptor);
+    closeSync5(descriptor);
   }
 }
 function readBoundedJson(path, maximumBytes, label) {
@@ -3863,7 +3896,7 @@ function loadContinuityPolicy(options) {
     if (isAbsolute4(options.path) || options.path.includes("\\") || pathParts.some((part) => !part || part === "." || part === "..")) {
       throw new Error("a Git-anchored continuity policy must use a repository-relative POSIX path");
     }
-    const repo = resolve5(options.repo);
+    const repo = resolve6(options.repo);
     try {
       raw = execFileSync2("git", ["show", `${options.ref}:${options.path}`], {
         cwd: repo,
@@ -3877,7 +3910,7 @@ function loadContinuityPolicy(options) {
     source2 = `${options.path}@${options.ref}`;
   } else {
     raw = readBoundedRegularFile(options.path, MAX_POLICY_BYTES, "continuity policy").toString("utf8");
-    source2 = resolve5(options.path);
+    source2 = resolve6(options.path);
   }
   let parsed;
   try {
@@ -4509,8 +4542,8 @@ function validateReportForResult(value) {
   assertReportConsistency(report);
   return report;
 }
-function statusName(code3) {
-  const letter = code3[0];
+function statusName(code) {
+  const letter = code[0];
   if (letter === "A") return "added";
   if (letter === "M") return "modified";
   if (letter === "D") return "deleted";
@@ -4662,21 +4695,21 @@ ${advisories ? `<section aria-labelledby="advisory-title"><h2 id="advisory-title
 // src/safe-output.ts
 import { randomBytes as randomBytes2 } from "node:crypto";
 import {
-  closeSync as closeSync5,
-  constants as constants5,
+  closeSync as closeSync6,
+  constants as constants6,
   fchmodSync as fchmodSync2,
-  fstatSync as fstatSync5,
+  fstatSync as fstatSync6,
   fsyncSync,
   lstatSync as lstatSync6,
   mkdirSync as mkdirSync2,
-  openSync as openSync5,
-  readFileSync as readFileSync4,
+  openSync as openSync6,
+  readFileSync as readFileSync2,
   realpathSync as realpathSync4,
   renameSync,
   unlinkSync,
   writeFileSync as writeFileSync2
 } from "node:fs";
-import { basename, dirname, isAbsolute as isAbsolute5, join as join2, normalize, parse, relative as relative3, resolve as resolve6, sep as sep4, win32 } from "node:path";
+import { basename, dirname, isAbsolute as isAbsolute5, join as join2, normalize, parse, relative as relative3, resolve as resolve7, sep as sep4, win32 } from "node:path";
 function isMissing(error) {
   return error?.code === "ENOENT";
 }
@@ -4739,25 +4772,25 @@ function readRegularFileWithoutFollowingReplacement(path) {
   if (!expected.isFile()) {
     throw new Error(`Refusing to replace non-regular output: ${path}`);
   }
-  const noFollow = typeof constants5.O_NOFOLLOW === "number" ? constants5.O_NOFOLLOW : 0;
-  const descriptor = openSync5(path, constants5.O_RDONLY | noFollow);
+  const noFollow = typeof constants6.O_NOFOLLOW === "number" ? constants6.O_NOFOLLOW : 0;
+  const descriptor = openSync6(path, constants6.O_RDONLY | noFollow);
   try {
-    const opened = fstatSync5(descriptor);
+    const opened = fstatSync6(descriptor);
     if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino) {
       throw new Error(`Output changed while preparing an atomic append: ${path}`);
     }
-    return readFileSync4(descriptor, "utf8");
+    return readFileSync2(descriptor, "utf8");
   } finally {
-    closeSync5(descriptor);
+    closeSync6(descriptor);
   }
 }
 function openPrivateTemporaryFile(parent) {
   for (let attempt = 0; attempt < 16; attempt += 1) {
     const path = join2(parent, `.agent-vigil-${randomBytes2(16).toString("hex")}.tmp`);
     try {
-      const descriptor = openSync5(
+      const descriptor = openSync6(
         path,
-        constants5.O_CREAT | constants5.O_EXCL | constants5.O_WRONLY,
+        constants6.O_CREAT | constants6.O_EXCL | constants6.O_WRONLY,
         384
       );
       return { descriptor, path };
@@ -4768,7 +4801,7 @@ function openPrivateTemporaryFile(parent) {
   throw new Error(`Unable to allocate a private temporary output in ${parent}`);
 }
 function writePrivateFileAtomic(destination, content) {
-  const requested = resolve6(destination);
+  const requested = resolve7(destination);
   const parent = resolveSafeParent(requested);
   const target2 = join2(parent, basename(requested));
   assertReplaceableDestination(target2);
@@ -4780,7 +4813,7 @@ function writePrivateFileAtomic(destination, content) {
     fchmodSync2(descriptor, 384);
     writeFileSync2(descriptor, Buffer.from(content, "utf8"));
     fsyncSync(descriptor);
-    closeSync5(descriptor);
+    closeSync6(descriptor);
     descriptor = void 0;
     assertReplaceableDestination(target2);
     renameSync(temporaryPath, target2);
@@ -4790,7 +4823,7 @@ function writePrivateFileAtomic(destination, content) {
   } finally {
     if (descriptor !== void 0) {
       try {
-        closeSync5(descriptor);
+        closeSync6(descriptor);
       } catch (error) {
         failure ??= error;
       }
@@ -4809,12 +4842,12 @@ function writePrivateFileAtomicWithin(root, destination, content) {
   if (!destination || destination.includes("\0") || isAbsolute5(destination) || win32.isAbsolute(destination)) {
     throw new Error(`Private repository output must be a relative path: ${destination}`);
   }
-  const canonicalRoot = realpathSync4(resolve6(root));
+  const canonicalRoot = realpathSync4(resolve7(root));
   const rootStatus = lstatSync6(canonicalRoot, { bigint: true });
   if (!rootStatus.isDirectory() || rootStatus.isSymbolicLink()) {
     throw new Error(`Private repository output root must be a non-symlink directory: ${canonicalRoot}`);
   }
-  const target2 = resolve6(canonicalRoot, normalize(destination));
+  const target2 = resolve7(canonicalRoot, normalize(destination));
   const repositoryPath = relative3(canonicalRoot, target2);
   if (!repositoryPath || repositoryPath === ".." || repositoryPath.startsWith(`..${sep4}`) || isAbsolute5(repositoryPath)) {
     throw new Error(`Private repository output escapes its repository: ${destination}`);
@@ -4840,29 +4873,29 @@ function writePrivateFileAtomicWithin(root, destination, content) {
   writePrivateFileAtomic(target2, content);
 }
 function writePrivateFileExclusive(destination, content) {
-  const requested = resolve6(destination);
+  const requested = resolve7(destination);
   const parent = resolveSafeParent(requested);
   const target2 = join2(parent, basename(requested));
-  const noFollow = typeof constants5.O_NOFOLLOW === "number" ? constants5.O_NOFOLLOW : 0;
+  const noFollow = typeof constants6.O_NOFOLLOW === "number" ? constants6.O_NOFOLLOW : 0;
   let descriptor;
   let failure;
   try {
-    descriptor = openSync5(
+    descriptor = openSync6(
       target2,
-      constants5.O_CREAT | constants5.O_EXCL | constants5.O_WRONLY | noFollow,
+      constants6.O_CREAT | constants6.O_EXCL | constants6.O_WRONLY | noFollow,
       384
     );
     fchmodSync2(descriptor, 384);
     writeFileSync2(descriptor, Buffer.from(content, "utf8"));
     fsyncSync(descriptor);
-    closeSync5(descriptor);
+    closeSync6(descriptor);
     descriptor = void 0;
   } catch (error) {
     failure = error;
   } finally {
     if (descriptor !== void 0) {
       try {
-        closeSync5(descriptor);
+        closeSync6(descriptor);
       } catch (error) {
         failure ??= error;
       }
@@ -4871,17 +4904,26 @@ function writePrivateFileExclusive(destination, content) {
   if (failure !== void 0) throw failure;
 }
 function appendPrivateFileAtomic(destination, content) {
-  const requested = resolve6(destination);
+  const requested = resolve7(destination);
   const parent = resolveSafeParent(requested);
   const target2 = join2(parent, basename(requested));
   const existing = readRegularFileWithoutFollowingReplacement(target2);
   writePrivateFileAtomic(target2, `${existing}${content}`);
 }
 
-// src/output.ts
-function code(value) {
-  return `\`${value.replace(/`/g, "\\`")}\``;
+// src/markdown.ts
+function markdownCodeSpan(input) {
+  const value = input.replace(/[\r\n]+/g, " ");
+  const runs = value.match(/`+/g) ?? [];
+  const fence = "`".repeat(Math.max(1, ...runs.map((run2) => run2.length + 1)));
+  const padded = value.startsWith("`") || value.endsWith("`") || value.startsWith(" ") || value.endsWith(" ");
+  return padded ? `${fence} ${value} ${fence}` : `${fence}${value}${fence}`;
 }
+function markdownTableCell(input) {
+  return input.replace(/[\r\n]+/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+}
+
+// src/output.ts
 function markdownText(value) {
   return value.replace(/[\r\n]+/g, " ").replace(/\\/g, "\\\\").replace(/([*_\[\]<>])/g, "\\$1");
 }
@@ -4951,8 +4993,8 @@ function renderResultMarkdown(view, options = {}) {
   if (!options.aggregateOnly && open.length) {
     lines.push("", "#### Checks that need attention", "");
     for (const finding3 of open) {
-      const location = finding3.location ? ` at ${code(`${finding3.location.file}${finding3.location.line ? `:${finding3.location.line}` : ""}`)}` : "";
-      lines.push(`- **${finding3.state.replace("_", " ")}** ${code(finding3.id)}${location}: ${markdownText(finding3.title)}`);
+      const location = finding3.location ? ` at ${markdownCodeSpan(`${finding3.location.file}${finding3.location.line ? `:${finding3.location.line}` : ""}`)}` : "";
+      lines.push(`- **${finding3.state.replace("_", " ")}** ${markdownCodeSpan(finding3.id)}${location}: ${markdownText(finding3.title)}`);
       lines.push(`  - Evidence: ${markdownText(finding3.evidence)}`);
       if (finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0) {
         lines.push(`  - Tests: claimed **${finding3.claimedTestCount ?? "not stated"}**; observed **${finding3.observedTestCount ?? "not found"}**`);
@@ -4963,19 +5005,19 @@ function renderResultMarkdown(view, options = {}) {
   if (!options.aggregateOnly && view.advisories.length) {
     lines.push("", `#### Advisories (${view.advisories.length}; non-blocking under this policy)`, "");
     for (const finding3 of view.advisories) {
-      lines.push(`- **ADVISORY** ${code(finding3.id)}: ${markdownText(finding3.title)}`);
+      lines.push(`- **ADVISORY** ${markdownCodeSpan(finding3.id)}: ${markdownText(finding3.title)}`);
       lines.push(`  - Evidence: ${markdownText(finding3.evidence)}`);
       lines.push(`  - Review: ${markdownText(finding3.remediation)}`);
     }
   }
   lines.push(
     "",
-    `**Change:** ${code(view.base)} -> ${code(view.head)}  `,
+    `**Change:** ${markdownCodeSpan(view.base)} -> ${markdownCodeSpan(view.head)}  `,
     `**Changed files:** ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}  `,
-    `**Receipt:** ${code(view.receiptHash)}`,
+    `**Receipt:** ${markdownCodeSpan(view.receiptHash)}`,
     ""
   );
-  if (!options.aggregateOnly) lines.push(`Reproduce: ${code(view.reproduce)}`, "");
+  if (!options.aggregateOnly) lines.push(`Reproduce: ${markdownCodeSpan(view.reproduce)}`, "");
   return lines.join("\n");
 }
 function renderMarkdown(value, options = {}) {
@@ -5070,8 +5112,8 @@ function runDemo(run2) {
   console.log("Agent Vigil adversarial demo\n");
   for (const [label, transcript] of scenarios) {
     console.log(`=== ${label} ===`);
-    const code3 = run2([transcript, "--repo", repo, "--base", "HEAD~1", "--head", "HEAD", "--strict"]);
-    if (code3 === 1) caught++;
+    const code = run2([transcript, "--repo", repo, "--base", "HEAD~1", "--head", "HEAD", "--strict"]);
+    if (code === 1) caught++;
     console.log("");
   }
   console.log(`${caught}/${scenarios.length} planted contradictions caught.`);
@@ -5080,8 +5122,8 @@ function runDemo(run2) {
 
 // src/config.ts
 import { createHash as createHash10 } from "node:crypto";
-import { existsSync as existsSync4, readFileSync as readFileSync5 } from "node:fs";
-import { isAbsolute as isAbsolute6, normalize as normalize2, resolve as resolve7, win32 as win322 } from "node:path";
+import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
+import { isAbsolute as isAbsolute6, normalize as normalize2, resolve as resolve8, win32 as win322 } from "node:path";
 var DEFAULT_POLICY_FILE = ".agent-vigil.json";
 function canonical2(value) {
   if (value === void 0) return "null";
@@ -5254,13 +5296,13 @@ function loadPolicy(repo, requested, ref) {
       value: value2
     };
   }
-  const candidate = requested ? resolve7(repo, requested) : resolve7(repo, DEFAULT_POLICY_FILE);
+  const candidate = requested ? resolve8(repo, requested) : resolve8(repo, DEFAULT_POLICY_FILE);
   if (!existsSync4(candidate)) {
     if (requested) throw new Error(`policy not found: ${candidate}`);
     const value2 = { schemaVersion: 1 };
     return { sha256: `sha256:${createHash10("sha256").update(canonical2(value2)).digest("hex")}`, value: value2 };
   }
-  const raw = readFileSync5(candidate, "utf8");
+  const raw = readFileSync3(candidate, "utf8");
   const value = parsePolicy(raw, candidate);
   return {
     path: candidate,
@@ -5336,29 +5378,27 @@ function maintainerPolicyTemplate(testCommand, setupCommand, protectCommands, te
 }
 
 // src/setup.ts
-import { chmodSync as chmodSync2, closeSync as closeSync6, constants as constants6, existsSync as existsSync5, fstatSync as fstatSync6, ftruncateSync, lstatSync as lstatSync9, mkdirSync as mkdirSync5, mkdtempSync as mkdtempSync3, openSync as openSync6, readSync as readSync5, readdirSync, realpathSync as realpathSync6, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { chmodSync as chmodSync2, closeSync as closeSync7, constants as constants7, existsSync as existsSync5, fstatSync as fstatSync7, ftruncateSync, lstatSync as lstatSync9, mkdirSync as mkdirSync5, mkdtempSync as mkdtempSync3, openSync as openSync7, readSync as readSync6, readdirSync, realpathSync as realpathSync6, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
-import { extname, join as join5, relative as relative6, resolve as resolve10, sep as sep6 } from "node:path";
+import { extname, join as join5, relative as relative6, resolve as resolve11, sep as sep6 } from "node:path";
 
 // src/authority.ts
 import { createHash as createHash11 } from "node:crypto";
-import { isAbsolute as isAbsolute7, normalize as normalize4, relative as relative5, resolve as resolve9, win32 as win323 } from "node:path";
-import { lstatSync as lstatSync8, readFileSync as readFileSync7, realpathSync as realpathSync5, statSync as statSync3 } from "node:fs";
+import { isAbsolute as isAbsolute7, normalize as normalize4, relative as relative5, resolve as resolve10, win32 as win323 } from "node:path";
+import { lstatSync as lstatSync8, realpathSync as realpathSync5 } from "node:fs";
 
 // src/maintainer.ts
-import { cpSync, lstatSync as lstatSync7, mkdirSync as mkdirSync4, mkdtempSync as mkdtempSync2, readFileSync as readFileSync6, rmSync, statSync as statSync2 } from "node:fs";
+import { cpSync, lstatSync as lstatSync7, mkdirSync as mkdirSync4, mkdtempSync as mkdtempSync2, rmSync } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname2, join as join4, normalize as normalize3, relative as relative4, resolve as resolve8, sep as sep5 } from "node:path";
+import { dirname as dirname2, join as join4, normalize as normalize3, relative as relative4, resolve as resolve9, sep as sep5 } from "node:path";
 var DEFAULT_TEST_PATTERNS = ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
 function result(kind, ruleId, subject, quote, verdict, evidence, options = {}) {
   return { claim: { kind, subject, quote }, ruleId, verdict, evidence, ...options };
 }
 function loadPullRequestEvidence(path) {
-  const size = statSync2(path).size;
-  if (size > 2 * 1024 * 1024) throw new Error(`pull request event is ${size} bytes; maximum is ${2 * 1024 * 1024}`);
   let event2;
   try {
-    event2 = JSON.parse(readFileSync6(path, "utf8"));
+    event2 = JSON.parse(readRegularUtf8(path, 2 * 1024 * 1024, "pull request event"));
   } catch {
     throw new Error(`pull request event is not valid JSON: ${path}`);
   }
@@ -5534,7 +5574,7 @@ function checkChangeScope(diff, policy) {
 }
 function unsafeOverlayPath(path) {
   const clean = normalize3(path);
-  return clean === ".." || clean.startsWith(`..${sep5}`) || resolve8("/safe", clean) === "/safe";
+  return clean === ".." || clean.startsWith(`..${sep5}`) || resolve9("/safe", clean) === "/safe";
 }
 function lstatIfPresent(path) {
   try {
@@ -5588,8 +5628,8 @@ function ensureOverlayDirectories(root, leaf, path) {
   return void 0;
 }
 function overlayTests(headWorktree, baseWorktree, paths) {
-  const sourceRoot = resolve8(headWorktree);
-  const targetRoot = resolve8(baseWorktree);
+  const sourceRoot = resolve9(headWorktree);
+  const targetRoot = resolve9(baseWorktree);
   const sourceRootError = validateOverlayRoot(sourceRoot, "source");
   if (sourceRootError) return sourceRootError;
   const targetRootError = validateOverlayRoot(targetRoot, "target");
@@ -5597,8 +5637,8 @@ function overlayTests(headWorktree, baseWorktree, paths) {
   const plan = [];
   for (const path of paths) {
     if (unsafeOverlayPath(path)) return `unsafe overlay path: ${path}`;
-    const source2 = resolve8(sourceRoot, path);
-    const target2 = resolve8(targetRoot, path);
+    const source2 = resolve9(sourceRoot, path);
+    const target2 = resolve9(targetRoot, path);
     if (!source2.startsWith(`${sourceRoot}${sep5}`) || !target2.startsWith(`${targetRoot}${sep5}`)) return `overlay escaped worktree: ${path}`;
     const sourceAncestorError = validateOverlayAncestors(sourceRoot, source2, "source", path);
     if (sourceAncestorError) return sourceAncestorError;
@@ -6080,10 +6120,8 @@ function loadAuthorityContract(repo, requested, ref) {
     const value2 = parseContract(raw, `${ref}:${clean}`);
     return { value: value2, sha256: `sha256:${createHash11("sha256").update(canonical(value2)).digest("hex")}`, source: `${clean}@${ref}`, gitPath: clean, ref };
   }
-  const path = resolve9(repo, requested);
-  const size = statSync3(path).size;
-  if (size > MAX_CONTRACT_BYTES) throw new Error(`authority contract is ${size} bytes; maximum is ${MAX_CONTRACT_BYTES}`);
-  const value = parseContract(readFileSync7(path, "utf8"), path);
+  const path = resolve10(repo, requested);
+  const value = parseContract(readRegularUtf8(path, MAX_CONTRACT_BYTES, "authority contract"), path);
   return { value, sha256: `sha256:${createHash11("sha256").update(canonical(value)).digest("hex")}`, source: relative5(repo, path) || requested, path };
 }
 function inputObject(call) {
@@ -6155,9 +6193,9 @@ function resourcePathIsRepoBound(path, repo, relativeTo) {
   } catch {
     return false;
   }
-  const lexicalRoot = resolve9(repo);
-  const base = relativeTo ? resolve9(relativeTo) : root;
-  const absolute = isAbsolute7(path) ? resolve9(path) : win323.isAbsolute(path) ? "" : resolve9(base, path);
+  const lexicalRoot = resolve10(repo);
+  const base = relativeTo ? resolve10(relativeTo) : root;
+  const absolute = isAbsolute7(path) ? resolve10(path) : win323.isAbsolute(path) ? "" : resolve10(base, path);
   if (!absolute) return false;
   let fromRoot = relative5(root, absolute);
   if (fromRoot === ".." || fromRoot.startsWith("../") || isAbsolute7(fromRoot)) {
@@ -6169,7 +6207,7 @@ function resourcePathIsRepoBound(path, repo, relativeTo) {
   let cursor = root;
   for (const [index, segment] of segments.entries()) {
     if (segment === "..") return false;
-    cursor = resolve9(cursor, segment);
+    cursor = resolve10(cursor, segment);
     try {
       const entry = lstatSync8(cursor);
       if (entry.isSymbolicLink()) return false;
@@ -6209,7 +6247,7 @@ function commandWorkingDirectory(call, repo) {
   } catch {
     return { unsafe: true };
   }
-  return { path: isAbsolute7(selected) ? resolve9(selected) : resolve9(root, selected), unsafe: false };
+  return { path: isAbsolute7(selected) ? resolve10(selected) : resolve10(root, selected), unsafe: false };
 }
 function browserActionWords(input) {
   if (!input) return "";
@@ -6740,13 +6778,13 @@ function writeScaffold(root, path, content, force, result5) {
   }
   let descriptor;
   try {
-    const createFlags = existing ? 0 : constants6.O_CREAT | constants6.O_EXCL;
-    descriptor = openSync6(
+    const createFlags = existing ? 0 : constants7.O_CREAT | constants7.O_EXCL;
+    descriptor = openSync7(
       target2,
-      constants6.O_WRONLY | createFlags | (constants6.O_NOFOLLOW ?? 0) | (constants6.O_NONBLOCK ?? 0),
+      constants7.O_WRONLY | createFlags | (constants7.O_NOFOLLOW ?? 0) | (constants7.O_NONBLOCK ?? 0),
       420
     );
-    const opened = fstatSync6(descriptor, { bigint: true });
+    const opened = fstatSync7(descriptor, { bigint: true });
     const linked2 = lstatSync9(target2, { bigint: true });
     if (!opened.isFile() || !linked2.isFile() || linked2.isSymbolicLink() || opened.nlink !== 1n || linked2.nlink !== 1n || opened.dev !== linked2.dev || opened.ino !== linked2.ino) {
       throw new Error(`scaffold target ${path} changed or is not a regular non-symlink file`);
@@ -6760,7 +6798,7 @@ function writeScaffold(root, path, content, force, result5) {
     ftruncateSync(descriptor, 0);
     writeFileSync4(descriptor, content);
   } finally {
-    if (descriptor !== void 0) closeSync6(descriptor);
+    if (descriptor !== void 0) closeSync7(descriptor);
   }
   result5.created.push(path);
 }
@@ -6866,7 +6904,7 @@ function workingRepositoryView(root) {
       continue;
     }
     try {
-      const stat = lstatSync9(resolve10(root, path));
+      const stat = lstatSync9(resolve11(root, path));
       const mode = stat.isSymbolicLink() ? "120000" : stat.isFile() ? metadata[0] : "040000";
       entries.set(path, { mode, oid: metadata[1] });
     } catch {
@@ -6879,7 +6917,7 @@ function workingRepositoryView(root) {
   );
   for (const path of untracked.split("\0").filter(isSetupRelevantPath)) {
     try {
-      const stat = lstatSync9(resolve10(root, path));
+      const stat = lstatSync9(resolve11(root, path));
       entries.set(path, { mode: stat.isSymbolicLink() ? "120000" : stat.isFile() ? "100644" : "040000" });
     } catch {
       throw new Error(`the generated hosted workflow could not read Git-visible path ${path}`);
@@ -6893,7 +6931,7 @@ function workingRepositoryView(root) {
         throw new Error(`the generated hosted workflow requires ${path} to be a regular Git file`);
       }
       try {
-        return readRegularSnapshot(resolve10(root, path)).toString("utf8");
+        return readRegularSnapshot(resolve11(root, path)).toString("utf8");
       } catch {
         throw new Error(`the generated hosted workflow could not read ${path}`);
       }
@@ -6940,25 +6978,25 @@ function headRepositoryView(root) {
   };
 }
 function repositoryInputPath(root, input) {
-  const path = relative6(root, resolve10(root, input));
+  const path = relative6(root, resolve11(root, input));
   if (!path || path === ".." || path.startsWith(`..${sep6}`)) return void 0;
   return path.split(sep6).join("/");
 }
 function readRegularSnapshot(path) {
   let descriptor;
   try {
-    descriptor = openSync6(path, constants6.O_RDONLY | (constants6.O_NOFOLLOW ?? 0) | (constants6.O_NONBLOCK ?? 0));
-    const before = fstatSync6(descriptor, { bigint: true });
+    descriptor = openSync7(path, constants7.O_RDONLY | (constants7.O_NOFOLLOW ?? 0) | (constants7.O_NONBLOCK ?? 0));
+    const before = fstatSync7(descriptor, { bigint: true });
     if (!before.isFile()) throw new Error("is not a regular file");
     if (before.size > BigInt(16 * 1024 * 1024)) throw new Error("exceeds 16 MiB");
     const bytes = Buffer.alloc(Number(before.size));
     let offset = 0;
     while (offset < bytes.length) {
-      const count3 = readSync5(descriptor, bytes, offset, bytes.length - offset, offset);
+      const count3 = readSync6(descriptor, bytes, offset, bytes.length - offset, offset);
       if (count3 === 0) throw new Error("changed while being read");
       offset += count3;
     }
-    const after = fstatSync6(descriptor, { bigint: true });
+    const after = fstatSync7(descriptor, { bigint: true });
     if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
       throw new Error("changed while being read");
     }
@@ -6968,7 +7006,7 @@ function readRegularSnapshot(path) {
     }
     return bytes;
   } finally {
-    if (descriptor !== void 0) closeSync6(descriptor);
+    if (descriptor !== void 0) closeSync7(descriptor);
   }
 }
 function committedInputSnapshot(root, headView, headError, input) {
@@ -6993,7 +7031,7 @@ function committedInputSnapshot(root, headView, headError, input) {
   const metadata = tab < 0 ? [] : records[0].slice(0, tab).split(" ");
   if (tab < 0 || metadata.length !== 3 || metadata[2] !== "0") return { path, error: `${path} has malformed or conflicted Git index metadata` };
   if (metadata[0] !== headEntry.mode || metadata[1] !== headEntry.oid) return { path, error: `${path} in the Git index is not identical to committed HEAD` };
-  const absolute = resolve10(root, path);
+  const absolute = resolve11(root, path);
   let live;
   try {
     live = readRegularSnapshot(absolute);
@@ -7041,7 +7079,7 @@ var IGNORED_SCAN_EXCLUDED_DIRECTORIES = /* @__PURE__ */ new Set([
 ]);
 function ignoredNestedNpmConfigs(root, ignored) {
   const found = [];
-  const pending = ignored.filter((path) => path.endsWith("/") && !path.split("/").some((part) => IGNORED_SCAN_EXCLUDED_DIRECTORIES.has(part))).map((path) => resolve10(root, path));
+  const pending = ignored.filter((path) => path.endsWith("/") && !path.split("/").some((part) => IGNORED_SCAN_EXCLUDED_DIRECTORIES.has(part))).map((path) => resolve11(root, path));
   let visited = 0;
   while (pending.length) {
     const directory = pending.pop();
@@ -7223,7 +7261,7 @@ function validateHostedRepositoryContract(view, requestedRunner) {
   return { setupCommand, testCommand: inferred, hasRootPackage };
 }
 function initRepository(repo, force = false, portableSignerKeyId, profile = "default", attest = false, actionSha, runnerOverride) {
-  const requestedRoot = resolve10(repo);
+  const requestedRoot = resolve11(repo);
   let root;
   try {
     root = realpathSync6(requestedRoot);
@@ -7289,10 +7327,10 @@ function legacyPullRequestTrigger(workflowText) {
   return /^\s+pull_request:\s*(?:#.*)?$/m.test(workflowText);
 }
 function doctorRepository(repo, requestedPolicy, requestedTranscript) {
-  const root = resolve10(repo);
+  const root = resolve11(repo);
   const checks = [];
-  const workflow2 = resolve10(root, ".github/workflows/agent-vigil.yml");
-  const outcomeObserver = resolve10(root, ".github/workflows/agent-vigil-outcomes.yml");
+  const workflow2 = resolve11(root, ".github/workflows/agent-vigil.yml");
+  const outcomeObserver = resolve11(root, ".github/workflows/agent-vigil-outcomes.yml");
   let headView;
   let headViewError;
   try {
@@ -7304,7 +7342,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
   const headHas = (input) => Boolean(headView?.entries.has(input));
   const workflowExpected = existsSync5(workflow2) || headHas(".github/workflows/agent-vigil.yml");
   const outcomeExpected = existsSync5(outcomeObserver) || headHas(".github/workflows/agent-vigil-outcomes.yml");
-  const generatedScaffoldExpected = existsSync5(resolve10(root, ".agent-vigil/README.md")) || headHas(".agent-vigil/README.md");
+  const generatedScaffoldExpected = existsSync5(resolve11(root, ".agent-vigil/README.md")) || headHas(".agent-vigil/README.md");
   const workflowSnapshot = workflowExpected ? inputSnapshot(".github/workflows/agent-vigil.yml") : {};
   const outcomeSnapshot = outcomeExpected ? inputSnapshot(".github/workflows/agent-vigil-outcomes.yml") : {};
   const installedWorkflow = workflowSnapshot.text ?? "";
@@ -7318,7 +7356,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
   const authorityConfigured = Boolean(authorityMatch);
   const workflowPolicySnapshot = workflowPolicyMatch ? inputSnapshot(workflowPolicyMatch[1]) : {};
   const authoritySnapshot = authorityMatch ? inputSnapshot(authorityMatch[1]) : {};
-  const authorityScaffoldExpected = existsSync5(resolve10(root, ".agent-vigil-authority.json")) || headHas(".agent-vigil-authority.json");
+  const authorityScaffoldExpected = existsSync5(resolve11(root, ".agent-vigil-authority.json")) || headHas(".agent-vigil-authority.json");
   const authorityScaffoldSnapshot = authorityScaffoldExpected ? inputSnapshot(".agent-vigil-authority.json") : {};
   const workflowPolicyBindingError = workflowPolicySnapshot.error;
   const authorityBindingError = authoritySnapshot.error;
@@ -7378,7 +7416,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     const policyOverrideError = requestedPolicy && workflowPolicyPath && requestedPolicyPath !== workflowPolicyPath ? `--policy ${requestedPolicy} does not match hosted workflow input ${workflowPolicy}` : void 0;
     const policyInput = workflowPolicy ?? requestedPolicy ?? DEFAULT_POLICY_FILE;
     const policyPath = repositoryInputPath(root, policyInput);
-    const shouldBindPolicy = Boolean(requestedPolicy || existsSync5(resolve10(root, policyInput)) || workflowExpected || policyPath && headHas(policyPath));
+    const shouldBindPolicy = Boolean(requestedPolicy || existsSync5(resolve11(root, policyInput)) || workflowExpected || policyPath && headHas(policyPath));
     const policySnapshot = shouldBindPolicy ? inputSnapshot(policyInput) : {};
     policyBindingError = policySnapshot.error;
     if (policyBindingError) throw new Error(policyBindingError);
@@ -7420,7 +7458,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     checks.push({ status: "FAIL", label: "Fresh verification", detail: `test command is not trusted because policy readiness failed: ${policyBindingError}` });
   }
   if (portableReceipt) {
-    const path = resolve10(root, portableReceipt);
+    const path = resolve11(root, portableReceipt);
     const committedPath = repositoryInputPath(root, portableReceipt);
     const presentAtHead = Boolean(committedPath && headView?.entries.has(committedPath));
     if (workflowExpected || generatedScaffoldExpected || existsSync5(path) || presentAtHead) {
@@ -7436,7 +7474,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
   } else if (maintainer) {
     evidenceInputBindingError = transcriptOverrideError;
     if (transcriptOverrideError) checks.push({ status: "FAIL", label: "Transcript", detail: transcriptOverrideError });
-    const template = resolve10(root, ".github/pull_request_template.md");
+    const template = resolve11(root, ".github/pull_request_template.md");
     const templateExpected = existsSync5(template) || headHas(".github/pull_request_template.md");
     const templateBindingError = templateExpected ? inputSnapshot(".github/pull_request_template.md").error : void 0;
     checks.push({
@@ -7452,7 +7490,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
   } else if (!transcript) {
     checks.push({ status: "WARN", label: "Transcript", detail: "no transcript configured; pass a path or run vigil init" });
   } else {
-    const path = resolve10(root, transcript);
+    const path = resolve11(root, transcript);
     const committedPath = repositoryInputPath(root, transcript);
     const presentAtHead = Boolean(committedPath && headView?.entries.has(committedPath));
     if (workflowExpected || generatedScaffoldExpected || existsSync5(path) || presentAtHead) {
@@ -7477,7 +7515,7 @@ function doctorRepository(repo, requestedPolicy, requestedTranscript) {
     }
   }
   const evidenceControlBindingError = workflowBindingError ?? workflowPolicyBindingError ?? policyBindingError ?? evidenceInputBindingError ?? authorityBindingError ?? authorityScaffoldBindingError;
-  const workflowRequired = workflowExpected || outcomeExpected || generatedScaffoldExpected || authorityScaffoldExpected || maintainer || Boolean(portableReceipt) || existsSync5(resolve10(root, ".agent-vigil/session.md")) || existsSync5(resolve10(root, ".agent-vigil/session.jsonl")) || headHas(".agent-vigil/session.md") || headHas(".agent-vigil/session.jsonl");
+  const workflowRequired = workflowExpected || outcomeExpected || generatedScaffoldExpected || authorityScaffoldExpected || maintainer || Boolean(portableReceipt) || existsSync5(resolve11(root, ".agent-vigil/session.md")) || existsSync5(resolve11(root, ".agent-vigil/session.jsonl")) || headHas(".agent-vigil/session.md") || headHas(".agent-vigil/session.jsonl");
   checks.push({
     status: workflowExpected ? workflowBindingError ? "FAIL" : "PASS" : workflowRequired ? "FAIL" : "WARN",
     label: "GitHub Action",
@@ -7686,7 +7724,7 @@ function verifyPortableReceipt(receipt, trustedKeyIds = []) {
 }
 
 // src/gate.ts
-import { isAbsolute as isAbsolute8, relative as relative7, resolve as resolve11, sep as sep7 } from "node:path";
+import { isAbsolute as isAbsolute8, relative as relative7, resolve as resolve12, sep as sep7 } from "node:path";
 
 // src/integrity-policy.ts
 var CALIBRATED_BLOCKING_RULES = /* @__PURE__ */ new Set([
@@ -7730,13 +7768,13 @@ function result3(subject, verdict, evidence, ruleId, blocksPass = false) {
   };
 }
 function receiptRelativePath(repo, path) {
-  const value = relative7(resolve11(repo), isAbsolute8(path) ? resolve11(path) : resolve11(repo, path)).replaceAll("\\", "/");
+  const value = relative7(resolve12(repo), isAbsolute8(path) ? resolve12(path) : resolve12(repo, path)).replaceAll("\\", "/");
   if (!value || value === ".." || value.startsWith("../") || value.startsWith(`..${sep7}`)) return void 0;
   return value.replace(/^\.\//, "");
 }
 function buildPortableGateReport(receipt, options) {
-  const repo = resolve11(options.repo);
-  const receiptPath = resolve11(options.receiptPath);
+  const repo = resolve12(options.repo);
+  const receiptPath = resolve12(options.receiptPath);
   if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) {
     throw new Error(`invalid git range ${options.base}..${options.head}`);
   }
@@ -8032,11 +8070,11 @@ function renderReceiptDelta(delta) {
 
 // src/merge-group.ts
 import { createHash as createHash15 } from "node:crypto";
-import { readFileSync as readFileSync8 } from "node:fs";
-import { relative as relative8, resolve as resolve12 } from "node:path";
+import { readFileSync as readFileSync6 } from "node:fs";
+import { relative as relative8, resolve as resolve13 } from "node:path";
 
 // src/authority-plan.ts
-import { createHash as createHash14 } from "node:crypto";
+import { createHash as createHash14, createHmac } from "node:crypto";
 import { posix } from "node:path";
 
 // node_modules/smol-toml/dist/date.js
@@ -8719,6 +8757,9 @@ var HOLD_UNKNOWN = {
 function sha2562(value) {
   return `sha256:${createHash14("sha256").update(value).digest("hex")}`;
 }
+function authorityComparisonToken(value) {
+  return `hmac-sha256:${createHmac("sha256", "agent-vigil-authority-comparison-v1").update(canonical(value)).digest("hex")}`;
+}
 function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
@@ -8774,7 +8815,7 @@ function atom(input) {
   return {
     ...publicAtom2,
     semanticKey: input.semanticKey,
-    comparisonToken: sha2562(canonical(input.comparisonValue)),
+    comparisonToken: authorityComparisonToken(input.comparisonValue),
     added: input.added,
     removed: input.removed,
     ...input.conditionalOn ? { conditionalOn: input.conditionalOn } : {},
@@ -10223,18 +10264,18 @@ function renderAuthorityPlanText(plan) {
 }
 function renderAuthorityPlanMarkdown(plan) {
   const rows = plan.deltas.map(
-    (delta) => `| ${delta.disposition} | \`${delta.ruleId}\` | ${delta.change} | ${delta.direction} | ${delta.summary.replace(/\|/g, "\\|")} | ${delta.reason.replace(/\|/g, "\\|")} |`
+    (delta) => `| ${delta.disposition} | ${markdownCodeSpan(delta.ruleId)} | ${delta.change} | ${delta.direction} | ${markdownTableCell(delta.summary)} | ${markdownTableCell(delta.reason)} |`
   );
   const gaps = plan.gaps.map(
-    (gap) => `| ${plan.policy.allowUnknownChanges ? "ALLOW" : "HOLD"} | \`AVP001\` | GAP | INCOMPARABLE | ${gap.platform} ${gap.sourcePath}:${gap.locator} | ${(gap.reason + (plan.policy.allowUnknownChanges ? "; allowed by the trusted base revision policy" : "")).replace(/\|/g, "\\|")} |`
+    (gap) => `| ${plan.policy.allowUnknownChanges ? "ALLOW" : "HOLD"} | ${markdownCodeSpan("AVP001")} | GAP | INCOMPARABLE | ${markdownTableCell(`${gap.platform} ${gap.sourcePath}:${gap.locator}`)} | ${markdownTableCell(gap.reason + (plan.policy.allowUnknownChanges ? "; allowed by the trusted base revision policy" : ""))} |`
   );
   return [
     `# Agent authority plan: ${plan.status}`,
     "",
-    `**Scope:** \`${plan.scope}\`  `,
-    `**Range:** \`${plan.base}..${plan.head}\`  `,
-    `**Policy:** \`${plan.policy.source}\` (\`${plan.policy.sha256}\`)  `,
-    `**Digest:** \`${plan.planSha256}\``,
+    `**Scope:** ${markdownCodeSpan(plan.scope)}  `,
+    `**Range:** ${markdownCodeSpan(`${plan.base}..${plan.head}`)}  `,
+    `**Policy:** ${markdownCodeSpan(plan.policy.source)} (${markdownCodeSpan(plan.policy.sha256)})  `,
+    `**Digest:** ${markdownCodeSpan(plan.planSha256)}`,
     "",
     "| Decision | Rule | Change | Direction | Authority | Reason |",
     "|---|---|---|---|---|---|",
@@ -10332,7 +10373,7 @@ function authorityPlanChecks(plan) {
 
 // src/merge-group.ts
 function loadMergeGroupEvent(path) {
-  const value = JSON.parse(readFileSync8(path, "utf8"));
+  const value = JSON.parse(readFileSync6(path, "utf8"));
   if (!value.merge_group?.base_sha || !value.merge_group?.head_sha) {
     throw new Error("event is not a merge_group payload with base_sha and head_sha");
   }
@@ -10352,8 +10393,8 @@ function result4(subject, verdict, evidence, ruleId, blocksPass = false) {
   };
 }
 function buildMergeGroupReport(options) {
-  const repo = resolve12(options.repo);
-  const eventPath = resolve12(options.eventPath);
+  const repo = resolve13(options.repo);
+  const eventPath = resolve13(options.eventPath);
   const event2 = loadMergeGroupEvent(eventPath);
   if (!gitRefExists(repo, options.base) || !gitRefExists(repo, options.head)) {
     throw new Error(`invalid git range ${options.base}..${options.head}`);
@@ -10370,7 +10411,7 @@ function buildMergeGroupReport(options) {
   if (policy.ref && resolveGitRef(repo, policy.ref) !== base) {
     throw new Error(`merge-group policy-ref ${policy.ref} does not match event base ${base}`);
   }
-  const eventHash = `sha256:${createHash15("sha256").update(readFileSync8(eventPath)).digest("hex")}`;
+  const eventHash = `sha256:${createHash15("sha256").update(readFileSync6(eventPath)).digest("hex")}`;
   const inputs = [eventPath, ...policy.path ? [policy.path] : []];
   const results = [];
   const advisories = [];
@@ -10577,9 +10618,6 @@ function renderValueCardText(card) {
   return `${lines.join("\n")}
 `;
 }
-function markdownCell(value) {
-  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
-}
 function renderValueCardMarkdown(card) {
   const rows = [
     ["Value verdict", card.valueVerdict],
@@ -10597,12 +10635,12 @@ function renderValueCardMarkdown(card) {
     "",
     "| Evidence | Result |",
     "|---|---|",
-    ...rows.map(([label, value]) => `| ${markdownCell(label)} | ${markdownCell(value)} |`),
+    ...rows.map(([label, value]) => `| ${markdownTableCell(label)} | ${markdownTableCell(value)} |`),
     "",
     ...card.gaps.length ? ["## Evidence gaps", "", ...card.gaps.map((gap) => `- ${gap}`), ""] : [],
-    `Receipt: \`${card.receipt.receiptHash}\``,
+    `Receipt: ${markdownCodeSpan(card.receipt.receiptHash)}`,
     "",
-    `Card: \`${card.cardHash}\``,
+    `Card: ${markdownCodeSpan(card.cardHash)}`,
     "",
     "Generated locally by [Agent Vigil](https://github.com/sulmusic2-star/agent-vigil).",
     ""
@@ -10643,8 +10681,7 @@ function renderValueCardHtml(card) {
 
 // src/github-evidence.ts
 import { createHash as createHash17 } from "node:crypto";
-import { readFileSync as readFileSync9, statSync as statSync4 } from "node:fs";
-import { basename as basename2, resolve as resolve13 } from "node:path";
+import { basename as basename2 } from "node:path";
 var MAX_SOURCE_BYTES = 32 * 1024 * 1024;
 function buildGitHubWebhookEvidence(raw, generatedAt = /* @__PURE__ */ new Date()) {
   if (raw.length > MAX_SOURCE_BYTES) throw new Error(`GitHub event evidence exceeds the ${MAX_SOURCE_BYTES} byte limit`);
@@ -10698,10 +10735,8 @@ function durationSeconds(start, end) {
   return duration >= 0 ? duration : void 0;
 }
 function readSource(path, kind) {
-  const absolute = resolve13(path);
-  const bytes = statSync4(absolute).size;
-  if (bytes > MAX_SOURCE_BYTES) throw new Error(`GitHub ${kind} evidence is ${bytes} bytes; maximum is ${MAX_SOURCE_BYTES}`);
-  const raw = readFileSync9(absolute);
+  const raw = readRegularFileSnapshot(path, MAX_SOURCE_BYTES, `GitHub ${kind} evidence`).bytes;
+  const bytes = raw.length;
   let value;
   try {
     value = JSON.parse(raw.toString("utf8"));
@@ -10881,8 +10916,6 @@ function loadGitHubEvidence(path) {
 }
 
 // src/value-compare.ts
-import { readFileSync as readFileSync10, statSync as statSync5 } from "node:fs";
-import { resolve as resolve14 } from "node:path";
 var MAX_CARD_BYTES = 8 * 1024 * 1024;
 function validCard(value, path) {
   if (value?.schemaVersion !== "agent-vigil-value-card/v1") throw new Error(`${path} is not an Agent Value Card v1`);
@@ -10892,12 +10925,9 @@ function validCard(value, path) {
   return value;
 }
 function loadValueCard(path) {
-  const absolute = resolve14(path);
-  const bytes = statSync5(absolute).size;
-  if (bytes > MAX_CARD_BYTES) throw new Error(`${path} is ${bytes} bytes; maximum is ${MAX_CARD_BYTES}`);
   let value;
   try {
-    value = JSON.parse(readFileSync10(absolute, "utf8"));
+    value = JSON.parse(readRegularUtf8(path, MAX_CARD_BYTES, "value card"));
   } catch {
     throw new Error(`${path} is not valid JSON`);
   }
@@ -11034,7 +11064,7 @@ function renderValueComparisonHtml(comparison) {
 }
 
 // src/attestation.ts
-import { createHash as createHash18, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash as createHash18, createHmac as createHmac2, timingSafeEqual } from "node:crypto";
 import { execFileSync as execFileSync4 } from "node:child_process";
 import { basename as basename3, resolve as resolve15 } from "node:path";
 var ATTESTATION_PREDICATE_TYPE = "https://sulmusic2-star.github.io/agent-vigil/ai-change-receipt-predicate-v1.schema.json";
@@ -11209,17 +11239,17 @@ function buildNotaryCheck(reportPath, verification2, expectedHead, expectedPolic
 }
 function verifyWebhookSignature(secret, body, signatureHeader) {
   if (!secret || !signatureHeader?.startsWith("sha256=")) return false;
-  const actualExpected = Buffer.from(`sha256=${createHmac("sha256", secret).update(body).digest("hex")}`);
+  const actualExpected = Buffer.from(`sha256=${createHmac2("sha256", secret).update(body).digest("hex")}`);
   const actual = Buffer.from(signatureHeader);
   return actual.length === actualExpected.length && timingSafeEqual(actual, actualExpected);
 }
 
 // src/upgrade/cli.ts
-import { realpathSync as realpathSync12, statSync as statSync7 } from "node:fs";
+import { realpathSync as realpathSync12, statSync as statSync4 } from "node:fs";
 import { basename as basename5, dirname as dirname7, isAbsolute as isAbsolute12, relative as relative13, resolve as resolve20, sep as sep12 } from "node:path";
 
 // src/upgrade/contracts.ts
-import { lstatSync as lstatSync10, readFileSync as readFileSync11, realpathSync as realpathSync7 } from "node:fs";
+import { lstatSync as lstatSync10, realpathSync as realpathSync7 } from "node:fs";
 import { dirname as dirname3, isAbsolute as isAbsolute9, join as join6, normalize as normalize5, relative as relative9, resolve as resolve16, sep as sep8, win32 as win324 } from "node:path";
 var UPGRADE_CONFIG_SCHEMA = "agent-vigil-upgrade-config/v1";
 var CANARY_SCHEMA = "agent-vigil-upgrade-canary/v1";
@@ -11342,10 +11372,7 @@ function validateUpgradeConfig(input) {
   };
 }
 function readBoundedJson2(path, maximumBytes, label) {
-  const status = lstatSync10(path);
-  if (status.isSymbolicLink() || !status.isFile()) throw new Error(`${label} must be a regular non-symbolic-link file`);
-  if (status.size > maximumBytes) throw new Error(`${label} is ${status.size} bytes; maximum is ${maximumBytes}`);
-  return JSON.parse(readFileSync11(path, "utf8"));
+  return JSON.parse(readRegularUtf8(path, maximumBytes, label));
 }
 function trustedRegularFileInside(repositoryPath, filePath, label) {
   const requestedRepository = resolve16(repositoryPath);
@@ -11433,12 +11460,12 @@ import {
   sign as sign4,
   verify as verify4
 } from "node:crypto";
-import { lstatSync as lstatSync12, readFileSync as readFileSync13, realpathSync as realpathSync10 } from "node:fs";
+import { lstatSync as lstatSync12, readFileSync as readFileSync9, realpathSync as realpathSync10 } from "node:fs";
 import { dirname as dirname5, isAbsolute as isAbsolute11, relative as relative11, resolve as resolve18, sep as sep10 } from "node:path";
 
 // src/upgrade/decision.ts
 import { createHash as createHash19 } from "node:crypto";
-import { lstatSync as lstatSync11, readdirSync as readdirSync2, readFileSync as readFileSync12, realpathSync as realpathSync8 } from "node:fs";
+import { lstatSync as lstatSync11, readdirSync as readdirSync2, readFileSync as readFileSync8, realpathSync as realpathSync8 } from "node:fs";
 import { basename as basename4, dirname as dirname4, join as join7, relative as relative10, resolve as resolve17, sep as sep9 } from "node:path";
 var MAX_FILES = 4096;
 var MAX_FILE_BYTES2 = 4 * 1024 * 1024;
@@ -11493,11 +11520,12 @@ function inspectArtifactTree(root) {
       if (totalBytes > MAX_TOTAL_BYTES) throw new Error(`target exceeds ${MAX_TOTAL_BYTES} total bytes`);
       if (entries.length >= MAX_FILES) throw new Error(`target contains more than ${MAX_FILES} files`);
       const rel = relative10(canonicalRoot, path).split(sep9).join("/");
+      const snapshot = readRegularFileSnapshot(path, MAX_FILE_BYTES2, `capability snapshot file ${relative10(canonicalRoot, path)}`);
       entries.push({
         path: rel,
-        bytes: status.size,
-        mode: status.mode & 511,
-        sha256: hash(readFileSync12(path))
+        bytes: snapshot.bytes.length,
+        mode: snapshot.mode & 511,
+        sha256: hash(snapshot.bytes)
       });
     }
   };
@@ -11515,7 +11543,7 @@ function inspectTarget(directory, component) {
   }
   const root = realpathSync8(directory);
   const manifestPath = safeFile(root, component.manifestPath);
-  const manifestBytes = readFileSync12(manifestPath);
+  const manifestBytes = readFileSync8(manifestPath);
   let manifest2;
   try {
     manifest2 = JSON.parse(manifestBytes.toString("utf8"));
@@ -11627,7 +11655,7 @@ function decideUpgrade(containment, current, candidate, canaries) {
 // src/upgrade/sandbox.ts
 import { createHash as createHash20, randomBytes as randomBytes3 } from "node:crypto";
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { accessSync, constants as constants7, realpathSync as realpathSync9, statSync as statSync6 } from "node:fs";
+import { accessSync, constants as constants8, realpathSync as realpathSync9, statSync as statSync3 } from "node:fs";
 import { isAbsolute as isAbsolute10 } from "node:path";
 var PROXY_NAMES = [
   "HTTP_PROXY",
@@ -11678,8 +11706,8 @@ function trustedDockerLocations() {
 }
 function canonicalExecutable(path) {
   const canonicalPath = realpathSync9(path);
-  if (!statSync6(canonicalPath).isFile()) throw new Error("Docker client must be a regular file");
-  if (process.platform !== "win32") accessSync(canonicalPath, constants7.X_OK);
+  if (!statSync3(canonicalPath).isFile()) throw new Error("Docker client must be a regular file");
+  if (process.platform !== "win32") accessSync(canonicalPath, constants8.X_OK);
   return canonicalPath;
 }
 function sanitizedDockerEnvironment(source2) {
@@ -12359,7 +12387,7 @@ function createPublicCompatibilityEntry(receipt, privateKeyPath) {
   if (!receipt.current || !receipt.candidate || !receipt.canaryHarness) {
     throw new Error("public compatibility output requires exact current, candidate, and canary harness identities");
   }
-  const privateKey = createPrivateKey4(readFileSync13(privateKeyPath));
+  const privateKey = createPrivateKey4(readFileSync9(privateKeyPath));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("public compatibility signing key must be Ed25519");
   const publicKey = createPublicKey4(privateKey);
   const der = publicKeyDer(publicKey);
@@ -12418,7 +12446,7 @@ function verifyPublicCompatibilityEntry(entry, publicKeyPath) {
   try {
     const embedded = createPublicKey4({ key: Buffer.from(entry.signature.publicKey, "base64"), type: "spki", format: "der" });
     const embeddedId = signingKeyId(publicKeyDer(embedded));
-    const selected = publicKeyPath ? createPublicKey4(readFileSync13(publicKeyPath)) : embedded;
+    const selected = publicKeyPath ? createPublicKey4(readFileSync9(publicKeyPath)) : embedded;
     const selectedId = signingKeyId(publicKeyDer(selected));
     const signatureValid = embeddedId === entry.signature.keyId && selectedId === embeddedId && verify4(null, Buffer.from(entry.entryHash), selected, Buffer.from(entry.signature.value, "base64"));
     return { hashValid, signatureValid, keyPinned: Boolean(publicKeyPath), keyId: selectedId };
@@ -12590,7 +12618,7 @@ import {
   existsSync as existsSync6,
   lstatSync as lstatSync13,
   mkdirSync as mkdirSync6,
-  readFileSync as readFileSync14,
+  readFileSync as readFileSync10,
   realpathSync as realpathSync11
 } from "node:fs";
 import { dirname as dirname6, join as join9, relative as relative12, resolve as resolve19, sep as sep11 } from "node:path";
@@ -12639,7 +12667,7 @@ function ensurePrivateDirectory(repository2, target2) {
 function inferredName(repository2) {
   const manifest2 = join9(repository2, "package.json");
   try {
-    const value = JSON.parse(readFileSync14(manifest2, "utf8"));
+    const value = JSON.parse(readFileSync10(manifest2, "utf8"));
     if (typeof value.name === "string" && /^[A-Za-z0-9@][A-Za-z0-9@/._-]{0,159}$/.test(value.name)) return value.name;
   } catch {
   }
@@ -12806,7 +12834,7 @@ function insideRepository(repositoryPath, value, label) {
 }
 function outputIdentity(path) {
   const parent = realpathSync12(dirname7(resolve20(path)));
-  const status = statSync7(parent, { bigint: true });
+  const status = statSync4(parent, { bigint: true });
   const name2 = basename5(path);
   if (!/^[A-Za-z0-9._-]+$/.test(name2) || name2.endsWith(".") || name2.endsWith(" ") || name2.includes("~")) {
     throw new Error(`output basename is not portable and collision-safe: ${name2}`);
@@ -12993,9 +13021,6 @@ function runUpgradeCommand(args) {
 
 // src/proof-comment.ts
 var PROOF_COMMENT_MARKER = "<!-- agent-vigil-proof-comment:v1 -->";
-function code2(value) {
-  return `\`${terminalSafe(value).replace(/`/g, "\\`")}\``;
-}
 function count(results, ruleId, verdict) {
   return results.filter((result5) => result5.ruleId === ruleId && (!verdict || result5.verdict === verdict)).length;
 }
@@ -13047,9 +13072,9 @@ function renderProofComment(value, options = {}) {
     "",
     ...facts,
     "",
-    `**Change:** ${code2(report.base)} -> ${code2(report.head)}  `,
-    `**Policy:** ${code2(report.policy.sha256)}  `,
-    `**Receipt:** ${code2(report.receiptHash)}  `,
+    `**Change:** ${markdownCodeSpan(terminalSafe(report.base))} -> ${markdownCodeSpan(terminalSafe(report.head))}  `,
+    `**Policy:** ${markdownCodeSpan(terminalSafe(report.policy.sha256))}  `,
+    `**Receipt:** ${markdownCodeSpan(terminalSafe(report.receiptHash))}  `,
     `**Signature:** ${signature}`,
     ...url ? ["", `[Verify this receipt](${url.replace(/[()]/g, (character) => `\\${character}`)})`] : [],
     "",
@@ -13334,7 +13359,6 @@ function renderControlProof(report) {
 // src/control-proof-attestation.ts
 import { createHash as createHash23 } from "node:crypto";
 import { execFileSync as execFileSync7 } from "node:child_process";
-import { closeSync as closeSync7, constants as constants8, fstatSync as fstatSync7, lstatSync as lstatSync16, openSync as openSync7, readFileSync as readFileSync16 } from "node:fs";
 import { basename as basename6, resolve as resolve22 } from "node:path";
 var CONTROL_PROOF_ATTESTATION_PREDICATE_TYPE = "https://sulmusic2-star.github.io/agent-vigil/control-proof-predicate-v1.schema.json";
 var SHA2565 = /^sha256:[0-9a-f]{64}$/;
@@ -13441,20 +13465,7 @@ function validateControlProof(value) {
   return parsed;
 }
 function loadControlProof(path) {
-  const absolute = resolve22(path);
-  const metadata = lstatSync16(absolute);
-  if (metadata.isSymbolicLink() || !metadata.isFile()) throw new Error("control proof must be a regular file, not a symbolic link");
-  if (metadata.size > 2 * 1024 * 1024) throw new Error("control proof exceeds the 2 MB attestation limit");
-  const descriptor = openSync7(absolute, constants8.O_RDONLY | (constants8.O_NOFOLLOW ?? 0));
-  let bytes;
-  try {
-    const opened = fstatSync7(descriptor);
-    if (!opened.isFile() || opened.size !== metadata.size) throw new Error("control proof changed while it was being opened");
-    bytes = readFileSync16(descriptor);
-    if (bytes.length !== opened.size) throw new Error("control proof changed while it was being read");
-  } finally {
-    closeSync7(descriptor);
-  }
+  const bytes = readRegularFileSnapshot(path, 2 * 1024 * 1024, "control proof").bytes;
   let parsed;
   try {
     parsed = JSON.parse(bytes.toString("utf8"));
@@ -13589,7 +13600,7 @@ function verifyGitHubControlProofAttestation(path, repository2, trust = {}, exec
 
 // src/control-proof-workflow.ts
 import { execFileSync as execFileSync8 } from "node:child_process";
-import { closeSync as closeSync8, constants as constants9, fstatSync as fstatSync8, lstatSync as lstatSync17, openSync as openSync8, readSync as readSync6, realpathSync as realpathSync14 } from "node:fs";
+import { closeSync as closeSync8, constants as constants9, fstatSync as fstatSync8, lstatSync as lstatSync16, openSync as openSync8, readSync as readSync7, realpathSync as realpathSync14 } from "node:fs";
 import { dirname as dirname9, join as join11, resolve as resolve23, sep as sep14 } from "node:path";
 var CHECKOUT_COMMIT = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 var SETUP_NODE_COMMIT = "820762786026740c76f36085b0efc47a31fe5020";
@@ -13836,7 +13847,7 @@ function readExistingWorkflow(root, workflow2) {
   for (const component of components) {
     current = join11(current, component);
     try {
-      const metadata = lstatSync17(current);
+      const metadata = lstatSync16(current);
       if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
         throw new Error(`Refusing to traverse unsafe control-proof workflow parent: ${current}`);
       }
@@ -13848,7 +13859,7 @@ function readExistingWorkflow(root, workflow2) {
   const target2 = join11(root, workflow2);
   let expected;
   try {
-    expected = lstatSync17(target2, { bigint: true });
+    expected = lstatSync16(target2, { bigint: true });
     if (expected.isSymbolicLink() || !expected.isFile()) {
       throw new Error(`Refusing to replace unsafe control-proof workflow: ${target2}`);
     }
@@ -13868,12 +13879,12 @@ function readExistingWorkflow(root, workflow2) {
     const bytes = Buffer.alloc(Number(opened.size));
     let offset = 0;
     while (offset < bytes.length) {
-      const count3 = readSync6(descriptor, bytes, offset, bytes.length - offset, offset);
+      const count3 = readSync7(descriptor, bytes, offset, bytes.length - offset, offset);
       if (count3 === 0) throw new Error(`Control-proof workflow changed while it was read: ${target2}`);
       offset += count3;
     }
     const after = fstatSync8(descriptor, { bigint: true });
-    const finalPath = lstatSync17(target2, { bigint: true });
+    const finalPath = lstatSync16(target2, { bigint: true });
     if (BigInt(bytes.length) !== opened.size || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size || finalPath.mtimeNs !== opened.mtimeNs || finalPath.ctimeNs !== opened.ctimeNs) {
       throw new Error(`Control-proof workflow changed while it was read: ${target2}`);
     }
@@ -13904,7 +13915,7 @@ function installKeylessControlProofAction(repo, actionCommit, force = false) {
 
 // src/certification.ts
 import { createHash as createHash25 } from "node:crypto";
-import { existsSync as existsSync8, lstatSync as lstatSync18, readFileSync as readFileSync18 } from "node:fs";
+import { existsSync as existsSync8 } from "node:fs";
 
 // src/signed-control-proof.ts
 import {
@@ -13914,7 +13925,7 @@ import {
   sign as sign5,
   verify as verify5
 } from "node:crypto";
-import { readFileSync as readFileSync17 } from "node:fs";
+import { readFileSync as readFileSync12 } from "node:fs";
 var SIGNED_CONTROL_PROOF_SCHEMA = "control-proof/signed-challenge-v1";
 function digest7(value) {
   return `sha256:${createHash24("sha256").update(canonical(value)).digest("hex")}`;
@@ -14019,7 +14030,7 @@ function ed25519PublicKey(der, label) {
 }
 function signControlProof(payloadInput, privateKeyPath) {
   const payload = parsePayload(payloadInput);
-  const privateKey = createPrivateKey5(readFileSync17(privateKeyPath));
+  const privateKey = createPrivateKey5(readFileSync12(privateKeyPath));
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("signed proof private key must be Ed25519");
   const der = publicKeyDer(createPublicKey5(privateKey));
   const payloadHash = digest7(payload);
@@ -14052,7 +14063,7 @@ function verifySignedControlProof(input, pinnedPublicKeyPath) {
   if (embeddedId !== keyId) throw new Error("signed control proof key ID does not match its embedded key");
   let selected = embedded;
   if (pinnedPublicKeyPath) {
-    selected = createPublicKey5(readFileSync17(pinnedPublicKeyPath));
+    selected = createPublicKey5(readFileSync12(pinnedPublicKeyPath));
     if (selected.asymmetricKeyType !== "ed25519") throw new Error("pinned signed proof public key must be Ed25519");
     if (signingKeyId(publicKeyDer(selected)) !== keyId) throw new Error("signed control proof signer does not match the pinned public key");
   }
@@ -14334,10 +14345,7 @@ function appendCorpusEntry(content, certificateInput) {
 }
 function loadCorpus(path) {
   if (!existsSync8(path)) return [];
-  const status = lstatSync18(path);
-  if (status.isSymbolicLink() || !status.isFile()) throw new Error("certification corpus must be a regular non-symbolic-link file");
-  if (status.size > 64 * 1024 * 1024) throw new Error("certification corpus exceeds 64 MiB");
-  return parseCorpus(readFileSync18(path, "utf8"));
+  return parseCorpus(readRegularUtf8(path, 64 * 1024 * 1024, "certification corpus"));
 }
 function validatePolicy4(input) {
   const root = record5(input, "certification policy");
@@ -14442,7 +14450,7 @@ import { isAbsolute as isAbsolute14, relative as relative15, resolve as resolve2
 import {
   chmodSync as chmodSync4,
   existsSync as existsSync9,
-  lstatSync as lstatSync19,
+  lstatSync as lstatSync18,
   mkdirSync as mkdirSync8,
   readdirSync as readdirSync3,
   realpathSync as realpathSync15
@@ -14461,18 +14469,18 @@ function isMissing2(error) {
 function ensurePrivateDirectory2(requested, mustBeNew = false) {
   const absolute = resolve24(requested);
   const root = parse3(absolute).root;
-  const rootStatus = lstatSync19(root);
+  const rootStatus = lstatSync18(root);
   let current = root;
   const components = absolute.slice(root.length).split(sep15).filter(Boolean);
   for (const [index, component] of components.entries()) {
     const next = join12(current, component);
     try {
-      const status = lstatSync19(next);
+      const status = lstatSync18(next);
       if (status.isSymbolicLink()) {
         const trustedRootAlias = index === 0 && status.uid === rootStatus.uid && (rootStatus.mode & 18) === 0;
         if (!trustedRootAlias) throw new Error("continuity directory may not traverse a symbolic link");
         const canonical3 = realpathSync15(next);
-        if (!lstatSync19(canonical3).isDirectory()) throw new Error("continuity directory parent is not a directory");
+        if (!lstatSync18(canonical3).isDirectory()) throw new Error("continuity directory parent is not a directory");
         current = canonical3;
         continue;
       }
@@ -14614,7 +14622,7 @@ function readChainFiles(chainDirectory) {
   const directory = resolve24(chainDirectory);
   let status;
   try {
-    status = lstatSync19(directory);
+    status = lstatSync18(directory);
   } catch {
     throw new Error("continuity chain directory is missing or unreadable");
   }
@@ -14622,7 +14630,7 @@ function readChainFiles(chainDirectory) {
   const entries = readdirSync3(directory).sort();
   if (canonical(entries) !== canonical(["events", "receipt.json", "root.json", "tip.json"])) throw new Error("continuity chain directory contains unsupported or missing entries");
   const eventsDirectory = join12(directory, "events");
-  const eventsStatus = lstatSync19(eventsDirectory);
+  const eventsStatus = lstatSync18(eventsDirectory);
   if (eventsStatus.isSymbolicLink() || !eventsStatus.isDirectory()) throw new Error("continuity events must be stored in a regular directory");
   const root = validateContinuityRoot(readBoundedJson(join12(directory, "root.json"), MAX_EVENT_BYTES2, "continuity root"));
   const storedTip = validateTip(readBoundedJson(join12(directory, "tip.json"), MAX_EVENT_BYTES2, "continuity tip"));
@@ -14785,7 +14793,7 @@ function appendContinuityEvent(chainDirectory, draft, privateKeyPath) {
 }
 
 // src/continuity/demo.ts
-import { createHmac as createHmac2 } from "node:crypto";
+import { createHmac as createHmac3 } from "node:crypto";
 import { mkdtempSync as mkdtempSync5, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
 import { tmpdir as tmpdir5 } from "node:os";
 import { join as join13 } from "node:path";
@@ -15304,7 +15312,7 @@ function signedWebhook(path, payload, secret) {
   writeFileSync6(path, bytes, { mode: 384 });
   return {
     path,
-    deliverySignature: `sha256=${createHmac2("sha256", secret).update(bytes).digest("hex")}`
+    deliverySignature: `sha256=${createHmac3("sha256", secret).update(bytes).digest("hex")}`
   };
 }
 function runContinuityDemo() {
@@ -15472,10 +15480,10 @@ import { spawnSync as spawnSync4 } from "node:child_process";
 import {
   chmodSync as chmodSync5,
   existsSync as existsSync10,
-  lstatSync as lstatSync21,
+  lstatSync as lstatSync20,
   mkdirSync as mkdirSync10,
   mkdtempSync as mkdtempSync7,
-  readFileSync as readFileSync20,
+  readFileSync as readFileSync15,
   realpathSync as realpathSync17,
   rmSync as rmSync6,
   unlinkSync as unlinkSync2,
@@ -15490,12 +15498,12 @@ import { spawnSync as spawnSync3 } from "node:child_process";
 import {
   closeSync as closeSync9,
   fstatSync as fstatSync9,
-  lstatSync as lstatSync20,
+  lstatSync as lstatSync19,
   mkdtempSync as mkdtempSync6,
   mkdirSync as mkdirSync9,
   openSync as openSync9,
-  readFileSync as readFileSync19,
-  readSync as readSync7,
+  readFileSync as readFileSync14,
+  readSync as readSync8,
   realpathSync as realpathSync16,
   rmSync as rmSync5,
   writeFileSync as writeFileSync7
@@ -15518,7 +15526,7 @@ function modifiedNanoseconds(status) {
 }
 function hashRegularFile(requestedPath, label) {
   const realPath = realpathSync16(requestedPath);
-  const before = lstatSync20(realPath, { bigint: true });
+  const before = lstatSync19(realPath, { bigint: true });
   if (!before.isFile()) throw new Error(`${label} must resolve to a regular file`);
   const descriptor = openSync9(realPath, "r");
   const hash3 = createHash26("sha256");
@@ -15529,7 +15537,7 @@ function hashRegularFile(requestedPath, label) {
     }
     const buffer = Buffer.allocUnsafe(64 * 1024);
     for (; ; ) {
-      const count3 = readSync7(descriptor, buffer, 0, buffer.length, null);
+      const count3 = readSync8(descriptor, buffer, 0, buffer.length, null);
       if (count3 === 0) break;
       hash3.update(buffer.subarray(0, count3));
     }
@@ -15551,7 +15559,7 @@ function hashRegularFile(requestedPath, label) {
 }
 var hashGuardFile = hashRegularFile;
 function assertFileUnchanged(identity2, label) {
-  const status = lstatSync20(identity2.realPath, { bigint: true });
+  const status = lstatSync19(identity2.realPath, { bigint: true });
   if (!status.isFile() || status.dev !== identity2.device || status.ino !== identity2.inode || status.size !== identity2.size || modifiedNanoseconds(status) !== identity2.modifiedNanoseconds) throw new Error(`${label} changed during the process-conformance check`);
   if (hashRegularFile(identity2.realPath, label).sha256 !== identity2.sha256) {
     throw new Error(`${label} content changed during the process-conformance check`);
@@ -15588,7 +15596,7 @@ function loadControlArguments(path) {
   if (identity2.size > 64n * 1024n) throw new Error("control arguments file exceeds 64 KiB");
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync19(identity2.realPath, "utf8"));
+    parsed = JSON.parse(readFileSync14(identity2.realPath, "utf8"));
   } catch {
     throw new Error("control arguments file must contain valid JSON");
   }
@@ -16092,9 +16100,9 @@ function hostProcess(input) {
 }
 function readHookLog(path) {
   if (!existsSync10(path)) return [];
-  const status = lstatSync21(path);
+  const status = lstatSync20(path);
   if (!status.isFile() || status.size > MAX_HOOK_LOG_BYTES) throw new Error("live-host hook log is missing, unsafe, or oversized");
-  const body = readFileSync20(path, "utf8");
+  const body = readFileSync15(path, "utf8");
   if (!body.trim()) return [];
   const rows = body.trimEnd().split("\n");
   if (rows.length > 32) throw new Error("live-host hook emitted too many events");
@@ -16106,7 +16114,7 @@ function readHookLog(path) {
 }
 function pathEntryExists(path) {
   try {
-    lstatSync21(path);
+    lstatSync20(path);
     return true;
   } catch (error) {
     if (error.code === "ENOENT") return false;
@@ -16130,14 +16138,14 @@ function assertOrdinaryConfigurationUnchanged(files) {
 }
 function assertDisposableProfile(host, requested) {
   const profileHome = realpathSync17(requested);
-  const status = lstatSync21(profileHome);
+  const status = lstatSync20(profileHome);
   if (!status.isDirectory()) throw new Error("profile home must be a directory");
   const defaultHome = realpathSync17(process.env.HOME ?? profileHome);
   const forbidden = [defaultHome, join15(defaultHome, host === "codex" ? ".codex" : ".claude")].map((value) => resolve25(value));
   if (forbidden.includes(resolve25(profileHome))) throw new Error("guard-route refuses the ordinary user profile; use a disposable profile");
   const markerPath = join15(profileHome, ".agent-vigil-disposable-profile");
   const marker2 = hashGuardFile(markerPath, "disposable profile marker");
-  if (readFileSync20(marker2.realPath, "utf8") !== DISPOSABLE_PROFILE_MARKER) {
+  if (readFileSync15(marker2.realPath, "utf8") !== DISPOSABLE_PROFILE_MARKER) {
     throw new Error("disposable profile marker has unexpected content");
   }
   const collisions = host === "codex" ? ["hooks.json", "config.toml"] : ["settings.json", "settings.local.json"];
@@ -16284,7 +16292,7 @@ function runGuardRoute(input) {
     const denyLog = routed.filter((row) => row.route === "LIVE_DENY");
     const allowPath = join15(workspace, allow.file);
     const denyPath = join15(workspace, deny.file);
-    const allowExecuted = existsSync10(allowPath) && lstatSync21(allowPath).isFile() && readFileSync20(allowPath, "utf8") === `${allow.token}
+    const allowExecuted = existsSync10(allowPath) && lstatSync20(allowPath).isFile() && readFileSync15(allowPath, "utf8") === `${allow.token}
 `;
     const denyExecuted = existsSync10(denyPath);
     const observations = [
@@ -17253,7 +17261,7 @@ function verifyContinuityStaple(input, options) {
 
 // src/continuity/terraform.ts
 import { spawnSync as spawnSync5 } from "node:child_process";
-import { lstatSync as lstatSync22 } from "node:fs";
+import { lstatSync as lstatSync21 } from "node:fs";
 import { dirname as dirname10, resolve as resolve27 } from "node:path";
 import { arch as arch3, platform as platform3 } from "node:process";
 var TERRAFORM_PLAN_GATE_SCHEMA = "agent-vigil-terraform-plan-gate/v1";
@@ -17339,7 +17347,7 @@ function verifyTerraformSavedPlan(options) {
     return { ...unsigned2, authorizationHash: canonicalSha256(unsigned2) };
   }
   const requestedPlan = resolve27(options.planPath);
-  const requestedStatus = lstatSync22(requestedPlan);
+  const requestedStatus = lstatSync21(requestedPlan);
   if (requestedStatus.isSymbolicLink() || !requestedStatus.isFile()) throw new Error("saved Terraform plan must be a regular file, not a symbolic link");
   const planIdentity = hashGuardFile(requestedPlan, "saved Terraform plan");
   if (planIdentity.size <= 0n || planIdentity.size > BigInt(MAX_TERRAFORM_PLAN_BYTES)) throw new Error("saved Terraform plan is empty or exceeds the byte limit");
@@ -17388,7 +17396,7 @@ function verifyTerraformSavedPlan(options) {
 
 // src/continuity/workflow.ts
 import { execFileSync as execFileSync10 } from "node:child_process";
-import { existsSync as existsSync11, lstatSync as lstatSync23, mkdirSync as mkdirSync11, realpathSync as realpathSync18 } from "node:fs";
+import { existsSync as existsSync11, lstatSync as lstatSync22, mkdirSync as mkdirSync11, realpathSync as realpathSync18 } from "node:fs";
 import { join as join17, resolve as resolve28, sep as sep16 } from "node:path";
 var ACTION_COMMIT = /^[0-9a-f]{40}$/;
 var CHECKOUT_COMMIT2 = "3d3c42e5aac5ba805825da76410c181273ba90b1";
@@ -17408,7 +17416,7 @@ function repositoryRoot2(path) {
     throw new Error("--repo must name a Git repository");
   }
   const canonical3 = realpathSync18(root);
-  if (!lstatSync23(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
+  if (!lstatSync22(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
   return canonical3;
 }
 function ensureSafeParent(root, target2) {
@@ -17417,7 +17425,7 @@ function ensureSafeParent(root, target2) {
   for (const part of relative17) {
     current = join17(current, part);
     if (existsSync11(current)) {
-      const status = lstatSync23(current);
+      const status = lstatSync22(current);
       if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("continuity setup refuses symbolic-link or non-directory parents");
     } else {
       mkdirSync11(current, { mode: 448 });
@@ -20125,7 +20133,7 @@ function runMaintainer(args) {
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
-    const rawEvent = readFileSync21(eventPath);
+    const rawEvent = readFileSync16(eventPath);
     const eventHash = `sha256:${createHash28("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative16(repo, policy.path) : void 0;
     const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
@@ -20291,7 +20299,7 @@ function assertGuardOutputIsDistinct(output, inputs) {
   const selected = resolve32(output);
   const selectedExists = existsSync12(selected);
   const selectedReal = selectedExists ? realpathSync19(selected) : selected;
-  const selectedStatus = selectedExists ? statSync8(selected) : void 0;
+  const selectedStatus = selectedExists ? statSync5(selected) : void 0;
   for (const input of inputs) {
     if (!input) continue;
     const requestedInput = resolve32(input);
@@ -20300,7 +20308,7 @@ function assertGuardOutputIsDistinct(output, inputs) {
     const realInput = realpathSync19(requestedInput);
     if (selectedReal === realInput) throw new Error("--output must not replace or alias a guard input");
     if (selectedStatus) {
-      const inputStatus = statSync8(realInput);
+      const inputStatus = statSync5(realInput);
       if (selectedStatus.dev === inputStatus.dev && selectedStatus.ino === inputStatus.ino) {
         throw new Error("--output must not replace or alias a guard input");
       }
@@ -20677,7 +20685,7 @@ function runAudit(args) {
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
     const absolute = resolve32(diffPath);
-    const raw = readFileSync21(absolute);
+    const raw = readFileSync16(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
     const digest12 = `sha256:${createHash28("sha256").update(raw).digest("hex")}`;
@@ -21059,14 +21067,14 @@ function isMainModule() {
 if (isMainModule()) {
   const argv = process.argv.slice(2);
   if (argv[0] === "pr-receipt") {
-    void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION }).then((code3) => process.exit(code3));
+    void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION }).then((code) => process.exit(code));
   } else if (argv[0] === "check") {
     const pin = defaultActionPin();
     if (pin.source !== "package-build") {
       console.error("agent-vigil: this development build has no exact source commit; use pr-receipt --tool-ref <full-commit-sha> instead");
       process.exit(2);
     }
-    void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION, toolCommit: pin.sha }).then((code3) => process.exit(code3));
+    void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION, toolCommit: pin.sha }).then((code) => process.exit(code));
   } else process.exit(run(argv));
 }
 export {

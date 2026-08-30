@@ -8,12 +8,9 @@ import {
   type ResultView,
 } from "./result-view.ts";
 import { appendPrivateFileAtomic, writePrivateFileAtomic } from "./safe-output.ts";
+import { markdownCodeSpan } from "./markdown.ts";
 
 export { remediationFor } from "./remediation.ts";
-
-function code(value: string): string {
-  return `\`${value.replace(/`/g, "\\`")}\``;
-}
 
 function markdownText(value: string): string {
   return value
@@ -95,8 +92,8 @@ export function renderResultMarkdown(view: ResultView, options: { aggregateOnly?
   if (!options.aggregateOnly && open.length) {
     lines.push("", "#### Checks that need attention", "");
     for (const finding of open) {
-      const location = finding.location ? ` at ${code(`${finding.location.file}${finding.location.line ? `:${finding.location.line}` : ""}`)}` : "";
-      lines.push(`- **${finding.state.replace("_", " ")}** ${code(finding.id)}${location}: ${markdownText(finding.title)}`);
+      const location = finding.location ? ` at ${markdownCodeSpan(`${finding.location.file}${finding.location.line ? `:${finding.location.line}` : ""}`)}` : "";
+      lines.push(`- **${finding.state.replace("_", " ")}** ${markdownCodeSpan(finding.id)}${location}: ${markdownText(finding.title)}`);
       lines.push(`  - Evidence: ${markdownText(finding.evidence)}`);
       if (finding.claimedTestCount !== undefined || finding.observedTestCount !== undefined) {
         lines.push(`  - Tests: claimed **${finding.claimedTestCount ?? "not stated"}**; observed **${finding.observedTestCount ?? "not found"}**`);
@@ -107,19 +104,19 @@ export function renderResultMarkdown(view: ResultView, options: { aggregateOnly?
   if (!options.aggregateOnly && view.advisories.length) {
     lines.push("", `#### Advisories (${view.advisories.length}; non-blocking under this policy)`, "");
     for (const finding of view.advisories) {
-      lines.push(`- **ADVISORY** ${code(finding.id)}: ${markdownText(finding.title)}`);
+      lines.push(`- **ADVISORY** ${markdownCodeSpan(finding.id)}: ${markdownText(finding.title)}`);
       lines.push(`  - Evidence: ${markdownText(finding.evidence)}`);
       lines.push(`  - Review: ${markdownText(finding.remediation)}`);
     }
   }
   lines.push(
     "",
-    `**Change:** ${code(view.base)} -> ${code(view.head)}  `,
+    `**Change:** ${markdownCodeSpan(view.base)} -> ${markdownCodeSpan(view.head)}  `,
     `**Changed files:** ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}  `,
-    `**Receipt:** ${code(view.receiptHash)}`,
+    `**Receipt:** ${markdownCodeSpan(view.receiptHash)}`,
     "",
   );
-  if (!options.aggregateOnly) lines.push(`Reproduce: ${code(view.reproduce)}`, "");
+  if (!options.aggregateOnly) lines.push(`Reproduce: ${markdownCodeSpan(view.reproduce)}`, "");
   return lines.join("\n");
 }
 

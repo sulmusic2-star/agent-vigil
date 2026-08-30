@@ -2,16 +2,13 @@ import type { CheckResult } from "./report.ts";
 import { buildReportResultView, validateReportForResult } from "./result-view.ts";
 import { verifyReport } from "./signature.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
+import { markdownCodeSpan } from "./markdown.ts";
 
 export const PROOF_COMMENT_MARKER = "<!-- agent-vigil-proof-comment:v1 -->";
 
 export type ProofCommentOptions = {
   verifyUrl?: string;
 };
-
-function code(value: string): string {
-  return `\`${terminalSafe(value).replace(/`/g, "\\`")}\``;
-}
 
 function count(results: CheckResult[], ruleId: string, verdict?: CheckResult["verdict"]): number {
   return results.filter((result) => result.ruleId === ruleId && (!verdict || result.verdict === verdict)).length;
@@ -73,9 +70,9 @@ export function renderProofComment(value: unknown, options: ProofCommentOptions 
     "",
     ...facts,
     "",
-    `**Change:** ${code(report.base)} -> ${code(report.head)}  `,
-    `**Policy:** ${code(report.policy.sha256)}  `,
-    `**Receipt:** ${code(report.receiptHash)}  `,
+    `**Change:** ${markdownCodeSpan(terminalSafe(report.base))} -> ${markdownCodeSpan(terminalSafe(report.head))}  `,
+    `**Policy:** ${markdownCodeSpan(terminalSafe(report.policy.sha256))}  `,
+    `**Receipt:** ${markdownCodeSpan(terminalSafe(report.receiptHash))}  `,
     `**Signature:** ${signature}`,
     ...(url ? ["", `[Verify this receipt](${url.replace(/[()]/g, (character) => `\\${character}`)})`] : []),
     "",

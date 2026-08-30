@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { recomputeValueCardHash, type AgentValueCard } from "./value.ts";
+import { readRegularUtf8 } from "./safe-fs.ts";
 
 export type WilsonInterval = { lower: number; upper: number; confidence: 0.95 };
 
@@ -48,11 +49,8 @@ function validCard(value: any, path: string): AgentValueCard {
 }
 
 export function loadValueCard(path: string): AgentValueCard {
-  const absolute = resolve(path);
-  const bytes = statSync(absolute).size;
-  if (bytes > MAX_CARD_BYTES) throw new Error(`${path} is ${bytes} bytes; maximum is ${MAX_CARD_BYTES}`);
   let value: unknown;
-  try { value = JSON.parse(readFileSync(absolute, "utf8")); }
+  try { value = JSON.parse(readRegularUtf8(path, MAX_CARD_BYTES, "value card")); }
   catch { throw new Error(`${path} is not valid JSON`); }
   return validCard(value, path);
 }

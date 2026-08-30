@@ -1,5 +1,6 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep, win32 } from "node:path";
+import { readRegularUtf8 } from "../safe-fs.ts";
 
 export const UPGRADE_CONFIG_SCHEMA = "agent-vigil-upgrade-config/v1" as const;
 export const CANARY_SCHEMA = "agent-vigil-upgrade-canary/v1" as const;
@@ -180,10 +181,7 @@ export function validateUpgradeConfig(input: unknown): UpgradeConfig {
 }
 
 export function readBoundedJson(path: string, maximumBytes: number, label: string): unknown {
-  const status = lstatSync(path);
-  if (status.isSymbolicLink() || !status.isFile()) throw new Error(`${label} must be a regular non-symbolic-link file`);
-  if (status.size > maximumBytes) throw new Error(`${label} is ${status.size} bytes; maximum is ${maximumBytes}`);
-  return JSON.parse(readFileSync(path, "utf8"));
+  return JSON.parse(readRegularUtf8(path, maximumBytes, label));
 }
 
 export function trustedRegularFileInside(repositoryPath: string, filePath: string, label: string): string {

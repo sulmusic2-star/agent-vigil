@@ -73,7 +73,7 @@ test("protect needs no SHA and reports one truthful prepared state", () => {
   assert.match(output, /real regression test failed on old code and passed on proposed code/);
   assert.match(output, /planted weak test passed on both versions; merge proof blocked/);
   assert.match(output, /Optional workflow badge \(run status only; not proof of required-check enforcement\)/);
-  assert.match(output, /https:\/\/github\.com\/example\/project\/actions\/workflows\/agent-vigil\.yml\/badge\.svg/);
+  assert.ok(output.includes("https://github.com/example/project/actions/workflows/agent-vigil.yml/badge.svg"));
   assert.match(output, /Register an outside trial only after the workflow runs/);
   assert.match(output, /RUNNING IN CI, not enforced/);
   assert.match(output, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.23\.1\/sulmusic-agent-vigil-0\.23\.1\.tgz doctor --repo \./);

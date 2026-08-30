@@ -6,6 +6,7 @@ import type { MaintainerPolicy } from "./config.ts";
 import { checkTestHarnessBinding, classifyCandidateTestOutcome } from "./detectors/reality.ts";
 import type { CheckResult, ClaimKind, Verdict } from "./report.ts";
 import { trustedGit } from "./trusted-git.ts";
+import { readRegularUtf8 } from "./safe-fs.ts";
 
 export type PullRequestEvidence = {
   author: string;
@@ -20,10 +21,8 @@ function result(kind: ClaimKind, ruleId: string, subject: string, quote: string,
 }
 
 export function loadPullRequestEvidence(path: string): PullRequestEvidence {
-  const size = statSync(path).size;
-  if (size > 2 * 1024 * 1024) throw new Error(`pull request event is ${size} bytes; maximum is ${2 * 1024 * 1024}`);
   let event: any;
-  try { event = JSON.parse(readFileSync(path, "utf8")); }
+  try { event = JSON.parse(readRegularUtf8(path, 2 * 1024 * 1024, "pull request event")); }
   catch { throw new Error(`pull request event is not valid JSON: ${path}`); }
   if (!event?.pull_request || typeof event.pull_request !== "object") throw new Error("event does not contain a pull_request object");
   const author = event.pull_request.user?.login;

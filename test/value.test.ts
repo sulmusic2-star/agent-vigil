@@ -246,7 +246,7 @@ test("HTML value card escapes model identity and records no unescaped executable
   const rendered = renderValueCardHtml(card);
   assert.doesNotMatch(rendered, /<script>alert\(1\)<\/script>/);
   assert.match(rendered, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-  assert.match(rendered, /github\.com\/sulmusic2-star\/agent-vigil/);
+  assert.ok(rendered.includes("github.com/sulmusic2-star/agent-vigil"));
 });
 
 test("card identity excludes render time but covers evidence fields", () => {

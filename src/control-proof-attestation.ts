@@ -5,6 +5,7 @@ import { basename, resolve } from "node:path";
 import { canonical } from "./report.ts";
 import { writePrivateFileAtomic } from "./safe-output.ts";
 import type { ControlProofActual, ControlProofExpected, ControlProofReport } from "./control-proof.ts";
+import { readRegularFileSnapshot } from "./safe-fs.ts";
 
 export const CONTROL_PROOF_ATTESTATION_PREDICATE_TYPE = "https://sulmusic2-star.github.io/agent-vigil/control-proof-predicate-v1.schema.json";
 
@@ -158,20 +159,7 @@ function validateControlProof(value: unknown): ControlProofReport {
 }
 
 export function loadControlProof(path: string): { proof: ControlProofReport; bytes: Buffer; fileSha256: string } {
-  const absolute = resolve(path);
-  const metadata = lstatSync(absolute);
-  if (metadata.isSymbolicLink() || !metadata.isFile()) throw new Error("control proof must be a regular file, not a symbolic link");
-  if (metadata.size > 2 * 1024 * 1024) throw new Error("control proof exceeds the 2 MB attestation limit");
-  const descriptor = openSync(absolute, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-  let bytes: Buffer;
-  try {
-    const opened = fstatSync(descriptor);
-    if (!opened.isFile() || opened.size !== metadata.size) throw new Error("control proof changed while it was being opened");
-    bytes = readFileSync(descriptor);
-    if (bytes.length !== opened.size) throw new Error("control proof changed while it was being read");
-  } finally {
-    closeSync(descriptor);
-  }
+  const bytes = readRegularFileSnapshot(path, 2 * 1024 * 1024, "control proof").bytes;
   let parsed: unknown;
   try { parsed = JSON.parse(bytes.toString("utf8")); }
   catch { throw new Error("control proof is not valid JSON"); }
