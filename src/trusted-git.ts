@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { readRegularFileSnapshot } from "./safe-fs.ts";
 
 const ACTION_GIT_PATH = "/usr/bin:/bin";
 const checkpoints = new Map<string, { identity: string; sha256: string }>();
@@ -59,15 +59,16 @@ function fixedBinary(): string {
   if (!configured) return "git";
   if (!isAbsolute(configured) || resolve(configured) !== configured) throw new TrustedGitIntegrityError("trusted Git binary path must be absolute and normalized");
   try {
-    const stat = lstatSync(configured);
-    if (stat.isSymbolicLink() || !stat.isFile()) throw new TrustedGitIntegrityError("trusted Git binary must be a regular non-symlink file");
+    const snapshot = readRegularFileSnapshot(configured, 512 * 1024 * 1024, "trusted Git binary");
     const current = {
-      identity: [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs, stat.mode, stat.uid, stat.gid].join(":"),
-      sha256: createHash("sha256").update(readFileSync(configured)).digest("hex"),
+      identity: snapshot.identity,
+      sha256: createHash("sha256").update(snapshot.bytes).digest("hex"),
     };
     const checkpoint = checkpoints.get(configured);
     if (!checkpoint) checkpoints.set(configured, current);
-    else if (checkpoint.identity !== current.identity || checkpoint.sha256 !== current.sha256) throw new TrustedGitIntegrityError("trusted Git binary changed during verification");
+    else if (checkpoint.identity !== current.identity || checkpoint.sha256 !== current.sha256) {
+      throw new TrustedGitIntegrityError("trusted Git binary changed during verification");
+    }
     return configured;
   } catch (error) {
     if (error instanceof TrustedGitIntegrityError) throw error;

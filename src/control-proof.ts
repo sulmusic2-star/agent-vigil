@@ -98,8 +98,10 @@ function safeWrite(repo: string, gitPath: string, content: string): void {
     }
     mkdirSync(current, { recursive: true });
   }
-  if (existsSync(target)) rmSync(target, { recursive: true, force: true });
-  writeFileSync(target, content, { encoding: "utf8", mode: 0o600 });
+  // Remove unconditionally so there is no check-then-use window. The exclusive
+  // create below fails closed if another entry appears before the write.
+  rmSync(target, { recursive: true, force: true });
+  writeFileSync(target, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
 }
 
 function commit(repo: string, message: string, sequence: number): string {

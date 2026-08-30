@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { canonical } from "./report.ts";
+import { readRegularFileSnapshot } from "./safe-fs.ts";
 import type { ChangeOutcome, MaintainerDisposition } from "./value.ts";
 
 export type GitHubEvidenceSourceKind =
@@ -125,10 +126,8 @@ function durationSeconds(start: unknown, end: unknown): number | undefined {
 }
 
 function readSource(path: string, kind: GitHubEvidenceSourceKind): { value: any; source: GitHubEvidenceBundle["sources"][number] } {
-  const absolute = resolve(path);
-  const bytes = statSync(absolute).size;
-  if (bytes > MAX_SOURCE_BYTES) throw new Error(`GitHub ${kind} evidence is ${bytes} bytes; maximum is ${MAX_SOURCE_BYTES}`);
-  const raw = readFileSync(absolute);
+  const raw = readRegularFileSnapshot(path, MAX_SOURCE_BYTES, `GitHub ${kind} evidence`).bytes;
+  const bytes = raw.length;
   let value: unknown;
   try { value = JSON.parse(raw.toString("utf8")); }
   catch { throw new Error(`GitHub ${kind} evidence is not valid JSON: ${path}`); }

@@ -9,6 +9,7 @@ import {
 } from "./signed-control-proof.ts";
 import { readBoundedJson } from "./upgrade/contracts.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
+import { readRegularUtf8 } from "./safe-fs.ts";
 
 export const CERTIFICATE_SCHEMA = "agent-vigil-control-certificate/v1" as const;
 export const CORPUS_ENTRY_SCHEMA = "agent-vigil-control-corpus-entry/v1" as const;
@@ -384,10 +385,7 @@ export function appendCorpusEntry(content: string, certificateInput: unknown): {
 
 export function loadCorpus(path: string): AnyCorpusEntry[] {
   if (!existsSync(path)) return [];
-  const status = lstatSync(path);
-  if (status.isSymbolicLink() || !status.isFile()) throw new Error("certification corpus must be a regular non-symbolic-link file");
-  if (status.size > 64 * 1024 * 1024) throw new Error("certification corpus exceeds 64 MiB");
-  return parseCorpus(readFileSync(path, "utf8"));
+  return parseCorpus(readRegularUtf8(path, 64 * 1024 * 1024, "certification corpus"));
 }
 
 export function validatePolicy(input: unknown): CertificationPolicy {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { markdownCodeSpan, markdownTableCell } from "./markdown.ts";
 import { canonical, type ReportStatus, type TrustReport } from "./report.ts";
 import type { SessionUsage } from "./transcript.ts";
 import type { TrajectoryMetrics } from "./authority.ts";
@@ -267,10 +268,6 @@ export function renderValueCardText(card: AgentValueCard): string {
   return `${lines.join("\n")}\n`;
 }
 
-function markdownCell(value: string): string {
-  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
-}
-
 export function renderValueCardMarkdown(card: AgentValueCard): string {
   const rows = [
     ["Value verdict", card.valueVerdict],
@@ -288,12 +285,12 @@ export function renderValueCardMarkdown(card: AgentValueCard): string {
     "",
     "| Evidence | Result |",
     "|---|---|",
-    ...rows.map(([label, value]) => `| ${markdownCell(label)} | ${markdownCell(value)} |`),
+    ...rows.map(([label, value]) => `| ${markdownTableCell(label)} | ${markdownTableCell(value)} |`),
     "",
     ...(card.gaps.length ? ["## Evidence gaps", "", ...card.gaps.map((gap) => `- ${gap}`), ""] : []),
-    `Receipt: \`${card.receipt.receiptHash}\``,
+    `Receipt: ${markdownCodeSpan(card.receipt.receiptHash)}`,
     "",
-    `Card: \`${card.cardHash}\``,
+    `Card: ${markdownCodeSpan(card.cardHash)}`,
     "",
     "Generated locally by [Agent Vigil](https://github.com/sulmusic2-star/agent-vigil).",
     "",

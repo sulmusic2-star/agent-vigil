@@ -153,7 +153,7 @@ test("the copied PR result is bounded, source-free, and never claims authorizati
   assert.match(card, /Observed: merged-approved-checks-observed/);
   assert.doesNotMatch(card, /Unresolved:/);
   assert.match(card, /does not authorize merge or deployment/);
-  assert.match(card, /https:\/\/sulmusic2-star\.github\.io\/agent-vigil\/check\.html/);
+  assert.ok(card.includes("https://sulmusic2-star.github.io/agent-vigil/check.html"));
   assert.doesNotMatch(card, /Keep the public evidence exact|tests|preview|prompt|transcript/);
   assert.ok(card.length < 1_500);
 });

@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { canonical } from "../report.ts";
 import type { ContainmentProbe, CanaryTrial } from "./sandbox.ts";
 import type { UpgradeCanaryConfig, UpgradeComponentConfig, UpgradeVerdict } from "./contracts.ts";
+import { readRegularFileSnapshot } from "../safe-fs.ts";
 
 const MAX_FILES = 4_096;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -120,11 +121,12 @@ export function inspectArtifactTree(root: string): ArtifactInventory {
       if (totalBytes > MAX_TOTAL_BYTES) throw new Error(`target exceeds ${MAX_TOTAL_BYTES} total bytes`);
       if (entries.length >= MAX_FILES) throw new Error(`target contains more than ${MAX_FILES} files`);
       const rel = relative(canonicalRoot, path).split(sep).join("/");
+      const snapshot = readRegularFileSnapshot(path, MAX_FILE_BYTES, `capability snapshot file ${relative(canonicalRoot, path)}`);
       entries.push({
         path: rel,
-        bytes: status.size,
-        mode: status.mode & 0o777,
-        sha256: hash(readFileSync(path)),
+        bytes: snapshot.bytes.length,
+        mode: snapshot.mode & 0o777,
+        sha256: hash(snapshot.bytes),
       });
     }
   };

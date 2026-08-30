@@ -71,6 +71,16 @@ function verifyFile(path: string, expected: string | undefined): void {
   const actual = fileSha256(path);
   if (actual !== expected) throw new Error(`${path} digest ${actual} does not match frozen ${expected}`);
 }
+function githubCompareDiffUrl(repo: string, baseSha: string, headSha: string): string {
+  if (!/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(repo)) throw new Error("wild benchmark repository must be owner/name");
+  if (!/^[0-9a-f]{40}$/.test(baseSha) || !/^[0-9a-f]{40}$/.test(headSha)) throw new Error("wild benchmark commits must be full lowercase SHAs");
+  const [owner, name] = repo.split("/");
+  const url = new URL(`/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/compare/${baseSha}...${headSha}.diff`, "https://github.com");
+  if (url.protocol !== "https:" || url.hostname !== "github.com" || url.port || url.username || url.password) {
+    throw new Error("wild benchmark download must stay on github.com over HTTPS");
+  }
+  return url.toString();
+}
 function walkLabels(root: string): string[] {
   const output: string[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -191,7 +201,7 @@ try {
   const wildRows = [];
   if (!process.argv.includes("--skip-wild")) {
     for (const entry of wildDoc.entries) {
-      const diffUrl = `https://github.com/${entry.repo}/compare/${entry.baseSha}...${entry.headSha}.diff`;
+      const diffUrl = githubCompareDiffUrl(entry.repo, entry.baseSha, entry.headSha);
       try {
         const response = await fetch(diffUrl, { headers: { "user-agent": "agent-vigil-comparative-benchmark/1" }, signal: AbortSignal.timeout(30_000) });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);

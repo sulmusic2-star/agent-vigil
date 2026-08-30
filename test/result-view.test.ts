@@ -72,7 +72,7 @@ test("claimed and observed test counts stay distinct and hostile display text is
   assert.doesNotMatch(web, /\u001b|\u202e|\r/);
   assert.match(text, /\\u\{001B\}/);
   assert.match(text, /\\u\{202E\}/);
-  assert.doesNotMatch(markdown, /<script>/);
+  assert.equal(markdown.toLowerCase().includes("<script>"), false);
   assert.match(markdown, /\\<script\\>/);
   assert.doesNotMatch(web, /<script>alert\(1\)<\/script>/);
 });

@@ -98,7 +98,8 @@ test("hostile control text cannot change terminal or Markdown structure", () => 
   const text = renderResultText(result);
   const markdown = renderResultMarkdown(result);
   assert.doesNotMatch(text, /\u001b|\u202e|\r/);
-  assert.doesNotMatch(markdown, /<script>|\u001b|\u202e|\r/);
+  assert.equal(markdown.toLowerCase().includes("<script>"), false);
+  assert.doesNotMatch(markdown, /\u001b|\u202e|\r/);
   assert.match(markdown, /\\<script\\>/);
 });
 

@@ -5,6 +5,7 @@ import { collectDiffEvidence, pathMatches } from "./maintainer.ts";
 import { canonical, type CheckResult, type ClaimKind, type Verdict } from "./report.ts";
 import type { LoadedTranscript, SessionToolCall } from "./transcript.ts";
 import { trustedGit } from "./trusted-git.ts";
+import { readRegularUtf8 } from "./safe-fs.ts";
 
 export const ACTION_CLASSES = [
   "repository_read",
@@ -180,9 +181,7 @@ export function loadAuthorityContract(repo: string, requested: string, ref?: str
     return { value, sha256: `sha256:${createHash("sha256").update(canonical(value)).digest("hex")}`, source: `${clean}@${ref}`, gitPath: clean, ref };
   }
   const path = resolve(repo, requested);
-  const size = statSync(path).size;
-  if (size > MAX_CONTRACT_BYTES) throw new Error(`authority contract is ${size} bytes; maximum is ${MAX_CONTRACT_BYTES}`);
-  const value = parseContract(readFileSync(path, "utf8"), path);
+  const value = parseContract(readRegularUtf8(path, MAX_CONTRACT_BYTES, "authority contract"), path);
   return { value, sha256: `sha256:${createHash("sha256").update(canonical(value)).digest("hex")}`, source: relative(repo, path) || requested, path };
 }
 

@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import type { Claim } from "./report.ts";
+import { readRegularUtf8 } from "./safe-fs.ts";
 
 export type TranscriptFormat =
   | "claude-code"
@@ -48,11 +49,7 @@ export type LoadedTranscript = {
 const MAX_TRANSCRIPT_BYTES = 50 * 1024 * 1024;
 
 function readBounded(path: string): string {
-  const size = statSync(path).size;
-  if (size > MAX_TRANSCRIPT_BYTES) {
-    throw new Error(`transcript is ${size} bytes; maximum is ${MAX_TRANSCRIPT_BYTES}`);
-  }
-  return readFileSync(path, "utf8");
+  return readRegularUtf8(path, MAX_TRANSCRIPT_BYTES, "transcript");
 }
 
 function safeJson(text: string): any | undefined {

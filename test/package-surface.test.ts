@@ -414,6 +414,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "agent-vigil-outcomes.yml": ["actions:read", "contents:read", "pull-requests:read"],
     "agent-vigil.yml": ["contents:read", "pull-requests:read"],
     "ci.yml": ["contents:read"],
+    "codeql.yml": ["contents:read"],
     "control-proof-weekly.yml": [],
     "cross-corpus-benchmark.yml": ["contents:read"],
     "publish-hermetic-runner.yml": ["contents:read", "packages:write"],
@@ -430,6 +431,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "ci.yml:candidate-ci": ["contents:read"],
     "ci.yml:candidate-isolation-regression": ["contents:read"],
     "ci.yml:portability": ["contents:read"],
+    "codeql.yml:analyze": ["contents:read", "security-events:write"],
     "control-proof-weekly.yml:attest-proof": [
       "actions:read",
       "artifact-metadata:write",
@@ -457,7 +459,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "b108ca9c409627b50c4be7d884fbf2165bf6acd1b7240a8c89550fc07d3cc2b8",
+    "control-proof-weekly.yml": "4fa4693a978d55b0e8243a21ea14dcec627d1a4a5f6c994cb0376c21c5674965",
     "publish.yml": "a21f00af3e351ca29098ac6f8c4f72d4fcd925a00c6f858f933a9e59bf265005",
   };
 
@@ -756,4 +758,18 @@ test("reviewed self pin and source-dist identity are a visible release gate", (c
   });
   const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
   assert.equal(sha256(join(ROOT, "dist", "cli.js")), sha256(rebuilt), "dist/cli.js must be the deterministic bundle of the pinned source");
+});
+
+test("CodeQL scans maintained source while excluding deterministic bundles and hostile fixtures", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
+  const config = readFileSync(new URL("../.github/codeql/codeql-config.yml", import.meta.url), "utf8");
+  assert.match(workflow, /^\s{2}merge_group:\s*$/m);
+  assert.match(workflow, /types:\s*\[checks_requested\]/);
+  assert.match(workflow, /github\/codeql-action\/init@cdf488f595d80d6e07e03d4674febd5ab45fa938/);
+  assert.match(workflow, /github\/codeql-action\/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938/);
+  assert.match(config, /^\s{2}- src\s*$/m);
+  assert.match(config, /^\s{2}- scripts\s*$/m);
+  assert.match(config, /^\s{2}- dist\s*$/m);
+  assert.match(config, /^\s{2}- test\s*$/m);
+  assert.match(config, /^\s{2}- test-hosted\s*$/m);
 });

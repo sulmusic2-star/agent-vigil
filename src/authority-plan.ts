@@ -1,8 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { posix } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { canonical, type CheckResult } from "./report.ts";
 import { trustedGit } from "./trusted-git.ts";
+import { markdownCodeSpan, markdownTableCell } from "./markdown.ts";
 
 export type AuthorityPlatform = "mcp" | "claude-code" | "codex";
 export type AuthorityDecision = "ALLOW" | "ASK" | "DENY" | "UNKNOWN";
@@ -172,6 +173,15 @@ function sha256(value: string | Buffer): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
+// This is a deterministic, domain-separated comparison token, not a password
+// hash. HMAC keeps credential-shaped configuration values out of the generic
+// content-digest dataflow while preserving stable equality comparisons.
+function authorityComparisonToken(value: unknown): string {
+  return `hmac-sha256:${createHmac("sha256", "agent-vigil-authority-comparison-v1")
+    .update(canonical(value))
+    .digest("hex")}`;
+}
+
 function record(value: unknown): RecordValue | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : undefined;
 }
@@ -241,7 +251,7 @@ function atom(input: Omit<InternalAtom, "id" | "comparisonToken"> & { comparison
   return {
     ...publicAtom,
     semanticKey: input.semanticKey,
-    comparisonToken: sha256(canonical(input.comparisonValue)),
+    comparisonToken: authorityComparisonToken(input.comparisonValue),
     added: input.added,
     removed: input.removed,
     ...(input.conditionalOn ? { conditionalOn: input.conditionalOn } : {}),
@@ -739,7 +749,10 @@ function addMcpServerAtoms(out: InternalAtom[], platform: AuthorityPlatform, pat
         decision: "ALLOW",
         constraints: [],
         locator: `${locator}.${name}.oauth_resource`,
-        comparisonValue: oauthResource,
+        // The URL is already represented by the redacted public resource. The
+        // semantic comparison is deliberately incomparable, so hashing the raw
+        // credential endpoint would add exposure without adding evidence.
+        comparisonValue: true,
         added: expansion("AVP008", "an MCP connection requests credentials for an additional OAuth resource", "critical"),
         removed: ALLOW_RESTRICTION,
         compare: () => "incomparable",
@@ -1814,18 +1827,18 @@ export function renderAuthorityPlanText(plan: AuthorityPlan): string {
 
 export function renderAuthorityPlanMarkdown(plan: AuthorityPlan): string {
   const rows = plan.deltas.map((delta) =>
-    `| ${delta.disposition} | \`${delta.ruleId}\` | ${delta.change} | ${delta.direction} | ${delta.summary.replace(/\|/g, "\\|")} | ${delta.reason.replace(/\|/g, "\\|")} |`,
+    `| ${delta.disposition} | ${markdownCodeSpan(delta.ruleId)} | ${delta.change} | ${delta.direction} | ${markdownTableCell(delta.summary)} | ${markdownTableCell(delta.reason)} |`,
   );
   const gaps = plan.gaps.map((gap) =>
-    `| ${plan.policy.allowUnknownChanges ? "ALLOW" : "HOLD"} | \`AVP001\` | GAP | INCOMPARABLE | ${gap.platform} ${gap.sourcePath}:${gap.locator} | ${(gap.reason + (plan.policy.allowUnknownChanges ? "; allowed by the trusted base revision policy" : "")).replace(/\|/g, "\\|")} |`,
+    `| ${plan.policy.allowUnknownChanges ? "ALLOW" : "HOLD"} | ${markdownCodeSpan("AVP001")} | GAP | INCOMPARABLE | ${markdownTableCell(`${gap.platform} ${gap.sourcePath}:${gap.locator}`)} | ${markdownTableCell(gap.reason + (plan.policy.allowUnknownChanges ? "; allowed by the trusted base revision policy" : ""))} |`,
   );
   return [
     `# Agent authority plan: ${plan.status}`,
     "",
-    `**Scope:** \`${plan.scope}\`  `,
-    `**Range:** \`${plan.base}..${plan.head}\`  `,
-    `**Policy:** \`${plan.policy.source}\` (\`${plan.policy.sha256}\`)  `,
-    `**Digest:** \`${plan.planSha256}\``,
+    `**Scope:** ${markdownCodeSpan(plan.scope)}  `,
+    `**Range:** ${markdownCodeSpan(`${plan.base}..${plan.head}`)}  `,
+    `**Policy:** ${markdownCodeSpan(plan.policy.source)} (${markdownCodeSpan(plan.policy.sha256)})  `,
+    `**Digest:** ${markdownCodeSpan(plan.planSha256)}`,
     "",
     "| Decision | Rule | Change | Direction | Authority | Reason |",
     "|---|---|---|---|---|---|",

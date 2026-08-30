@@ -6,6 +6,7 @@ import type { Claim, CheckResult } from "../report.ts";
 import { trustedGitOptional } from "../trusted-git.ts";
 import type { SessionToolCall } from "../transcript.ts";
 import { toolCallFingerprint } from "../transcript.ts";
+import { escapeRegExpLiteral } from "../regex.ts";
 import { checkAgenticPatches, checkAgenticRepository, type AgenticPatch } from "./agentic.ts";
 
 const completedCandidateSetups = new Set<string>();
@@ -1394,7 +1395,7 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
     const candidateText = [...patch.added, ...patch.context].join("\n");
     for (const oldName of removedNames) {
       if (addedNames.has(oldName)) continue;
-      const oldReference = new RegExp(`\\b${oldName.replace(/[$]/g, "\\$")}\\s*\\(`);
+      const oldReference = new RegExp(`\\b${escapeRegExpLiteral(oldName)}\\s*\\(`);
       if (oldReference.test(candidateText)) {
         results.push(finding("removed or renamed symbol leaves an old caller", `${patch.path} removes the declaration of ${oldName} while ${oldName} is still called`, "stale-refactor-caller"));
         break;
@@ -1456,7 +1457,7 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
     if (!addedNames.size) continue;
     for (const oldName of removedNames) {
       if (addedNames.has(oldName)) continue;
-      const oldCall = new RegExp(`\\b${oldName.replace(/[$]/g, "\\$")}\\s*\\(`);
+      const oldCall = new RegExp(`\\b${escapeRegExpLiteral(oldName)}\\s*\\(`);
       if (oldCall.test(remainingChangedText) && !results.some((result) => result.ruleId === "stale-refactor-caller")) {
         results.push(finding("removed or renamed symbol leaves an old caller", `${patch.path} removes ${oldName} while another changed-file context still calls it`, "stale-refactor-caller"));
       }

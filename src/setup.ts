@@ -227,6 +227,8 @@ function writeScaffold(root: string, path: string, content: string, force: boole
         throw new Error(`scaffold parent ${relative(root, expected.path) || "."} changed or is unsafe`);
       }
     }
+    // Truncate only after the opened descriptor and current directory entry
+    // have been proven to be the same regular single-link file.
     ftruncateSync(descriptor, 0);
     writeFileSync(descriptor, content);
   } finally {
