@@ -13160,7 +13160,7 @@ function safeWrite(repo, gitPath, content) {
     }
     mkdirSync7(current, { recursive: true });
   }
-  if (existsSync7(target2)) rmSync3(target2, { recursive: true, force: true });
+  rmSync3(target2, { recursive: true, force: true });
   writeFileSync5(target2, content, { encoding: "utf8", mode: 384, flag: "wx" });
 }
 function commit(repo, message, sequence) {
