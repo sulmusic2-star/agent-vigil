@@ -375,7 +375,7 @@ export function inferTestCommand(repo: string, platform = process.platform): str
 
 export function isHostedTestHarnessPath(path: string): boolean {
   const name = path.split("/").at(-1) ?? "";
-  return /^(?:package\.json|package-lock\.json|npm-shrinkwrap\.json|\.npmrc|tsconfig(?:\.[^.]+)?\.json|(?:jest|vitest|vite|playwright|cypress|ava|babel|webpack|rollup)\.config\.[^.]+|\.mocharc(?:\.[^.]+)?|test(?:-runner)?\.config\.[^.]+)$/i.test(name);
+  return /^(?:\.agent-vigil-runner\.json|package\.json|package-lock\.json|npm-shrinkwrap\.json|\.npmrc|tsconfig(?:\.[^.]+)?\.json|(?:jest|vitest|vite|playwright|cypress|ava|babel|webpack|rollup)\.config\.[^.]+|\.mocharc(?:\.[^.]+)?|test(?:-runner)?\.config\.[^.]+)$/i.test(name);
 }
 
 function safeHostedTestPath(token: string): boolean {
@@ -428,8 +428,51 @@ export function isHostedDirectTestCommand(command: string): boolean {
   return false;
 }
 
+/**
+ * A reviewed custom runner image may expose a broader, still shell-free test
+ * command. The image must be selected by base-owned workflow bytes and pinned
+ * by digest. This grammar deliberately permits only fixed executable forms;
+ * package scripts and general shell composition remain outside the contract.
+ */
+export function isHostedHermeticTestCommand(command: string): boolean {
+  if (isHostedDirectTestCommand(command)) return true;
+  if (!command || command !== command.trim() || Buffer.byteLength(command) > 1024
+    || /[;&|><`$\\\n\r'"(){}\[\]]/.test(command)) return false;
+  return [
+    /^python3 -m pytest -q(?: [A-Za-z0-9_./*?-]+)*$/,
+    /^python3 -m unittest discover(?: -s [A-Za-z0-9_./-]+)?$/,
+    /^cargo test --quiet$/,
+    /^go test -json \.\/\.\.\.$/,
+    /^mvn test$/,
+    /^(?:\.\/gradlew|gradle) test$/,
+    /^bundle exec rspec$/,
+    /^\.\/vendor\/bin\/phpunit$/,
+    /^dotnet test$/,
+    /^(?:npm|pnpm) test --silent$/,
+    /^yarn test$/,
+    /^bun test$/,
+  ].some((pattern) => pattern.test(command));
+}
+
 export function isHostedCandidateSetupCommand(command: string): boolean {
   return command === "npm ci --ignore-scripts";
+}
+
+type HermeticRunnerConfig = { image: string; testCommand: string };
+
+function baseSelectedHermeticRunner(repo: string, base: string): HermeticRunnerConfig | undefined {
+  const raw = trustedGitOptional(repo, ["show", `${base}:.agent-vigil-runner.json`], 64 * 1024);
+  if (raw === undefined) return undefined;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (!(value.schemaVersion === 1
+      && typeof value.image === "string"
+      && /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$/.test(value.image)
+      && typeof value.testCommand === "string"
+      && isHostedHermeticTestCommand(value.testCommand)
+      && Object.keys(value).every((key) => new Set(["schemaVersion", "image", "testCommand"]).has(key)))) return undefined;
+    return { image: value.image, testCommand: value.testCommand };
+  } catch { return undefined; }
 }
 
 function canonicalJson(value: unknown): string {
@@ -537,11 +580,15 @@ export function checkTestHarnessBinding(
       blocksPass: true,
     };
   }
-  if (requireDirectCommands && (commands.length === 0 || commands.some((command) => !isHostedDirectTestCommand(command)))) {
+  const customRunner = baseSelectedHermeticRunner(repo, base);
+  const acceptedCommand = customRunner ? isHostedHermeticTestCommand : isHostedDirectTestCommand;
+  if (requireDirectCommands && (commands.length === 0 || commands.some((command) => !acceptedCommand(command)))) {
     return {
       claim,
       verdict: "unverifiable",
-      evidence: "hosted isolation requires every test, differential, and automated-review command to use the bounded direct node --test runner contract",
+      evidence: customRunner
+        ? "hosted isolation requires every test, differential, and automated-review command to use the bounded hermetic-runner command contract"
+        : "hosted isolation requires every test, differential, and automated-review command to use the bounded direct node --test runner contract",
       ruleId: "test-harness-unbound",
       blocksPass: true,
     };
@@ -598,7 +645,9 @@ export function checkTestHarnessBinding(
   return {
     claim,
     verdict: "verified",
-    evidence: "package manifests, npm lock/config, and recognized test-runner configuration are unchanged from the trusted base",
+    evidence: customRunner
+      ? `package manifests and recognized test-runner configuration are unchanged from the trusted base; hermetic runner ${customRunner.image} selects ${JSON.stringify(customRunner.testCommand)}`
+      : "package manifests, npm lock/config, and recognized test-runner configuration are unchanged from the trusted base",
     ruleId: "test-harness-bound",
     contributesToPass: false,
   };

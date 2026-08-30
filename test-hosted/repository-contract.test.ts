@@ -19,8 +19,9 @@ test("the required check uses the dedicated hosted regression lane", () => {
   assert.deepEqual(policy.maintainer.automatedReview.commands, [directCommand]);
   assert.equal(policy.maintainer.differentialTest.command, directCommand);
   assert.equal(manifest.agentVigil.hostedTestCommand, directCommand);
-  assert.match(manifest.scripts.test, /test-hosted\/\*\.test\.ts/);
-  assert.match(manifest.scripts["test:coverage"], /test-hosted\/\*\.test\.ts/);
+  assert.equal(manifest.scripts.test, "node scripts/run_tests.mjs");
+  assert.equal(manifest.scripts["test:hosted"], directCommand);
+  assert.equal(manifest.scripts["test:coverage"], "node scripts/run_tests.mjs --coverage");
   assert.ok(policy.maintainer.protectedPaths.includes("test-hosted/repository-contract.test.ts"));
 });
 
@@ -74,7 +75,7 @@ test("the hosted Action accepts only the reviewed Node runtime before first exec
   assertBefore(generator, "actions/setup-node@", "actions/checkout@", "generated evidence selects Node before checkout");
 });
 
-test("the public package and generated hosted contract use one release identity", () => {
+test("the source candidate and public channels keep explicit version identities", () => {
   const manifest = JSON.parse(readFileSync("package.json", "utf8"));
   const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
   const report = readFileSync("src/report.ts", "utf8");
@@ -83,21 +84,39 @@ test("the public package and generated hosted contract use one release identity"
   const changelog = readFileSync("CHANGELOG.md", "utf8");
   const installState = JSON.parse(readFileSync("docs/public-install-state.json", "utf8"));
 
-  assert.equal(manifest.version, "0.22.0");
+  assert.equal(manifest.version, "0.23.0");
   assert.equal(lock.version, manifest.version);
   assert.equal(lock.packages[""].version, manifest.version);
-  assert.match(report, /VERSION = "0\.22\.0"/);
-  assert.match(setup, /generated v0\.22\.0 hosted workflow/);
-  assert.doesNotMatch(setup, /generated v0\.21\.2 hosted workflow/);
+  assert.match(report, /VERSION = "0\.23\.0"/);
+  assert.doesNotMatch(setup, /generated v0\.22\.0 hosted workflow/);
   assert.equal(installState.latest_github_release.version, "0.22.0");
-  assert.equal(installState.source_release_candidate, undefined);
+  assert.deepEqual(installState.source_release_candidate, {
+    version: "0.23.0",
+    github_release_published: false,
+    npm_published: false,
+  });
   assert.equal(installState.npm_registry.observed_version, "0.21.1");
   assert.equal(installState.npm_registry.target_published, false);
-  assert.match(readme, /GitHub release v0\.22\.0 and npm package v0\.21\.1 are public/);
+  assert.match(readme, /GitHub release v0\.22\.0 and.*Marketplace Action are public.*npm currently serves v0\.21\.1/s);
   assert.match(readme, /node dist\/cli\.js protect/);
   assert.doesNotMatch(readme, /node dist\/cli\.js protect --action-sha/);
   assert.match(readme, /releases\/download\/v0\.22\.0\/sulmusic-agent-vigil-0\.22\.0\.tgz/);
   assert.doesNotMatch(readme, /@sulmusic\/agent-vigil@0\.22\.0/);
-  assert.match(changelog, /## Unreleased\n\n## 0\.22\.0 - 2026-08-28/);
+  assert.match(changelog, /## Unreleased\n\n## 0\.23\.0 - 2026-08-30/);
   assert.match(changelog, /## 0\.21\.2 - 2026-08-28/);
+});
+
+test("the disposable test runner resolves file URLs portably", () => {
+  const runner = readFileSync("scripts/run_tests.mjs", "utf8");
+  assert.match(runner, /fileURLToPath\(new URL\("\.\."/);
+  assert.doesNotMatch(runner, /import\.meta\.url\)\.pathname/);
+});
+
+test("the hermetic runner publisher binds release tags to package identity", () => {
+  const workflow = readFileSync(".github/workflows/publish-hermetic-runner.yml", "utf8");
+  assert.match(workflow, /tags="\$repository:sha-\$\{GITHUB_SHA\}"/);
+  assert.match(workflow, /\^v\(\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\)\$/);
+  assert.match(workflow, /\[\[ "\$package_version" == "\$version" \]\]/);
+  assert.match(workflow, /tags: \$\{\{ steps\.image-tags\.outputs\.value \}\}/);
+  assert.doesNotMatch(workflow, /agent-vigil-runner:0\.23\.0/);
 });

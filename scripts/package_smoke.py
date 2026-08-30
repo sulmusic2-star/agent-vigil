@@ -118,6 +118,27 @@ def standard_setup(
     }
 
 
+def hermetic_setup(vigil: pathlib.Path, repo: pathlib.Path, name: str, command: str) -> dict[str, object]:
+    image = "ghcr.io/example/agent-vigil-runner@sha256:" + ("a" * 64)
+    initialized = run([
+        str(vigil), "init", "--action-sha", ACTION_SHA, "--repo", str(repo),
+        "--runner-image", image, "--test-cmd", command,
+    ], repo, check=False)
+    if initialized.returncode != 0:
+        raise RuntimeError(f"{name}: hermetic init failed: {initialized.stdout}\n{initialized.stderr}")
+    commit(repo, "commit hermetic hosted controls")
+    doctor = run([str(vigil), "doctor", "--repo", str(repo)], repo, check=False)
+    require_doctor_pass(doctor, f"{name}: hermetic doctor")
+    workflow = (repo / ".github" / "workflows" / "agent-vigil.yml").read_text()
+    runner = json.loads((repo / ".agent-vigil-runner.json").read_text())
+    policy = json.loads((repo / ".agent-vigil.json").read_text())
+    if runner != {"schemaVersion": 1, "image": image, "testCommand": command}:
+        raise RuntimeError(f"{name}: hermetic runner file is incorrect: {runner}")
+    if policy.get("testCommand") != command or f"candidate-image: {image}" not in workflow:
+        raise RuntimeError(f"{name}: hermetic policy or workflow is incorrect")
+    return {"shape": name, "testCommand": command, "initExit": initialized.returncode, "committedDoctorExit": doctor.returncode}
+
+
 def portable_and_authority_setup(
     vigil: pathlib.Path,
     repo: pathlib.Path,
@@ -332,15 +353,15 @@ def main() -> int:
         ]
 
         unsupported_shapes: list[tuple[str, dict[str, str], str, str | None]] = [
-            ("python", {"pyproject.toml": "[tool.pytest.ini_options]\n"}, "supports Node/npm repositories", "python3 -m pytest -q"),
-            ("rust", {"Cargo.toml": "[package]\nname='fixture'\nversion='0.1.0'\n"}, "supports Node/npm repositories", "cargo test --quiet"),
-            ("go", {"go.mod": "module example.test/fixture\n\ngo 1.22\n"}, "supports Node/npm repositories", "go test -json ./..."),
-            ("maven", {"pom.xml": "<project/>\n"}, "supports Node/npm repositories", "mvn test"),
-            ("gradle-wrapper", {"gradlew": "#!/bin/sh\n"}, "supports Node/npm repositories", "./gradlew test"),
-            ("gradle", {"build.gradle.kts": "plugins {}\n"}, "supports Node/npm repositories", "gradle test"),
-            ("ruby", {"Gemfile": "source 'https://rubygems.org'\n", "spec/example_spec.rb": "# fixture\n"}, "supports Node/npm repositories", "bundle exec rspec"),
-            ("php", {"composer.json": "{}\n"}, "supports Node/npm repositories", "./vendor/bin/phpunit"),
-            ("dotnet", {"global.json": '{"sdk":{"version":"8.0.100"}}\n'}, "supports Node/npm repositories", "dotnet test"),
+            ("python", {"pyproject.toml": "[tool.pytest.ini_options]\n"}, "bounded direct node --test command", "python3 -m pytest -q"),
+            ("rust", {"Cargo.toml": "[package]\nname='fixture'\nversion='0.1.0'\n"}, "bounded direct node --test command", "cargo test --quiet"),
+            ("go", {"go.mod": "module example.test/fixture\n\ngo 1.22\n"}, "bounded direct node --test command", "go test -json ./..."),
+            ("maven", {"pom.xml": "<project/>\n"}, "bounded direct node --test command", "mvn test"),
+            ("gradle-wrapper", {"gradlew": "#!/bin/sh\n"}, "bounded direct node --test command", "./gradlew test"),
+            ("gradle", {"build.gradle.kts": "plugins {}\n"}, "bounded direct node --test command", "gradle test"),
+            ("ruby", {"Gemfile": "source 'https://rubygems.org'\n", "spec/example_spec.rb": "# fixture\n"}, "bounded direct node --test command", "bundle exec rspec"),
+            ("php", {"composer.json": "{}\n"}, "bounded direct node --test command", "./vendor/bin/phpunit"),
+            ("dotnet", {"global.json": '{"sdk":{"version":"8.0.100"}}\n'}, "bounded direct node --test command", "dotnet test"),
             ("pnpm", {"package.json": '{"scripts":{"test":"node --test"}}\n', "pnpm-lock.yaml": "lockfileVersion: '9.0'\n"}, "does not support root pnpm-lock.yaml", "npm test --silent"),
             ("yarn", {"package.json": '{"scripts":{"test":"node --test"}}\n', "yarn.lock": "# yarn lock\n"}, "does not support root yarn.lock", "npm test --silent"),
             ("bun", {"package.json": '{"scripts":{"test":"node --test"}}\n', "bun.lock": "{}\n"}, "does not support root bun.lock", "npm test --silent"),
@@ -369,6 +390,12 @@ def main() -> int:
             result = standard_setup(vigil, repo, name, expected_command, setup=setup)
             result.update(portable_and_authority_setup(vigil, repo, name, public_key, setup=setup))
             supported_results.append(result)
+
+        hermetic_repo = create_repo(lab, "python-hermetic", {
+            "pyproject.toml": "[project]\nname='python-hermetic'\n",
+            "test_example.py": "def test_example():\n    assert 2 + 2 == 4\n",
+        })
+        supported_results.append(hermetic_setup(vigil, hermetic_repo, "python-hermetic", "python3 -m pytest -q"))
 
         for name, files, error_fragment, local_command in unsupported_shapes:
             repo = create_repo(lab, name, files)

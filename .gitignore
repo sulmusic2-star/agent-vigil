@@ -5,6 +5,7 @@ coverage/
 agent-vigil-report.json
 agent-vigil.sarif
 tmp/
+.agent-vigil-tmp/
 
 # Python lab caches
 __pycache__/

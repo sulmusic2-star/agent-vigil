@@ -59,6 +59,9 @@ inputs:
   candidate-setup-cmd:
     description: "Base-owned dependency setup command; runs once with network in the private candidate clone before networkless tests"
     required: false
+  candidate-image:
+    description: "Optional base-owned hermetic runner image pinned by sha256 digest; it must provide the standard image Node entry plus the selected toolchain"
+    required: false
   policy:
     description: "Policy JSON path (defaults to .agent-vigil.json when present)"
     required: false
@@ -180,6 +183,7 @@ runs:
         VIGIL_TEST_CMD: ${{ inputs.test-cmd }}
         VIGIL_ISOLATE_CANDIDATE: ${{ inputs.isolate-candidate }}
         VIGIL_CANDIDATE_SETUP_COMMAND: ${{ inputs.isolate-candidate == 'true' && inputs.candidate-setup-cmd || '' }}
+        VIGIL_CANDIDATE_IMAGE_INPUT: ${{ inputs.isolate-candidate == 'true' && inputs.candidate-image || '' }}
         VIGIL_POLICY: ${{ inputs.policy }}
         VIGIL_POLICY_REF: ${{ inputs.policy-ref }}
         VIGIL_STRICT: ${{ inputs.strict }}
@@ -225,6 +229,7 @@ runs:
           "VIGIL_TEST_CMD=${VIGIL_TEST_CMD-}" \
           "VIGIL_ISOLATE_CANDIDATE=${VIGIL_ISOLATE_CANDIDATE-}" \
           "VIGIL_CANDIDATE_SETUP_COMMAND=${VIGIL_CANDIDATE_SETUP_COMMAND-}" \
+          "VIGIL_CANDIDATE_IMAGE_INPUT=${VIGIL_CANDIDATE_IMAGE_INPUT-}" \
           "VIGIL_POLICY=${VIGIL_POLICY-}" \
           "VIGIL_POLICY_REF=${VIGIL_POLICY_REF-}" \
           "VIGIL_STRICT=${VIGIL_STRICT-}" \
@@ -585,6 +590,17 @@ runs:
             || ${#VIGIL_CANDIDATE_SETUP_COMMAND} -gt 2048 \
             || "$VIGIL_CANDIDATE_SETUP_COMMAND" == *$'\n'* || "$VIGIL_CANDIDATE_SETUP_COMMAND" == *$'\r'* ]]; then
             echo "agent-vigil: candidate-setup-cmd requires candidate isolation, a repository-executing mode, one line, and at most 2048 bytes" >&2
+            exit 2
+          fi
+        fi
+        if [[ -n "$VIGIL_CANDIDATE_IMAGE_INPUT" ]]; then
+          if [[ "$VIGIL_CANDIDATE_MODE" != "true" || "$VIGIL_ISOLATE_CANDIDATE" != "true" \
+            || ! "$VIGIL_CANDIDATE_IMAGE_INPUT" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "agent-vigil: candidate-image requires candidate isolation and one lowercase registry/repository reference pinned by sha256 digest" >&2
+            exit 2
+          fi
+          if [[ -n "$VIGIL_CANDIDATE_SETUP_COMMAND" ]]; then
+            echo "agent-vigil: a custom candidate-image must be hermetic; candidate-setup-cmd is not allowed" >&2
             exit 2
           fi
         fi
@@ -963,7 +979,9 @@ runs:
             fi
             [[ "$candidate_evidence_sha" =~ ^[0-9a-f]{64}$ ]] || exit 2
           fi
-          readonly VIGIL_CANDIDATE_IMAGE='node@sha256:46e94f8cf91baab69a2deb3153e74eeffd73c20c7cc1d8432f5b96469eaa0322'
+          readonly VIGIL_DEFAULT_CANDIDATE_IMAGE='node@sha256:46e94f8cf91baab69a2deb3153e74eeffd73c20c7cc1d8432f5b96469eaa0322'
+          VIGIL_CANDIDATE_IMAGE="${VIGIL_CANDIDATE_IMAGE_INPUT:-$VIGIL_DEFAULT_CANDIDATE_IMAGE}"
+          readonly VIGIL_CANDIDATE_IMAGE
           VIGIL_CANDIDATE_ROOT="$artifact_dir/candidate-sandboxes"
           "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
             "$VIGIL_NODE_BIN" -e 'const fs=require("node:fs"); fs.mkdirSync(process.argv[1], {mode:0o700}); fs.chmodSync(process.argv[1], 0o700)' "$VIGIL_CANDIDATE_ROOT"
@@ -1002,8 +1020,9 @@ runs:
           AGENT_VIGIL_INTERNAL_CANDIDATE_IMAGE="$VIGIL_CANDIDATE_IMAGE"
           AGENT_VIGIL_INTERNAL_CANDIDATE_ROOT="$VIGIL_CANDIDATE_ROOT"
           AGENT_VIGIL_INTERNAL_CANDIDATE_SETUP_COMMAND="$VIGIL_CANDIDATE_SETUP_COMMAND"
-          export AGENT_VIGIL_INTERNAL_ISOLATE_CANDIDATE AGENT_VIGIL_INTERNAL_DOCKER_BIN AGENT_VIGIL_INTERNAL_CANDIDATE_IMAGE AGENT_VIGIL_INTERNAL_CANDIDATE_ROOT AGENT_VIGIL_INTERNAL_CANDIDATE_SETUP_COMMAND
-          readonly AGENT_VIGIL_INTERNAL_ISOLATE_CANDIDATE AGENT_VIGIL_INTERNAL_DOCKER_BIN AGENT_VIGIL_INTERNAL_CANDIDATE_IMAGE AGENT_VIGIL_INTERNAL_CANDIDATE_ROOT AGENT_VIGIL_INTERNAL_CANDIDATE_SETUP_COMMAND VIGIL_CANDIDATE_ROOT candidate_platform candidate_repo_real candidate_workspace_real candidate_root_real candidate_root_mode
+          AGENT_VIGIL_INTERNAL_CUSTOM_RUNNER=$([[ -n "$VIGIL_CANDIDATE_IMAGE_INPUT" ]] && printf true || printf false)
+          export AGENT_VIGIL_INTERNAL_ISOLATE_CANDIDATE AGENT_VIGIL_INTERNAL_DOCKER_BIN AGENT_VIGIL_INTERNAL_CANDIDATE_IMAGE AGENT_VIGIL_INTERNAL_CANDIDATE_ROOT AGENT_VIGIL_INTERNAL_CANDIDATE_SETUP_COMMAND AGENT_VIGIL_INTERNAL_CUSTOM_RUNNER
+          readonly AGENT_VIGIL_INTERNAL_ISOLATE_CANDIDATE AGENT_VIGIL_INTERNAL_DOCKER_BIN AGENT_VIGIL_INTERNAL_CANDIDATE_IMAGE AGENT_VIGIL_INTERNAL_CANDIDATE_ROOT AGENT_VIGIL_INTERNAL_CANDIDATE_SETUP_COMMAND AGENT_VIGIL_INTERNAL_CUSTOM_RUNNER VIGIL_CANDIDATE_ROOT candidate_platform candidate_repo_real candidate_workspace_real candidate_root_real candidate_root_mode
         else
           AGENT_VIGIL_INTERNAL_ISOLATE_CANDIDATE=false
           export AGENT_VIGIL_INTERNAL_ISOLATE_CANDIDATE

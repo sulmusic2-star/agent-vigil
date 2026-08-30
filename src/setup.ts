@@ -2,7 +2,7 @@ import { chmodSync, closeSync, constants, type Dirent, existsSync, fstatSync, ft
 import { tmpdir } from "node:os";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { DEFAULT_POLICY_FILE, loadPolicy, maintainerPolicyTemplate, policyTemplate } from "./config.ts";
-import { inferTestCommand, isHostedDirectTestCommand, isHostedTestHarnessPath } from "./detectors/reality.ts";
+import { inferTestCommand, isHostedDirectTestCommand, isHostedHermeticTestCommand, isHostedTestHarnessPath } from "./detectors/reality.ts";
 import { loadTranscript } from "./transcript.ts";
 import { trustedGit } from "./trusted-git.ts";
 const CHECKOUT_ACTION_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
@@ -15,8 +15,11 @@ import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts
 type InitResult = { created: string[]; kept: string[] };
 type DoctorCheck = { status: "PASS" | "WARN" | "FAIL"; label: string; detail: string };
 export type SetupProfile = "default" | "maintainer" | "authority" | "protect";
+export type HostedRunnerOverride = { image: string; testCommand: string };
+const HOSTED_RUNNER_FILE = ".agent-vigil-runner.json";
+const IMMUTABLE_IMAGE = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$/;
 
-function evidenceWorkflow(mode: "transcript" | "portable" | "maintainer" | "authority", actionSha: string, setupCommand?: string): string { return `name: Agent Vigil
+function evidenceWorkflow(mode: "transcript" | "portable" | "maintainer" | "authority", actionSha: string, setupCommand?: string, candidateImage?: string): string { return `name: Agent Vigil
 
 on:
   # The base branch selects these workflow bytes. Candidate code is checked out
@@ -54,7 +57,7 @@ jobs:
           base: \${{ github.event.pull_request.base.sha }}
           head: \${{ github.event.pull_request.head.sha }}
           isolate-candidate: true
-${setupCommand ? `          candidate-setup-cmd: ${setupCommand}\n` : ""}      - name: Retain auditable Agent Vigil receipt
+${setupCommand ? `          candidate-setup-cmd: ${setupCommand}\n` : ""}${candidateImage ? `          candidate-image: ${candidateImage}\n` : ""}      - name: Retain auditable Agent Vigil receipt
         if: always() && steps.vigil.outputs.report != ''
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_ACTION_SHA} # v4
         with:
@@ -245,7 +248,7 @@ const TEST_TOOLCHAIN_PATHS = [
   ".npmrc", "tsconfig.json",
 ] as const;
 const HOSTED_SETUP_FIXED_PATHS = [
-  "package.json", ...NPM_ROOT_LOCKFILES, ...UNSUPPORTED_ROOT_LOCKFILES, ...TEST_TOOLCHAIN_PATHS,
+  HOSTED_RUNNER_FILE, "package.json", ...NPM_ROOT_LOCKFILES, ...UNSUPPORTED_ROOT_LOCKFILES, ...TEST_TOOLCHAIN_PATHS,
 ] as const;
 
 type RepositoryEntry = { mode: string; oid?: string };
@@ -258,7 +261,47 @@ type HostedRepositoryContract = {
   setupCommand?: string;
   testCommand?: string;
   hasRootPackage: boolean;
+  candidateImage?: string;
+  customRunner?: boolean;
 };
+
+function hostedTestPathPatterns(command?: string): string[] | undefined {
+  if (!command) return undefined;
+  if (/^python3 -m (?:pytest|unittest)/.test(command)) {
+    return ["test/**", "tests/**", "test_*.py", "*_test.py", "**/test_*.py", "**/*_test.py"];
+  }
+  if (command === "cargo test --quiet") return ["tests/**", "**/tests/**", "**/*.test.rs", "**/*_test.rs"];
+  if (command === "go test -json ./...") return ["*_test.go", "**/*_test.go"];
+  if (/^(?:mvn|\.\/gradlew|gradle) test$/.test(command)) return ["src/test/**", "**/src/test/**"];
+  if (command === "bundle exec rspec") return ["spec/**", "**/spec/**", "*_spec.rb", "**/*_spec.rb"];
+  if (command === "./vendor/bin/phpunit") return ["test/**", "tests/**", "*Test.php", "**/*Test.php"];
+  if (command === "dotnet test") return ["test/**", "tests/**", "**/*.Tests/**", "*Test.cs", "*Tests.cs", "**/*Test.cs", "**/*Tests.cs"];
+  return ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
+}
+
+function validateRunnerOverride(value: HostedRunnerOverride): HostedRunnerOverride {
+  if (!IMMUTABLE_IMAGE.test(value.image)) {
+    throw new Error("the hermetic hosted runner image must be a lowercase registry/repository reference pinned with @sha256:<64 hex>");
+  }
+  if (!isHostedHermeticTestCommand(value.testCommand)) {
+    throw new Error("the hermetic hosted runner requires one bounded direct test command from the documented Python, Rust, Go, Java, Ruby, PHP, .NET, Node, pnpm, Yarn, or Bun grammar");
+  }
+  return value;
+}
+
+function runnerOverrideFromView(view: RepositoryView): HostedRunnerOverride | undefined {
+  if (!view.entries.has(HOSTED_RUNNER_FILE)) return undefined;
+  let value: unknown;
+  try { value = JSON.parse(view.readText(HOSTED_RUNNER_FILE)); }
+  catch { throw new Error(`${HOSTED_RUNNER_FILE} must contain valid JSON`); }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${HOSTED_RUNNER_FILE} must contain one JSON object`);
+  const row = value as Record<string, unknown>;
+  if (row.schemaVersion !== 1 || typeof row.image !== "string" || typeof row.testCommand !== "string"
+    || Object.keys(row).some((key) => !new Set(["schemaVersion", "image", "testCommand"]).has(key))) {
+    throw new Error(`${HOSTED_RUNNER_FILE} must contain only schemaVersion 1, image, and testCommand`);
+  }
+  return validateRunnerOverride({ image: row.image, testCommand: row.testCommand });
+}
 
 function isRegularGitBlobMode(mode: string): boolean {
   return mode === "100644" || mode === "100755";
@@ -588,26 +631,35 @@ function inferredTestCommand(view: RepositoryView, packageManifest?: Record<stri
   return undefined;
 }
 
-function validateHostedRepositoryContract(view: RepositoryView): HostedRepositoryContract {
+function validateHostedRepositoryContract(view: RepositoryView, requestedRunner?: HostedRunnerOverride): HostedRepositoryContract {
   const gitlink = [...view.entries].find(([, entry]) => entry.mode === "160000")?.[0];
   if (gitlink) {
-    throw new Error(`the generated v0.22.0 hosted workflow does not support Git submodules or gitlinks (${gitlink}); use a repository without submodules or the local CLI`);
+    throw new Error(`the generated hosted workflow does not support Git submodules or gitlinks (${gitlink}); use a repository without submodules or the local CLI`);
   }
   const unsafeSetupLink = [...view.entries].find(([path, entry]) => isSetupRelevantPath(path) && entry.mode === "120000")?.[0];
   if (unsafeSetupLink) {
-    throw new Error(`the generated v0.22.0 hosted workflow requires setup input ${unsafeSetupLink} to be a regular Git file, not a symbolic link`);
+    throw new Error(`the generated hosted workflow requires setup input ${unsafeSetupLink} to be a regular Git file, not a symbolic link`);
   }
   const unsafeSetupMode = [...view.entries].find(([path, entry]) => isSetupRelevantPath(path) && !isRegularGitBlobMode(entry.mode))?.[0];
   if (unsafeSetupMode) {
-    throw new Error(`the generated v0.22.0 hosted workflow requires setup input ${unsafeSetupMode} to be a regular 100644 or 100755 Git blob`);
+    throw new Error(`the generated hosted workflow requires setup input ${unsafeSetupMode} to be a regular 100644 or 100755 Git blob`);
+  }
+  const runner = requestedRunner ? validateRunnerOverride(requestedRunner) : runnerOverrideFromView(view);
+  if (runner) {
+    return {
+      testCommand: runner.testCommand,
+      hasRootPackage: view.entries.has("package.json"),
+      candidateImage: runner.image,
+      customRunner: true,
+    };
   }
   const npmConfig = [...view.entries.keys()].find((path) => path.split("/").at(-1) === ".npmrc");
   if (npmConfig) {
-    throw new Error(`the generated v0.22.0 hosted workflow does not support repository .npmrc (${npmConfig}) because registry, certificate, and install indirection are outside the hosted trust closure`);
+    throw new Error(`the generated hosted workflow does not support repository .npmrc (${npmConfig}) because registry, certificate, and install indirection are outside the hosted trust closure`);
   }
   const unsupportedLock = UNSUPPORTED_ROOT_LOCKFILES.find((path) => view.entries.has(path));
   if (unsupportedLock) {
-    throw new Error(`the generated v0.22.0 hosted workflow does not support root ${unsupportedLock}; use the local CLI for pnpm, Yarn, or Bun repositories`);
+    throw new Error(`the generated hosted workflow does not support root ${unsupportedLock}; use the local CLI or an explicit digest-pinned hermetic runner`);
   }
 
   const hasRootPackage = view.entries.has("package.json");
@@ -615,26 +667,26 @@ function validateHostedRepositoryContract(view: RepositoryView): HostedRepositor
   let manifest: Record<string, unknown> | undefined;
   if (!hasRootPackage) {
     if (setupCommand) {
-      throw new Error("the generated v0.22.0 hosted workflow requires a root package.json beside an npm lockfile");
+      throw new Error("the generated hosted workflow requires a root package.json beside an npm lockfile");
     }
     const nestedPackage = [...view.entries.keys()].find((path) => path !== "package.json" && path.endsWith("/package.json"));
     if (nestedPackage) {
-      throw new Error(`the generated v0.22.0 hosted workflow does not support a nested package.json-only layout (${nestedPackage}); use a root npm package or the local CLI`);
+      throw new Error(`the generated hosted workflow does not support a nested package.json-only layout (${nestedPackage}); use a root npm package, the local CLI, or an explicit digest-pinned hermetic runner`);
     }
   } else {
     let packageManifest: unknown;
     try {
       packageManifest = JSON.parse(view.readText("package.json"));
     } catch {
-      throw new Error("the generated v0.22.0 hosted workflow requires root package.json to contain valid JSON");
+      throw new Error("the generated hosted workflow requires root package.json to contain valid JSON");
     }
     if (!packageManifest || typeof packageManifest !== "object" || Array.isArray(packageManifest)) {
-      throw new Error("the generated v0.22.0 hosted workflow requires root package.json to contain a JSON object");
+      throw new Error("the generated hosted workflow requires root package.json to contain a JSON object");
     }
     const packageManager = (packageManifest as Record<string, unknown>).packageManager;
     if (packageManager !== undefined
       && (typeof packageManager !== "string" || !(packageManager === "npm" || /^npm@[^\s]+$/.test(packageManager)))) {
-      throw new Error("the generated v0.22.0 hosted workflow requires packageManager to select npm when that field is present");
+      throw new Error("the generated hosted workflow requires packageManager to select npm when that field is present");
     }
     manifest = packageManifest as Record<string, unknown>;
     let requiresInstall = false;
@@ -643,7 +695,7 @@ function validateHostedRepositoryContract(view: RepositoryView): HostedRepositor
       if (value === undefined) continue;
       if (!value || typeof value !== "object" || Array.isArray(value)
         || Object.values(value as Record<string, unknown>).some((entry) => typeof entry !== "string")) {
-        throw new Error(`the generated v0.22.0 hosted workflow requires package.json ${field} to be an object of package specifier strings`);
+        throw new Error(`the generated hosted workflow requires package.json ${field} to be an object of package specifier strings`);
       }
       if (Object.keys(value).length > 0) requiresInstall = true;
     }
@@ -655,24 +707,24 @@ function validateHostedRepositoryContract(view: RepositoryView): HostedRepositor
         continue;
       }
       if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
-        throw new Error(`the generated v0.22.0 hosted workflow requires package.json ${field} to be a boolean or an array of package names`);
+        throw new Error(`the generated hosted workflow requires package.json ${field} to be a boolean or an array of package names`);
       }
       if (value.length > 0) requiresInstall = true;
     }
     const workspaces = manifest.workspaces;
     if (workspaces !== undefined) {
       if (!Array.isArray(workspaces) || workspaces.some((entry) => typeof entry !== "string")) {
-        throw new Error("the generated v0.22.0 hosted workflow requires package.json workspaces to be an array of path patterns");
+        throw new Error("the generated hosted workflow requires package.json workspaces to be an array of path patterns");
       }
       if (workspaces.length > 0) requiresInstall = true;
     }
     if (!setupCommand && requiresInstall) {
-      throw new Error("the generated v0.22.0 hosted workflow requires package-lock.json or npm-shrinkwrap.json when root package.json declares dependencies or workspaces");
+      throw new Error("the generated hosted workflow requires package-lock.json or npm-shrinkwrap.json when root package.json declares dependencies or workspaces");
     }
   }
   const inferred = inferredTestCommand(view, manifest);
   if (inferred && !inferred.startsWith("node --test")) {
-    throw new Error("the generated isolated GitHub workflow supports Node/npm repositories in v0.22.0; use the CLI locally because custom hosted toolchain images are outside this generated contract");
+    throw new Error("the generated isolated GitHub workflow needs a bounded direct node --test command; use the local CLI or configure an explicit digest-pinned hermetic runner for another toolchain");
   }
   return { setupCommand, testCommand: inferred, hasRootPackage };
 }
@@ -684,6 +736,7 @@ export function initRepository(
   profile: SetupProfile = "default",
   attest = false,
   actionSha?: string,
+  runnerOverride?: HostedRunnerOverride,
 ): InitResult {
   const requestedRoot = resolve(repo);
   let root: string;
@@ -703,7 +756,7 @@ export function initRepository(
   if (ignoredInputs.length) {
     throw new Error(`the generated hosted workflow cannot use ignored setup input(s) omitted from Git: ${ignoredInputs.slice(0, 5).join(", ")}${ignoredInputs.length > 5 ? ", …" : ""}`);
   }
-  const hostedContract = validateHostedRepositoryContract(workingRepositoryView(root));
+  const hostedContract = validateHostedRepositoryContract(workingRepositoryView(root), runnerOverride);
   const setupCommand = hostedContract.setupCommand;
   const result: InitResult = { created: [], kept: [] };
   const inferred = hostedContract.testCommand;
@@ -711,14 +764,25 @@ export function initRepository(
   const defaultPolicy = policyTemplate(inferred, portableSignerKeyId);
   const authorityPolicy = defaultPolicy.replace('"transcript": ".agent-vigil/session.md"', '"transcript": ".agent-vigil/session.jsonl"');
   const protectCommands = profile === "protect" ? inferProtectCommands(root, inferred) : undefined;
-  writeScaffold(root, DEFAULT_POLICY_FILE, mode === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand, protectCommands) : mode === "authority" ? authorityPolicy : defaultPolicy, force, result);
+  if (runnerOverride) {
+    writeScaffold(root, HOSTED_RUNNER_FILE, `${JSON.stringify({ schemaVersion: 1, ...runnerOverride }, null, 2)}\n`, force, result);
+  }
+  writeScaffold(
+    root,
+    DEFAULT_POLICY_FILE,
+    mode === "maintainer"
+      ? maintainerPolicyTemplate(inferred, setupCommand, protectCommands, hostedTestPathPatterns(inferred))
+      : mode === "authority" ? authorityPolicy : defaultPolicy,
+    force,
+    result,
+  );
   if (mode === "transcript" || mode === "authority") {
     writeScaffold(root, mode === "authority" ? ".agent-vigil/session.jsonl" : ".agent-vigil/session.md", mode === "authority" ? AUTHORITY_SESSION_TEMPLATE : SESSION_TEMPLATE, force, result);
     writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result);
   }
   if (mode === "authority") writeScaffold(root, ".agent-vigil-authority.json", authorityContractTemplate(), force, result);
   if (mode === "maintainer") writeScaffold(root, ".github/pull_request_template.md", MAINTAINER_PR_TEMPLATE, force, result);
-  writeScaffold(root, ".github/workflows/agent-vigil.yml", evidenceWorkflow(mode, actionSha!, setupCommand), force, result);
+  writeScaffold(root, ".github/workflows/agent-vigil.yml", evidenceWorkflow(mode, actionSha!, setupCommand, hostedContract.candidateImage), force, result);
   writeScaffold(root, ".github/workflows/agent-vigil-outcomes.yml", outcomeWorkflow(actionSha!), force, result);
   return result;
 }
@@ -820,7 +884,9 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
     status: hostedContractError ? "FAIL" : "PASS",
     label: "Hosted repository contract",
     detail: hostedContractError
-      ?? (hostedContract?.hasRootPackage
+      ?? (hostedContract?.customRunner
+        ? `hermetic custom runner is pinned by digest for ${hostedContract.testCommand}`
+        : hostedContract?.hasRootPackage
         ? `root npm repository is supported${hostedContract.setupCommand ? ` with base-owned ${hostedContract.setupCommand}` : " without an install step"}`
         : "plain repository has no inferred non-Node toolchain; local CLI inference remains available"),
   });
@@ -1010,7 +1076,7 @@ export function doctorRepository(repo: string, requestedPolicy?: string, request
       && outcomeSelfReferences.length === 1
       && outcomeSelfReferences[0] === evidenceSelfReferences[0];
     const expectedWorkflow = sharedExactSelfPin && !hostedContractError && !evidenceControlBindingError
-      ? evidenceWorkflow(configuredMode, installedSelfSha, hostedContract?.setupCommand)
+      ? evidenceWorkflow(configuredMode, installedSelfSha, hostedContract?.setupCommand, hostedContract?.candidateImage)
       : "";
     const exactGeneratedWorkflow = sharedExactSelfPin && text === expectedWorkflow;
     const baseSelectedTrigger = /^\s+pull_request_target:\s*(?:#.*)?$/m.test(text)

@@ -290,7 +290,7 @@ test("hosted init fails closed for unsupported package-manager layouts", () => {
   const python = temp("vigil-python-");
   execFileSync("git", ["init", "-q"], { cwd: python });
   writeFileSync(join(python, "pyproject.toml"), "[project]\nname = 'outside-hosted-contract'\n");
-  assert.throws(() => initRepository(python, false, undefined, "default", false, ACTION_SHA), /supports Node\/npm repositories/);
+  assert.throws(() => initRepository(python, false, undefined, "default", false, ACTION_SHA), /bounded direct node --test command/);
 
   const unlockedDependencies = repo();
   writeFileSync(join(unlockedDependencies, "package.json"), JSON.stringify({
@@ -328,6 +328,79 @@ test("hosted init fails closed for unsupported package-manager layouts", () => {
     /does not support Git submodules or gitlinks \(vendor\/tool\)/,
   );
   assert.equal(existsSync(join(submodule, ".github/workflows/agent-vigil.yml")), false);
+});
+
+test("a digest-pinned hermetic runner safely opens the hosted installer to non-Node repositories", () => {
+  const python = temp("vigil-python-hermetic-");
+  execFileSync("git", ["init", "-q"], { cwd: python });
+  writeFileSync(join(python, "pyproject.toml"), "[project]\nname = 'hermetic-fixture'\n");
+  writeFileSync(join(python, "test_example.py"), "def test_example():\n    assert 2 + 2 == 4\n");
+  const image = `ghcr.io/example/agent-vigil-runner@sha256:${"a".repeat(64)}`;
+
+  initRepository(python, false, undefined, "protect", false, ACTION_SHA, {
+    image,
+    testCommand: "python3 -m pytest -q",
+  });
+
+  assert.deepEqual(JSON.parse(readFileSync(join(python, ".agent-vigil-runner.json"), "utf8")), {
+    schemaVersion: 1,
+    image,
+    testCommand: "python3 -m pytest -q",
+  });
+  const policy = JSON.parse(readFileSync(join(python, ".agent-vigil.json"), "utf8"));
+  assert.equal(policy.testCommand, "python3 -m pytest -q");
+  assert.deepEqual(policy.maintainer.testPathPatterns, [
+    "test/**", "tests/**", "test_*.py", "*_test.py", "**/test_*.py", "**/*_test.py",
+  ]);
+  assert.match(readFileSync(join(python, ".github/workflows/agent-vigil.yml"), "utf8"), new RegExp(`candidate-image: ${image}`));
+  commitAll(python, "install hermetic Python gate");
+  assert.ok(doctorRepository(python).some((check) => check.label === "Hosted repository contract"
+    && check.status === "PASS" && /hermetic custom runner/.test(check.detail)));
+  assert.ok(doctorRepository(python).some((check) => check.label === "Candidate isolation" && check.status === "PASS"));
+});
+
+test("hermetic Go and Ruby policies recognize their ordinary test files", () => {
+  const cases = [
+    {
+      name: "go",
+      command: "go test -json ./...",
+      files: { "go.mod": "module example.test/fixture\n\ngo 1.22\n", "feature_test.go": "package fixture\n" },
+      patterns: ["*_test.go", "**/*_test.go"],
+    },
+    {
+      name: "ruby",
+      command: "bundle exec rspec",
+      files: { "Gemfile": "source 'https://rubygems.org'\n", "spec/feature_spec.rb": "RSpec.describe 'feature' do\nend\n" },
+      patterns: ["spec/**", "**/spec/**", "*_spec.rb", "**/*_spec.rb"],
+    },
+  ];
+  for (const value of cases) {
+    const path = temp(`vigil-${value.name}-hermetic-`);
+    execFileSync("git", ["init", "-q"], { cwd: path });
+    for (const [name, contents] of Object.entries(value.files)) {
+      mkdirSync(join(path, name, ".."), { recursive: true });
+      writeFileSync(join(path, name), contents);
+    }
+    initRepository(path, false, undefined, "protect", false, ACTION_SHA, {
+      image: `ghcr.io/example/agent-vigil-runner@sha256:${"d".repeat(64)}`,
+      testCommand: value.command,
+    });
+    const policy = JSON.parse(readFileSync(join(path, ".agent-vigil.json"), "utf8"));
+    assert.deepEqual(policy.maintainer.testPathPatterns, value.patterns);
+  }
+});
+
+test("hermetic runner setup rejects floating images and shell composition", () => {
+  for (const [image, testCommand] of [
+    ["ghcr.io/example/runner:latest", "python3 -m pytest -q"],
+    [`ghcr.io/example/runner@sha256:${"b".repeat(64)}`, "python3 -m pytest -q && curl example.test"],
+    [`ghcr.io/example/runner@sha256:${"c".repeat(64)}`, "sh ./candidate-test.sh"],
+  ]) {
+    const path = plainRepo();
+    assert.throws(() => initRepository(path, false, undefined, "protect", false, ACTION_SHA, { image, testCommand }),
+      /hermetic hosted runner/);
+    assert.equal(existsSync(join(path, ".github/workflows/agent-vigil.yml")), false);
+  }
 });
 
 test("hosted init refuses ignored setup inputs but permits a visible first-commit transition", () => {

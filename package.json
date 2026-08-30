@@ -1,6 +1,6 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Fail-closed change control, upgrade preflight, and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
@@ -26,8 +26,9 @@
     "build:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
     "build:library": "esbuild src/continuity-staple-library.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/continuity-staple.js && tsc -p tsconfig.library.json",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts test-hosted/*.test.ts",
-    "test:coverage": "node --import tsx --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 --test test/*.test.ts test-hosted/*.test.ts",
+    "test": "node scripts/run_tests.mjs",
+    "test:hosted": "node --test --test-concurrency=1 test-hosted/*.test.ts",
+    "test:coverage": "node scripts/run_tests.mjs --coverage",
     "check": "npm run typecheck && npm run build && npm test && npm run smoke",
     "review:public": "python3 scripts/public_surface_gate.py --self-test && python3 scripts/public_surface_gate.py",
     "smoke": "node dist/cli.js demo",

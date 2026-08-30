@@ -17,5 +17,10 @@
     "observed_integrity": "sha512-svknWHc0DT9Jh77tatKFmvsr3lJr8dSDLBrXud1pr1DKkgW8Yx7uIvS1+Xkq72TQfyP091sWUZZzDH8ku6RjuA==",
     "observed_published_at": "2026-08-28T16:01:40.782Z",
     "target_published": false
+  },
+  "source_release_candidate": {
+    "version": "0.23.0",
+    "github_release_published": false,
+    "npm_published": false
   }
 }

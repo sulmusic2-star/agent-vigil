@@ -416,6 +416,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "ci.yml": ["contents:read"],
     "control-proof-weekly.yml": [],
     "cross-corpus-benchmark.yml": ["contents:read"],
+    "publish-hermetic-runner.yml": ["contents:read", "packages:write"],
     "publish.yml": [],
   };
   const expectedEffectiveJobPermissions: Record<string, string[]> = {
@@ -438,6 +439,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
     "control-proof-weekly.yml:build-proof": ["contents:read"],
     "cross-corpus-benchmark.yml:benchmark": ["contents:read"],
+    "publish-hermetic-runner.yml:publish": ["contents:read", "packages:write"],
     "publish.yml:publish": ["actions:read", "id-token:write"],
     "publish.yml:verify-and-pack": ["contents:read"],
   };
@@ -455,7 +457,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "46487dde15e6c95297c08e1af65df28fabadaa73fa6a6bf9988ad2c2c22c6fed",
+    "control-proof-weekly.yml": "2059f9b17be4d832b5c4f82f95f846645d030edb730a413b97faf4950993cec3",
     "publish.yml": "a21f00af3e351ca29098ac6f8c4f72d4fcd925a00c6f858f933a9e59bf265005",
   };
 
