@@ -74,6 +74,11 @@ webhook secret, and a separate dispatch secret; the workflow receives only the
 dispatch secret and the existing check-writing App key through the protected
 `agent-vigil-gate` environment.
 
+That environment must allow deployments from `main` only before any gate
+credential is stored. A same-repository candidate branch requesting
+`environment: agent-vigil-gate` must be refused in a disposable negative test;
+an environment name by itself is not a protection rule.
+
 Register this path with the dedicated
 [`github-app-manifest.example.json`](../hosted/merge-queue-dispatcher/github-app-manifest.example.json),
 not the receipt-notary manifest. It points at `/github/merge-group`, subscribes

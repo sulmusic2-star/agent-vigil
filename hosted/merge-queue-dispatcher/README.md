@@ -11,6 +11,21 @@ event identity before it checks out the composed queue commit. Candidate setup
 and tests run in the candidate-only Docker boundary without the webhook secret,
 dispatch secret, or GitHub App private key.
 
+## Protect the GitHub environment first
+
+Create the `agent-vigil-gate` environment before adding any variable or secret.
+Under **Deployment branches and tags**, choose **Selected branches and tags**
+and allow only `main`. A same-repository candidate branch must not be able to
+request this environment. Required reviewers may add an operator checkpoint,
+but they are not a substitute for the `main`-only branch restriction and can
+prevent unattended queue checks.
+
+Before storing credentials, run a disposable negative test from a non-`main`
+branch whose only job requests `environment: agent-vigil-gate`. Confirm that
+GitHub refuses the deployment before any step can read an environment variable
+or secret. Remove that test workflow afterward. Do not deploy the Worker or
+make its check required if this negative test has not been observed.
+
 ## Required secrets
 
 Set these with `wrangler secret put`; never put their values in this directory:

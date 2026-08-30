@@ -44,6 +44,10 @@ test("dispatcher instructions name the exact current contract", () => {
   assert.match(dispatcher, /AGENT_VIGIL_GATE_PRIVATE_KEY/);
   assert.match(dispatcher, /GITHUB_APP_ID/);
   assert.match(dispatcher, /GITHUB_APP_PRIVATE_KEY/);
+  assert.match(dispatcher, /allow only `main`/);
+  assert.match(dispatcher, /candidate branch must not be able to\s+request this environment/);
+  assert.match(dispatcher, /disposable negative test from a non-`main`\s+branch/);
+  assert.match(queues, /environment must allow deployments from `main` only/);
   assert.match(notary, /Receipt-notary App permissions/);
   assert.match(notary, /queue App separately needs Actions write and Merge queues read/);
   assert.match(notary, /receipt-notary App subscribes to `workflow_run` and `pull_request`/i);
