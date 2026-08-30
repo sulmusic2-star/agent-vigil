@@ -31,7 +31,11 @@ test("merge-queue docs describe the checked-in path without claiming deployment"
 
 test("dispatcher instructions name the exact current contract", () => {
   assert.match(dispatcher, /wrangler@4\.127\.1 deploy --dry-run/);
-  assert.match(dispatcher, /test-hosted\/merge-queue-dispatcher\.test\.ts/);
+  assert.match(
+    dispatcher,
+    /github\.com\/sulmusic2-star\/agent-vigil\/blob\/fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a\/test-hosted\/merge-queue-dispatcher\.test\.ts/,
+  );
+  assert.match(dispatcher, /git checkout --detach fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a/);
   assert.match(dispatcher, /Actions: write/);
   assert.match(dispatcher, /Merge queues: read/);
   assert.match(dispatcher, /candidate-only Docker boundary/);

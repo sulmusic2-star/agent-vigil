@@ -59,4 +59,16 @@ private-key value in repository variables or files.
 
 Do not make the queue check required until a real signed `checks_requested`
 delivery produces `Agent Vigil governed evidence` on the exact queue head and
-the negative tests in `test-hosted/merge-queue-dispatcher.test.ts` still pass.
+the [dispatcher regression tests at reviewed commit
+`fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a`](https://github.com/sulmusic2-star/agent-vigil/blob/fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a/test-hosted/merge-queue-dispatcher.test.ts)
+still pass. The test imports trusted-workflow source that is intentionally not
+part of the npm runtime package, so run it from a clean checkout of that exact
+commit:
+
+```bash
+git clone https://github.com/sulmusic2-star/agent-vigil.git
+cd agent-vigil
+git checkout --detach fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a
+npm ci --ignore-scripts
+node --test --import tsx test-hosted/merge-queue-dispatcher.test.ts
+```
