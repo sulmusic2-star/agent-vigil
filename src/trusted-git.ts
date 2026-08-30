@@ -1,11 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { readRegularFileSnapshot } from "./safe-fs.ts";
 
 const ACTION_GIT_PATH = "/usr/bin:/bin";
-const checkpoints = new Map<string, string>();
+const checkpoints = new Map<string, { identity: string; sha256: string }>();
 
 class TrustedGitIntegrityError extends Error {}
 
@@ -61,10 +60,15 @@ function fixedBinary(): string {
   if (!isAbsolute(configured) || resolve(configured) !== configured) throw new TrustedGitIntegrityError("trusted Git binary path must be absolute and normalized");
   try {
     const snapshot = readRegularFileSnapshot(configured, 512 * 1024 * 1024, "trusted Git binary");
-    const current = createHash("sha256").update(snapshot.bytes).digest("hex");
+    const current = {
+      identity: snapshot.identity,
+      sha256: createHash("sha256").update(snapshot.bytes).digest("hex"),
+    };
     const checkpoint = checkpoints.get(configured);
     if (!checkpoint) checkpoints.set(configured, current);
-    else if (checkpoint !== current) throw new TrustedGitIntegrityError("trusted Git binary changed during verification");
+    else if (checkpoint.identity !== current.identity || checkpoint.sha256 !== current.sha256) {
+      throw new TrustedGitIntegrityError("trusted Git binary changed during verification");
+    }
     return configured;
   } catch (error) {
     if (error instanceof TrustedGitIntegrityError) throw error;

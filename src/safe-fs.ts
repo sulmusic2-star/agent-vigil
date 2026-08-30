@@ -1,7 +1,13 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 
-export type RegularFileSnapshot = { absolutePath: string; bytes: Buffer; mode: number };
+export type RegularFileSnapshot = {
+  absolutePath: string;
+  bytes: Buffer;
+  mode: number;
+  /** Descriptor-bound identity and security metadata for replacement detection. */
+  identity: string;
+};
 
 /** Read a bounded regular file through the descriptor whose identity was verified. */
 export function readRegularFileSnapshot(requestedPath: string, maximumBytes: number, label = "input"): RegularFileSnapshot {
@@ -39,7 +45,21 @@ export function readRegularFileSnapshot(requestedPath: string, maximumBytes: num
     if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs) {
       throw new Error(`${label} changed while it was read`);
     }
-    return { absolutePath, bytes, mode: Number(opened.mode & 0o7777n) };
+    return {
+      absolutePath,
+      bytes,
+      mode: Number(opened.mode & 0o7777n),
+      identity: [
+        opened.dev,
+        opened.ino,
+        opened.size,
+        opened.mtimeNs,
+        opened.ctimeNs,
+        opened.mode,
+        opened.uid,
+        opened.gid,
+      ].join(":"),
+    };
   } finally {
     closeSync(descriptor);
   }

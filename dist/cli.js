@@ -46,7 +46,21 @@ function readRegularFileSnapshot(requestedPath, maximumBytes, label = "input") {
     if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs) {
       throw new Error(`${label} changed while it was read`);
     }
-    return { absolutePath, bytes, mode: Number(opened.mode & 0o7777n) };
+    return {
+      absolutePath,
+      bytes,
+      mode: Number(opened.mode & 0o7777n),
+      identity: [
+        opened.dev,
+        opened.ino,
+        opened.size,
+        opened.mtimeNs,
+        opened.ctimeNs,
+        opened.mode,
+        opened.uid,
+        opened.gid
+      ].join(":")
+    };
   } finally {
     closeSync(descriptor);
   }
@@ -588,10 +602,15 @@ function fixedBinary() {
   if (!isAbsolute(configured) || resolve2(configured) !== configured) throw new TrustedGitIntegrityError("trusted Git binary path must be absolute and normalized");
   try {
     const snapshot = readRegularFileSnapshot(configured, 512 * 1024 * 1024, "trusted Git binary");
-    const current = createHash2("sha256").update(snapshot.bytes).digest("hex");
+    const current = {
+      identity: snapshot.identity,
+      sha256: createHash2("sha256").update(snapshot.bytes).digest("hex")
+    };
     const checkpoint = checkpoints.get(configured);
     if (!checkpoint) checkpoints.set(configured, current);
-    else if (checkpoint !== current) throw new TrustedGitIntegrityError("trusted Git binary changed during verification");
+    else if (checkpoint.identity !== current.identity || checkpoint.sha256 !== current.sha256) {
+      throw new TrustedGitIntegrityError("trusted Git binary changed during verification");
+    }
     return configured;
   } catch (error) {
     if (error instanceof TrustedGitIntegrityError) throw error;
