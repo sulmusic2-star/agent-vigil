@@ -74,9 +74,10 @@ npx --yes wrangler@4.127.1 deploy --dry-run
 npx --yes wrangler@4.127.1 deploy
 ```
 
-After deployment, configure the App webhook URL as
+After deployment and secret configuration, configure the App webhook URL as
 `https://DEPLOYED_WORKER/github/merge-group`, put the same webhook secret in
-the App and Worker, and add the Worker's `DISPATCH_SECRET` value to the
+the App and Worker, enable the App webhook, and add the Worker's
+`DISPATCH_SECRET` value to the
 protected `agent-vigil-gate` GitHub environment as
 `AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`. The protected environment also needs
 the registered queue App's numeric ID as the variable

@@ -10,7 +10,7 @@ const queueManifest = JSON.parse(
   readFileSync(new URL("../hosted/merge-queue-dispatcher/github-app-manifest.example.json", import.meta.url), "utf8"),
 ) as {
   name: string;
-  hook_attributes: { url: string };
+  hook_attributes: { url: string; active: boolean };
   default_permissions: Record<string, string>;
   default_events: string[];
 };
@@ -66,6 +66,8 @@ test("dispatcher instructions name the exact current contract", () => {
 test("queue App manifest matches the authenticated dispatcher and workflow", () => {
   assert.equal(queueManifest.name, "Agent Vigil Gate");
   assert.match(queueManifest.hook_attributes.url, /\/github\/merge-group$/);
+  assert.equal(queueManifest.hook_attributes.active, false);
+  assert.match(dispatcher, /After deployment and secret configuration[\s\S]*enable the App webhook/);
   assert.deepEqual(queueManifest.default_events, ["merge_group"]);
   assert.match(queueWorkflow, /EXPECTED_ACTOR: agent-vigil-gate\[bot\]/);
   assert.match(queueWorkflow, /DISPATCH_SECRET: \$\{\{ secrets\.AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET \}\}/);

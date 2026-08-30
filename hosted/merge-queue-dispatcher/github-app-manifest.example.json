@@ -3,7 +3,7 @@
   "url": "https://REPLACE_WITH_DEPLOYED_WORKER.example",
   "hook_attributes": {
     "url": "https://REPLACE_WITH_DEPLOYED_WORKER.example/github/merge-group",
-    "active": true
+    "active": false
   },
   "public": false,
   "default_permissions": {
