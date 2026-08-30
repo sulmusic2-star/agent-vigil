@@ -28,7 +28,15 @@ make its check required if this negative test has not been observed.
 
 ## Required secrets
 
-Set these with `wrangler secret put`; never put their values in this directory:
+Run every Wrangler command in this guide from the directory that contains the
+checked-in `wrangler.jsonc`:
+
+```bash
+cd hosted/merge-queue-dispatcher
+```
+
+Then set these with `npx --yes wrangler@4.127.1 secret put SECRET_NAME`;
+never put their values in this directory:
 
 - `WEBHOOK_SECRET` — the GitHub App webhook secret;
 - `DISPATCH_SECRET` — a separate random secret shared with the
@@ -56,6 +64,7 @@ The installation must be limited to the intended repository.
 ## Verification and deployment
 
 ```bash
+cd hosted/merge-queue-dispatcher
 npx --yes wrangler@4.127.1 types
 npx --yes wrangler@4.127.1 deploy --dry-run
 npx --yes wrangler@4.127.1 deploy

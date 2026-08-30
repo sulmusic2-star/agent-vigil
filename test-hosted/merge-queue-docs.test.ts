@@ -30,6 +30,11 @@ test("merge-queue docs describe the checked-in path without claiming deployment"
 });
 
 test("dispatcher instructions name the exact current contract", () => {
+  assert.ok(
+    dispatcher.match(/cd hosted\/merge-queue-dispatcher/g)?.length === 2,
+    "secret setup and deployment must both select the checked-in Wrangler config directory",
+  );
+  assert.match(dispatcher, /wrangler@4\.127\.1 secret put SECRET_NAME/);
   assert.match(dispatcher, /wrangler@4\.127\.1 deploy --dry-run/);
   assert.match(
     dispatcher,
