@@ -30,7 +30,11 @@ test("the public install state keeps GitHub and npm publication separate", () =>
   assert.equal(state.latest_github_release.asset_url, releaseUrl);
   assert.equal(state.latest_github_release.sha256, releaseSha256);
   assert.equal(state.latest_github_release.immutable, true);
-  assert.equal(state.source_release_candidate, undefined);
+  assert.deepEqual(state.source_release_candidate, {
+    version: "0.23.1",
+    github_release_published: false,
+    npm_published: false,
+  });
   assert.equal(state.npm_registry.package, "@sulmusic/agent-vigil");
   assert.equal(state.npm_registry.target_version, releaseVersion);
   assert.equal(state.npm_registry.observed_version, "0.21.1");
@@ -67,5 +71,7 @@ test("the five-minute guide preserves one complete value path", () => {
   assert.match(guide, /doctor` fails closed/);
   assert.doesNotMatch(guide, /protect\s+\\\s+--action-sha/);
   assert.match(guide, /--runner common/);
+  assert.match(guide, /\.agent-vigil-runner\.json \(only with --runner or --runner-image\)/);
+  assert.match(guide, /if \[ -f \.agent-vigil-runner\.json \]/);
   assert.match(guide, /npm publication of v0\.23\.0 is not claimed/);
 });

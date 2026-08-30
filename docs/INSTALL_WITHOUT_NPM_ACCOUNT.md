@@ -38,10 +38,12 @@ The common image contains the toolchains, not your project dependencies. Test
 execution remains networkless. Use `--runner-image` with an organization-owned
 digest-pinned image when dependencies must be preinstalled.
 
-Review these four generated controls before committing them:
+Review the generated controls before committing them. An explicit hermetic
+runner adds the fifth file shown below:
 
 ```text
 .agent-vigil.json
+.agent-vigil-runner.json (only with --runner or --runner-image)
 .github/pull_request_template.md
 .github/workflows/agent-vigil.yml
 .github/workflows/agent-vigil-outcomes.yml
@@ -53,6 +55,9 @@ Commit only after the policy and workflow commands match the repository:
 git add .agent-vigil.json .github/pull_request_template.md \
   .github/workflows/agent-vigil.yml \
   .github/workflows/agent-vigil-outcomes.yml
+if [ -f .agent-vigil-runner.json ]; then
+  git add .agent-vigil-runner.json
+fi
 git commit -m "Install Agent Vigil"
 
 npx --yes "$AGENT_VIGIL_PACKAGE" doctor
@@ -129,7 +134,7 @@ install Agent Vigil from the npm registry.
 
 ## Remove it
 
-Agent Vigil does not require a hosted account. Remove the four generated files
+Agent Vigil does not require a hosted account. Remove the generated control files
 to uninstall it. Review and remove any matching required-check or ruleset entry
 as a separate step. Otherwise, the repository can retain an impossible
 required check.
