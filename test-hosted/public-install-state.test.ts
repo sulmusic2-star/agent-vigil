@@ -2,14 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const releaseVersion = "0.23.0";
-const releaseCommit = "eed2cd0db000099f86d29186bdb2fd1c7784356a";
+const releaseVersion = "0.23.1";
+const releaseCommit = "f10e5363510b7781bd35e7970bc7f88d4eb073e4";
 const releaseAsset = `sulmusic-agent-vigil-${releaseVersion}.tgz`;
 const releaseUrl = `https://github.com/sulmusic2-star/agent-vigil/releases/download/v${releaseVersion}/${releaseAsset}`;
-const releaseSha256 = "bf6303c18e1de85c19fe5df7b5fc2401451a14a4a92999cf7c6385304e8242d0";
+const releaseSha256 = "db114aa2a3614696bee10236247cc73d86a322c75dee877bff7d31ce4256a3b5";
 const registryIntegrity = "sha512-svknWHc0DT9Jh77tatKFmvsr3lJr8dSDLBrXud1pr1DKkgW8Yx7uIvS1+Xkq72TQfyP091sWUZZzDH8ku6RjuA==";
 
-test("the npm-free guide binds the immutable v0.23.0 GitHub package", () => {
+test("the npm-free guide binds the immutable v0.23.1 GitHub package", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
 
   assert.match(guide, new RegExp(releaseUrl.replaceAll(".", "\\.")));
@@ -30,11 +30,7 @@ test("the public install state keeps GitHub and npm publication separate", () =>
   assert.equal(state.latest_github_release.asset_url, releaseUrl);
   assert.equal(state.latest_github_release.sha256, releaseSha256);
   assert.equal(state.latest_github_release.immutable, true);
-  assert.deepEqual(state.source_release_candidate, {
-    version: "0.23.1",
-    github_release_published: false,
-    npm_published: false,
-  });
+  assert.equal("source_release_candidate" in state, false);
   assert.equal(state.npm_registry.package, "@sulmusic/agent-vigil");
   assert.equal(state.npm_registry.target_version, releaseVersion);
   assert.equal(state.npm_registry.observed_version, "0.21.1");
@@ -73,5 +69,5 @@ test("the five-minute guide preserves one complete value path", () => {
   assert.match(guide, /--runner common/);
   assert.match(guide, /\.agent-vigil-runner\.json \(only with --runner or --runner-image\)/);
   assert.match(guide, /if \[ -f \.agent-vigil-runner\.json \]/);
-  assert.match(guide, /npm publication of v0\.23\.0 is not claimed/);
+  assert.match(guide, /npm publication of v0\.23\.1 is not claimed/);
 });
