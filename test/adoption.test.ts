@@ -677,7 +677,7 @@ test("Action accepts exactly one evidence mode", () => {
   assert.match(action, /VIGIL_RECEIPT/);
   assert.match(action, /VIGIL_AUTHORITY_CONTRACT/);
   assert.match(action, /choose exactly one check input or named mode/);
-  assert.match(action, /mode must be plan, prove, maintainer, outcome, or continuity/);
+  assert.match(action, /mode must be plan, prove, maintainer, merge-group, outcome, or continuity/);
   assert.match(action, /continuity mode requires a readable continuity-chain directory/);
   assert.match(action, /args=\(continuity status --chain "\$VIGIL_CONTINUITY_CHAIN"/);
   assert.match(action, /inputs\.mode != 'continuity'/);
@@ -693,7 +693,9 @@ test("Action accepts exactly one evidence mode", () => {
   assert.match(action, /if \[\[ "\$event_kind" != "pull_request"/);
   assert.match(action, /GITHUB_EVENT_NAME:-}" != "pull_request_target"/);
   assert.match(action, /candidate verification requires a bounded GitHub pull_request event with full commit IDs/);
-  assert.doesNotMatch(action, /args=\(merge-group --event/);
+  assert.match(action, /args=\(merge-group --event "\$GITHUB_EVENT_PATH"/);
+  assert.match(action, /merge-group-event is restricted to merge-group mode/);
+  assert.match(action, /merge-group verification requires an externally authenticated workflow_dispatch/);
   assert.match(action, /echo "sarif=\$sarif_path"/);
   assert.match(action, /github-evidence --event/);
   assert.match(action, /value "\$report_file"/);
