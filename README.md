@@ -34,15 +34,26 @@ with public evidence and consent.
 
 ## Install the full gate
 
-The currently verified public package is the immutable v0.23.1 GitHub artifact:
+The latest verified public package remains the immutable v0.23.1 GitHub
+artifact:
+
+```bash
+npx --yes \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz \
+  protect --repo .
+```
+
+v0.23.2 is a source release candidate until GitHub lists both the package and checksum assets.
+After both v0.23.2 assets appear on the release page, the exact candidate
+package can be installed with:
 
 ```bash
 curl -fL -o agent-vigil.tgz \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz
 mkdir agent-vigil-package
 tar -xzf agent-vigil.tgz -C agent-vigil-package --strip-components=1
 node agent-vigil-package/dist/cli.js protect --repo . \
-  --action-sha f10e5363510b7781bd35e7970bc7f88d4eb073e4
+  --action-sha fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
 ```
 
 Review the four generated files, commit them in a setup pull request, and run:
@@ -55,12 +66,11 @@ The setup PR starts the check. To make it an enforceable trust boundary, require
 an externally controlled exact-head check or GitHub App. A required job name
 alone does not prove who supplied the workflow.
 
-[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/f80a47dde19dc87416a4a9e45c7e424df724dbcd/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/af03ad404d41e5db582857279f5be21ea97f0536/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
 **Distribution status, verified August 30, 2026:** GitHub release v0.23.1 and
-the versioned Action are public; the Marketplace listing exposes v0.23.1. npm
-currently serves v0.21.1. Use the immutable GitHub package until npm reaches
-release parity.
+the Marketplace listing are public. v0.23.2 is recorded as an unpublished
+source candidate. npm currently serves v0.21.1.
 
 ## What a result means
 
@@ -107,12 +117,12 @@ clone. See the [hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md).
 
 ## Current hosted compatibility
 
-The v0.23.1 generated workflow can infer a bounded direct `node --test`
+The v0.23.2 generated workflow can infer a bounded direct `node --test`
 command for a root Node/npm repository. Plain Git repositories and other
 toolchains use an explicit hermetic runner and an explicit test command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
@@ -175,7 +185,7 @@ Pin the Action to a reviewed 40-character commit SHA:
     fetch-depth: 0
     persist-credentials: false
 - id: vigil
-  uses: sulmusic2-star/agent-vigil@f10e5363510b7781bd35e7970bc7f88d4eb073e4
+  uses: sulmusic2-star/agent-vigil@fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
   with:
     mode: maintainer
     policy: .agent-vigil.json
@@ -203,9 +213,9 @@ The browser and CLI can record the public lifecycle evidence for a pull request:
 
 ```bash
 npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz \
   pr-receipt https://github.com/OWNER/REPOSITORY/pull/123 \
-  --tool-ref f10e5363510b7781bd35e7970bc7f88d4eb073e4 \
+  --tool-ref fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502 \
   --output pr-123.receipt.json
 ```
 

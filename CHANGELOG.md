@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.23.2 - 2026-08-30
+
+- Replace vulnerable check-then-use file handling with descriptor-bound,
+  no-follow snapshots and identity checks across receipts, policy, transcripts,
+  repository evidence, generated output, and trusted Git execution.
+- Escape untrusted Markdown and regular-expression text before rendering or
+  matching, and validate the one release-time network target before use.
+- Add source-scoped CodeQL for JavaScript, TypeScript, Actions, and maintained
+  scripts while excluding deterministic generated bundles and hostile fixtures.
+- Include the exact five-minute guide in the package and bind the packed README
+  to the same v0.23.2 source, so the release cannot point at an older guide.
+
 ## 0.23.1 - 2026-08-30
 
 - Point the post-install doctor handoff at the same v0.23.1 package used to

@@ -245,6 +245,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/GUARD_COMPATIBILITY.md",
     "docs/GUARD_CONTINUITY.md",
     "docs/HOSTED_SECURITY_CONTRACT.md",
+    "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md",
     "docs/KUBERNETES_ADMISSION.md",
     "docs/LIVE_HOST_ROUTE.md",
     "docs/MERGE_QUEUES.md",
@@ -459,7 +460,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "4fa4693a978d55b0e8243a21ea14dcec627d1a4a5f6c994cb0376c21c5674965",
+    "control-proof-weekly.yml": "e3fa4abfa703c3d7bee2ba724502514c4ad7c3b016633ac40d7994ec3eda901d",
     "publish.yml": "a21f00af3e351ca29098ac6f8c4f72d4fcd925a00c6f858f933a9e59bf265005",
   };
 

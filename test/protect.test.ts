@@ -76,7 +76,7 @@ test("protect needs no SHA and reports one truthful prepared state", () => {
   assert.ok(output.includes("https://github.com/example/project/actions/workflows/agent-vigil.yml/badge.svg"));
   assert.match(output, /Register an outside trial only after the workflow runs/);
   assert.match(output, /RUNNING IN CI, not enforced/);
-  assert.match(output, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.23\.1\/sulmusic-agent-vigil-0\.23\.1\.tgz doctor --repo \./);
+  assert.match(output, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.23\.2\/sulmusic-agent-vigil-0\.23\.2\.tgz doctor --repo \./);
   assert.doesNotMatch(output, /run `vigil doctor/);
   assert.match(output, /plain required job name is not a workflow trust root/);
   assert.match(output, /issues\/new\?template=adopter-feedback\.yml&title=%5Badoption%5D%20example%2Fproject/);
