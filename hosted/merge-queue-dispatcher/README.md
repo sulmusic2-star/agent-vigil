@@ -31,7 +31,9 @@ make its check required if this negative test has not been observed.
 Register the queue App from
 [`github-app-manifest.example.json`](github-app-manifest.example.json), after
 replacing the placeholder host with the planned Worker origin. Record the App
-ID, generate its private key, and generate a separate random webhook secret.
+ID, generate its private key, and generate a separate random webhook secret of
+at least 32 characters. `openssl rand -hex 32` produces a 64-character value;
+run it again for each independent secret rather than reusing one value.
 The manifest deliberately names the App `Agent Vigil Gate`, which produces the
 `agent-vigil-gate[bot]` actor required by the workflow before checkout. If
 GitHub assigns a different App slug, stop: the reviewed workflow actor binding
@@ -54,8 +56,9 @@ cd hosted/merge-queue-dispatcher
 Then set these with `npx --yes wrangler@4.127.1 secret put SECRET_NAME`;
 never put their values in this directory:
 
-- `WEBHOOK_SECRET` — the GitHub App webhook secret;
-- `DISPATCH_SECRET` — a separate random secret shared with the
+- `WEBHOOK_SECRET` — the GitHub App webhook secret, at least 32 characters;
+- `DISPATCH_SECRET` — a separate random secret of at least 32 characters,
+  shared with the
   `agent-vigil-gate` GitHub environment. Store the same value there under the
   workflow's exact secret name,
   `AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`;

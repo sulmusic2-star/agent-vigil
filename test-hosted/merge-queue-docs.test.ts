@@ -39,6 +39,11 @@ test("dispatcher instructions name the exact current contract", () => {
     "secret setup and deployment must both select the checked-in Wrangler config directory",
   );
   assert.match(dispatcher, /wrangler@4\.127\.1 secret put SECRET_NAME/);
+  assert.match(dispatcher, /openssl rand -hex 32/);
+  assert.ok(
+    dispatcher.match(/at least 32 characters/g)?.length === 3,
+    "secret generation and both runtime secret entries must state the enforced minimum",
+  );
   assert.match(dispatcher, /wrangler@4\.127\.1 deploy --dry-run/);
   assert.match(
     dispatcher,
