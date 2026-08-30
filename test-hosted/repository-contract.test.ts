@@ -19,8 +19,9 @@ test("the required check uses the dedicated hosted regression lane", () => {
   assert.deepEqual(policy.maintainer.automatedReview.commands, [directCommand]);
   assert.equal(policy.maintainer.differentialTest.command, directCommand);
   assert.equal(manifest.agentVigil.hostedTestCommand, directCommand);
-  assert.match(manifest.scripts.test, /test-hosted\/\*\.test\.ts/);
-  assert.match(manifest.scripts["test:coverage"], /test-hosted\/\*\.test\.ts/);
+  assert.equal(manifest.scripts.test, "node scripts/run_tests.mjs");
+  assert.equal(manifest.scripts["test:hosted"], directCommand);
+  assert.equal(manifest.scripts["test:coverage"], "node scripts/run_tests.mjs --coverage");
   assert.ok(policy.maintainer.protectedPaths.includes("test-hosted/repository-contract.test.ts"));
 });
 

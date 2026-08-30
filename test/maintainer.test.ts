@@ -456,7 +456,7 @@ test("Action candidate isolation uses a private digest-pinned container with min
   chmodSync(docker, 0o500);
 
   const claim = { kind: "tests_pass" as const, quote: "isolated test", subject: "candidate tests" };
-  const verdicts = withEnvironment({
+  const isolatedChecks = withEnvironment({
     AGENT_VIGIL_INTERNAL_ISOLATE_CANDIDATE: "true",
     AGENT_VIGIL_INTERNAL_DOCKER_BIN: realpathSync(docker),
     AGENT_VIGIL_INTERNAL_CANDIDATE_IMAGE: PINNED_CANDIDATE_IMAGE,
@@ -470,10 +470,10 @@ test("Action candidate isolation uses a private digest-pinned container with min
     RUNNER_TEMP: join(root, "runner-temp"),
     GITHUB_WORKSPACE: realpathSync(fixture.repo),
   }, () => [
-    checkTestsPass([claim], fixture.repo, "node --test test.js", undefined, sourceHead, sourceHead)[0].verdict,
-    checkTestsPass([claim], fixture.repo, "node --test test.js", undefined, sourceHead, sourceHead)[0].verdict,
+    checkTestsPass([claim], fixture.repo, "node --test test.js", undefined, sourceHead, sourceHead)[0],
+    checkTestsPass([claim], fixture.repo, "node --test test.js", undefined, sourceHead, sourceHead)[0],
   ]);
-  assert.deepEqual(verdicts, ["verified", "verified"]);
+  assert.deepEqual(isolatedChecks.map((check) => check.verdict), ["verified", "verified"], JSON.stringify(isolatedChecks, null, 2));
 
   writeFileSync(join(fixture.repo, "host-only-secret.txt"), "untracked secret must not cross\n");
   const untracked = withEnvironment({
@@ -798,6 +798,40 @@ test("test harness binding rejects a nested workspace test dispatcher change", (
   assert.equal(result.verdict, "unverifiable");
   assert.equal(result.ruleId, "test-harness-unbound");
   assert.match(result.evidence, /packages\/widget\/package\.json/);
+});
+
+test("test harness binding records the base-owned hermetic image and rejects candidate runner drift", () => {
+  const repo = temp("vigil-harness-hermetic-");
+  git(repo, "init", "-q");
+  git(repo, "config", "user.email", "vigil@example.test");
+  git(repo, "config", "user.name", "Vigil Test");
+  const image = `ghcr.io/example/agent-vigil-runner@sha256:${"a".repeat(64)}`;
+  writeFileSync(join(repo, ".agent-vigil-runner.json"), JSON.stringify({
+    schemaVersion: 1,
+    image,
+    testCommand: "python3 -m pytest -q",
+  }));
+  writeFileSync(join(repo, "feature.py"), "VALUE = 1\n");
+  const base = commit(repo, "base hermetic runner");
+  writeFileSync(join(repo, "feature.py"), "VALUE = 2\n");
+  const head = commit(repo, "candidate source");
+
+  const bound = checkTestHarnessBinding(repo, base, head, ["python3 -m pytest -q"], true);
+  assert.equal(bound.verdict, "verified");
+  assert.equal(bound.ruleId, "test-harness-bound");
+  assert.match(bound.evidence, new RegExp(image));
+  assert.match(bound.evidence, /python3 -m pytest -q/);
+
+  writeFileSync(join(repo, ".agent-vigil-runner.json"), JSON.stringify({
+    schemaVersion: 1,
+    image: `ghcr.io/example/agent-vigil-runner@sha256:${"b".repeat(64)}`,
+    testCommand: "python3 -m pytest -q",
+  }));
+  const driftedHead = commit(repo, "change candidate runner");
+  const drifted = checkTestHarnessBinding(repo, base, driftedHead, ["python3 -m pytest -q"], true);
+  assert.equal(drifted.verdict, "unverifiable");
+  assert.equal(drifted.ruleId, "test-harness-unbound");
+  assert.match(drifted.evidence, /\.agent-vigil-runner\.json/);
 });
 
 test("hosted harness binding rejects symlinked package inputs and repository npm configuration", () => {

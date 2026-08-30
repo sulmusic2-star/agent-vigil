@@ -267,6 +267,7 @@ export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: st
       protectedPaths: [
         ".github/workflows/**",
         ".agent-vigil.json",
+        ".agent-vigil-runner.json",
         "package.json",
         "package-lock.json",
         "npm-shrinkwrap.json",

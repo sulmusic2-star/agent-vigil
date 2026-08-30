@@ -475,7 +475,7 @@ def self_test() -> None:
     changed["npm_registry"]["observed_published_at"] = "2099-01-01T00:00:00Z"
     assert any("later than the state verification" in failure for failure in install_state_failures(package_version, changed))
     changed = json.loads(json.dumps(install_state))
-    changed["npm_registry"]["observed_version"] = package_version
+    changed["npm_registry"]["observed_version"] = install_state["latest_github_release"]["version"]
     assert any("marked unpublished" in failure for failure in install_state_failures(package_version, changed))
 
     release_major, release_minor, release_patch = stable_version_tuple(package_version)

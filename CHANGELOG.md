@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.23.0 - 2026-08-30
+
+- Add a base-owned `.agent-vigil-runner.json` contract so Python, Rust, Go,
+  Java, Ruby, PHP, .NET, pnpm, Yarn, Bun, and Node repositories can select a
+  reviewed candidate image by immutable digest and one bounded direct test
+  command. Custom setup and test-time network access remain disabled.
+- Record the exact hermetic image digest and command in retained harness
+  evidence, protect the runner contract from candidate changes, and reject
+  floating images, shell composition, symlinks, gitlinks, and altered runner
+  configuration.
+- Add a common multi-toolchain runner recipe and a provenance- and SBOM-enabled
+  GHCR publication workflow. The recipe is not a supported runtime until its
+  hosted build succeeds and the immutable digest is published.
+- Replace the thousand-line landing README with a short purpose, five-minute
+  installation path, result semantics, compatibility boundary, and links to
+  advanced controls.
+- Run the test suite under one disposable temporary parent and remove it after
+  completion, preventing accumulated test fixtures from consuming the host
+  filesystem.
+- Include the protected-path false-green correction merged in PR #134: a
+  governed contradiction cannot be overwritten by a candidate green result.
+
 ## 0.22.0 - 2026-08-28
 
 - Let `vigil protect` select and display an immutable reviewed Action commit when

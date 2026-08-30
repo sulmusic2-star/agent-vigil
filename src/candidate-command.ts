@@ -647,13 +647,15 @@ function explicitlyAbsent(docker: string, name: string, env: NodeJS.ProcessEnv):
 
 function isolatedCommand(command: string, cwd: string, timeoutMs: number, options: CandidateCommandOptions): CandidateCommandOutcome {
   const docker = process.env.AGENT_VIGIL_INTERNAL_DOCKER_BIN;
-  const image = process.env.AGENT_VIGIL_INTERNAL_CANDIDATE_IMAGE;
+  const image = process.env.AGENT_VIGIL_INTERNAL_CANDIDATE_IMAGE ?? "";
   const trustedHome = process.env.AGENT_VIGIL_INTERNAL_TEST_HOME;
   if (!docker || !isAbsolute(docker)) {
     return { status: null, signal: null, output: "", error: "candidate isolation requires an absolute trusted Docker binary path" };
   }
-  if (image !== PINNED_CANDIDATE_IMAGE) {
-    return { status: null, signal: null, output: "", error: "candidate isolation image does not match the required immutable Node image digest" };
+  const customRunner = image !== PINNED_CANDIDATE_IMAGE;
+  const immutableImage = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$/;
+  if ((!customRunner && image !== PINNED_CANDIDATE_IMAGE) || (customRunner && !immutableImage.test(image ?? ""))) {
+    return { status: null, signal: null, output: "", error: "candidate isolation image is not the base-selected immutable runner digest" };
   }
   if (!executableIsIntact(docker)) {
     return { status: null, signal: null, output: "", error: "trusted Docker binary changed before candidate command" };

@@ -7,1011 +7,256 @@
 
 **Agent Vigil is a required GitHub check for pull requests made with coding agents.**
 
-It verifies the exact proposed commit with rules and tests selected from the
-base branch. Missing, stale, contradictory, or weakened evidence does not pass.
-Every result names the base and head commits and includes a reproduction
-command.
+It verifies the exact proposed commit with rules and test commands selected from
+the base branch. Missing, stale, contradictory, skipped, neutral, or weakened
+evidence does not pass. Every result names the base and head commits and gives a
+reproduction command.
 
 Agent Vigil does not replace code review and does not claim that passing tests
-make code correct. Review tools look for likely bugs. Agent Vigil answers a
-narrower question: **did this exact change produce the evidence the repository
-requires before merge?**
+make code correct. Review tools find likely bugs. Agent Vigil answers a narrower
+question: **did this exact change produce the evidence the repository requires
+before merge?**
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-## Try it without changing a repository
+## Try the public evidence check
 
 [Paste a public pull-request URL into the browser checker](https://sulmusic2-star.github.io/agent-vigil/check.html).
-No login, token, repository write, or source upload is required. This first
-check reads public GitHub metadata only; it does not run repository tests or
-authorize a merge.
+No login, token, repository write, or source upload is required.
+
+The checker reads public GitHub metadata. It does **not** run repository tests,
+decide whether a workflow is trustworthy, or authorize a merge. After the check,
+it gives the repository owner an exact local command for installing the full
+gate. Nothing is installed or posted by the page.
 
 Outside maintainers may optionally [register a trial](https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml)
 with public evidence and consent.
 
-The full hosted gate currently supports a deliberately narrow setup: a root
-Node/npm repository whose test script resolves to a direct `node --test`
-command. Local transcript adapters understand Codex, Claude Code, Copilot,
-Cursor, Gemini CLI, Aider, and OpenCode exports. Those adapters do not make an
-unsupported repository eligible for the hosted installer.
+## Install the full gate
 
-**Distribution status, verified August 29, 2026:** GitHub release v0.22.0 and
-the Marketplace Action are public. npm currently serves v0.21.1. Use the
-[immutable v0.22.0 GitHub package and five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/7531f549eb3f4c6c5bdc4a12245c8690a7a79a09/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
-until npm reaches release parity.
-
-## Run the proof before installing it
-
-From a checkout, this creates a disposable repository, installs and diagnoses
-the generated checks, and replays the three published historical failures:
+The currently verified public package is the immutable v0.22.0 GitHub artifact:
 
 ```bash
-npm ci
-npm run build
-npm run demo:60s
+curl -fL -o agent-vigil.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz
+mkdir agent-vigil-package
+tar -xzf agent-vigil.tgz -C agent-vigil-package --strip-components=1
+node agent-vigil-package/dist/cli.js protect --repo . \
+  --action-sha 7531f549eb3f4c6c5bdc4a12245c8690a7a79a09
 ```
 
-The command is bounded to 60 seconds and can emit JSON with
-`npm run demo:60s -- --json`. It proves the current checkout can perform that
-setup and replay. The cases are first-party records; the run does not count as
-outside adoption. See [the exact demo boundary](docs/60_SECOND_DEMO.md).
-
-## See what ran and what did not
-
-An agent can say a fix is done after running the wrong command, changing files
-outside the task, or adding a test that also passes on the old code. Agent Vigil
-checks the proposed commit against rules recorded when the task started. The
-result says `PASS`, `FAIL`, or `INCONCLUSIVE` and includes the command needed to
-run the check again.
+Review the four generated files, commit them in a setup pull request, and run:
 
 ```bash
-vigil mandate assess mandate.json \
-  --receipt trust-report.json \
-  --verifier-key verifier.pem \
-  --requester-public-key requester.pub.pem \
-  --attempts 1 \
-  --output outcome-receipt.json
+node agent-vigil-package/dist/cli.js doctor --repo .
 ```
 
-The same check can write a signed record for a task system to read. The current
-release only writes dry-run messages. It does not hold or move money and does
-not contact an agent or payment network. See
-[acceptance checks for agent work](docs/OUTCOME_MANDATES.md).
+The setup PR starts the check. To make it an enforceable trust boundary, require
+an externally controlled exact-head check or GitHub App. A required job name
+alone does not prove who supplied the workflow.
 
-## No-workflow-change PR receipt
+[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/7531f549eb3f4c6c5bdc4a12245c8690a7a79a09/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
-Use the [public PR evidence desk](https://sulmusic2-star.github.io/agent-vigil/check.html)
-to inspect a public pull request in the browser without an account, token,
-repository write, or source upload. The static page talks directly to the public
-GitHub API and can download the same normalized unsigned receipt used by the CLI.
+**Distribution status, verified August 30, 2026:** GitHub release v0.22.0 and
+the Marketplace Action are public. npm currently serves v0.21.1. Do not use an
+npm command as proof of v0.22.0 until the registry reaches release parity.
 
-Paste a public GitHub pull-request URL to receive a normalized, optionally
-signed lifecycle receipt without opening a pull request, installing a GitHub
-Action, or changing the target repository:
+## What a result means
 
-```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt \
-  https://github.com/OWNER/REPOSITORY/pull/123 \
-  --tool-ref <reviewed-full-Agent-Vigil-commit> \
-  --signing-key operator-private.pem \
-  --output pr-123.receipt.json
+- **PASS** — the exact head commit met every base-owned requirement that could
+  authorize this check.
+- **FAIL** — at least one required claim was contradicted.
+- **INCONCLUSIVE** — required evidence was missing, stale, incomplete, or could
+  not be verified safely.
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz pr-receipt verify pr-123.receipt.json
-```
-
-The command makes read-only requests to `api.github.com` for pull-request,
-review, check-run, and commit-status metadata. It does not request source code,
-send request bodies, or retain prompts, transcripts, logs, review text, or the
-GitHub token. The target repository grants no permission and receives no
-workflow commit.
-
-`CURRENT`, `HOLD`, `EXPIRED`, and `REVOKED` describe the selected public
-evidence at the observation time. The receipt always says that a protected
-action is **not authorized**: observing that checks ran is not proof that those
-checks were sufficient. See the precise
-[public PR receipt boundary](docs/PUBLIC_PR_RECEIPT.md).
-Self-serve trial reports have a dedicated
-[public receipt feedback form](https://github.com/sulmusic2-star/agent-vigil/issues/new?template=public-pr-receipt-feedback.yml).
-The current [14-day adoption experiment](https://github.com/sulmusic2-star/agent-vigil/blob/f30b5b53630c1cc5a46f4781e24cd7ac9af4fdba/docs/ADOPTION_EXPERIMENT_2026-08-28.md)
-counts external workflows and maintainer evidence separately from page views,
-clones, mentions, payments, and revenue.
-
-Agent Vigil checks an exact code change against the task, policy, tests, and
-recorded tool actions behind it. It returns **PASS**, **FAIL**, or
-**INCONCLUSIVE**. Missing evidence never becomes a green check.
-
-The verifier runs locally or through the generated hosted lane. Local commands
-run with the operator process's host privileges; a detached worktree is not a
-sandbox. The hosted lane uses a base-selected `pull_request_target` workflow and
-runs candidate setup and tests in credential-free Linux Docker. It does not use
-another model to judge the work. Maintainers can use PR evidence without
-sharing an agent transcript or making a human-review declaration. A trusted
-base policy runs repeatable checks, enforces change limits, and can prove that a
-regression test fails on old code and passes on proposed code. A test that
-passes on both sides is not proof of a fix.
-
-Raw agent transcripts do not need to be committed to a pull request. The
-portable-receipt lane reduces a local result to signed hashes, repository and
-policy identity, summary counts, and a signer key ID. CI verifies the signer
-against policy from the base branch and independently re-runs the trusted test
-command in the clean checkout.
-
-The `vigil plan` command compares two exact Git revisions and
-shows semantic expansions and contractions in repository-declared MCP, Claude
-Code, and Codex authority:
-
-```bash
-vigil plan --base origin/main --head HEAD
-```
-
-It uses control-specific partial orders rather than a security score. New MCP
-servers, pre-authorized tools, writable roots, network reach, credential reach,
-hooks, removed denies, and weaker sandbox or approval boundaries block.
-Unsupported or incomparable changes return `HOLD`. The current scope does not
-claim live tools, managed settings, runtime behavior, provider-side grants, or
-effective credentials. See the [Agent Authority Plan contract](docs/AUTHORITY_PLAN.md).
-
-`vigil proof-comment` turns an intact full receipt into one deterministic,
-aggregate-only pull-request comment with a stable update marker. It reports the
-exact change and measured evidence counts without copying raw evidence,
-commands, paths, transcripts, or test output. See the
-[proof-comment contract](docs/PROOF_COMMENT.md).
-
-`vigil compare` checks two full receipts. It fails on weakened
-policy, tampered content, lost signer continuity, new contradictions, and
-disappearing invariant checks. It reports new advisories separately instead of
-silently turning them into blockers.
-
-A short-lived authority contract can
-declare allowed change paths and action classes before work starts. Agent Vigil
-then compares that base-anchored contract with the exact Git result and observed
-tool trajectory. An unauthorized push, release, deployment, external write,
-dependency installation, destructive command, or task creation is a FAIL;
-ambiguous or incomplete action evidence is INCONCLUSIVE.
-
-`vigil value` binds a valid receipt to
-observed Codex or Claude Code usage, attributed cost and budget, maintainer
-disposition, review duration, and downstream outcome. The resulting Agent Value
-Card is `POSITIVE`, `NEGATIVE`, or `INCONCLUSIVE` and can be rendered as a
-private standalone HTML file. See the
-[Agent Value Card contract](docs/AGENT_VALUE_CARD.md) and the clearly labeled
-[synthetic HTML demonstration](docs/assets/agent-value-card-demo.html).
-
-Agent Vigil also includes a normalized
-[GitHub outcome-evidence bundle](docs/GITHUB_OUTCOME_EVIDENCE.md), completed-run
-retention of Value Cards, exact repeated-action and spend-without-observed-
-progress controls, and
-[task-matched local comparisons](docs/VALUE_COMPARISONS.md) with sample gates
-and 95% Wilson intervals.
-[Open the clearly labeled synthetic comparison rendering](docs/assets/agent-value-comparison-demo.html).
-
-The CLI can prepare and verify the legacy full-receipt GitHub/Sigstore
-predicate. Candidate-executing generated workflows cannot sign receipts in
-v0.22.0. Signing authority must live in a separately controlled job that never
-executes candidate code. Scheduled Control Proof signing remains separate and
-uses only planted non-candidate challenges. See
-[attestation boundaries](docs/ATTESTED_RECEIPTS.md).
-
-Version 0.13 adds **Agent Upgrade Guard**, a local behavioral
-preflight for already-materialized coding-agent plugin, skill, MCP, hook, or
-configuration bundle updates. It compares exact current and candidate artifact
-trees with repeated private canaries inside a digest-pinned, network-disabled,
-read-only Docker runner after rejecting endpoints that are not Unix sockets or
-Windows named pipes. Each trial has an unpredictable container name; after
-completion or timeout, the exact name must be verified absent. The result is
-`SAFE`, `CHANGED`, or `HOLD`; `SAFE` means only that these exact canaries
-detected no material change under the recorded runner. The default template
-deliberately cannot earn `SAFE`.
-
-Upgrade Guard can write a private nonce-bound receipt and, only when explicitly
-requested with an Ed25519 key, a privacy-minimized public compatibility entry.
-Private canary labels become receipt-specific nonce-blinded pseudonyms unless
-the operator supplies an explicit public label. The selected Docker client,
-daemon, and local transport remain trusted: a local socket can proxy a remote
-daemon. One check pins its selected endpoint across Docker calls and compares
-the configuration at entry and after trials, but these bounded checks do not
-prove physical daemon locality or continuous immutability against same-host ABA
-or privileged races. Private and public v1 evidence records the successful
-local-transport binding as a boolean without disclosing the endpoint path.
-It does not install an update, upload evidence, modify the GitHub Action, or
-claim live model/provider behavior. See the precise
-[Upgrade Guard contract](docs/UPGRADE_GUARD.md).
-
-From a reviewed source checkout, the release candidate adds the protection profile:
-
-```bash
-node dist/cli.js protect
-```
-
-`protect` inspects the repository, chooses the immutable reviewed public Action
-commit, prepares a base-selected exact-SHA
-pull-request workflow, anchors policy to the base commit, and prepares a
-completed-run outcome snapshot. Existing files are kept unless `--force` is
-explicit. Generated hosted execution supports plain repositories and root
-Node/npm repositories with a bounded direct `node --test` command; unsupported
-hosted shapes fail closed. The generated policy uses the calibrated Test
-Integrity Guard: direct test weakening blocks, while broader static suspicions
-remain visible advisories.
-
-The guard can also be run by itself:
-
-```bash
-vigil test-integrity --base <base-sha> --head <head-sha>
-```
-
-It blocks new focused or skipped tests, verification bypasses, lowered coverage
-gates, reduced test counts, empty tests, discarded or unreachable assertions,
-new pytest collection exclusions, constant/self-equal assertions, and hidden
-Unicode controls. Distinctive returns that match unchanged test expectations,
-lookalike dependency names, out-of-base-history reads, mixed-script identifiers,
-browser-side runtime patching, new coverage exclusions, relaxed assertions, and
-self-fulfilling mocks remain reviewable advisories unless a repository deliberately
-chooses full blocking mode. The default check stays offline and never executes
-candidate source as detector input. See the
-[full rule and limit description](docs/TEST_INTEGRITY_GUARD.md).
-
-Version 0.14 adds **Agent Authority Plan**:
-
-```bash
-vigil plan --base origin/main --head HEAD
-```
-
-It compares repository-owned MCP, Cursor, VS Code, Claude Code, and Codex configuration at the
-exact base and head commits. New servers, hosts, tool grants, secret references,
-writable paths, hooks, weaker approval or sandbox settings, and mutable model
-aliases block by default. Unknown changed settings return `INCONCLUSIVE`.
-Exceptions are exact and must already exist in the base revision, so a
-candidate cannot approve its own new authority. The `protect` workflow includes
-the same check in pull-request evidence. See
-[Agent Authority Plan](docs/AUTHORITY_PLAN.md).
-
-You can challenge the installed controls before relying on them:
-
-```bash
-vigil prove --repo . --base HEAD
-```
-
-`prove` makes a disposable local clone and plants safe examples of an
-unapproved MCP server, candidate self-approval, an unreadable authority file,
-a weaker sandbox, and a skipped test. It returns `PASS` only when every planted
-case produces the expected result and the temporary clone is removed. It does
-not change or push the source repository. See [Control Proof](docs/CONTROL_PROOF.md).
-
-To check one installed Claude Code or Codex control process with harmless
-markers, run:
-
-```bash
-vigil guard-compat \
-  --host codex \
-  --host-version <exact-version> \
-  --host-executable <codex-path> \
-  --control-name <name> \
-  --control-version <version> \
-  --control-executable <direct-executable> \
-  --policy <policy-file> \
-  --configuration <host-hook-configuration> \
-  --output guard-compatibility.json
-```
-
-When the direct process check passes, run the separate real-host drill in a
-marked disposable Claude Code or Codex profile:
-
-```bash
-vigil guard-route \
-  --host codex \
-  --host-version 0.149.1 \
-  --host-executable /exact/path/to/codex \
-  --profile-home /exact/path/to/disposable-codex-profile \
-  --output codex-live-route.json
-```
-
-The live drill permits only two harmless `printf` calls in an empty temporary
-workspace. One host passing cannot stand in for the other, and deployment stays
-on `HOLD`. See [the live-host route contract](docs/LIVE_HOST_ROUTE.md).
-
-After both host receipts pass, join them to the sticky continuity rule:
-
-```bash
-vigil continuity guard-demo \
-  --claude-route claude-live-route.json \
-  --codex-route codex-live-route.json \
-  --output guarded-host-continuity.json
-```
-
-The local demonstration reaches `CURRENT`, applies a clearly labeled controlled
-failure, stays `REVOKED` after a later green route, and returns to `CURRENT`
-only after independent signed repair. It does not claim a real host incident or
-deployment. See [Guarded-host continuity](docs/GUARD_CONTINUITY.md).
-
-The check sends one printable allow marker and one printable deny marker in the
-host's `PreToolUse` format. It records five explicit outcomes and binds the
-receipt to the selected host and control files, policy, configuration,
-arguments, and operating system. A process `PASS` still leaves deployment on
-`HOLD` because the command does not prove that a live host routed a real tool
-call through the control. See [Guard Compatibility](docs/GUARD_COMPATIBILITY.md).
-
-Install a scheduled, keyless GitHub proof with one command:
-
-```bash
-vigil certify install-action --repo . --action-ref <reviewed-full-Agent-Vigil-commit>
-```
-
-The generated workflow pins Agent Vigil and its supporting Actions to full
-commits and runs from the default branch every Monday. Its first job creates an
-unsigned proof and privacy-reduced predicate without OIDC. A separate job with
-no repository checkout accepts only that bounded two-file artifact, validates
-the proof-to-predicate binding, and then uses GitHub OIDC to sign the exact
-proof. The proof plus attestation bundle is retained for 90 days. There is no
-manual, pull-request, or candidate-selected trigger and no repository signing
-secret or long-lived signing key. Verification binds the proof file, its
-content hash, exact source commit, repository, signer workflow, and optional
-signer-workflow commit.
-
-Retain those results in a chained corpus and answer whether every policy-listed
-repository has passed its required challenges within seven days:
-
-```bash
-vigil certify record control-proof.json --organization acme --repository acme/api --required-check "Agent Vigil evidence" --output certificate.json
-vigil certify add certificate.json --corpus control-corpus.jsonl
-vigil certify policy --organization acme --repository acme/api --required-check "Agent Vigil evidence" --pack authority --output control-policy.json
-vigil certify status --corpus control-corpus.jsonl --policy control-policy.json
-```
-
-Controls that can produce the public signed challenge format can join the same
-corpus without an Agent Vigil-specific adapter:
-
-```bash
-vigil certify sign proof-payload.json --private-key provider-private.pem --output signed-proof.json
-vigil certify record-signed signed-proof.json --public-key provider-public.pem --organization acme --repository acme/api --required-check "Required AI control" --output signed-certificate.json
-vigil certify add signed-certificate.json --corpus control-corpus.jsonl
-```
-
-The V2 control identity includes the exact Ed25519 key ID. Put that full value,
-`vendor/product@sha256:...`, in the policy's `allowedControls` list. Replacing a
-self-asserted key therefore produces a different identity and a `HOLD`. The
-signature proves file integrity and signer possession; it does not establish
-that a proprietary detector's underlying evidence is true. A policy entry
-declares that a check is required; it does not prove that GitHub branch
-protection currently enforces that requirement.
-
-The design is tied to a dated ledger of
-[50 primary user reports](docs/research/2026-08-23-user-pain-ledger.md) covering
-false completion, test manipulation, loops and cost, environment drift,
-permissions, review state, and outcome evidence. A report proves that a user
-described the problem; it does not establish the root cause or prevalence. The
-[competitive position](docs/research/2026-08-23-competitive-position.md)
-records direct overlaps and the narrower evidence-chain product boundary.
+A short result looks like this:
 
 ```text
-  ✗ [test-count] 99 tests
-      evidence: claim says 99 tests; runner reported 42
-
-  ✗ [file-changed] src/ghost/phantom.ts
-      evidence: claimed as changed but does not exist
-
-  ✓ [integrity-scan] no obvious verification weakening
-
-  FAIL · sha256:c3128a2c6abc5f...
+Agent Vigil: FAIL
+Base: 08d6e10...  Head: 4e0b9ca...
+The agent reported 184 passing tests. The isolated run observed 161,
+including 3 skipped tests added by this change.
+Reproduce: vigil verify --base 08d6e10... --head 4e0b9ca...
 ```
 
-## The contract
-
-| Status | Meaning | Exit |
-|---|---|---:|
-| **PASS** | The minimum objective evidence exists and no check contradicted the narrative. | `0` |
-| **FAIL** | Repository or transcript evidence contradicts at least one claim. | `1` |
-| **INCONCLUSIVE** | Evidence is absent, unparseable, or below policy. | `2` |
-
-An empty transcript is **INCONCLUSIVE**. A clean diff alone cannot earn PASS.
-If an agent claims 99 tests passed and the runner reports 42, the result is
-**FAIL** even though the command exited zero.
-
-## Two-minute setup
-
-For release-candidate validation from a reviewed source checkout, use the built CLI. This is not a public installation path:
-
-```bash
-node dist/cli.js protect
-```
-
-`protect` prepares the policy, pull-request template, and two exact-pin
-workflows, then runs a disposable proof rehearsal. It reports `PREPARED — not
-active yet` until those files are reviewed, committed, merged, and the exact-head
-check is required. Existing files are kept unless `--force` is explicit.
-
-The evidence workflow is base-selected through `pull_request_target`. It loads
-policy from the pull-request base, checks out the exact head without persisted
-credentials, and runs candidate setup and tests only in the credential-free
-Linux Docker lane. The generated hosted lane supports plain repositories and
-root Node/npm repositories with one bounded direct `node --test` command.
-Other ecosystems fail closed; use the broader local CLI with the understanding
-that local commands are host execution, not sandboxing.
-
-Candidate receipt attestation is disabled: `init --attest` and
-`protect --attest` fail closed. Keyless signing remains available only to the
-separate Control Proof workflow, which executes planted non-candidate
-challenges. See [attestation boundaries](docs/ATTESTED_RECEIPTS.md).
-
-The generated pull-request evidence is not enforceable by requiring its job
-name alone. GitHub's plain status-check selection does not bind workflow and
-event identity. Use an external required-workflow ruleset or GitHub App
-exact-head check, including for merge queues. See the
-[hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md).
-
-Maintainer profile:
-
-```bash
-node dist/cli.js init --profile maintainer --action-sha <reviewed-full-commit>
-```
-
-This creates base-anchored file, line, test, and protected-path limits; an
-isolated base-fail/head-pass differential test; and an automated review policy
-that reruns trusted commands against the exact candidate commit. The workflow
-retains the JSON receipt as a 30-day GitHub artifact. It does not ask anyone to
-check a box claiming they reviewed or understand the code. Review the generated
-commands and limits before merging the setup.
-
-Authority profile:
-
-```bash
-node dist/cli.js init --profile authority --action-sha <reviewed-full-commit>
-```
-
-Review the generated task ID, expiry, paths, and action classes, then merge the
-contract before the code change. See [task-scoped authority reconciliation](docs/AUTHORITY_RECONCILIATION.md).
-
-See the [two-minute installation page](https://sulmusic2-star.github.io/agent-vigil/)
-and the [three-case public failure corpus](proof/README.md). The corpus records
-failures found while using Agent Vigil on its own releases. Each record includes
-exact revisions, corrections, negative controls, and limits. These records are
-kept separate from external-adoption totals.
+The retained receipt contains the exact SHAs, policy identity, commands,
+changed-file manifest, claimed and observed test counts, integrity findings,
+unresolved claims, and remediation steps. Raw transcripts do not need to be
+committed.
 
 ## What it checks
 
-- Claimed test success against a fresh test execution.
-- Claimed test counts across 18 output families: Node/TAP, Jest, Vitest, pytest, Cargo, Go JSON, Maven, Gradle, RSpec, PHPUnit, .NET, Mocha, Bun, AVA, Playwright, Cypress, and Minitest.
-- Claimed file changes against an explicit `base..head` range.
-- Referenced paths without allowing traversal outside the repository.
-- “I ran X” claims against a single matching Claude Code or Codex tool call.
-- Three or more identical consecutive tool calls.
-- Test-file deletion, shrinking test surfaces, new `.skip` / `.only`, assertion
-  loss or relaxation, compiler suppressions, verification bypasses, zeroed
-  coverage gates, swallowed errors, discarded exception context, dead branches,
-  stale refactor callers, self-fulfilling mocks, and behaviorally empty edits.
-- Completion claims against objective evidence and unfinished-work markers.
-- Exact-commit receipts against Git-visible workspace state; unbound files make
-  the result INCONCLUSIVE instead of letting tests prove a different tree.
-- Malformed or unknown JSON/JSONL fails loudly instead of silently selecting the wrong adapter.
-- Semantically identical structured tool calls are normalized before loop detection.
-- Either explicit human declarations or isolated automated review commands,
-  selected by the trusted base policy; plus AI-assistance disclosure and
-  linked-issue syntax without pretending automated evidence proves
-  understanding or issue approval.
-- Base-anchored changed-file, changed-line, test-path, and protected-path policy.
-- Isolated differential verification: overlay the candidate's changed test
-  artifacts onto base source, require the command to fail there, and require it
-  to pass on the candidate. Optional setup, timeout, and expected base-failure
-  pattern are controlled by policy from the base commit.
-- Base-anchored task authority: exact changed-path allow/deny rules, short-lived
-  validity, observed action classification, and terminal tool-result
-  evidence across supported transcript adapters.
-- Exact-base/exact-head authority planning for repository-owned MCP, Claude
-  Code, and Codex settings, with value-bound base-policy exceptions and
-  fail-closed handling for unknown changed fields.
+The protection profile can require:
 
-Every run can emit a compact JSON receipt, Markdown, SARIF 2.1.0, and a GitHub
-Step Summary. The receipt has a deterministic SHA-256 content identifier. It is
-**not a cryptographic signature**; see the [threat model](docs/THREAT_MODEL.md).
+- exact base and head commit identity;
+- base-owned policy and workflow bytes;
+- fresh tests in a credential-free Docker sandbox;
+- claimed versus observed test counts kept as separate facts;
+- no new skips, focused tests, weakened assertions, patched runtimes, or
+  suppressed failures;
+- a regression test that fails on the base and passes on the head;
+- changed-path and changed-line limits;
+- no edits to protected policy, workflow, or verifier paths;
+- no missing evidence disguised as a green result.
 
-Static integrity rules are **advisory by default** because calibration on 232
-presumed-clean merged PRs produced findings on 99 PRs. Those findings remain
-receipt-bound and appear as SARIF warnings, but they do not silently turn a
-useful evidence check into a noisy merge blocker. Teams that have calibrated
-the rules for their repositories can opt into blocking mode:
+Candidate setup may use network access only when the base policy selects a
+bounded dependency command. Test execution is networkless, read-only, drops
+capabilities, receives no repository token, and runs in a private exact-commit
+clone. See the [hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md).
 
-```json
-{
-  "schemaVersion": 1,
-  "integrityMode": "blocking"
-}
-```
+## Current hosted compatibility
 
-Missing inputs, malformed diffs, mismatched Git identity, failed fresh tests,
-and verified narrative contradictions still fail closed.
+The v0.22.0 generated workflow supports a plain Git repository or a root
+Node/npm repository whose selected test command is a bounded direct
+`node --test` command. A root npm lock can select
+`npm ci --ignore-scripts` for setup.
 
-## Keep the raw transcript out of Git and CI
+Python, Rust, Go, Java, Ruby, PHP, .NET, pnpm, Yarn, Bun, nested-only npm,
+custom registry configuration, and arbitrary package scripts remain local-only
+in v0.22.0. The local CLI can parse and verify many of those result formats.
+Those adapters do not make an unsupported repository eligible for the hosted installer.
 
-The optional portable-receipt gate separates private local reconciliation from
-independent CI verification:
+The next source release adds an explicit hermetic-runner path for those
+toolchains. It is opt-in because the image becomes part of the trusted base:
 
 ```bash
-vigil keygen --private ~/.config/agent-vigil/operator.pem \
-  --public ~/.config/agent-vigil/operator.pub
-
-vigil /private/path/session.jsonl \
-  --repo . --base "$BASE_SHA" --head "$(git rev-parse HEAD)" \
-  --policy .agent-vigil.json --policy-ref "$BASE_SHA" \
-  --signing-key ~/.config/agent-vigil/operator.pem \
-  --portable-output .agent-vigil/receipt.json --strict
-
-git add .agent-vigil/receipt.json
-git commit -m "chore: attach Agent Vigil receipt"
+node dist/cli.js protect --repo . \
+  --runner-image ghcr.io/your-org/agent-vigil-runner@sha256:<64-hex-digest> \
+  --test-cmd "python3 -m pytest -q"
 ```
 
-The base-branch policy pins the signer and receipt path:
+The image must be selected in the base commit, pinned by digest, contain the
+standard Node runtime used by the sandbox wrapper, and include every dependency
+needed by the test command. Custom setup and test-time network access stay
+disabled. The receipt records the exact image digest and command. Agent Vigil
+rejects a pull request that changes `.agent-vigil-runner.json`.
 
-```json
-{
-  "schemaVersion": 1,
-  "testCommand": "npm test --silent",
-  "strict": true,
-  "minVerified": 1,
-  "portableReceipt": ".agent-vigil/receipt.json",
-  "trustedSignerKeyIds": ["sha256:<key-id-printed-by-vigil-keygen>"]
-}
-```
+The repository contains a common multi-toolchain image recipe and a provenance-
+enabled GHCR publication workflow. That recipe is source until its first hosted
+build succeeds and an immutable public digest is recorded; no floating tag is a
+supported trust input.
 
-Use `receipt:` instead of `transcript:` in the Action. Agent Vigil permits the
-signed code commit to equal the PR head, or to be followed only by changes to
-the base-policy-controlled receipt path. Any later source change invalidates
-the receipt. See the [operator guide](docs/PRIVATE_RECEIPT_GATE.md).
+This boundary is deliberate: running candidate code on the GitHub host would
+be broader compatibility at the cost of the security property the gate exists
+to provide. The compatibility table records tested support without treating
+parser support as hosted isolation support.
 
-## Run locally
+[Compatibility table and real-toolchain lab](docs/COMPATIBILITY.md)
 
-Node 20 or newer is required. Run the public npm package without installing it
-globally:
+## Run it from source
 
 ```bash
-npx --yes @sulmusic/agent-vigil@0.21.1 --help
-```
-
-Or work from source:
-
-```bash
-git clone https://github.com/sulmusic2-star/agent-vigil
+git clone https://github.com/sulmusic2-star/agent-vigil.git
 cd agent-vigil
 npm ci
+npm run typecheck
 npm run build
-
-node dist/cli.js /path/to/session.jsonl \
-  --repo /path/to/repo \
-  --base origin/main \
-  --head HEAD \
-  --strict
+npm test
+npm run test:package
+node dist/cli.js protect --repo .
 ```
 
-This local command executes any selected setup, test, or review command with
-the current process's host privileges. The Git checkout binding is not a
-process, filesystem, credential, descendant-process, or network sandbox.
-
-Try three planted failures without configuring a project:
+The 60-second demo builds a disposable repository, installs the generated gate,
+and replays three published first-party failure cases:
 
 ```bash
-node dist/cli.js demo
+npm run demo:60s
 ```
 
-The demo catches a fabricated test count, a nonexistent changed file, and an
-identical three-call tool loop. It exits zero only when all three planted
-contradictions are caught.
-
-Agent Vigil automatically recognizes exported Claude Code JSONL, Codex rollout
-JSONL, Cursor stream JSON, Gemini CLI stream JSON, GitHub Copilot CLI event
-logs, OpenCode JSON exports, Aider chat history, and Markdown/plain-text
-summaries. Transcript contents stay local.
-
-Audit a diff without checking out or executing the candidate repository:
-
-```bash
-git diff origin/main...HEAD > change.diff
-vigil audit change.diff                 # findings are receipt-bound advisories
-vigil audit change.diff --strict        # findings block with FAIL
-```
-
-Malformed input remains INCONCLUSIVE in either mode.
-
-Compare two receipt revisions without trusting either narrative:
-
-```bash
-vigil compare before-receipt.json after-receipt.json
-vigil compare before-receipt.json after-receipt.json --format json --output receipt-delta.json
-```
-
-The delta is PASS only for related Git ranges under the same policy with no
-evidence regression. Policy changes or unrelated ranges are INCONCLUSIVE;
-tampering, weaker policy, lost signatures, new contradictions, and lost
-invariant controls are FAIL. See [the receipt-delta contract](docs/RECEIPT_DELTAS.md).
-
-Create a local Agent Value Card without uploading the transcript or billing
-artifact:
-
-```bash
-vigil value agent-vigil-report.json \
-  --transcript /private/path/session.jsonl \
-  --cost-usd 1.25 --cost-source provider-billed \
-  --cost-evidence /private/path/provider-export.csv \
-  --budget-usd 2.00 --review-minutes 7 \
-  --disposition accepted --review-evidence /private/path/review.json \
-  --outcome merged --outcome-evidence /private/path/merge.json \
-  --format html --output agent-value-card.html
-```
-
-The command exits `0` only for positive value evidence, `1` for negative value
-evidence, and `2` when evidence is incomplete or an input is invalid. Token
-counts never become a fabricated dollar estimate; cost requires explicit
-provenance. `POSITIVE` also requires hashed cost evidence plus hashed evidence
-for an accepted disposition or merged outcome. A hash proves artifact identity,
-not that the artifact's contents are correct.
-
-Normalize official GitHub evidence, then compare retained cards without a
-hosted account:
-
-```bash
-vigil github-evidence --event event.json \
-  --pull-request pull.json --reviews reviews.json \
-  --actions-run run.json --actions-jobs jobs.json \
-  --output agent-vigil-github-evidence.json
-
-vigil compare-value cards/*.json \
-  --format html --output agent-value-comparison.html
-```
-
-GitHub evidence records PR lifecycle, latest reviewer states, review-comment
-count, merge state, explicit revert/hotfix/incident markers, and final
-Actions elapsed time. It does not infer incidents from prose or convert runner
-minutes into fabricated billed USD.
+That proves the checked-out code can replay those cases. It does not count as
+outside adoption.
 
 ## GitHub Action
 
-Generate the workflow with `init` or `protect` and an independently reviewed
-Agent Vigil commit. Do not replace its immutable references with tags. The
-trust-critical shape is:
+Pin the Action to a reviewed 40-character commit SHA:
 
 ```yaml
-on:
-  pull_request_target:
-    types: [opened, synchronize, reopened, edited]
-
-permissions:
-  contents: read
-  pull-requests: read
-
-steps:
-  - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-    with:
-      node-version: 22.23.2
-      package-manager-cache: false
-
-  - uses: actions/checkout@<reviewed-full-checkout-commit>
-    with:
-      fetch-depth: 0
-      ref: ${{ github.event.pull_request.head.sha }}
-      persist-credentials: false
-      allow-unsafe-pr-checkout: true
-
-  - uses: sulmusic2-star/agent-vigil@<reviewed-full-commit>
-    with:
-      transcript: .agent-vigil/session.md
-      policy: .agent-vigil.json
-      policy-ref: ${{ github.event.pull_request.base.sha }}
-      repo: .
-      base: ${{ github.event.pull_request.base.sha }}
-      head: ${{ github.event.pull_request.head.sha }}
-      isolate-candidate: true
+- uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+  with:
+    node-version: 22.23.2
+    package-manager-cache: false
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  with:
+    fetch-depth: 0
+    persist-credentials: false
+- id: vigil
+  uses: sulmusic2-star/agent-vigil@7531f549eb3f4c6c5bdc4a12245c8690a7a79a09
+  with:
+    mode: maintainer
+    policy: .agent-vigil.json
+    policy-ref: ${{ github.event.pull_request.base.sha }}
+    base: ${{ github.event.pull_request.base.sha }}
+    head: ${{ github.event.pull_request.head.sha }}
+    isolate-candidate: true
 ```
 
-The exact Node setup must be the first executable step in a fresh hosted job:
-do not run untrusted code before it or carry forward a surviving untrusted
-process. Agent Vigil accepts only the exact `22.23.2` setup-node toolcache bytes
-documented in the [hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md);
-it has no ambient or system Node fallback. The exact generated file also pins
-the artifact upload Action. It validates the immutable event snapshot, verifies
-the Action is outside the candidate workspace, and creates a private
-exact-commit clone. A root npm repository may run base-owned
-`npm ci --ignore-scripts` with network during setup. Candidate tests use a
-read-only source mount with no network. The job passes no GitHub token, OIDC
-authority, signing permission, or write permission to candidate verification.
+`setup-node` is the first executable step in a fresh hosted job; do not run untrusted code before it or carry forward a surviving untrusted
+process. The
+generated workflow applies the full [hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md).
 
-The generated maintainer profile uses `reviewMode: "automated"`. Its setup and
-review commands come from the base commit, run in the candidate-only Docker
-boundary against the exact SHA, and fail on command failure, timeout, mutation,
-or identity drift. Agent Vigil never executes PR body text. Repositories that
-need named human declarations can set `reviewMode: "human"` instead.
+Do not use a floating tag for a required control. The generated workflow pins
+checkout, setup, upload, and Agent Vigil itself.
 
-```json
-{
-  "maintainer": {
-    "reviewMode": "automated",
-    "requireHumanAttestation": false,
-    "automatedReview": {
-      "setupCommand": "npm ci --ignore-scripts",
-      "commands": ["npm test --silent"],
-      "timeoutSeconds": 300
-    }
-  }
-}
-```
+For merge queues, the required check must also handle GitHub's `merge_group`
+event. The repository-owned example is useful for testing Agent Vigil itself, but safe
+organization-wide enforcement still requires an externally controlled workflow
+or App-owned check. See [merge-queue handling](docs/MERGE_QUEUES.md).
 
-Automated review is reproducible technical evidence. It is not a statement that
-a person understands the change, and it cannot replace legal, product, or
-security approval when those decisions actually require a person.
+## Public PR receipts
 
-Authority mode adds these base-anchored inputs to transcript mode:
-
-```yaml
-      transcript: agent-session.jsonl
-      authority-contract: .agent-vigil-authority.json
-      authority-contract-ref: ${{ github.event.pull_request.base.sha }}
-```
-
-The Action runs the compiled verifier checked into this repository; it does not
-depend on an npm package being available. It writes `agent-vigil-report.json`,
-`agent-vigil.sarif`, `agent-vigil-github-evidence.json`,
-`agent-vigil-value-card.json`, and a readable job summary. The composite outputs
-expose `status`, `receipt-hash`, `report`, `sarif`, `github-evidence`, and
-`value-card`; `value-verdict` exposes `POSITIVE`, `NEGATIVE`, or `INCONCLUSIVE`.
-Candidate receipt attestation is disabled. Control Proof attestation is a
-separate non-candidate mode.
-
-`init` also prepares a read-only outcome workflow. It handles only the completed
-evidence `workflow_run`, downloads that exact run's receipt, and records the
-Actions and pull-request state visible then without executing candidate code.
-It does not claim later close, merge, revert, incident, payment, or revenue
-observation.
-
-A plain required status check does not bind the job name to this workflow and
-event. An enforceable control needs an external required-workflow ruleset or
-GitHub App exact-head check. Repository-owned `merge_group` generation is
-disabled; an external trust source must cover merge queues. Read the
-[hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md),
-[merge-queue boundary](docs/MERGE_QUEUES.md), and
-[SECURITY.md](SECURITY.md).
-
-## Continuity after the first green check
-
-`vigil continuity` keeps the original result and records what happens later.
-A verified merge can make the change `CURRENT`. A revert or explicitly linked
-incident can make it `REVOKED`. A later ordinary green check cannot erase that
-revocation; independent signed repair evidence can close it. Only `CURRENT`
-permits a protected action.
-
-To see that behavior without supplying a repository, key, or webhook, fork this
-repository and manually run **Agent Vigil continuity lab** in GitHub Actions.
-The revert deployment job is skipped; the independently repaired job runs. The
-lab uses synthetic evidence and never deploys software. See the
-[`Continuity Lab`](docs/CONTINUITY_LAB.md) for the exact expected result.
+The browser and CLI can record the public lifecycle evidence for a pull request:
 
 ```bash
-vigil continuity demo
-vigil continuity guard-demo \
-  --claude-route claude-live-route.json \
-  --codex-route codex-live-route.json
-vigil continuity init agent-vigil-report.json --output .agent-vigil/continuity
-vigil continuity import-github \
-  --chain .agent-vigil/continuity \
-  --event webhook-body.json \
-  --delivery-id <github-delivery-uuid> \
-  --webhook-signature <github-sha256-signature> \
-  --webhook-secret-file webhook-secret.txt
-vigil continuity import-github-actions \
-  --chain .agent-vigil/continuity \
-  --signing-key "$RUNNER_TEMP/outcome-recorder.pem"
-vigil continuity status \
-  --chain .agent-vigil/continuity \
-  --policy .agent-vigil-continuity.json \
-  --repo . \
-  --policy-ref <base-commit-sha> \
-  --expected-head <reviewed-head-sha> \
-  --environment production
-vigil continuity staple \
-  --chain .agent-vigil/continuity \
-  --policy .agent-vigil-continuity.json \
-  --environment production \
-  --signing-key continuity-authority-private.pem \
-  --output continuity-staple.json
-vigil continuity verify-staple continuity-staple.json \
-  --public-key continuity-authority-public.pem \
-  --expected-receipt-hash <original-receipt-hash> \
-  --expected-head <reviewed-head-sha> \
-  --environment production \
-  --expected-policy-sha256 <sha256-of-exact-policy-bytes>
-vigil continuity terraform-plan-gate tfplan \
-  --staple continuity-staple.json \
-  --terraform-executable "$(command -v terraform)" \
-  --public-key continuity-authority-public.pem \
-  --expected-receipt-hash <original-receipt-hash> \
-  --expected-head <reviewed-head-sha> \
-  --environment production \
-  --expected-policy-sha256 <sha256-of-exact-policy-bytes>
+npx --yes \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.22.0/sulmusic-agent-vigil-0.22.0.tgz \
+  pr-receipt https://github.com/OWNER/REPOSITORY/pull/123 \
+  --tool-ref 7531f549eb3f4c6c5bdc4a12245c8690a7a79a09 \
+  --output pr-123.receipt.json
 ```
 
-Node.js consumers can import the same offline verifier from
-`@sulmusic/agent-vigil/continuity-staple`. The package includes deterministic
-signed vectors so the CLI and library can be checked against identical bytes.
-See the [TypeScript verifier guide](docs/TYPESCRIPT_CONTINUITY_LIBRARY.md).
+`CURRENT`, `HOLD`, `EXPIRED`, and `REVOKED` describe selected public evidence at
+the observation time. These receipts always set protected-action authorization
+to false. Public metadata cannot prove that a repository's checks were
+sufficient. See [the public receipt boundary](docs/PUBLIC_PR_RECEIPT.md).
 
-For the smallest removable GitHub check, use the manual public-vector workflow
-in [GitHub continuity marker](docs/GITHUB_MARKER.md). It reports
-`SELF_TEST_PASS`, never deployment permission. The measured two-replica dry-run
-fixture is described in
-[Kubernetes admission gate](docs/KUBERNETES_ADMISSION.md).
+## Advanced controls
 
-The importer accepts authenticated GitHub webhook files for merges, exact
-reverts, labeled hotfixes, and explicitly linked incidents. It stores hashes
-and fixed categories instead of the webhook body or repository name. Repeated
-delivery IDs are safe to retry. An invalid signature, malformed event,
-repository mismatch, missing observation, or observer outage never becomes
-`CURRENT`.
+The CLI also includes:
 
-`vigil continuity install-action --repo . --action-ref <full-commit-sha> --self-serve`
-creates a separate exact-commit deployment check and a manual, harmless lab.
-The production check starts with no trusted keys and contains no real
-deployment command. The repository owner must review the files, add approved
-key IDs, arrange upload of the continuity artifact, and replace the clearly
-marked deployment placeholder. There is no hosted collector, crawler, or
-GitHub App in this version. See
-[`docs/CONTINUITY.md`](docs/CONTINUITY.md) for the operator guide and
-security limits.
+- [Agent Authority Plan](docs/AUTHORITY_PLAN.md) for comparing declared tool,
+  network, filesystem, credential, and hook authority;
+- [Upgrade Guard](docs/UPGRADE_GUARD.md) for repeated canary checks against a
+  digest-pinned plugin or configuration update;
+- [Control Proof](docs/CONTROL_PROOF.md) for testing whether a required control
+  still blocks planted failures;
+- [Continuity](docs/CONTINUITY.md) for chained evidence after the first green
+  check;
+- [Agent Value Cards](docs/AGENT_VALUE_CARD.md) for binding verified work to
+  cost, review disposition, merge, revert, incident, and deployment outcomes;
+- [Outcome mandates](docs/OUTCOME_MANDATES.md) for signed dry-run acceptance
+  records. The current code does not hold or move money.
 
-`vigil continuity staple` turns the current decision into a short-lived signed
-status statement that another deployment system can verify without receiving
-the full history. It binds the exact head, policy, environment, chain tip, and
-event sequence. The default lifetime is five minutes and the hard maximum is
-fifteen minutes. A fresh, pinned `CURRENT` staple is the only form that allows
-a protected action. See
-[`docs/CONTINUITY_STAPLE.md`](docs/CONTINUITY_STAPLE.md) for replay limits and
-the exact verifier contract.
+Start with the required check. Add an advanced control only when it answers a
+specific operational question.
 
-## CLI
+## Evidence and limits
 
-```text
-vigil <transcript.jsonl|summary.md> [options]
-vigil authority init [--output <path>]
-vigil authority <transcript.jsonl> --contract <authority.json> --contract-ref <sha> [options]
+- 797 tests, including adversarial hosted, package, browser, and portability cases.
+- [Published failure corpus](proof/README.md)
+- [Benchmarks](docs/BENCHMARKS.md)
+- [Threat model](docs/THREAT_MODEL.md)
+- [Receipt format](docs/AI_CHANGE_RECEIPT.md)
+- [Security policy](SECURITY.md)
+- [Commercial proof gates](docs/COMMERCIAL_GATES.md)
 
---repo <path>          repository to verify
---base <sha>           baseline commit (default HEAD~1)
---head <sha>           head commit (default HEAD)
---test-cmd <command>   explicit verification command
---format <kind>        text | json | markdown | sarif
---output <path>        write full JSON receipt
---sarif <path>         also write SARIF
---policy <path>        policy JSON
---policy-ref <sha>     load policy from a trusted Git commit
---signing-key <path>   sign the receipt with an Ed25519 key
---github-summary       append Markdown to GITHUB_STEP_SUMMARY
---strict               unresolved claims produce INCONCLUSIVE
---min-verified <n>     objective-evidence floor (default 1)
-```
-
-Additional commands:
-
-```text
-vigil init --action-sha <40-hex> [--repo <path>] [--force]
-vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
-vigil init --profile authority --action-sha <40-hex> [--repo <path>] [--force]
-vigil init --portable --public-key <path> --action-sha <40-hex> [--repo <path>] [--force]
-vigil protect [--action-sha <40-hex>] [--repo <path>] [--force]
-vigil doctor [--repo <path>]
-vigil keygen --private <path> --public <path>
-vigil verify <receipt.json> [--public-key <path>]
-vigil attest <receipt.json> --predicate-output <path>
-vigil verify-attestation <receipt.json> --repository <owner/name> [--signer-workflow <path>]
-vigil notary <receipt.json> --repository <owner/name> --head <sha> --policy-sha256 <digest> [--signer-workflow <path>]
-vigil compare <before-receipt.json> <after-receipt.json> [--format text|json]
-vigil github-evidence --event <event.json> [GitHub API exports]
-vigil value <receipt.json> [--github-evidence <bundle.json>] [options]
-vigil compare-value <card.json>... [--format text|json|html]
-vigil audit <change.diff> [--strict]
-vigil gate <portable-receipt.json> [--repo . --base <sha> --head <sha>]
-vigil maintainer --event <event.json> [--repo . --base <sha> --head <sha>]
-vigil merge-group --event <event.json> [--repo . --base <sha> --head <sha>]
-vigil continuity demo
-vigil continuity import-github --chain <directory> --event <webhook.json> [authenticated webhook options]
-vigil continuity import-github-actions --chain <directory> --signing-key <private.pem>
-vigil continuity install-action --repo . --action-ref <full-commit-sha> --self-serve
-```
-
-## What it prevents
-
-Agent Vigil is designed for common failures that ordinary green checks can
-miss:
-
-1. **Fail closed on missing evidence.**
-2. **Compare the story with the trajectory and the selected repository state.**
-3. **Detect common ways a change can weaken the tests that judge it.**
-4. **Keep verification local, deterministic, and inspectable.**
-5. **Anchor policy outside the candidate change.**
-6. **Make regression tests prove they catch the old behavior.**
-7. **Compare receipt revisions and fail on evidence regression, not prose drift.**
-8. **Expose missing external workflow identity or merge-queue enforcement.**
-9. **Snapshot the completed run without rerunning candidate code.**
-10. **Stop deployment when later evidence revokes an earlier green result.**
-
-Agent Vigil does not generate code-review opinions. It checks recorded claims,
-actions, Git identity, policy, and executable evidence.
-
-The executed compatibility matrix is in
-[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Security and product limits are explicit in
-[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
-
-Public adoption is measured under a separate
-[evidence contract](docs/ADOPTION_EVIDENCE.md). A catalog entry, clone, or code
-search hit is not counted as an adopter or receipt. The public
-[adopter ledger](ADOPTERS.md) starts empty rather than manufacturing traction.
-The weekly evidence workflow keeps the public discovery census separate from
-owner-consented retention, required-check, contradiction, and false-verdict
-records.
-
-## Reproducible benchmark evidence
-
-The v0.10 cycle froze its protocol before executing either tool. On 520 paired
-synthetic broken/clean diffs, Agent Vigil's post-hardening static audit reached
-76.9% broken recall, 100% clean specificity, and 88.5% balanced accuracy;
-Swarm 12.1.1 reached 100%, 28.8%, and 64.4% under the same any-finding rule. On
-325 constructive injections, exact-category recall was 244/325 for Agent Vigil
-and 258/325 for Swarm; the exact paired McNemar p-value was 0.189, so this run
-does not establish a reliable exact-recall difference.
-
-On 232 presumed-clean merged PRs, Agent Vigil produced advisories on 103 PRs
-and 146 total findings; Swarm produced advisories on 71 PRs and 622 findings.
-These are review-burden measurements, not confirmed false-positive rates. The
-post-hardening corpus was visible during development and is not a blind
-holdout or independent evaluation.
-
-Read the [frozen protocol and leadership gates](docs/BENCHMARKS.md), the
-[baseline](benchmarks/comparative/baseline-v1.md), and the separately labeled
-[post-hardening result](benchmarks/comparative/post-hardening-results-v1.md).
-
-## Evidence on this repository
-
-- 637 tests, including adversarial candidate-runtime, exact-event, diff-parser,
-  authority-classification, bounded-reader, filesystem, output, adapter,
-  continuity, and receipt cases. In the 2026-08-25 post-pin v0.20.0 candidate
-  source run, 624 passed and 13 opt-in or platform-specific tests skipped.
-  This is local source evidence, not a hosted or released result.
-- The separate 2026-08-25 coverage run contained the same 637 tests: 616 passed
-  and 21 skipped because coverage mode adds coverage-specific skips. Coverage
-  reached 92.67% lines, 81.88% branches, and 96.36% functions. These are local
-  candidate results, not hosted or released evidence.
-- The broader local compatibility lab retains historical runner-output and
-  ecosystem evidence. Generated v0.21.2 hosted execution is deliberately
-  narrower: plain Git or root Node/npm with direct `node --test`. Local CLI
-  execution is host execution, not sandboxing.
-- `npm run review:public` checks the public wording, links, accessible labels,
-  reading measure, claim-count consistency, and rendered HTML against the
-  [public release policy](docs/PUBLIC_RELEASE_POLICY.md). Agent Vigil does not
-  require a named human declaration for this gate.
-- `npm pack --dry-run` is part of the build gate.
-- JSON, SARIF, and job-summary outputs reject symlinks and non-regular targets,
-  then use same-directory temporary files and atomic replacement. POSIX output
-  mode is `0600`; Windows output inherits the destination directory ACL.
-- Zero runtime dependencies.
-
-These checks prove only their exact source snapshot and environment. They do
-not prove a release, external installation, adoption, payment, or revenue.
-
-## AI Change Receipt v2
-
-Receipt schema v2 binds adapter identity, transcript digest, exact Git SHAs,
-repository tree, canonical policy hash, rule evidence, final status, and a
-reproduction command. Optional Ed25519 signing is supported. An embedded key is
-self-asserted; use `--public-key` to pin identity through a trusted channel.
-
-See [the receipt specification](docs/AI_CHANGE_RECEIPT.md),
-[JSON Schema](docs/receipt-v2.schema.json),
-[GitHub attestation schema](docs/ai-change-receipt-predicate-v1.schema.json),
-and [threat model](docs/THREAT_MODEL.md).
-
-Portable receipt v1 is intentionally smaller than the full change receipt. It
-does not include transcript text, claim quotes, paths, or detailed rule
-evidence. Its signature proves only that the key signed the compact payload.
-CI adds independent policy-command and integrity evidence; neither layer proves
-semantic correctness. See [the schema](docs/portable-receipt-v1.schema.json).
+This repository's own runs prove first-party technical behavior. They do not
+prove external adoption, retention, willingness to pay, revenue, or that Agent
+Vigil is better than every competing product.
 
 ## Contributing
 
-The highest-value contribution is a small sanitized transcript that produces a
-false PASS, false FAIL, or unexplained INCONCLUSIVE. Add it as a regression test
-with the expected verdict. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Use a branch and pull request. Run the full checks above, add an adversarial
+fixture for every fixed false result, and keep capability claims tied to an
+exact test, artifact, commit, or public source.
 
-MIT.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).

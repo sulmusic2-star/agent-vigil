@@ -1,18 +1,17 @@
 # Compatibility laboratory
 
-This file separates the v0.21.2 generated hosted contract from the broader
-local CLI. It records completed local runs, not hosted CI, release, adoption,
+This file separates the generated hosted contract from the broader local CLI.
+It records completed local runs, not hosted CI, release, adoption,
 payment, or revenue evidence.
 
-## v0.20.0 source-suite snapshot
+## Source-suite snapshot
 
-On 2026-08-25, the post-pin v0.20.0 candidate source ran the ordinary local
-suite once. `npm test` executes **637 tests** in that snapshot: 624 passed and
-13 opt-in or platform-specific tests skipped. A separate local coverage run
-contained the same 637 tests: 616 passed and 21 skipped because coverage mode
-adds its own coverage-specific skips. It reached 92.67% lines, 81.88% branches,
-and 96.36% functions. These numbers describe those exact local candidate runs,
-not hosted CI, a published release, adoption, payment, or revenue.
+On 2026-08-29, the exact v0.22.0 release-candidate source ran the ordinary local
+suite once. `npm test` executes **797 tests** in that snapshot: 784 passed and
+13 opt-in or platform-specific tests skipped. Historical coverage percentages
+belong to older, smaller suites and are not reused as current evidence. These
+counts describe that exact local candidate run, not hosted CI, a published
+release, adoption, payment, or revenue.
 
 The durable generated-repository laboratory covers 18 output families:
 
@@ -38,7 +37,7 @@ release evidence.
 
 ## Generated hosted repository contract
 
-`init` and `protect` support only:
+The automatic path used by `init` and `protect` supports:
 
 - a plain Git repository with no inferred non-Node hosted test toolchain; or
 - a root Node/npm repository with one bounded direct `node --test` command in
@@ -49,6 +48,28 @@ permits base-owned `npm ci --ignore-scripts` during the isolated setup phase.
 Tests then run without network over a read-only source mount. Unsupported
 toolchains, package managers, layouts, indirection, repository `.npmrc` files,
 submodules, and unsafe setup inputs fail closed.
+
+The source release candidate adds a second, explicit path for Python, Rust, Go,
+Java, Ruby, PHP, .NET, pnpm, Yarn, and Bun. The operator supplies both a
+digest-pinned container image and one command from the bounded direct-runner
+grammar:
+
+```bash
+vigil protect --repo . \
+  --runner-image ghcr.io/your-org/runner@sha256:<64-hex-digest> \
+  --test-cmd "go test -json ./..."
+```
+
+The committed `.agent-vigil-runner.json` file is protected and compared against
+the trusted base. A candidate cannot select a different image or command. The
+image must contain the standard Node runtime used by the sandbox wrapper and
+all test dependencies; custom setup and test-time network access are forbidden.
+The exact image digest and test command appear in the retained harness evidence.
+
+`runners/common/Dockerfile` is the reviewed common-runner recipe. It is not a
+supported binary input until the hosted publication workflow succeeds and the
+public GHCR digest is captured. Runtime policy accepts digests, never that
+recipe's moving tag.
 
 `npm run test:package` installs the generated tarball into disposable consumers
 and checks supported plain and root Node paths plus expected fail-closed
@@ -136,8 +157,8 @@ integrity diff. Repairs now:
   therefore uses `go test -json ./...`.
 - Monorepos require an explicit command such as
   `npm --prefix packages/api test --silent`.
-- Historical hosted portability does not establish v0.21.2 candidate isolation.
-  The v0.21.2 hosted lane requires a GitHub-hosted Linux runner and Docker.
+- Historical hosted portability does not establish current candidate isolation.
+  The hosted lane requires a GitHub-hosted Linux runner and Docker.
 - Local test execution runs repository code with the verifier process's host
   privileges. A detached worktree protects Git identity; it is not a sandbox.
 - Generated hosted support is intentionally smaller than local parser and test

@@ -75,6 +75,7 @@ function baseActionEnvironment(root: string, repo: string): NodeJS.ProcessEnv {
     VIGIL_AUTHORITY_CONTRACT_REF: "",
     VIGIL_BASE: "HEAD~1",
     VIGIL_CANDIDATE_SETUP_COMMAND: "",
+    VIGIL_CANDIDATE_IMAGE_INPUT: "",
     VIGIL_CONTINUITY_CHAIN: "",
     VIGIL_CONTINUITY_ENVIRONMENT: "production",
     VIGIL_GITHUB_TOKEN: "",
@@ -155,6 +156,8 @@ test("Action leaves strictness and the evidence minimum under trusted-policy con
   assert.match(reportReader, /finalPath\.dev !== opened\.dev \|\| finalPath\.ino !== opened\.ino/);
   assert.match(action, /else\n          echo "agent-vigil: verifier produced no bounded regular report" >&2\n          code=2\n          status=/);
   assert.doesNotMatch(action, /const e\s*=\s*require\(require\("node:path"\)\.resolve\(process\.argv\[1\]\)\)/);
+  assert.match(action, /VIGIL_CANDIDATE_IMAGE_INPUT.*@sha256:\[0-9a-f\]\{64\}/);
+  assert.match(action, /a custom candidate-image must be hermetic; candidate-setup-cmd is not allowed/);
 });
 
 test("Action binds writable setup-node bytes to an exact reviewed runtime before execution", () => {
