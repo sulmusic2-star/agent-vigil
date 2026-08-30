@@ -7,7 +7,7 @@ payment, or revenue evidence.
 ## Source-suite snapshot
 
 On 2026-08-29, the exact v0.22.0 release-candidate source ran the ordinary local
-suite once. `npm test` executes **797 tests** in that snapshot: 784 passed and
+suite once. `npm test` executes **802 tests** in that snapshot: 789 passed and
 13 opt-in or platform-specific tests skipped. Historical coverage percentages
 belong to older, smaller suites and are not reused as current evidence. These
 counts describe that exact local candidate run, not hosted CI, a published

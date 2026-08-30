@@ -30,7 +30,11 @@ test("the public install state keeps GitHub and npm publication separate", () =>
   assert.equal(state.latest_github_release.asset_url, releaseUrl);
   assert.equal(state.latest_github_release.sha256, releaseSha256);
   assert.equal(state.latest_github_release.immutable, true);
-  assert.equal(state.source_release_candidate, undefined);
+  assert.deepEqual(state.source_release_candidate, {
+    version: "0.23.0",
+    github_release_published: false,
+    npm_published: false,
+  });
   assert.equal(state.npm_registry.package, "@sulmusic/agent-vigil");
   assert.equal(state.npm_registry.target_version, releaseVersion);
   assert.equal(state.npm_registry.observed_version, "0.21.1");
