@@ -15,7 +15,7 @@ The published v0.23.1 GitHub package includes this contract and remains availabl
 at its immutable release asset:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz doctor
 ```
 
 `protect` selects the immutable reviewed public Action commit and writes it into
