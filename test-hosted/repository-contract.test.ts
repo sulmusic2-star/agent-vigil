@@ -105,3 +105,9 @@ test("the source candidate and public channels keep explicit version identities"
   assert.match(changelog, /## Unreleased\n\n## 0\.23\.0 - 2026-08-30/);
   assert.match(changelog, /## 0\.21\.2 - 2026-08-28/);
 });
+
+test("the disposable test runner resolves file URLs portably", () => {
+  const runner = readFileSync("scripts/run_tests.mjs", "utf8");
+  assert.match(runner, /fileURLToPath\(new URL\("\.\."/);
+  assert.doesNotMatch(runner, /import\.meta\.url\)\.pathname/);
+});

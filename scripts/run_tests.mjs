@@ -2,8 +2,9 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const privateRoot = join(tmpdir(), "agent-vigil-test-runs");
 mkdirSync(privateRoot, { recursive: true, mode: 0o700 });
 const runRoot = mkdtempSync(join(privateRoot, "tests-"));
