@@ -19,7 +19,7 @@ commit.
 
 The static [public PR evidence desk](check.html) runs the same normalized
 unsigned receipt decision in a browser. Its receipt uses a distinct browser
-build version and the reviewed v0.23.1 release commit. It makes direct read-only requests from
+build version and the reviewed v0.23.2 release commit. It makes direct read-only requests from
 the browser to `api.github.com`, calculates response and receipt SHA-256 hashes
 with Web Crypto, and offers the normalized JSON as a local download.
 

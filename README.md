@@ -46,10 +46,13 @@ To verify the package before installation, download the package and its attached
 checksum from the immutable release:
 
 ```bash
-curl -fL -o agent-vigil.tgz \
+curl -fLO \
   https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz
+curl -fLO \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz.sha256
+shasum -a 256 -c sulmusic-agent-vigil-0.23.2.tgz.sha256
 mkdir agent-vigil-package
-tar -xzf agent-vigil.tgz -C agent-vigil-package --strip-components=1
+tar -xzf sulmusic-agent-vigil-0.23.2.tgz -C agent-vigil-package --strip-components=1
 node agent-vigil-package/dist/cli.js protect --repo . \
   --action-sha fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
 ```
@@ -64,7 +67,7 @@ The setup PR starts the check. To make it an enforceable trust boundary, require
 an externally controlled exact-head check or GitHub App. A required job name
 alone does not prove who supplied the workflow.
 
-[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/1c5544d84586249c452adda3f8432a9bdac2ca7a/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/206ae05e27ce8c1750e98dc9be9ec4e4b1f95602/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
 **Distribution status, verified August 30, 2026:** GitHub release v0.23.2 is
 public and immutable, and the Marketplace listing exposes v0.23.2. npm has
