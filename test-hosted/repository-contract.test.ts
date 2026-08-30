@@ -111,3 +111,12 @@ test("the disposable test runner resolves file URLs portably", () => {
   assert.match(runner, /fileURLToPath\(new URL\("\.\."/);
   assert.doesNotMatch(runner, /import\.meta\.url\)\.pathname/);
 });
+
+test("the hermetic runner publisher binds release tags to package identity", () => {
+  const workflow = readFileSync(".github/workflows/publish-hermetic-runner.yml", "utf8");
+  assert.match(workflow, /tags="\$repository:sha-\$\{GITHUB_SHA\}"/);
+  assert.match(workflow, /\^v\(\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\)\$/);
+  assert.match(workflow, /\[\[ "\$package_version" == "\$version" \]\]/);
+  assert.match(workflow, /tags: \$\{\{ steps\.image-tags\.outputs\.value \}\}/);
+  assert.doesNotMatch(workflow, /agent-vigil-runner:0\.23\.0/);
+});

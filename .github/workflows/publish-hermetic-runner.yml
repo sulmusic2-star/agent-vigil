@@ -11,11 +11,33 @@ permissions:
 
 jobs:
   publish:
+    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - id: image-tags
+        name: Bind image tags to the exact source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          repository='ghcr.io/sulmusic2-star/agent-vigil-runner'
+          tags="$repository:sha-${GITHUB_SHA}"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            [[ "$REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]
+            version="${BASH_REMATCH[1]}"
+            package_version=$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version')
+            [[ "$package_version" == "$version" ]]
+            tags+=$'\n'"$repository:$version"
+          fi
+          {
+            echo 'value<<AGENT_VIGIL_TAGS'
+            printf '%s\n' "$tags"
+            echo 'AGENT_VIGIL_TAGS'
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ghcr.io
@@ -31,9 +53,7 @@ jobs:
           push: true
           provenance: mode=max
           sbom: true
-          tags: |
-            ghcr.io/sulmusic2-star/agent-vigil-runner:0.23.0
-            ghcr.io/sulmusic2-star/agent-vigil-runner:${{ github.sha }}
+          tags: ${{ steps.image-tags.outputs.value }}
       - name: Record the immutable digest
         env:
           DIGEST: ${{ steps.build.outputs.digest }}

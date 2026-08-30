@@ -241,7 +241,7 @@ specific operational question.
 
 ## Evidence and limits
 
-- 803 tests, including adversarial hosted, package, browser, and portability cases.
+- 805 tests, including adversarial hosted, package, browser, and portability cases.
 - [Published failure corpus](proof/README.md)
 - [Benchmarks](docs/BENCHMARKS.md)
 - [Threat model](docs/THREAT_MODEL.md)

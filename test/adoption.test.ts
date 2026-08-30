@@ -347,12 +347,47 @@ test("a digest-pinned hermetic runner safely opens the hosted installer to non-N
     image,
     testCommand: "python3 -m pytest -q",
   });
-  assert.equal(JSON.parse(readFileSync(join(python, ".agent-vigil.json"), "utf8")).testCommand, "python3 -m pytest -q");
+  const policy = JSON.parse(readFileSync(join(python, ".agent-vigil.json"), "utf8"));
+  assert.equal(policy.testCommand, "python3 -m pytest -q");
+  assert.deepEqual(policy.maintainer.testPathPatterns, [
+    "test/**", "tests/**", "test_*.py", "*_test.py", "**/test_*.py", "**/*_test.py",
+  ]);
   assert.match(readFileSync(join(python, ".github/workflows/agent-vigil.yml"), "utf8"), new RegExp(`candidate-image: ${image}`));
   commitAll(python, "install hermetic Python gate");
   assert.ok(doctorRepository(python).some((check) => check.label === "Hosted repository contract"
     && check.status === "PASS" && /hermetic custom runner/.test(check.detail)));
   assert.ok(doctorRepository(python).some((check) => check.label === "Candidate isolation" && check.status === "PASS"));
+});
+
+test("hermetic Go and Ruby policies recognize their ordinary test files", () => {
+  const cases = [
+    {
+      name: "go",
+      command: "go test -json ./...",
+      files: { "go.mod": "module example.test/fixture\n\ngo 1.22\n", "feature_test.go": "package fixture\n" },
+      patterns: ["*_test.go", "**/*_test.go"],
+    },
+    {
+      name: "ruby",
+      command: "bundle exec rspec",
+      files: { "Gemfile": "source 'https://rubygems.org'\n", "spec/feature_spec.rb": "RSpec.describe 'feature' do\nend\n" },
+      patterns: ["spec/**", "**/spec/**", "*_spec.rb", "**/*_spec.rb"],
+    },
+  ];
+  for (const value of cases) {
+    const path = temp(`vigil-${value.name}-hermetic-`);
+    execFileSync("git", ["init", "-q"], { cwd: path });
+    for (const [name, contents] of Object.entries(value.files)) {
+      mkdirSync(join(path, name, ".."), { recursive: true });
+      writeFileSync(join(path, name), contents);
+    }
+    initRepository(path, false, undefined, "protect", false, ACTION_SHA, {
+      image: `ghcr.io/example/agent-vigil-runner@sha256:${"d".repeat(64)}`,
+      testCommand: value.command,
+    });
+    const policy = JSON.parse(readFileSync(join(path, ".agent-vigil.json"), "utf8"));
+    assert.deepEqual(policy.maintainer.testPathPatterns, value.patterns);
+  }
 });
 
 test("hermetic runner setup rejects floating images and shell composition", () => {

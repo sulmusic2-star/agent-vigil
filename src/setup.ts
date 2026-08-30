@@ -265,6 +265,20 @@ type HostedRepositoryContract = {
   customRunner?: boolean;
 };
 
+function hostedTestPathPatterns(command?: string): string[] | undefined {
+  if (!command) return undefined;
+  if (/^python3 -m (?:pytest|unittest)/.test(command)) {
+    return ["test/**", "tests/**", "test_*.py", "*_test.py", "**/test_*.py", "**/*_test.py"];
+  }
+  if (command === "cargo test --quiet") return ["tests/**", "**/tests/**", "**/*.test.rs", "**/*_test.rs"];
+  if (command === "go test -json ./...") return ["*_test.go", "**/*_test.go"];
+  if (/^(?:mvn|\.\/gradlew|gradle) test$/.test(command)) return ["src/test/**", "**/src/test/**"];
+  if (command === "bundle exec rspec") return ["spec/**", "**/spec/**", "*_spec.rb", "**/*_spec.rb"];
+  if (command === "./vendor/bin/phpunit") return ["test/**", "tests/**", "*Test.php", "**/*Test.php"];
+  if (command === "dotnet test") return ["test/**", "tests/**", "**/*.Tests/**", "*Test.cs", "*Tests.cs", "**/*Test.cs", "**/*Tests.cs"];
+  return ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"];
+}
+
 function validateRunnerOverride(value: HostedRunnerOverride): HostedRunnerOverride {
   if (!IMMUTABLE_IMAGE.test(value.image)) {
     throw new Error("the hermetic hosted runner image must be a lowercase registry/repository reference pinned with @sha256:<64 hex>");
@@ -753,7 +767,15 @@ export function initRepository(
   if (runnerOverride) {
     writeScaffold(root, HOSTED_RUNNER_FILE, `${JSON.stringify({ schemaVersion: 1, ...runnerOverride }, null, 2)}\n`, force, result);
   }
-  writeScaffold(root, DEFAULT_POLICY_FILE, mode === "maintainer" ? maintainerPolicyTemplate(inferred, setupCommand, protectCommands) : mode === "authority" ? authorityPolicy : defaultPolicy, force, result);
+  writeScaffold(
+    root,
+    DEFAULT_POLICY_FILE,
+    mode === "maintainer"
+      ? maintainerPolicyTemplate(inferred, setupCommand, protectCommands, hostedTestPathPatterns(inferred))
+      : mode === "authority" ? authorityPolicy : defaultPolicy,
+    force,
+    result,
+  );
   if (mode === "transcript" || mode === "authority") {
     writeScaffold(root, mode === "authority" ? ".agent-vigil/session.jsonl" : ".agent-vigil/session.md", mode === "authority" ? AUTHORITY_SESSION_TEMPLATE : SESSION_TEMPLATE, force, result);
     writeScaffold(root, ".agent-vigil/README.md", LOCAL_README, force, result);

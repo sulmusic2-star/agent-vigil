@@ -248,7 +248,12 @@ export function policyTemplate(testCommand?: string, portableSignerKeyId?: strin
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: string, protectCommands?: string[]): string {
+export function maintainerPolicyTemplate(
+  testCommand?: string,
+  setupCommand?: string,
+  protectCommands?: string[],
+  testPathPatterns = ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"],
+): string {
   const command = testCommand ?? "REPLACE_WITH_TEST_COMMAND";
   const value: VigilPolicy = {
     schemaVersion: 1,
@@ -282,7 +287,7 @@ export function maintainerPolicyTemplate(testCommand?: string, setupCommand?: st
         "babel.config.*",
         ".mocharc*",
       ],
-      testPathPatterns: ["test/**", "tests/**", "__tests__/**", "**/*.test.*", "**/*.spec.*"],
+      testPathPatterns,
       differentialTest: {
         command,
         ...(setupCommand ? { setupCommand } : {}),
