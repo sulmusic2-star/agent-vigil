@@ -412,6 +412,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
   const expectedTopLevelPermissions: Record<string, string[]> = {
     "adoption-census.yml": ["contents:read"],
     "agent-vigil-continuity-lab.yml": ["contents:read"],
+    "agent-vigil-merge-group.yml": ["contents:read"],
     "agent-vigil-outcomes.yml": ["actions:read", "contents:read", "pull-requests:read"],
     "agent-vigil.yml": ["contents:read", "pull-requests:read"],
     "ci.yml": ["contents:read"],
@@ -426,6 +427,9 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "agent-vigil-continuity-lab.yml:blocked-deployment": ["contents:read"],
     "agent-vigil-continuity-lab.yml:demonstration": ["contents:read"],
     "agent-vigil-continuity-lab.yml:repaired-action": ["contents:read"],
+    "agent-vigil-merge-group.yml:authenticate": ["contents:read"],
+    "agent-vigil-merge-group.yml:evidence": ["contents:read"],
+    "agent-vigil-merge-group.yml:governed-queue-check": ["contents:read"],
     "agent-vigil-outcomes.yml:outcome": ["actions:read", "contents:read", "pull-requests:read"],
     "agent-vigil.yml:evidence": ["contents:read", "pull-requests:read"],
     "agent-vigil.yml:governed-head-check": ["pull-requests:read"],
@@ -733,7 +737,7 @@ test("reviewed self pin and source-dist identity are a visible release gate", (c
     .filter((reference) => reference.startsWith("sulmusic2-star/agent-vigil@"))
     .map((reference) => reference.slice(reference.indexOf("@") + 1));
 
-  assert.equal(selfReferences.length, 3, "evidence, outcome, and weekly proof must each use the reviewed runtime once");
+  assert.equal(selfReferences.length, 4, "pull-request evidence, merge-queue evidence, outcomes, and weekly proof must each use the reviewed runtime once");
   if (selfReferences.every((reference) => reference === REVIEWED_RUNTIME_PLACEHOLDER)) {
     context.todo("replace REVIEWED_40_HEX_AGENT_VIGIL_COMMIT with the frozen reviewed runtime commit before release");
     return;
@@ -770,6 +774,7 @@ test("CodeQL scans maintained source while excluding deterministic bundles and h
   assert.match(workflow, /github\/codeql-action\/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938/);
   assert.match(config, /^\s{2}- src\s*$/m);
   assert.match(config, /^\s{2}- scripts\s*$/m);
+  assert.match(config, /^\s{2}- hosted\s*$/m);
   assert.match(config, /^\s{2}- dist\s*$/m);
   assert.match(config, /^\s{2}- test\s*$/m);
   assert.match(config, /^\s{2}- test-hosted\s*$/m);

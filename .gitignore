@@ -6,6 +6,8 @@ agent-vigil-report.json
 agent-vigil.sarif
 tmp/
 .agent-vigil-tmp/
+hosted/merge-queue-dispatcher/worker-configuration.d.ts
+hosted/merge-queue-dispatcher/.wrangler/
 
 # Python lab caches
 __pycache__/

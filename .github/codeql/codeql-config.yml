@@ -7,10 +7,10 @@ name: agent-vigil-codeql
 paths:
   - src
   - scripts
+  - hosted
   - .github
   - action.yml
 paths-ignore:
   - dist
   - test
   - test-hosted
-
