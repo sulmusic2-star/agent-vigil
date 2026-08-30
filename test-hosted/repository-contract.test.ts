@@ -97,8 +97,13 @@ test("the released package and public channels keep explicit version identities"
     npm_published: false,
   });
   assert.equal(installState.npm_registry.observed_version, "0.21.1");
+  assert.equal(installState.npm_registry.target_version, "0.23.1");
   assert.equal(installState.npm_registry.target_published, false);
-  assert.match(readme, /GitHub release v0\.23\.2 and.*Marketplace listing exposes v0\.23\.2.*npm\s+currently serves v0\.21\.1/s);
+  assert.match(readme, /GitHub release v0\.23\.1 and\s+the Marketplace listing are public/);
+  assert.match(
+    readme,
+    /v0\.23\.2 is a source release candidate until GitHub lists both the package and checksum assets\./,
+  );
   assert.match(readme, /--runner common/);
   assert.doesNotMatch(readme, /node dist\/cli\.js protect --action-sha/);
   assert.match(readme, /releases\/download\/v0\.23\.2\/sulmusic-agent-vigil-0\.23\.2\.tgz/);

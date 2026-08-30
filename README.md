@@ -34,7 +34,18 @@ with public evidence and consent.
 
 ## Install the full gate
 
-The currently verified public package is the immutable v0.23.2 GitHub artifact:
+The latest verified public package remains the immutable v0.23.1 GitHub
+artifact:
+
+```bash
+npx --yes \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz \
+  protect --repo .
+```
+
+v0.23.2 is a source release candidate until GitHub lists both the package and checksum assets.
+After both v0.23.2 assets appear on the release page, the exact candidate
+package can be installed with:
 
 ```bash
 curl -fL -o agent-vigil.tgz \
@@ -57,10 +68,9 @@ alone does not prove who supplied the workflow.
 
 [Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
-**Distribution status, verified August 30, 2026:** GitHub release v0.23.2 and
-the versioned Action are public; the Marketplace listing exposes v0.23.2. npm
-currently serves v0.21.1. Use the immutable GitHub package until npm reaches
-release parity.
+**Distribution status, verified August 30, 2026:** GitHub release v0.23.1 and
+the Marketplace listing are public. v0.23.2 is recorded as an unpublished
+source candidate. npm currently serves v0.21.1.
 
 ## What a result means
 
