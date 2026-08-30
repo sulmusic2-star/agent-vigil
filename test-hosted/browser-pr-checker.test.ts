@@ -7,7 +7,7 @@ const BASE = "1".repeat(40);
 const HEAD = "2".repeat(40);
 const PR_URL = "https://github.com/example/project/pull/42";
 const GENERATED_AT = "2026-08-28T22:00:00.000Z";
-const TOOL_COMMIT = "78751509c1be65d920e1dbb82d8eb45417452bb3";
+const TOOL_COMMIT = "ff7f53f6d5a35491fce8a4bc7b4982025d189124";
 const SHA = `sha256:${"a".repeat(64)}`;
 
 async function browserModule(): Promise<any> {
@@ -56,7 +56,7 @@ test("the browser receipt matches the reviewed CLI receipt contract", async () =
   const cli = buildPublicPrReceipt(value, PR_URL, {
     generatedAt: GENERATED_AT,
     maxAgeHours: 168,
-    toolVersion: "0.22.0-browser.1",
+    toolVersion: "0.22.0-browser.2",
     toolCommit: TOOL_COMMIT,
   });
   const web = await browser.buildBrowserReceipt(browserSnapshot(value), {
@@ -96,6 +96,23 @@ test("missing pagination and failed checks cannot become CURRENT", async () => {
   assert.equal(receipt.decision.continuity, "HOLD");
   assert.ok(receipt.decision.reasonCodes.includes("checks-failing"));
   assert.ok(receipt.decision.reasonCodes.includes("source-coverage-incomplete"));
+});
+
+test("the browser refuses GitHub's neutral and skipped false-green conclusions", async () => {
+  const browser = await browserModule();
+  for (const conclusion of ["neutral", "skipped"]) {
+    const value = snapshot({
+      checkRuns: [{ id: 1, name: "tests", app: { slug: "github-actions" }, status: "completed", conclusion, completed_at: "2026-08-28T21:20:00Z" }],
+      statuses: [],
+    });
+    const receipt = await browser.buildBrowserReceipt(browserSnapshot(value), { generatedAt: GENERATED_AT });
+    const rows = browser.latestVisibleChecks(value.checkRuns, value.statuses);
+    assert.equal(receipt.decision.continuity, "HOLD");
+    assert.deepEqual(receipt.observation.checks, { total: 1, passing: 0, failing: 0, pending: 0, unknown: 1 });
+    assert.ok(receipt.decision.reasonCodes.includes("checks-neutral-or-skipped"));
+    assert.equal(rows[0].state, "unknown");
+    assert.equal(rows[0].conclusion, conclusion);
+  }
 });
 
 test("the browser URL parser rejects credential, query, fragment, and non-GitHub inputs", async () => {
@@ -187,6 +204,7 @@ test("the static checker has an accessible mobile result surface and no browser 
   assert.match(html, /id="copy-pr-result"[^>]*>Copy result for PR/);
   assert.match(html, /id="copy-install"[^>]*>Copy setup steps/);
   assert.match(html, /id="register-trial"[^>]*hidden>Register this trial/);
+  assert.match(html, /Skipped and neutral conclusions may satisfy GitHub branch protection/);
   assert.match(html, /min-height: 48px/);
   assert.match(html, /@media \(max-width: 760px\)/);
   assert.match(html, /prefers-reduced-motion/);
