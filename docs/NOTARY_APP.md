@@ -1,7 +1,8 @@
 # Agent Vigil Notary App
 
-**State:** runnable verification core and GitHub App contract. No hosted Agent
-Vigil Notary service is deployed as part of version 0.22.0.
+**State:** runnable verification core, GitHub App contract, and a source-reviewed
+merge-queue dispatcher. The dispatcher still requires deployment secrets and a
+real signed queue-event acceptance run before its check can be made required.
 
 The Notary App is deliberately narrow. Customer code and test execution stay in
 the customer's credential-free runner. A future App must verify an independently
@@ -45,9 +46,10 @@ mismatch. No deployed service currently provides that check.
 
 ## Minimum GitHub App permissions
 
-- Actions: read
+- Actions: write (needed to dispatch the trusted default-branch merge-queue workflow)
 - Checks: read and write
 - Contents: read
+- Merge queues: read
 - Pull requests: read
 - Metadata: read
 
@@ -60,7 +62,7 @@ its placeholder URLs before registering an App.
 
 ## Webhook handling
 
-Subscribe to `workflow_run` and `pull_request` events. A production service must:
+Subscribe to `workflow_run`, `pull_request`, and `merge_group` events. A production service must:
 
 1. preserve the raw request bytes;
 2. verify `X-Hub-Signature-256` before parsing JSON;
@@ -89,3 +91,14 @@ Posting the check, operating tenant storage, and registering the public GitHub
 App require a deployed HTTPS service, installation credentials, a privacy
 policy, and incident-response procedures. Those are deployment gates, not
 features hidden inside this release.
+
+The repository includes a narrowly allowlisted Cloudflare Worker under
+[`hosted/merge-queue-dispatcher`](../hosted/merge-queue-dispatcher). It verifies
+the raw `merge_group` webhook HMAC, rejects the wrong repository, branch, action,
+installation, or ref shape, deduplicates GitHub delivery IDs, and dispatches
+[`agent-vigil-merge-group.yml`](../.github/workflows/agent-vigil-merge-group.yml)
+from `main`. The workflow authenticates a second HMAC before checkout,
+materializes a bounded queue envelope outside the checkout, invokes an immutable
+reviewed runtime, runs candidate commands in Docker without gate secrets,
+rechecks the live queue ref, and posts the same App-owned `Agent Vigil governed
+evidence` context used by pull requests.

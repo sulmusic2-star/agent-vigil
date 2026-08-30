@@ -137,7 +137,10 @@ Requiring `Agent Vigil evidence` by name alone therefore does not make the
 generated workflow an enforceable security boundary.
 
 The generated repository workflow does not subscribe to `merge_group` and does
-not claim merge-queue enforcement. An enforceable deployment needs one of:
+not claim merge-queue enforcement. The repository now includes an external App
+dispatcher and trusted default-branch queue workflow, but that path remains a
+deployment candidate until its real signed-event acceptance test passes. An
+enforceable deployment needs one of:
 
 - an organization or enterprise ruleset that requires a workflow controlled
   outside the candidate repository; or

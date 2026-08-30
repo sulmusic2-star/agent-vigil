@@ -11,12 +11,15 @@
   ],
   "public": true,
   "default_permissions": {
-    "actions": "read",
+    "actions": "write",
     "checks": "write",
     "contents": "read",
+    "merge_queues": "read",
+    "metadata": "read",
     "pull_requests": "read"
   },
   "default_events": [
+    "merge_group",
     "pull_request",
     "workflow_run"
   ]
