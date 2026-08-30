@@ -7,7 +7,7 @@ const BASE = "1".repeat(40);
 const HEAD = "2".repeat(40);
 const PR_URL = "https://github.com/example/project/pull/42";
 const GENERATED_AT = "2026-08-28T22:00:00.000Z";
-const TOOL_COMMIT = "eed2cd0db000099f86d29186bdb2fd1c7784356a";
+const TOOL_COMMIT = "f10e5363510b7781bd35e7970bc7f88d4eb073e4";
 const SHA = `sha256:${"a".repeat(64)}`;
 
 async function browserModule(): Promise<any> {
@@ -56,7 +56,7 @@ test("the browser receipt matches the reviewed CLI receipt contract", async () =
   const cli = buildPublicPrReceipt(value, PR_URL, {
     generatedAt: GENERATED_AT,
     maxAgeHours: 168,
-    toolVersion: "0.23.0-browser.1",
+    toolVersion: "0.23.1-browser.1",
     toolCommit: TOOL_COMMIT,
   });
   const web = await browser.buildBrowserReceipt(browserSnapshot(value), {
@@ -132,7 +132,7 @@ test("the installation handoff is immutable and requires an explicit local run",
   const browser = await browserModule();
   const { installationCommand } = browser;
   const command = installationCommand();
-  assert.equal(command, "npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.0/sulmusic-agent-vigil-0.23.0.tgz protect --repo .");
+  assert.equal(command, "npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz protect --repo .");
   assert.doesNotMatch(command, /@(?:main|master|latest)|releases\/latest/);
   const receipt = await browser.buildBrowserReceipt(browserSnapshot(snapshot()), { generatedAt: GENERATED_AT });
   const steps = browser.installationSteps(receipt);
