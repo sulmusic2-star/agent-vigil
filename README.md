@@ -34,24 +34,25 @@ with public evidence and consent.
 
 ## Install the full gate
 
-The latest verified public package remains the immutable v0.23.1 GitHub
-artifact:
+The latest verified public package is the immutable v0.23.2 GitHub artifact:
 
 ```bash
 npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz \
   protect --repo .
 ```
 
-v0.23.2 is a source release candidate until GitHub lists both the package and checksum assets.
-After both v0.23.2 assets appear on the release page, the exact candidate
-package can be installed with:
+To verify the package before installation, download the package and its attached
+checksum from the immutable release:
 
 ```bash
-curl -fL -o agent-vigil.tgz \
+curl -fLO \
   https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz
+curl -fLO \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz.sha256
+shasum -a 256 -c sulmusic-agent-vigil-0.23.2.tgz.sha256
 mkdir agent-vigil-package
-tar -xzf agent-vigil.tgz -C agent-vigil-package --strip-components=1
+tar -xzf sulmusic-agent-vigil-0.23.2.tgz -C agent-vigil-package --strip-components=1
 node agent-vigil-package/dist/cli.js protect --repo . \
   --action-sha fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
 ```
@@ -66,11 +67,12 @@ The setup PR starts the check. To make it an enforceable trust boundary, require
 an externally controlled exact-head check or GitHub App. A required job name
 alone does not prove who supplied the workflow.
 
-[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/af03ad404d41e5db582857279f5be21ea97f0536/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/206ae05e27ce8c1750e98dc9be9ec4e4b1f95602/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
-**Distribution status, verified August 30, 2026:** GitHub release v0.23.1 and
-the Marketplace listing are public. v0.23.2 is recorded as an unpublished
-source candidate. npm currently serves v0.21.1.
+**Distribution status, verified August 30, 2026:** GitHub release v0.23.2 is
+public and immutable, and the Marketplace listing exposes v0.23.2. npm has
+staged v0.23.2 but still serves v0.21.1 publicly; use the GitHub artifact until
+the registry promotion is separately verified.
 
 ## What a result means
 
