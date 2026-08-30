@@ -121,7 +121,7 @@ not request registry v0.23.2 until npm publishes it.
 Pin the released commit instead of a moving tag:
 
 ```yaml
-- uses: sulmusic2-star/agent-vigil@f10e5363510b7781bd35e7970bc7f88d4eb073e4
+- uses: sulmusic2-star/agent-vigil@fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
 ```
 
 The Action executes the bundled `dist/cli.js` from that commit. It does not

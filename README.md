@@ -42,7 +42,7 @@ curl -fL -o agent-vigil.tgz \
 mkdir agent-vigil-package
 tar -xzf agent-vigil.tgz -C agent-vigil-package --strip-components=1
 node agent-vigil-package/dist/cli.js protect --repo . \
-  --action-sha f10e5363510b7781bd35e7970bc7f88d4eb073e4
+  --action-sha fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
 ```
 
 Review the four generated files, commit them in a setup pull request, and run:
@@ -55,7 +55,7 @@ The setup PR starts the check. To make it an enforceable trust boundary, require
 an externally controlled exact-head check or GitHub App. A required job name
 alone does not prove who supplied the workflow.
 
-[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/f80a47dde19dc87416a4a9e45c7e424df724dbcd/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
 **Distribution status, verified August 30, 2026:** GitHub release v0.23.2 and
 the versioned Action are public; the Marketplace listing exposes v0.23.2. npm
@@ -175,7 +175,7 @@ Pin the Action to a reviewed 40-character commit SHA:
     fetch-depth: 0
     persist-credentials: false
 - id: vigil
-  uses: sulmusic2-star/agent-vigil@f10e5363510b7781bd35e7970bc7f88d4eb073e4
+  uses: sulmusic2-star/agent-vigil@fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
   with:
     mode: maintainer
     policy: .agent-vigil.json
@@ -205,7 +205,7 @@ The browser and CLI can record the public lifecycle evidence for a pull request:
 npx --yes \
   https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz \
   pr-receipt https://github.com/OWNER/REPOSITORY/pull/123 \
-  --tool-ref f10e5363510b7781bd35e7970bc7f88d4eb073e4 \
+  --tool-ref fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502 \
   --output pr-123.receipt.json
 ```
 
