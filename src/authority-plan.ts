@@ -749,7 +749,10 @@ function addMcpServerAtoms(out: InternalAtom[], platform: AuthorityPlatform, pat
         decision: "ALLOW",
         constraints: [],
         locator: `${locator}.${name}.oauth_resource`,
-        comparisonValue: oauthResource,
+        // The URL is already represented by the redacted public resource. The
+        // semantic comparison is deliberately incomparable, so hashing the raw
+        // credential endpoint would add exposure without adding evidence.
+        comparisonValue: true,
         added: expansion("AVP008", "an MCP connection requests credentials for an additional OAuth resource", "critical"),
         removed: ALLOW_RESTRICTION,
         compare: () => "incomparable",

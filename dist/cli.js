@@ -14,17 +14,27 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "
 import { resolve } from "node:path";
 function readRegularFileSnapshot(requestedPath, maximumBytes, label = "input") {
   const absolutePath = resolve(requestedPath);
-  const expected = lstatSync(absolutePath, { bigint: true });
-  if (expected.isSymbolicLink() || !expected.isFile()) throw new Error(`${label} must be a regular non-symbolic-link file`);
-  if (expected.size > BigInt(maximumBytes)) throw new Error(`${label} is ${expected.size} bytes; maximum is ${maximumBytes}`);
   const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
   const nonBlock = typeof constants.O_NONBLOCK === "number" ? constants.O_NONBLOCK : 0;
-  const descriptor = openSync(absolutePath, constants.O_RDONLY | noFollow | nonBlock);
+  let descriptor;
+  try {
+    descriptor = openSync(absolutePath, constants.O_RDONLY | noFollow | nonBlock);
+  } catch (error) {
+    if (error.code === "ELOOP") {
+      throw new Error(`${label} must be a regular file, not a symbolic link`);
+    }
+    throw error;
+  }
   try {
     const opened = fstatSync(descriptor, { bigint: true });
-    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeNs !== expected.mtimeNs || opened.ctimeNs !== expected.ctimeNs) {
+    const linked2 = lstatSync(absolutePath, { bigint: true });
+    if (linked2.isSymbolicLink() || !linked2.isFile() || !opened.isFile()) {
+      throw new Error(`${label} must be a regular file, not a symbolic link`);
+    }
+    if (opened.dev !== linked2.dev || opened.ino !== linked2.ino || opened.size !== linked2.size || opened.mtimeNs !== linked2.mtimeNs || opened.ctimeNs !== linked2.ctimeNs) {
       throw new Error(`${label} changed while it was opened`);
     }
+    if (opened.size > BigInt(maximumBytes)) throw new Error(`${label} is ${opened.size} bytes; maximum is ${maximumBytes}`);
     const bytes = Buffer.alloc(Number(opened.size));
     let offset = 0;
     while (offset < bytes.length) {
@@ -9255,7 +9265,10 @@ function addMcpServerAtoms(out, platform4, path, values, locator) {
         decision: "ALLOW",
         constraints: [],
         locator: `${locator}.${name2}.oauth_resource`,
-        comparisonValue: oauthResource,
+        // The URL is already represented by the redacted public resource. The
+        // semantic comparison is deliberately incomparable, so hashing the raw
+        // credential endpoint would add exposure without adding evidence.
+        comparisonValue: true,
         added: expansion("AVP008", "an MCP connection requests credentials for an additional OAuth resource", "critical"),
         removed: ALLOW_RESTRICTION,
         compare: () => "incomparable"

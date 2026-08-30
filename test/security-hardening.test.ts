@@ -27,7 +27,7 @@ test("regular-file snapshots reject symbolic links and oversized input", () => {
     const link = join(root, "link.json");
     writeFileSync(target, "{\"ok\":true}", { mode: 0o600 });
     symlinkSync(target, link);
-    assert.throws(() => readRegularFileSnapshot(link, 1024, "fixture"), /non-symbolic-link/);
+    assert.throws(() => readRegularFileSnapshot(link, 1024, "fixture"), /symbolic link|ELOOP/);
     assert.throws(() => readRegularFileSnapshot(target, 2, "fixture"), /maximum is 2/);
     assert.equal(readRegularFileSnapshot(target, 1024, "fixture").bytes.toString("utf8"), "{\"ok\":true}");
   } finally {
@@ -41,4 +41,3 @@ test("regular-expression literals cannot inject operators or groups", () => {
   assert.equal(expression.test(hostile), true);
   assert.equal(expression.test("nameXanything"), false);
 });
-
