@@ -1,6 +1,6 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.23.1",
+  "version": "0.23.2",
   "description": "Fail-closed change control, upgrade preflight, and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
@@ -88,6 +88,7 @@
     "docs/assets/agent-vigil-demo.gif",
     "docs/assets/outcome-verifier-demo.html",
     "docs/index.html",
+    "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md",
     "docs/60_SECOND_DEMO.md",
     "docs/ADOPTION_EVIDENCE.md",
     "docs/AGENT_VALUE_CARD.md",

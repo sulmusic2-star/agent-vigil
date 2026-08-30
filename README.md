@@ -34,11 +34,11 @@ with public evidence and consent.
 
 ## Install the full gate
 
-The currently verified public package is the immutable v0.23.1 GitHub artifact:
+The currently verified public package is the immutable v0.23.2 GitHub artifact:
 
 ```bash
 curl -fL -o agent-vigil.tgz \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz
 mkdir agent-vigil-package
 tar -xzf agent-vigil.tgz -C agent-vigil-package --strip-components=1
 node agent-vigil-package/dist/cli.js protect --repo . \
@@ -57,8 +57,8 @@ alone does not prove who supplied the workflow.
 
 [Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/f80a47dde19dc87416a4a9e45c7e424df724dbcd/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
-**Distribution status, verified August 30, 2026:** GitHub release v0.23.1 and
-the versioned Action are public; the Marketplace listing exposes v0.23.1. npm
+**Distribution status, verified August 30, 2026:** GitHub release v0.23.2 and
+the versioned Action are public; the Marketplace listing exposes v0.23.2. npm
 currently serves v0.21.1. Use the immutable GitHub package until npm reaches
 release parity.
 
@@ -107,12 +107,12 @@ clone. See the [hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md).
 
 ## Current hosted compatibility
 
-The v0.23.1 generated workflow can infer a bounded direct `node --test`
+The v0.23.2 generated workflow can infer a bounded direct `node --test`
 command for a root Node/npm repository. Plain Git repositories and other
 toolchains use an explicit hermetic runner and an explicit test command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
@@ -203,7 +203,7 @@ The browser and CLI can record the public lifecycle evidence for a pull request:
 
 ```bash
 npx --yes \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.1/sulmusic-agent-vigil-0.23.1.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz \
   pr-receipt https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref f10e5363510b7781bd35e7970bc7f88d4eb073e4 \
   --output pr-123.receipt.json
