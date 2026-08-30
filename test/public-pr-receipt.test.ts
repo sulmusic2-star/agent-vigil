@@ -161,9 +161,24 @@ test("missing, failing, pending, unknown, or incomplete check evidence fails clo
     snapshot({ checkRuns: [{ status: "completed", conclusion: "failure", completed_at: "2026-08-25T11:30:00Z" }] }),
     snapshot({ checkRuns: [{ status: "in_progress", conclusion: null, started_at: "2026-08-25T11:30:00Z" }] }),
     snapshot({ checkRuns: [{ status: "completed", conclusion: null, completed_at: "2026-08-25T11:30:00Z" }] }),
+    snapshot({ checkRuns: [{ status: "completed", conclusion: "neutral", completed_at: "2026-08-25T11:30:00Z" }] }),
+    snapshot({ checkRuns: [{ status: "completed", conclusion: "skipped", completed_at: "2026-08-25T11:30:00Z" }] }),
     snapshot({ unavailable: ["reviews:pagination-incomplete"] }),
   ];
   for (const value of variants) assert.equal(build(value).decision.continuity, "HOLD");
+});
+
+test("neutral and skipped checks cannot become passing public evidence", () => {
+  for (const conclusion of ["neutral", "skipped"]) {
+    const receipt = build(snapshot({
+      checkRuns: [{ status: "completed", conclusion, completed_at: "2026-08-25T11:30:00Z" }],
+    }));
+    assert.equal(receipt.decision.continuity, "HOLD");
+    assert.deepEqual(receipt.observation.checks, { total: 1, passing: 0, failing: 0, pending: 0, unknown: 1 });
+    assert.ok(receipt.decision.reasonCodes.includes("checks-neutral-or-skipped"));
+    assert.ok(receipt.decision.reasonCodes.includes("check-conclusion-unknown"));
+    assert.equal(receipt.observation.freshnessReferenceAt, null);
+  }
 });
 
 test("new check attempts and commit statuses supersede old results for the same named check", () => {

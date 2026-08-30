@@ -136,7 +136,10 @@ const MAX_GITHUB_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_SIGNING_KEY_BYTES = 64 * 1024;
 const DEFAULT_GITHUB_REQUEST_TIMEOUT_MS = 30_000;
 const PUBLIC_CLAIM_STATEMENT = "This receipt attests that selected public GitHub events and checks were observed. It does not establish that the checks were sufficient, that the change is safe, or that deployment is authorized.";
-const SUCCESSFUL_CHECKS = new Set(["success", "neutral", "skipped"]);
+// GitHub accepts neutral and skipped conclusions for required checks. A
+// receipt treats only an explicit success as proof of successful execution.
+const SUCCESSFUL_CHECKS = new Set(["success"]);
+const NON_PROVING_CHECKS = new Set(["neutral", "skipped"]);
 const FAILED_CHECKS = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale", "error"]);
 const EFFECTIVE_REVIEW_STATES = new Set(["approved", "changes_requested", "dismissed"]);
 
@@ -394,6 +397,7 @@ function latestReviews(records: unknown[]): Array<Record<string, unknown>> {
 function checkSummary(checkRuns: unknown[], statuses: unknown[]): {
   counts: PublicPrReceipt["observation"]["checks"];
   decisiveTimestamps: string[];
+  nonProvingConclusions: number;
 } {
   const latestRuns = new Map<string, Record<string, unknown>>();
   for (const item of checkRuns) {
@@ -421,6 +425,7 @@ function checkSummary(checkRuns: unknown[], statuses: unknown[]): {
   let failing = 0;
   let pending = 0;
   let unknown = 0;
+  let nonProvingConclusions = 0;
   const decisiveTimestamps: string[] = [];
   for (const check of latestRuns.values()) {
     if (lower(check.status) !== "completed") { pending += 1; continue; }
@@ -431,6 +436,7 @@ function checkSummary(checkRuns: unknown[], statuses: unknown[]): {
       if (completedAt) decisiveTimestamps.push(completedAt);
     }
     else if (FAILED_CHECKS.has(conclusion)) failing += 1;
+    else if (NON_PROVING_CHECKS.has(conclusion)) { unknown += 1; nonProvingConclusions += 1; }
     else unknown += 1;
   }
   for (const status of latestStatuses.values()) {
@@ -447,6 +453,7 @@ function checkSummary(checkRuns: unknown[], statuses: unknown[]): {
   return {
     counts: { total: passing + failing + pending + unknown, passing, failing, pending, unknown },
     decisiveTimestamps,
+    nonProvingConclusions,
   };
 }
 
@@ -542,6 +549,7 @@ function unsignedReceipt(snapshot: PublicPrSnapshot, rawUrl: string, options: Bu
     if (checks.failing) reasonCodes.push("checks-failing");
     if (checks.pending) reasonCodes.push("checks-pending");
     if (checks.unknown) reasonCodes.push("check-conclusion-unknown");
+    if (checkEvidence.nonProvingConclusions) reasonCodes.push("checks-neutral-or-skipped");
     if (checks.passing && checkEvidence.decisiveTimestamps.length !== checks.passing) reasonCodes.push("check-timestamp-missing");
     if (snapshot.unavailable.length) reasonCodes.push("source-coverage-incomplete");
   }

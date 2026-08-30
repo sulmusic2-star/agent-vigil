@@ -18184,7 +18184,8 @@ var MAX_GITHUB_RESPONSE_BYTES = 16 * 1024 * 1024;
 var MAX_SIGNING_KEY_BYTES2 = 64 * 1024;
 var DEFAULT_GITHUB_REQUEST_TIMEOUT_MS = 3e4;
 var PUBLIC_CLAIM_STATEMENT = "This receipt attests that selected public GitHub events and checks were observed. It does not establish that the checks were sufficient, that the change is safe, or that deployment is authorized.";
-var SUCCESSFUL_CHECKS = /* @__PURE__ */ new Set(["success", "neutral", "skipped"]);
+var SUCCESSFUL_CHECKS = /* @__PURE__ */ new Set(["success"]);
+var NON_PROVING_CHECKS = /* @__PURE__ */ new Set(["neutral", "skipped"]);
 var FAILED_CHECKS = /* @__PURE__ */ new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale", "error"]);
 var EFFECTIVE_REVIEW_STATES = /* @__PURE__ */ new Set(["approved", "changes_requested", "dismissed"]);
 function sha2567(raw) {
@@ -18443,6 +18444,7 @@ function checkSummary(checkRuns, statuses) {
   let failing = 0;
   let pending = 0;
   let unknown = 0;
+  let nonProvingConclusions = 0;
   const decisiveTimestamps = [];
   for (const check2 of latestRuns.values()) {
     if (lower(check2.status) !== "completed") {
@@ -18455,7 +18457,10 @@ function checkSummary(checkRuns, statuses) {
       const completedAt = timestamp7(check2.completed_at);
       if (completedAt) decisiveTimestamps.push(completedAt);
     } else if (FAILED_CHECKS.has(conclusion)) failing += 1;
-    else unknown += 1;
+    else if (NON_PROVING_CHECKS.has(conclusion)) {
+      unknown += 1;
+      nonProvingConclusions += 1;
+    } else unknown += 1;
   }
   for (const status of latestStatuses.values()) {
     const state2 = lower(status.state);
@@ -18469,7 +18474,8 @@ function checkSummary(checkRuns, statuses) {
   }
   return {
     counts: { total: passing + failing + pending + unknown, passing, failing, pending, unknown },
-    decisiveTimestamps
+    decisiveTimestamps,
+    nonProvingConclusions
   };
 }
 function latestEvidenceAt(snapshot) {
@@ -18552,6 +18558,7 @@ function unsignedReceipt(snapshot, rawUrl, options) {
     if (checks.failing) reasonCodes2.push("checks-failing");
     if (checks.pending) reasonCodes2.push("checks-pending");
     if (checks.unknown) reasonCodes2.push("check-conclusion-unknown");
+    if (checkEvidence.nonProvingConclusions) reasonCodes2.push("checks-neutral-or-skipped");
     if (checks.passing && checkEvidence.decisiveTimestamps.length !== checks.passing) reasonCodes2.push("check-timestamp-missing");
     if (snapshot.unavailable.length) reasonCodes2.push("source-coverage-incomplete");
   }
