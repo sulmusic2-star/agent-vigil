@@ -85,6 +85,7 @@ function baseActionEnvironment(root: string, repo: string): NodeJS.ProcessEnv {
     VIGIL_INCIDENT_EVIDENCE: "",
     VIGIL_ISOLATE_CANDIDATE: "false",
     VIGIL_MIN_VERIFIED: "1",
+    VIGIL_MERGE_GROUP_EVENT: "",
     VIGIL_MODE: "",
     VIGIL_OUTCOME_RECEIPT: "",
     VIGIL_POLICY: "",
@@ -141,6 +142,9 @@ test("Action leaves strictness and the evidence minimum under trusted-policy con
   assert.match(postVerificationNodeEmpty, /\( cd "\$VIGIL_RUNTIME_DIR" && "\$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "\$VIGIL_NODE_BIN" "\$@" \)/);
   assert.match(action, /"GITHUB_EVENT_NAME=\$\{GITHUB_EVENT_NAME-\}"/);
   assert.match(action, /GITHUB_EVENT_NAME:-}" != "pull_request_target"/);
+  assert.match(action, /GITHUB_EVENT_NAME:-}" != "workflow_dispatch"/);
+  assert.match(action, /merge-group verification requires a bounded event exactly matching base, head, and policy-ref/);
+  assert.match(action, /merge-group mode requires an authenticated merge-group-event and a base-anchored policy and policy-ref/);
   const snapshotReader = action.match(/snapshot_regular_json\(\) \{([\s\S]*?)(?=\n        event_snapshot_fingerprint=)/)?.[1];
   assert.ok(snapshotReader);
   assert.match(snapshotReader, /Buffer\.alloc\(Number\(opened\.size\)\)/);
@@ -331,6 +335,10 @@ test("Action rejects unsafe credential and candidate-execution combinations befo
       message: /continuity-chain is restricted to continuity mode/,
     },
     {
+      env: { VIGIL_MODE: "prove", VIGIL_MERGE_GROUP_EVENT: "merge-group.json" },
+      message: /merge-group-event is restricted to merge-group mode/,
+    },
+    {
       env: { VIGIL_MODE: "prove", VIGIL_AUTHORITY_CONTRACT_REF: "a".repeat(40) },
       message: /authority-contract-ref requires authority-contract/,
     },
@@ -363,6 +371,42 @@ test("Action rejects candidate-selected pull_request workflow provenance", {
   });
   assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stderr, /requires the base-selected pull_request_target event/);
+});
+
+test("Action rejects merge-group envelopes outside authenticated dispatch and exact commit binding", {
+  skip: compositeActionRuntimeUnavailable || !existsSync("/usr/bin/docker"),
+}, () => {
+  const root = temporary("vigil-action-merge-group-provenance-");
+  const event = join(root, "merge-group.json");
+  const base = "1".repeat(40);
+  const head = "2".repeat(40);
+  writeFileSync(event, JSON.stringify({ merge_group: { base_sha: base, head_sha: head } }));
+
+  const wrongTrigger = runRejectedAction({
+    GITHUB_EVENT_NAME: "pull_request_target",
+    VIGIL_BASE: base,
+    VIGIL_HEAD: head,
+    VIGIL_ISOLATE_CANDIDATE: "true",
+    VIGIL_MERGE_GROUP_EVENT: event,
+    VIGIL_MODE: "merge-group",
+    VIGIL_POLICY: ".agent-vigil.json",
+    VIGIL_POLICY_REF: base,
+  });
+  assert.equal(wrongTrigger.status, 2, `${wrongTrigger.stdout}\n${wrongTrigger.stderr}`);
+  assert.match(wrongTrigger.stderr, /requires an externally authenticated workflow_dispatch/);
+
+  const wrongHead = runRejectedAction({
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    VIGIL_BASE: base,
+    VIGIL_HEAD: "3".repeat(40),
+    VIGIL_ISOLATE_CANDIDATE: "true",
+    VIGIL_MERGE_GROUP_EVENT: event,
+    VIGIL_MODE: "merge-group",
+    VIGIL_POLICY: ".agent-vigil.json",
+    VIGIL_POLICY_REF: base,
+  });
+  assert.equal(wrongHead.status, 2, `${wrongHead.stdout}\n${wrongHead.stderr}`);
+  assert.match(wrongHead.stderr, /exactly matching base, head, and policy-ref/);
 });
 
 test("Action validates candidate commit IDs before printing or using them", () => {

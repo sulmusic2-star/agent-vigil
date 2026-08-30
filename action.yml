@@ -10,7 +10,10 @@ inputs:
     required: false
     default: "false"
   mode:
-    description: "Set to plan, prove, maintainer, outcome, or continuity for the corresponding check"
+    description: "Set to plan, prove, maintainer, merge-group, outcome, or continuity for the corresponding check"
+    required: false
+  merge-group-event:
+    description: "Authenticated merge_group event envelope; required only in merge-group mode"
     required: false
   continuity-chain:
     description: "Downloaded continuity history directory; required in continuity mode"
@@ -173,6 +176,7 @@ runs:
         VIGIL_AUTHORITY_CONTRACT: ${{ inputs.authority-contract }}
         VIGIL_AUTHORITY_CONTRACT_REF: ${{ inputs.authority-contract-ref }}
         VIGIL_MODE: ${{ inputs.mode }}
+        VIGIL_MERGE_GROUP_EVENT: ${{ inputs.merge-group-event }}
         VIGIL_CONTINUITY_CHAIN: ${{ inputs.continuity-chain }}
         VIGIL_CONTINUITY_ENVIRONMENT: ${{ inputs.continuity-environment }}
         VIGIL_OUTCOME_RECEIPT: ${{ inputs.outcome-receipt }}
@@ -219,6 +223,7 @@ runs:
           "VIGIL_AUTHORITY_CONTRACT=${VIGIL_AUTHORITY_CONTRACT-}" \
           "VIGIL_AUTHORITY_CONTRACT_REF=${VIGIL_AUTHORITY_CONTRACT_REF-}" \
           "VIGIL_MODE=${VIGIL_MODE-}" \
+          "VIGIL_MERGE_GROUP_EVENT=${VIGIL_MERGE_GROUP_EVENT-}" \
           "VIGIL_CONTINUITY_CHAIN=${VIGIL_CONTINUITY_CHAIN-}" \
           "VIGIL_CONTINUITY_ENVIRONMENT=${VIGIL_CONTINUITY_ENVIRONMENT-}" \
           "VIGIL_OUTCOME_RECEIPT=${VIGIL_OUTCOME_RECEIPT-}" \
@@ -534,8 +539,8 @@ runs:
           ( cd "$VIGIL_RUNTIME_DIR" && "$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC "$VIGIL_NODE_BIN" "$@" )
         }
 
-        if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "maintainer" && "$VIGIL_MODE" != "outcome" && "$VIGIL_MODE" != "continuity" ]]; then
-          echo "agent-vigil: mode must be plan, prove, maintainer, outcome, or continuity when provided" >&2
+        if [[ -n "$VIGIL_MODE" && "$VIGIL_MODE" != "plan" && "$VIGIL_MODE" != "prove" && "$VIGIL_MODE" != "maintainer" && "$VIGIL_MODE" != "merge-group" && "$VIGIL_MODE" != "outcome" && "$VIGIL_MODE" != "continuity" ]]; then
+          echo "agent-vigil: mode must be plan, prove, maintainer, merge-group, outcome, or continuity when provided" >&2
           exit 2
         fi
         if [[ "$VIGIL_ISOLATE_CANDIDATE" != "true" && "$VIGIL_ISOLATE_CANDIDATE" != "false" ]]; then
@@ -626,6 +631,10 @@ runs:
           echo "agent-vigil: continuity-chain is restricted to continuity mode" >&2
           exit 2
         fi
+        if [[ "$VIGIL_MODE" != "merge-group" && -n "$VIGIL_MERGE_GROUP_EVENT" ]]; then
+          echo "agent-vigil: merge-group-event is restricted to merge-group mode" >&2
+          exit 2
+        fi
         if [[ -n "$VIGIL_AUTHORITY_CONTRACT_REF" && -z "$VIGIL_AUTHORITY_CONTRACT" ]]; then
           echo "agent-vigil: authority-contract-ref requires authority-contract" >&2
           exit 2
@@ -686,6 +695,7 @@ runs:
         [[ -n "$VIGIL_RECEIPT" ]] && selected=$((selected + 1))
         [[ "$VIGIL_MODE" == "plan" ]] && selected=$((selected + 1))
         [[ "$VIGIL_MODE" == "maintainer" ]] && selected=$((selected + 1))
+        [[ "$VIGIL_MODE" == "merge-group" ]] && selected=$((selected + 1))
         if [[ "$selected" -ne 1 ]]; then
           echo "agent-vigil: choose exactly one check input or named mode" >&2
           exit 2
@@ -696,6 +706,10 @@ runs:
         fi
         if [[ "$VIGIL_MODE" == "maintainer" && ( -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ) ]]; then
           echo "agent-vigil: maintainer mode requires a base-anchored policy and policy-ref" >&2
+          exit 2
+        fi
+        if [[ "$VIGIL_MODE" == "merge-group" && ( -z "$VIGIL_MERGE_GROUP_EVENT" || -z "$VIGIL_POLICY" || -z "$VIGIL_POLICY_REF" ) ]]; then
+          echo "agent-vigil: merge-group mode requires an authenticated merge-group-event and a base-anchored policy and policy-ref" >&2
           exit 2
         fi
 
@@ -822,9 +836,13 @@ runs:
         event_snapshot_fingerprint=''
         event_snapshot_sha=''
         VIGIL_EVENT_SNAPSHOT=''
-        if [[ -n "${GITHUB_EVENT_PATH:-}" ]]; then
+        VIGIL_EVENT_SOURCE="${GITHUB_EVENT_PATH:-}"
+        if [[ "$VIGIL_MODE" == "merge-group" ]]; then
+          VIGIL_EVENT_SOURCE="$VIGIL_MERGE_GROUP_EVENT"
+        fi
+        if [[ -n "$VIGIL_EVENT_SOURCE" ]]; then
           VIGIL_EVENT_SNAPSHOT="$artifact_dir/trusted-github-event.json"
-          if ! snapshot_regular_json "$GITHUB_EVENT_PATH" "$VIGIL_EVENT_SNAPSHOT" 1048576; then
+          if ! snapshot_regular_json "$VIGIL_EVENT_SOURCE" "$VIGIL_EVENT_SNAPSHOT" 1048576; then
             echo "agent-vigil: GitHub event must be one bounded regular JSON file" >&2
             exit 2
           fi
@@ -837,7 +855,7 @@ runs:
           [[ "$event_snapshot_sha" =~ ^[0-9a-f]{64}$ ]] || exit 2
           GITHUB_EVENT_PATH="$VIGIL_EVENT_SNAPSHOT"
           export GITHUB_EVENT_PATH
-          readonly VIGIL_EVENT_SNAPSHOT event_snapshot_fingerprint event_snapshot_sha
+          readonly VIGIL_EVENT_SOURCE VIGIL_EVENT_SNAPSHOT event_snapshot_fingerprint event_snapshot_sha
         fi
         event_snapshot_is_intact() {
           local current_fingerprint current_sha
@@ -853,9 +871,10 @@ runs:
           [[ "$current_sha" == "$event_snapshot_sha" ]]
         }
 
-        # Parse identity only from the immutable bounded snapshot. Candidate
-        # modes are intentionally limited to base-selected pull-request events;
-        # queue or non-PR enforcement requires an external workflow/App trust root.
+        # Parse identity only from the immutable bounded snapshot. Maintainer
+        # mode accepts only a base-selected pull-request event. Merge-group mode
+        # accepts only an authenticated envelope supplied by an external
+        # workflow/App trust root.
         if [[ -n "$VIGIL_EVENT_SNAPSHOT" ]]; then
           event_identity=$("$VIGIL_ENV_BIN" -i LANG=C LC_ALL=C TZ=UTC \
             "$VIGIL_NODE_BIN" -e '
@@ -868,7 +887,7 @@ runs:
           ' "$VIGIL_EVENT_SNAPSHOT") || exit 2
           IFS=$'\t' read -r event_kind event_base event_head <<< "$event_identity"
         fi
-        if [[ "$VIGIL_CANDIDATE_MODE" == "true" ]]; then
+        if [[ "$VIGIL_MODE" == "maintainer" ]]; then
           if [[ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ]]; then
             echo "agent-vigil: candidate verification requires the base-selected pull_request_target event" >&2
             exit 2
@@ -877,6 +896,18 @@ runs:
             || ( ! "$event_base" =~ ^[0-9a-f]{40}$ && ! "$event_base" =~ ^[0-9a-f]{64}$ ) \
             || ( ! "$event_head" =~ ^[0-9a-f]{40}$ && ! "$event_head" =~ ^[0-9a-f]{64}$ ) ]]; then
             echo "agent-vigil: candidate verification requires a bounded GitHub pull_request event with full commit IDs" >&2
+            exit 2
+          fi
+        elif [[ "$VIGIL_MODE" == "merge-group" ]]; then
+          if [[ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ]]; then
+            echo "agent-vigil: merge-group verification requires an externally authenticated workflow_dispatch" >&2
+            exit 2
+          fi
+          if [[ "$event_kind" != "merge_group" \
+            || ( ! "$event_base" =~ ^[0-9a-f]{40}$ && ! "$event_base" =~ ^[0-9a-f]{64}$ ) \
+            || ( ! "$event_head" =~ ^[0-9a-f]{40}$ && ! "$event_head" =~ ^[0-9a-f]{64}$ ) \
+            || "$VIGIL_BASE" != "$event_base" || "$VIGIL_HEAD" != "$event_head" || "$VIGIL_POLICY_REF" != "$event_base" ]]; then
+            echo "agent-vigil: merge-group verification requires a bounded event exactly matching base, head, and policy-ref" >&2
             exit 2
           fi
         fi
@@ -1103,6 +1134,8 @@ runs:
             exit 2
           fi
           args=(maintainer --event "$GITHUB_EVENT_PATH" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
+        elif [[ "$VIGIL_MODE" == "merge-group" ]]; then
+          args=(merge-group --event "$GITHUB_EVENT_PATH" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
         elif [[ -n "$VIGIL_AUTHORITY_CONTRACT" ]]; then
           args=(authority "$VIGIL_TRANSCRIPT" --contract "$VIGIL_AUTHORITY_CONTRACT" --contract-ref "$VIGIL_AUTHORITY_CONTRACT_REF" --repo "$VIGIL_REPO" --base "$VIGIL_BASE" --head "$VIGIL_HEAD" --output "$report_file" --sarif "$sarif_file" --github-summary)
         elif [[ -n "$VIGIL_RECEIPT" ]]; then
