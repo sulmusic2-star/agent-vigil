@@ -140,6 +140,41 @@ jobs:
             throw new Error("live queue ref does not resolve to the signed merge-group head");
           }
           NODE
+      - id: queue-event
+        name: Materialize the authenticated queue envelope outside the checkout
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_BASE_SHA: ${{ needs.authenticate.outputs.base-sha }}
+          EXPECTED_HEAD_SHA: ${{ needs.authenticate.outputs.head-sha }}
+          EXPECTED_BASE_REF: ${{ needs.authenticate.outputs.base-ref }}
+          EXPECTED_HEAD_REF: ${{ needs.authenticate.outputs.head-ref }}
+          DELIVERY_ID: ${{ needs.authenticate.outputs.delivery-id }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+
+          const env = process.env;
+          const root = realpathSync(env.RUNNER_TEMP);
+          const rootStat = lstatSync(root);
+          if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error("runner temporary directory is not a real directory");
+          const delivery = env.DELIVERY_ID;
+          if (!/^[0-9a-f-]{36}$/i.test(delivery ?? "")) throw new Error("authenticated delivery ID is invalid");
+          const eventPath = join(root, `agent-vigil-merge-group-${delivery}.json`);
+          const event = {
+            action: "checks_requested",
+            repository: { full_name: env.EXPECTED_REPOSITORY },
+            merge_group: {
+              base_sha: env.EXPECTED_BASE_SHA,
+              head_sha: env.EXPECTED_HEAD_SHA,
+              base_ref: env.EXPECTED_BASE_REF,
+              head_ref: env.EXPECTED_HEAD_REF,
+            },
+          };
+          writeFileSync(eventPath, `${JSON.stringify(event)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+          appendFileSync(env.GITHUB_OUTPUT, `path=${eventPath}\n`);
+          NODE
       - name: Select the exact trusted host Node.js runtime
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -154,9 +189,10 @@ jobs:
           allow-unsafe-pr-checkout: true
       - id: vigil
         name: Verify the composed head in the candidate-only Docker contract
-        uses: sulmusic2-star/agent-vigil@fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502 # reviewed v0.23.2 runtime bytes
+        uses: sulmusic2-star/agent-vigil@60476e1255ca2359c0fbeee08c5640d3cf4e46fa # reviewed merge-group runtime bytes
         with:
-          mode: maintainer
+          mode: merge-group
+          merge-group-event: ${{ steps.queue-event.outputs.path }}
           policy: .agent-vigil.json
           policy-ref: ${{ needs.authenticate.outputs.base-sha }}
           repo: .
