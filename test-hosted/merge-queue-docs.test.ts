@@ -31,6 +31,10 @@ test("merge-queue docs describe the checked-in path without claiming deployment"
 
 test("dispatcher instructions name the exact current contract", () => {
   assert.ok(
+    dispatcher.indexOf("## Register the queue App") < dispatcher.indexOf("## Required secrets"),
+    "the App identity and key must exist before Worker secret setup",
+  );
+  assert.ok(
     dispatcher.match(/cd hosted\/merge-queue-dispatcher/g)?.length === 2,
     "secret setup and deployment must both select the checked-in Wrangler config directory",
   );

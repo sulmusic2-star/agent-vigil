@@ -26,6 +26,22 @@ GitHub refuses the deployment before any step can read an environment variable
 or secret. Remove that test workflow afterward. Do not deploy the Worker or
 make its check required if this negative test has not been observed.
 
+## Register the queue App
+
+Register the queue App from
+[`github-app-manifest.example.json`](github-app-manifest.example.json), after
+replacing the placeholder host with the planned Worker origin. Record the App
+ID, generate its private key, and generate a separate random webhook secret.
+The manifest deliberately names the App `Agent Vigil Gate`, which produces the
+`agent-vigil-gate[bot]` actor required by the workflow before checkout. If
+GitHub assigns a different App slug, stop: the reviewed workflow actor binding
+must be changed to that exact slug and revalidated before deployment.
+
+The App needs `Actions: write`, `Checks: write`, `Contents: read`,
+`Merge queues: read`, and `Metadata: read`, and subscribes only to `merge_group`.
+Limit its installation to the intended repository. Do not enable the webhook
+or make its check required yet.
+
 ## Required secrets
 
 Run every Wrangler command in this guide from the directory that contains the
@@ -48,18 +64,6 @@ never put their values in this directory:
   GitHub downloads a PKCS#1 key, convert a temporary local copy with
   `openssl pkcs8 -topk8 -nocrypt -in app.pem -out app-pkcs8.pem`, upload it as
   a Worker secret, and remove the temporary copies.
-
-Register the queue App from
-[`github-app-manifest.example.json`](github-app-manifest.example.json), after
-replacing the placeholder host. The manifest deliberately names the App
-`Agent Vigil Gate`, which produces the `agent-vigil-gate[bot]` actor required
-by the workflow before checkout. If GitHub assigns a different App slug, stop:
-the reviewed workflow actor binding must be changed to that exact slug and
-revalidated before deployment.
-
-The App needs `Actions: write`, `Checks: write`, `Contents: read`,
-`Merge queues: read`, and `Metadata: read`, and subscribes only to `merge_group`.
-The installation must be limited to the intended repository.
 
 ## Verification and deployment
 
