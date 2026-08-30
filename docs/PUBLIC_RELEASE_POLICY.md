@@ -9,8 +9,12 @@ reviewed or approved the page.
 
 - The source package version and latest public GitHub release match, unless an
   exact, strictly newer source candidate records both GitHub and npm as
-  unpublished. Candidate metadata never makes its download URL or npm spec
-  installable; public commands stay bound to the latest verified release.
+  unpublished. The packed README and bundled install guide may show that
+  candidate's immutable GitHub asset path only with the required candidate
+  disclosure and the current verified release beside it. Candidate npm specs
+  remain forbidden. Every other public command stays bound to the latest
+  verified release. The gate rejects stale candidate disclosures after a
+  release is promoted.
 - Public installation commands identify the immutable release asset and its
   verified SHA-256 digest.
 - GitHub release and npm registry states remain separate.

@@ -134,6 +134,7 @@ def install_reference_failures(
     release_version: str,
     candidate_version: str | None,
     published_registry_version: str | None,
+    allow_candidate_release: bool = False,
 ) -> list[str]:
     failures: list[str] = []
     if release_asset_url(release_version) not in text:
@@ -142,15 +143,41 @@ def install_reference_failures(
         r"https://github\.com/sulmusic2-star/agent-vigil/releases/download/v([0-9]+\.[0-9]+\.[0-9]+)/sulmusic-agent-vigil-([0-9]+\.[0-9]+\.[0-9]+)\.tgz",
         text,
     ):
-        if url_version != asset_version or url_version != release_version:
+        allowed_versions = {release_version}
+        if allow_candidate_release and candidate_version is not None:
+            allowed_versions.add(candidate_version)
+        if url_version != asset_version or url_version not in allowed_versions:
             failures.append(f"{label} references an unrecorded or mismatched release package")
     failures.extend(npm_reference_failures(label, text, published_registry_version))
     if candidate_version is not None:
         candidate_url = release_asset_url(candidate_version)
         candidate_registry_spec = f"@sulmusic/agent-vigil@{candidate_version}"
-        if candidate_url in text or candidate_registry_spec in text:
+        if (candidate_url in text and not allow_candidate_release) or candidate_registry_spec in text:
             failures.append(f"{label} presents the unpublished source candidate as installable")
     return failures
+
+
+def candidate_disclosure_failures(
+    label: str,
+    text: str,
+    candidate_version: str | None,
+) -> list[str]:
+    disclosure_pattern = re.compile(
+        r"v([0-9]+\.[0-9]+\.[0-9]+) is a source release candidate until GitHub lists both "
+        r"the package and checksum assets\."
+    )
+    disclosures = disclosure_pattern.findall(text)
+    if candidate_version is None:
+        return [f"{label} retains a release-candidate disclosure after promotion"] if disclosures else []
+    expected = (
+        f"v{candidate_version} is a source release candidate until GitHub lists both "
+        "the package and checksum assets."
+    )
+    if expected not in text:
+        return [f"{label} does not label the release-candidate install path"]
+    if any(version != candidate_version for version in disclosures):
+        return [f"{label} contains a stale release-candidate disclosure"]
+    return []
 
 
 def install_state_failures(package_version: str, install_state: dict[str, object]) -> list[str]:
@@ -283,7 +310,9 @@ def version_failures() -> list[str]:
         ROOT / "docs/PRIVATE_RECEIPT_GATE.md",
         ROOT / "docs/PUBLIC_PR_RECEIPT.md",
     ]
+    candidate_release_files = {ROOT / "README.md", ROOT / "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md"}
     for path in current_install_files:
+        allow_candidate_release = path in candidate_release_files
         failures.extend(
             install_reference_failures(
                 relative(path),
@@ -291,8 +320,17 @@ def version_failures() -> list[str]:
                 release["version"],
                 candidate_version if isinstance(candidate_version, str) else None,
                 registry["observed_version"],
+                allow_candidate_release=allow_candidate_release,
             )
         )
+        if allow_candidate_release:
+            failures.extend(
+                candidate_disclosure_failures(
+                    relative(path),
+                    path.read_text(),
+                    candidate_version if isinstance(candidate_version, str) else None,
+                )
+            )
 
     publishing = ROOT / "docs/PUBLISHING.md"
     failures.extend(
@@ -536,6 +574,23 @@ def self_test() -> None:
             candidate_version,
             published_registry_version,
         )
+    )
+    assert install_reference_failures(
+        "release-source fixture",
+        public_url + "\n" + candidate_url,
+        release_version,
+        candidate_version,
+        published_registry_version,
+        allow_candidate_release=True,
+    ) == []
+    disclosure = (
+        f"v{candidate_version} is a source release candidate until GitHub lists both "
+        "the package and checksum assets."
+    )
+    assert candidate_disclosure_failures("fixture", disclosure, candidate_version) == []
+    assert any(
+        "after promotion" in failure
+        for failure in candidate_disclosure_failures("fixture", disclosure, None)
     )
     assert any(
         "unrecorded npm package version" in failure
