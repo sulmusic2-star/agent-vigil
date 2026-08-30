@@ -16,6 +16,7 @@ type InitResult = { created: string[]; kept: string[] };
 type DoctorCheck = { status: "PASS" | "WARN" | "FAIL"; label: string; detail: string };
 export type SetupProfile = "default" | "maintainer" | "authority" | "protect";
 export type HostedRunnerOverride = { image: string; testCommand: string };
+export const OFFICIAL_COMMON_RUNNER_IMAGE = "ghcr.io/sulmusic2-star/agent-vigil-runner@sha256:efdaa365db14cb8d64408beac91361ed0875111e4c07254e2b3729801df606a0";
 const HOSTED_RUNNER_FILE = ".agent-vigil-runner.json";
 const IMMUTABLE_IMAGE = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$/;
 

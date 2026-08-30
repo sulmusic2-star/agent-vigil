@@ -117,11 +117,11 @@ in v0.22.0. The local CLI can parse and verify many of those result formats.
 Those adapters do not make an unsupported repository eligible for the hosted installer.
 
 The next source release adds an explicit hermetic-runner path for those
-toolchains. It is opt-in because the image becomes part of the trusted base:
+toolchains. The published common runner is pinned by its immutable digest:
 
 ```bash
 node dist/cli.js protect --repo . \
-  --runner-image ghcr.io/your-org/agent-vigil-runner@sha256:<64-hex-digest> \
+  --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
 
@@ -131,9 +131,10 @@ needed by the test command. Custom setup and test-time network access stay
 disabled. The receipt records the exact image digest and command. Agent Vigil
 rejects a pull request that changes `.agent-vigil-runner.json`.
 
-The repository contains a common multi-toolchain image recipe and a provenance-
-enabled GHCR publication workflow. That recipe is source until its first hosted
-build succeeds and an immutable public digest is recorded; no floating tag is a
+`--runner common` resolves to the public image
+`ghcr.io/sulmusic2-star/agent-vigil-runner@sha256:efdaa365db14cb8d64408beac91361ed0875111e4c07254e2b3729801df606a0`.
+Its hosted build includes provenance and an SBOM. Use `--runner-image` instead
+to select a reviewed image owned by your organization. No floating tag is a
 supported trust input.
 
 This boundary is deliberate: running candidate code on the GitHub host would

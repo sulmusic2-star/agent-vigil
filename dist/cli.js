@@ -6547,6 +6547,7 @@ var SETUP_NODE_ACTION_SHA = "820762786026740c76f36085b0efc47a31fe5020";
 var HOSTED_NODE_VERSION = "22.23.2";
 var DOWNLOAD_ARTIFACT_ACTION_SHA = "634f93cb2916e3fdff6788551b99b062d0335ce0";
 var UPLOAD_ARTIFACT_ACTION_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02";
+var OFFICIAL_COMMON_RUNNER_IMAGE = "ghcr.io/sulmusic2-star/agent-vigil-runner@sha256:efdaa365db14cb8d64408beac91361ed0875111e4c07254e2b3729801df606a0";
 var HOSTED_RUNNER_FILE = ".agent-vigil-runner.json";
 var IMMUTABLE_IMAGE = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$/;
 function evidenceWorkflow(mode, actionSha, setupCommand, candidateImage) {
@@ -19411,10 +19412,10 @@ function usage4() {
 Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
-  vigil init --action-sha <40-hex> [--repo <path>] [--force] [--runner-image <digest> --test-cmd <command>] [--portable --public-key <path>]
+  vigil init --action-sha <40-hex> [--repo <path>] [--force] [--runner common|--runner-image <digest> --test-cmd <command>] [--portable --public-key <path>]
   vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
   vigil init --profile authority --action-sha <40-hex> [--repo <path>] [--force]
-  vigil protect [--repo <path>] [--force] [--action-sha <40-hex>] [--runner-image <digest> --test-cmd <command>]
+  vigil protect [--repo <path>] [--force] [--action-sha <40-hex>] [--runner common|--runner-image <digest> --test-cmd <command>]
   vigil check <https://github.com/owner/repo/pull/number> [--format text|json] [--output <receipt.json>]
   vigil prove [--repo <path>] [--base <sha>] [--format text|json] [--output <path>]
   vigil guard-compat --host claude|codex --host-version <version> --host-executable <path> --control-name <name> --control-version <version> --control-executable <path> --policy <path> --configuration <path> [options]
@@ -19963,9 +19964,21 @@ function validateCommandArgs(args, command, valueOptions, flagOptions) {
     }
   }
 }
+function hostedRunnerOverride(args, command) {
+  const runner = optionValue(args, "--runner");
+  const explicitImage = optionValue(args, "--runner-image");
+  const testCommand = optionValue(args, "--test-cmd");
+  if (runner && explicitImage) throw new Error(`${command} accepts --runner or --runner-image, not both`);
+  if (runner && runner !== "common") throw new Error(`${command} --runner must be common`);
+  const image = runner === "common" ? OFFICIAL_COMMON_RUNNER_IMAGE : explicitImage;
+  if (Boolean(image) !== Boolean(testCommand)) {
+    throw new Error(`${command} requires --test-cmd together with --runner or --runner-image`);
+  }
+  return image && testCommand ? { image, testCommand } : void 0;
+}
 function runInit3(args) {
   try {
-    validateCommandArgs(args, "init", ["--repo", "--action-sha", "--profile", "--public-key", "--runner-image", "--test-cmd"], ["--portable", "--attest", "--force"]);
+    validateCommandArgs(args, "init", ["--repo", "--action-sha", "--profile", "--public-key", "--runner", "--runner-image", "--test-cmd"], ["--portable", "--attest", "--force"]);
     const repo = resolve32(optionValue(args, "--repo") ?? ".");
     const portable = args.includes("--portable");
     const attest = args.includes("--attest");
@@ -19978,9 +19991,7 @@ function runInit3(args) {
     if (!portable && publicKey) throw new Error("init --public-key is only valid with --portable");
     if (attest) throw new Error("init --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
     if (!/^[0-9a-f]{40}$/.test(actionSha ?? "")) throw new Error("init requires --action-sha <40 lowercase hex>");
-    const runnerImage = optionValue(args, "--runner-image");
-    const runnerTest = optionValue(args, "--test-cmd");
-    if (Boolean(runnerImage) !== Boolean(runnerTest)) throw new Error("init requires --runner-image and --test-cmd together");
+    const runnerOverride = hostedRunnerOverride(args, "init");
     const result5 = initRepository(
       repo,
       args.includes("--force"),
@@ -19988,7 +19999,7 @@ function runInit3(args) {
       profile,
       false,
       actionSha,
-      runnerImage && runnerTest ? { image: runnerImage, testCommand: runnerTest } : void 0
+      runnerOverride
     );
     console.log("Agent Vigil scaffold prepared.\n");
     for (const path of result5.created) console.log(`  created ${path}`);
@@ -20002,15 +20013,13 @@ function runInit3(args) {
 }
 function runProtect(args) {
   try {
-    validateCommandArgs(args, "protect", ["--repo", "--action-sha", "--runner-image", "--test-cmd"], ["--force", "--attest"]);
+    validateCommandArgs(args, "protect", ["--repo", "--action-sha", "--runner", "--runner-image", "--test-cmd"], ["--force", "--attest"]);
     const repo = resolve32(optionValue(args, "--repo") ?? ".");
     if (args.includes("--attest")) throw new Error("protect --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
     const selectedPin = defaultActionPin();
     const actionSha = optionValue(args, "--action-sha") ?? selectedPin.sha;
     if (!/^[0-9a-f]{40}$/.test(actionSha)) throw new Error("protect requires --action-sha to be a 40-character lowercase Git commit SHA");
-    const runnerImage = optionValue(args, "--runner-image");
-    const runnerTest = optionValue(args, "--test-cmd");
-    if (Boolean(runnerImage) !== Boolean(runnerTest)) throw new Error("protect requires --runner-image and --test-cmd together");
+    const runnerOverride = hostedRunnerOverride(args, "protect");
     const result5 = initRepository(
       repo,
       args.includes("--force"),
@@ -20018,7 +20027,7 @@ function runProtect(args) {
       "protect",
       false,
       actionSha,
-      runnerImage && runnerTest ? { image: runnerImage, testCommand: runnerTest } : void 0
+      runnerOverride
     );
     console.log("Agent Vigil is ready to add.\n");
     const policy = loadPolicy(repo).value;

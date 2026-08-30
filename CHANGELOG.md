@@ -13,8 +13,9 @@
   floating images, shell composition, symlinks, gitlinks, and altered runner
   configuration.
 - Add a common multi-toolchain runner recipe and a provenance- and SBOM-enabled
-  GHCR publication workflow. The recipe is not a supported runtime until its
-  hosted build succeeds and the immutable digest is published.
+  GHCR publication workflow. `--runner common` selects the successful public
+  build by immutable digest; `--runner-image` remains available for an
+  organization-owned image.
 - Replace the thousand-line landing README with a short purpose, five-minute
   installation path, result semantics, compatibility boundary, and links to
   advanced controls.
