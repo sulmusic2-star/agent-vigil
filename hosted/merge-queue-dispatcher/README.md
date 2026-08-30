@@ -50,7 +50,12 @@ After deployment, configure the App webhook URL as
 `https://DEPLOYED_WORKER/github/merge-group`, put the same webhook secret in
 the App and Worker, and add the Worker's `DISPATCH_SECRET` value to the
 protected `agent-vigil-gate` GitHub environment as
-`AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`.
+`AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`. The protected environment also needs
+the registered queue App's numeric ID as the variable
+`AGENT_VIGIL_GATE_APP_ID` and the same private key as the secret
+`AGENT_VIGIL_GATE_PRIVATE_KEY`. The Worker receives those credentials under
+its own names, `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`; do not put either
+private-key value in repository variables or files.
 
 Do not make the queue check required until a real signed `checks_requested`
 delivery produces `Agent Vigil governed evidence` on the exact queue head and

@@ -36,6 +36,12 @@ test("dispatcher instructions name the exact current contract", () => {
   assert.match(dispatcher, /Merge queues: read/);
   assert.match(dispatcher, /candidate-only Docker boundary/);
   assert.match(dispatcher, /AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET/);
+  assert.match(dispatcher, /AGENT_VIGIL_GATE_APP_ID/);
+  assert.match(dispatcher, /AGENT_VIGIL_GATE_PRIVATE_KEY/);
+  assert.match(dispatcher, /GITHUB_APP_ID/);
+  assert.match(dispatcher, /GITHUB_APP_PRIVATE_KEY/);
+  assert.match(notary, /Receipt-notary App permissions/);
+  assert.match(notary, /queue App separately needs Actions write and Merge queues read/);
 });
 
 test("queue App manifest matches the authenticated dispatcher and workflow", () => {

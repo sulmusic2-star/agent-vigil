@@ -44,12 +44,11 @@ requirement lacks. A ruleset must restrict the accepted status source to this
 installed App, and the App must reject a head, event, or evidence-source
 mismatch. No deployed service currently provides that check.
 
-## Minimum GitHub App permissions
+## Receipt-notary App permissions
 
-- Actions: write (needed to dispatch the trusted default-branch merge-queue workflow)
+- Actions: read
 - Checks: read and write
 - Contents: read
-- Merge queues: read
 - Pull requests: read
 - Metadata: read
 
@@ -62,6 +61,10 @@ its placeholder URLs before registering a receipt-notary App. That manifest is
 not the queue-dispatcher registration path. The queue path has a separate,
 narrow manifest at
 [`hosted/merge-queue-dispatcher/github-app-manifest.example.json`](../hosted/merge-queue-dispatcher/github-app-manifest.example.json).
+That queue App separately needs Actions write and Merge queues read so it can
+dispatch the trusted default-branch workflow for a signed queue event. Do not
+grant those queue permissions to the receipt-notary App unless the two roles
+are intentionally combined and the larger trust boundary is reviewed.
 
 ## Webhook handling
 
