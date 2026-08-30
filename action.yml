@@ -887,7 +887,7 @@ runs:
           ' "$VIGIL_EVENT_SNAPSHOT") || exit 2
           IFS=$'\t' read -r event_kind event_base event_head <<< "$event_identity"
         fi
-        if [[ "$VIGIL_MODE" == "maintainer" ]]; then
+        if [[ "$VIGIL_CANDIDATE_MODE" == "true" && "$VIGIL_MODE" != "merge-group" ]]; then
           if [[ "${GITHUB_EVENT_NAME:-}" != "pull_request_target" ]]; then
             echo "agent-vigil: candidate verification requires the base-selected pull_request_target event" >&2
             exit 2
