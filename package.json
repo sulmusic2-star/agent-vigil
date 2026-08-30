@@ -71,6 +71,7 @@
     "hostedTestCommand": "node --test --test-concurrency=1 test-hosted/*.test.ts"
   },
   "files": [
+    ".github/workflows/agent-vigil-merge-group.yml",
     "dist",
     "action.yml",
     "github-marker/action.yml",
