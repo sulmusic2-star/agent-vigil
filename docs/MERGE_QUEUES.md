@@ -74,6 +74,14 @@ webhook secret, and a separate dispatch secret; the workflow receives only the
 dispatch secret and the existing check-writing App key through the protected
 `agent-vigil-gate` environment.
 
+Register this path with the dedicated
+[`github-app-manifest.example.json`](../hosted/merge-queue-dispatcher/github-app-manifest.example.json),
+not the receipt-notary manifest. It points at `/github/merge-group`, subscribes
+only to `merge_group`, and names the App `Agent Vigil Gate` so the dispatch
+actor is the workflow-bound `agent-vigil-gate[bot]`. Store the Worker's
+`DISPATCH_SECRET` value in the environment under the workflow's exact secret
+name, `AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`.
+
 Do not require this check for merge queues until all of these are directly
 observed:
 

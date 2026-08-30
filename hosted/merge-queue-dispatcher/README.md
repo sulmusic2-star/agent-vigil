@@ -17,16 +17,26 @@ Set these with `wrangler secret put`; never put their values in this directory:
 
 - `WEBHOOK_SECRET` — the GitHub App webhook secret;
 - `DISPATCH_SECRET` — a separate random secret shared with the
-  `agent-vigil-gate` GitHub environment;
+  `agent-vigil-gate` GitHub environment. Store the same value there under the
+  workflow's exact secret name,
+  `AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`;
 - `GITHUB_APP_ID` — the numeric GitHub App ID; and
 - `GITHUB_APP_PRIVATE_KEY` — an unencrypted PKCS#8 GitHub App private key. If
   GitHub downloads a PKCS#1 key, convert a temporary local copy with
   `openssl pkcs8 -topk8 -nocrypt -in app.pem -out app-pkcs8.pem`, upload it as
   a Worker secret, and remove the temporary copies.
 
-The GitHub App needs `Actions: write`, `Checks: write`, `Contents: read`,
-`Merge queues: read`, and `Metadata: read`, and must subscribe to `merge_group`
-events. The installation must be limited to the intended repository.
+Register the queue App from
+[`github-app-manifest.example.json`](github-app-manifest.example.json), after
+replacing the placeholder host. The manifest deliberately names the App
+`Agent Vigil Gate`, which produces the `agent-vigil-gate[bot]` actor required
+by the workflow before checkout. If GitHub assigns a different App slug, stop:
+the reviewed workflow actor binding must be changed to that exact slug and
+revalidated before deployment.
+
+The App needs `Actions: write`, `Checks: write`, `Contents: read`,
+`Merge queues: read`, and `Metadata: read`, and subscribes only to `merge_group`.
+The installation must be limited to the intended repository.
 
 ## Verification and deployment
 
@@ -38,8 +48,9 @@ npx --yes wrangler@4.127.1 deploy
 
 After deployment, configure the App webhook URL as
 `https://DEPLOYED_WORKER/github/merge-group`, put the same webhook secret in
-the App and Worker, and add `DISPATCH_SECRET` to the protected
-`agent-vigil-gate` GitHub environment.
+the App and Worker, and add the Worker's `DISPATCH_SECRET` value to the
+protected `agent-vigil-gate` GitHub environment as
+`AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`.
 
 Do not make the queue check required until a real signed `checks_requested`
 delivery produces `Agent Vigil governed evidence` on the exact queue head and

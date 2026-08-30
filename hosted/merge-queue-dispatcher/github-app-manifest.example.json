@@ -1,0 +1,19 @@
+{
+  "name": "Agent Vigil Gate",
+  "url": "https://REPLACE_WITH_DEPLOYED_WORKER.example",
+  "hook_attributes": {
+    "url": "https://REPLACE_WITH_DEPLOYED_WORKER.example/github/merge-group",
+    "active": true
+  },
+  "public": false,
+  "default_permissions": {
+    "actions": "write",
+    "checks": "write",
+    "contents": "read",
+    "merge_queues": "read",
+    "metadata": "read"
+  },
+  "default_events": [
+    "merge_group"
+  ]
+}

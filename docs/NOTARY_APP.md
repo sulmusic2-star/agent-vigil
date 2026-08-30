@@ -58,7 +58,10 @@ deployment access, or secrets access.
 
 An example manifest is in
 [`notary-app-manifest.example.json`](notary-app-manifest.example.json). Replace
-its placeholder URLs before registering an App.
+its placeholder URLs before registering a receipt-notary App. That manifest is
+not the queue-dispatcher registration path. The queue path has a separate,
+narrow manifest at
+[`hosted/merge-queue-dispatcher/github-app-manifest.example.json`](../hosted/merge-queue-dispatcher/github-app-manifest.example.json).
 
 ## Webhook handling
 
@@ -102,3 +105,8 @@ materializes a bounded queue envelope outside the checkout, invokes an immutable
 reviewed runtime, runs candidate commands in Docker without gate secrets,
 rechecks the live queue ref, and posts the same App-owned `Agent Vigil governed
 evidence` context used by pull requests.
+
+The queue manifest names that App `Agent Vigil Gate`; the resulting
+`agent-vigil-gate[bot]` actor is bound in the workflow before checkout. Do not
+reuse the receipt-notary manifest for this route or silently substitute a
+different App slug.

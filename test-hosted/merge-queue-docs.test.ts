@@ -5,6 +5,18 @@ import test from "node:test";
 const queues = readFileSync(new URL("../docs/MERGE_QUEUES.md", import.meta.url), "utf8");
 const notary = readFileSync(new URL("../docs/NOTARY_APP.md", import.meta.url), "utf8");
 const dispatcher = readFileSync(new URL("../hosted/merge-queue-dispatcher/README.md", import.meta.url), "utf8");
+const queueWorkflow = readFileSync(new URL("../.github/workflows/agent-vigil-merge-group.yml", import.meta.url), "utf8");
+const queueManifest = JSON.parse(
+  readFileSync(new URL("../hosted/merge-queue-dispatcher/github-app-manifest.example.json", import.meta.url), "utf8"),
+) as {
+  name: string;
+  hook_attributes: { url: string };
+  default_permissions: Record<string, string>;
+  default_events: string[];
+};
+const notaryManifest = JSON.parse(
+  readFileSync(new URL("../docs/notary-app-manifest.example.json", import.meta.url), "utf8"),
+) as { default_events: string[] };
 
 test("merge-queue docs describe the checked-in path without claiming deployment", () => {
   assert.match(queues, /not an active enforcement path until the Worker is deployed/);
@@ -23,4 +35,19 @@ test("dispatcher instructions name the exact current contract", () => {
   assert.match(dispatcher, /Actions: write/);
   assert.match(dispatcher, /Merge queues: read/);
   assert.match(dispatcher, /candidate-only Docker boundary/);
+  assert.match(dispatcher, /AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET/);
+});
+
+test("queue App manifest matches the authenticated dispatcher and workflow", () => {
+  assert.equal(queueManifest.name, "Agent Vigil Gate");
+  assert.match(queueManifest.hook_attributes.url, /\/github\/merge-group$/);
+  assert.deepEqual(queueManifest.default_events, ["merge_group"]);
+  assert.match(queueWorkflow, /EXPECTED_ACTOR: agent-vigil-gate\[bot\]/);
+  assert.match(queueWorkflow, /DISPATCH_SECRET: \$\{\{ secrets\.AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET \}\}/);
+  assert.equal(queueManifest.default_permissions.actions, "write");
+  assert.equal(queueManifest.default_permissions.checks, "write");
+  assert.equal(queueManifest.default_permissions.contents, "read");
+  assert.equal(queueManifest.default_permissions.merge_queues, "read");
+  assert.equal(queueManifest.default_permissions.metadata, "read");
+  assert.ok(!notaryManifest.default_events.includes("merge_group"));
 });
