@@ -300,6 +300,12 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/upgrade-config-v1.schema.json",
     "docs/upgrade-receipt-v1.schema.json",
   ];
+  const allowedPublishedHosted = [
+    "hosted/merge-queue-dispatcher/README.md",
+    "hosted/merge-queue-dispatcher/github-app-manifest.example.json",
+    "hosted/merge-queue-dispatcher/src/index.mjs",
+    "hosted/merge-queue-dispatcher/wrangler.jsonc",
+  ];
   const requiredPublicPaths = [
     "DISCLOSURE",
     "SECURITY.md",
@@ -308,6 +314,7 @@ test("npm package surface excludes internal product and commercial working docum
     "proof/README.md",
     "proof/cases",
     "proof/outcome-cases",
+    "hosted/merge-queue-dispatcher",
   ];
   for (const publicPath of requiredPublicPaths) {
     assert.ok(files.includes(publicPath), `${publicPath} must ship with the npm package`);
@@ -329,9 +336,15 @@ test("npm package surface excludes internal product and commercial working docum
     if (packedPath.startsWith("docs/")) {
       assert.ok(allowedPublishedDocs.includes(packedPath), `${packedPath} is not in the reviewed public-doc allowlist`);
     }
+    if (packedPath.startsWith("hosted/")) {
+      assert.ok(allowedPublishedHosted.includes(packedPath), `${packedPath} is not in the reviewed hosted-source allowlist`);
+    }
   }
   for (const publicDocument of allowedPublishedDocs) {
     assert.ok(packedPaths.includes(publicDocument), `${publicDocument} must appear in the concrete npm pack manifest`);
+  }
+  for (const hostedPath of allowedPublishedHosted) {
+    assert.ok(packedPaths.includes(hostedPath), `${hostedPath} must appear in the concrete npm pack manifest`);
   }
 });
 
