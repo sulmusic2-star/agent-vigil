@@ -35,7 +35,7 @@ jobs:
         name: Verify in the candidate-only Docker contract
         # Release gate: replace this literal with the reviewed 40-hex runtime
         # commit only after source/dist identity is frozen and reviewed.
-        uses: sulmusic2-star/agent-vigil@6edad8dd2a42b30546d31c78c7f761894fef8ddf
+        uses: sulmusic2-star/agent-vigil@1ffdfca29ad5bd0df3e910b35f84a8843805b9d5
         with:
           mode: maintainer
           policy: .agent-vigil.json
