@@ -13,7 +13,8 @@ revenue.
   `4781874`
 - App: `agent-vigil-queue-gate-runtime`, installed only on the lab repository
 - Worker: `agent-vigil-merge-queue-lab`, version
-  `31680b06-29ec-4a51-b6e5-32a4175af62e`
+  `30954ac8-4ba1-45d3-ba81-a6bebfdb89f8`, deployed from merged commit
+  `d1020ceab9f1d8fa3dcaafccd62d6d713e744b69`
 - Protected environment: `agent-vigil-gate`, restricted to `main`
 
 No credential value is recorded in this repository.
@@ -96,12 +97,22 @@ ruleset and replaced by the App-bound required check.
 This bootstrap does not count as a normal passing verdict. Pull requests 4 and
 5 are the post-bootstrap acceptance cases.
 
+## Merged-source check
+
+Pull request 151 merged as
+`d1020ceab9f1d8fa3dcaafccd62d6d713e744b69`. Its tree is byte-identical to
+the reviewed head. [Main-branch CI run 33410193694](https://github.com/sulmusic2-star/agent-vigil/actions/runs/33410193694)
+passed Node 20, Node 22, Node 24, macOS 14, Windows 2022, the packed-package
+rehearsal, and the Docker isolation regression. [CodeQL run 33410193746](https://github.com/sulmusic2-star/agent-vigil/actions/runs/33410193746)
+passed with zero open alerts.
+
+The Worker was then redeployed from that exact merged tree. Its health route
+returned HTTP 200, and an unsigned webhook request returned HTTP 401.
+
 ## Remaining gates
 
-- Merge the source fixes and rerun the package, hosted, and cross-platform
-  suites from the resulting exact commit.
-- Release a fresh packed artifact; the deployed lab currently contains fixes
-  newer than v0.23.3.
+- Release a fresh packed artifact. The deployed lab contains fixes newer than
+  the current v0.23.3 tag.
 - Keep the App-bound ruleset active and recheck the lab after release.
 - Obtain retained use in an independently owned repository. This lab is owned
   by the project and is not external adoption.
