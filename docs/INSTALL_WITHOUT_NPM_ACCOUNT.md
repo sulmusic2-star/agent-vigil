@@ -137,7 +137,7 @@ npm publishes it publicly.
 Pin the reviewed source commit instead of a moving tag:
 
 ```yaml
-- uses: sulmusic2-star/agent-vigil@fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
+- uses: sulmusic2-star/agent-vigil@fdf277cb0f2bde1dab82df4d8894bef1a75145b7
 ```
 
 The Action executes the bundled `dist/cli.js` from that commit. It does not

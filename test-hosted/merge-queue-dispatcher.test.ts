@@ -127,7 +127,7 @@ test("trusted merge-queue workflow keeps secrets out of candidate execution", ()
   assert.doesNotMatch(workflow, /^\s{2}merge_group:/m);
   assert.match(workflow, /environment: agent-vigil-gate/);
   assert.match(workflow, /DISPATCH_SECRET: \$\{\{ secrets\.AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET \}\}/);
-  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@60476e1255ca2359c0fbeee08c5640d3cf4e46fa/);
+  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@fdf277cb0f2bde1dab82df4d8894bef1a75145b7/);
   assert.match(workflow, /mode: merge-group/);
   assert.match(workflow, /merge-group-event: \$\{\{ steps\.queue-event\.outputs\.path \}\}/);
   assert.match(workflow, /Materialize the authenticated queue envelope outside the checkout/);

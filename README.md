@@ -80,7 +80,7 @@ The setup PR starts the check. To make it an enforceable trust boundary, require
 an externally controlled exact-head check or GitHub App. A required job name
 alone does not prove who supplied the workflow.
 
-[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/206ae05e27ce8c1750e98dc9be9ec4e4b1f95602/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/fdf277cb0f2bde1dab82df4d8894bef1a75145b7/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
 **Distribution status, verified August 31, 2026:** GitHub release v0.23.2 is
 public and immutable, and the Marketplace listing exposes v0.23.2. v0.23.3 is
@@ -200,7 +200,7 @@ Pin the Action to a reviewed 40-character commit SHA:
     fetch-depth: 0
     persist-credentials: false
 - id: vigil
-  uses: sulmusic2-star/agent-vigil@fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
+  uses: sulmusic2-star/agent-vigil@fdf277cb0f2bde1dab82df4d8894bef1a75145b7
   with:
     mode: maintainer
     policy: .agent-vigil.json
