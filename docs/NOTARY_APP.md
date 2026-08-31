@@ -1,7 +1,8 @@
 # Agent Vigil Notary App
 
-**State:** runnable verification core and GitHub App contract. No hosted Agent
-Vigil Notary service is deployed as part of version 0.22.0.
+**State:** runnable verification core, GitHub App contract, and a source-reviewed
+merge-queue dispatcher. The dispatcher still requires deployment secrets and a
+real signed queue-event acceptance run before its check can be made required.
 
 The Notary App is deliberately narrow. Customer code and test execution stay in
 the customer's credential-free runner. A future App must verify an independently
@@ -43,7 +44,7 @@ requirement lacks. A ruleset must restrict the accepted status source to this
 installed App, and the App must reject a head, event, or evidence-source
 mismatch. No deployed service currently provides that check.
 
-## Minimum GitHub App permissions
+## Receipt-notary App permissions
 
 - Actions: read
 - Checks: read and write
@@ -56,11 +57,21 @@ deployment access, or secrets access.
 
 An example manifest is in
 [`notary-app-manifest.example.json`](notary-app-manifest.example.json). Replace
-its placeholder URLs before registering an App.
+its placeholder URLs before registering a receipt-notary App. That manifest is
+not the queue-dispatcher registration path. The queue path has a separate,
+narrow manifest at
+[`hosted/merge-queue-dispatcher/github-app-manifest.example.json`](../hosted/merge-queue-dispatcher/github-app-manifest.example.json).
+That queue App separately needs Actions write and Merge queues read so it can
+dispatch the trusted default-branch workflow for a signed queue event. Do not
+grant those queue permissions to the receipt-notary App unless the two roles
+are intentionally combined and the larger trust boundary is reviewed.
 
 ## Webhook handling
 
-Subscribe to `workflow_run` and `pull_request` events. A production service must:
+The receipt-notary App subscribes to `workflow_run` and `pull_request`. The
+dedicated queue App subscribes only to `merge_group` and sends those deliveries
+to `/github/merge-group`; do not route them to the receipt service's
+`/github/webhook` endpoint. A production receipt-notary service must:
 
 1. preserve the raw request bytes;
 2. verify `X-Hub-Signature-256` before parsing JSON;
@@ -89,3 +100,19 @@ Posting the check, operating tenant storage, and registering the public GitHub
 App require a deployed HTTPS service, installation credentials, a privacy
 policy, and incident-response procedures. Those are deployment gates, not
 features hidden inside this release.
+
+The repository includes a narrowly allowlisted Cloudflare Worker under
+[`hosted/merge-queue-dispatcher`](../hosted/merge-queue-dispatcher). It verifies
+the raw `merge_group` webhook HMAC, rejects the wrong repository, branch, action,
+installation, or ref shape, deduplicates GitHub delivery IDs, and dispatches
+[`agent-vigil-merge-group.yml`](../.github/workflows/agent-vigil-merge-group.yml)
+from `main`. The workflow authenticates a second HMAC before checkout,
+materializes a bounded queue envelope outside the checkout, invokes an immutable
+reviewed runtime, runs candidate commands in Docker without gate secrets,
+rechecks the live queue ref, and posts the same App-owned `Agent Vigil governed
+evidence` context used by pull requests.
+
+The queue manifest names that App `Agent Vigil Gate`; the resulting
+`agent-vigil-gate[bot]` actor is bound in the workflow before checkout. Do not
+reuse the receipt-notary manifest for this route or silently substitute a
+different App slug.

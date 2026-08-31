@@ -300,6 +300,18 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/upgrade-config-v1.schema.json",
     "docs/upgrade-receipt-v1.schema.json",
   ];
+  const allowedPublishedHosted = [
+    "hosted/merge-queue-dispatcher/README.md",
+    "hosted/merge-queue-dispatcher/github-app-manifest.example.json",
+    "hosted/merge-queue-dispatcher/src/index.mjs",
+    "hosted/merge-queue-dispatcher/wrangler.jsonc",
+  ];
+  const allowedPublishedWorkflows = [
+    ".github/workflows/agent-vigil-merge-group.yml",
+  ];
+  const allowedPublishedHostedTests = [
+    "test-hosted/merge-queue-dispatcher.test.ts",
+  ];
   const requiredPublicPaths = [
     "DISCLOSURE",
     "SECURITY.md",
@@ -308,6 +320,9 @@ test("npm package surface excludes internal product and commercial working docum
     "proof/README.md",
     "proof/cases",
     "proof/outcome-cases",
+    "hosted/merge-queue-dispatcher",
+    ...allowedPublishedWorkflows,
+    ...allowedPublishedHostedTests,
   ];
   for (const publicPath of requiredPublicPaths) {
     assert.ok(files.includes(publicPath), `${publicPath} must ship with the npm package`);
@@ -329,9 +344,27 @@ test("npm package surface excludes internal product and commercial working docum
     if (packedPath.startsWith("docs/")) {
       assert.ok(allowedPublishedDocs.includes(packedPath), `${packedPath} is not in the reviewed public-doc allowlist`);
     }
+    if (packedPath.startsWith("hosted/")) {
+      assert.ok(allowedPublishedHosted.includes(packedPath), `${packedPath} is not in the reviewed hosted-source allowlist`);
+    }
+    if (packedPath.startsWith(".github/workflows/")) {
+      assert.ok(allowedPublishedWorkflows.includes(packedPath), `${packedPath} is not in the reviewed workflow allowlist`);
+    }
+    if (packedPath.startsWith("test-hosted/")) {
+      assert.ok(allowedPublishedHostedTests.includes(packedPath), `${packedPath} is not in the reviewed hosted-test allowlist`);
+    }
   }
   for (const publicDocument of allowedPublishedDocs) {
     assert.ok(packedPaths.includes(publicDocument), `${publicDocument} must appear in the concrete npm pack manifest`);
+  }
+  for (const hostedPath of allowedPublishedHosted) {
+    assert.ok(packedPaths.includes(hostedPath), `${hostedPath} must appear in the concrete npm pack manifest`);
+  }
+  for (const workflowPath of allowedPublishedWorkflows) {
+    assert.ok(packedPaths.includes(workflowPath), `${workflowPath} must appear in the concrete npm pack manifest`);
+  }
+  for (const testPath of allowedPublishedHostedTests) {
+    assert.ok(packedPaths.includes(testPath), `${testPath} must appear in the concrete npm pack manifest`);
   }
 });
 

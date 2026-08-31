@@ -133,6 +133,8 @@ test("trusted merge-queue workflow keeps secrets out of candidate execution", ()
   assert.match(workflow, /Materialize the authenticated queue envelope outside the checkout/);
   assert.match(workflow, /writeFileSync\(eventPath,[\s\S]*flag: "wx", mode: 0o600/);
   assert.match(workflow, /name: "Agent Vigil governed evidence"/);
+  assert.match(workflow, /repositories: \$\{\{ github\.event\.repository\.name \}\}/);
+  assert.doesNotMatch(workflow, /repositories: agent-vigil/);
   assert.match(workflow, /github\.event\.inputs\.head_sha/);
   assert.match(workflow, /gh-readonly-queue/);
 
