@@ -108,7 +108,13 @@ test("the released package and public channels keep explicit version identities"
   assert.doesNotMatch(readme, /node dist\/cli\.js protect --action-sha/);
   assert.match(readme, /releases\/download\/v0\.23\.2\/sulmusic-agent-vigil-0\.23\.2\.tgz/);
   assert.doesNotMatch(readme, /@sulmusic\/agent-vigil@0\.23\.2/);
-  assert.match(changelog, /## Unreleased\n\n## 0\.23\.3 - 2026-08-31/);
+  assert.match(changelog, /^## Unreleased$/m);
+  assertBefore(
+    changelog,
+    "## Unreleased",
+    "## 0.23.3 - 2026-08-31",
+    "unreleased changes precede the latest released version",
+  );
   assert.match(changelog, /## 0\.21\.2 - 2026-08-28/);
 });
 

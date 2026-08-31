@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Accept GitHub App private keys in either unencrypted RSA PKCS#1 or PKCS#8
+  format and normalize them in memory before Web Crypto import.
+- Scope the protected pull-request App token to the target repository instead
+  of the Agent Vigil source repository.
+- Bind merge-queue dispatch to the configured App bot login so installations
+  are not limited to one globally unique GitHub App slug.
+- Record the first-party live acceptance case in which an App-bound required
+  check merged a passing queue composition and blocked a stale composition
+  whose earlier pull-request checks were green.
+
 ## 0.23.3 - 2026-08-31
 
 - Ship the external merge-queue dispatcher, GitHub App manifest, and exact

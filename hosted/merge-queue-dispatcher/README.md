@@ -34,10 +34,13 @@ replacing the placeholder host with the planned Worker origin. Record the App
 ID, generate its private key, and generate a separate random webhook secret of
 at least 32 characters. `openssl rand -hex 32` produces a 64-character value;
 run it again for each independent secret rather than reusing one value.
-The manifest deliberately names the App `Agent Vigil Gate`, which produces the
-`agent-vigil-gate[bot]` actor required by the workflow before checkout. If
-GitHub assigns a different App slug, stop: the reviewed workflow actor binding
-must be changed to that exact slug and revalidated before deployment.
+The manifest requests the App name `Agent Vigil Gate`, whose expected actor is
+`agent-vigil-gate[bot]`. GitHub App names are globally unique, so GitHub may
+require another name and slug. If it does, store the exact bot login formed as
+`APP-SLUG[bot]` in the protected environment variable
+`AGENT_VIGIL_GATE_ACTOR`. The workflow defaults to `agent-vigil-gate[bot]` only
+when that variable is absent; it still compares the dispatch actor before any
+checkout.
 
 The App needs `Actions: write`, `Checks: write`, `Contents: read`,
 `Merge queues: read`, and `Metadata: read`, and subscribes only to `merge_group`.
@@ -71,10 +74,9 @@ never put their values in this directory:
   workflow's exact secret name,
   `AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`;
 - `GITHUB_APP_ID` — the numeric GitHub App ID; and
-- `GITHUB_APP_PRIVATE_KEY` — an unencrypted PKCS#8 GitHub App private key. If
-  GitHub downloads a PKCS#1 key, convert a temporary local copy with
-  `openssl pkcs8 -topk8 -nocrypt -in app.pem -out app-pkcs8.pem`, upload it as
-  a Worker secret, and remove the temporary copies.
+- `GITHUB_APP_PRIVATE_KEY` — the unencrypted PKCS#1 key downloaded by GitHub,
+  or an unencrypted PKCS#8 private key. The Worker normalizes either format in
+  memory; do not convert or retain an extra local copy.
 
 ## Verification and deployment
 
@@ -100,7 +102,8 @@ the App and Worker. Before enabling delivery, add the Worker's
 `DISPATCH_SECRET` value to the protected `agent-vigil-gate` environment as
 `AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`. The protected environment also needs
 the registered queue App's numeric ID as the variable
-`AGENT_VIGIL_GATE_APP_ID` and the same private key as the secret
+`AGENT_VIGIL_GATE_APP_ID`, the exact bot login as the variable
+`AGENT_VIGIL_GATE_ACTOR`, and the same private key as the secret
 `AGENT_VIGIL_GATE_PRIVATE_KEY`. The Worker receives those credentials under
 its own names, `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`; do not put either
 private-key value in repository variables or files.

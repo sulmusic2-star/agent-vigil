@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync, webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
@@ -6,6 +7,7 @@ import {
   canonicalDispatch,
   default as worker,
   dispatchSignature,
+  githubPrivateKeyPkcs8Bytes,
   parseMergeGroupPayload,
   verifyWebhookSignature,
   webhookSignature,
@@ -64,6 +66,34 @@ test("dispatch authentication binds every queue identity field", async () => {
   assert.equal(canonicalDispatch(value).split("\n").length, 7);
   assert.notEqual(await dispatchSignature(secret, { ...value, headSha: "3".repeat(40) }), signature);
   assert.notEqual(await dispatchSignature(secret, { ...value, headRef: `${headRef}-changed` }), signature);
+});
+
+test("GitHub's RSA PKCS#1 App keys are normalized to importable PKCS#8", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pkcs1 = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+  const pkcs8 = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const fromPkcs1 = githubPrivateKeyPkcs8Bytes(pkcs1);
+  const fromPkcs8 = githubPrivateKeyPkcs8Bytes(pkcs8);
+
+  for (const normalized of [fromPkcs1, fromPkcs8]) {
+    const imported = await webcrypto.subtle.importKey(
+      "pkcs8",
+      normalized,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const signature = await webcrypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      imported,
+      new TextEncoder().encode("agent-vigil-queue-key-proof"),
+    );
+    assert.equal(signature.byteLength, 256);
+  }
+  assert.throws(
+    () => githubPrivateKeyPkcs8Bytes("-----BEGIN ENCRYPTED PRIVATE KEY-----\nAA==\n-----END ENCRYPTED PRIVATE KEY-----"),
+    /unencrypted PKCS#8 or RSA PKCS#1/,
+  );
 });
 
 test("HTTP boundary rejects unsigned events before the delivery ledger", async () => {
@@ -126,6 +156,7 @@ test("trusted merge-queue workflow keeps secrets out of candidate execution", ()
   assert.match(workflow, /^on:\n(?:  #.*\n)+  workflow_dispatch:/m);
   assert.doesNotMatch(workflow, /^\s{2}merge_group:/m);
   assert.match(workflow, /environment: agent-vigil-gate/);
+  assert.match(workflow, /EXPECTED_ACTOR: \$\{\{ vars\.AGENT_VIGIL_GATE_ACTOR \|\| 'agent-vigil-gate\[bot\]' \}\}/);
   assert.match(workflow, /DISPATCH_SECRET: \$\{\{ secrets\.AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET \}\}/);
   assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@fdf277cb0f2bde1dab82df4d8894bef1a75145b7/);
   assert.match(workflow, /mode: merge-group/);

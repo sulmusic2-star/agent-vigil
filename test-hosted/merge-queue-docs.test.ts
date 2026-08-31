@@ -77,9 +77,10 @@ test("queue App manifest matches the authenticated dispatcher and workflow", () 
   assert.match(queueManifest.hook_attributes.url, /\/github\/merge-group$/);
   assert.equal(queueManifest.hook_attributes.active, false);
   assert.deepEqual(queueManifest.default_events, ["merge_group"]);
-  assert.match(queueWorkflow, /EXPECTED_ACTOR: agent-vigil-gate\[bot\]/);
+  assert.match(queueWorkflow, /EXPECTED_ACTOR: \$\{\{ vars\.AGENT_VIGIL_GATE_ACTOR \|\| 'agent-vigil-gate\[bot\]' \}\}/);
   assert.match(queueWorkflow, /repositories: \$\{\{ github\.event\.repository\.name \}\}/);
   assert.doesNotMatch(queueWorkflow, /repositories: agent-vigil/);
+  assert.match(dispatcher, /AGENT_VIGIL_GATE_ACTOR/);
   assert.equal(queueConfig.vars.ALLOWED_REPOSITORY, "REPLACE_WITH_OWNER/REPLACE_WITH_REPOSITORY");
   assert.equal(queueConfig.vars.WORKFLOW_FILE, "agent-vigil-merge-group.yml");
   assert.match(queueWorkflow, /DISPATCH_SECRET: \$\{\{ secrets\.AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET \}\}/);

@@ -76,7 +76,7 @@ jobs:
           app-id: ${{ vars.AGENT_VIGIL_GATE_APP_ID }}
           private-key: ${{ secrets.AGENT_VIGIL_GATE_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-          repositories: agent-vigil
+          repositories: ${{ github.event.repository.name }}
           permission-checks: write
       - name: Publish the non-spoofable exact-head check
         env:

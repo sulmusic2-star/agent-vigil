@@ -1,11 +1,15 @@
 # GitHub merge queues
 
-Agent Vigil v0.23.2 does not treat a repository-owned `merge_group` workflow as
+Agent Vigil v0.23.3 does not treat a repository-owned `merge_group` workflow as
 trusted evidence. The current source includes an external dispatcher and a
 default-branch `workflow_dispatch` verifier for the Agent Vigil GitHub App.
 They are not an active enforcement path until the Worker is deployed, the App
 permission and event subscription are updated, and a real queue event passes
 the acceptance test below.
+
+The dated [first-party acceptance report](MERGE_QUEUE_ACCEPTANCE_2026-08-31.md)
+records a live passing composition and a live blocked composition. That lab
+required source fixes newer than v0.23.3 and does not count as external use.
 
 ## Why the generated workflow is pull-request only
 
@@ -82,8 +86,11 @@ an environment name by itself is not a protection rule.
 Register this path with the dedicated
 [`github-app-manifest.example.json`](../hosted/merge-queue-dispatcher/github-app-manifest.example.json),
 not the receipt-notary manifest. It points at `/github/merge-group`, subscribes
-only to `merge_group`, and names the App `Agent Vigil Gate` so the dispatch
-actor is the workflow-bound `agent-vigil-gate[bot]`. Store the Worker's
+only to `merge_group`, and requests the App name `Agent Vigil Gate`. GitHub App
+names are globally unique. Store the resulting exact bot login,
+`APP-SLUG[bot]`, in the protected environment variable
+`AGENT_VIGIL_GATE_ACTOR`; the workflow defaults to `agent-vigil-gate[bot]` only
+when that variable is absent. Store the Worker's
 `DISPATCH_SECRET` value in the environment under the workflow's exact secret
 name, `AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`.
 
@@ -91,7 +98,8 @@ Do not require this check for merge queues until all of these are directly
 observed:
 
 - a real `checks_requested` webhook is accepted by the deployed Worker;
-- the default-branch workflow runs with `agent-vigil-gate[bot]` as actor;
+- the default-branch workflow runs with the bot login bound by
+  `AGENT_VIGIL_GATE_ACTOR` as actor;
 - a changed or unsigned dispatch is rejected before checkout;
 - a deliberately failing composed head reports failure for its exact SHA;
 - a passing composed head reports success for its exact SHA; and
