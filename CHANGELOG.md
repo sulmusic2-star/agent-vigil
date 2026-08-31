@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.23.3 - 2026-08-31
+
+- Ship the external merge-queue dispatcher, GitHub App manifest, and exact
+  `merge_group` workflow in the npm package so an organization can deploy the
+  same reviewed control without rebuilding it from repository source.
+- Keep the queue webhook inactive until the App, Worker, main-only environment,
+  and negative blocking test are configured and verified.
+- Stage npm from immutable stable-tag workflow bytes before publishing the
+  matching GitHub release, while retaining separate no-OIDC verification and
+  OIDC-only staging jobs.
+- Require the release tag commit to be contained in the repository's default
+  branch and preserve exact tag, commit, package, tarball, and integrity
+  bindings throughout trusted publishing.
+
 ## 0.23.2 - 2026-08-30
 
 - Replace vulnerable check-then-use file handling with descriptor-bound,

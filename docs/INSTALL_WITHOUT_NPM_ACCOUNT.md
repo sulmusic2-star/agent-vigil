@@ -1,8 +1,12 @@
 # Install Agent Vigil in five minutes
 
 An npm sign-in is not required. The latest verified GitHub package is v0.23.2.
-The npm registry separately reports public version 0.21.1; v0.23.2 is staged
-there but is not yet publicly installable from npm.
+The npm registry separately reports public version 0.21.1.
+
+v0.23.3 is a source release candidate until GitHub lists both the package and checksum assets.
+The v0.23.3 commands below become valid only after its release page lists both
+files. They do not claim that the candidate is already public. npm publication
+of v0.23.3 is not claimed.
 
 ## Prepare and verify the repository gate
 
@@ -11,14 +15,14 @@ bounded direct Node test command such as `node --test test/*.test.js`; other
 toolchains require an explicit hermetic runner and test command:
 
 ```bash
-AGENT_VIGIL_PACKAGE=https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz
+AGENT_VIGIL_PACKAGE=https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.3/sulmusic-agent-vigil-0.23.3.tgz
 
 npx --yes "$AGENT_VIGIL_PACKAGE" protect
 
 git status --short
 ```
 
-The inferred v0.23.2 Node/npm path accepts this deliberately narrow test shape. It does
+The inferred v0.23.3 Node/npm path accepts this deliberately narrow test shape. It does
 not execute npm wrappers or infer a protected test command in a repository
 without a root `package.json`. If no safe direct command can be inferred,
 `protect` leaves `REPLACE_WITH_TEST_COMMAND` in the prepared policy and
@@ -96,16 +100,16 @@ signed remediation aimed at that revocation restores permission.
 
 ## Verify the release package
 
-Download both `sulmusic-agent-vigil-0.23.2.tgz` and
-`sulmusic-agent-vigil-0.23.2.tgz.sha256` from the
-[v0.23.2 release](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.23.2),
+After publication, download both `sulmusic-agent-vigil-0.23.3.tgz` and
+`sulmusic-agent-vigil-0.23.3.tgz.sha256` from the
+[v0.23.3 release](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.23.3),
 then verify the fixed release checksum:
 
 ```bash
-shasum -a 256 -c sulmusic-agent-vigil-0.23.2.tgz.sha256
+shasum -a 256 -c sulmusic-agent-vigil-0.23.3.tgz.sha256
 ```
 
-The verified package is v0.23.2 at commit
+The currently verified package remains v0.23.2 at commit
 `1c5544d84586249c452adda3f8432a9bdac2ca7a`:
 
 ```bash
@@ -124,15 +128,16 @@ The newest registry version observed on August 30, 2026 was v0.21.1:
 npx --yes @sulmusic/agent-vigil@0.21.1 --help
 ```
 
-Use the verified GitHub v0.23.2 package today. Do not request registry v0.23.2
-until npm publishes it publicly.
+Use the verified GitHub v0.23.2 package today. Use the v0.23.3 URL only after
+its package and checksum assets exist. Do not request registry v0.23.3 until
+npm publishes it publicly.
 
 ## Pin the GitHub Action
 
 Pin the reviewed source commit instead of a moving tag:
 
 ```yaml
-- uses: sulmusic2-star/agent-vigil@fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
+- uses: sulmusic2-star/agent-vigil@fdf277cb0f2bde1dab82df4d8894bef1a75145b7
 ```
 
 The Action executes the bundled `dist/cli.js` from that commit. It does not
@@ -147,12 +152,14 @@ required check.
 
 ## Verified distribution state
 
-The facts below were checked on August 30, 2026:
+The facts below were checked on August 31, 2026:
 
 - GitHub release v0.23.2 is public, immutable, and installable.
 - The Marketplace listing exposes v0.23.2.
-- The npm registry reports public version 0.21.1. v0.23.2 is staged but is not
-  yet publicly installable from npm.
+- v0.23.3 is an unpublished source candidate. Its URL becomes usable only when
+  GitHub lists both the package and checksum assets.
+- The npm registry reports public version 0.21.1. npm publication of v0.23.3
+  is not claimed.
 - Outside installation, repeat use, protected-action stops, payment, and
   revenue require separate evidence.
 

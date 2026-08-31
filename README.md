@@ -34,12 +34,25 @@ with public evidence and consent.
 
 ## Install the full gate
 
-The latest verified public package is the immutable v0.23.2 GitHub artifact:
+The latest verified public package remains the immutable v0.23.2 GitHub
+artifact:
 
 ```bash
 npx --yes \
   https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz \
   protect --repo .
+```
+
+v0.23.3 is a source release candidate until GitHub lists both the package and checksum assets.
+After both v0.23.3 assets appear on the release page, install the exact
+candidate package with:
+
+```bash
+curl -fL -o agent-vigil.tgz \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.3/sulmusic-agent-vigil-0.23.3.tgz
+mkdir agent-vigil-package
+tar -xzf agent-vigil.tgz -C agent-vigil-package --strip-components=1
+node agent-vigil-package/dist/cli.js protect --repo .
 ```
 
 To verify the package before installation, download the package and its attached
@@ -67,12 +80,12 @@ The setup PR starts the check. To make it an enforceable trust boundary, require
 an externally controlled exact-head check or GitHub App. A required job name
 alone does not prove who supplied the workflow.
 
-[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/206ae05e27ce8c1750e98dc9be9ec4e4b1f95602/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+[Five-minute installation guide](https://github.com/sulmusic2-star/agent-vigil/blob/fdf277cb0f2bde1dab82df4d8894bef1a75145b7/docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 
-**Distribution status, verified August 30, 2026:** GitHub release v0.23.2 is
-public and immutable, and the Marketplace listing exposes v0.23.2. npm has
-staged v0.23.2 but still serves v0.21.1 publicly; use the GitHub artifact until
-the registry promotion is separately verified.
+**Distribution status, verified August 31, 2026:** GitHub release v0.23.2 is
+public and immutable, and the Marketplace listing exposes v0.23.2. v0.23.3 is
+an unpublished source candidate. npm still serves v0.21.1 publicly; use the
+verified v0.23.2 GitHub artifact until each newer channel is checked separately.
 
 ## What a result means
 
@@ -187,7 +200,7 @@ Pin the Action to a reviewed 40-character commit SHA:
     fetch-depth: 0
     persist-credentials: false
 - id: vigil
-  uses: sulmusic2-star/agent-vigil@fb21ec981cc7e8c5cb64a3529cb4f4900ca1c502
+  uses: sulmusic2-star/agent-vigil@fdf277cb0f2bde1dab82df4d8894bef1a75145b7
   with:
     mode: maintainer
     policy: .agent-vigil.json

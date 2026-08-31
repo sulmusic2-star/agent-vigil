@@ -18,4 +18,5 @@ test("release builds embed only an explicitly supplied exact source commit", () 
   assert.doesNotMatch(script, /git["'], \["rev-parse"/);
   assert.match(workflow, /AGENT_VIGIL_BUILD_SHA:\s*\$\{\{ github\.sha \}\}/);
   assert.match(workflow, /node scripts\/build_cli\.mjs\s+grep -F "\$GITHUB_SHA" dist\/cli\.js/);
+  assert.match(workflow, /git merge-base --is-ancestor "\$GITHUB_SHA" "refs\/remotes\/origin\/\$DEFAULT_BRANCH"/);
 });

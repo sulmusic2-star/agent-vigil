@@ -3208,7 +3208,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash6 } from "node:crypto";
-var VERSION = "0.23.2";
+var VERSION = "0.23.3";
 var CLAIM_KINDS = [
   "tests_pass",
   "file_changed",
@@ -19424,7 +19424,7 @@ ${outcomeUsage()}`);
 // src/adoption.ts
 var REPOSITORY_PART = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
 var ADOPTION_FORM = "https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml";
-var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz";
+var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.3/sulmusic-agent-vigil-0.23.3.tgz";
 function githubRepositorySlug(remote) {
   if (!remote || /[\u0000-\u001f\u007f-\u009f]/.test(remote)) return void 0;
   let path;
