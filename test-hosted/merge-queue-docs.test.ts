@@ -48,11 +48,8 @@ test("dispatcher instructions name the exact current contract", () => {
     "secret generation and both runtime secret entries must state the enforced minimum",
   );
   assert.match(dispatcher, /wrangler@4\.127\.1 deploy --dry-run/);
-  assert.match(
-    dispatcher,
-    /github\.com\/sulmusic2-star\/agent-vigil\/blob\/fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a\/test-hosted\/merge-queue-dispatcher\.test\.ts/,
-  );
-  assert.match(dispatcher, /git checkout --detach fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a/);
+  assert.match(dispatcher, /tsx@4\.23\.12 --test test-hosted\/merge-queue-dispatcher\.test\.ts/);
+  assert.doesNotMatch(dispatcher, /git checkout|test imports trusted-workflow source/);
   assert.match(dispatcher, /Actions: write/);
   assert.match(dispatcher, /Merge queues: read/);
   assert.match(dispatcher, /candidate-only Docker boundary/);
@@ -63,6 +60,8 @@ test("dispatcher instructions name the exact current contract", () => {
   assert.match(dispatcher, /GITHUB_APP_PRIVATE_KEY/);
   assert.match(dispatcher, /replace\s+`REPLACE_WITH_OWNER\/REPLACE_WITH_REPOSITORY`/);
   assert.match(dispatcher, /Copy the packaged `\.github\/workflows\/agent-vigil-merge-group\.yml`/);
+  assert.match(dispatcher, /Keep the App webhook inactive after deployment/);
+  assert.match(dispatcher, /Only after all three environment credentials are present[\s\S]*enable the App webhook/);
   assert.match(dispatcher, /allow only `main`/);
   assert.match(dispatcher, /candidate branch must not be able to\s+request this environment/);
   assert.match(dispatcher, /disposable negative test from a non-`main`\s+branch/);
@@ -77,7 +76,6 @@ test("queue App manifest matches the authenticated dispatcher and workflow", () 
   assert.equal(queueManifest.name, "Agent Vigil Gate");
   assert.match(queueManifest.hook_attributes.url, /\/github\/merge-group$/);
   assert.equal(queueManifest.hook_attributes.active, false);
-  assert.match(dispatcher, /After deployment and secret configuration[\s\S]*enable the App webhook/);
   assert.deepEqual(queueManifest.default_events, ["merge_group"]);
   assert.match(queueWorkflow, /EXPECTED_ACTOR: agent-vigil-gate\[bot\]/);
   assert.match(queueWorkflow, /repositories: \$\{\{ github\.event\.repository\.name \}\}/);

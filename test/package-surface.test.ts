@@ -309,6 +309,9 @@ test("npm package surface excludes internal product and commercial working docum
   const allowedPublishedWorkflows = [
     ".github/workflows/agent-vigil-merge-group.yml",
   ];
+  const allowedPublishedHostedTests = [
+    "test-hosted/merge-queue-dispatcher.test.ts",
+  ];
   const requiredPublicPaths = [
     "DISCLOSURE",
     "SECURITY.md",
@@ -319,6 +322,7 @@ test("npm package surface excludes internal product and commercial working docum
     "proof/outcome-cases",
     "hosted/merge-queue-dispatcher",
     ...allowedPublishedWorkflows,
+    ...allowedPublishedHostedTests,
   ];
   for (const publicPath of requiredPublicPaths) {
     assert.ok(files.includes(publicPath), `${publicPath} must ship with the npm package`);
@@ -346,6 +350,9 @@ test("npm package surface excludes internal product and commercial working docum
     if (packedPath.startsWith(".github/workflows/")) {
       assert.ok(allowedPublishedWorkflows.includes(packedPath), `${packedPath} is not in the reviewed workflow allowlist`);
     }
+    if (packedPath.startsWith("test-hosted/")) {
+      assert.ok(allowedPublishedHostedTests.includes(packedPath), `${packedPath} is not in the reviewed hosted-test allowlist`);
+    }
   }
   for (const publicDocument of allowedPublishedDocs) {
     assert.ok(packedPaths.includes(publicDocument), `${publicDocument} must appear in the concrete npm pack manifest`);
@@ -355,6 +362,9 @@ test("npm package surface excludes internal product and commercial working docum
   }
   for (const workflowPath of allowedPublishedWorkflows) {
     assert.ok(packedPaths.includes(workflowPath), `${workflowPath} must appear in the concrete npm pack manifest`);
+  }
+  for (const testPath of allowedPublishedHostedTests) {
+    assert.ok(packedPaths.includes(testPath), `${testPath} must appear in the concrete npm pack manifest`);
   }
 });
 

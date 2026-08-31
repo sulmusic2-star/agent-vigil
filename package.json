@@ -76,6 +76,7 @@
     "action.yml",
     "github-marker/action.yml",
     "hosted/merge-queue-dispatcher",
+    "test-hosted/merge-queue-dispatcher.test.ts",
     "README.md",
     "CHANGELOG.md",
     "ADOPTERS.md",

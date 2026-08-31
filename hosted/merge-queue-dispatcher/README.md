@@ -78,6 +78,15 @@ never put their values in this directory:
 
 ## Verification and deployment
 
+From the package root, run the regression test against the exact Worker and
+workflow assets that will be deployed:
+
+```bash
+npx --yes tsx@4.23.12 --test test-hosted/merge-queue-dispatcher.test.ts
+```
+
+Then deploy from the Worker directory:
+
 ```bash
 cd hosted/merge-queue-dispatcher
 npx --yes wrangler@4.127.1 types
@@ -85,11 +94,10 @@ npx --yes wrangler@4.127.1 deploy --dry-run
 npx --yes wrangler@4.127.1 deploy
 ```
 
-After deployment and secret configuration, configure the App webhook URL as
-`https://DEPLOYED_WORKER/github/merge-group`, put the same webhook secret in
-the App and Worker, enable the App webhook, and add the Worker's
-`DISPATCH_SECRET` value to the
-protected `agent-vigil-gate` GitHub environment as
+Keep the App webhook inactive after deployment. Configure its URL as
+`https://DEPLOYED_WORKER/github/merge-group` and put the same webhook secret in
+the App and Worker. Before enabling delivery, add the Worker's
+`DISPATCH_SECRET` value to the protected `agent-vigil-gate` environment as
 `AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`. The protected environment also needs
 the registered queue App's numeric ID as the variable
 `AGENT_VIGIL_GATE_APP_ID` and the same private key as the secret
@@ -97,18 +105,10 @@ the registered queue App's numeric ID as the variable
 its own names, `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`; do not put either
 private-key value in repository variables or files.
 
+Only after all three environment credentials are present and the earlier
+non-`main` negative test has passed should you enable the App webhook.
+
 Do not make the queue check required until a real signed `checks_requested`
 delivery produces `Agent Vigil governed evidence` on the exact queue head and
-the [dispatcher regression tests at reviewed commit
-`fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a`](https://github.com/sulmusic2-star/agent-vigil/blob/fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a/test-hosted/merge-queue-dispatcher.test.ts)
-still pass. The test imports trusted-workflow source that is intentionally not
-part of the npm runtime package, so run it from a clean checkout of that exact
-commit:
-
-```bash
-git clone https://github.com/sulmusic2-star/agent-vigil.git
-cd agent-vigil
-git checkout --detach fb87b3bc5e3bddd4902b14d8fb36c5320cd9068a
-npm ci --ignore-scripts
-node --test --import tsx test-hosted/merge-queue-dispatcher.test.ts
-```
+the packaged regression test still passes without modifying any packaged
+Worker or workflow asset.
