@@ -41,6 +41,12 @@ test("live acceptance binds the deployment to the merged source", () => {
   assert.match(acceptance, /`30954ac8-4ba1-45d3-ba81-a6bebfdb89f8`/);
   assert.match(acceptance, /actions\/runs\/33410193694/);
   assert.match(acceptance, /actions\/runs\/33410193746/);
+  assert.match(acceptance, /--name agent-vigil-merge-queue-lab/);
+  assert.match(acceptance, /--var ALLOWED_REPOSITORY:agent-vigil\/merge-queue-lab/);
+  assert.match(acceptance, /--var ALLOWED_BASE_REF:refs\/heads\/main/);
+  assert.match(acceptance, /--var WORKFLOW_FILE:agent-vigil-merge-group\.yml/);
+  assert.match(acceptance, /--var TRUSTED_REF:main/);
+  assert.match(acceptance, /No source file was edited for deployment/);
   assert.match(acceptance, /unsigned webhook request returned HTTP 401/);
   assert.match(acceptance, /first-party deployment test/);
   assert.match(acceptance, /not external adoption/);

@@ -106,8 +106,24 @@ passed Node 20, Node 22, Node 24, macOS 14, Windows 2022, the packed-package
 rehearsal, and the Docker isolation regression. [CodeQL run 33410193746](https://github.com/sulmusic2-star/agent-vigil/actions/runs/33410193746)
 passed with zero open alerts.
 
-The Worker was then redeployed from that exact merged tree. Its health route
-returned HTTP 200, and an unsigned webhook request returned HTTP 401.
+The Worker source was redeployed from that exact merged tree. The checked-in
+config remains a reusable template; the lab name and four non-secret lab
+values were supplied at deployment time with this reviewed command:
+
+```sh
+npx --yes wrangler@4.127.1 deploy \
+  --name agent-vigil-merge-queue-lab \
+  --config hosted/merge-queue-dispatcher/wrangler.jsonc \
+  --var ALLOWED_REPOSITORY:agent-vigil/merge-queue-lab \
+  --var ALLOWED_BASE_REF:refs/heads/main \
+  --var WORKFLOW_FILE:agent-vigil-merge-group.yml \
+  --var TRUSTED_REF:main
+```
+
+No source file was edited for deployment. Existing secret bindings remained
+stored in Cloudflare and are not shown here. The resulting version was
+`30954ac8-4ba1-45d3-ba81-a6bebfdb89f8`. Its health route returned HTTP 200,
+and an unsigned webhook request returned HTTP 401.
 
 ## Remaining gates
 
