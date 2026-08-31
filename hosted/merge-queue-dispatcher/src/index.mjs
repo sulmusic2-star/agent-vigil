@@ -35,6 +35,16 @@ function decodeBase64(value) {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
+function concatBytes(...values) {
+  const result = new Uint8Array(values.reduce((total, value) => total + value.length, 0));
+  let offset = 0;
+  for (const value of values) {
+    result.set(value, offset);
+    offset += value.length;
+  }
+  return result;
+}
+
 function constantTimeEqual(left, right) {
   if (left.length !== right.length) return false;
   let difference = 0;
@@ -111,10 +121,33 @@ export function parseMergeGroupPayload(payload, deliveryId, expectedRepository, 
   return { deliveryId, repository, baseSha, headSha, baseRef, headRef, installationId };
 }
 
-function privateKeyBytes(pem) {
-  const match = pem.match(/-----BEGIN PRIVATE KEY-----([\s\S]+?)-----END PRIVATE KEY-----/);
-  if (!match) throw new Error("GitHub App private key must be unencrypted PKCS#8 PEM");
-  return decodeBase64(match[1].replace(/\s/g, ""));
+function derLength(length) {
+  if (!Number.isSafeInteger(length) || length < 0) throw new Error("DER length is invalid");
+  if (length < 128) return new Uint8Array([length]);
+  const bytes = [];
+  for (let value = length; value > 0; value = Math.floor(value / 256)) bytes.unshift(value % 256);
+  return new Uint8Array([0x80 | bytes.length, ...bytes]);
+}
+
+function der(tag, value) {
+  return concatBytes(new Uint8Array([tag]), derLength(value.length), value);
+}
+
+export function githubPrivateKeyPkcs8Bytes(pem) {
+  const pkcs8 = pem.match(/-----BEGIN PRIVATE KEY-----([\s\S]+?)-----END PRIVATE KEY-----/);
+  if (pkcs8) return decodeBase64(pkcs8[1].replace(/\s/g, ""));
+
+  const pkcs1 = pem.match(/-----BEGIN RSA PRIVATE KEY-----([\s\S]+?)-----END RSA PRIVATE KEY-----/);
+  if (!pkcs1) {
+    throw new Error("GitHub App private key must be unencrypted PKCS#8 or RSA PKCS#1 PEM");
+  }
+  const rsaPrivateKey = decodeBase64(pkcs1[1].replace(/\s/g, ""));
+  const version = new Uint8Array([0x02, 0x01, 0x00]);
+  const rsaEncryptionAlgorithm = new Uint8Array([
+    0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86,
+    0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
+  ]);
+  return der(0x30, concatBytes(version, rsaEncryptionAlgorithm, der(0x04, rsaPrivateKey)));
 }
 
 async function appJwt(appId, privateKey) {
@@ -125,7 +158,7 @@ async function appJwt(appId, privateKey) {
   const unsigned = `${header}.${payload}`;
   const key = await crypto.subtle.importKey(
     "pkcs8",
-    privateKeyBytes(privateKey),
+    githubPrivateKeyPkcs8Bytes(privateKey),
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["sign"],

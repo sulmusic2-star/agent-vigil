@@ -89,6 +89,8 @@ test("governed evidence is posted by a fresh least-privilege App job", () => {
     /actions\/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1/,
   );
   assert.match(governed, /^ {10}permission-checks: write$/m);
+  assert.match(governed, /^ {10}repositories: \$\{\{ github\.event\.repository\.name \}\}$/m);
+  assert.doesNotMatch(governed, /^ {10}repositories: agent-vigil$/m);
   assert.doesNotMatch(governed, /actions\/checkout@|npm\s|dist\/cli\.js|candidate-setup-cmd/);
 });
 

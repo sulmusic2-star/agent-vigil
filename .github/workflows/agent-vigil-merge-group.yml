@@ -47,7 +47,7 @@ jobs:
         env:
           DISPATCH_SECRET: ${{ secrets.AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET }}
           ACTOR: ${{ github.actor }}
-          EXPECTED_ACTOR: agent-vigil-gate[bot]
+          EXPECTED_ACTOR: ${{ vars.AGENT_VIGIL_GATE_ACTOR || 'agent-vigil-gate[bot]' }}
           EXPECTED_REPOSITORY: ${{ github.repository }}
           INPUT_DELIVERY_ID: ${{ github.event.inputs.delivery_id }}
           INPUT_REPOSITORY: ${{ github.event.inputs.repository }}
