@@ -1,8 +1,9 @@
 name: Stage npm package for approval
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions: {}
 
@@ -14,9 +15,9 @@ jobs:
   verify-and-pack:
     name: Verify and pack without OIDC
     if: >-
-      github.event_name == 'release' &&
-      github.event.release.prerelease == false &&
-      github.ref == format('refs/tags/{0}', github.event.release.tag_name)
+      github.event_name == 'push' &&
+      github.ref_type == 'tag' &&
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -24,7 +25,7 @@ jobs:
       - name: Select and validate the release tag
         id: release
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -46,12 +47,20 @@ jobs:
           package-manager-cache: false
       - name: Check release identity and staged-publishing support
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git rev-parse "${RELEASE_TAG}^{commit}")" = "$GITHUB_SHA"
+          if [[ ! "$DEFAULT_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || [[ "$DEFAULT_BRANCH" == -* ]] || [[ "$DEFAULT_BRANCH" == */../* ]]; then
+            echo "Repository default branch is not a safe Git ref name." >&2
+            exit 1
+          fi
+          git check-ref-format --branch "$DEFAULT_BRANCH" >/dev/null
+          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/$DEFAULT_BRANCH"
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           test "$RELEASE_TAG" = "v$PACKAGE_VERSION"
           node - "$(npm --version)" <<'NODE'
@@ -175,9 +184,9 @@ jobs:
     name: Stage the verified tarball with OIDC
     needs: verify-and-pack
     if: >-
-      github.event_name == 'release' &&
-      github.event.release.prerelease == false &&
-      github.ref == format('refs/tags/{0}', github.event.release.tag_name)
+      github.event_name == 'push' &&
+      github.ref_type == 'tag' &&
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     # External authorization boundary: configure this environment to allow only
     # protected release tags, and require this same environment in npm Trusted Publisher.
@@ -200,7 +209,7 @@ jobs:
           path: ${{ runner.temp }}/npm-release
       - name: Validate and stage only the verified tarball
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           node - "$(npm --version)" <<'NODE'

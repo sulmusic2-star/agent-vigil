@@ -493,12 +493,12 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "publish.yml:publish": [
       "uses=actions/setup-node@820762786026740c76f36085b0efc47a31fe5020|67e07e2dfa04f8a7834dbd56f20be3c32ae679f3b5b9f0ce3476c9864f72a265",
       "uses=actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0|72a8e30d016a37162721c9d6a45a2d0594c127a2b8b2cf6ed3c5ee1fab47ad2b",
-      "run|6a3fc2091941a6b4077a05ca2f5a7effe72080ad94059dd62b01dc4f7c307bc3",
+      "run|e31d77739bfdb506f1376095aa907f5218db62499f504f1ef40d816c4af661e1",
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
     "control-proof-weekly.yml": "0786e8a544d99c96cb2c34aaf6fde7f1f6113c4350197c022080499f238e6a2e",
-    "publish.yml": "a21f00af3e351ca29098ac6f8c4f72d4fcd925a00c6f858f933a9e59bf265005",
+    "publish.yml": "89545cf320e5b2ff0e8bcb488ae7bbaa5adc324781755ec137de10320790640f",
   };
 
   const workflows = workflowSources();
@@ -565,12 +565,17 @@ test("privileged workflows bind event identity and validate bounded artifacts", 
   const publish = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
   const controlProof = readFileSync(new URL("../.github/workflows/control-proof-weekly.yml", import.meta.url), "utf8");
 
-  assert.equal(
-    (publish.match(/github\.ref == format\('refs\/tags\/\{0\}'/g) ?? []).length,
-    2,
-    "both publish jobs must bind the release event to its selected tag ref",
-  );
+  assert.doesNotMatch(publish, /^  release:/m, "npm staging must precede the public GitHub release");
   assert.doesNotMatch(publish, /workflow_dispatch/, "publishing must not execute branch-selected workflow bytes");
+  assert.match(publish, /^  push:\n    tags:\n      - "v\[0-9\]\+\.\[0-9\]\+\.\[0-9\]\+"$/m);
+  assert.equal(
+    (publish.match(/github\.event_name == 'push'/g) ?? []).length,
+    2,
+    "both jobs must require the immutable stable-tag push used to stage npm before the public GitHub release",
+  );
+  assert.equal((publish.match(/github\.ref_type == 'tag'/g) ?? []).length, 2);
+  assert.equal((publish.match(/startsWith\(github\.ref, 'refs\/tags\/v'\)/g) ?? []).length, 2);
+  assert.match(publish, /git merge-base --is-ancestor "\$GITHUB_SHA" "refs\/remotes\/origin\/\$DEFAULT_BRANCH"/);
   assert.match(publish, /ref:\s*\$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(publish, /ref:\s*\$\{\{ steps\.release\.outputs\.tag \}\}/);
   assert.match(publish, /^\s{4}environment:\s*npm-publish\s*$/m);
