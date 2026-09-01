@@ -37,7 +37,7 @@ The frozen comparison runs Agent Vigil and Swarm against the same unified diffs.
 Neither tool receives repository execution, a model judge, or its wider product
 features.
 
-| measure | Agent Vigil 0.23.4 candidate | Swarm 12.1.1 |
+| measure | Agent Vigil 0.23.4 exact source run | Swarm 12.1.1 |
 |---|---:|---:|
 | paired synthetic broken recall | 76.9% | 100.0% |
 | paired synthetic clean specificity | 100.0% | 28.8% |
@@ -54,9 +54,9 @@ are review burden rather than false-positive rates. The strict complaint set is
 too small and weakly labeled for a leadership claim.
 
 Full rows, hashes, Wilson intervals, paired tests, and bootstrap results are in
-[`../benchmarks/comparative/v0234-candidate-results.json`](../benchmarks/comparative/v0234-candidate-results.json).
-The result must be rerun from the final clean release commit before v0.23.4 is
-tagged.
+[`../benchmarks/comparative/v0234-exact-results.json`](../benchmarks/comparative/v0234-exact-results.json).
+The run used clean source commit `78fb9aedc00e9c73adb978aad7c4e208190e498e`.
+The release artifact still needs its separate exact-tag package and checksum gate.
 
 ## Product decisions from the comparison
 

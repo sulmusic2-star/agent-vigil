@@ -1,6 +1,6 @@
-# Static audit comparison v0234 candidate results
+# Static audit comparison v0234 exact results
 
-Protocol: `513ef52097e98cccdff45b4c55235503cbf4538bfec5f8b456b041628c6b55d8` · Agent Vigil 0.23.4 evaluated at `69851f8dd21a73778f86ad32563fb975bdadf03c` with tracked changes · Swarm 12.1.1 at `b2b681ff529929d39a14c0541d0e2b71b642b5da`
+Protocol: `513ef52097e98cccdff45b4c55235503cbf4538bfec5f8b456b041628c6b55d8` · Agent Vigil 0.23.4 evaluated at `78fb9aedc00e9c73adb978aad7c4e208190e498e` · Swarm 12.1.1 at `b2b681ff529929d39a14c0541d0e2b71b642b5da`
 
 > Maintainer-authored, non-blind comparison on competitor-authored corpora. This does not establish objective universal superiority or any financial outcome.
 

@@ -17,8 +17,8 @@
 - Complete a queued check as blocking `NOT CHECKED` when the central dispatch
   cannot start, and retain fail-closed stale-head handling before publishing a
   result.
-- Publish a scoped competitor comparison and a separately labeled v0.23.4
-  candidate benchmark without claiming universal superiority or revenue.
+- Publish a scoped competitor comparison and a separately labeled clean-source v0.23.4
+  benchmark without claiming universal superiority or revenue.
 - Accept GitHub App private keys in either unencrypted RSA PKCS#1 or PKCS#8
   format and normalize them in memory before Web Crypto import.
 - Scope the protected pull-request App token to the target repository instead
