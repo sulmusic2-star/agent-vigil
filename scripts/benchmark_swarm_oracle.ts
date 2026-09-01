@@ -25,6 +25,15 @@ const EXPECTED_RULES: Record<string, string[]> = {
   "type-suppression": ["suppression-added"],
 };
 
+// Honest fixtures are negative controls for a particular injector, not a
+// declaration that every unrelated pattern in the source diff is clean. For
+// example, the built-in-mock control contains expect(true).toBe(true), which
+// is correctly reported by the independent constant-oracle rule. Keep that
+// finding visible without mislabeling it as a mock-detector false positive.
+const HONEST_NEGATIVE_RULES: Record<string, string[]> = {
+  "builtin-mock-honest": ["subject-mocked"],
+};
+
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   return index === -1 ? undefined : process.argv[index + 1];
@@ -96,8 +105,14 @@ const perCategory = categories.map((category) => {
 const mappedRows = rows.filter((row) => !row.honest && row.expectedRules.length > 0);
 const scopedRows = mappedRows.filter((row) => !row.policyExclusion);
 const honestRows = rows.filter((row) => row.honest);
+const honestRowsWithTargetedFalsePositive = honestRows.filter((row) =>
+  (HONEST_NEGATIVE_RULES[row.injector] ?? []).some((rule) => row.firedRules.includes(rule))
+);
+const honestRowsWithOtherFindings = honestRows.filter((row) =>
+  row.firedRules.some((rule) => !(HONEST_NEGATIVE_RULES[row.injector] ?? []).includes(rule))
+);
 const result = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   tool: { name: "agent-vigil", version: VERSION },
   source: {
     repository: "https://github.com/moonrunnerkc/swarm-orchestrator",
@@ -119,12 +134,14 @@ const result = {
     scopedCases: scopedRows.length,
     exactCatches: scopedRows.filter((row) => row.exactCatch).length,
     exactRecall: ratio(scopedRows.filter((row) => row.exactCatch).length, scopedRows.length),
-    honestFalsePositives: honestRows.filter((row) => row.anyFinding).length,
+    honestTargetedFalsePositives: honestRowsWithTargetedFalsePositive.length,
+    honestOtherFindings: honestRowsWithOtherFindings.length,
   },
   perCategory,
   misses: scopedRows.filter((row) => !row.exactCatch),
   policyExcluded: mappedRows.filter((row) => row.policyExclusion),
-  honestFindings: honestRows.filter((row) => row.anyFinding),
+  honestTargetedFalsePositives: honestRowsWithTargetedFalsePositive,
+  honestOtherFindings: honestRowsWithOtherFindings,
 };
 
 const output = resolve(option("--output") ?? "benchmarks/swarm-oracle-results.json");
@@ -140,7 +157,8 @@ const markdown = [
   `- training-corpus mapped cases: ${result.summary.mappedCases} across ${Object.keys(EXPECTED_RULES).length} categories`,
   `- eligible exact-rule scope: ${result.summary.scopedCases} cases (${result.summary.policyExcludedMappedCases} generated/build-output cases excluded by documented policy)`,
   `- exact catches: ${result.summary.exactCatches}/${result.summary.scopedCases} (${(result.summary.exactRecall * 100).toFixed(1)}%)`,
-  `- honest negative cases with findings: ${result.summary.honestFalsePositives}/${result.summary.honestCases}`,
+  `- honest controls with a targeted false positive: ${result.summary.honestTargetedFalsePositives}/${result.summary.honestCases}`,
+  `- honest controls with an unrelated finding retained for review: ${result.summary.honestOtherFindings}/${result.summary.honestCases}`,
   "",
   "> This is a cross-corpus hardening measurement authored by Agent Vigil's maintainer. It is not an independent benchmark and does not establish universal product superiority. Any-finding rates are diagnostic only and are not comparable to Swarm's expected-category recall.",
   "",
@@ -152,4 +170,4 @@ const markdown = [
   "",
 ].join("\n");
 writeFileSync(output.replace(/\.json$/, ".md"), markdown);
-process.stdout.write(`${result.summary.exactCatches}/${result.summary.scopedCases} exact scoped catches; ${result.summary.honestFalsePositives}/${result.summary.honestCases} honest false positives\n`);
+process.stdout.write(`${result.summary.exactCatches}/${result.summary.scopedCases} exact scoped catches; ${result.summary.honestTargetedFalsePositives}/${result.summary.honestCases} targeted honest-control false positives; ${result.summary.honestOtherFindings}/${result.summary.honestCases} unrelated honest-control findings\n`);

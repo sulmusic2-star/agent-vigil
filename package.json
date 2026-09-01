@@ -43,6 +43,7 @@
     "demo:outcome": "tsx scripts/outcome_demo.ts",
     "benchmark:swarm": "tsx scripts/benchmark_swarm_oracle.ts",
     "benchmark:swarm-real": "tsx scripts/benchmark_swarm_real.ts",
+    "benchmark:gate": "tsx scripts/verify_cross_corpus_benchmark.ts",
     "benchmark:compare": "tsx scripts/benchmark_compare_static.ts",
     "benchmark:continuity-staple": "tsx scripts/benchmark_continuity_staple.ts",
     "generate:continuity-staple-vectors": "tsx scripts/generate_continuity_staple_vectors.ts"

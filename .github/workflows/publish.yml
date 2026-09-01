@@ -74,6 +74,27 @@ jobs:
           NODE
       - name: Install without lifecycle scripts
         run: npm ci --ignore-scripts
+      - name: Fetch the frozen cross-corpus evidence
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/moonrunnerkc/swarm-orchestrator.git "$RUNNER_TEMP/swarm"
+          git -C "$RUNNER_TEMP/swarm" checkout b2b681ff529929d39a14c0541d0e2b71b642b5da
+      - name: Enforce the frozen cross-corpus gate
+        run: |
+          set -euo pipefail
+          result_dir="$RUNNER_TEMP/cross-corpus-results"
+          mkdir -p "$result_dir"
+          npm run benchmark:swarm -- \
+            --corpus "$RUNNER_TEMP/swarm/benchmarks/oracle-corpus" \
+            --source-sha b2b681ff529929d39a14c0541d0e2b71b642b5da \
+            --output "$result_dir/swarm-oracle-results.json"
+          npm run benchmark:swarm-real -- \
+            --root "$RUNNER_TEMP/swarm/benchmarks/real-prs" \
+            --source-sha b2b681ff529929d39a14c0541d0e2b71b642b5da \
+            --output "$result_dir/swarm-real-results.json"
+          npm run benchmark:gate -- \
+            --oracle "$result_dir/swarm-oracle-results.json" \
+            --real "$result_dir/swarm-real-results.json"
       - name: Verify the exact release source
         run: |
           set -euo pipefail

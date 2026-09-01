@@ -36,12 +36,11 @@ jobs:
             --root "$RUNNER_TEMP/swarm/benchmarks/real-prs" \
             --source-sha b2b681ff529929d39a14c0541d0e2b71b642b5da \
             --output "$RUNNER_TEMP/results/swarm-real-results.json"
-      - name: Verify results match the committed ledger
+      - name: Enforce the frozen quality and noise boundary
         run: |
-          diff -u benchmarks/swarm-oracle-results.json "$RUNNER_TEMP/results/swarm-oracle-results.json"
-          diff -u benchmarks/swarm-oracle-results.md "$RUNNER_TEMP/results/swarm-oracle-results.md"
-          diff -u benchmarks/swarm-real-results.json "$RUNNER_TEMP/results/swarm-real-results.json"
-          diff -u benchmarks/swarm-real-results.md "$RUNNER_TEMP/results/swarm-real-results.md"
+          npm run benchmark:gate -- \
+            --oracle "$RUNNER_TEMP/results/swarm-oracle-results.json" \
+            --real "$RUNNER_TEMP/results/swarm-real-results.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: frozen-cross-corpus-results

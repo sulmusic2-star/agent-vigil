@@ -3151,8 +3151,9 @@ function checkIntegrityDiff(diff) {
       blocksPass: true
     }];
   }
-  const parsed = parseFilePatches(diff);
-  if (parsed.invalidHeader || !parsed.patches.length) {
+  const parsed = parseFilePatches(diff, true);
+  const unreadable = parsed.invalidHeader ? unreadableIntegrityResult("parseable changed files", parsed.invalidHeader, "diff-unparseable") : void 0;
+  if (!parsed.patches.length) {
     return [{
       claim: { kind: "integrity", quote: "static unified-diff audit", subject: "parseable changed files" },
       verdict: "unverifiable",
@@ -3164,6 +3165,7 @@ function checkIntegrityDiff(diff) {
   }
   const patches = parsed.patches;
   const results = [...checkIntegrityPatches(patches), ...checkAgenticPatches(patches)];
+  if (unreadable) return [unreadable, ...results];
   return results.length ? results : [cleanIntegrityResult(patches.length, true)];
 }
 function checkCompletion(claims, repo, base, head, prior) {
