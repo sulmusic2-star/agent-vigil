@@ -54,7 +54,7 @@ are review burden rather than false-positive rates. The strict complaint set is
 too small and weakly labeled for a leadership claim.
 
 Full rows, hashes, Wilson intervals, paired tests, and bootstrap results are in
-[`../benchmarks/comparative/v0234-exact-results.json.gz`](../benchmarks/comparative/v0234-exact-results.json.gz).
+[`../benchmarks/comparative/v0234-exact-results.json`](../benchmarks/comparative/v0234-exact-results.json).
 The run used Agent Vigil 0.23.3 source at clean commit
 `7707906cb126de69b0774f2d396297e81a848ccc` while v0.23.4 was still being
 assembled.

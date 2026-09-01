@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { gunzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const result = JSON.parse(gunzipSync(readFileSync("benchmarks/comparative/v0234-exact-results.json.gz")).toString("utf8"));
+const result = JSON.parse(readFileSync("benchmarks/comparative/v0234-exact-results.json", "utf8"));
 const document = readFileSync("docs/COMPETITOR_COMPARISON.md", "utf8");
 
 test("the scoped comparison retains exact clean source and neutral interpretation", () => {
