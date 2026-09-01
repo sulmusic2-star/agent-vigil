@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
       - id: vigil
         name: Challenge the installed control without signing authority
-        uses: sulmusic2-star/agent-vigil@ea4831cac946cd5d7ee6ff0346cf5e0d07405d3f
+        uses: sulmusic2-star/agent-vigil@1984012ddece2092f05e8cc5c3820d88014ace90
         with:
           mode: prove
           attest: false
