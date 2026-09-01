@@ -58,3 +58,20 @@ test("the benchmark gate fails closed when catch quality falls or review burden 
   assert.match(errors, /any-advisory catches regressed/);
   assert.match(errors, /exact-category catches regressed/);
 });
+
+test("the committed benchmark ledger states its current quality and review burden", () => {
+  const oracle = JSON.parse(readFileSync("benchmarks/swarm-oracle-results.json", "utf8"));
+  const real = JSON.parse(readFileSync("benchmarks/swarm-real-results.json", "utf8"));
+  assert.equal(oracle.schemaVersion, 2);
+  assert.equal(oracle.source.commit, frozenSha);
+  assert.equal(oracle.summary.exactCatches, 220);
+  assert.equal(oracle.summary.scopedCases, 220);
+  assert.equal(oracle.summary.honestTargetedFalsePositives, 0);
+  assert.equal(oracle.summary.honestOtherFindings, 1);
+  assert.equal(real.schemaVersion, 2);
+  assert.equal(real.source.commit, frozenSha);
+  assert.equal(real.presumedClean.prsWithAdvisories, 134);
+  assert.equal(real.presumedClean.incompleteStaticAudits, 9);
+  assert.equal(real.arbiterAgreedTrueCheats.anyAdvisory, 4);
+  assert.equal(real.arbiterAgreedTrueCheats.exactCategoryAdvisory, 2);
+});

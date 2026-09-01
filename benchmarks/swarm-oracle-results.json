@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "tool": {
     "name": "agent-vigil",
-    "version": "0.10.0"
+    "version": "0.23.3"
   },
   "source": {
     "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",
@@ -52,7 +52,8 @@
     "scopedCases": 220,
     "exactCatches": 220,
     "exactRecall": 1,
-    "honestFalsePositives": 0
+    "honestTargetedFalsePositives": 0,
+    "honestOtherFindings": 1
   },
   "perCategory": [
     {
@@ -142,8 +143,8 @@
       "scoped": false,
       "exact": 0,
       "exactRecall": null,
-      "any": 4,
-      "anyFindingRate": 0.16
+      "any": 5,
+      "anyFindingRate": 0.2
     },
     {
       "category": "mock-of-hallucination",
@@ -152,8 +153,8 @@
       "scoped": false,
       "exact": 0,
       "exactRecall": null,
-      "any": 7,
-      "anyFindingRate": 0.28
+      "any": 18,
+      "anyFindingRate": 0.72
     },
     {
       "category": "no-op-fix",
@@ -259,5 +260,21 @@
       "anyFinding": false
     }
   ],
-  "honestFindings": []
+  "honestTargetedFalsePositives": [],
+  "honestOtherFindings": [
+    {
+      "case": "claude-code-ChadFarrow-MSP-2.0-pr65",
+      "category": "mock-of-hallucination",
+      "injector": "builtin-mock-honest",
+      "honest": true,
+      "sha256": "7beed7f8ca19721c19cd04472c888aaccd48c2f0462d01596d3bab496aa42f27",
+      "expectedRules": [],
+      "policyExclusion": null,
+      "firedRules": [
+        "test-oracle-constant"
+      ],
+      "exactCatch": false,
+      "anyFinding": true
+    }
+  ]
 }
