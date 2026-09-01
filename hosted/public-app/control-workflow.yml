@@ -132,9 +132,16 @@ jobs:
       - name: Remove checkout authentication material before candidate execution
         run: |
           set -euo pipefail
-          git -C candidate config --local --unset-all http.https://github.com/.extraheader || true
-          git -C candidate config --local --unset-all credential.helper || true
-          test -z "$(git -C candidate config --local --get-regexp 'extraheader|credential' || true)"
+          if git -C candidate config --local --get-all http.https://github.com/.extraheader >/dev/null 2>&1; then
+            git -C candidate config --local --unset-all http.https://github.com/.extraheader
+          fi
+          if git -C candidate config --local --get-all credential.helper >/dev/null 2>&1; then
+            git -C candidate config --local --unset-all credential.helper
+          fi
+          if git -C candidate config --local --get-regexp 'extraheader|credential' >/dev/null 2>&1; then
+            echo "checkout credentials remain after cleanup" >&2
+            exit 1
+          fi
       - id: vigil
         name: Run the independent exact-commit gate
         uses: ./control
