@@ -129,6 +129,15 @@ test("Harness Guard and Suppression Receipt extend existing checks without treat
   assert.equal(castOnly.some((result) => result.ruleId === "suppression-added"), false);
 });
 
+test("an emptied test produces one assertion-loss finding, not duplicate review noise", () => {
+  const checks = checkIntegrityDiff(diff(
+    "test/value.test.ts",
+    ["test('value', () => {", "  expect(value()).toBe(1);", "});"],
+    ["test('value', () => {", "});"],
+  ));
+  assert.equal(checks.filter((result) => result.ruleId === "assertion-drop").length, 1);
+});
+
 test("Oracle Echo records a distinctive direct return matching an unchanged assertion", () => {
   const repo = tempRepo();
   write(repo, "src/amount.ts", "export function amount() {\n  return 1;\n}\n");
