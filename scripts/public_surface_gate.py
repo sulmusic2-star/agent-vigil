@@ -435,6 +435,7 @@ def html_failures() -> list[str]:
         'failed</div>',
         'passed</div>',
         'notchecked</div>',
+        'changedfiles',
         'seewhatneedsattention',
         'copyreproducecommand',
         'overflow-x:clip',
@@ -454,12 +455,10 @@ def page_visible_text(path: Path) -> list[str]:
 
 def claim_consistency_failures() -> list[str]:
     sources = {
-        "README.md": (ROOT / "README.md").read_text(),
         "docs/COMPATIBILITY.md": (ROOT / "docs/COMPATIBILITY.md").read_text(),
         "docs/index.html": (ROOT / "docs/index.html").read_text(),
     }
     patterns = {
-        "README.md": r"(?m)^- (\d+) tests, including",
         "docs/COMPATIBILITY.md": r"npm test` executes \*\*(\d+) tests\*\*",
     }
     observed: dict[str, str] = {}

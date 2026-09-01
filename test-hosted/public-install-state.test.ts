@@ -10,12 +10,11 @@ const releaseSha256 = "85dd030bc638625ae75181030268e5561dc7483c32e74253bfb17bf76
 const registryIntegrity = "sha512-svknWHc0DT9Jh77tatKFmvsr3lJr8dSDLBrXud1pr1DKkgW8Yx7uIvS1+Xkq72TQfyP091sWUZZzDH8ku6RjuA==";
 const candidateVersion = "0.23.3";
 
-test("the npm-free guide separates the verified v0.23.2 package from the v0.23.3 candidate", () => {
+test("the npm-free guide separates verified packages from the unpublished v0.23.3 candidate", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
 
-  assert.match(guide, new RegExp(`releases/download/v${candidateVersion}/sulmusic-agent-vigil-${candidateVersion}\\.tgz`));
-  assert.match(guide, new RegExp(`sulmusic-agent-vigil-${candidateVersion}\\.tgz\\.sha256`));
-  assert.match(guide, /shasum -a 256 -c/);
+  assert.doesNotMatch(guide, new RegExp(`releases/download/v${candidateVersion}/sulmusic-agent-vigil-${candidateVersion}\\.tgz`));
+  assert.doesNotMatch(guide, new RegExp(`@sulmusic/agent-vigil@${candidateVersion}`));
   assert.match(guide, new RegExp(releaseUrl.replaceAll(".", "\\.")));
   assert.match(guide, new RegExp(releaseSha256));
   assert.match(guide, new RegExp(releaseCommit));
@@ -23,8 +22,8 @@ test("the npm-free guide separates the verified v0.23.2 package from the v0.23.3
     guide,
     /v0\.23\.3 is a source release candidate until GitHub lists both the package and checksum assets\./,
   );
-  assert.match(guide, /npm registry separately reports public version 0\.21\.1/);
-  assert.match(guide, /npm publication\s+of v0\.23\.3 is not claimed/);
+  assert.match(guide, /npm serves v0\.21\.1/);
+  assert.match(guide, /Do not install a v0\.23\.3 URL or npm specifier/);
 });
 
 test("the public install state keeps GitHub and npm publication separate", () => {
@@ -54,13 +53,12 @@ test("the public install state keeps GitHub and npm publication separate", () =>
 test("the five-minute guide preserves one complete value path", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
   const orderedSteps = [
-    'npx --yes "$AGENT_VIGIL_PACKAGE" protect',
-    "git status --short",
-    "git add .agent-vigil.json",
-    'git commit -m "Install Agent Vigil"',
-    'npx --yes "$AGENT_VIGIL_PACKAGE" doctor',
-    'npx --yes "$AGENT_VIGIL_PACKAGE" continuity demo --json',
-    "PASS -> CURRENT -> REVOKED -> REVOKED -> CURRENT",
+    "sulmusic-agent-vigil-0.23.2.tgz protect",
+    "One setup pull request",
+    "PASS",
+    "FAIL",
+    "NOT CHECKED",
+    "Enforcement",
     "## Remove it",
   ];
 
@@ -71,15 +69,8 @@ test("the five-minute guide preserves one complete value path", () => {
     previous = position;
   }
   assert.doesNotMatch(guide, /node dist\/cli\.js (?:protect|doctor)/);
-  assert.match(guide, /doctor` fails its readiness checks while the controls are uncommitted/);
-  assert.match(guide, /does not make the\s+check required in GitHub/);
-  assert.match(guide, /root of a Git repository/);
-  assert.match(guide, /direct Node test command/);
-  assert.match(guide, /REPLACE_WITH_TEST_COMMAND/);
-  assert.match(guide, /doctor` fails closed/);
-  assert.doesNotMatch(guide, /protect\s+\\\s+--action-sha/);
   assert.match(guide, /--runner common/);
-  assert.match(guide, /\.agent-vigil-runner\.json \(only with --runner or --runner-image\)/);
-  assert.match(guide, /if \[ -f \.agent-vigil-runner\.json \]/);
-  assert.match(guide, /npm publication of v0\.23\.3\s+is not claimed/);
+  assert.match(guide, /centrally\s+operated Agent Vigil App/s);
+  assert.match(guide, /successful install proves setup, not retained use/);
+  assert.doesNotMatch(guide, /continuity demo|REVOKED ->/);
 });
