@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 
@@ -24,11 +24,24 @@ const FINAL_PATHS = new Set([
   ...SELF_PIN_FILES,
   "README.md",
   "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md",
+  "docs/check.js",
   "docs/public-install-state.json",
   "docs/COMPETITOR_COMPARISON.md",
   "benchmarks/comparative/v0234-exact-results.json",
   "benchmarks/comparative/v0234-exact-results.md",
   "test-hosted/competitor-comparison.test.ts",
+  "test-hosted/adoption-conversion.test.ts",
+  "test-hosted/browser-pr-checker.test.ts",
+  "test-hosted/first-use-source.test.ts",
+  "test-hosted/five-minute-onboarding.test.ts",
+  "test-hosted/merge-queue-dispatcher.test.ts",
+  "test-hosted/public-install-state.test.ts",
+  "test-hosted/repository-contract.test.ts",
+  "test/adoption-links.test.ts",
+  "test/control-proof-attestation.test.ts",
+  "test/outcome.test.ts",
+  "test/package-surface.test.ts",
+  "test/protect.test.ts",
 ]);
 
 function git(repo: string, args: string[], encoding: BufferEncoding | "buffer" = "utf8"): string | Buffer {
@@ -79,7 +92,7 @@ function verifyReproducibleDist(repo: string, head: string): void {
   try {
     const archive = git(root, ["archive", "--format=tar", head], "buffer") as Buffer;
     execFileSync("tar", ["-xf", "-", "-C", temporary], { input: archive, maxBuffer: 128 * 1024 * 1024 });
-    symlinkSync(modules, join(temporary, "node_modules"), "dir");
+    cpSync(modules, join(temporary, "node_modules"), { recursive: true, dereference: true });
     execFileSync("npm", ["run", "build"], { cwd: temporary, stdio: "pipe", timeout: 180_000, maxBuffer: 32 * 1024 * 1024 });
     const trackedDist = files(join(root, "dist"));
     const rebuiltDist = files(join(temporary, "dist"));
