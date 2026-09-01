@@ -213,7 +213,7 @@ test("public App manifest and control workflow keep customer setup to one App in
   assert.equal(manifest.default_permissions.actions, undefined);
   assert.equal(manifest.default_permissions.contents, "read");
 
-  const workflow = readFileSync(".github/workflows/public-app-gate.yml", "utf8");
+  const workflow = readFileSync("hosted/public-app/control-workflow.yml", "utf8");
   assert.match(workflow, /^\s{2}workflow_dispatch:/m);
   assert.doesNotMatch(workflow, /^\s{2}(?:pull_request|merge_group):/m);
   assert.match(workflow, /agent-vigil-public-app-v1/);
