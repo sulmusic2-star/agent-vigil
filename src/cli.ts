@@ -92,7 +92,7 @@ import {
 } from "./guard-compat.ts";
 import { renderGuardRoute, runGuardRoute } from "./guard-route.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
-import { adoptionRegistrationUrl, githubRepositorySlug, releasedDoctorCommand, workflowBadge } from "./adoption.ts";
+import { releasedDoctorCommand, releasedProtectCommand } from "./adoption.ts";
 
 type Options = {
   transcript?: string;
@@ -113,7 +113,7 @@ type Options = {
   minVerified?: number;
 };
 
-function usage(): string {
+function advancedUsage(): string {
   return `agent-vigil ${VERSION}
 
 Usage:
@@ -198,6 +198,30 @@ Value options:
   --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS · 1 FAIL · 2 INCONCLUSIVE or usage error`;
+}
+
+function usage(): string {
+  return `Agent Vigil ${VERSION}
+
+Check an AI-assisted pull request before it merges.
+
+Start here:
+  ${releasedProtectCommand()}
+
+Then commit the generated setup files and open a setup pull request. After it
+merges, every new pull request gets one result:
+
+  PASS         Ready to merge.
+  FAIL         Do not merge yet.
+  NOT CHECKED  No decision because required evidence is missing.
+
+Useful commands:
+  vigil protect              Add Agent Vigil to the current repository
+  vigil doctor               Check the setup
+  vigil check <pull-request> Check a public GitHub pull request
+  vigil demo                 See a safe local example
+
+Advanced commands: vigil help --all`;
 }
 
 function guardCompatibilityUsage(): string {
@@ -683,7 +707,6 @@ function runProtect(args: string[]): number {
       runnerOverride);
     console.log("Agent Vigil is ready to add.\n");
     const policy = loadPolicy(repo).value;
-    const slug = githubRepositorySlug(git(repo, ["config", "--get", "remote.origin.url"]));
     const commands = policy.maintainer?.automatedReview?.commands ?? [];
     if (commands.length) console.log(`  Found   ${safeSetupLine(commands.join(" && "))}`);
     console.log(`  Pinned  ${actionSha}${optionValue(args, "--action-sha") ? " (operator selected)" : selectedPin.source === "package-build" ? " (this package build)" : " (reviewed public release)"}`);
@@ -696,18 +719,10 @@ function runProtect(args: string[]): number {
         console.error("\nAgent Vigil could not prove its disposable red/green rehearsal. The generated files remain prepared but must not be activated.");
         return 2;
       }
-      console.log("\nState: PREPARED — not active yet.");
-      console.log("\nNext:");
-      console.log("  1. Review the four generated files.");
-      console.log("  2. Commit and push them in a setup pull request.");
-      console.log(`  3. After that setup merges, run \`${releasedDoctorCommand()}\`.`);
-      console.log("\nState after setup: RUNNING IN CI, not enforced. A plain required job name is not a workflow trust root; enforcement needs an external required workflow or App-owned exact-head check.");
-      if (slug) {
-        console.log("\nOptional workflow badge (run status only; not proof of required-check enforcement):");
-        console.log(`  ${workflowBadge(slug)}`);
-      }
-      console.log("\nRegister an outside trial only after the workflow runs. Registration is optional and requires maintainer consent:");
-      console.log(`  ${adoptionRegistrationUrl(slug)}`);
+      console.log("\nSetup: READY — not running in GitHub yet.");
+      console.log("\nNext: commit the generated files and open one setup pull request.");
+      console.log(`After it merges, run \`${releasedDoctorCommand()}\`, then open a normal code pull request.`);
+      console.log("That pull request will show PASS, FAIL, or NOT CHECKED. Making the result a protected merge requirement still needs the Agent Vigil App.");
       return 0;
     }
     const checks = doctorRepository(repo);
@@ -1494,6 +1509,12 @@ function shellQuote(value: string): string {
 }
 
 export function run(argv = process.argv.slice(2)): number {
+  if (argv.length === 0) { console.log(usage()); return 0; }
+  if (argv[0] === "help") {
+    console.log(argv.includes("--all") ? advancedUsage() : usage());
+    return 0;
+  }
+  if (argv.includes("--help-all")) { console.log(advancedUsage()); return 0; }
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "continuity") return runContinuityCommand(argv.slice(1));
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));

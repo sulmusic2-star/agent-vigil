@@ -34,3 +34,7 @@ export function adoptionRegistrationUrl(slug?: string): string {
 export function releasedDoctorCommand(): string {
   return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
 }
+
+export function releasedProtectCommand(): string {
+  return `npx --yes ${RELEASE_PACKAGE} protect --repo .`;
+}
