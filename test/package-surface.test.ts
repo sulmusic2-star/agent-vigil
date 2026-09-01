@@ -236,6 +236,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/AUTHORITY_RECONCILIATION.md",
     "docs/BENCHMARKS.md",
     "docs/COMPATIBILITY.md",
+    "docs/COMPETITOR_COMPARISON.md",
     "docs/CONTINUITY.md",
     "docs/CONTINUITY_LAB.md",
     "docs/CONTINUITY_STAPLE.md",
@@ -305,12 +306,18 @@ test("npm package surface excludes internal product and commercial working docum
     "hosted/merge-queue-dispatcher/github-app-manifest.example.json",
     "hosted/merge-queue-dispatcher/src/index.mjs",
     "hosted/merge-queue-dispatcher/wrangler.jsonc",
+    "hosted/public-app/README.md",
+    "hosted/public-app/github-app-manifest.example.json",
+    "hosted/public-app/src/index.mjs",
+    "hosted/public-app/wrangler.jsonc",
   ];
   const allowedPublishedWorkflows = [
     ".github/workflows/agent-vigil-merge-group.yml",
+    ".github/workflows/public-app-gate.yml",
   ];
   const allowedPublishedHostedTests = [
     "test-hosted/merge-queue-dispatcher.test.ts",
+    "test-hosted/public-app.test.ts",
   ];
   const requiredPublicPaths = [
     "DISCLOSURE",
@@ -321,6 +328,7 @@ test("npm package surface excludes internal product and commercial working docum
     "proof/cases",
     "proof/outcome-cases",
     "hosted/merge-queue-dispatcher",
+    "hosted/public-app",
     ...allowedPublishedWorkflows,
     ...allowedPublishedHostedTests,
   ];
@@ -505,7 +513,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "94798e044ef6841b9df35f3b7d81eeb4b3e39f6a707c8120a63022360b9b6572",
+    "control-proof-weekly.yml": "26af1a671d692bc61375349fc385d2377bead33434506fc3b9ad21c154cab9ec",
     "public-app-gate.yml": "c7f5719f1769759ccf604198bb0f738554e57e3fe1c4d1ac4f44a68adb16e5ca",
     "publish.yml": "94658e1c855256cdc26b8964fce044c1f89cbfbc8612bd75e60eda4b7112cc71",
   };
