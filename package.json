@@ -1,6 +1,6 @@
 {
   "name": "@sulmusic/agent-vigil",
-  "version": "0.23.3",
+  "version": "0.23.4",
   "description": "Fail-closed change control, upgrade preflight, and deterministic evidence receipts for AI coding agents.",
   "type": "module",
   "bin": {
@@ -73,11 +73,14 @@
   },
   "files": [
     ".github/workflows/agent-vigil-merge-group.yml",
+    ".github/workflows/public-app-gate.yml",
     "dist",
     "action.yml",
     "github-marker/action.yml",
     "hosted/merge-queue-dispatcher",
+    "hosted/public-app",
     "test-hosted/merge-queue-dispatcher.test.ts",
+    "test-hosted/public-app.test.ts",
     "README.md",
     "CHANGELOG.md",
     "ADOPTERS.md",
@@ -103,6 +106,7 @@
     "docs/AUTHORITY_PLAN.md",
     "docs/BENCHMARKS.md",
     "docs/COMPATIBILITY.md",
+    "docs/COMPETITOR_COMPARISON.md",
     "docs/CONTINUITY.md",
     "docs/CONTINUITY_LAB.md",
     "docs/CONTINUITY_STAPLE.md",

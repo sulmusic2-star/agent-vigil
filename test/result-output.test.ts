@@ -47,12 +47,13 @@ test("text and Markdown keep one structure for every verdict", () => {
   for (const verdict of ["PASS", "FAIL", "INCONCLUSIVE"] as const) {
     const text = renderResultText(view(verdict));
     const markdown = renderResultMarkdown(view(verdict));
-    assert.match(text, new RegExp(`^Agent Vigil: ${verdict}\\n`));
-    assert.match(markdown, new RegExp(`^### Agent Vigil: ${verdict}\\n`));
+    const display = verdict === "INCONCLUSIVE" ? "NOT CHECKED" : verdict;
+    assert.match(text, new RegExp(`^Agent Vigil: ${display}\\n`));
+    assert.match(markdown, new RegExp(`^### Agent Vigil: ${display}\\n`));
     assert.match(text, /Failed \d+ · Passed \d+ · Not checked \d+/);
-    assert.match(markdown, /\*\*Checks:\*\* Failed \d+ · Passed \d+ · Not checked \d+/);
+    assert.match(markdown, /Checks: Failed \d+ · Passed \d+ · Not checked \d+/);
     assert.match(text, new RegExp(`Change: ${BASE} -> ${HEAD}`));
-    assert.match(markdown, new RegExp(`\\*\\*Change:\\*\\* \`${BASE}\` -> \`${HEAD}\``));
+    assert.match(markdown, new RegExp(`Change: \`${BASE}\` -> \`${HEAD}\``));
   }
 });
 
@@ -100,7 +101,7 @@ test("hostile control text cannot change terminal or Markdown structure", () => 
   assert.doesNotMatch(text, /\u001b|\u202e|\r/);
   assert.equal(markdown.toLowerCase().includes("<script>"), false);
   assert.doesNotMatch(markdown, /\u001b|\u202e|\r/);
-  assert.match(markdown, /\\<script\\>/);
+  assert.doesNotMatch(markdown.toLowerCase(), /<script>/);
 });
 
 test("a claim cannot add a false Markdown verdict heading", () => {
@@ -122,10 +123,10 @@ test("a claim cannot add a false Markdown verdict heading", () => {
   });
   const markdown = renderResultMarkdown(buildReportResultView(report));
   assert.doesNotMatch(markdown, /\n### Agent Vigil: PASS\n/);
-  assert.match(markdown, /\*\*Main result:\*\* ### Agent Vigil: PASS/);
+  assert.match(markdown, /\*\*Reason:\*\* ### Agent Vigil: PASS/);
   const summary = renderDecisionCard(report);
   assert.doesNotMatch(summary, /private\/test\/path|secret-looking|private\/candidate|private-secret|Reproduce:|Evidence:|Fix:/);
-  assert.match(summary, /Main result: 1 required check\(s\) failed\./);
+  assert.match(summary, /Result: 1 required check\(s\) failed\./);
 });
 
 test("report renderers and SARIF reject malformed and stale receipts", () => {

@@ -23,7 +23,11 @@ function repo() {
   return path;
 }
 
-test("CLI help exits zero", () => assert.equal(run(["--help"]), 0));
+test("CLI first-use help exits zero and keeps advanced commands behind one explicit step", () => {
+  assert.equal(run([]), 0);
+  assert.equal(run(["--help"]), 0);
+  assert.equal(run(["help", "--all"]), 0);
+});
 test("CLI command parsers reject ambiguous or incomplete requests before side effects", () => {
   const root = mkdtempSync(join(tmpdir(), "vigil-cli-parser-"));
   const first = join(root, "first.json");
@@ -140,7 +144,6 @@ test("CLI compare emits a machine-readable receipt delta and returns its status"
   writeFileSync(afterPath, JSON.stringify(after));
   assert.equal(run(["compare", beforePath, afterPath]), 1);
 });
-test("CLI missing transcript exits two", () => assert.equal(run([]), 2));
 test("CLI empty narrative is inconclusive", () => {
   const r = repo(); const summary = join(r, "empty.md"); writeFileSync(summary, "nothing concrete");
   assert.equal(run([summary, "--repo", r]), 2);

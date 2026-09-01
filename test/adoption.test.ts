@@ -1230,6 +1230,7 @@ test("failure output includes a concrete remediation", () => {
     policy: { minVerified: 1, strict: true, sha256: `sha256:${"2".repeat(64)}` },
   });
   const rendered = renderMarkdown(report);
-  assert.match(rendered, /Checks that need attention/);
+  assert.match(rendered, /Agent Vigil: FAIL/);
+  assert.match(rendered, /\*\*Reason:\*\* test suite/);
   assert.match(rendered, /Run `vigil doctor`/);
 });

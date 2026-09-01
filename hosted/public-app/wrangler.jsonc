@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-vigil-public-app",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "CONTROL_REPOSITORY": "sulmusic2-star/agent-vigil",
+    "CONTROL_WORKFLOW": "public-app-gate.yml",
+    "CONTROL_REF": "main"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "DELIVERY_LEDGER", "class_name": "DeliveryLedger" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DeliveryLedger"] }],
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

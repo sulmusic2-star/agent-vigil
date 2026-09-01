@@ -8,7 +8,7 @@ export const FROZEN_CROSS_CORPUS_GATE = {
   oracle: { scopedCases: 220, minExactRecall: 1, maxTargetedFalsePositives: 0 },
   realPrCalibration: {
     prs: 232,
-    maxAdvisoryPrs: 134,
+    maxAdvisoryPrs: 104,
     maxIncompleteStaticAudits: 9,
     arbiterCases: 4,
     minAnyAdvisory: 4,

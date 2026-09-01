@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-08-31T13:46:49Z",
+  "verified_at": "2026-09-01T16:55:55Z",
   "latest_github_release": {
     "version": "0.23.2",
     "commit": "1c5544d84586249c452adda3f8432a9bdac2ca7a",
@@ -19,7 +19,7 @@
     "target_published": false
   },
   "source_release_candidate": {
-    "version": "0.23.3",
+    "version": "0.23.4",
     "github_release_published": false,
     "npm_published": false
   }

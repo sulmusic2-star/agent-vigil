@@ -132,7 +132,7 @@ test("receipt-bound advisories do not alter PASS and do alter the receipt hash",
   const warned = buildReport({ ...input, advisories: [advisory] });
   assert.equal(warned.summary.status, "PASS");
   assert.notEqual(warned.receiptHash, plain.receiptHash);
-  assert.match(renderText(warned), /non-blocking under this policy/);
+  assert.match(renderText(warned), /Review notes 1/);
   assert.equal(toSarif(warned).runs[0].results[0].level, "warning");
 });
 test("integrity routing preserves hard context errors and makes heuristic contradictions policy-selectable", () => {
@@ -742,6 +742,28 @@ test("static diff audit recognizes Cypress tests and catches removed assertions"
     ["cy.wait(1000);"],
   );
   assert.ok(checkIntegrityDiff(diff).some((result) => result.ruleId === "assertion-drop"));
+});
+test("static diff audit does not call an assertion move a net assertion drop", () => {
+  const moved = [
+    unifiedDiff("test/old.test.ts", ["expect(value()).toBe(2);"], []),
+    unifiedDiff("test/new.test.ts", [], ["expect(value()).toBe(2);"]),
+  ].join("");
+  assert.equal(checkIntegrityDiff(moved).some((result) => result.ruleId === "assertion-drop"), false);
+});
+test("static diff audit catches a retained test body emptied of assertions", () => {
+  const emptied = [
+    "diff --git a/test/value.test.ts b/test/value.test.ts",
+    "--- a/test/value.test.ts",
+    "+++ b/test/value.test.ts",
+    "@@ -1,5 +1,2 @@",
+    " it('checks value', () => {",
+    "-  expect(value().a).toBe(1);",
+    "-  expect(value().b).toBe(2);",
+    "-  expect(value().c).toBe(3);",
+    " });",
+    "",
+  ].join("\n");
+  assert.ok(checkIntegrityDiff(emptied).some((result) => result.ruleId === "assertion-drop"));
 });
 test("static diff audit catches cross-file stale callers with a clean negative control", () => {
   const declaration = unifiedDiff(

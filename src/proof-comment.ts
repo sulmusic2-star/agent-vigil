@@ -14,6 +14,10 @@ function count(results: CheckResult[], ruleId: string, verdict?: CheckResult["ve
   return results.filter((result) => result.ruleId === ruleId && (!verdict || result.verdict === verdict)).length;
 }
 
+function displayVerdict(verdict: "PASS" | "FAIL" | "INCONCLUSIVE"): "PASS" | "FAIL" | "NOT CHECKED" {
+  return verdict === "INCONCLUSIVE" ? "NOT CHECKED" : verdict;
+}
+
 function verifiedUrl(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
   if (raw.length > 2048) throw new Error("proof comment verify URL exceeds 2048 characters");
@@ -48,17 +52,17 @@ export function renderProofComment(value: unknown, options: ProofCommentOptions 
     ? "valid embedded Ed25519 signature; signer identity is not pinned"
     : "absent; content hash only";
   const url = verifiedUrl(options.verifyUrl);
-  const facts = [
-    `- **Checks:** Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}`,
-    `- **Candidate-only regression checks:** ${differentialEarned} verified`,
-    `- **Changed regression checks that also passed on base:** ${differentialAlsoPassedBase}`,
-    `- **Integrity-control contradictions:** ${integrityChanges}`,
-    `- **Unapproved authority contradictions:** ${authorityBlocks}`,
+  const detailFacts = [
+    `Checks: Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}  `,
+    `Candidate-only regression checks: ${differentialEarned} verified  `,
+    `Changed regression checks that also passed on base: ${differentialAlsoPassedBase}  `,
+    `Integrity-control contradictions: ${integrityChanges}  `,
+    `Unapproved authority contradictions: ${authorityBlocks}  `,
   ];
 
   return [
     PROOF_COMMENT_MARKER,
-    `### Agent Vigil: ${view.verdict}`,
+    `### Agent Vigil: ${displayVerdict(view.verdict)}`,
     "",
     `**${view.consequence}**`,
     "",
@@ -68,13 +72,18 @@ export function renderProofComment(value: unknown, options: ProofCommentOptions 
         ? `${view.counts.notChecked} required check(s) did not run.`
         : "All required checks passed.",
     "",
-    ...facts,
-    "",
-    `**Change:** ${markdownCodeSpan(terminalSafe(report.base))} -> ${markdownCodeSpan(terminalSafe(report.head))}  `,
-    `**Policy:** ${markdownCodeSpan(terminalSafe(report.policy.sha256))}  `,
-    `**Receipt:** ${markdownCodeSpan(terminalSafe(report.receiptHash))}  `,
-    `**Signature:** ${signature}`,
+    "Open the retained receipt for the reason, evidence, and exact reproduce command.",
     ...(url ? ["", `[Verify this receipt](${url.replace(/[()]/g, (character) => `\\${character}`)})`] : []),
+    "",
+    "<details><summary>Receipt details</summary>",
+    "",
+    ...detailFacts,
+    `Change: ${markdownCodeSpan(terminalSafe(report.base))} -> ${markdownCodeSpan(terminalSafe(report.head))}  `,
+    `Policy: ${markdownCodeSpan(terminalSafe(report.policy.sha256))}  `,
+    `Receipt: ${markdownCodeSpan(terminalSafe(report.receiptHash))}  `,
+    `Signature: ${signature}`,
+    "",
+    "</details>",
     "",
     "The retained receipt contains the check details. This result does not prove that the code is bug-free or that unobserved actions did not occur.",
     "",

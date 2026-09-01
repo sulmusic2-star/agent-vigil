@@ -84,8 +84,8 @@ test("PASS, FAIL, and INCONCLUSIVE use the same result structure", () => {
   for (const view of views) {
     assert.deepEqual(Object.keys(view), topKeys);
     assert.deepEqual(Object.keys(view.counts), countKeys);
-    assert.match(renderResultText(view), /^Agent Vigil: (PASS|FAIL|INCONCLUSIVE)\n/);
-    assert.match(renderResultMarkdown(view), /^### Agent Vigil: (PASS|FAIL|INCONCLUSIVE)\n/);
+    assert.match(renderResultText(view), /^Agent Vigil: (PASS|FAIL|NOT CHECKED)\n/);
+    assert.match(renderResultMarkdown(view), /^### Agent Vigil: (PASS|FAIL|NOT CHECKED)\n/);
   }
 });
 
@@ -118,11 +118,11 @@ test("result text and web snapshot keep the decision, counts, SHAs, and changed 
   assert.equal(text.split("\n").slice(0, 7).join("\n"), [
     "Agent Vigil: FAIL",
     "Do not merge yet.",
-    "The isolated run found fewer passing tests than the agent reported.",
-    "Failed 1 · Passed 5 · Not checked 1",
-    "",
-    "Checks that need attention",
-    "  FAILED [test-count] Reported test count does not match the isolated run",
+    "Reason: The isolated run found fewer passing tests than the agent reported.",
+    "File: test/verification.test.ts:88",
+    "Tests: claimed 184; observed 161",
+    "Fix: Run the configured test command again and report the observed passing count exactly.",
+    "Reproduce: npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz receipt-view ./agent-vigil-receipt.json --format html --output ./agent-vigil-result.html",
   ].join("\n"));
   const generated = renderResultViewHtml(demoResultView);
   const snapshot = readFileSync("docs/assets/outcome-verifier-demo.html", "utf8").replace(/\r\n/g, "\n");
