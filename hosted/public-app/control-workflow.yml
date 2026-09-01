@@ -28,6 +28,7 @@ jobs:
       base-ref: ${{ steps.bind.outputs.base_ref }}
       head-ref: ${{ steps.bind.outputs.head_ref }}
       check-run-id: ${{ steps.bind.outputs.check_run_id }}
+      delivery-id: ${{ steps.bind.outputs.delivery_id }}
     steps:
       - id: bind
         name: Verify App actor, HMAC, repository, commits, and check
@@ -82,7 +83,7 @@ jobs:
           }
           const [owner, name] = value.repository.split("/");
           appendFileSync(e.GITHUB_OUTPUT, [
-            `repository=${value.repository}`, `owner=${owner}`, `name=${name}`,
+            `delivery_id=${value.deliveryId}`, `repository=${value.repository}`, `owner=${owner}`, `name=${name}`,
             `installation_id=${value.installationId}`, `event=${value.event}`,
             `number=${value.number}`, `base_sha=${value.baseSha}`, `head_sha=${value.headSha}`,
             `base_ref=${value.baseRef}`, `head_ref=${value.headRef}`, `check_run_id=${value.checkRunId}`, "",
@@ -98,6 +99,38 @@ jobs:
       vigil-status: ${{ steps.vigil.outputs.status }}
       receipt-hash: ${{ steps.vigil.outputs['receipt-hash'] }}
     steps:
+      - id: change-event
+        name: Materialize the authenticated exact-change envelope outside the checkout
+        env:
+          EVENT_KIND: ${{ needs.authenticate.outputs.event }}
+          TARGET_REPOSITORY: ${{ needs.authenticate.outputs.repository }}
+          DELIVERY_ID: ${{ needs.authenticate.outputs.delivery-id }}
+          BASE_SHA: ${{ needs.authenticate.outputs.base-sha }}
+          HEAD_SHA: ${{ needs.authenticate.outputs.head-sha }}
+          BASE_REF: ${{ needs.authenticate.outputs.base-ref }}
+          HEAD_REF: ${{ needs.authenticate.outputs.head-ref }}
+          PR_NUMBER: ${{ needs.authenticate.outputs.number }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const e = process.env;
+          const root = realpathSync(e.RUNNER_TEMP);
+          const stat = lstatSync(root);
+          if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("runner temporary directory is not a real directory");
+          const path = join(root, `agent-vigil-public-app-${e.DELIVERY_ID}.json`);
+          const baseRef = e.BASE_REF.startsWith("refs/") ? e.BASE_REF : `refs/heads/${e.BASE_REF}`;
+          const headRef = e.HEAD_REF || `refs/pull/${e.PR_NUMBER}/head`;
+          const event = {
+            action: "checks_requested",
+            source_event: e.EVENT_KIND,
+            repository: { full_name: e.TARGET_REPOSITORY },
+            merge_group: { base_sha: e.BASE_SHA, head_sha: e.HEAD_SHA, base_ref: baseRef, head_ref: headRef },
+          };
+          writeFileSync(path, `${JSON.stringify(event)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+          appendFileSync(e.GITHUB_OUTPUT, `path=${path}\n`);
+          NODE
       - id: checkout-token
         name: Mint a short-lived checkout token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -108,13 +141,11 @@ jobs:
           repositories: ${{ needs.authenticate.outputs.name }}
           permission-contents: read
           permission-pull-requests: read
-      - name: Check out trusted Agent Vigil runtime selected by this workflow
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Select the exact trusted host Node.js runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          repository: sulmusic2-star/agent-vigil
-          ref: ${{ github.sha }}
-          path: control
-          persist-credentials: false
+          node-version: 22.23.2
+          package-manager-cache: false
       - name: Check out exact customer head without persisted credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -122,28 +153,28 @@ jobs:
           token: ${{ steps.checkout-token.outputs.token }}
           ref: ${{ needs.authenticate.outputs.head-sha }}
           fetch-depth: 0
-          path: candidate
           persist-credentials: false
           allow-unsafe-pr-checkout: true
       - name: Remove checkout authentication material before candidate execution
         run: |
           set -euo pipefail
-          if git -C candidate config --local --get-all http.https://github.com/.extraheader >/dev/null 2>&1; then
-            git -C candidate config --local --unset-all http.https://github.com/.extraheader
+          if git config --local --get-all http.https://github.com/.extraheader >/dev/null 2>&1; then
+            git config --local --unset-all http.https://github.com/.extraheader
           fi
-          if git -C candidate config --local --get-all credential.helper >/dev/null 2>&1; then
-            git -C candidate config --local --unset-all credential.helper
+          if git config --local --get-all credential.helper >/dev/null 2>&1; then
+            git config --local --unset-all credential.helper
           fi
-          if git -C candidate config --local --get-regexp 'extraheader|credential' >/dev/null 2>&1; then
+          if git config --local --get-regexp 'extraheader|credential' >/dev/null 2>&1; then
             echo "checkout credentials remain after cleanup" >&2
             exit 1
           fi
       - id: vigil
         name: Run the independent exact-commit gate
-        uses: ./control
+        uses: sulmusic2-star/agent-vigil@b8d40d6b762b6aca7e390f579a4b06f8c0850be6 # reviewed workflow-dispatch runtime bytes
         with:
-          mode: maintainer
-          repo: candidate
+          mode: merge-group
+          merge-group-event: ${{ steps.change-event.outputs.path }}
+          repo: .
           base: ${{ needs.authenticate.outputs.base-sha }}
           head: ${{ needs.authenticate.outputs.head-sha }}
           policy: .agent-vigil.json

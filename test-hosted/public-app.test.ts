@@ -253,7 +253,11 @@ test("public App manifest and control workflow keep customer setup to one App in
   assert.match(workflow, /agent-vigil-public-app-v1/);
   assert.match(workflow, /JSON\.parse\(Buffer\.from\(envelope, "base64url"\)/);
   assert.match(workflow, /Object\.keys\(value\)\.sort\(\)/);
-  assert.match(workflow, /uses: \.\/control/);
+  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@[0-9a-f]{40}/);
+  assert.match(workflow, /mode: merge-group/);
+  assert.match(workflow, /merge-group-event: \$\{\{ steps\.change-event\.outputs\.path \}\}/);
+  assert.match(workflow, /Materialize the authenticated exact-change envelope outside the checkout/);
+  assert.doesNotMatch(workflow, /path: candidate|uses: \.\/control/);
   assert.match(workflow, /candidate-setup-cmd: npm ci --ignore-scripts/);
   assert.match(workflow, /PASS.*FAIL.*NOT CHECKED/s);
   assert.doesNotMatch(workflow, /REPLACE_WITH_OWNER|customer.*private.key/i);
