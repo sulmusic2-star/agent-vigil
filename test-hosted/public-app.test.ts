@@ -236,13 +236,29 @@ test("a control dispatch failure completes the queued check as blocking NOT CHEC
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("public App manifest requests only the customer permissions its webhooks and checks need", () => {
+test("public App manifest and control workflow keep customer setup to one App installation", () => {
   const manifest = JSON.parse(readFileSync("hosted/public-app/github-app-manifest.example.json", "utf8"));
   assert.equal(manifest.public, true);
   assert.deepEqual(manifest.default_events.sort(), ["merge_group", "pull_request"]);
   assert.equal(manifest.default_permissions.checks, "write");
   assert.equal(manifest.default_permissions.merge_queues, "read");
-  assert.equal(manifest.default_permissions.contents, "read");
-  assert.equal(manifest.default_permissions.pull_requests, "read");
   assert.equal(manifest.default_permissions.actions, undefined);
+  assert.equal(manifest.default_permissions.contents, "read");
+
+  const workflow = readFileSync("hosted/public-app/control-workflow.yml", "utf8");
+  assert.match(workflow, /^\s{2}workflow_dispatch:/m);
+  const inputBlock = workflow.match(/^\s{4}inputs:\n([\s\S]*?)^\s{0,2}permissions:/m)?.[1] ?? "";
+  assert.deepEqual([...inputBlock.matchAll(/^\s{6}([A-Za-z][A-Za-z0-9]*):/gm)].map((match) => match[1]), ["envelope", "dispatchSignature"]);
+  assert.doesNotMatch(workflow, /^\s{2}(?:pull_request|merge_group):/m);
+  assert.match(workflow, /agent-vigil-public-app-v1/);
+  assert.match(workflow, /JSON\.parse\(Buffer\.from\(envelope, "base64url"\)/);
+  assert.match(workflow, /Object\.keys\(value\)\.sort\(\)/);
+  assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@[0-9a-f]{40}/);
+  assert.match(workflow, /mode: merge-group/);
+  assert.match(workflow, /merge-group-event: \$\{\{ steps\.change-event\.outputs\.path \}\}/);
+  assert.match(workflow, /Materialize the authenticated exact-change envelope outside the checkout/);
+  assert.doesNotMatch(workflow, /path: candidate|uses: \.\/control/);
+  assert.match(workflow, /candidate-setup-cmd: npm ci --ignore-scripts/);
+  assert.match(workflow, /PASS.*FAIL.*NOT CHECKED/s);
+  assert.doesNotMatch(workflow, /REPLACE_WITH_OWNER|customer.*private.key/i);
 });

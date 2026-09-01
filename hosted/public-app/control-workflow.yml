@@ -1,0 +1,266 @@
+name: Agent Vigil public App gate
+
+on:
+  # The centrally operated App signs every input. This workflow is selected
+  # from Agent Vigil's default branch, never from the customer repository.
+  workflow_dispatch:
+    inputs:
+      envelope: { required: true, type: string }
+      dispatchSignature: { required: true, type: string }
+
+permissions:
+  contents: read
+
+jobs:
+  authenticate:
+    name: Authenticate App dispatch
+    runs-on: ubuntu-24.04
+    environment: agent-vigil-public-app
+    outputs:
+      repository: ${{ steps.bind.outputs.repository }}
+      owner: ${{ steps.bind.outputs.owner }}
+      name: ${{ steps.bind.outputs.name }}
+      installation-id: ${{ steps.bind.outputs.installation_id }}
+      event: ${{ steps.bind.outputs.event }}
+      number: ${{ steps.bind.outputs.number }}
+      base-sha: ${{ steps.bind.outputs.base_sha }}
+      head-sha: ${{ steps.bind.outputs.head_sha }}
+      base-ref: ${{ steps.bind.outputs.base_ref }}
+      head-ref: ${{ steps.bind.outputs.head_ref }}
+      check-run-id: ${{ steps.bind.outputs.check_run_id }}
+      delivery-id: ${{ steps.bind.outputs.delivery_id }}
+    steps:
+      - id: bind
+        name: Verify App actor, HMAC, repository, commits, and check
+        env:
+          DISPATCH_SECRET: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_DISPATCH_SECRET }}
+          ACTOR: ${{ github.actor }}
+          EXPECTED_ACTOR: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ACTOR }}
+          DISPATCH_ENVELOPE: ${{ inputs.envelope }}
+          DISPATCH_SIGNATURE: ${{ inputs.dispatchSignature }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHmac, timingSafeEqual } from "node:crypto";
+          import { appendFileSync } from "node:fs";
+
+          const e = process.env;
+          const envelope = e.DISPATCH_ENVELOPE ?? "";
+          const sha = /^[0-9a-f]{40}$/;
+          const repository = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+          const positive = /^[1-9][0-9]*$/;
+          const delivery = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          const signature = /^sha256=[0-9a-f]{64}$/;
+          function validBranchName(input, maxLength = 255) {
+            if (!input || input.length > maxLength || input === "@" || input.startsWith("/") || input.endsWith("/") || input.endsWith(".")) return false;
+            if (/[\u0000-\u0020\u007f~^:?*\[\\]/.test(input) || input.includes("..") || input.includes("@{") || input.includes("//")) return false;
+            return input.split("/").every((part) => part && !part.startsWith(".") && !part.endsWith(".lock"));
+          }
+          if (!e.DISPATCH_SECRET || e.DISPATCH_SECRET.length < 32) throw new Error("dispatch secret is missing or too short");
+          if (!e.EXPECTED_ACTOR || e.ACTOR !== e.EXPECTED_ACTOR) throw new Error("dispatch actor is not the Agent Vigil App");
+          if (!/^[A-Za-z0-9_-]+$/.test(envelope) || envelope.length > 8192) throw new Error("dispatch envelope is invalid");
+          if (!signature.test(e.DISPATCH_SIGNATURE ?? "")) throw new Error("dispatch signature is invalid");
+          const expected = `sha256=${createHmac("sha256", e.DISPATCH_SECRET).update(envelope).digest("hex")}`;
+          const left = Buffer.from(expected);
+          const right = Buffer.from(e.DISPATCH_SIGNATURE);
+          if (left.length !== right.length || !timingSafeEqual(left, right)) throw new Error("dispatch signature does not match the exact change identity");
+          let value;
+          try { value = JSON.parse(Buffer.from(envelope, "base64url").toString("utf8")); }
+          catch { throw new Error("dispatch envelope is not valid JSON"); }
+          const keys = ["schema", "deliveryId", "event", "repository", "installationId", "number", "baseSha", "headSha", "baseRef", "headRef", "checkRunId"];
+          if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\n") !== [...keys].sort().join("\n")) throw new Error("dispatch envelope fields are invalid");
+          if (!keys.every((key) => typeof value[key] === "string")) throw new Error("dispatch envelope values must be strings");
+          if (value.schema !== "agent-vigil-public-app-v1") throw new Error("dispatch schema is unsupported");
+          if (!delivery.test(value.deliveryId) || !repository.test(value.repository)) throw new Error("delivery or repository identity is invalid");
+          if (!positive.test(value.installationId) || !positive.test(value.checkRunId)) throw new Error("installation or check identity is invalid");
+          if (!sha.test(value.baseSha) || !sha.test(value.headSha) || value.baseSha === value.headSha) throw new Error("commit identity is invalid");
+          if (value.event !== "pull_request" && value.event !== "merge_group") throw new Error("event kind is invalid");
+          if (value.event === "pull_request" && (!positive.test(value.number) || value.headRef !== "" || !validBranchName(value.baseRef))) throw new Error("pull request identity is invalid");
+          if (value.event === "merge_group") {
+            const baseBranch = value.baseRef.startsWith("refs/heads/") ? value.baseRef.slice("refs/heads/".length) : "";
+            const headBranch = value.headRef.startsWith("refs/heads/") ? value.headRef.slice("refs/heads/".length) : "";
+            if (value.number !== "" || !validBranchName(baseBranch) || !headBranch.startsWith(`gh-readonly-queue/${baseBranch}/`) || !validBranchName(headBranch, 1024)) throw new Error("merge-group identity is invalid");
+          }
+          const [owner, name] = value.repository.split("/");
+          appendFileSync(e.GITHUB_OUTPUT, [
+            `delivery_id=${value.deliveryId}`, `repository=${value.repository}`, `owner=${owner}`, `name=${name}`,
+            `installation_id=${value.installationId}`, `event=${value.event}`,
+            `number=${value.number}`, `base_sha=${value.baseSha}`, `head_sha=${value.headSha}`,
+            `base_ref=${value.baseRef}`, `head_ref=${value.headRef}`, `check_run_id=${value.checkRunId}`, "",
+          ].join("\n"));
+          NODE
+
+  evidence:
+    name: Verify exact customer commit without App credentials
+    needs: authenticate
+    runs-on: ubuntu-24.04
+    environment: agent-vigil-public-app
+    outputs:
+      vigil-status: ${{ steps.vigil.outputs.status }}
+      receipt-hash: ${{ steps.vigil.outputs['receipt-hash'] }}
+    steps:
+      - id: change-event
+        name: Materialize the authenticated exact-change envelope outside the checkout
+        env:
+          EVENT_KIND: ${{ needs.authenticate.outputs.event }}
+          TARGET_REPOSITORY: ${{ needs.authenticate.outputs.repository }}
+          DELIVERY_ID: ${{ needs.authenticate.outputs.delivery-id }}
+          BASE_SHA: ${{ needs.authenticate.outputs.base-sha }}
+          HEAD_SHA: ${{ needs.authenticate.outputs.head-sha }}
+          BASE_REF: ${{ needs.authenticate.outputs.base-ref }}
+          HEAD_REF: ${{ needs.authenticate.outputs.head-ref }}
+          PR_NUMBER: ${{ needs.authenticate.outputs.number }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const e = process.env;
+          const root = realpathSync(e.RUNNER_TEMP);
+          const stat = lstatSync(root);
+          if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("runner temporary directory is not a real directory");
+          const path = join(root, `agent-vigil-public-app-${e.DELIVERY_ID}.json`);
+          const baseRef = e.BASE_REF.startsWith("refs/") ? e.BASE_REF : `refs/heads/${e.BASE_REF}`;
+          const headRef = e.HEAD_REF || `refs/pull/${e.PR_NUMBER}/head`;
+          const event = {
+            action: "checks_requested",
+            source_event: e.EVENT_KIND,
+            repository: { full_name: e.TARGET_REPOSITORY },
+            merge_group: { base_sha: e.BASE_SHA, head_sha: e.HEAD_SHA, base_ref: baseRef, head_ref: headRef },
+          };
+          writeFileSync(path, `${JSON.stringify(event)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+          appendFileSync(e.GITHUB_OUTPUT, `path=${path}\n`);
+          NODE
+      - id: checkout-token
+        name: Mint a short-lived checkout token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ID }}
+          private-key: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_PRIVATE_KEY }}
+          owner: ${{ needs.authenticate.outputs.owner }}
+          repositories: ${{ needs.authenticate.outputs.name }}
+          permission-contents: read
+          permission-pull-requests: read
+      - name: Select the exact trusted host Node.js runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.2
+          package-manager-cache: false
+      - name: Check out exact customer head without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.authenticate.outputs.repository }}
+          token: ${{ steps.checkout-token.outputs.token }}
+          ref: ${{ needs.authenticate.outputs.head-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - name: Remove checkout authentication material before candidate execution
+        run: |
+          set -euo pipefail
+          if git config --local --get-all http.https://github.com/.extraheader >/dev/null 2>&1; then
+            git config --local --unset-all http.https://github.com/.extraheader
+          fi
+          if git config --local --get-all credential.helper >/dev/null 2>&1; then
+            git config --local --unset-all credential.helper
+          fi
+          if git config --local --get-regexp 'extraheader|credential' >/dev/null 2>&1; then
+            echo "checkout credentials remain after cleanup" >&2
+            exit 1
+          fi
+      - id: vigil
+        name: Run the independent exact-commit gate
+        uses: sulmusic2-star/agent-vigil@b8d40d6b762b6aca7e390f579a4b06f8c0850be6 # reviewed workflow-dispatch runtime bytes
+        with:
+          mode: merge-group
+          merge-group-event: ${{ steps.change-event.outputs.path }}
+          repo: .
+          base: ${{ needs.authenticate.outputs.base-sha }}
+          head: ${{ needs.authenticate.outputs.head-sha }}
+          policy: .agent-vigil.json
+          policy-ref: ${{ needs.authenticate.outputs.base-sha }}
+          isolate-candidate: true
+          candidate-setup-cmd: npm ci --ignore-scripts
+      - name: Retain the customer receipt in the central control repository
+        if: always() && steps.vigil.outputs.report != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-vigil-${{ needs.authenticate.outputs.owner }}-${{ needs.authenticate.outputs.name }}-${{ needs.authenticate.outputs.head-sha }}
+          path: |
+            ${{ steps.vigil.outputs.report }}
+            ${{ steps.vigil.outputs.sarif }}
+            ${{ steps.vigil.outputs.value-card }}
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish App-owned decision
+    needs: [authenticate, evidence]
+    if: always() && needs.authenticate.result == 'success'
+    runs-on: ubuntu-24.04
+    environment: agent-vigil-public-app
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ID }}
+          private-key: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_PRIVATE_KEY }}
+          owner: ${{ needs.authenticate.outputs.owner }}
+          repositories: ${{ needs.authenticate.outputs.name }}
+          permission-checks: write
+          permission-contents: read
+          permission-pull-requests: read
+      - name: Recheck live identity and complete the queued check
+        env:
+          APP_TOKEN: ${{ steps.token.outputs.token }}
+          TARGET_REPOSITORY: ${{ needs.authenticate.outputs.repository }}
+          EVENT_KIND: ${{ needs.authenticate.outputs.event }}
+          PR_NUMBER: ${{ needs.authenticate.outputs.number }}
+          BASE_SHA: ${{ needs.authenticate.outputs.base-sha }}
+          HEAD_SHA: ${{ needs.authenticate.outputs.head-sha }}
+          BASE_REF: ${{ needs.authenticate.outputs.base-ref }}
+          HEAD_REF: ${{ needs.authenticate.outputs.head-ref }}
+          CHECK_RUN_ID: ${{ needs.authenticate.outputs.check-run-id }}
+          EVIDENCE_RESULT: ${{ needs.evidence.result }}
+          VIGIL_STATUS: ${{ needs.evidence.outputs.vigil-status }}
+          RECEIPT_HASH: ${{ needs.evidence.outputs.receipt-hash }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const e = process.env;
+          async function request(path, options = {}) {
+            const response = await fetch(`${e.GITHUB_API_URL}${path}`, {
+              ...options,
+              headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${e.APP_TOKEN}`, "X-GitHub-Api-Version": "2026-03-10", ...options.headers },
+            });
+            const body = await response.text();
+            if (!response.ok) throw new Error(`GitHub API ${response.status}: ${body.slice(0, 256)}`);
+            return body ? JSON.parse(body) : undefined;
+          }
+          let current = false;
+          if (e.EVENT_KIND === "pull_request") {
+            const pull = await request(`/repos/${e.TARGET_REPOSITORY}/pulls/${e.PR_NUMBER}`);
+            current = pull?.state === "open" && pull?.base?.sha === e.BASE_SHA && pull?.head?.sha === e.HEAD_SHA;
+          } else {
+            try {
+              const ref = e.HEAD_REF.replace(/^refs\//, "");
+              const value = await request(`/repos/${e.TARGET_REPOSITORY}/git/ref/${ref}`);
+              current = value?.object?.type === "commit" && value?.object?.sha === e.HEAD_SHA;
+            } catch { current = false; }
+          }
+          const receiptValid = /^sha256:[0-9a-f]{64}$/.test(e.RECEIPT_HASH ?? "");
+          const status = current && e.EVIDENCE_RESULT === "success" && e.VIGIL_STATUS === "PASS" && receiptValid
+            ? "PASS"
+            : e.VIGIL_STATUS === "FAIL" ? "FAIL" : "NOT CHECKED";
+          const conclusion = status === "PASS" ? "success" : "failure";
+          const summary = status === "PASS"
+            ? "Independent verification passed for the exact current commit."
+            : status === "FAIL" ? "Independent verification found a blocking contradiction."
+            : "No merge decision was possible because required evidence or a current commit identity was missing.";
+          await request(`/repos/${e.TARGET_REPOSITORY}/check-runs/${e.CHECK_RUN_ID}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ status: "completed", conclusion, details_url: `${e.GITHUB_SERVER_URL}/${e.GITHUB_REPOSITORY}/actions/runs/${e.GITHUB_RUN_ID}`, output: { title: status, summary } }),
+          });
+          if (status !== "PASS") process.exitCode = 1;
+          NODE
