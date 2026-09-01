@@ -21,7 +21,7 @@ merge?**
 The normal install is one command:
 
 ```bash
-npx @sulmusic/agent-vigil protect
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo .
 ```
 
 The command finds the repository's test setup, runs a disposable red/green
@@ -90,7 +90,7 @@ The generated Node/npm path is automatic. Python, Rust, Go, Java, Ruby, PHP,
 test command:
 
 ```bash
-npx @sulmusic/agent-vigil protect \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
