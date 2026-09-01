@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash28 } from "node:crypto";
+import { createHash as createHash29 } from "node:crypto";
 import { existsSync as existsSync12, readFileSync as readFileSync16, realpathSync as realpathSync19, statSync as statSync5 } from "node:fs";
 import { dirname as dirname12, isAbsolute as isAbsolute15, join as join19, relative as relative16, resolve as resolve32 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -990,11 +990,11 @@ function sourceStatusPaths(source2) {
   const records = trustedGit(source2, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).split("\0");
   const paths = [];
   for (let index = 0; index < records.length; index += 1) {
-    const record7 = records[index];
-    if (!record7) continue;
-    if (record7.length < 4 || record7[2] !== " ") throw new Error("candidate source status could not be parsed safely");
-    paths.push(record7.slice(3));
-    if (record7[0] === "R" || record7[0] === "C" || record7[1] === "R" || record7[1] === "C") {
+    const record8 = records[index];
+    if (!record8) continue;
+    if (record8.length < 4 || record8[2] !== " ") throw new Error("candidate source status could not be parsed safely");
+    paths.push(record8.slice(3));
+    if (record8[0] === "R" || record8[0] === "C" || record8[1] === "R" || record8[1] === "C") {
       const original = records[index + 1];
       if (!original) throw new Error("candidate source rename status could not be parsed safely");
       paths.push(original);
@@ -1561,7 +1561,7 @@ function suppressionReceiptFinding(patch) {
   for (let index = 0; index < patch.added.length; index++) {
     const line = patch.added[index];
     if (isDetectorPatternLine(line)) continue;
-    if (/\bas\s+any\b|\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) {
+    if (/\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) {
       return finding(
         "compiler, linter, or type suppression added",
         `${patch.path}, changed line ${index + 1}: a new diagnostic suppression requires review`,
@@ -1874,11 +1874,11 @@ function parsePorcelainV1Z(raw) {
   const records = raw.split("\0");
   const paths = [];
   for (let index = 0; index < records.length; index += 1) {
-    const record7 = records[index];
-    if (!record7) continue;
-    if (record7.length < 4 || record7[2] !== " ") throw new Error("Git worktree status could not be parsed safely");
-    paths.push({ path: record7.slice(3), untracked: record7.startsWith("?? ") });
-    if (record7[0] === "R" || record7[0] === "C" || record7[1] === "R" || record7[1] === "C") {
+    const record8 = records[index];
+    if (!record8) continue;
+    if (record8.length < 4 || record8[2] !== " ") throw new Error("Git worktree status could not be parsed safely");
+    paths.push({ path: record8.slice(3), untracked: record8.startsWith("?? ") });
+    if (record8[0] === "R" || record8[0] === "C" || record8[1] === "R" || record8[1] === "C") {
       const original = records[index + 1];
       if (!original) throw new Error("Git worktree rename status could not be parsed safely");
       paths.push({ path: original, untracked: false });
@@ -2267,9 +2267,9 @@ function harnessTreeEntries(repo, ref) {
   const raw = trustedGitOptional(repo, ["ls-tree", "-r", "-z", "--full-tree", ref], INTEGRITY_DIFF_MAX_BUFFER);
   if (raw === void 0) return void 0;
   const entries = /* @__PURE__ */ new Map();
-  for (const record7 of raw.split("\0")) {
-    if (!record7) continue;
-    const match = record7.match(/^([0-7]{6}) (blob|commit) ([0-9a-f]{40,64})\t([\s\S]+)$/);
+  for (const record8 of raw.split("\0")) {
+    if (!record8) continue;
+    const match = record8.match(/^([0-7]{6}) (blob|commit) ([0-9a-f]{40,64})\t([\s\S]+)$/);
     if (!match) return void 0;
     if (isHostedTestHarnessPath(match[4])) entries.set(match[4], { mode: match[1], type: match[2], oid: match[3] });
   }
@@ -3073,6 +3073,17 @@ function checkIntegrityPatches(patches) {
       if (/\b(?:it|test)\s*\([^,]+,\s*(?:async\s*)?\(?(?:[^)=]*)\)?\s*=>\s*\{\s*\}\s*\)/s.test(added) || /\b(?:it|test)\s*\([^,]+,\s*function\s*\([^)]*\)\s*\{\s*\}\s*\)/s.test(added) || /\bdef\s+test_[A-Za-z0-9_]+\s*\([^)]*\)\s*:\s*pass\b/s.test(added) || /#\[test\]\s*(?:pub\s+)?fn\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added) || /\bfunc\s+Test[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added) || /@Test\b[\s\S]*?\bvoid\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added) || /\[(?:TestMethod|Test|Fact|Theory)\b[^\]]*\][\s\S]*?\bvoid\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added)) {
         results.push(finding2("empty test introduced", `${patch.path} adds a test body with no observable assertion or behavior`, "test-empty-added"));
       }
+      const retainedTestText = [...patch.added, ...patch.context].join("\n");
+      const removedPatchAssertions = patch.removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+      const addedPatchAssertions = patch.added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+      const retainedEmptyJavaScriptTest = /\b(?:it|test)\s*\([^,]+,\s*(?:async\s*)?\(?(?:[^)=]*)\)?\s*=>\s*\{\s*\}\s*\)/s.test(retainedTestText) || /\b(?:it|test)\s*\([^,]+,\s*function\s*\([^)]*\)\s*\{\s*\}\s*\)/s.test(retainedTestText);
+      if (removedPatchAssertions > 0 && addedPatchAssertions === 0 && retainedEmptyJavaScriptTest && !results.some((result5) => result5.ruleId === "assertion-drop")) {
+        results.push(finding2(
+          "assertion surface shrank",
+          `${patch.path} removes ${removedPatchAssertions} assertion-like line(s) and leaves an empty test body`,
+          "assertion-drop"
+        ));
+      }
       if (/\bexpect\s*\(\s*(true|false|null|undefined|["'][^"']*["']|\d+)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual)\s*\(\s*\1\s*\)/s.test(added) || /\bassert(?:\.ok)?\s*\(\s*true\s*\)/.test(added) || /\bassert\.(?:equal|strictEqual)\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\)/.test(added) || /\bassert\s+True\b/.test(added) || /\b(?:assertTrue|Assert\.True)\s*\(\s*true\s*\)/.test(added) || /\bassertEqual\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\bassert_eq!\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\b(?:assertEquals|Assert\.Equal)\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added)) {
         results.push(finding2("constant or self-equal test oracle introduced", `${patch.path} adds an assertion that is true without exercising the candidate behavior`, "test-oracle-constant"));
       }
@@ -3089,11 +3100,6 @@ function checkIntegrityPatches(patches) {
       }
       if (/\b(?:jest|vi)\.fn\s*\(\s*\)\s*\.mock(?:ReturnValue|Implementation)/.test(added)) {
         results.push(finding2("test replaces the subject with a self-fulfilling mock", `${patch.path} adds a value-producing local mock in the assertion path`, "subject-mocked"));
-      }
-      const removedHunkAssertions = patch.removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
-      const addedHunkAssertions = patch.added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
-      if (removedHunkAssertions > addedHunkAssertions && !results.some((result5) => result5.ruleId === "assertion-drop")) {
-        results.push(finding2("assertion surface shrank", `${patch.path} hunk removes ${removedHunkAssertions} assertion-like line(s) and adds ${addedHunkAssertions}`, "assertion-drop"));
       }
     }
     const removedCode = patch.removed.map(normalizedCodeLine).filter(Boolean);
@@ -3655,8 +3661,8 @@ function object(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value;
 }
-function exactKeys2(record7, expected, label) {
-  const actual = Object.keys(record7).sort();
+function exactKeys2(record8, expected, label) {
+  const actual = Object.keys(record8).sort();
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new Error(`${label} has unsupported or missing fields`);
@@ -4518,7 +4524,7 @@ function outcomeState(verdict) {
 function consequence(verdict) {
   if (verdict === "PASS") return "Ready to merge.";
   if (verdict === "FAIL") return "Do not merge yet.";
-  return "A required check did not run.";
+  return "No merge decision: a required check did not run.";
 }
 function safe(value) {
   return terminalSafe(value);
@@ -4626,18 +4632,19 @@ function changedFileManifest(trustedRepo, base, head) {
   };
 }
 function mainCause(findings, verdict, head) {
-  const failed = findings.find((finding3) => finding3.state === "FAILED");
-  if (failed) return failed.title;
-  const missing = findings.find((finding3) => finding3.state === "NOT_CHECKED");
-  if (missing) return missing.title;
+  const primary = primaryResultFinding(findings);
+  if (primary) return primary.title;
   return `All required checks passed at ${safe(head.slice(0, 12))}.`;
+}
+function primaryResultFinding(findings) {
+  return findings.find((finding3) => finding3.state === "FAILED") ?? findings.find((finding3) => finding3.state === "NOT_CHECKED");
 }
 function buildReportResultView(value, options = {}) {
   const report = validateReportForResult(value);
   const verdict = deriveReportVerdict(report);
   const findings = report.results.map((result5) => findingFor(result5));
   if (verdict === "INCONCLUSIVE" && report.summary.meaningfulVerified < report.policy.minVerified) {
-    findings.push({
+    findings.unshift({
       id: "completion-evidence",
       state: "NOT_CHECKED",
       title: "Required verification evidence is missing",
@@ -4710,20 +4717,24 @@ function findingHtml(finding3) {
   const counts = finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0 ? `<dl class="test-counts"><div><dt>Claimed</dt><dd>${finding3.claimedTestCount ?? "Not stated"}</dd></div><div><dt>Observed</dt><dd>${finding3.observedTestCount ?? "Not found"}</dd></div></dl>` : "";
   return `<article class="finding finding-${finding3.state.toLowerCase().replace("_", "-")}"><p class="eyebrow">${finding3.state.replace("_", " ")}</p><h3>${html(finding3.title)}</h3>${location}<p>${html(finding3.evidence)}</p>${counts}<p class="fix"><strong>Fix</strong> ${html(finding3.remediation)}</p></article>`;
 }
+function displayResultVerdict(verdict) {
+  return verdict === "INCONCLUSIVE" ? "NOT CHECKED" : verdict;
+}
 function renderResultViewHtml(view) {
-  const open = view.findings.filter((finding3) => finding3.state !== "PASSED");
+  const primary = primaryResultFinding(view.findings);
   const advisories = view.advisories.map(findingHtml).join("");
   const changed = view.changedFiles.files.map((file) => `<li><span>${html(file.status)}</span><code>${file.previousPath ? `${html(file.previousPath)} \u2192 ` : ""}${html(file.path)}</code></li>`).join("");
+  const display = displayResultVerdict(view.verdict);
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Vigil ${view.verdict}</title>
-<style>/* Hallmark \xB7 pre-emit critique: P5 H5 E4 S5 R5 V4 \xB7 macrostructure: decision brief \xB7 theme: quiet */:root{color-scheme:light;--ink:#111827;--muted:#5b6472;--line:#d8dee8;--paper:#fff;--wash:#f4f6f8;--fail:#b42318;--pass:#137333;--hold:#8a4b00;--font-body:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-code:ui-monospace,SFMono-Regular,Menlo,monospace}*{box-sizing:border-box}html,body{overflow-x:clip}html{background:var(--wash)}body{margin:0;color:var(--ink);font-family:var(--font-body);line-height:1.5}main{width:min(880px,calc(100% - 32px));margin:40px auto 80px}.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:28px}.eyebrow{margin:0 0 8px;font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.status-fail{color:var(--fail)}.status-pass{color:var(--pass)}.status-inconclusive{color:var(--hold)}h1{min-width:0;margin:0;font-size:clamp(1.8rem,6vw,3.25rem);line-height:1.05;overflow-wrap:anywhere}h2{margin:34px 0 12px;font-size:1.15rem}h3{margin:4px 0 8px;font-size:1rem}p{margin:8px 0}.cause{font-size:1.08rem}.counts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:24px 0}.count{border:1px solid var(--line);border-radius:10px;padding:12px}.count strong{display:block;font-size:1.45rem}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.actions a,.actions button{min-height:44px;border:1px solid var(--ink);border-radius:8px;background:var(--paper);color:var(--ink);padding:10px 14px;font:inherit;font-weight:700;text-decoration:none;white-space:nowrap}.finding{border-top:1px solid var(--line);padding:18px 0}.finding-failed .eyebrow{color:var(--fail)}.finding-not-checked .eyebrow{color:var(--hold)}.location,code,.meta{overflow-wrap:anywhere}.location{color:var(--muted);font-family:var(--font-code)}.fix{background:var(--wash);border-radius:8px;padding:10px 12px}.test-counts{display:grid;grid-template-columns:repeat(2,minmax(0,180px));gap:8px}.test-counts div{border-left:3px solid var(--line);padding-left:10px}.test-counts dt{color:var(--muted);font-size:.8rem}.test-counts dd{margin:0;font-weight:800}.changed{padding:0;list-style:none}.changed li{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;border-top:1px solid var(--line);padding:10px 0}.changed span{color:var(--muted)}details{border-top:1px solid var(--line);padding:14px 0}summary{cursor:pointer;font-weight:800}.meta{color:var(--muted);font-size:.88rem}.reproduce{display:block;padding:12px;background:var(--ink);color:var(--paper);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:540px){main{width:min(100% - 20px,880px);margin:10px auto 40px}.card{padding:18px}.counts{grid-template-columns:1fr}.actions{display:grid}.actions a,.actions button{width:100%}.changed li{grid-template-columns:1fr;gap:2px}}</style></head>
-<body><main data-result-view-version="1"><section class="card" aria-labelledby="result-title"><p class="eyebrow status-${view.verdict.toLowerCase()}">Agent Vigil ${view.verdict}</p><h1 id="result-title">${html(view.consequence)}</h1><p class="cause">${html(view.mainCause)}</p>
-<div class="counts" aria-label="Check counts"><div class="count"><strong>${view.counts.failed}</strong>Failed</div><div class="count"><strong>${view.counts.passed}</strong>Passed</div><div class="count"><strong>${view.counts.notChecked}</strong>Not checked</div></div>
-<nav class="actions" aria-label="Result actions"><a href="#changed-files">Review changed files</a><button type="button" data-copy-reproduce>Copy reproduce command</button><a href="#evidence">Show evidence</a></nav>
-<section aria-labelledby="open-title"><h2 id="open-title">${open.length ? "Checks that need attention" : "Required checks passed"}</h2>${open.length ? open.map(findingHtml).join("") : "<p>No failed or missing required checks.</p>"}</section>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Vigil ${display}</title>
+<style>/* Hallmark \xB7 pre-emit critique: P5 H5 E4 S5 R5 V4 \xB7 macrostructure: decision brief \xB7 theme: quiet */:root{color-scheme:light;--ink:#111827;--muted:#5b6472;--line:#d8dee8;--paper:#fff;--wash:#f4f6f8;--fail:#b42318;--pass:#137333;--hold:#8a4b00;--font-body:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-code:ui-monospace,SFMono-Regular,Menlo,monospace}*{box-sizing:border-box}html,body{overflow-x:clip}html{background:var(--wash)}body{margin:0;color:var(--ink);font-family:var(--font-body);line-height:1.5}main{width:min(880px,calc(100% - 32px));margin:40px auto 80px}.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:28px}.eyebrow{margin:0 0 8px;font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.status-fail{color:var(--fail)}.status-pass{color:var(--pass)}.status-inconclusive{color:var(--hold)}h1{min-width:0;margin:0;font-size:clamp(1.8rem,6vw,3.25rem);line-height:1.05;overflow-wrap:anywhere}h2{margin:34px 0 12px;font-size:1.15rem}h3{margin:4px 0 8px;font-size:1rem}p{margin:8px 0}.cause{font-size:1.08rem}.counts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:24px 0}.count{border:1px solid var(--line);border-radius:10px;padding:12px}.count strong{display:block;font-size:1.45rem}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.actions a,.actions button,button[data-copy-reproduce]{min-height:44px;border:1px solid var(--ink);border-radius:8px;background:var(--paper);color:var(--ink);padding:10px 14px;font:inherit;font-weight:700;text-decoration:none;white-space:nowrap}.finding{border-top:1px solid var(--line);padding:18px 0}.finding-failed .eyebrow{color:var(--fail)}.finding-not-checked .eyebrow{color:var(--hold)}.location,code,.meta{overflow-wrap:anywhere}.location{color:var(--muted);font-family:var(--font-code)}.fix{background:var(--wash);border-radius:8px;padding:10px 12px}.test-counts{display:grid;grid-template-columns:repeat(2,minmax(0,180px));gap:8px}.test-counts div{border-left:3px solid var(--line);padding-left:10px}.test-counts dt{color:var(--muted);font-size:.8rem}.test-counts dd{margin:0;font-weight:800}.changed{padding:0;list-style:none}.changed li{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;border-top:1px solid var(--line);padding:10px 0}.changed span{color:var(--muted)}details{border-top:1px solid var(--line);padding:14px 0}summary{cursor:pointer;font-weight:800}.meta{color:var(--muted);font-size:.88rem}.reproduce{display:block;padding:12px;background:var(--ink);color:var(--paper);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:540px){main{width:min(100% - 20px,880px);margin:10px auto 40px}.card{padding:18px}.counts{grid-template-columns:1fr}.actions{display:grid}.actions a,.actions button{width:100%}.changed li{grid-template-columns:1fr;gap:2px}}</style></head>
+<body><main data-result-view-version="1"><section class="card" aria-labelledby="result-title"><p class="eyebrow status-${view.verdict.toLowerCase()}">Agent Vigil ${display}</p><h1 id="result-title">${html(view.consequence)}</h1><p class="cause">${html(view.mainCause)}</p>
+<nav class="actions" aria-label="Result actions"><a href="${primary ? "#open-title" : "#evidence"}">${primary ? "See what needs attention" : "View receipt"}</a></nav>
+<section aria-labelledby="open-title"><h2 id="open-title">${primary ? "What needs attention" : "Required checks passed"}</h2>${primary ? findingHtml(primary) : "<p>No failed or missing required checks.</p>"}</section>
+<details><summary>Receipt details</summary><div class="counts" aria-label="Check counts"><div class="count"><strong>${view.counts.failed}</strong>Failed</div><div class="count"><strong>${view.counts.passed}</strong>Passed</div><div class="count"><strong>${view.counts.notChecked}</strong>Not checked</div></div>
 ${advisories ? `<section aria-labelledby="advisory-title"><h2 id="advisory-title">Review notes</h2>${advisories}</section>` : ""}
 <section id="changed-files" aria-labelledby="changed-title"><h2 id="changed-title">Changed files</h2><p>${html(view.changedFiles.evidence)}</p><ul class="changed">${changed || "<li><span>none shown</span><code>No changed-file records are available.</code></li>"}</ul></section>
-<section id="evidence" aria-labelledby="evidence-title"><h2 id="evidence-title">Evidence</h2><details open><summary>Exact change and receipt</summary><p class="meta">Base ${html(view.base)}<br>Head ${html(view.head)}<br>Receipt ${html(view.receiptHash)}<br>Generated ${html(view.generatedAt)}</p></details><details><summary>Reproduce</summary><code class="reproduce">${html(view.reproduce)}</code></details></section></section></main>
+<section id="evidence" aria-labelledby="evidence-title"><h2 id="evidence-title">Exact change</h2><p class="meta">Base ${html(view.base)}<br>Head ${html(view.head)}<br>Receipt ${html(view.receiptHash)}<br>Generated ${html(view.generatedAt)}</p><button type="button" data-copy-reproduce>Copy reproduce command</button><code class="reproduce">${html(view.reproduce)}</code></section></details></section></main>
 <script>document.querySelector('[data-copy-reproduce]').addEventListener('click',async function(){await navigator.clipboard.writeText(${JSON.stringify(view.reproduce).replace(/</g, "\\u003c")});this.textContent='Copied';});</script></body></html>
 `;
 }
@@ -4963,52 +4974,32 @@ function markdownTableCell(input) {
 function markdownText(value) {
   return value.replace(/[\r\n]+/g, " ").replace(/\\/g, "\\\\").replace(/([*_\[\]<>])/g, "\\$1");
 }
-function openFindings(view) {
-  return view.findings.filter((finding3) => finding3.state !== "PASSED");
+function displayVerdict(view) {
+  return view.verdict === "INCONCLUSIVE" ? "NOT CHECKED" : view.verdict;
 }
 function countLine(view) {
   return `Failed ${view.counts.failed} \xB7 Passed ${view.counts.passed} \xB7 Not checked ${view.counts.notChecked}`;
 }
-function textFinding(finding3) {
-  const location = finding3.location ? `      location: ${finding3.location.file}${finding3.location.line ? `:${finding3.location.line}` : ""}` : void 0;
-  const testCounts = finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0 ? `      tests:    claimed ${finding3.claimedTestCount ?? "not stated"}; observed ${finding3.observedTestCount ?? "not found"}` : void 0;
-  return [
-    `  ${finding3.state.replace("_", " ")} [${finding3.id}] ${finding3.title}`,
-    ...location ? [location] : [],
-    `      evidence: ${finding3.evidence}`,
-    ...testCounts ? [testCounts] : [],
-    `      fix:      ${finding3.remediation}`
-  ];
-}
 function renderResultText(view) {
-  const open = openFindings(view);
+  const primary = primaryResultFinding(view.findings);
   const lines = [
-    `Agent Vigil: ${view.verdict}`,
+    `Agent Vigil: ${displayVerdict(view)}`,
     view.consequence,
-    view.mainCause,
-    countLine(view),
-    ""
+    `Reason: ${view.mainCause}`
   ];
-  if (open.length) {
-    lines.push("Checks that need attention", ...open.flatMap(textFinding), "");
-  } else lines.push("All required checks passed.", "");
-  if (view.advisories.length) {
-    lines.push(
-      `Advisories (${view.advisories.length}; non-blocking under this policy)`,
-      ...view.advisories.flatMap((finding3) => [
-        `  ADVISORY [${finding3.id}] ${finding3.title}`,
-        `      evidence: ${finding3.evidence}`,
-        `      review:   ${finding3.remediation}`
-      ]),
-      ""
-    );
+  if (primary) {
+    if (primary.location) lines.push(`File: ${primary.location.file}${primary.location.line ? `:${primary.location.line}` : ""}`);
+    if (primary.claimedTestCount !== void 0 || primary.observedTestCount !== void 0) {
+      lines.push(`Tests: claimed ${primary.claimedTestCount ?? "not stated"}; observed ${primary.observedTestCount ?? "not found"}`);
+    }
+    lines.push(`Fix: ${primary.remediation}`);
   }
   lines.push(
+    `Reproduce: ${view.reproduce}`,
+    "",
+    `Details: ${countLine(view)}${view.advisories.length ? ` \xB7 Review notes ${view.advisories.length}` : ""}`,
     `Change: ${view.base} -> ${view.head}`,
-    `Changed files: ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}`,
-    ...view.changedFiles.files.map((file) => `  ${file.status}: ${file.previousPath ? `${file.previousPath} -> ` : ""}${file.path}`),
-    `Receipt: ${view.receiptHash}`,
-    `Reproduce: ${view.reproduce}`
+    `Receipt: ${view.receiptHash}`
   );
   return lines.join("\n");
 }
@@ -5016,44 +5007,32 @@ function renderText(value, options = {}) {
   return renderResultText(buildReportResultView(value, options));
 }
 function renderResultMarkdown(view, options = {}) {
-  const open = openFindings(view);
+  const primary = primaryResultFinding(view.findings);
   const lines = [
-    `### Agent Vigil: ${view.verdict}`,
+    `### Agent Vigil: ${displayVerdict(view)}`,
     "",
     `**${markdownText(view.consequence)}**`,
     "",
-    options.aggregateOnly ? `Main result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : `**Main result:** ${markdownText(view.mainCause)}`,
-    "",
-    `**Checks:** ${countLine(view)}`
+    options.aggregateOnly ? `Result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : `**Reason:** ${markdownText(view.mainCause)}`
   ];
-  if (!options.aggregateOnly && open.length) {
-    lines.push("", "#### Checks that need attention", "");
-    for (const finding3 of open) {
-      const location = finding3.location ? ` at ${markdownCodeSpan(`${finding3.location.file}${finding3.location.line ? `:${finding3.location.line}` : ""}`)}` : "";
-      lines.push(`- **${finding3.state.replace("_", " ")}** ${markdownCodeSpan(finding3.id)}${location}: ${markdownText(finding3.title)}`);
-      lines.push(`  - Evidence: ${markdownText(finding3.evidence)}`);
-      if (finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0) {
-        lines.push(`  - Tests: claimed **${finding3.claimedTestCount ?? "not stated"}**; observed **${finding3.observedTestCount ?? "not found"}**`);
-      }
-      lines.push(`  - Fix: ${markdownText(finding3.remediation)}`);
+  if (!options.aggregateOnly && primary) {
+    const location = primary.location ? ` at ${markdownCodeSpan(`${primary.location.file}${primary.location.line ? `:${primary.location.line}` : ""}`)}` : "";
+    lines.push("", `**Fix:** ${markdownText(primary.remediation)}${location}`);
+    if (primary.claimedTestCount !== void 0 || primary.observedTestCount !== void 0) {
+      lines.push(`**Tests:** claimed **${primary.claimedTestCount ?? "not stated"}**; observed **${primary.observedTestCount ?? "not found"}**`);
     }
-  }
-  if (!options.aggregateOnly && view.advisories.length) {
-    lines.push("", `#### Advisories (${view.advisories.length}; non-blocking under this policy)`, "");
-    for (const finding3 of view.advisories) {
-      lines.push(`- **ADVISORY** ${markdownCodeSpan(finding3.id)}: ${markdownText(finding3.title)}`);
-      lines.push(`  - Evidence: ${markdownText(finding3.evidence)}`);
-      lines.push(`  - Review: ${markdownText(finding3.remediation)}`);
-    }
+    lines.push("", `Reproduce: ${markdownCodeSpan(view.reproduce)}`);
   }
   lines.push(
     "",
-    `**Change:** ${markdownCodeSpan(view.base)} -> ${markdownCodeSpan(view.head)}  `,
-    `**Changed files:** ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}  `,
-    `**Receipt:** ${markdownCodeSpan(view.receiptHash)}`,
-    ""
+    "<details><summary>Receipt details</summary>",
+    "",
+    `Checks: ${countLine(view)}${view.advisories.length ? ` \xB7 Review notes ${view.advisories.length}` : ""}  `,
+    `Change: ${markdownCodeSpan(view.base)} -> ${markdownCodeSpan(view.head)}  `,
+    `Receipt: ${markdownCodeSpan(view.receiptHash)}`,
+    "",
+    "</details>"
   );
-  if (!options.aggregateOnly) lines.push(`Reproduce: ${markdownCodeSpan(view.reproduce)}`, "");
   return lines.join("\n");
 }
 function renderMarkdown(value, options = {}) {
@@ -5545,16 +5524,16 @@ function collectDiffEvidence(repo, base, head, testPathPatterns = DEFAULT_TEST_P
   const binaryPaths = [];
   let changedLines = 0;
   const numstat = gitRaw(repo, ["diff", "--no-renames", "--numstat", "-z", `${base}..${head}`]);
-  for (const record7 of numstat.split("\0").filter(Boolean)) {
-    const firstTab = record7.indexOf("	");
-    const secondTab = firstTab < 0 ? -1 : record7.indexOf("	", firstTab + 1);
-    if (firstTab < 1 || secondTab < firstTab + 2 || secondTab === record7.length - 1) {
+  for (const record8 of numstat.split("\0").filter(Boolean)) {
+    const firstTab = record8.indexOf("	");
+    const secondTab = firstTab < 0 ? -1 : record8.indexOf("	", firstTab + 1);
+    if (firstTab < 1 || secondTab < firstTab + 2 || secondTab === record8.length - 1) {
       binaryPaths.push("[unparseable Git numstat record]");
       continue;
     }
-    const added = record7.slice(0, firstTab);
-    const removed = record7.slice(firstTab + 1, secondTab);
-    const path = record7.slice(secondTab + 1);
+    const added = record8.slice(0, firstTab);
+    const removed = record8.slice(firstTab + 1, secondTab);
+    const path = record8.slice(secondTab + 1);
     if (added === "-" || removed === "-") binaryPaths.push(path);
     else if (/^\d+$/.test(added) && /^\d+$/.test(removed)) changedLines += Number(added) + Number(removed);
     else binaryPaths.push(`[unparseable Git numstat count for ${path}]`);
@@ -6928,13 +6907,13 @@ function workingRepositoryView(root) {
     ["ls-files", "--stage", "-z"],
     "the generated hosted workflow could not verify the repository's Git entry types"
   );
-  for (const record7 of indexed.split("\0").filter(Boolean)) {
-    const tab = record7.indexOf("	");
-    const metadata = tab < 0 ? [] : record7.slice(0, tab).split(" ");
+  for (const record8 of indexed.split("\0").filter(Boolean)) {
+    const tab = record8.indexOf("	");
+    const metadata = tab < 0 ? [] : record8.slice(0, tab).split(" ");
     if (tab < 0 || metadata.length !== 3 || metadata[2] !== "0") {
       throw new Error("the generated hosted workflow received malformed or conflicted Git index metadata");
     }
-    const path = record7.slice(tab + 1);
+    const path = record8.slice(tab + 1);
     if (metadata[0] === "160000") {
       entries.set(path, { mode: metadata[0], oid: metadata[1] });
       continue;
@@ -6989,13 +6968,13 @@ function headRepositoryView(root) {
     ["ls-tree", "-r", "-z", "--full-tree", head],
     "the generated hosted workflow could not read the committed HEAD tree"
   );
-  for (const record7 of tree.split("\0").filter(Boolean)) {
-    const tab = record7.indexOf("	");
-    const metadata = tab < 0 ? [] : record7.slice(0, tab).split(" ");
+  for (const record8 of tree.split("\0").filter(Boolean)) {
+    const tab = record8.indexOf("	");
+    const metadata = tab < 0 ? [] : record8.slice(0, tab).split(" ");
     if (tab < 0 || metadata.length !== 3 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(metadata[2])) {
       throw new Error("the generated hosted workflow received malformed committed-tree metadata");
     }
-    entries.set(record7.slice(tab + 1), { mode: metadata[0], oid: metadata[2] });
+    entries.set(record8.slice(tab + 1), { mode: metadata[0], oid: metadata[2] });
   }
   return {
     commit: head,
@@ -11164,9 +11143,9 @@ function statementsFromGh(value) {
   const statements = [];
   for (const root of roots) {
     if (!root || typeof root !== "object") continue;
-    const record7 = root;
-    const verification2 = record7.verificationResult;
-    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record7.statement ?? record7;
+    const record8 = root;
+    const verification2 = record8.verificationResult;
+    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record8.statement ?? record8;
     if (statement && typeof statement === "object") statements.push(statement);
   }
   return statements;
@@ -13063,6 +13042,9 @@ var PROOF_COMMENT_MARKER = "<!-- agent-vigil-proof-comment:v1 -->";
 function count(results, ruleId, verdict) {
   return results.filter((result5) => result5.ruleId === ruleId && (!verdict || result5.verdict === verdict)).length;
 }
+function displayVerdict2(verdict) {
+  return verdict === "INCONCLUSIVE" ? "NOT CHECKED" : verdict;
+}
 function verifiedUrl(raw) {
   if (!raw) return void 0;
   if (raw.length > 2048) throw new Error("proof comment verify URL exceeds 2048 characters");
@@ -13094,28 +13076,33 @@ function renderProofComment(value, options = {}) {
   ).length;
   const signature = verification2.signatureValid ? "valid embedded Ed25519 signature; signer identity is not pinned" : "absent; content hash only";
   const url = verifiedUrl(options.verifyUrl);
-  const facts = [
-    `- **Checks:** Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}`,
-    `- **Candidate-only regression checks:** ${differentialEarned} verified`,
-    `- **Changed regression checks that also passed on base:** ${differentialAlsoPassedBase}`,
-    `- **Integrity-control contradictions:** ${integrityChanges}`,
-    `- **Unapproved authority contradictions:** ${authorityBlocks}`
+  const detailFacts = [
+    `Checks: Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}  `,
+    `Candidate-only regression checks: ${differentialEarned} verified  `,
+    `Changed regression checks that also passed on base: ${differentialAlsoPassedBase}  `,
+    `Integrity-control contradictions: ${integrityChanges}  `,
+    `Unapproved authority contradictions: ${authorityBlocks}  `
   ];
   return [
     PROOF_COMMENT_MARKER,
-    `### Agent Vigil: ${view.verdict}`,
+    `### Agent Vigil: ${displayVerdict2(view.verdict)}`,
     "",
     `**${view.consequence}**`,
     "",
     view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed.",
     "",
-    ...facts,
-    "",
-    `**Change:** ${markdownCodeSpan(terminalSafe(report.base))} -> ${markdownCodeSpan(terminalSafe(report.head))}  `,
-    `**Policy:** ${markdownCodeSpan(terminalSafe(report.policy.sha256))}  `,
-    `**Receipt:** ${markdownCodeSpan(terminalSafe(report.receiptHash))}  `,
-    `**Signature:** ${signature}`,
+    "Open the retained receipt for the reason, evidence, and exact reproduce command.",
     ...url ? ["", `[Verify this receipt](${url.replace(/[()]/g, (character) => `\\${character}`)})`] : [],
+    "",
+    "<details><summary>Receipt details</summary>",
+    "",
+    ...detailFacts,
+    `Change: ${markdownCodeSpan(terminalSafe(report.base))} -> ${markdownCodeSpan(terminalSafe(report.head))}  `,
+    `Policy: ${markdownCodeSpan(terminalSafe(report.policy.sha256))}  `,
+    `Receipt: ${markdownCodeSpan(terminalSafe(report.receiptHash))}  `,
+    `Signature: ${signature}`,
+    "",
+    "</details>",
     "",
     "The retained receipt contains the check details. This result does not prove that the code is bug-free or that unobserved actions did not occur.",
     ""
@@ -13546,9 +13533,9 @@ function statementsFromGh2(value) {
   const statements = [];
   for (const root of roots) {
     if (!root || typeof root !== "object") continue;
-    const record7 = root;
-    const verification2 = record7.verificationResult;
-    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record7.statement ?? record7;
+    const record8 = root;
+    const verification2 = record8.verificationResult;
+    const statement = verification2 && typeof verification2 === "object" ? verification2.statement : record8.statement ?? record8;
     if (statement && typeof statement === "object") statements.push(statement);
   }
   return statements;
@@ -15567,7 +15554,7 @@ function hashRegularFile(requestedPath, label) {
   const before = lstatSync19(realPath, { bigint: true });
   if (!before.isFile()) throw new Error(`${label} must resolve to a regular file`);
   const descriptor = openSync9(realPath, "r");
-  const hash3 = createHash26("sha256");
+  const hash4 = createHash26("sha256");
   try {
     const opened = fstatSync9(descriptor, { bigint: true });
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
@@ -15577,7 +15564,7 @@ function hashRegularFile(requestedPath, label) {
     for (; ; ) {
       const count3 = readSync8(descriptor, buffer, 0, buffer.length, null);
       if (count3 === 0) break;
-      hash3.update(buffer.subarray(0, count3));
+      hash4.update(buffer.subarray(0, count3));
     }
     const after = fstatSync9(descriptor, { bigint: true });
     if (after.size !== opened.size || modifiedNanoseconds(after) !== modifiedNanoseconds(opened)) {
@@ -15585,7 +15572,7 @@ function hashRegularFile(requestedPath, label) {
     }
     return {
       realPath,
-      sha256: `sha256:${hash3.digest("hex")}`,
+      sha256: `sha256:${hash4.digest("hex")}`,
       device: after.dev,
       inode: after.ino,
       size: after.size,
@@ -17356,11 +17343,11 @@ function parseTerraformShow(value) {
     throw new Error("terraform show did not return valid JSON");
   }
   if (!selected || typeof selected !== "object" || Array.isArray(selected)) throw new Error("terraform show returned an invalid document");
-  const record7 = selected;
-  const formatVersion = shortVersion(record7.format_version, "Terraform plan format_version");
+  const record8 = selected;
+  const formatVersion = shortVersion(record8.format_version, "Terraform plan format_version");
   if (!formatVersion.startsWith("1.")) throw new Error("Terraform plan format version is unsupported");
-  const terraformVersion = shortVersion(record7.terraform_version, "Terraform version");
-  const counted = actionCounts(record7.resource_changes);
+  const terraformVersion = shortVersion(record8.terraform_version, "Terraform version");
+  const counted = actionCounts(record8.resource_changes);
   return { formatVersion, terraformVersion, resourceChanges: counted.changes, actions: counted.actions };
 }
 function unsignedResult(generatedAt, continuity, staple, plan, verifier) {
@@ -18362,10 +18349,10 @@ function array2(value) {
 function lower(value) {
   return string3(value)?.toLowerCase() ?? "";
 }
-function exactKeys10(record7, required3, optional, label) {
+function exactKeys10(record8, required3, optional, label) {
   const allowed2 = /* @__PURE__ */ new Set([...required3, ...optional]);
-  const missing = required3.filter((key) => !Object.prototype.hasOwnProperty.call(record7, key));
-  const unsupported = Object.keys(record7).filter((key) => !allowed2.has(key));
+  const missing = required3.filter((key) => !Object.prototype.hasOwnProperty.call(record8, key));
+  const unsupported = Object.keys(record8).filter((key) => !allowed2.has(key));
   if (missing.length || unsupported.length) throw new Error(`${label} has unsupported or missing fields`);
 }
 function boundedString2(value, label, maximum, pattern) {
@@ -18634,8 +18621,8 @@ function latestEvidenceAt(snapshot) {
     if (selected) candidates.push(selected);
   }
   for (const value of [...snapshot.reviews, ...snapshot.checkRuns, ...snapshot.statuses]) {
-    const record7 = object4(value, "GitHub evidence record");
-    for (const selected of [record7.submitted_at, record7.completed_at, record7.updated_at, record7.created_at]) {
+    const record8 = object4(value, "GitHub evidence record");
+    for (const selected of [record8.submitted_at, record8.completed_at, record8.updated_at, record8.created_at]) {
       const parsed = timestamp7(selected);
       if (parsed) candidates.push(parsed);
     }
@@ -19424,43 +19411,214 @@ ${outcomeUsage()}`);
 }
 
 // src/adoption.ts
-var REPOSITORY_PART = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
-var ADOPTION_FORM = "https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml";
-var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.3/sulmusic-agent-vigil-0.23.3.tgz";
-function githubRepositorySlug(remote) {
-  if (!remote || /[\u0000-\u001f\u007f-\u009f]/.test(remote)) return void 0;
-  let path;
-  try {
-    if (/^git@github\.com:/.test(remote)) path = remote.slice("git@github.com:".length);
-    else {
-      const url = new URL(remote);
-      if (!(/* @__PURE__ */ new Set(["https:", "ssh:", "git:"])).has(url.protocol) || url.hostname.toLowerCase() !== "github.com" || url.search || url.hash) return void 0;
-      if (url.password || (url.protocol === "ssh:" ? url.username !== "git" : Boolean(url.username))) return void 0;
-      if (url.port && !(url.protocol === "ssh:" && url.port === "22")) return void 0;
-      path = url.pathname.replace(/^\//, "");
-    }
-  } catch {
-    return void 0;
-  }
-  const parts = path.replace(/\.git$/, "").split("/");
-  if (parts.length !== 2 || !parts.every((part) => REPOSITORY_PART.test(part))) return void 0;
-  return `${parts[0]}/${parts[1]}`;
-}
-function workflowBadge(slug) {
-  const parts = slug.split("/");
-  if (parts.length !== 2 || !parts.every((part) => REPOSITORY_PART.test(part))) throw new Error("badge repository must be owner/name");
-  const workflow2 = `https://github.com/${slug}/actions/workflows/agent-vigil.yml`;
-  return `[![Agent Vigil workflow](${workflow2}/badge.svg)](${workflow2})`;
-}
-function adoptionRegistrationUrl(slug) {
-  return slug ? `${ADOPTION_FORM}&title=${encodeURIComponent(`[adoption] ${slug}`)}` : ADOPTION_FORM;
-}
+var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz";
 function releasedDoctorCommand() {
   return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
 }
+function releasedProtectCommand() {
+  return `npx --yes ${RELEASE_PACKAGE} protect --repo .`;
+}
+
+// src/cost-evidence.ts
+import { createHash as createHash28 } from "node:crypto";
+var SHA2567 = /^sha256:[0-9a-f]{64}$/;
+var MAX_USAGE_EVENTS = 1e5;
+var MAX_SESSION_COST_USD = 1e6;
+function hash3(value) {
+  return `sha256:${createHash28("sha256").update(value).digest("hex")}`;
+}
+function record7(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value;
+}
+function exactKeys11(value, expected, label) {
+  const actual = Object.keys(value).sort();
+  if (canonical(actual) !== canonical([...expected].sort())) throw new Error(`${label} fields must be exactly: ${[...expected].sort().join(", ")}`);
+}
+function safeSessionId(value) {
+  if (typeof value !== "string" || value.length < 8 || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error("Cursor usage event conversationId is invalid");
+  }
+  return value;
+}
+function timestamp8(value) {
+  const numeric = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+  const parsed = new Date(numeric);
+  if (!Number.isFinite(parsed.getTime())) throw new Error("Cursor usage event timestamp is invalid");
+  return parsed.toISOString();
+}
+function canonicalTimestamp5(value, label) {
+  if (typeof value !== "string") throw new Error(`exact cost evidence ${label} is invalid`);
+  const parsed = timestamp8(value);
+  if (parsed !== value) throw new Error(`exact cost evidence ${label} must be a canonical timestamp`);
+  return parsed;
+}
+function chargeMicocents(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e8) {
+    throw new Error("Cursor usage event chargedCents must be a bounded non-negative number");
+  }
+  const microcents = Math.round(value * 1e6);
+  if (!Number.isSafeInteger(microcents)) throw new Error("Cursor usage event chargedCents exceeds safe accounting precision");
+  return microcents;
+}
+function evidencePayload(value) {
+  return canonical(value);
+}
+function structuredConversationIds(raw) {
+  const roots = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      roots.push(JSON.parse(line));
+    } catch {
+    }
+  }
+  if (!roots.length) {
+    try {
+      roots.push(JSON.parse(raw));
+    } catch {
+    }
+  }
+  const found = /* @__PURE__ */ new Set();
+  const queue = roots.map((value) => ({ value, depth: 0 }));
+  let visited = 0;
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const { value, depth } = queue[cursor];
+    visited += 1;
+    if (visited > 1e5) throw new Error("Cursor transcript contains too many structured values");
+    if (depth > 12 || !value || typeof value !== "object") continue;
+    if (Array.isArray(value)) {
+      for (const item2 of value) queue.push({ value: item2, depth: depth + 1 });
+      continue;
+    }
+    for (const [key, item2] of Object.entries(value)) {
+      if ((key === "conversationId" || key === "conversation_id") && typeof item2 === "string") found.add(safeSessionId(item2));
+      else queue.push({ value: item2, depth: depth + 1 });
+    }
+  }
+  return found;
+}
+function recomputeExactCostEvidenceHash(value) {
+  const { evidenceHash: _evidenceHash, ...payload } = value;
+  return hash3(evidencePayload(payload));
+}
+function validateExactCostEvidence(value) {
+  const selected = record7(value, "exact cost evidence");
+  exactKeys11(selected, [
+    "schemaVersion",
+    "source",
+    "transcriptSha256",
+    "sourceExportSha256",
+    "sessionIdSha256",
+    "recordsObserved",
+    "chargeableRecords",
+    "amountUsd",
+    "exportPeriodStartedAt",
+    "exportPeriodEndedAt",
+    "startedAt",
+    "endedAt",
+    "evidenceHash"
+  ], "exact cost evidence");
+  if (selected.schemaVersion !== "agent-vigil-exact-cost-evidence/v1") throw new Error("exact cost evidence schema is unsupported");
+  if (selected.source !== "cursor-admin-usage-export") throw new Error("exact cost evidence source is unsupported");
+  for (const field of ["transcriptSha256", "sourceExportSha256", "sessionIdSha256", "evidenceHash"]) {
+    if (typeof selected[field] !== "string" || !SHA2567.test(selected[field])) throw new Error(`exact cost evidence ${field} is invalid`);
+  }
+  for (const field of ["recordsObserved", "chargeableRecords"]) {
+    if (!Number.isSafeInteger(selected[field]) || Number(selected[field]) < 0 || Number(selected[field]) > MAX_USAGE_EVENTS) {
+      throw new Error(`exact cost evidence ${field} is invalid`);
+    }
+  }
+  if (Number(selected.recordsObserved) === 0) throw new Error("exact cost evidence must contain at least one observed record");
+  if (Number(selected.chargeableRecords) > Number(selected.recordsObserved)) throw new Error("exact cost evidence chargeable record count exceeds observed records");
+  if (typeof selected.amountUsd !== "number" || !Number.isFinite(selected.amountUsd) || selected.amountUsd < 0 || selected.amountUsd > MAX_SESSION_COST_USD) {
+    throw new Error("exact cost evidence amountUsd is invalid");
+  }
+  const exportPeriodStartedAt = canonicalTimestamp5(selected.exportPeriodStartedAt, "exportPeriodStartedAt");
+  const exportPeriodEndedAt = canonicalTimestamp5(selected.exportPeriodEndedAt, "exportPeriodEndedAt");
+  if (exportPeriodStartedAt > exportPeriodEndedAt) throw new Error("exact cost evidence export period is invalid");
+  const startedAt = canonicalTimestamp5(selected.startedAt, "startedAt");
+  const endedAt = canonicalTimestamp5(selected.endedAt, "endedAt");
+  if (startedAt > endedAt) throw new Error("exact cost evidence time range is invalid");
+  if (startedAt < exportPeriodStartedAt || endedAt > exportPeriodEndedAt) throw new Error("exact cost evidence events fall outside the export period");
+  const result5 = selected;
+  if (recomputeExactCostEvidenceHash(result5) !== result5.evidenceHash) throw new Error("exact cost evidence hash is invalid");
+  return result5;
+}
+function buildCursorExactCostEvidence(input) {
+  let parsed;
+  try {
+    parsed = JSON.parse(input.usageExport.toString("utf8"));
+  } catch {
+    throw new Error("Cursor usage export is not valid JSON");
+  }
+  const root = record7(parsed, "Cursor usage export");
+  const events = root.usageEvents;
+  if (!Array.isArray(events) || !events.length) throw new Error("Cursor usage export contains no usageEvents");
+  if (events.length > MAX_USAGE_EVENTS) throw new Error(`Cursor usage export exceeds ${MAX_USAGE_EVENTS} events`);
+  const totalUsageEventsCount = root.totalUsageEventsCount;
+  if (!Number.isSafeInteger(totalUsageEventsCount) || totalUsageEventsCount !== events.length) {
+    throw new Error("Cursor usage export is incomplete; request a narrow period whose complete result fits one response");
+  }
+  const pagination = record7(root.pagination, "Cursor usage export pagination");
+  if (pagination.hasNextPage !== false || pagination.hasPreviousPage !== false) {
+    throw new Error("Cursor usage export is paginated; request a narrow period whose complete result fits one response");
+  }
+  const period = record7(root.period, "Cursor usage export period");
+  const exportPeriodStartedAt = timestamp8(period.startDate);
+  const exportPeriodEndedAt = timestamp8(period.endDate);
+  if (exportPeriodStartedAt > exportPeriodEndedAt) throw new Error("Cursor usage export period is invalid");
+  const transcriptSessions = structuredConversationIds(input.transcript.toString("utf8"));
+  const normalized = events.map((value, index) => {
+    const event2 = record7(value, `Cursor usage event ${index + 1}`);
+    const conversationId = event2.conversationId === void 0 ? void 0 : safeSessionId(event2.conversationId);
+    return {
+      event: event2,
+      conversationId,
+      timestamp: timestamp8(event2.timestamp),
+      fingerprint: hash3(canonical(event2))
+    };
+  });
+  if (new Set(normalized.map((item2) => item2.fingerprint)).size !== normalized.length) {
+    throw new Error("Cursor usage export contains duplicate events; refusing to double-count cost");
+  }
+  const shared = [...new Set(normalized.map((item2) => item2.conversationId).filter((id) => typeof id === "string" && transcriptSessions.has(id)))];
+  if (shared.length === 0) throw new Error("Cursor usage export has no conversationId bound to the transcript");
+  if (shared.length > 1) throw new Error("Cursor usage export matches more than one transcript conversation; split the transcript before importing cost");
+  const sessionId = shared[0];
+  const matched = normalized.filter((item2) => item2.conversationId === sessionId);
+  let totalMicrocents = 0;
+  let chargeableRecords = 0;
+  for (const { event: event2 } of matched) {
+    if (typeof event2.isChargeable !== "boolean") throw new Error("Cursor usage event isChargeable must be explicit");
+    if (!event2.isChargeable) continue;
+    totalMicrocents += chargeMicocents(event2.chargedCents);
+    if (!Number.isSafeInteger(totalMicrocents)) throw new Error("Cursor usage export total exceeds safe accounting precision");
+    chargeableRecords += 1;
+  }
+  const times = matched.map((item2) => item2.timestamp).sort();
+  if (times[0] < exportPeriodStartedAt || times.at(-1) > exportPeriodEndedAt) {
+    throw new Error("Cursor usage event falls outside the export period");
+  }
+  const withoutHash = {
+    schemaVersion: "agent-vigil-exact-cost-evidence/v1",
+    source: "cursor-admin-usage-export",
+    transcriptSha256: hash3(input.transcript),
+    sourceExportSha256: hash3(input.usageExport),
+    sessionIdSha256: hash3(sessionId),
+    recordsObserved: matched.length,
+    chargeableRecords,
+    amountUsd: totalMicrocents / 1e8,
+    exportPeriodStartedAt,
+    exportPeriodEndedAt,
+    startedAt: times[0],
+    endedAt: times.at(-1)
+  };
+  return { ...withoutHash, evidenceHash: hash3(evidencePayload(withoutHash)) };
+}
 
 // src/cli.ts
-function usage4() {
+function advancedUsage() {
   return `agent-vigil ${VERSION}
 
 Usage:
@@ -19497,6 +19655,7 @@ Usage:
 ${outcomeUsage()}
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
+  vigil cost-evidence cursor --transcript <session.jsonl> --usage-export <cursor-usage.json> [--output <path>]
   vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
   vigil compare-value <card.json>... [--format text|json|html] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
@@ -19533,7 +19692,7 @@ Value options:
   --transcript <path>    Bind supported token usage to the receipt digest
   --github-evidence <p>  Import a hash-verified normalized GitHub evidence bundle
   --cost-usd <amount>    Attributed task cost; requires --cost-source
-  --cost-source <kind>   provider-billed, subscription-allocated, or user-estimated
+  --cost-source <kind>   provider-billed, provider-exported, subscription-allocated, or user-estimated
   --cost-evidence <path> Hash a local billing artifact without copying its contents
   --budget-usd <amount>  Predeclared task budget for WITHIN / EXCEEDED status
   --review-minutes <n>   Explicit human review duration
@@ -19546,6 +19705,29 @@ Value options:
   --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS \xB7 1 FAIL \xB7 2 INCONCLUSIVE or usage error`;
+}
+function usage4() {
+  return `Agent Vigil ${VERSION}
+
+Check an AI-assisted pull request before it merges.
+
+Start here:
+  ${releasedProtectCommand()}
+
+Then commit the generated setup files and open a setup pull request. After it
+merges, every new pull request gets one result:
+
+  PASS         Ready to merge.
+  FAIL         Do not merge yet.
+  NOT CHECKED  No decision because required evidence is missing.
+
+Useful commands:
+  vigil protect              Add Agent Vigil to the current repository
+  vigil doctor               Check the setup
+  vigil check <pull-request> Check a public GitHub pull request
+  vigil demo                 See a safe local example
+
+Advanced commands: vigil help --all`;
 }
 function guardCompatibilityUsage() {
   return `Agent Vigil guard compatibility
@@ -20085,7 +20267,6 @@ function runProtect(args) {
     );
     console.log("Agent Vigil is ready to add.\n");
     const policy = loadPolicy(repo).value;
-    const slug = githubRepositorySlug(git9(repo, ["config", "--get", "remote.origin.url"]));
     const commands = policy.maintainer?.automatedReview?.commands ?? [];
     if (commands.length) console.log(`  Found   ${safeSetupLine(commands.join(" && "))}`);
     console.log(`  Pinned  ${actionSha}${optionValue(args, "--action-sha") ? " (operator selected)" : selectedPin.source === "package-build" ? " (this package build)" : " (reviewed public release)"}`);
@@ -20099,18 +20280,10 @@ ${renderProtectRehearsal(rehearsal)}`);
         console.error("\nAgent Vigil could not prove its disposable red/green rehearsal. The generated files remain prepared but must not be activated.");
         return 2;
       }
-      console.log("\nState: PREPARED \u2014 not active yet.");
-      console.log("\nNext:");
-      console.log("  1. Review the four generated files.");
-      console.log("  2. Commit and push them in a setup pull request.");
-      console.log(`  3. After that setup merges, run \`${releasedDoctorCommand()}\`.`);
-      console.log("\nState after setup: RUNNING IN CI, not enforced. A plain required job name is not a workflow trust root; enforcement needs an external required workflow or App-owned exact-head check.");
-      if (slug) {
-        console.log("\nOptional workflow badge (run status only; not proof of required-check enforcement):");
-        console.log(`  ${workflowBadge(slug)}`);
-      }
-      console.log("\nRegister an outside trial only after the workflow runs. Registration is optional and requires maintainer consent:");
-      console.log(`  ${adoptionRegistrationUrl(slug)}`);
+      console.log("\nSetup: READY \u2014 not running in GitHub yet.");
+      console.log("\nNext: commit the generated files and open one setup pull request.");
+      console.log(`After it merges, run \`${releasedDoctorCommand()}\`, then open a normal code pull request.`);
+      console.log("That pull request will show PASS, FAIL, or NOT CHECKED. Making the result a protected merge requirement still needs the Agent Vigil App.");
       return 0;
     }
     const checks = doctorRepository(repo);
@@ -20180,7 +20353,7 @@ function runMaintainer(args) {
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     const rawEvent = readFileSync16(eventPath);
-    const eventHash = `sha256:${createHash28("sha256").update(rawEvent).digest("hex")}`;
+    const eventHash = `sha256:${createHash29("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative16(repo, policy.path) : void 0;
     const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git9(repo, ["rev-parse", `${head}^{tree}`]);
@@ -20539,8 +20712,8 @@ function parseValueArgs(args) {
   const format = values.get("--format") ?? "text";
   if (!(/* @__PURE__ */ new Set(["text", "json", "markdown", "html"])).has(format)) throw new Error("value --format must be text, json, markdown, or html");
   const costSource = values.get("--cost-source");
-  if (costSource && !(/* @__PURE__ */ new Set(["provider-billed", "subscription-allocated", "user-estimated"])).has(costSource)) {
-    throw new Error("value --cost-source must be provider-billed, subscription-allocated, or user-estimated");
+  if (costSource && !(/* @__PURE__ */ new Set(["provider-billed", "provider-exported", "subscription-allocated", "user-estimated"])).has(costSource)) {
+    throw new Error("value --cost-source must be provider-billed, provider-exported, subscription-allocated, or user-estimated");
   }
   const disposition = values.get("--disposition");
   if (disposition && !(/* @__PURE__ */ new Set(["accepted", "dismissed", "changes-requested", "unreviewed"])).has(disposition)) {
@@ -20601,9 +20774,28 @@ function runValue(args) {
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
       const evidence = readBoundedFile(resolve32(path), 64 * 1024 * 1024, label);
-      return `sha256:${createHash28("sha256").update(evidence).digest("hex")}`;
+      return `sha256:${createHash29("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
+    let exactCost;
+    if (options.costEvidence) {
+      const costEvidence = readBoundedFile(resolve32(options.costEvidence), 64 * 1024 * 1024, "cost evidence");
+      try {
+        const parsed = JSON.parse(costEvidence.toString("utf8"));
+        if (parsed?.schemaVersion === "agent-vigil-exact-cost-evidence/v1") exactCost = validateExactCostEvidence(parsed);
+      } catch (error) {
+        if (costEvidence.toString("utf8").includes("agent-vigil-exact-cost-evidence/v1")) throw error;
+      }
+    }
+    if (exactCost && exactCost.transcriptSha256 !== report.transcriptSha256) {
+      throw new Error("exact cost evidence is bound to a different transcript");
+    }
+    if (exactCost && options.costUsd !== void 0 && Math.abs(options.costUsd - exactCost.amountUsd) > 1e-9) {
+      throw new Error("--cost-usd contradicts the exact cost evidence amount");
+    }
+    if (exactCost && options.costSource !== void 0 && options.costSource !== "provider-exported") {
+      throw new Error("--cost-source contradicts provider-exported exact cost evidence");
+    }
     const github = options.githubEvidence ? loadGitHubEvidence(resolve32(options.githubEvidence)) : void 0;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;
     const inferredOutcome = options.outcome ?? github?.inference.outcome;
@@ -20621,8 +20813,8 @@ function runValue(args) {
       values: {
         taskClass: options.taskClass,
         budgetUsd: options.budgetUsd,
-        costUsd: options.costUsd,
-        costSource: options.costSource,
+        costUsd: options.costUsd ?? exactCost?.amountUsd,
+        costSource: options.costSource ?? (exactCost ? "provider-exported" : void 0),
         costEvidenceSha256,
         reviewMinutes: options.reviewMinutes,
         disposition: inferredDisposition,
@@ -20649,6 +20841,38 @@ function runValue(args) {
     if (options.output) writePrivateFileAtomic(resolve32(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
+  } catch (error) {
+    console.error(`agent-vigil: ${error.message}`);
+    return 2;
+  }
+}
+function runCostEvidence(args) {
+  try {
+    if (args[1] !== "cursor") throw new Error("cost-evidence currently supports: cursor");
+    const transcript = optionValue(args, "--transcript");
+    const usageExport = optionValue(args, "--usage-export");
+    const output = optionValue(args, "--output");
+    if (!transcript || !usageExport) throw new Error("cost-evidence cursor requires --transcript and --usage-export");
+    const allowed2 = /* @__PURE__ */ new Set(["--transcript", "--usage-export", "--output"]);
+    const seen = /* @__PURE__ */ new Set();
+    for (let index = 2; index < args.length; index += 2) {
+      if (!allowed2.has(args[index])) throw new Error(`unknown cost-evidence argument: ${args[index]}`);
+      if (args[index + 1] === void 0 || args[index + 1].startsWith("--")) throw new Error(`${args[index]} requires a value`);
+      if (seen.has(args[index])) throw new Error(`${args[index]} may be supplied only once`);
+      seen.add(args[index]);
+    }
+    const transcriptPath = resolve32(transcript);
+    const usageExportPath = resolve32(usageExport);
+    if (output && (/* @__PURE__ */ new Set([transcriptPath, usageExportPath])).has(resolve32(output))) throw new Error("cost-evidence output must not replace an input file");
+    const evidence = buildCursorExactCostEvidence({
+      transcript: readBoundedRegularFile(transcriptPath, 50 * 1024 * 1024, "Cursor transcript"),
+      usageExport: readBoundedRegularFile(usageExportPath, 64 * 1024 * 1024, "Cursor usage export")
+    });
+    const rendered = `${JSON.stringify(evidence, null, 2)}
+`;
+    if (output) writePrivateFileAtomic(resolve32(output), rendered);
+    else process.stdout.write(rendered);
+    return 0;
   } catch (error) {
     console.error(`agent-vigil: ${error.message}`);
     return 2;
@@ -20734,7 +20958,7 @@ function runAudit(args) {
     const raw = readFileSync16(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest12 = `sha256:${createHash28("sha256").update(raw).digest("hex")}`;
+    const digest12 = `sha256:${createHash29("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -20753,7 +20977,7 @@ function runAudit(args) {
       head: digest12,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash28("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash29("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote2(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -20789,7 +21013,7 @@ function runTestIntegrity(args) {
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
     const diff = trustedGit(repo, diffArgs);
-    const digest12 = `sha256:${createHash28("sha256").update(diff).digest("hex")}`;
+    const digest12 = `sha256:${createHash29("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
       transcript: `${base}..${head}`,
@@ -20804,7 +21028,7 @@ function runTestIntegrity(args) {
         minVerified: 1,
         strict: true,
         source: policyName,
-        sha256: `sha256:${createHash28("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
+        sha256: `sha256:${createHash29("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
       },
       repository: {
         ...git9(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git9(repo, ["config", "--get", "remote.origin.url"]) } : {},
@@ -20938,6 +21162,18 @@ function shellQuote2(value) {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 function run(argv = process.argv.slice(2)) {
+  if (argv.length === 0) {
+    console.log(usage4());
+    return 0;
+  }
+  if (argv[0] === "help") {
+    console.log(argv.includes("--all") ? advancedUsage() : usage4());
+    return 0;
+  }
+  if (argv.includes("--help-all")) {
+    console.log(advancedUsage());
+    return 0;
+  }
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "continuity") return runContinuityCommand(argv.slice(1));
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
@@ -20963,6 +21199,7 @@ function run(argv = process.argv.slice(2)) {
   if (argv[0] === "notary") return runNotary(argv);
   if (argv[0] === "compare") return runCompare(argv);
   if (argv[0] === "github-evidence") return runGitHubEvidence(argv);
+  if (argv[0] === "cost-evidence") return runCostEvidence(argv);
   if (argv[0] === "value") return runValue(argv);
   if (argv[0] === "compare-value") return runCompareValue(argv);
   if (argv[0] === "audit") return runAudit(argv);

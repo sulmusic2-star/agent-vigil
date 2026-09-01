@@ -240,6 +240,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/CONTINUITY_LAB.md",
     "docs/CONTINUITY_STAPLE.md",
     "docs/CONTROL_PROOF.md",
+    "docs/EXACT_COST_EVIDENCE.md",
     "docs/GITHUB_MARKER.md",
     "docs/GITHUB_OUTCOME_EVIDENCE.md",
     "docs/GUARD_COMPATIBILITY.md",
