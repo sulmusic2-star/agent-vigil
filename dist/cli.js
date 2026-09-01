@@ -3216,7 +3216,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash6 } from "node:crypto";
-var VERSION = "0.23.3";
+var VERSION = "0.23.4";
 var CLAIM_KINDS = [
   "tests_pass",
   "file_changed",

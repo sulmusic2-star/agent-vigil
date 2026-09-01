@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Reduce first-use output to one `PASS`, `FAIL`, or `NOT CHECKED` decision with
+  one reason, one fix, and one reproduction command; move receipt counts and
+  changed files behind details and keep advanced CLI commands behind
+  `vigil help --all`.
+- Stop treating TypeScript `as any` casts as diagnostic suppressions and score
+  assertion loss across the whole change instead of per file. The frozen
+  presumed-clean advisory burden falls from 134/232 pull requests to 104/232
+  while the 220/220 release-gate oracle catch requirement remains intact.
+- Add the centrally operated public App source and exact-commit control
+  workflow for pull requests and merge queues. Customer installations request
+  checks write plus contents, pull requests, and merge queues read, but no
+  Actions or contents write.
+- Complete a queued check as blocking `NOT CHECKED` when the central dispatch
+  cannot start, and retain fail-closed stale-head handling before publishing a
+  result.
+- Publish a scoped competitor comparison and a separately labeled clean-source v0.23.4
+  benchmark without claiming universal superiority or revenue.
 - Accept GitHub App private keys in either unencrypted RSA PKCS#1 or PKCS#8
   format and normalize them in memory before Web Crypto import.
 - Scope the protected pull-request App token to the target repository instead

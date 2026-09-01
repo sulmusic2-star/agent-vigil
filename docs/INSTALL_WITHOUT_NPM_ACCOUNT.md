@@ -24,14 +24,14 @@ These are different builds. Prefer the verified GitHub package when you need
 the newer behavior. The exact public state is recorded in
 [`public-install-state.json`](public-install-state.json).
 
-## v0.23.3 release candidate
+## v0.23.4 release candidate
 
-v0.23.3 is a source release candidate until GitHub lists both the package and checksum assets.
-Do not install a v0.23.3 URL or npm specifier before that happens. The release
+v0.23.4 is a source release candidate until GitHub lists both the package and checksum assets.
+Do not install a v0.23.4 URL or npm specifier before that happens. The release
 gate will verify the packed artifact, checksum, commit, README, Action pin,
 GitHub release, Marketplace listing, and npm package before promotion.
 
-After every public channel identifies the same v0.23.3 code, this guide and the
+After every public channel identifies the same v0.23.4 code, this guide and the
 machine-readable channel record will be promoted together.
 
 ## One setup pull request
