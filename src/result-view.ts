@@ -219,11 +219,14 @@ function changedFileManifest(
 }
 
 function mainCause(findings: ResultFinding[], verdict: ReportStatus, head: string): string {
-  const failed = findings.find((finding) => finding.state === "FAILED");
-  if (failed) return failed.title;
-  const missing = findings.find((finding) => finding.state === "NOT_CHECKED");
-  if (missing) return missing.title;
+  const primary = primaryResultFinding(findings);
+  if (primary) return primary.title;
   return `All required checks passed at ${safe(head.slice(0, 12))}.`;
+}
+
+export function primaryResultFinding(findings: ResultFinding[]): ResultFinding | undefined {
+  return findings.find((finding) => finding.state === "FAILED")
+    ?? findings.find((finding) => finding.state === "NOT_CHECKED");
 }
 
 export function buildReportResultView(
@@ -323,8 +326,7 @@ function displayResultVerdict(verdict: ReportStatus): "PASS" | "FAIL" | "NOT CHE
 }
 
 export function renderResultViewHtml(view: ResultView): string {
-  const open = view.findings.filter((finding) => finding.state !== "PASSED");
-  const primary = open[0];
+  const primary = primaryResultFinding(view.findings);
   const advisories = view.advisories.map(findingHtml).join("");
   const changed = view.changedFiles.files.map((file) => `<li><span>${html(file.status)}</span><code>${file.previousPath ? `${html(file.previousPath)} → ` : ""}${html(file.path)}</code></li>`).join("");
   const display = displayResultVerdict(view.verdict);

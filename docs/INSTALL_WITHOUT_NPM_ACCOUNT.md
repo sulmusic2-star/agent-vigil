@@ -14,14 +14,8 @@ printf '%s  %s\n' \
 npx --yes ./sulmusic-agent-vigil-0.23.2.tgz protect
 ```
 
-npm serves v0.21.1:
-
-```bash
-npx @sulmusic/agent-vigil@0.21.1 protect
-```
-
-These are different builds. Prefer the verified GitHub package when you need
-the newer behavior. The exact public state is recorded in
+npm serves v0.21.1, which predates the no-SHA `protect` path shown here. Do not
+use that registry version for this setup. The exact public state is recorded in
 [`public-install-state.json`](public-install-state.json).
 
 ## v0.23.3 release candidate
@@ -43,7 +37,7 @@ setup pull request.
 After that setup merges:
 
 ```bash
-npx @sulmusic/agent-vigil@0.21.1 doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz doctor --repo .
 ```
 
 Then open a normal code pull request. The check says:
@@ -59,7 +53,7 @@ The automatic path recognizes a narrow root Node/npm layout. Other toolchains
 use the immutable common runner and an explicit command:
 
 ```bash
-npx @sulmusic/agent-vigil@0.21.1 protect \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
