@@ -92,7 +92,7 @@ import {
 } from "./guard-compat.ts";
 import { renderGuardRoute, runGuardRoute } from "./guard-route.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
-import { releasedDoctorCommand } from "./adoption.ts";
+import { releasedDoctorCommand, releasedProtectCommand } from "./adoption.ts";
 
 type Options = {
   transcript?: string;
@@ -206,7 +206,7 @@ function usage(): string {
 Check an AI-assisted pull request before it merges.
 
 Start here:
-  npx @sulmusic/agent-vigil protect
+  ${releasedProtectCommand()}
 
 Then commit the generated setup files and open a setup pull request. After it
 merges, every new pull request gets one result:
