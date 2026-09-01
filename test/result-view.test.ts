@@ -84,9 +84,39 @@ test("PASS, FAIL, and INCONCLUSIVE use the same result structure", () => {
   for (const view of views) {
     assert.deepEqual(Object.keys(view), topKeys);
     assert.deepEqual(Object.keys(view.counts), countKeys);
-    assert.match(renderResultText(view), /^Agent Vigil: (PASS|FAIL|INCONCLUSIVE)\n/);
-    assert.match(renderResultMarkdown(view), /^### Agent Vigil: (PASS|FAIL|INCONCLUSIVE)\n/);
+    assert.match(renderResultText(view), /^Agent Vigil: (PASS|FAIL|NOT CHECKED)\n/);
+    assert.match(renderResultMarkdown(view), /^### Agent Vigil: (PASS|FAIL|NOT CHECKED)\n/);
   }
+});
+
+test("FAIL presents the failed check before an earlier not-checked check", () => {
+  const input = buildReport({
+    transcript: "fixture.jsonl",
+    transcriptFormat: "codex",
+    repo: ".",
+    base: OID_A,
+    head: OID_B,
+    results: [
+      {
+        claim: { kind: "command_ran", subject: "build command was not observed", quote: "build ran" },
+        verdict: "unverifiable",
+        evidence: "no terminal result",
+        ruleId: "command-ran",
+      },
+      {
+        claim: { kind: "tests_pass", subject: "tests failed at test/primary.test.ts:41", quote: "tests passed" },
+        verdict: "contradicted",
+        evidence: "test/primary.test.ts:41 failed",
+        ruleId: "tests-pass",
+      },
+    ],
+    policy: { strict: false, minVerified: 1, sha256: POLICY_SHA },
+  });
+  const view = buildReportResultView(input);
+  assert.equal(view.verdict, "FAIL");
+  assert.equal(view.mainCause, "tests failed at test/primary.test.ts:41");
+  assert.match(renderResultText(view), /Reason: tests failed[\s\S]*File: test\/primary\.test\.ts:41/);
+  assert.match(renderResultViewHtml(view), /<h3>tests failed at test\/primary\.test\.ts:41<\/h3>/);
 });
 
 test("changed-file manifest covers the exact Git range including renames", () => {
@@ -118,11 +148,11 @@ test("result text and web snapshot keep the decision, counts, SHAs, and changed 
   assert.equal(text.split("\n").slice(0, 7).join("\n"), [
     "Agent Vigil: FAIL",
     "Do not merge yet.",
-    "The isolated run found fewer passing tests than the agent reported.",
-    "Failed 1 · Passed 5 · Not checked 1",
-    "",
-    "Checks that need attention",
-    "  FAILED [test-count] Reported test count does not match the isolated run",
+    "Reason: The isolated run found fewer passing tests than the agent reported.",
+    "File: test/verification.test.ts:88",
+    "Tests: claimed 184; observed 161",
+    "Fix: Run the configured test command again and report the observed passing count exactly.",
+    "Reproduce: npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.21.1/sulmusic-agent-vigil-0.21.1.tgz receipt-view ./agent-vigil-receipt.json --format html --output ./agent-vigil-result.html",
   ].join("\n"));
   const generated = renderResultViewHtml(demoResultView);
   const snapshot = readFileSync("docs/assets/outcome-verifier-demo.html", "utf8").replace(/\r\n/g, "\n");

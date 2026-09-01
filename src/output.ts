@@ -2,6 +2,7 @@ import type { CheckResult, TrustReport } from "./report.ts";
 import { remediationFor } from "./remediation.ts";
 import {
   buildReportResultView,
+  primaryResultFinding,
   validateReportForResult,
   type ReportResultViewOptions,
   type ResultFinding,
@@ -19,8 +20,8 @@ function markdownText(value: string): string {
     .replace(/([*_\[\]<>])/g, "\\$1");
 }
 
-function openFindings(view: ResultView): ResultFinding[] {
-  return view.findings.filter((finding) => finding.state !== "PASSED");
+function displayVerdict(view: ResultView): "PASS" | "FAIL" | "NOT CHECKED" {
+  return view.verdict === "INCONCLUSIVE" ? "NOT CHECKED" : view.verdict;
 }
 
 function countLine(view: ResultView): string {
@@ -42,34 +43,25 @@ function textFinding(finding: ResultFinding): string[] {
 }
 
 export function renderResultText(view: ResultView): string {
-  const open = openFindings(view);
+  const primary = primaryResultFinding(view.findings);
   const lines = [
-    `Agent Vigil: ${view.verdict}`,
+    `Agent Vigil: ${displayVerdict(view)}`,
     view.consequence,
-    view.mainCause,
-    countLine(view),
-    "",
+    `Reason: ${view.mainCause}`,
   ];
-  if (open.length) {
-    lines.push("Checks that need attention", ...open.flatMap(textFinding), "");
-  } else lines.push("All required checks passed.", "");
-  if (view.advisories.length) {
-    lines.push(
-      `Advisories (${view.advisories.length}; non-blocking under this policy)`,
-      ...view.advisories.flatMap((finding) => [
-        `  ADVISORY [${finding.id}] ${finding.title}`,
-        `      evidence: ${finding.evidence}`,
-        `      review:   ${finding.remediation}`,
-      ]),
-      "",
-    );
+  if (primary) {
+    if (primary.location) lines.push(`File: ${primary.location.file}${primary.location.line ? `:${primary.location.line}` : ""}`);
+    if (primary.claimedTestCount !== undefined || primary.observedTestCount !== undefined) {
+      lines.push(`Tests: claimed ${primary.claimedTestCount ?? "not stated"}; observed ${primary.observedTestCount ?? "not found"}`);
+    }
+    lines.push(`Fix: ${primary.remediation}`);
   }
   lines.push(
-    `Change: ${view.base} -> ${view.head}`,
-    `Changed files: ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}`,
-    ...view.changedFiles.files.map((file) => `  ${file.status}: ${file.previousPath ? `${file.previousPath} -> ` : ""}${file.path}`),
-    `Receipt: ${view.receiptHash}`,
     `Reproduce: ${view.reproduce}`,
+    "",
+    `Details: ${countLine(view)}${view.advisories.length ? ` · Review notes ${view.advisories.length}` : ""}`,
+    `Change: ${view.base} -> ${view.head}`,
+    `Receipt: ${view.receiptHash}`,
   );
   return lines.join("\n");
 }
@@ -79,44 +71,34 @@ export function renderText(value: unknown, options: ReportResultViewOptions = {}
 }
 
 export function renderResultMarkdown(view: ResultView, options: { aggregateOnly?: boolean } = {}): string {
-  const open = openFindings(view);
+  const primary = primaryResultFinding(view.findings);
   const lines = [
-    `### Agent Vigil: ${view.verdict}`,
+    `### Agent Vigil: ${displayVerdict(view)}`,
     "",
     `**${markdownText(view.consequence)}**`,
     "",
-    options.aggregateOnly ? `Main result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : `**Main result:** ${markdownText(view.mainCause)}`,
-    "",
-    `**Checks:** ${countLine(view)}`,
+    options.aggregateOnly
+      ? `Result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}`
+      : `**Reason:** ${markdownText(view.mainCause)}`,
   ];
-  if (!options.aggregateOnly && open.length) {
-    lines.push("", "#### Checks that need attention", "");
-    for (const finding of open) {
-      const location = finding.location ? ` at ${markdownCodeSpan(`${finding.location.file}${finding.location.line ? `:${finding.location.line}` : ""}`)}` : "";
-      lines.push(`- **${finding.state.replace("_", " ")}** ${markdownCodeSpan(finding.id)}${location}: ${markdownText(finding.title)}`);
-      lines.push(`  - Evidence: ${markdownText(finding.evidence)}`);
-      if (finding.claimedTestCount !== undefined || finding.observedTestCount !== undefined) {
-        lines.push(`  - Tests: claimed **${finding.claimedTestCount ?? "not stated"}**; observed **${finding.observedTestCount ?? "not found"}**`);
-      }
-      lines.push(`  - Fix: ${markdownText(finding.remediation)}`);
+  if (!options.aggregateOnly && primary) {
+    const location = primary.location ? ` at ${markdownCodeSpan(`${primary.location.file}${primary.location.line ? `:${primary.location.line}` : ""}`)}` : "";
+    lines.push("", `**Fix:** ${markdownText(primary.remediation)}${location}`);
+    if (primary.claimedTestCount !== undefined || primary.observedTestCount !== undefined) {
+      lines.push(`**Tests:** claimed **${primary.claimedTestCount ?? "not stated"}**; observed **${primary.observedTestCount ?? "not found"}**`);
     }
-  }
-  if (!options.aggregateOnly && view.advisories.length) {
-    lines.push("", `#### Advisories (${view.advisories.length}; non-blocking under this policy)`, "");
-    for (const finding of view.advisories) {
-      lines.push(`- **ADVISORY** ${markdownCodeSpan(finding.id)}: ${markdownText(finding.title)}`);
-      lines.push(`  - Evidence: ${markdownText(finding.evidence)}`);
-      lines.push(`  - Review: ${markdownText(finding.remediation)}`);
-    }
+    lines.push("", `Reproduce: ${markdownCodeSpan(view.reproduce)}`);
   }
   lines.push(
     "",
-    `**Change:** ${markdownCodeSpan(view.base)} -> ${markdownCodeSpan(view.head)}  `,
-    `**Changed files:** ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}  `,
-    `**Receipt:** ${markdownCodeSpan(view.receiptHash)}`,
+    "<details><summary>Receipt details</summary>",
     "",
+    `Checks: ${countLine(view)}${view.advisories.length ? ` · Review notes ${view.advisories.length}` : ""}  `,
+    `Change: ${markdownCodeSpan(view.base)} -> ${markdownCodeSpan(view.head)}  `,
+    `Receipt: ${markdownCodeSpan(view.receiptHash)}`,
+    "",
+    "</details>",
   );
-  if (!options.aggregateOnly) lines.push(`Reproduce: ${markdownCodeSpan(view.reproduce)}`, "");
   return lines.join("\n");
 }
 

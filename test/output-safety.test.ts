@@ -181,7 +181,7 @@ test("human-readable renderers distinguish pass, failure, unresolved evidence, a
   assert.match(renderText(pass), /PASS/);
   assert.doesNotMatch(renderText(pass), /Missing or unresolved evidence/);
   assert.match(renderMarkdown(pass), /^### Agent Vigil: PASS/);
-  assert.match(renderDecisionCard(pass), /Main result: All required checks passed\./);
+  assert.match(renderDecisionCard(pass), /Result: All required checks passed\./);
 
   const fail = mixedReport([
     result("verified", "tests-pass"),
@@ -193,19 +193,19 @@ test("human-readable renderers distinguish pass, failure, unresolved evidence, a
   const failText = renderText(fail);
   assert.match(failText, /FAIL/);
   assert.match(failText, /Restore a meaningful coverage threshold/);
-  assert.match(failText, /ADVISORY/);
-  assert.match(failText, /Advisories \(2; non-blocking under this policy\)/);
+  assert.match(failText, /Review notes 2/);
+  assert.doesNotMatch(failText, /optional evidence|assertion surface/);
   const failMarkdown = renderMarkdown(fail);
   assert.match(failMarkdown, /^### Agent Vigil: FAIL/);
-  assert.match(failMarkdown, /Checks that need attention/);
-  assert.match(failMarkdown, /Evidence: evidence \| with/);
-  assert.match(renderDecisionCard(fail), /Main result: 1 required check\(s\) failed\./);
+  assert.match(failMarkdown, /\*\*Reason:\*\* coverage contract/);
+  assert.match(failMarkdown, /<summary>Receipt details<\/summary>/);
+  assert.match(renderDecisionCard(fail), /Result: 1 required check\(s\) failed\./);
 
   const unresolved = mixedReport([result("unverifiable", "path-exists")]);
   assert.equal(unresolved.summary.status, "INCONCLUSIVE");
   assert.match(renderText(unresolved), /Required verification evidence is missing/);
-  assert.match(renderMarkdown(unresolved), /^### Agent Vigil: INCONCLUSIVE/);
-  assert.match(renderDecisionCard(unresolved), /Main result: 2 required check\(s\) did not run\./);
+  assert.match(renderMarkdown(unresolved), /^### Agent Vigil: NOT CHECKED/);
+  assert.match(renderDecisionCard(unresolved), /Result: 2 required check\(s\) did not run\./);
 });
 
 test("decision card stays aggregate-only and omits reproduction details", () => {
@@ -215,7 +215,7 @@ test("decision card stays aggregate-only and omits reproduction details", () => 
     `blocked item ${index}`,
   ));
   const card = renderDecisionCard(mixedReport(open));
-  assert.match(card, /Main result: 7 required check\(s\) failed\./);
+  assert.match(card, /Result: 7 required check\(s\) failed\./);
   assert.doesNotMatch(card, /blocked item 0/);
   assert.doesNotMatch(card, /blocked item 6/);
   assert.doesNotMatch(card, /fixture|vigil check|Reproduce/);
