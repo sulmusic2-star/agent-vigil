@@ -70,11 +70,11 @@ and limitations are in
 - **Constructive-injection exact category:** Agent Vigil 244/325; Swarm
   258/325. Exact paired McNemar p=0.188847. This comparison does not establish a
   reliable exact-recall difference.
-- **Presumed-clean merged PRs:** Agent Vigil flagged 103/232 PRs with 146 total
+- **Presumed-clean merged PRs:** Agent Vigil flagged 104/232 PRs with 147 total
   findings; Swarm flagged 71/232 with 622 total findings. These PRs are not
   adjudicated negatives, so neither proportion is a false-positive rate.
 - **Strict complaint-mined final diffs:** 10 were fetchable; Agent Vigil exact
-  category 1/10 and any finding 1/10; Swarm exact 0/10 and any 2/10. Complaint
+  category 0/10 and any finding 0/10; Swarm exact 0/10 and any 2/10. Complaint
   history does not prove the frozen final diff still contains the complained-of
   defect, and the sample is too small for a leadership claim.
 - **Default merge effect:** zero of the 232 PRs would be blocked by the static

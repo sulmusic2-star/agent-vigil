@@ -269,7 +269,11 @@ function suppressionReceiptFinding(patch: AgenticPatch): CheckResult | undefined
   for (let index = 0; index < patch.added.length; index++) {
     const line = patch.added[index];
     if (isDetectorPatternLine(line)) continue;
-    if (/\bas\s+any\b|\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) { // vigil:detector-pattern
+    // A TypeScript `as any` cast is weak typing, but it is not by itself a
+    // compiler or linter suppression. Treating every cast as a suppression
+    // overwhelmed useful findings in the real-PR calibration corpus. Keep
+    // this rule for directives that actually turn a diagnostic off.
+    if (/\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) { // vigil:detector-pattern
       return finding(
         "compiler, linter, or type suppression added",
         `${patch.path}, changed line ${index + 1}: a new diagnostic suppression requires review`,

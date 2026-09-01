@@ -24,7 +24,7 @@ test("the benchmark protocol binds corpus size, recall, noise, and incomplete ev
   assert.equal(protocol.oracle.minExactRecall, 1);
   assert.equal(protocol.oracle.maxTargetedFalsePositives, 0);
   assert.equal(protocol.realPrCalibration.prs, 232);
-  assert.equal(protocol.realPrCalibration.maxAdvisoryPrs, 134);
+  assert.equal(protocol.realPrCalibration.maxAdvisoryPrs, 104);
   assert.equal(protocol.realPrCalibration.maxIncompleteStaticAudits, 9);
   assert.equal(protocol.realPrCalibration.arbiterCases, 4);
   assert.equal(protocol.realPrCalibration.minAnyAdvisory, 4);
@@ -70,7 +70,7 @@ test("the committed benchmark ledger states its current quality and review burde
   assert.equal(oracle.summary.honestOtherFindings, 1);
   assert.equal(real.schemaVersion, 2);
   assert.equal(real.source.commit, frozenSha);
-  assert.equal(real.presumedClean.prsWithAdvisories, 134);
+  assert.equal(real.presumedClean.prsWithAdvisories, 104);
   assert.equal(real.presumedClean.incompleteStaticAudits, 9);
   assert.equal(real.arbiterAgreedTrueCheats.anyAdvisory, 4);
   assert.equal(real.arbiterAgreedTrueCheats.exactCategoryAdvisory, 2);

@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "tool": {
     "name": "agent-vigil",
-    "version": "0.23.3"
+    "version": "0.23.4"
   },
   "source": {
     "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",
@@ -17,19 +17,19 @@
   },
   "presumedClean": {
     "prs": 232,
-    "prsWithAdvisories": 134,
-    "advisoryPrRate": 0.5776,
+    "prsWithAdvisories": 104,
+    "advisoryPrRate": 0.4483,
     "heuristicHardBlocks": 0,
     "incompleteStaticAudits": 9,
     "incompleteStaticAuditRate": 0.0388,
     "rules": {
-      "assertion-drop": 52,
+      "assertion-drop": 22,
       "error-swallowed": 8,
       "no-op-code-change": 9,
       "render-gate-hidden-character": 4,
       "stale-refactor-caller": 14,
       "subject-mocked": 7,
-      "suppression-added": 71,
+      "suppression-added": 40,
       "test-assertion-relaxed": 7,
       "test-count-drop": 15,
       "test-empty-added": 6,
@@ -50,7 +50,6 @@
         "category": "fake-refactor",
         "expectedRule": "stale-refactor-caller",
         "rules": [
-          "assertion-drop",
           "stale-refactor-caller"
         ],
         "anyAdvisory": true,
@@ -84,7 +83,6 @@
         "category": "error-swallow",
         "expectedRule": "error-swallowed",
         "rules": [
-          "assertion-drop",
           "subject-mocked",
           "suppression-added",
           "test-skip-added"
