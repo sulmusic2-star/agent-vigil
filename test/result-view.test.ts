@@ -89,6 +89,36 @@ test("PASS, FAIL, and INCONCLUSIVE use the same result structure", () => {
   }
 });
 
+test("FAIL presents the failed check before an earlier not-checked check", () => {
+  const input = buildReport({
+    transcript: "fixture.jsonl",
+    transcriptFormat: "codex",
+    repo: ".",
+    base: OID_A,
+    head: OID_B,
+    results: [
+      {
+        claim: { kind: "command_ran", subject: "build command was not observed", quote: "build ran" },
+        verdict: "unverifiable",
+        evidence: "no terminal result",
+        ruleId: "command-ran",
+      },
+      {
+        claim: { kind: "tests_pass", subject: "tests failed at test/primary.test.ts:41", quote: "tests passed" },
+        verdict: "contradicted",
+        evidence: "test/primary.test.ts:41 failed",
+        ruleId: "tests-pass",
+      },
+    ],
+    policy: { strict: false, minVerified: 1, sha256: POLICY_SHA },
+  });
+  const view = buildReportResultView(input);
+  assert.equal(view.verdict, "FAIL");
+  assert.equal(view.mainCause, "tests failed at test/primary.test.ts:41");
+  assert.match(renderResultText(view), /Reason: tests failed[\s\S]*File: test\/primary\.test\.ts:41/);
+  assert.match(renderResultViewHtml(view), /<h3>tests failed at test\/primary\.test\.ts:41<\/h3>/);
+});
+
 test("changed-file manifest covers the exact Git range including renames", () => {
   const repo = mkdtempSync(join(tmpdir(), "vigil-result-view-"));
   execFileSync("git", ["init", "-q"], { cwd: repo });

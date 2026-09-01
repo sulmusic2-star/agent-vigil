@@ -2,6 +2,7 @@ import type { CheckResult, TrustReport } from "./report.ts";
 import { remediationFor } from "./remediation.ts";
 import {
   buildReportResultView,
+  primaryResultFinding,
   validateReportForResult,
   type ReportResultViewOptions,
   type ResultFinding,
@@ -17,10 +18,6 @@ function markdownText(value: string): string {
     .replace(/[\r\n]+/g, " ")
     .replace(/\\/g, "\\\\")
     .replace(/([*_\[\]<>])/g, "\\$1");
-}
-
-function openFindings(view: ResultView): ResultFinding[] {
-  return view.findings.filter((finding) => finding.state !== "PASSED");
 }
 
 function displayVerdict(view: ResultView): "PASS" | "FAIL" | "NOT CHECKED" {
@@ -46,8 +43,7 @@ function textFinding(finding: ResultFinding): string[] {
 }
 
 export function renderResultText(view: ResultView): string {
-  const open = openFindings(view);
-  const primary = open[0];
+  const primary = primaryResultFinding(view.findings);
   const lines = [
     `Agent Vigil: ${displayVerdict(view)}`,
     view.consequence,
@@ -75,8 +71,7 @@ export function renderText(value: unknown, options: ReportResultViewOptions = {}
 }
 
 export function renderResultMarkdown(view: ResultView, options: { aggregateOnly?: boolean } = {}): string {
-  const open = openFindings(view);
-  const primary = open[0];
+  const primary = primaryResultFinding(view.findings);
   const lines = [
     `### Agent Vigil: ${displayVerdict(view)}`,
     "",
