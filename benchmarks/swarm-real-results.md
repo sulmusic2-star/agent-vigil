@@ -1,6 +1,6 @@
 # Agent Vigil real-PR advisory calibration
 
-- Agent Vigil: 0.23.4
+- Agent Vigil: 0.23.3
 - upstream commit: `b2b681ff529929d39a14c0541d0e2b71b642b5da`
 - presumed-clean merged PRs: 232
 - PRs with one or more static advisories: 104/232 (44.8%)
