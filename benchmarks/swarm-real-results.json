@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "tool": {
     "name": "agent-vigil",
-    "version": "0.10.0"
+    "version": "0.23.3"
   },
   "source": {
     "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",
@@ -12,23 +12,29 @@
   },
   "methodology": {
     "mode": "static unified-diff audit; candidate code is never executed",
-    "warning": "The 232 merged PRs are presumed clean, not adjudicated negatives. A finding is therefore an advisory-burden observation, not automatically a false positive. Dual-model arbiter labels are also not ground truth.",
-    "defaultPolicy": "Static integrity contradictions are non-blocking advisories unless integrityMode=blocking or vigil audit --strict is selected."
+    "warning": "The 232 merged PRs are presumed clean, not adjudicated negatives. A finding is therefore an advisory-burden observation, not automatically a false positive. Dual-model arbiter labels are also not ground truth. This raw-diff benchmark is narrower than the repository-aware GitHub check.",
+    "defaultPolicy": "Static integrity contradictions are non-blocking advisories unless integrityMode=blocking or vigil audit --strict is selected. Incomplete raw-diff evidence remains fail-closed and is reported separately."
   },
   "presumedClean": {
     "prs": 232,
-    "prsWithAdvisories": 103,
-    "advisoryPrRate": 0.444,
-    "defaultHardBlocks": 0,
+    "prsWithAdvisories": 134,
+    "advisoryPrRate": 0.5776,
+    "heuristicHardBlocks": 0,
+    "incompleteStaticAudits": 9,
+    "incompleteStaticAuditRate": 0.0388,
     "rules": {
-      "assertion-drop": 43,
-      "error-swallowed": 9,
+      "assertion-drop": 52,
+      "error-swallowed": 8,
       "no-op-code-change": 9,
+      "render-gate-hidden-character": 4,
       "stale-refactor-caller": 14,
       "subject-mocked": 7,
-      "suppression-added": 43,
+      "suppression-added": 71,
       "test-assertion-relaxed": 7,
-      "test-count-drop": 5,
+      "test-count-drop": 15,
+      "test-empty-added": 6,
+      "test-oracle-constant": 1,
+      "test-runtime-patch": 5,
       "test-skip-added": 7,
       "verification-bypass": 2
     }
@@ -87,5 +93,106 @@
         "exactCategoryAdvisory": false
       }
     ]
-  }
+  },
+  "incompleteStaticAudits": [
+    {
+      "repo": "vitejs/vite",
+      "prNumber": 12807,
+      "url": "https://github.com/vitejs/vite/pull/12807",
+      "evidence": [
+        {
+          "ruleId": "diff-unparseable",
+          "evidence": "binary or non-text patch cannot be audited at input line 909"
+        }
+      ]
+    },
+    {
+      "repo": "vercel/next.js",
+      "prNumber": 94179,
+      "url": "https://github.com/vercel/next.js/pull/94179",
+      "evidence": [
+        {
+          "ruleId": "diff-unparseable",
+          "evidence": "diff --git identity does not match its exact old/new path headers"
+        }
+      ]
+    },
+    {
+      "repo": "withastro/astro",
+      "prNumber": 16690,
+      "url": "https://github.com/withastro/astro/pull/16690",
+      "evidence": [
+        {
+          "ruleId": "diff-unparseable",
+          "evidence": "binary or non-text patch cannot be audited at input line 1482"
+        }
+      ]
+    },
+    {
+      "repo": "nrwl/nx",
+      "prNumber": 35141,
+      "url": "https://github.com/nrwl/nx/pull/35141",
+      "evidence": [
+        {
+          "ruleId": "diff-unparseable",
+          "evidence": "diff --git identity does not match its exact old/new path headers"
+        }
+      ]
+    },
+    {
+      "repo": "nrwl/nx",
+      "prNumber": 35688,
+      "url": "https://github.com/nrwl/nx/pull/35688",
+      "evidence": [
+        {
+          "ruleId": "diff-unparseable",
+          "evidence": "diff --git header ended without exact old/new headers and a complete hunk before input line 135"
+        }
+      ]
+    },
+    {
+      "repo": "nrwl/nx",
+      "prNumber": 35699,
+      "url": "https://github.com/nrwl/nx/pull/35699",
+      "evidence": [
+        {
+          "ruleId": "diff-unparseable",
+          "evidence": "diff --git identity does not match its exact old/new path headers"
+        }
+      ]
+    },
+    {
+      "repo": "expo/expo",
+      "prNumber": 46355,
+      "url": "https://github.com/expo/expo/pull/46355",
+      "evidence": [
+        {
+          "ruleId": "diff-unparseable",
+          "evidence": "diff --git header ended without exact old/new headers and a complete hunk before input line 1440"
+        }
+      ]
+    },
+    {
+      "repo": "expo/expo",
+      "prNumber": 45252,
+      "url": "https://github.com/expo/expo/pull/45252",
+      "evidence": [
+        {
+          "ruleId": "diff-unparseable",
+          "evidence": "diff --git identity does not match its exact old/new path headers"
+        }
+      ]
+    },
+    {
+      "repo": "mui/material-ui",
+      "prNumber": 5852,
+      "url": "https://github.com/mui/material-ui/pull/5852",
+      "evidence": [
+        {
+          "ruleId": "diff-unparseable",
+          "evidence": "binary or non-text patch cannot be audited at input line 61"
+        }
+      ]
+    }
+  ]
 }
