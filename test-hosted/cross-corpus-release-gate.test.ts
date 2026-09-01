@@ -1,0 +1,60 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import { FROZEN_CROSS_CORPUS_GATE, verifyCrossCorpusGate } from "../scripts/verify_cross_corpus_benchmark.ts";
+
+const frozenSha = "b2b681ff529929d39a14c0541d0e2b71b642b5da";
+
+test("scheduled and release workflows enforce the same frozen cross-corpus gate", () => {
+  const scheduled = readFileSync(".github/workflows/cross-corpus-benchmark.yml", "utf8");
+  const release = readFileSync(".github/workflows/publish.yml", "utf8");
+  for (const [name, workflow] of [["scheduled", scheduled], ["release", release]] as const) {
+    assert.match(workflow, new RegExp(frozenSha), `${name} workflow must select the frozen source commit`);
+    assert.match(workflow, /benchmark:swarm(?:\s|$)/, `${name} workflow must reproduce the oracle result`);
+    assert.match(workflow, /benchmark:swarm-real(?:\s|$)/, `${name} workflow must reproduce the real-PR result`);
+    assert.match(workflow, /benchmark:gate(?:\s|$)/, `${name} workflow must enforce the benchmark boundary`);
+  }
+});
+
+test("the benchmark protocol binds corpus size, recall, noise, and incomplete evidence", () => {
+  const protocol = FROZEN_CROSS_CORPUS_GATE;
+  assert.equal(protocol.schemaVersion, 1);
+  assert.equal(protocol.source.commit, frozenSha);
+  assert.equal(protocol.oracle.scopedCases, 220);
+  assert.equal(protocol.oracle.minExactRecall, 1);
+  assert.equal(protocol.oracle.maxTargetedFalsePositives, 0);
+  assert.equal(protocol.realPrCalibration.prs, 232);
+  assert.equal(protocol.realPrCalibration.maxAdvisoryPrs, 134);
+  assert.equal(protocol.realPrCalibration.maxIncompleteStaticAudits, 9);
+  assert.equal(protocol.realPrCalibration.arbiterCases, 4);
+  assert.equal(protocol.realPrCalibration.minAnyAdvisory, 4);
+  assert.equal(protocol.realPrCalibration.minExactCategoryAdvisory, 2);
+});
+
+test("the package exposes one deterministic benchmark gate command", () => {
+  const packageDocument = JSON.parse(readFileSync("package.json", "utf8"));
+  assert.equal(packageDocument.scripts?.["benchmark:gate"], "tsx scripts/verify_cross_corpus_benchmark.ts");
+});
+
+test("the benchmark gate fails closed when catch quality falls or review burden rises", () => {
+  const oracle = {
+    schemaVersion: 2,
+    tool: { version: "0.23.4" },
+    source: { commit: frozenSha },
+    summary: { scopedCases: 220, exactRecall: 0.99, honestTargetedFalsePositives: 1 },
+  };
+  const real = {
+    schemaVersion: 2,
+    tool: { version: "0.23.4" },
+    source: { commit: frozenSha },
+    presumedClean: { prs: 232, prsWithAdvisories: 135, incompleteStaticAudits: 10 },
+    arbiterAgreedTrueCheats: { cases: 4, anyAdvisory: 3, exactCategoryAdvisory: 1 },
+  };
+  const errors = verifyCrossCorpusGate(FROZEN_CROSS_CORPUS_GATE, oracle, real).join("\n");
+  assert.match(errors, /exact recall regressed/);
+  assert.match(errors, /false positives increased/);
+  assert.match(errors, /advisory burden increased/);
+  assert.match(errors, /incomplete static audits increased/);
+  assert.match(errors, /any-advisory catches regressed/);
+  assert.match(errors, /exact-category catches regressed/);
+});

@@ -536,6 +536,67 @@ test("static diff audit rejects quoted path headers it cannot bind exactly", () 
   assert.equal(result.blocksPass, true);
 });
 
+test("static diff audit accepts an exactly bound content-changing rename", () => {
+  const results = checkIntegrityDiff([
+    "diff --git a/src/refactor.ts b/src/refactored.ts",
+    "similarity index 88%",
+    "rename from src/refactor.ts",
+    "rename to src/refactored.ts",
+    "--- a/src/refactor.ts",
+    "+++ b/src/refactored.ts",
+    "@@ -1,2 +1,2 @@",
+    "-export function compute(x: number) { return x; }",
+    "+export function computeV2(x: number) { return x; }",
+    " export const wired = compute(1);",
+    "",
+  ].join("\n"));
+  assert.equal(results.some((result) => result.ruleId === "diff-unparseable"), false);
+  assert.ok(results.some((result) => result.ruleId === "stale-refactor-caller"));
+});
+
+test("static diff audit rejects ambiguous or unsupported rename metadata", () => {
+  const base = [
+    "diff --git a/src/refactor.ts b/src/refactored.ts",
+    "similarity index 88%",
+    "rename from src/refactor.ts",
+    "rename to src/refactored.ts",
+    "--- a/src/refactor.ts",
+    "+++ b/src/refactored.ts",
+    "@@ -1 +1 @@",
+    "-return oldValue;",
+    "+return newValue;",
+    "",
+  ];
+  const mismatched = [...base];
+  mismatched[3] = "rename to src/other.ts";
+  const quoted = [...base];
+  quoted[2] = 'rename from "src/refactor.ts"';
+  const copied = [...base];
+  copied[2] = "copy from src/refactor.ts";
+  for (const diff of [mismatched, quoted, copied]) {
+    const result = checkIntegrityDiff(diff.join("\n"))[0];
+    assert.equal(result.ruleId, "diff-unparseable");
+    assert.equal(result.blocksPass, true);
+  }
+});
+
+test("static diff audit keeps completed text findings when a later binary patch is unreadable", () => {
+  const plantedDeadBranch = `if (${"false"}) return fallback;`;
+  const results = checkIntegrityDiff([
+    unifiedDiff("src/value.ts", ["return value;"], [plantedDeadBranch, "return value;"]),
+    "diff --git a/assets/value.db b/assets/value.db",
+    "deleted file mode 100644",
+    "index 1111111..0000000",
+    "Binary files a/assets/value.db and /dev/null differ",
+    "",
+  ].join("\n"));
+  const unreadable = results.find((result) => result.ruleId === "diff-unparseable");
+  assert.equal(unreadable?.verdict, "unverifiable");
+  assert.equal(unreadable?.blocksPass, true);
+  assert.ok(results.some((result) => result.ruleId === "dead-branch-added" && result.verdict === "contradicted"));
+  assert.equal(results.some((result) => result.verdict === "verified"), false);
+});
+
 test("static diff audit rejects malformed, under-counted, and truncated hunks", () => {
   const clean = unifiedDiff("src/clean.ts", ["return 1;"], ["return 2;"]);
   const malformed = [

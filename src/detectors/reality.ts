@@ -1509,8 +1509,16 @@ export function checkIntegrityDiff(diff: string): CheckResult[] {
       blocksPass: true,
     }];
   }
-  const parsed = parseFilePatches(diff);
-  if (parsed.invalidHeader || !parsed.patches.length) {
+  // A raw Git patch can bind a rename without consulting the repository when
+  // all four identities agree: diff --git, rename from/to, and ---/+++.
+  // parseFilePatches still rejects quoted, copied, dissimilar, incomplete, or
+  // mismatched metadata, so enabling exact rename parsing does not turn an
+  // ambiguous patch into verified evidence.
+  const parsed = parseFilePatches(diff, true);
+  const unreadable = parsed.invalidHeader
+    ? unreadableIntegrityResult("parseable changed files", parsed.invalidHeader, "diff-unparseable")
+    : undefined;
+  if (!parsed.patches.length) {
     return [{
       claim: { kind: "integrity", quote: "static unified-diff audit", subject: "parseable changed files" },
       verdict: "unverifiable",
@@ -1522,6 +1530,7 @@ export function checkIntegrityDiff(diff: string): CheckResult[] {
   }
   const patches = parsed.patches;
   const results = [...checkIntegrityPatches(patches), ...checkAgenticPatches(patches)];
+  if (unreadable) return [unreadable, ...results];
   return results.length ? results : [cleanIntegrityResult(patches.length, true)];
 }
 
