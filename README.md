@@ -55,6 +55,7 @@ It is not a public release yet.
 
 The last verified GitHub package is
 [`sulmusic-agent-vigil-0.23.2.tgz`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz).
+GitHub release v0.23.2 is public and immutable.
 npm currently serves v0.21.1. Do not assume that `latest` points to the same
 code on every channel. v0.23.3 can replace those versions only after npm,
 GitHub Releases, the Marketplace listing, checksums, README, and Action pins
