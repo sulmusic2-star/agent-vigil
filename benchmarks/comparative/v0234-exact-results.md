@@ -1,6 +1,6 @@
-# Static audit comparison v0234 exact results
+# Static audit comparison current pre-release source
 
-Protocol: `513ef52097e98cccdff45b4c55235503cbf4538bfec5f8b456b041628c6b55d8` · Agent Vigil 0.23.4 evaluated at `bc01bdd794488823bfa03dab7ef5985de0fa0ce9` · Swarm 12.1.1 at `b2b681ff529929d39a14c0541d0e2b71b642b5da`
+Protocol: `513ef52097e98cccdff45b4c55235503cbf4538bfec5f8b456b041628c6b55d8` · Agent Vigil 0.23.3 evaluated at `7707906cb126de69b0774f2d396297e81a848ccc` · Swarm 12.1.1 at `b2b681ff529929d39a14c0541d0e2b71b642b5da`
 
 > Maintainer-authored, non-blind comparison on competitor-authored corpora. This does not establish objective universal superiority or any financial outcome.
 
@@ -11,7 +11,7 @@ Protocol: `513ef52097e98cccdff45b4c55235503cbf4538bfec5f8b456b041628c6b55d8` · 
 | Agent Vigil | 76.9% | 100.0% | 88.5% | 76.9% |
 | Swarm | 100.0% | 28.8% | 64.4% | 28.8% |
 
-Any-finding McNemar: Agent-only 0, Swarm-only 120, exact p=0.
+Any-finding McNemar: Agent-only 0, Swarm-only 120, exact p<0.000001.
 
 ## Constructive-injection oracle
 

@@ -37,7 +37,7 @@ The frozen comparison runs Agent Vigil and Swarm against the same unified diffs.
 Neither tool receives repository execution, a model judge, or its wider product
 features.
 
-| measure | Agent Vigil 0.23.4 exact source run | Swarm 12.1.1 |
+| measure | Agent Vigil current pre-release source | Swarm 12.1.1 |
 |---|---:|---:|
 | paired synthetic broken recall | 76.9% | 100.0% |
 | paired synthetic clean specificity | 100.0% | 28.8% |
@@ -55,7 +55,9 @@ too small and weakly labeled for a leadership claim.
 
 Full rows, hashes, Wilson intervals, paired tests, and bootstrap results are in
 [`../benchmarks/comparative/v0234-exact-results.json.gz`](../benchmarks/comparative/v0234-exact-results.json.gz).
-The run used clean source commit `bc01bdd794488823bfa03dab7ef5985de0fa0ce9`.
+The run used Agent Vigil 0.23.3 source at clean commit
+`7707906cb126de69b0774f2d396297e81a848ccc` while v0.23.4 was still being
+assembled.
 The release artifact still needs its separate exact-tag package and checksum gate.
 
 ## Product decisions from the comparison
