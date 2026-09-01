@@ -274,8 +274,13 @@ test("Outcome JSON and signing-key reads reject links and oversized files", { sk
 test("Top-level outcome CLI dispatch exposes help and terminal-safes attacker-derived text", () => {
   const help = captureConsole(() => run(["--help"]));
   assert.equal(help.code, 0);
-  assert.match(help.stdout, /vigil mandate create/);
-  assert.match(help.stdout, /vigil receipt verify/);
+  assert.match(help.stdout, /npx @sulmusic\/agent-vigil protect/);
+  assert.match(help.stdout, /PASS[\s\S]*FAIL[\s\S]*NOT CHECKED/);
+
+  const advancedHelp = captureConsole(() => run(["help", "--all"]));
+  assert.equal(advancedHelp.code, 0);
+  assert.match(advancedHelp.stdout, /vigil mandate create/);
+  assert.match(advancedHelp.stdout, /vigil receipt verify/);
 
   const mandateHelp = captureConsole(() => run(["mandate", "--help"]));
   const receiptHelp = captureConsole(() => run(["receipt", "--help"]));

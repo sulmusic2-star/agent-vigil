@@ -43,10 +43,10 @@ test("proof comment is deterministic, single-marker, and aggregate-only", () => 
 
   assert.equal(first, second);
   assert.equal(first.split(PROOF_COMMENT_MARKER).length - 1, 1);
-  assert.match(first, /Candidate-only regression checks:\*\* 1 verified/);
-  assert.match(first, /also passed on base:\*\* 1/);
-  assert.match(first, /Integrity-control contradictions:\*\* 1/);
-  assert.match(first, /Unapproved authority contradictions:\*\* 1/);
+  assert.match(first, /Candidate-only regression checks: 1 verified/);
+  assert.match(first, /also passed on base: 1/);
+  assert.match(first, /Integrity-control contradictions: 1/);
+  assert.match(first, /Unapproved authority contradictions: 1/);
   assert.doesNotMatch(first, /SECRET_DETAIL|HOSTILE_DETAIL|private\/repository|vigil private command/);
   assert.doesNotMatch(first, /\b(?:lie|cheat|fake)\b/i);
 });
@@ -69,7 +69,7 @@ test("proof comment does not turn a passing receipt into a correctness claim", (
   const output = renderProofComment(report([check("tests-pass", "verified", "tests_pass")]));
   assert.match(output, /does not prove that the code is bug-free/);
   assert.match(output, /Agent Vigil: PASS/);
-  assert.match(output, /Signature:\*\* absent; content hash only/);
+  assert.match(output, /Signature: absent; content hash only/);
 });
 
 test("proof comment refuses altered receipts and invalid signatures", () => {
