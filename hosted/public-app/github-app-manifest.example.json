@@ -1,0 +1,20 @@
+{
+  "name": "Agent Vigil",
+  "url": "https://REPLACE_WITH_PUBLIC_APP_ORIGIN.example",
+  "hook_attributes": {
+    "url": "https://REPLACE_WITH_PUBLIC_APP_ORIGIN.example/github/webhook",
+    "active": false
+  },
+  "public": true,
+  "default_permissions": {
+    "checks": "write",
+    "contents": "read",
+    "merge_queues": "read",
+    "metadata": "read",
+    "pull_requests": "read"
+  },
+  "default_events": [
+    "merge_group",
+    "pull_request"
+  ]
+}
