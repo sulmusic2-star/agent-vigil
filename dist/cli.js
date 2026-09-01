@@ -19416,43 +19416,13 @@ ${outcomeUsage()}`);
 }
 
 // src/adoption.ts
-var REPOSITORY_PART = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
-var ADOPTION_FORM = "https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml";
-var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.3/sulmusic-agent-vigil-0.23.3.tgz";
-function githubRepositorySlug(remote) {
-  if (!remote || /[\u0000-\u001f\u007f-\u009f]/.test(remote)) return void 0;
-  let path;
-  try {
-    if (/^git@github\.com:/.test(remote)) path = remote.slice("git@github.com:".length);
-    else {
-      const url = new URL(remote);
-      if (!(/* @__PURE__ */ new Set(["https:", "ssh:", "git:"])).has(url.protocol) || url.hostname.toLowerCase() !== "github.com" || url.search || url.hash) return void 0;
-      if (url.password || (url.protocol === "ssh:" ? url.username !== "git" : Boolean(url.username))) return void 0;
-      if (url.port && !(url.protocol === "ssh:" && url.port === "22")) return void 0;
-      path = url.pathname.replace(/^\//, "");
-    }
-  } catch {
-    return void 0;
-  }
-  const parts = path.replace(/\.git$/, "").split("/");
-  if (parts.length !== 2 || !parts.every((part) => REPOSITORY_PART.test(part))) return void 0;
-  return `${parts[0]}/${parts[1]}`;
-}
-function workflowBadge(slug) {
-  const parts = slug.split("/");
-  if (parts.length !== 2 || !parts.every((part) => REPOSITORY_PART.test(part))) throw new Error("badge repository must be owner/name");
-  const workflow2 = `https://github.com/${slug}/actions/workflows/agent-vigil.yml`;
-  return `[![Agent Vigil workflow](${workflow2}/badge.svg)](${workflow2})`;
-}
-function adoptionRegistrationUrl(slug) {
-  return slug ? `${ADOPTION_FORM}&title=${encodeURIComponent(`[adoption] ${slug}`)}` : ADOPTION_FORM;
-}
+var RELEASE_PACKAGE = "@sulmusic/agent-vigil";
 function releasedDoctorCommand() {
   return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
 }
 
 // src/cli.ts
-function usage4() {
+function advancedUsage() {
   return `agent-vigil ${VERSION}
 
 Usage:
@@ -19538,6 +19508,29 @@ Value options:
   --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS \xB7 1 FAIL \xB7 2 INCONCLUSIVE or usage error`;
+}
+function usage4() {
+  return `Agent Vigil ${VERSION}
+
+Check an AI-assisted pull request before it merges.
+
+Start here:
+  npx @sulmusic/agent-vigil protect
+
+Then commit the generated setup files and open a setup pull request. After it
+merges, every new pull request gets one result:
+
+  PASS         Ready to merge.
+  FAIL         Do not merge yet.
+  NOT CHECKED  No decision because required evidence is missing.
+
+Useful commands:
+  vigil protect              Add Agent Vigil to the current repository
+  vigil doctor               Check the setup
+  vigil check <pull-request> Check a public GitHub pull request
+  vigil demo                 See a safe local example
+
+Advanced commands: vigil help --all`;
 }
 function guardCompatibilityUsage() {
   return `Agent Vigil guard compatibility
@@ -20077,7 +20070,6 @@ function runProtect(args) {
     );
     console.log("Agent Vigil is ready to add.\n");
     const policy = loadPolicy(repo).value;
-    const slug = githubRepositorySlug(git9(repo, ["config", "--get", "remote.origin.url"]));
     const commands = policy.maintainer?.automatedReview?.commands ?? [];
     if (commands.length) console.log(`  Found   ${safeSetupLine(commands.join(" && "))}`);
     console.log(`  Pinned  ${actionSha}${optionValue(args, "--action-sha") ? " (operator selected)" : selectedPin.source === "package-build" ? " (this package build)" : " (reviewed public release)"}`);
@@ -20091,18 +20083,10 @@ ${renderProtectRehearsal(rehearsal)}`);
         console.error("\nAgent Vigil could not prove its disposable red/green rehearsal. The generated files remain prepared but must not be activated.");
         return 2;
       }
-      console.log("\nState: PREPARED \u2014 not active yet.");
-      console.log("\nNext:");
-      console.log("  1. Review the four generated files.");
-      console.log("  2. Commit and push them in a setup pull request.");
-      console.log(`  3. After that setup merges, run \`${releasedDoctorCommand()}\`.`);
-      console.log("\nState after setup: RUNNING IN CI, not enforced. A plain required job name is not a workflow trust root; enforcement needs an external required workflow or App-owned exact-head check.");
-      if (slug) {
-        console.log("\nOptional workflow badge (run status only; not proof of required-check enforcement):");
-        console.log(`  ${workflowBadge(slug)}`);
-      }
-      console.log("\nRegister an outside trial only after the workflow runs. Registration is optional and requires maintainer consent:");
-      console.log(`  ${adoptionRegistrationUrl(slug)}`);
+      console.log("\nSetup: READY \u2014 not running in GitHub yet.");
+      console.log("\nNext: commit the generated files and open one setup pull request.");
+      console.log(`After it merges, run \`${releasedDoctorCommand()}\`, then open a normal code pull request.`);
+      console.log("That pull request will show PASS, FAIL, or NOT CHECKED. Making the result a protected merge requirement still needs the Agent Vigil App.");
       return 0;
     }
     const checks = doctorRepository(repo);
@@ -20930,6 +20914,18 @@ function shellQuote2(value) {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 function run(argv = process.argv.slice(2)) {
+  if (argv.length === 0) {
+    console.log(usage4());
+    return 0;
+  }
+  if (argv[0] === "help") {
+    console.log(argv.includes("--all") ? advancedUsage() : usage4());
+    return 0;
+  }
+  if (argv.includes("--help-all")) {
+    console.log(advancedUsage());
+    return 0;
+  }
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "continuity") return runContinuityCommand(argv.slice(1));
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));

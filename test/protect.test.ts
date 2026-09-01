@@ -68,18 +68,15 @@ test("protect needs no SHA and reports one truthful prepared state", () => {
   const workflow = readFileSync(join(path, ".github/workflows/agent-vigil.yml"), "utf8");
   assert.match(workflow, new RegExp(`agent-vigil@${REVIEWED_PUBLIC_ACTION_SHA}`));
   assert.match(output, /Agent Vigil is ready to add/);
-  assert.match(output, /State: PREPARED — not active yet/);
+  assert.match(output, /Setup: READY — not running in GitHub yet/);
   assert.match(output, /Found\s+node --test/);
   assert.match(output, /real regression test failed on old code and passed on proposed code/);
   assert.match(output, /planted weak test passed on both versions; merge proof blocked/);
-  assert.match(output, /Optional workflow badge \(run status only; not proof of required-check enforcement\)/);
-  assert.ok(output.includes("https://github.com/example/project/actions/workflows/agent-vigil.yml/badge.svg"));
-  assert.match(output, /Register an outside trial only after the workflow runs/);
-  assert.match(output, /RUNNING IN CI, not enforced/);
-  assert.match(output, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.23\.3\/sulmusic-agent-vigil-0\.23\.3\.tgz doctor --repo \./);
-  assert.doesNotMatch(output, /run `vigil doctor/);
-  assert.match(output, /plain required job name is not a workflow trust root/);
-  assert.match(output, /issues\/new\?template=adopter-feedback\.yml&title=%5Badoption%5D%20example%2Fproject/);
+  assert.match(output, /Next: commit the generated files and open one setup pull request\./);
+  assert.match(output, /npx --yes @sulmusic\/agent-vigil doctor --repo \./);
+  assert.match(output, /PASS, FAIL, or NOT CHECKED/);
+  assert.match(output, /protected merge requirement still needs the Agent Vigil App/);
+  assert.doesNotMatch(output, /Optional workflow badge|Register an outside trial|adopter-feedback/);
   assert.doesNotMatch(output, /13 failure|Agent Vigil doctor|✓ PASS|✗ FAIL/);
 });
 
