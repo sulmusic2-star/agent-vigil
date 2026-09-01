@@ -1411,6 +1411,19 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
         || /\[(?:TestMethod|Test|Fact|Theory)\b[^\]]*\][\s\S]*?\bvoid\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added)) {
         results.push(finding("empty test introduced", `${patch.path} adds a test body with no observable assertion or behavior`, "test-empty-added"));
       }
+      const retainedTestText = [...patch.added, ...patch.context].join("\n");
+      const removedPatchAssertions = patch.removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+      const addedPatchAssertions = patch.added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+      const retainedEmptyJavaScriptTest = /\b(?:it|test)\s*\([^,]+,\s*(?:async\s*)?\(?(?:[^)=]*)\)?\s*=>\s*\{\s*\}\s*\)/s.test(retainedTestText)
+        || /\b(?:it|test)\s*\([^,]+,\s*function\s*\([^)]*\)\s*\{\s*\}\s*\)/s.test(retainedTestText);
+      if (removedPatchAssertions > 0 && addedPatchAssertions === 0 && retainedEmptyJavaScriptTest
+        && !results.some((result) => result.ruleId === "assertion-drop")) {
+        results.push(finding(
+          "assertion surface shrank",
+          `${patch.path} removes ${removedPatchAssertions} assertion-like line(s) and leaves an empty test body`,
+          "assertion-drop",
+        ));
+      }
       if (/\bexpect\s*\(\s*(true|false|null|undefined|["'][^"']*["']|\d+)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual)\s*\(\s*\1\s*\)/s.test(added)
         || /\bassert(?:\.ok)?\s*\(\s*true\s*\)/.test(added)
         || /\bassert\.(?:equal|strictEqual)\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\)/.test(added)
@@ -1435,11 +1448,6 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
       }
       if (/\b(?:jest|vi)\.fn\s*\(\s*\)\s*\.mock(?:ReturnValue|Implementation)/.test(added)) {
         results.push(finding("test replaces the subject with a self-fulfilling mock", `${patch.path} adds a value-producing local mock in the assertion path`, "subject-mocked"));
-      }
-      const removedHunkAssertions = patch.removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
-      const addedHunkAssertions = patch.added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
-      if (removedHunkAssertions > addedHunkAssertions && !results.some((result) => result.ruleId === "assertion-drop")) {
-        results.push(finding("assertion surface shrank", `${patch.path} hunk removes ${removedHunkAssertions} assertion-like line(s) and adds ${addedHunkAssertions}`, "assertion-drop"));
       }
     }
     const removedCode = patch.removed.map(normalizedCodeLine).filter(Boolean);
@@ -1472,6 +1480,10 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
   }
   const removedAssertions = testPatches.flatMap((patch) => patch.removed).filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
   const addedAssertions = testPatches.flatMap((patch) => patch.added).filter((line) => !line.includes("vigil:detector-pattern") && /\b(?:expect|assert|should)\b/i.test(line)).length;
+  // Judge the complete change, not one file in isolation. Assertions are
+  // routinely moved or consolidated across test files; a per-file warning
+  // produced heavy review noise even when the PR added more assertions than
+  // it removed. A net loss across the entire supplied diff remains visible.
   if (removedAssertions > addedAssertions && !results.some((result) => result.ruleId === "assertion-drop")) {
     results.push(finding(
       "assertion surface shrank",

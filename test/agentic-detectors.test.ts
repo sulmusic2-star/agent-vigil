@@ -113,13 +113,29 @@ test("Ghost Loader catches changed pytest collection exclusions", () => {
   assert.ok(checks.some((result) => result.ruleId === "ghost-loader"));
 });
 
-test("Harness Guard and Suppression Receipt extend existing checks", () => {
+test("Harness Guard and Suppression Receipt extend existing checks without treating casts as suppressions", () => {
   const checks = checkIntegrityDiff([
     diff(".github/workflows/ci.yml", ["continue-on-error: false"], ["continue-on-error: true"]), // vigil:detector-pattern
-    diff("src/value.ts", ["const value = parse(raw);"], ["const value = parse(raw) as any;"]), // vigil:detector-pattern
+    diff("src/value.ts", ["const value = parse(raw);"], ["//nolint:staticcheck", "const value = parse(raw);"]), // vigil:detector-pattern
   ].join("\n"));
   assert.ok(checks.some((result) => result.ruleId === "verification-bypass"));
   assert.ok(checks.some((result) => result.ruleId === "suppression-added"));
+
+  const castOnly = checkIntegrityDiff(diff(
+    "src/value.ts",
+    ["const value = parse(raw);"],
+    ["const value = parse(raw) as any;"], // vigil:detector-pattern
+  ));
+  assert.equal(castOnly.some((result) => result.ruleId === "suppression-added"), false);
+});
+
+test("an emptied test produces one assertion-loss finding, not duplicate review noise", () => {
+  const checks = checkIntegrityDiff(diff(
+    "test/value.test.ts",
+    ["test('value', () => {", "  expect(value()).toBe(1);", "});"],
+    ["test('value', () => {", "});"],
+  ));
+  assert.equal(checks.filter((result) => result.ruleId === "assertion-drop").length, 1);
 });
 
 test("Oracle Echo records a distinctive direct return matching an unchanged assertion", () => {

@@ -3,7 +3,7 @@
 - Agent Vigil: 0.23.3
 - upstream commit: `b2b681ff529929d39a14c0541d0e2b71b642b5da`
 - presumed-clean merged PRs: 232
-- PRs with one or more static advisories: 134/232 (57.8%)
+- PRs with one or more static advisories: 104/232 (44.8%)
 - default hard blocks from heuristic findings: 0
 - raw diffs that could not be fully audited and therefore fail closed: 9/232 (3.9%)
 - dual-arbiter agreed true-cheat cases with any advisory: 4/4
@@ -17,13 +17,13 @@ Static integrity findings are receipt-bound advisories by default. They become b
 
 ## Advisory frequency by rule
 
-- `assertion-drop`: 52 PR(s)
+- `assertion-drop`: 22 PR(s)
 - `error-swallowed`: 8 PR(s)
 - `no-op-code-change`: 9 PR(s)
 - `render-gate-hidden-character`: 4 PR(s)
 - `stale-refactor-caller`: 14 PR(s)
 - `subject-mocked`: 7 PR(s)
-- `suppression-added`: 71 PR(s)
+- `suppression-added`: 40 PR(s)
 - `test-assertion-relaxed`: 7 PR(s)
 - `test-count-drop`: 15 PR(s)
 - `test-empty-added`: 6 PR(s)
