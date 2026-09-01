@@ -768,21 +768,12 @@ test("trusted PR evidence and outcome observation retain separate least-privileg
   assert.doesNotMatch(outcome, /attest:\s*true|id-token:\s*write|attestations:\s*write|artifact-metadata:\s*write/);
 });
 
-test("README Action example preserves the fresh exact-runtime topology", () => {
+test("README keeps Action internals behind the hosted security contract", () => {
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-  const start = readme.indexOf("## GitHub Action");
-  const end = readme.indexOf("\n## ", start + 1);
-  assert.ok(start >= 0);
-  const section = readme.slice(start, end < 0 ? undefined : end);
-  assert.match(section, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
-  assert.match(section, /node-version:\s*22\.23\.2/);
-  assert.match(section, /package-manager-cache:\s*false/);
-  assert.doesNotMatch(section, /^\s*node-version:\s*22\s*$/m);
-  assert.ok(section.indexOf("actions/setup-node@") < section.indexOf("actions/checkout@"));
-  assert.ok(section.indexOf("actions/setup-node@") < section.indexOf("sulmusic2-star/agent-vigil@"));
-  assert.match(section, /first executable step in a fresh hosted job/);
-  assert.match(section, /do not run untrusted code before it or carry forward a surviving untrusted\s+process/);
-  assert.match(section, /hosted security contract/);
+  assert.match(readme, /npx @sulmusic\/agent-vigil protect/);
+  assert.match(readme, /hosted security contract/);
+  assert.doesNotMatch(readme, /uses:\s*(?:actions\/|sulmusic2-star\/agent-vigil@)/);
+  assert.doesNotMatch(readme, /node-version:|package-manager-cache:/);
 });
 
 test("reviewed self pin and source-dist identity are a visible release gate", (context) => {

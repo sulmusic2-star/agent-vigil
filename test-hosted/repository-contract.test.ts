@@ -99,7 +99,7 @@ test("the released package and public channels keep explicit version identities"
   assert.equal(installState.npm_registry.observed_version, "0.21.1");
   assert.equal(installState.npm_registry.target_version, "0.23.2");
   assert.equal(installState.npm_registry.target_published, false);
-  assert.match(readme, /GitHub release v0\.23\.2 is\s+public and immutable/);
+  assert.match(readme, /last verified GitHub package is/);
   assert.match(
     readme,
     /v0\.23\.3 is a source release candidate until GitHub lists both the package and checksum assets\./,
