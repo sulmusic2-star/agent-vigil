@@ -35,16 +35,17 @@ renewal rates.
 
 ## Sequence
 
-1. Publish npm and Marketplace after authentication and legal acceptance.
-2. Earn 10 external repositories and 1,000 external receipts.
-3. Publish sanitized, reproducible false-verdict and caught-failure cases.
-4. Measure setup completion, receipt generation, false verdicts, and weekly
+1. Align npm, GitHub Releases, Marketplace, checksums, README, and Action pins.
+2. Validate the centrally operated App in one disposable outside repository.
+3. Earn 10 external repositories and 1,000 external receipts.
+4. Publish sanitized, reproducible false-verdict and caught-failure cases.
+5. Measure setup completion, receipt generation, false verdicts, and weekly
    retained repositories. Do not optimize stars alone.
-5. Interview only users who voluntarily open issues or opt in; do not cold-poach.
-6. Offer two written-only paid pilots after three organizations request central
+6. Interview only users who voluntarily open issues or opt in; do not cold-poach.
+7. Offer two written-only paid pilots after three organizations request central
    control.
-7. Build the GitHub App only after those requests confirm the control-plane job.
-8. Scale hosting after a renewal or expansion.
+8. Build paid organization controls only after those requests confirm the job.
+9. Scale hosting after a renewal or expansion.
 
 ## Kill or narrow conditions
 
