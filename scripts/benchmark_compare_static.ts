@@ -56,6 +56,8 @@ function sha256(content: string | Buffer): string { return createHash("sha256").
 function fileSha256(path: string): string { return sha256(readFileSync(path)); }
 function ratio(a: number, b: number): number { return b === 0 ? 0 : a / b; }
 function rounded(value: number): number { return Number(value.toFixed(6)); }
+function roundedP(value: number): number { return value > 0 && value < 0.000001 ? Number(value.toPrecision(6)) : rounded(value); }
+function displayP(value: number): string { return value > 0 && value < 0.000001 ? "p<0.000001" : `p=${value}`; }
 function interval(successes: number, trials: number) {
   const value = wilsonInterval(successes, trials);
   return { estimate: rounded(ratio(successes, trials)), low: rounded(value.low), high: rounded(value.high), successes, trials };
@@ -95,7 +97,7 @@ function pairedTest(rows: Array<{ agent: { exact: boolean; any: boolean }; swarm
   const agentOnly = rows.filter((row) => row.agent[field] && !row.swarm[field]).length;
   const swarmOnly = rows.filter((row) => !row.agent[field] && row.swarm[field]).length;
   const neither = rows.length - both - agentOnly - swarmOnly;
-  return { both, agentOnly, swarmOnly, neither, pExact: rounded(mcnemarExact(agentOnly, swarmOnly)) };
+  return { both, agentOnly, swarmOnly, neither, pExact: roundedP(mcnemarExact(agentOnly, swarmOnly)) };
 }
 function categoryRows<T extends { category: string; agent: DetectorResult; swarm: DetectorResult }>(rows: T[]) {
   const categories = [...new Set(rows.map((row) => row.category))].sort();
@@ -113,7 +115,7 @@ function categoryRows<T extends { category: string; agent: DetectorResult; swarm
     };
   });
   const adjusted = holmAdjust(values.map((row) => row.exactPaired.pExact));
-  return values.map((row, index) => ({ ...row, exactPaired: { ...row.exactPaired, pHolm: rounded(adjusted[index]) } }));
+  return values.map((row, index) => ({ ...row, exactPaired: { ...row.exactPaired, pHolm: roundedP(adjusted[index]) } }));
 }
 
 const swarmRootOption = option("--swarm-root");
@@ -315,13 +317,13 @@ try {
     `| Agent Vigil | ${pct(result.synthetic.agent.brokenRecall.estimate)} | ${pct(result.synthetic.agent.cleanSpecificity.estimate)} | ${pct(result.synthetic.agent.balancedAccuracy)} | ${pct(result.synthetic.agent.pairSeparation.estimate)} |`,
     `| Swarm | ${pct(result.synthetic.swarm.brokenRecall.estimate)} | ${pct(result.synthetic.swarm.cleanSpecificity.estimate)} | ${pct(result.synthetic.swarm.balancedAccuracy)} | ${pct(result.synthetic.swarm.pairSeparation.estimate)} |`,
     "",
-    `Any-finding McNemar: Agent-only ${result.synthetic.anyPairedBroken.agentOnly}, Swarm-only ${result.synthetic.anyPairedBroken.swarmOnly}, exact p=${result.synthetic.anyPairedBroken.pExact}.`,
+    `Any-finding McNemar: Agent-only ${result.synthetic.anyPairedBroken.agentOnly}, Swarm-only ${result.synthetic.anyPairedBroken.swarmOnly}, exact ${displayP(result.synthetic.anyPairedBroken.pExact)}.`,
     "",
     "## Constructive-injection oracle",
     "",
     `- Agent Vigil exact-category: ${result.oracle.agentExact.successes}/${result.oracle.agentExact.trials} (${pct(result.oracle.agentExact.estimate)}; Wilson 95% ${pct(result.oracle.agentExact.low)}–${pct(result.oracle.agentExact.high)})`,
     `- Swarm exact-category: ${result.oracle.swarmExact.successes}/${result.oracle.swarmExact.trials} (${pct(result.oracle.swarmExact.estimate)}; Wilson 95% ${pct(result.oracle.swarmExact.low)}–${pct(result.oracle.swarmExact.high)})`,
-    `- Exact-category McNemar: Agent-only ${result.oracle.exactPaired.agentOnly}, Swarm-only ${result.oracle.exactPaired.swarmOnly}, exact p=${result.oracle.exactPaired.pExact}.`,
+    `- Exact-category McNemar: Agent-only ${result.oracle.exactPaired.agentOnly}, Swarm-only ${result.oracle.exactPaired.swarmOnly}, exact ${displayP(result.oracle.exactPaired.pExact)}.`,
     "",
     "## Presumed-clean review burden",
     "",
