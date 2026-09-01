@@ -435,7 +435,7 @@ def html_failures() -> list[str]:
         'failed</div>',
         'passed</div>',
         'notchecked</div>',
-        'reviewchangedfiles',
+        'seewhatneedsattention',
         'copyreproducecommand',
         'overflow-x:clip',
         '@media(max-width:540px)',
