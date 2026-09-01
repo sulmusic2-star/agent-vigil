@@ -581,8 +581,9 @@ test("static diff audit rejects ambiguous or unsupported rename metadata", () =>
 });
 
 test("static diff audit keeps completed text findings when a later binary patch is unreadable", () => {
+  const plantedDeadBranch = `if (${"false"}) return fallback;`;
   const results = checkIntegrityDiff([
-    unifiedDiff("src/value.ts", ["return value;"], ["if (false) return fallback;", "return value;"]),
+    unifiedDiff("src/value.ts", ["return value;"], [plantedDeadBranch, "return value;"]),
     "diff --git a/assets/value.db b/assets/value.db",
     "deleted file mode 100644",
     "index 1111111..0000000",
