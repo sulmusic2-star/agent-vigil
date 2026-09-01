@@ -5,16 +5,7 @@ on:
   # from Agent Vigil's default branch, never from the customer repository.
   workflow_dispatch:
     inputs:
-      deliveryId: { required: true, type: string }
-      event: { required: true, type: string }
-      repository: { required: true, type: string }
-      installationId: { required: true, type: string }
-      number: { required: false, type: string }
-      baseSha: { required: true, type: string }
-      headSha: { required: true, type: string }
-      baseRef: { required: true, type: string }
-      headRef: { required: false, type: string }
-      checkRunId: { required: true, type: string }
+      envelope: { required: true, type: string }
       dispatchSignature: { required: true, type: string }
 
 permissions:
@@ -44,16 +35,7 @@ jobs:
           DISPATCH_SECRET: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_DISPATCH_SECRET }}
           ACTOR: ${{ github.actor }}
           EXPECTED_ACTOR: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ACTOR }}
-          DELIVERY_ID: ${{ inputs.deliveryId }}
-          EVENT_KIND: ${{ inputs.event }}
-          REPOSITORY: ${{ inputs.repository }}
-          INSTALLATION_ID: ${{ inputs.installationId }}
-          PR_NUMBER: ${{ inputs.number }}
-          BASE_SHA: ${{ inputs.baseSha }}
-          HEAD_SHA: ${{ inputs.headSha }}
-          BASE_REF: ${{ inputs.baseRef }}
-          HEAD_REF: ${{ inputs.headRef }}
-          CHECK_RUN_ID: ${{ inputs.checkRunId }}
+          DISPATCH_ENVELOPE: ${{ inputs.envelope }}
           DISPATCH_SIGNATURE: ${{ inputs.dispatchSignature }}
         run: |
           set -euo pipefail
@@ -62,34 +44,48 @@ jobs:
           import { appendFileSync } from "node:fs";
 
           const e = process.env;
+          const envelope = e.DISPATCH_ENVELOPE ?? "";
           const sha = /^[0-9a-f]{40}$/;
           const repository = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
           const positive = /^[1-9][0-9]*$/;
           const delivery = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
           const signature = /^sha256=[0-9a-f]{64}$/;
+          function validBranchName(input, maxLength = 255) {
+            if (!input || input.length > maxLength || input === "@" || input.startsWith("/") || input.endsWith("/") || input.endsWith(".")) return false;
+            if (/[\u0000-\u0020\u007f~^:?*\[\\]/.test(input) || input.includes("..") || input.includes("@{") || input.includes("//")) return false;
+            return input.split("/").every((part) => part && !part.startsWith(".") && !part.endsWith(".lock"));
+          }
           if (!e.DISPATCH_SECRET || e.DISPATCH_SECRET.length < 32) throw new Error("dispatch secret is missing or too short");
           if (!e.EXPECTED_ACTOR || e.ACTOR !== e.EXPECTED_ACTOR) throw new Error("dispatch actor is not the Agent Vigil App");
-          if (!delivery.test(e.DELIVERY_ID ?? "") || !repository.test(e.REPOSITORY ?? "")) throw new Error("delivery or repository identity is invalid");
-          if (!positive.test(e.INSTALLATION_ID ?? "") || !positive.test(e.CHECK_RUN_ID ?? "")) throw new Error("installation or check identity is invalid");
-          if (!sha.test(e.BASE_SHA ?? "") || !sha.test(e.HEAD_SHA ?? "") || e.BASE_SHA === e.HEAD_SHA) throw new Error("commit identity is invalid");
-          if (e.EVENT_KIND !== "pull_request" && e.EVENT_KIND !== "merge_group") throw new Error("event kind is invalid");
-          if (e.EVENT_KIND === "pull_request" && !positive.test(e.PR_NUMBER ?? "")) throw new Error("pull request number is invalid");
-          if (e.EVENT_KIND === "merge_group" && !(e.HEAD_REF ?? "").startsWith("refs/heads/gh-readonly-queue/")) throw new Error("merge-group ref is invalid");
+          if (!/^[A-Za-z0-9_-]+$/.test(envelope) || envelope.length > 8192) throw new Error("dispatch envelope is invalid");
           if (!signature.test(e.DISPATCH_SIGNATURE ?? "")) throw new Error("dispatch signature is invalid");
-
-          const values = ["agent-vigil-public-app-v1", e.DELIVERY_ID, e.EVENT_KIND, e.REPOSITORY,
-            e.INSTALLATION_ID, e.PR_NUMBER ?? "", e.BASE_SHA, e.HEAD_SHA, e.BASE_REF,
-            e.HEAD_REF ?? "", e.CHECK_RUN_ID];
-          const expected = `sha256=${createHmac("sha256", e.DISPATCH_SECRET).update(values.join("\n")).digest("hex")}`;
+          const expected = `sha256=${createHmac("sha256", e.DISPATCH_SECRET).update(envelope).digest("hex")}`;
           const left = Buffer.from(expected);
           const right = Buffer.from(e.DISPATCH_SIGNATURE);
           if (left.length !== right.length || !timingSafeEqual(left, right)) throw new Error("dispatch signature does not match the exact change identity");
-          const [owner, name] = e.REPOSITORY.split("/");
+          let value;
+          try { value = JSON.parse(Buffer.from(envelope, "base64url").toString("utf8")); }
+          catch { throw new Error("dispatch envelope is not valid JSON"); }
+          const keys = ["schema", "deliveryId", "event", "repository", "installationId", "number", "baseSha", "headSha", "baseRef", "headRef", "checkRunId"];
+          if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\n") !== [...keys].sort().join("\n")) throw new Error("dispatch envelope fields are invalid");
+          if (!keys.every((key) => typeof value[key] === "string")) throw new Error("dispatch envelope values must be strings");
+          if (value.schema !== "agent-vigil-public-app-v1") throw new Error("dispatch schema is unsupported");
+          if (!delivery.test(value.deliveryId) || !repository.test(value.repository)) throw new Error("delivery or repository identity is invalid");
+          if (!positive.test(value.installationId) || !positive.test(value.checkRunId)) throw new Error("installation or check identity is invalid");
+          if (!sha.test(value.baseSha) || !sha.test(value.headSha) || value.baseSha === value.headSha) throw new Error("commit identity is invalid");
+          if (value.event !== "pull_request" && value.event !== "merge_group") throw new Error("event kind is invalid");
+          if (value.event === "pull_request" && (!positive.test(value.number) || value.headRef !== "" || !validBranchName(value.baseRef))) throw new Error("pull request identity is invalid");
+          if (value.event === "merge_group") {
+            const baseBranch = value.baseRef.startsWith("refs/heads/") ? value.baseRef.slice("refs/heads/".length) : "";
+            const headBranch = value.headRef.startsWith("refs/heads/") ? value.headRef.slice("refs/heads/".length) : "";
+            if (value.number !== "" || !validBranchName(baseBranch) || !headBranch.startsWith(`gh-readonly-queue/${baseBranch}/`) || !validBranchName(headBranch, 1024)) throw new Error("merge-group identity is invalid");
+          }
+          const [owner, name] = value.repository.split("/");
           appendFileSync(e.GITHUB_OUTPUT, [
-            `repository=${e.REPOSITORY}`, `owner=${owner}`, `name=${name}`,
-            `installation_id=${e.INSTALLATION_ID}`, `event=${e.EVENT_KIND}`,
-            `number=${e.PR_NUMBER ?? ""}`, `base_sha=${e.BASE_SHA}`, `head_sha=${e.HEAD_SHA}`,
-            `base_ref=${e.BASE_REF}`, `head_ref=${e.HEAD_REF ?? ""}`, `check_run_id=${e.CHECK_RUN_ID}`, "",
+            `repository=${value.repository}`, `owner=${owner}`, `name=${name}`,
+            `installation_id=${value.installationId}`, `event=${value.event}`,
+            `number=${value.number}`, `base_sha=${value.baseSha}`, `head_sha=${value.headSha}`,
+            `base_ref=${value.baseRef}`, `head_ref=${value.headRef}`, `check_run_id=${value.checkRunId}`, "",
           ].join("\n"));
           NODE
 

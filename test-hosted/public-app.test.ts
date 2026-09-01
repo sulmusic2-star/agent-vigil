@@ -247,8 +247,12 @@ test("public App manifest and control workflow keep customer setup to one App in
 
   const workflow = readFileSync("hosted/public-app/control-workflow.yml", "utf8");
   assert.match(workflow, /^\s{2}workflow_dispatch:/m);
+  const inputBlock = workflow.match(/^\s{4}inputs:\n([\s\S]*?)^\s{0,2}permissions:/m)?.[1] ?? "";
+  assert.deepEqual([...inputBlock.matchAll(/^\s{6}([A-Za-z][A-Za-z0-9]*):/gm)].map((match) => match[1]), ["envelope", "dispatchSignature"]);
   assert.doesNotMatch(workflow, /^\s{2}(?:pull_request|merge_group):/m);
   assert.match(workflow, /agent-vigil-public-app-v1/);
+  assert.match(workflow, /JSON\.parse\(Buffer\.from\(envelope, "base64url"\)/);
+  assert.match(workflow, /Object\.keys\(value\)\.sort\(\)/);
   assert.match(workflow, /uses: \.\/control/);
   assert.match(workflow, /candidate-setup-cmd: npm ci --ignore-scripts/);
   assert.match(workflow, /PASS.*FAIL.*NOT CHECKED/s);
