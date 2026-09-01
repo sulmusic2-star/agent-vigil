@@ -6,6 +6,7 @@ import test from "node:test";
 import worker, {
   DeliveryLedger,
   canonicalDispatch,
+  dispatchEnvelope,
   dispatchSignature,
   parseMergeGroupPayload,
   parsePullRequestPayload,
@@ -64,9 +65,35 @@ test("public App binds pull-request and merge-queue identities without a reposit
   assert.throws(() => parseMergeGroupPayload({ ...queuePayload(), merge_group: { ...queuePayload().merge_group, head_ref: "refs/heads/main" } }, deliveryId), /head ref/);
 });
 
+test("public App reruns when the pull-request base changes and accepts valid punctuation in branch names", () => {
+  const editedBase = pullPayload("edited");
+  editedBase.changes = { base: { ref: { from: "main" } } };
+  editedBase.pull_request.base.ref = "release@v2+candidate";
+  assert.equal(parsePullRequestPayload(editedBase, deliveryId).baseRef, "release@v2+candidate");
+
+  const editedTitle = pullPayload("edited");
+  editedTitle.changes = { title: { from: "old title" } };
+  assert.throws(() => parsePullRequestPayload(editedTitle, deliveryId), /verification trigger/);
+
+  const invalid = pullPayload();
+  invalid.pull_request.base.ref = "release..candidate";
+  assert.throws(() => parsePullRequestPayload(invalid, deliveryId), /base ref/);
+
+  const queue = queuePayload();
+  queue.merge_group.base_ref = "refs/heads/release@v2+candidate";
+  queue.merge_group.head_ref = "refs/heads/gh-readonly-queue/release@v2+candidate/pr-17-deadbeef";
+  assert.equal(parseMergeGroupPayload(queue, deliveryId).baseRef, queue.merge_group.base_ref);
+});
+
 test("public App signatures bind the queued check and every exact-change field", async () => {
   const value = { ...parsePullRequestPayload(pullPayload(), deliveryId), checkRunId: "34567" };
   assert.equal(canonicalDispatch(value).split("\n").length, 11);
+  const envelope = dispatchEnvelope(value);
+  assert.match(envelope, /^[A-Za-z0-9_-]+$/);
+  assert.deepEqual(JSON.parse(Buffer.from(envelope, "base64url").toString("utf8")), {
+    schema: "agent-vigil-public-app-v1",
+    ...value,
+  });
   const signature = await dispatchSignature(secret, value);
   assert.match(signature, /^sha256=[0-9a-f]{64}$/);
   assert.notEqual(await dispatchSignature(secret, { ...value, checkRunId: "34568" }), signature);
@@ -155,9 +182,14 @@ test("delivery ledger creates one queued App check and dispatches the internal c
     assert.equal(calls.filter((call) => call.url.includes("/dispatches")).length, 1);
     const dispatch = calls.find((call) => call.url.includes("/dispatches"))?.body;
     assert.equal(dispatch.ref, "main");
-    assert.equal(dispatch.inputs.repository, repository);
-    assert.equal(dispatch.inputs.checkRunId, "34567");
+    assert.deepEqual(Object.keys(dispatch.inputs).sort(), ["dispatchSignature", "envelope"]);
+    const envelope = JSON.parse(Buffer.from(dispatch.inputs.envelope, "base64url").toString("utf8"));
+    assert.equal(envelope.repository, repository);
+    assert.equal(envelope.checkRunId, "34567");
     assert.match(dispatch.inputs.dispatchSignature, /^sha256=[0-9a-f]{64}$/);
+    const tokenBodies = calls.filter((call) => call.url.includes("/access_tokens")).map((call) => call.body);
+    assert.deepEqual(tokenBodies[0].permissions, { checks: "write", contents: "read", pull_requests: "read" });
+    assert.deepEqual(tokenBodies[1].permissions, { actions: "write" });
 
     const replay = await ledger.fetch(new Request("https://ledger.internal/dispatch", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value),
