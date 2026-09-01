@@ -1561,7 +1561,7 @@ function suppressionReceiptFinding(patch) {
   for (let index = 0; index < patch.added.length; index++) {
     const line = patch.added[index];
     if (isDetectorPatternLine(line)) continue;
-    if (/\bas\s+any\b|\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) {
+    if (/\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) {
       return finding(
         "compiler, linter, or type suppression added",
         `${patch.path}, changed line ${index + 1}: a new diagnostic suppression requires review`,
@@ -3073,6 +3073,17 @@ function checkIntegrityPatches(patches) {
       if (/\b(?:it|test)\s*\([^,]+,\s*(?:async\s*)?\(?(?:[^)=]*)\)?\s*=>\s*\{\s*\}\s*\)/s.test(added) || /\b(?:it|test)\s*\([^,]+,\s*function\s*\([^)]*\)\s*\{\s*\}\s*\)/s.test(added) || /\bdef\s+test_[A-Za-z0-9_]+\s*\([^)]*\)\s*:\s*pass\b/s.test(added) || /#\[test\]\s*(?:pub\s+)?fn\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added) || /\bfunc\s+Test[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added) || /@Test\b[\s\S]*?\bvoid\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added) || /\[(?:TestMethod|Test|Fact|Theory)\b[^\]]*\][\s\S]*?\bvoid\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{\s*\}/s.test(added)) {
         results.push(finding2("empty test introduced", `${patch.path} adds a test body with no observable assertion or behavior`, "test-empty-added"));
       }
+      const retainedTestText = [...patch.added, ...patch.context].join("\n");
+      const removedPatchAssertions = patch.removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+      const addedPatchAssertions = patch.added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
+      const retainedEmptyJavaScriptTest = /\b(?:it|test)\s*\([^,]+,\s*(?:async\s*)?\(?(?:[^)=]*)\)?\s*=>\s*\{\s*\}\s*\)/s.test(retainedTestText) || /\b(?:it|test)\s*\([^,]+,\s*function\s*\([^)]*\)\s*\{\s*\}\s*\)/s.test(retainedTestText);
+      if (removedPatchAssertions > 0 && addedPatchAssertions === 0 && retainedEmptyJavaScriptTest && !results.some((result5) => result5.ruleId === "assertion-drop")) {
+        results.push(finding2(
+          "assertion surface shrank",
+          `${patch.path} removes ${removedPatchAssertions} assertion-like line(s) and leaves an empty test body`,
+          "assertion-drop"
+        ));
+      }
       if (/\bexpect\s*\(\s*(true|false|null|undefined|["'][^"']*["']|\d+)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual)\s*\(\s*\1\s*\)/s.test(added) || /\bassert(?:\.ok)?\s*\(\s*true\s*\)/.test(added) || /\bassert\.(?:equal|strictEqual)\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\)/.test(added) || /\bassert\s+True\b/.test(added) || /\b(?:assertTrue|Assert\.True)\s*\(\s*true\s*\)/.test(added) || /\bassertEqual\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\bassert_eq!\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\b(?:assertEquals|Assert\.Equal)\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added)) {
         results.push(finding2("constant or self-equal test oracle introduced", `${patch.path} adds an assertion that is true without exercising the candidate behavior`, "test-oracle-constant"));
       }
@@ -3089,11 +3100,6 @@ function checkIntegrityPatches(patches) {
       }
       if (/\b(?:jest|vi)\.fn\s*\(\s*\)\s*\.mock(?:ReturnValue|Implementation)/.test(added)) {
         results.push(finding2("test replaces the subject with a self-fulfilling mock", `${patch.path} adds a value-producing local mock in the assertion path`, "subject-mocked"));
-      }
-      const removedHunkAssertions = patch.removed.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
-      const addedHunkAssertions = patch.added.filter((line) => /\b(?:expect|assert|should)\b/i.test(line)).length;
-      if (removedHunkAssertions > addedHunkAssertions && !results.some((result5) => result5.ruleId === "assertion-drop")) {
-        results.push(finding2("assertion surface shrank", `${patch.path} hunk removes ${removedHunkAssertions} assertion-like line(s) and adds ${addedHunkAssertions}`, "assertion-drop"));
       }
     }
     const removedCode = patch.removed.map(normalizedCodeLine).filter(Boolean);
@@ -3210,7 +3216,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash6 } from "node:crypto";
-var VERSION = "0.23.3";
+var VERSION = "0.23.4";
 var CLAIM_KINDS = [
   "tests_pass",
   "file_changed",
@@ -4518,7 +4524,7 @@ function outcomeState(verdict) {
 function consequence(verdict) {
   if (verdict === "PASS") return "Ready to merge.";
   if (verdict === "FAIL") return "Do not merge yet.";
-  return "A required check did not run.";
+  return "No merge decision: a required check did not run.";
 }
 function safe(value) {
   return terminalSafe(value);
@@ -4626,18 +4632,19 @@ function changedFileManifest(trustedRepo, base, head) {
   };
 }
 function mainCause(findings, verdict, head) {
-  const failed = findings.find((finding3) => finding3.state === "FAILED");
-  if (failed) return failed.title;
-  const missing = findings.find((finding3) => finding3.state === "NOT_CHECKED");
-  if (missing) return missing.title;
+  const primary = primaryResultFinding(findings);
+  if (primary) return primary.title;
   return `All required checks passed at ${safe(head.slice(0, 12))}.`;
+}
+function primaryResultFinding(findings) {
+  return findings.find((finding3) => finding3.state === "FAILED") ?? findings.find((finding3) => finding3.state === "NOT_CHECKED");
 }
 function buildReportResultView(value, options = {}) {
   const report = validateReportForResult(value);
   const verdict = deriveReportVerdict(report);
   const findings = report.results.map((result5) => findingFor(result5));
   if (verdict === "INCONCLUSIVE" && report.summary.meaningfulVerified < report.policy.minVerified) {
-    findings.push({
+    findings.unshift({
       id: "completion-evidence",
       state: "NOT_CHECKED",
       title: "Required verification evidence is missing",
@@ -4710,20 +4717,24 @@ function findingHtml(finding3) {
   const counts = finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0 ? `<dl class="test-counts"><div><dt>Claimed</dt><dd>${finding3.claimedTestCount ?? "Not stated"}</dd></div><div><dt>Observed</dt><dd>${finding3.observedTestCount ?? "Not found"}</dd></div></dl>` : "";
   return `<article class="finding finding-${finding3.state.toLowerCase().replace("_", "-")}"><p class="eyebrow">${finding3.state.replace("_", " ")}</p><h3>${html(finding3.title)}</h3>${location}<p>${html(finding3.evidence)}</p>${counts}<p class="fix"><strong>Fix</strong> ${html(finding3.remediation)}</p></article>`;
 }
+function displayResultVerdict(verdict) {
+  return verdict === "INCONCLUSIVE" ? "NOT CHECKED" : verdict;
+}
 function renderResultViewHtml(view) {
-  const open = view.findings.filter((finding3) => finding3.state !== "PASSED");
+  const primary = primaryResultFinding(view.findings);
   const advisories = view.advisories.map(findingHtml).join("");
   const changed = view.changedFiles.files.map((file) => `<li><span>${html(file.status)}</span><code>${file.previousPath ? `${html(file.previousPath)} \u2192 ` : ""}${html(file.path)}</code></li>`).join("");
+  const display = displayResultVerdict(view.verdict);
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Vigil ${view.verdict}</title>
-<style>/* Hallmark \xB7 pre-emit critique: P5 H5 E4 S5 R5 V4 \xB7 macrostructure: decision brief \xB7 theme: quiet */:root{color-scheme:light;--ink:#111827;--muted:#5b6472;--line:#d8dee8;--paper:#fff;--wash:#f4f6f8;--fail:#b42318;--pass:#137333;--hold:#8a4b00;--font-body:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-code:ui-monospace,SFMono-Regular,Menlo,monospace}*{box-sizing:border-box}html,body{overflow-x:clip}html{background:var(--wash)}body{margin:0;color:var(--ink);font-family:var(--font-body);line-height:1.5}main{width:min(880px,calc(100% - 32px));margin:40px auto 80px}.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:28px}.eyebrow{margin:0 0 8px;font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.status-fail{color:var(--fail)}.status-pass{color:var(--pass)}.status-inconclusive{color:var(--hold)}h1{min-width:0;margin:0;font-size:clamp(1.8rem,6vw,3.25rem);line-height:1.05;overflow-wrap:anywhere}h2{margin:34px 0 12px;font-size:1.15rem}h3{margin:4px 0 8px;font-size:1rem}p{margin:8px 0}.cause{font-size:1.08rem}.counts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:24px 0}.count{border:1px solid var(--line);border-radius:10px;padding:12px}.count strong{display:block;font-size:1.45rem}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.actions a,.actions button{min-height:44px;border:1px solid var(--ink);border-radius:8px;background:var(--paper);color:var(--ink);padding:10px 14px;font:inherit;font-weight:700;text-decoration:none;white-space:nowrap}.finding{border-top:1px solid var(--line);padding:18px 0}.finding-failed .eyebrow{color:var(--fail)}.finding-not-checked .eyebrow{color:var(--hold)}.location,code,.meta{overflow-wrap:anywhere}.location{color:var(--muted);font-family:var(--font-code)}.fix{background:var(--wash);border-radius:8px;padding:10px 12px}.test-counts{display:grid;grid-template-columns:repeat(2,minmax(0,180px));gap:8px}.test-counts div{border-left:3px solid var(--line);padding-left:10px}.test-counts dt{color:var(--muted);font-size:.8rem}.test-counts dd{margin:0;font-weight:800}.changed{padding:0;list-style:none}.changed li{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;border-top:1px solid var(--line);padding:10px 0}.changed span{color:var(--muted)}details{border-top:1px solid var(--line);padding:14px 0}summary{cursor:pointer;font-weight:800}.meta{color:var(--muted);font-size:.88rem}.reproduce{display:block;padding:12px;background:var(--ink);color:var(--paper);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:540px){main{width:min(100% - 20px,880px);margin:10px auto 40px}.card{padding:18px}.counts{grid-template-columns:1fr}.actions{display:grid}.actions a,.actions button{width:100%}.changed li{grid-template-columns:1fr;gap:2px}}</style></head>
-<body><main data-result-view-version="1"><section class="card" aria-labelledby="result-title"><p class="eyebrow status-${view.verdict.toLowerCase()}">Agent Vigil ${view.verdict}</p><h1 id="result-title">${html(view.consequence)}</h1><p class="cause">${html(view.mainCause)}</p>
-<div class="counts" aria-label="Check counts"><div class="count"><strong>${view.counts.failed}</strong>Failed</div><div class="count"><strong>${view.counts.passed}</strong>Passed</div><div class="count"><strong>${view.counts.notChecked}</strong>Not checked</div></div>
-<nav class="actions" aria-label="Result actions"><a href="#changed-files">Review changed files</a><button type="button" data-copy-reproduce>Copy reproduce command</button><a href="#evidence">Show evidence</a></nav>
-<section aria-labelledby="open-title"><h2 id="open-title">${open.length ? "Checks that need attention" : "Required checks passed"}</h2>${open.length ? open.map(findingHtml).join("") : "<p>No failed or missing required checks.</p>"}</section>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Vigil ${display}</title>
+<style>/* Hallmark \xB7 pre-emit critique: P5 H5 E4 S5 R5 V4 \xB7 macrostructure: decision brief \xB7 theme: quiet */:root{color-scheme:light;--ink:#111827;--muted:#5b6472;--line:#d8dee8;--paper:#fff;--wash:#f4f6f8;--fail:#b42318;--pass:#137333;--hold:#8a4b00;--font-body:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--font-code:ui-monospace,SFMono-Regular,Menlo,monospace}*{box-sizing:border-box}html,body{overflow-x:clip}html{background:var(--wash)}body{margin:0;color:var(--ink);font-family:var(--font-body);line-height:1.5}main{width:min(880px,calc(100% - 32px));margin:40px auto 80px}.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:28px}.eyebrow{margin:0 0 8px;font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.status-fail{color:var(--fail)}.status-pass{color:var(--pass)}.status-inconclusive{color:var(--hold)}h1{min-width:0;margin:0;font-size:clamp(1.8rem,6vw,3.25rem);line-height:1.05;overflow-wrap:anywhere}h2{margin:34px 0 12px;font-size:1.15rem}h3{margin:4px 0 8px;font-size:1rem}p{margin:8px 0}.cause{font-size:1.08rem}.counts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:24px 0}.count{border:1px solid var(--line);border-radius:10px;padding:12px}.count strong{display:block;font-size:1.45rem}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.actions a,.actions button,button[data-copy-reproduce]{min-height:44px;border:1px solid var(--ink);border-radius:8px;background:var(--paper);color:var(--ink);padding:10px 14px;font:inherit;font-weight:700;text-decoration:none;white-space:nowrap}.finding{border-top:1px solid var(--line);padding:18px 0}.finding-failed .eyebrow{color:var(--fail)}.finding-not-checked .eyebrow{color:var(--hold)}.location,code,.meta{overflow-wrap:anywhere}.location{color:var(--muted);font-family:var(--font-code)}.fix{background:var(--wash);border-radius:8px;padding:10px 12px}.test-counts{display:grid;grid-template-columns:repeat(2,minmax(0,180px));gap:8px}.test-counts div{border-left:3px solid var(--line);padding-left:10px}.test-counts dt{color:var(--muted);font-size:.8rem}.test-counts dd{margin:0;font-weight:800}.changed{padding:0;list-style:none}.changed li{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;border-top:1px solid var(--line);padding:10px 0}.changed span{color:var(--muted)}details{border-top:1px solid var(--line);padding:14px 0}summary{cursor:pointer;font-weight:800}.meta{color:var(--muted);font-size:.88rem}.reproduce{display:block;padding:12px;background:var(--ink);color:var(--paper);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:540px){main{width:min(100% - 20px,880px);margin:10px auto 40px}.card{padding:18px}.counts{grid-template-columns:1fr}.actions{display:grid}.actions a,.actions button{width:100%}.changed li{grid-template-columns:1fr;gap:2px}}</style></head>
+<body><main data-result-view-version="1"><section class="card" aria-labelledby="result-title"><p class="eyebrow status-${view.verdict.toLowerCase()}">Agent Vigil ${display}</p><h1 id="result-title">${html(view.consequence)}</h1><p class="cause">${html(view.mainCause)}</p>
+<nav class="actions" aria-label="Result actions"><a href="${primary ? "#open-title" : "#evidence"}">${primary ? "See what needs attention" : "View receipt"}</a></nav>
+<section aria-labelledby="open-title"><h2 id="open-title">${primary ? "What needs attention" : "Required checks passed"}</h2>${primary ? findingHtml(primary) : "<p>No failed or missing required checks.</p>"}</section>
+<details><summary>Receipt details</summary><div class="counts" aria-label="Check counts"><div class="count"><strong>${view.counts.failed}</strong>Failed</div><div class="count"><strong>${view.counts.passed}</strong>Passed</div><div class="count"><strong>${view.counts.notChecked}</strong>Not checked</div></div>
 ${advisories ? `<section aria-labelledby="advisory-title"><h2 id="advisory-title">Review notes</h2>${advisories}</section>` : ""}
 <section id="changed-files" aria-labelledby="changed-title"><h2 id="changed-title">Changed files</h2><p>${html(view.changedFiles.evidence)}</p><ul class="changed">${changed || "<li><span>none shown</span><code>No changed-file records are available.</code></li>"}</ul></section>
-<section id="evidence" aria-labelledby="evidence-title"><h2 id="evidence-title">Evidence</h2><details open><summary>Exact change and receipt</summary><p class="meta">Base ${html(view.base)}<br>Head ${html(view.head)}<br>Receipt ${html(view.receiptHash)}<br>Generated ${html(view.generatedAt)}</p></details><details><summary>Reproduce</summary><code class="reproduce">${html(view.reproduce)}</code></details></section></section></main>
+<section id="evidence" aria-labelledby="evidence-title"><h2 id="evidence-title">Exact change</h2><p class="meta">Base ${html(view.base)}<br>Head ${html(view.head)}<br>Receipt ${html(view.receiptHash)}<br>Generated ${html(view.generatedAt)}</p><button type="button" data-copy-reproduce>Copy reproduce command</button><code class="reproduce">${html(view.reproduce)}</code></section></details></section></main>
 <script>document.querySelector('[data-copy-reproduce]').addEventListener('click',async function(){await navigator.clipboard.writeText(${JSON.stringify(view.reproduce).replace(/</g, "\\u003c")});this.textContent='Copied';});</script></body></html>
 `;
 }
@@ -4963,52 +4974,32 @@ function markdownTableCell(input) {
 function markdownText(value) {
   return value.replace(/[\r\n]+/g, " ").replace(/\\/g, "\\\\").replace(/([*_\[\]<>])/g, "\\$1");
 }
-function openFindings(view) {
-  return view.findings.filter((finding3) => finding3.state !== "PASSED");
+function displayVerdict(view) {
+  return view.verdict === "INCONCLUSIVE" ? "NOT CHECKED" : view.verdict;
 }
 function countLine(view) {
   return `Failed ${view.counts.failed} \xB7 Passed ${view.counts.passed} \xB7 Not checked ${view.counts.notChecked}`;
 }
-function textFinding(finding3) {
-  const location = finding3.location ? `      location: ${finding3.location.file}${finding3.location.line ? `:${finding3.location.line}` : ""}` : void 0;
-  const testCounts = finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0 ? `      tests:    claimed ${finding3.claimedTestCount ?? "not stated"}; observed ${finding3.observedTestCount ?? "not found"}` : void 0;
-  return [
-    `  ${finding3.state.replace("_", " ")} [${finding3.id}] ${finding3.title}`,
-    ...location ? [location] : [],
-    `      evidence: ${finding3.evidence}`,
-    ...testCounts ? [testCounts] : [],
-    `      fix:      ${finding3.remediation}`
-  ];
-}
 function renderResultText(view) {
-  const open = openFindings(view);
+  const primary = primaryResultFinding(view.findings);
   const lines = [
-    `Agent Vigil: ${view.verdict}`,
+    `Agent Vigil: ${displayVerdict(view)}`,
     view.consequence,
-    view.mainCause,
-    countLine(view),
-    ""
+    `Reason: ${view.mainCause}`
   ];
-  if (open.length) {
-    lines.push("Checks that need attention", ...open.flatMap(textFinding), "");
-  } else lines.push("All required checks passed.", "");
-  if (view.advisories.length) {
-    lines.push(
-      `Advisories (${view.advisories.length}; non-blocking under this policy)`,
-      ...view.advisories.flatMap((finding3) => [
-        `  ADVISORY [${finding3.id}] ${finding3.title}`,
-        `      evidence: ${finding3.evidence}`,
-        `      review:   ${finding3.remediation}`
-      ]),
-      ""
-    );
+  if (primary) {
+    if (primary.location) lines.push(`File: ${primary.location.file}${primary.location.line ? `:${primary.location.line}` : ""}`);
+    if (primary.claimedTestCount !== void 0 || primary.observedTestCount !== void 0) {
+      lines.push(`Tests: claimed ${primary.claimedTestCount ?? "not stated"}; observed ${primary.observedTestCount ?? "not found"}`);
+    }
+    lines.push(`Fix: ${primary.remediation}`);
   }
   lines.push(
+    `Reproduce: ${view.reproduce}`,
+    "",
+    `Details: ${countLine(view)}${view.advisories.length ? ` \xB7 Review notes ${view.advisories.length}` : ""}`,
     `Change: ${view.base} -> ${view.head}`,
-    `Changed files: ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}`,
-    ...view.changedFiles.files.map((file) => `  ${file.status}: ${file.previousPath ? `${file.previousPath} -> ` : ""}${file.path}`),
-    `Receipt: ${view.receiptHash}`,
-    `Reproduce: ${view.reproduce}`
+    `Receipt: ${view.receiptHash}`
   );
   return lines.join("\n");
 }
@@ -5016,44 +5007,32 @@ function renderText(value, options = {}) {
   return renderResultText(buildReportResultView(value, options));
 }
 function renderResultMarkdown(view, options = {}) {
-  const open = openFindings(view);
+  const primary = primaryResultFinding(view.findings);
   const lines = [
-    `### Agent Vigil: ${view.verdict}`,
+    `### Agent Vigil: ${displayVerdict(view)}`,
     "",
     `**${markdownText(view.consequence)}**`,
     "",
-    options.aggregateOnly ? `Main result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : `**Main result:** ${markdownText(view.mainCause)}`,
-    "",
-    `**Checks:** ${countLine(view)}`
+    options.aggregateOnly ? `Result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : `**Reason:** ${markdownText(view.mainCause)}`
   ];
-  if (!options.aggregateOnly && open.length) {
-    lines.push("", "#### Checks that need attention", "");
-    for (const finding3 of open) {
-      const location = finding3.location ? ` at ${markdownCodeSpan(`${finding3.location.file}${finding3.location.line ? `:${finding3.location.line}` : ""}`)}` : "";
-      lines.push(`- **${finding3.state.replace("_", " ")}** ${markdownCodeSpan(finding3.id)}${location}: ${markdownText(finding3.title)}`);
-      lines.push(`  - Evidence: ${markdownText(finding3.evidence)}`);
-      if (finding3.claimedTestCount !== void 0 || finding3.observedTestCount !== void 0) {
-        lines.push(`  - Tests: claimed **${finding3.claimedTestCount ?? "not stated"}**; observed **${finding3.observedTestCount ?? "not found"}**`);
-      }
-      lines.push(`  - Fix: ${markdownText(finding3.remediation)}`);
+  if (!options.aggregateOnly && primary) {
+    const location = primary.location ? ` at ${markdownCodeSpan(`${primary.location.file}${primary.location.line ? `:${primary.location.line}` : ""}`)}` : "";
+    lines.push("", `**Fix:** ${markdownText(primary.remediation)}${location}`);
+    if (primary.claimedTestCount !== void 0 || primary.observedTestCount !== void 0) {
+      lines.push(`**Tests:** claimed **${primary.claimedTestCount ?? "not stated"}**; observed **${primary.observedTestCount ?? "not found"}**`);
     }
-  }
-  if (!options.aggregateOnly && view.advisories.length) {
-    lines.push("", `#### Advisories (${view.advisories.length}; non-blocking under this policy)`, "");
-    for (const finding3 of view.advisories) {
-      lines.push(`- **ADVISORY** ${markdownCodeSpan(finding3.id)}: ${markdownText(finding3.title)}`);
-      lines.push(`  - Evidence: ${markdownText(finding3.evidence)}`);
-      lines.push(`  - Review: ${markdownText(finding3.remediation)}`);
-    }
+    lines.push("", `Reproduce: ${markdownCodeSpan(view.reproduce)}`);
   }
   lines.push(
     "",
-    `**Change:** ${markdownCodeSpan(view.base)} -> ${markdownCodeSpan(view.head)}  `,
-    `**Changed files:** ${view.changedFiles.complete ? view.changedFiles.files.length : "not checked"}  `,
-    `**Receipt:** ${markdownCodeSpan(view.receiptHash)}`,
-    ""
+    "<details><summary>Receipt details</summary>",
+    "",
+    `Checks: ${countLine(view)}${view.advisories.length ? ` \xB7 Review notes ${view.advisories.length}` : ""}  `,
+    `Change: ${markdownCodeSpan(view.base)} -> ${markdownCodeSpan(view.head)}  `,
+    `Receipt: ${markdownCodeSpan(view.receiptHash)}`,
+    "",
+    "</details>"
   );
-  if (!options.aggregateOnly) lines.push(`Reproduce: ${markdownCodeSpan(view.reproduce)}`, "");
   return lines.join("\n");
 }
 function renderMarkdown(value, options = {}) {
@@ -13063,6 +13042,9 @@ var PROOF_COMMENT_MARKER = "<!-- agent-vigil-proof-comment:v1 -->";
 function count(results, ruleId, verdict) {
   return results.filter((result5) => result5.ruleId === ruleId && (!verdict || result5.verdict === verdict)).length;
 }
+function displayVerdict2(verdict) {
+  return verdict === "INCONCLUSIVE" ? "NOT CHECKED" : verdict;
+}
 function verifiedUrl(raw) {
   if (!raw) return void 0;
   if (raw.length > 2048) throw new Error("proof comment verify URL exceeds 2048 characters");
@@ -13094,28 +13076,33 @@ function renderProofComment(value, options = {}) {
   ).length;
   const signature = verification2.signatureValid ? "valid embedded Ed25519 signature; signer identity is not pinned" : "absent; content hash only";
   const url = verifiedUrl(options.verifyUrl);
-  const facts = [
-    `- **Checks:** Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}`,
-    `- **Candidate-only regression checks:** ${differentialEarned} verified`,
-    `- **Changed regression checks that also passed on base:** ${differentialAlsoPassedBase}`,
-    `- **Integrity-control contradictions:** ${integrityChanges}`,
-    `- **Unapproved authority contradictions:** ${authorityBlocks}`
+  const detailFacts = [
+    `Checks: Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}  `,
+    `Candidate-only regression checks: ${differentialEarned} verified  `,
+    `Changed regression checks that also passed on base: ${differentialAlsoPassedBase}  `,
+    `Integrity-control contradictions: ${integrityChanges}  `,
+    `Unapproved authority contradictions: ${authorityBlocks}  `
   ];
   return [
     PROOF_COMMENT_MARKER,
-    `### Agent Vigil: ${view.verdict}`,
+    `### Agent Vigil: ${displayVerdict2(view.verdict)}`,
     "",
     `**${view.consequence}**`,
     "",
     view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed.",
     "",
-    ...facts,
-    "",
-    `**Change:** ${markdownCodeSpan(terminalSafe(report.base))} -> ${markdownCodeSpan(terminalSafe(report.head))}  `,
-    `**Policy:** ${markdownCodeSpan(terminalSafe(report.policy.sha256))}  `,
-    `**Receipt:** ${markdownCodeSpan(terminalSafe(report.receiptHash))}  `,
-    `**Signature:** ${signature}`,
+    "Open the retained receipt for the reason, evidence, and exact reproduce command.",
     ...url ? ["", `[Verify this receipt](${url.replace(/[()]/g, (character) => `\\${character}`)})`] : [],
+    "",
+    "<details><summary>Receipt details</summary>",
+    "",
+    ...detailFacts,
+    `Change: ${markdownCodeSpan(terminalSafe(report.base))} -> ${markdownCodeSpan(terminalSafe(report.head))}  `,
+    `Policy: ${markdownCodeSpan(terminalSafe(report.policy.sha256))}  `,
+    `Receipt: ${markdownCodeSpan(terminalSafe(report.receiptHash))}  `,
+    `Signature: ${signature}`,
+    "",
+    "</details>",
     "",
     "The retained receipt contains the check details. This result does not prove that the code is bug-free or that unobserved actions did not occur.",
     ""
@@ -19424,43 +19411,16 @@ ${outcomeUsage()}`);
 }
 
 // src/adoption.ts
-var REPOSITORY_PART = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
-var ADOPTION_FORM = "https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml";
-var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.3/sulmusic-agent-vigil-0.23.3.tgz";
-function githubRepositorySlug(remote) {
-  if (!remote || /[\u0000-\u001f\u007f-\u009f]/.test(remote)) return void 0;
-  let path;
-  try {
-    if (/^git@github\.com:/.test(remote)) path = remote.slice("git@github.com:".length);
-    else {
-      const url = new URL(remote);
-      if (!(/* @__PURE__ */ new Set(["https:", "ssh:", "git:"])).has(url.protocol) || url.hostname.toLowerCase() !== "github.com" || url.search || url.hash) return void 0;
-      if (url.password || (url.protocol === "ssh:" ? url.username !== "git" : Boolean(url.username))) return void 0;
-      if (url.port && !(url.protocol === "ssh:" && url.port === "22")) return void 0;
-      path = url.pathname.replace(/^\//, "");
-    }
-  } catch {
-    return void 0;
-  }
-  const parts = path.replace(/\.git$/, "").split("/");
-  if (parts.length !== 2 || !parts.every((part) => REPOSITORY_PART.test(part))) return void 0;
-  return `${parts[0]}/${parts[1]}`;
-}
-function workflowBadge(slug) {
-  const parts = slug.split("/");
-  if (parts.length !== 2 || !parts.every((part) => REPOSITORY_PART.test(part))) throw new Error("badge repository must be owner/name");
-  const workflow2 = `https://github.com/${slug}/actions/workflows/agent-vigil.yml`;
-  return `[![Agent Vigil workflow](${workflow2}/badge.svg)](${workflow2})`;
-}
-function adoptionRegistrationUrl(slug) {
-  return slug ? `${ADOPTION_FORM}&title=${encodeURIComponent(`[adoption] ${slug}`)}` : ADOPTION_FORM;
-}
+var RELEASE_PACKAGE = "@sulmusic/agent-vigil@0.23.4";
 function releasedDoctorCommand() {
   return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
 }
+function releasedProtectCommand() {
+  return `npx --yes ${RELEASE_PACKAGE} protect --repo .`;
+}
 
 // src/cli.ts
-function usage4() {
+function advancedUsage() {
   return `agent-vigil ${VERSION}
 
 Usage:
@@ -19546,6 +19506,29 @@ Value options:
   --format <kind>        text, json, markdown, or html
 
 Exit codes: 0 PASS \xB7 1 FAIL \xB7 2 INCONCLUSIVE or usage error`;
+}
+function usage4() {
+  return `Agent Vigil ${VERSION}
+
+Check an AI-assisted pull request before it merges.
+
+Start here:
+  ${releasedProtectCommand()}
+
+Then commit the generated setup files and open a setup pull request. After it
+merges, every new pull request gets one result:
+
+  PASS         Ready to merge.
+  FAIL         Do not merge yet.
+  NOT CHECKED  No decision because required evidence is missing.
+
+Useful commands:
+  vigil protect              Add Agent Vigil to the current repository
+  vigil doctor               Check the setup
+  vigil check <pull-request> Check a public GitHub pull request
+  vigil demo                 See a safe local example
+
+Advanced commands: vigil help --all`;
 }
 function guardCompatibilityUsage() {
   return `Agent Vigil guard compatibility
@@ -20085,7 +20068,6 @@ function runProtect(args) {
     );
     console.log("Agent Vigil is ready to add.\n");
     const policy = loadPolicy(repo).value;
-    const slug = githubRepositorySlug(git9(repo, ["config", "--get", "remote.origin.url"]));
     const commands = policy.maintainer?.automatedReview?.commands ?? [];
     if (commands.length) console.log(`  Found   ${safeSetupLine(commands.join(" && "))}`);
     console.log(`  Pinned  ${actionSha}${optionValue(args, "--action-sha") ? " (operator selected)" : selectedPin.source === "package-build" ? " (this package build)" : " (reviewed public release)"}`);
@@ -20099,18 +20081,10 @@ ${renderProtectRehearsal(rehearsal)}`);
         console.error("\nAgent Vigil could not prove its disposable red/green rehearsal. The generated files remain prepared but must not be activated.");
         return 2;
       }
-      console.log("\nState: PREPARED \u2014 not active yet.");
-      console.log("\nNext:");
-      console.log("  1. Review the four generated files.");
-      console.log("  2. Commit and push them in a setup pull request.");
-      console.log(`  3. After that setup merges, run \`${releasedDoctorCommand()}\`.`);
-      console.log("\nState after setup: RUNNING IN CI, not enforced. A plain required job name is not a workflow trust root; enforcement needs an external required workflow or App-owned exact-head check.");
-      if (slug) {
-        console.log("\nOptional workflow badge (run status only; not proof of required-check enforcement):");
-        console.log(`  ${workflowBadge(slug)}`);
-      }
-      console.log("\nRegister an outside trial only after the workflow runs. Registration is optional and requires maintainer consent:");
-      console.log(`  ${adoptionRegistrationUrl(slug)}`);
+      console.log("\nSetup: READY \u2014 not running in GitHub yet.");
+      console.log("\nNext: commit the generated files and open one setup pull request.");
+      console.log(`After it merges, run \`${releasedDoctorCommand()}\`, then open a normal code pull request.`);
+      console.log("That pull request will show PASS, FAIL, or NOT CHECKED. Making the result a protected merge requirement still needs the Agent Vigil App.");
       return 0;
     }
     const checks = doctorRepository(repo);
@@ -20938,6 +20912,18 @@ function shellQuote2(value) {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 function run(argv = process.argv.slice(2)) {
+  if (argv.length === 0) {
+    console.log(usage4());
+    return 0;
+  }
+  if (argv[0] === "help") {
+    console.log(argv.includes("--all") ? advancedUsage() : usage4());
+    return 0;
+  }
+  if (argv.includes("--help-all")) {
+    console.log(advancedUsage());
+    return 0;
+  }
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "continuity") return runContinuityCommand(argv.slice(1));
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
