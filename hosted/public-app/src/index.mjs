@@ -84,8 +84,16 @@ function commonIdentity(payload, deliveryId) {
   return { deliveryId, repository, installationId: installationId(payload) };
 }
 
+function validBranchName(value, maxLength = 255) {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) return false;
+  if (value === "@" || value.startsWith("/") || value.endsWith("/") || value.endsWith(".")) return false;
+  if (/[\u0000-\u0020\u007f~^:?*\[\\]/.test(value) || value.includes("..") || value.includes("@{") || value.includes("//")) return false;
+  return value.split("/").every((component) => component.length > 0 && !component.startsWith(".") && !component.endsWith(".lock"));
+}
+
 export function parsePullRequestPayload(payload, deliveryId) {
-  if (!["opened", "reopened", "synchronize", "ready_for_review"].includes(payload?.action)) {
+  const baseWasEdited = payload?.action === "edited" && typeof payload?.changes?.base?.ref?.from === "string" && payload.changes.base.ref.from.length > 0;
+  if (!["opened", "reopened", "synchronize", "ready_for_review"].includes(payload?.action) && !baseWasEdited) {
     throw new Error("pull_request action is not a verification trigger");
   }
   const common = commonIdentity(payload, deliveryId);
@@ -95,7 +103,7 @@ export function parsePullRequestPayload(payload, deliveryId) {
   const baseRef = requiredString(payload?.pull_request?.base?.ref, "pull_request.base.ref");
   if (!Number.isSafeInteger(number) || number < 1) throw new Error("pull request number is invalid");
   if (!SHA.test(baseSha) || !SHA.test(headSha) || baseSha === headSha) throw new Error("pull request commit identity is invalid");
-  if (!/^[A-Za-z0-9._/-]+$/.test(baseRef) || baseRef.length > 255) throw new Error("pull request base ref is invalid");
+  if (!validBranchName(baseRef)) throw new Error("pull request base ref is invalid");
   return { ...common, event: "pull_request", number: String(number), baseSha, headSha, baseRef, headRef: "" };
 }
 
@@ -107,9 +115,10 @@ export function parseMergeGroupPayload(payload, deliveryId) {
   const baseRef = requiredString(payload?.merge_group?.base_ref, "merge_group.base_ref");
   const headRef = requiredString(payload?.merge_group?.head_ref, "merge_group.head_ref");
   if (!SHA.test(baseSha) || !SHA.test(headSha) || baseSha === headSha) throw new Error("merge-group commit identity is invalid");
-  if (!/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(baseRef)) throw new Error("merge-group base ref is invalid");
-  const branch = baseRef.replace("refs/heads/", "");
-  if (!headRef.startsWith(`refs/heads/gh-readonly-queue/${branch}/`) || headRef.length > 255 || /[\u0000-\u001f\u007f]/.test(headRef)) {
+  if (!baseRef.startsWith("refs/heads/") || !validBranchName(baseRef.slice("refs/heads/".length))) throw new Error("merge-group base ref is invalid");
+  const branch = baseRef.slice("refs/heads/".length);
+  const queueBranch = headRef.startsWith("refs/heads/") ? headRef.slice("refs/heads/".length) : "";
+  if (!queueBranch.startsWith(`gh-readonly-queue/${branch}/`) || !validBranchName(queueBranch, 1024)) {
     throw new Error("merge-group head ref is invalid");
   }
   return { ...common, event: "merge_group", number: "", baseSha, headSha, baseRef, headRef };
@@ -131,8 +140,25 @@ export function canonicalDispatch(value) {
   ].join("\n");
 }
 
+export function dispatchEnvelope(value) {
+  const payload = {
+    schema: "agent-vigil-public-app-v1",
+    deliveryId: value.deliveryId,
+    event: value.event,
+    repository: value.repository,
+    installationId: value.installationId,
+    number: value.number,
+    baseSha: value.baseSha,
+    headSha: value.headSha,
+    baseRef: value.baseRef,
+    headRef: value.headRef,
+    checkRunId: value.checkRunId,
+  };
+  return base64Url(new TextEncoder().encode(JSON.stringify(payload)));
+}
+
 export async function dispatchSignature(secret, value) {
-  return `sha256=${bytesToHex(await hmac(secret, new TextEncoder().encode(canonicalDispatch(value))))}`;
+  return `sha256=${bytesToHex(await hmac(secret, new TextEncoder().encode(dispatchEnvelope(value))))}`;
 }
 
 function derLength(length) {
@@ -223,14 +249,14 @@ async function queueCheckAndDispatch(env, value) {
   if (!POSITIVE_INTEGER.test(String(check?.id ?? ""))) throw new Error("GitHub did not return a check run ID");
   const dispatched = { ...value, checkRunId: String(check.id) };
   try {
-    const controlToken = await installationToken(env.CONTROL_APP_ID, env.CONTROL_APP_PRIVATE_KEY, env.CONTROL_INSTALLATION_ID, { actions: "write", contents: "read" });
+    const controlToken = await installationToken(env.CONTROL_APP_ID, env.CONTROL_APP_PRIVATE_KEY, env.CONTROL_INSTALLATION_ID, { actions: "write" });
     const [controlOwner, controlRepository] = env.CONTROL_REPOSITORY.split("/");
     await github(`/repos/${controlOwner}/${controlRepository}/actions/workflows/${encodeURIComponent(env.CONTROL_WORKFLOW)}/dispatches`, controlToken, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         ref: env.CONTROL_REF,
-        inputs: { ...dispatched, dispatchSignature: await dispatchSignature(env.DISPATCH_SECRET, dispatched) },
+        inputs: { envelope: dispatchEnvelope(dispatched), dispatchSignature: await dispatchSignature(env.DISPATCH_SECRET, dispatched) },
       }),
     });
   } catch (error) {
