@@ -26,6 +26,8 @@ function repo() {
 test("CLI first-use help exits zero and keeps advanced commands behind one explicit step", () => {
   assert.equal(run([]), 0);
   assert.equal(run(["--help"]), 0);
+});
+test("CLI advanced help remains available explicitly", () => {
   assert.equal(run(["help", "--all"]), 0);
 });
 test("CLI command parsers reject ambiguous or incomplete requests before side effects", () => {

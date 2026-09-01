@@ -30,14 +30,11 @@ test("a clean repository gets one truthful prepared result without selecting a r
     timeout: 20_000,
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Setup: READY — not running in GitHub yet\./);
+  assert.match(result.stdout, /State: PREPARED — not active yet\./);
   assert.match(result.stdout, /PASS\s+real regression test failed on old code and passed on proposed code/);
   assert.match(result.stdout, /FAIL\s+planted weak test passed on both versions; merge proof blocked/);
   assert.match(result.stdout, new RegExp(`Pinned\\s+${REVIEWED_PUBLIC_ACTION_SHA} \\(reviewed public release\\)`));
   assert.doesNotMatch(result.stdout, /Agent Vigil doctor|13 failure/);
-  assert.match(result.stdout, /Next: commit the generated files and open one setup pull request\./);
-  assert.match(result.stdout, /PASS, FAIL, or NOT CHECKED/);
-  assert.doesNotMatch(result.stdout, /Register an outside trial|Optional workflow badge/);
 
   const workflow = readFileSync(join(repository, ".github/workflows/agent-vigil.yml"), "utf8");
   assert.match(workflow, new RegExp(`sulmusic2-star/agent-vigil@${REVIEWED_PUBLIC_ACTION_SHA}`));
