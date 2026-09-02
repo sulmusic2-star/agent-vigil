@@ -156,7 +156,7 @@ test("weekly dogfood signs and retains its control proof without a private key",
   assert.match(workflow, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
   assert.match(workflow, /node-version:\s*22\.23\.2/);
   assert.doesNotMatch(workflow, /^\s*node-version:\s*22\s*$/m);
-  assert.match(workflow, /sulmusic2-star\/agent-vigil@a82db69c866826e41dcac5fcaaa9c40bbede7f84/);
+  assert.match(workflow, /sulmusic2-star\/agent-vigil@2f5ca83973c72149beee7290454fc94bfe458e73/);
   assert.match(workflow, /mode:\s*prove/);
   assert.match(workflow, /attest:\s*false/);
   assert.doesNotMatch(workflow, /npm\s|dist\/cli\.js|control-certificate|control-corpus|control-policy|control-status/);
