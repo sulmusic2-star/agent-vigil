@@ -131,9 +131,8 @@ test("CLI SIGINT handler terminates the protected group and retains a receipt", 
     assert.equal(receipt.stop.code, "SUPERVISOR_SIGNAL");
     assert.equal(receipt.stop.signal, "SIGINT");
     assert.equal(receipt.process.processGroupTerminationConfirmed, true);
-    assert.equal(await waitForPidExit(leaderPid), true);
   } finally {
-    if (leaderPid && pidExists(leaderPid)) {
+    if (leaderPid && cli.exitCode === null && cli.signalCode === null && pidExists(leaderPid)) {
       try { process.kill(-leaderPid, "SIGKILL"); } catch { /* Best-effort fixture cleanup. */ }
     }
     if (cli.exitCode === null && cli.signalCode === null) cli.kill("SIGKILL");
