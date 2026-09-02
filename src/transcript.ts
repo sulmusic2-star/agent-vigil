@@ -46,7 +46,7 @@ export type LoadedTranscript = {
   usage?: SessionUsage;
 };
 
-const MAX_TRANSCRIPT_BYTES = 50 * 1024 * 1024;
+export const MAX_TRANSCRIPT_BYTES = 50 * 1024 * 1024;
 
 function readBounded(path: string): string {
   return readRegularUtf8(path, MAX_TRANSCRIPT_BYTES, "transcript");

@@ -11,6 +11,7 @@ import { buildReport } from "../src/report.ts";
 import { run } from "../src/cli.ts";
 import { initRepository } from "../src/setup.ts";
 import { REVIEWED_PUBLIC_ACTION_SHA } from "../src/build-info.ts";
+import { releasedDoctorCommand } from "../src/adoption.ts";
 
 const ACTION_SHA = "a".repeat(40);
 
@@ -73,7 +74,7 @@ test("protect needs no SHA and reports one truthful prepared state", () => {
   assert.match(output, /real regression test failed on old code and passed on proposed code/);
   assert.match(output, /planted weak test passed on both versions; merge proof blocked/);
   assert.match(output, /Next: commit the generated files and open one setup pull request\./);
-  assert.match(output, /npx --yes @sulmusic\/agent-vigil doctor --repo \./);
+  assert.ok(output.includes(releasedDoctorCommand()));
   assert.match(output, /PASS, FAIL, or NOT CHECKED/);
   assert.match(output, /protected merge requirement still needs the Agent Vigil App/);
   assert.doesNotMatch(output, /Optional workflow badge|Register an outside trial|adopter-feedback/);

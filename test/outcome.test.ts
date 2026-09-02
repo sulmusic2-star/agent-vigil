@@ -272,7 +272,7 @@ test("Outcome JSON and signing-key reads reject links and oversized files", { sk
 });
 
 test("Top-level outcome CLI dispatch exposes help and terminal-safes attacker-derived text", () => {
-  const help = captureConsole(() => run(["--help"]));
+  const help = captureConsole(() => run(["help", "--all"]));
   assert.equal(help.code, 0);
   assert.match(help.stdout, /vigil mandate create/);
   assert.match(help.stdout, /vigil receipt verify/);

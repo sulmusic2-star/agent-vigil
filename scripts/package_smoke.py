@@ -270,6 +270,27 @@ def main() -> int:
         demo_value = json.loads(continuity_demo.stdout)
         if [step.get("result") for step in demo_value.get("steps", [])] != ["PASS", "CURRENT", "REVOKED", "REVOKED", "CURRENT"]:
             raise RuntimeError(f"packed continuity demonstration is incorrect: {continuity_demo.stdout}\n{continuity_demo.stderr}")
+        autopsy_help = run([str(vigil), "autopsy", "--help"], consumer)
+        if "vigil autopsy [<transcript.jsonl>]" not in autopsy_help.stdout or "required for EARNED" not in autopsy_help.stdout:
+            raise RuntimeError(f"packed autopsy CLI help is incomplete: {autopsy_help.stdout}\n{autopsy_help.stderr}")
+        autopsy_transcript = lab / "packed-autopsy.jsonl"
+        autopsy_output = lab / "packed-autopsy-output.json"
+        autopsy_transcript.write_text("\n".join([
+            json.dumps({"type": "system", "conversationId": "12345678-1234-1234-1234-123456789abc"}),
+            json.dumps({"type": "assistant", "message": {"content": "private package-smoke prompt"}}),
+            json.dumps({"type": "tool_call", "subtype": "started", "call_id": "one", "tool_call": {"shellToolCall": {"args": {"command": "npm test"}}}}),
+            json.dumps({"type": "tool_call", "subtype": "completed", "call_id": "one", "tool_call": {"shellToolCall": {"result": "ok"}}}),
+        ]) + "\n")
+        autopsy_check = run([
+            str(vigil), "autopsy", str(autopsy_transcript), "--format", "json", "--output", str(autopsy_output),
+        ], consumer, check=False)
+        autopsy_record = json.loads(autopsy_output.read_text())
+        if autopsy_check.returncode != 2 or autopsy_record.get("decision") != "NOT_CHECKED":
+            raise RuntimeError(f"packed autopsy did not fail closed without evidence: {autopsy_check.stdout}\n{autopsy_check.stderr}")
+        if autopsy_record.get("privacy") != {
+            "localOnly": True, "transcriptIncluded": False, "promptIncluded": False, "providerExportIncluded": False
+        } or "private package-smoke prompt" in autopsy_output.read_text():
+            raise RuntimeError("packed autopsy disclosed transcript content or emitted the wrong privacy contract")
         node = shutil.which("node")
         if not node:
             raise RuntimeError("node executable is unavailable for the packed guard compatibility check")
@@ -409,6 +430,8 @@ def main() -> int:
             "continuityHelpExit": continuity_help.returncode,
             "continuityDemoExit": continuity_demo.returncode,
             "continuityLibrary": library_result,
+            "autopsyHelpExit": autopsy_help.returncode,
+            "autopsyMissingEvidenceExit": autopsy_check.returncode,
             "guardCompatibilityExit": guard_check.returncode,
             "guardDeploymentState": guard_receipt["deployment"]["state"],
             "liveHostRouteExit": route_check.returncode,

@@ -94,6 +94,7 @@ import { renderGuardRoute, runGuardRoute } from "./guard-route.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
 import { releasedDoctorCommand, releasedProtectCommand } from "./adoption.ts";
 import { buildCursorExactCostEvidence, validateExactCostEvidence, type ExactCostEvidence } from "./cost-evidence.ts";
+import { runAutopsyCommand } from "./autopsy-cli.ts";
 
 type Options = {
   transcript?: string;
@@ -151,6 +152,7 @@ Usage:
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
   vigil cost-evidence cursor --transcript <session.jsonl> --usage-export <cursor-usage.json> [--output <path>]
+  vigil autopsy [<transcript.jsonl>] [--receipt <receipt.json> --public-key <public.pem>] [options]
   vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
   vigil compare-value <card.json>... [--format text|json|html] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
@@ -218,6 +220,7 @@ merges, every new pull request gets one result:
   NOT CHECKED  No decision because required evidence is missing.
 
 Useful commands:
+  vigil autopsy              Review whether a local agent run earned its cost
   vigil protect              Add Agent Vigil to the current repository
   vigil doctor               Check the setup
   vigil check <pull-request> Check a public GitHub pull request
@@ -1566,6 +1569,7 @@ export function run(argv = process.argv.slice(2)): number {
   }
   if (argv.includes("--help-all")) { console.log(advancedUsage()); return 0; }
   if (argv[0] === "demo") return runDemo(run);
+  if (argv[0] === "autopsy") return runAutopsyCommand(argv.slice(1));
   if (argv[0] === "continuity") return runContinuityCommand(argv.slice(1));
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);

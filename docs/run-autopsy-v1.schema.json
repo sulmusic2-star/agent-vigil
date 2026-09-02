@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/run-autopsy-v1.schema.json",
+  "title": "Agent Vigil Run Autopsy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "generatedAt", "autopsyHash", "run", "change", "cost",
+    "acceptance", "decision", "reason", "reasonCodes", "evidenceGaps", "privacy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-run-autopsy/v1" },
+    "generatedAt": { "$ref": "#/$defs/timestamp" },
+    "autopsyHash": { "$ref": "#/$defs/sha256" },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "agent", "modelIds", "transcriptSha256", "observations"],
+      "properties": {
+        "runId": { "$ref": "#/$defs/sha256" },
+        "agent": {
+          "enum": ["claude-code", "codex", "cursor", "gemini-cli", "github-copilot-cli", "opencode", "aider", "markdown"]
+        },
+        "modelIds": { "$ref": "#/$defs/modelIds" },
+        "transcriptSha256": { "$ref": "#/$defs/sha256" },
+        "startedAt": { "$ref": "#/$defs/timestamp" },
+        "endedAt": { "$ref": "#/$defs/timestamp" },
+        "observations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["assistantMessages", "toolCalls", "failedToolCalls", "usage"],
+          "properties": {
+            "assistantMessages": { "$ref": "#/$defs/count" },
+            "toolCalls": { "$ref": "#/$defs/count" },
+            "failedToolCalls": { "$ref": "#/$defs/count" },
+            "usage": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["status"],
+                  "properties": { "status": { "const": "NOT_CHECKED" } }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "source", "accounting", "inputTokens", "cachedInputTokens", "cacheWriteInputTokens",
+                    "outputTokens", "reasoningOutputTokens", "totalTokens", "modelIds", "recordsObserved", "accountedUnits"
+                  ],
+                  "properties": {
+                    "source": { "const": "transcript-observed" },
+                    "accounting": { "enum": ["deduplicated-assistant-messages", "cumulative-session-snapshot"] },
+                    "inputTokens": { "$ref": "#/$defs/count" },
+                    "cachedInputTokens": { "$ref": "#/$defs/count" },
+                    "cacheWriteInputTokens": { "$ref": "#/$defs/count" },
+                    "outputTokens": { "$ref": "#/$defs/count" },
+                    "reasoningOutputTokens": { "$ref": "#/$defs/count" },
+                    "totalTokens": { "$ref": "#/$defs/count" },
+                    "modelIds": { "$ref": "#/$defs/modelIds" },
+                    "recordsObserved": { "$ref": "#/$defs/count" },
+                    "accountedUnits": { "$ref": "#/$defs/count" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verification", "receiptAuthority", "transcriptJoin", "strictPolicy"],
+      "properties": {
+        "verification": { "enum": ["PASS", "FAIL", "INCONCLUSIVE", "NOT_CHECKED"] },
+        "receiptAuthority": { "enum": ["VALID_PINNED", "VALID_SELF_ASSERTED", "UNSIGNED", "INVALID", "NOT_CHECKED"] },
+        "transcriptJoin": { "$ref": "#/$defs/join" },
+        "strictPolicy": { "oneOf": [{ "type": "boolean" }, { "const": "NOT_CHECKED" }] },
+        "receiptHash": { "$ref": "#/$defs/sha256" },
+        "policySha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "const": "sha256:unavailable" }] },
+        "repositoryRefSha256": { "$ref": "#/$defs/sha256" },
+        "base": { "$ref": "#/$defs/gitObjectId" },
+        "head": { "$ref": "#/$defs/gitObjectId" },
+        "tree": { "$ref": "#/$defs/gitObjectId" }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence", "transcriptJoin", "budgetStatus"],
+      "properties": {
+        "evidence": { "enum": ["PROVIDER_EXPORTED", "NOT_CHECKED"] },
+        "transcriptJoin": { "$ref": "#/$defs/join" },
+        "amountUsd": { "$ref": "#/$defs/nonNegativeNumber" },
+        "evidenceHash": { "$ref": "#/$defs/sha256" },
+        "budgetUsd": { "$ref": "#/$defs/nonNegativeNumber" },
+        "budgetStatus": { "enum": ["WITHIN", "EXCEEDED", "NOT_CHECKED"] }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disposition", "reviewEvidence", "outcome", "outcomeEvidence"],
+      "properties": {
+        "disposition": { "enum": ["accepted", "dismissed", "changes-requested", "unreviewed"] },
+        "reviewEvidence": { "enum": ["HASHED", "NOT_CHECKED"] },
+        "reviewEvidenceSha256": { "$ref": "#/$defs/sha256" },
+        "outcome": { "enum": ["merged", "closed", "reverted", "hotfixed", "incident-linked", "unknown"] },
+        "outcomeEvidence": { "enum": ["HASHED", "NOT_CHECKED"] },
+        "outcomeEvidenceSha256": { "$ref": "#/$defs/sha256" },
+        "outcomeAsOf": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "decision": { "enum": ["EARNED", "NOT_EARNED", "NOT_CHECKED"] },
+    "reason": { "type": "string", "minLength": 1 },
+    "reasonCodes": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+      "uniqueItems": true
+    },
+    "evidenceGaps": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["localOnly", "transcriptIncluded", "promptIncluded", "providerExportIncluded"],
+      "properties": {
+        "localOnly": { "const": true },
+        "transcriptIncluded": { "const": false },
+        "promptIncluded": { "const": false },
+        "providerExportIncluded": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "gitObjectId": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "join": { "enum": ["MATCHED", "MISMATCH", "NOT_CHECKED"] },
+    "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "modelIds": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[ -~]+$" },
+      "uniqueItems": true
+    },
+    "nonNegativeNumber": { "type": "number", "minimum": 0, "maximum": 1000000 }
+  }
+}
