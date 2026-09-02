@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `vigil run`, a POSIX process-group circuit breaker with a mandatory wall
+  limit, optional fail-closed JSONL trajectory limits, and private self-hashed
+  receipts that keep correctness, exact cost, and economic value `NOT_CHECKED`.
 - Accept GitHub App private keys in either unencrypted RSA PKCS#1 or PKCS#8
   format and normalize them in memory before Web Crypto import.
 - Scope the protected pull-request App token to the target repository instead

@@ -13,6 +13,7 @@ import {
   renameSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, normalize, parse, relative, resolve, sep, win32 } from "node:path";
 
@@ -123,11 +124,8 @@ function openPrivateTemporaryFile(parent: string): { descriptor: number; path: s
  * the destination directory ACL.
  */
 export function writePrivateFileAtomic(destination: string, content: string): void {
-  const requested = resolve(destination);
-  const parent = resolveSafeParent(requested);
-  const target = join(parent, basename(requested));
-  assertReplaceableDestination(target);
-
+  const target = validatePrivateFileDestination(destination);
+  const parent = dirname(target);
   let descriptor: number | undefined;
   let temporaryPath: string | undefined;
   let failure: unknown;
@@ -164,6 +162,15 @@ export function writePrivateFileAtomic(destination: string, content: string): vo
     }
   }
   if (failure !== undefined) throw failure;
+}
+
+/** Validate an atomic private-file destination without creating or replacing it. */
+export function validatePrivateFileDestination(destination: string): string {
+  const requested = resolve(destination);
+  const parent = resolveSafeParent(requested);
+  const target = join(parent, basename(requested));
+  assertReplaceableDestination(target);
+  return target;
 }
 
 /**
@@ -242,6 +249,52 @@ export function writePrivateFileExclusive(destination: string, content: string):
     }
   }
   if (failure !== undefined) throw failure;
+}
+
+export type PrivateFileSink = {
+  path: string;
+  write: (bytes: Buffer) => void;
+  close: () => void;
+};
+
+/**
+ * Open a new owner-only regular file for bounded streaming output. The caller
+ * must close the sink; close flushes the file before releasing its descriptor.
+ */
+export function createPrivateFileSink(destination: string): PrivateFileSink {
+  const requested = resolve(destination);
+  const parent = resolveSafeParent(requested);
+  const target = join(parent, basename(requested));
+  const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+  const descriptor = openSync(
+    target,
+    constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | noFollow,
+    0o600,
+  );
+  let open = true;
+  try {
+    fchmodSync(descriptor, 0o600);
+  } catch (error) {
+    closeSync(descriptor);
+    try { unlinkSync(target); } catch { /* Preserve the original failure. */ }
+    throw error;
+  }
+  return {
+    path: target,
+    write(bytes: Buffer): void {
+      if (!open) throw new Error(`Private output is already closed: ${target}`);
+      let offset = 0;
+      while (offset < bytes.length) offset += writeSync(descriptor, bytes, offset, bytes.length - offset);
+    },
+    close(): void {
+      if (!open) return;
+      open = false;
+      let failure: unknown;
+      try { fsyncSync(descriptor); } catch (error) { failure = error; }
+      try { closeSync(descriptor); } catch (error) { failure ??= error; }
+      if (failure !== undefined) throw failure;
+    },
+  };
 }
 
 export function appendPrivateFileAtomic(destination: string, content: string): void {

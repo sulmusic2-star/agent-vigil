@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/protected-run-v1.schema.json",
+  "title": "Agent Vigil Protected Run v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "kind", "generatedAt", "receiptHash", "supervisor", "state",
+    "startedAt", "finishedAt", "elapsedMs", "command", "limits", "process",
+    "outcome", "evidenceBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-protected-run/v1" },
+    "kind": { "const": "agent-vigil-protected-run" },
+    "generatedAt": { "$ref": "#/$defs/timestamp" },
+    "receiptHash": { "$ref": "#/$defs/sha256" },
+    "supervisor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "agent-vigil" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    "state": { "enum": ["EXITED", "STOPPED", "ERROR"] },
+    "startedAt": { "$ref": "#/$defs/timestamp" },
+    "finishedAt": { "$ref": "#/$defs/timestamp" },
+    "elapsedMs": { "$ref": "#/$defs/count" },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executableBasename", "executableSha256", "executablePathSha256",
+        "executableIdentityStable", "argvSha256", "argumentCount", "cwdSha256",
+        "launchedWithoutShell"
+      ],
+      "properties": {
+        "executableBasename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[ -~]+$" },
+        "executableSha256": { "$ref": "#/$defs/sha256" },
+        "executablePathSha256": { "$ref": "#/$defs/sha256" },
+        "executableIdentityStable": { "type": "boolean" },
+        "argvSha256": { "$ref": "#/$defs/sha256" },
+        "argumentCount": { "$ref": "#/$defs/count" },
+        "cwdSha256": { "$ref": "#/$defs/sha256" },
+        "launchedWithoutShell": { "const": true }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timeLimitMs", "terminationGraceMs"],
+      "properties": {
+        "timeLimitMs": { "$ref": "#/$defs/positiveCount" },
+        "terminationGraceMs": { "$ref": "#/$defs/count" },
+        "trajectory": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "noProgressMs": { "$ref": "#/$defs/positiveCount" },
+            "maxToolCalls": { "$ref": "#/$defs/count" },
+            "maxFailedToolCalls": { "$ref": "#/$defs/count" },
+            "maxIdenticalToolCalls": { "$ref": "#/$defs/count" },
+            "maxConsecutiveFailures": { "$ref": "#/$defs/count" },
+            "maxObservedTokens": { "$ref": "#/$defs/count" }
+          }
+        }
+      }
+    },
+    "stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "enum": [
+            "TIME_LIMIT", "TELEMETRY_INTEGRITY", "TELEMETRY_UNREADABLE",
+            "TELEMETRY_MISSING", "TOKEN_USAGE_UNAVAILABLE", "TRANSCRIPT_SIZE",
+            "NO_PROGRESS", "TOOL_CALL_LIMIT", "FAILED_TOOL_CALL_LIMIT",
+            "IDENTICAL_TOOL_CALL_LIMIT", "CONSECUTIVE_FAILURE_LIMIT",
+            "OBSERVED_TOKEN_LIMIT", "ORPHANED_DESCENDANTS", "SUPERVISOR_SIGNAL",
+            "EXECUTABLE_CHANGED", "SUPERVISOR_ERROR"
+          ]
+        },
+        "observed": { "$ref": "#/$defs/count" },
+        "limit": { "$ref": "#/$defs/count" },
+        "signal": { "enum": ["SIGINT", "SIGTERM", "SIGHUP"] },
+        "detailSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "exitCode", "exitSignal", "termSent", "killSent", "processGroupTerminationConfirmed"],
+      "properties": {
+        "platform": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "leaderPid": { "$ref": "#/$defs/positiveCount" },
+        "processGroupId": { "$ref": "#/$defs/positiveCount" },
+        "exitCode": { "oneOf": [{ "type": "integer" }, { "type": "null" }] },
+        "exitSignal": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 32 }, { "type": "null" }] },
+        "termSent": { "type": "boolean" },
+        "killSent": { "type": "boolean" },
+        "processGroupTerminationConfirmed": { "type": "boolean" }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configured", "authority", "transport", "pathSha256", "parserStatus",
+        "appendOnly", "toolCalls", "failedToolCalls", "maxIdenticalToolCalls",
+        "maxConsecutiveFailedToolCalls", "completedProgressActions", "lastProgressElapsedMs"
+      ],
+      "properties": {
+        "configured": { "const": true },
+        "authority": { "const": "child-controlled" },
+        "transport": { "enum": ["external-file", "supervisor-captured-stdout"] },
+        "pathSha256": { "$ref": "#/$defs/sha256" },
+        "parserStatus": { "enum": ["WAITING", "READY", "PARTIAL", "UNREADABLE"] },
+        "format": { "enum": ["claude-code", "codex", "cursor", "gemini-cli", "github-copilot-cli", "opencode", "aider", "markdown"] },
+        "baselineSha256": { "$ref": "#/$defs/sha256" },
+        "latestSha256": { "$ref": "#/$defs/sha256" },
+        "appendOnly": { "type": "boolean" },
+        "toolCalls": { "$ref": "#/$defs/count" },
+        "failedToolCalls": { "$ref": "#/$defs/count" },
+        "maxIdenticalToolCalls": { "$ref": "#/$defs/count" },
+        "maxConsecutiveFailedToolCalls": { "$ref": "#/$defs/count" },
+        "completedProgressActions": { "$ref": "#/$defs/count" },
+        "observedTokens": { "$ref": "#/$defs/count" },
+        "lastProgressElapsedMs": { "$ref": "#/$defs/count" },
+        "parseErrorSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commandCompletion", "economicResult"],
+      "properties": {
+        "commandCompletion": { "const": "OBSERVED_ONLY" },
+        "economicResult": { "const": "NOT_CHECKED" }
+      }
+    },
+    "evidenceBoundary": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "positiveCount": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+  }
+}

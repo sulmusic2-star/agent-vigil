@@ -95,6 +95,7 @@ import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./out
 import { releasedDoctorCommand, releasedProtectCommand } from "./adoption.ts";
 import { buildCursorExactCostEvidence, validateExactCostEvidence, type ExactCostEvidence } from "./cost-evidence.ts";
 import { runAutopsyCommand } from "./autopsy-cli.ts";
+import { runProtectedRunCommand } from "./run-cli.ts";
 
 type Options = {
   transcript?: string;
@@ -153,6 +154,7 @@ Usage:
   vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
   vigil cost-evidence cursor --transcript <session.jsonl> --usage-export <cursor-usage.json> [--output <path>]
   vigil autopsy [<transcript.jsonl>] [--receipt <receipt.json> --public-key <public.pem>] [options]
+  vigil run --time-limit <duration> [trajectory options] -- <executable> [arguments...]
   vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
   vigil compare-value <card.json>... [--format text|json|html] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
@@ -221,6 +223,7 @@ merges, every new pull request gets one result:
 
 Useful commands:
   vigil autopsy              Review whether a local agent run earned its cost
+  vigil run                  Stop a local agent command at declared limits
   vigil protect              Add Agent Vigil to the current repository
   vigil doctor               Check the setup
   vigil check <pull-request> Check a public GitHub pull request
@@ -1570,6 +1573,10 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv.includes("--help-all")) { console.log(advancedUsage()); return 0; }
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "autopsy") return runAutopsyCommand(argv.slice(1));
+  if (argv[0] === "run") {
+    console.error("agent-vigil: vigil run is asynchronous; invoke it through the command-line executable");
+    return 2;
+  }
   if (argv[0] === "continuity") return runContinuityCommand(argv.slice(1));
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
@@ -1725,5 +1732,7 @@ if (isMainModule()) {
       process.exit(2);
     }
     void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION, toolCommit: pin.sha }).then((code) => process.exit(code));
+  } else if (argv[0] === "run") {
+    void runProtectedRunCommand(argv.slice(1)).then((code) => process.exit(code));
   } else process.exit(run(argv));
 }

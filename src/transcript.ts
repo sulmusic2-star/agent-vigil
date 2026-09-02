@@ -418,8 +418,7 @@ function parseOpenCode(data: any, transcriptSha256: string): LoadedTranscript {
   };
 }
 
-export function loadTranscript(path: string): LoadedTranscript {
-  const raw = readBounded(path);
+export function parseTranscript(raw: string, path = "transcript.jsonl"): LoadedTranscript {
   const transcriptSha256 = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
   if (/\.aider\.chat\.history\.md$/i.test(path)) {
     return { narrative: raw, assistantMessages: [raw], toolCalls: [], format: "aider", transcriptSha256 };
@@ -479,6 +478,10 @@ export function loadTranscript(path: string): LoadedTranscript {
   if (format === "gemini-cli") return parseGemini(rows, transcriptSha256);
   if (format === "github-copilot-cli") return parseCopilot(rows, transcriptSha256);
   return format === "codex" ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
+}
+
+export function loadTranscript(path: string): LoadedTranscript {
+  return parseTranscript(readBounded(path), path);
 }
 
 const PATH_EXISTS_RES = [
