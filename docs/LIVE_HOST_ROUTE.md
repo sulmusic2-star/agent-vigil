@@ -98,7 +98,7 @@ vigil guard-environment issue \
   --environment-id engineering-production \
   --policy-manifest /exact/path/to/policy-files.json \
   --signing-key /exact/path/to/environment-private.pem \
-  --valid-until 2026-09-02T20:00:00.000Z \
+  --valid-until "$(node -e 'console.log(new Date(Date.now() + 60 * 60 * 1000).toISOString())')" \
   --output /private/path/codex-environment.json
 ```
 

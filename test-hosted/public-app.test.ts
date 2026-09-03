@@ -499,8 +499,9 @@ test("deployment ledger approves only a current exact authorization and reports 
     const decide = () => ledger.fetch(new Request("https://ledger/", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ operation: "decide", event }),
     }));
-    const first = await decide();
+    const [first, concurrent] = await Promise.all([decide(), decide()]);
     assert.equal((await first.json() as any).state, "approved");
+    assert.equal((await concurrent.json() as any).state, "approved");
     assert.deepEqual(calls.find((call) => call.url.endsWith("/deployment_protection_rule"))?.body, {
       environment_name: "production", state: "approved",
       comment: `Agent Vigil approved authorization ${fixture.authorization.authorization.authorizationHash} for this exact repository, commit, and environment. The deployment job must still verify the admitted artifact bytes.`,

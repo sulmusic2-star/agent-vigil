@@ -609,7 +609,7 @@ async function decideDeployment(env, event, authorization) {
 }
 
 export class DeploymentAuthorizationLedger {
-  constructor(state, env) { this.state = state; this.env = env; }
+  constructor(state, env) { this.state = state; this.env = env; this.inFlight = new Map(); }
   async fetch(request) {
     if (request.method !== "POST") return json(405, { error: "method not allowed" });
     const value = await request.json();
@@ -624,12 +624,20 @@ export class DeploymentAuthorizationLedger {
       return json(201, { status: "registered", authorization_hash: value.authorization.authorizationHash });
     }
     if (value?.operation === "decide") {
-      const prior = await this.state.storage.get(`decision:${value.event.deliveryId}`);
+      const decisionKey = `decision:${value.event.deliveryId}`;
+      const prior = await this.state.storage.get(decisionKey);
       if (prior) return json(200, prior);
-      const authorization = await this.state.storage.get("authorization");
-      const result = await decideDeployment(this.env, value.event, authorization);
-      await this.state.storage.put(`decision:${value.event.deliveryId}`, result);
-      return json(200, result);
+      const existing = this.inFlight.get(decisionKey);
+      if (existing) return json(200, await existing);
+      const pending = (async () => {
+        const authorization = await this.state.storage.get("authorization");
+        const result = await decideDeployment(this.env, value.event, authorization);
+        await this.state.storage.put(decisionKey, result);
+        return result;
+      })();
+      this.inFlight.set(decisionKey, pending);
+      try { return json(200, await pending); }
+      finally { this.inFlight.delete(decisionKey); }
     }
     return json(400, { error: "invalid deployment ledger operation" });
   }

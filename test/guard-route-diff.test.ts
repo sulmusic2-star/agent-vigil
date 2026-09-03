@@ -454,6 +454,10 @@ test("the CLI emits a machine-readable HOLD and refuses to overwrite either inpu
     console.error = (() => undefined) as typeof console.error;
     try {
       assert.equal(run(["guard-diff", "--current", currentPath, "--candidate", candidatePath, "--environment-public-key", publicKeyPath, "--route-public-key", routePublicKeyPath, "--format", "json", "--output", outputPath, "--evaluated-at", "2026-09-02T14:06:00.000Z"]), 1);
+      const decision = JSON.parse(readFileSync(outputPath, "utf8"));
+      assert.equal(decision.decision, "HOLD");
+      assert.match(decision.decisionHash, /^sha256:[0-9a-f]{64}$/);
+      assert.ok(Array.isArray(decision.reasonCodes) && decision.reasonCodes.length > 0);
       assert.equal(run(["guard-diff", "--current", currentPath, "--candidate", candidatePath, "--environment-public-key", publicKeyPath, "--route-public-key", routePublicKeyPath, "--output", currentPath]), 2);
     } finally {
       console.log = originalLog;

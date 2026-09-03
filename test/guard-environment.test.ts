@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import {
   initializeGuardProfileBinding,
   issueGuardEnvironmentStatement,
   verifyGuardEnvironment,
+  verifyGuardEnvironmentReceiptBinding,
 } from "../src/guard-environment.ts";
 
 function fixture() {
@@ -52,6 +53,9 @@ test("a pinned signer binds the disposable profile and policy bytes", () => {
       observedAt: "2026-09-03T19:00:00.000Z",
     });
     assert.equal(verified.binding.statementHash, value.statement.statementHash);
+    const confused = structuredClone(verified.binding);
+    confused.signature.algorithm = "RSA" as "Ed25519";
+    assert.equal(verifyGuardEnvironmentReceiptBinding(confused, readFileSync(value.publicKey)), false);
     assert.doesNotThrow(() => assertGuardEnvironmentUnchanged(verified));
     writeFileSync(value.policy, '{"network":"allow"}\n', { mode: 0o600 });
     assert.throws(() => assertGuardEnvironmentUnchanged(verified), /changed during/);

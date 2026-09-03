@@ -441,6 +441,7 @@ export function verifyGuardEnvironmentReceiptBinding(
 ): boolean {
   try {
     if (binding.schemaVersion !== GUARD_ENVIRONMENT_BINDING_SCHEMA) return false;
+    if (binding.signature.algorithm !== "Ed25519") return false;
     if (guardEnvironmentBindingHash(binding) !== binding.bindingHash) return false;
     const key: KeyObject = Buffer.isBuffer(trustedPublicKey) || typeof trustedPublicKey === "string"
       ? createPublicKey(trustedPublicKey)

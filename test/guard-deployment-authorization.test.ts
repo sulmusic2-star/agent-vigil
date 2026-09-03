@@ -41,7 +41,7 @@ function fixture(decision: "APPROVE" | "HOLD" = "APPROVE") {
   const unsigned: Omit<GuardControlAdmission, "admissionHash"> = {
     schemaVersion: "agent-vigil-control-admission/v1",
     evaluatedAt: "2026-09-03T15:55:00.000Z",
-    validUntil: "2026-09-03T17:00:00.000Z",
+    validUntil: "2026-09-03T18:00:00.000Z",
     decision,
     artifact: { host: "codex", version: "future-1", executableSha256: guardDigest("exact-package-bytes") },
     environmentSha256: guardDigest("managed-environment"),
@@ -160,7 +160,7 @@ test("HOLD admissions, reused trust keys, excessive lifetimes, and unsafe identi
     admissionEnvelope: f.admission.envelope, admissionPublicKey: f.admissionSigner.publicKey,
     repository: "owner/repo", commitSha, environment: "production", deploymentSigner: f.deploymentSigner,
     issuedAt, validUntil: "2026-09-03T17:00:01.000Z",
-  }), /cannot outlive|at most one hour/);
+  }), /at most one hour/);
   assert.throws(() => buildGuardDeploymentAuthorization({
     admissionEnvelope: f.admission.envelope, admissionPublicKey: f.admissionSigner.publicKey,
     repository: "owner/repo\nattack", commitSha, environment: "production", deploymentSigner: f.deploymentSigner,

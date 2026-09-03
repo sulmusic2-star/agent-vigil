@@ -44,6 +44,7 @@ vigil guard-observer \
   --runner-node /usr/local/bin/node \
   --challenge-kms-key alias/agent-vigil-challenge \
   --observer-kms-key alias/agent-vigil-observer \
+  --aws-cli /usr/local/bin/aws \
   --public-origin https://observer.example \
   --challenge-output candidate-challenge.dsse.json \
   --observation-output candidate-observation.dsse.json
@@ -98,6 +99,7 @@ vigil guard-admit \
   --challenge-public-key challenge-public.pem \
   --observer-public-key observer-public.pem \
   --admission-kms-key alias/agent-vigil-admission \
+  --aws-cli /usr/local/bin/aws \
   --output admission.dsse.json
 ```
 
@@ -141,6 +143,7 @@ vigil guard-deploy-authorize \
   --commit-sha 0123456789abcdef0123456789abcdef01234567 \
   --environment production \
   --deployment-kms-key alias/agent-vigil-deployment \
+  --aws-cli /usr/local/bin/aws \
   --output deployment-authorization.dsse.json
 ```
 

@@ -156,6 +156,7 @@ export function compareGuardRoutes(input: {
 
   if (current.host.kind !== candidate.host.kind) reasonCodes.push("HOST_KIND_CHANGED");
   if (current.host.version === candidate.host.version) reasonCodes.push("HOST_VERSION_UNCHANGED");
+  if (current.host.executableSha256 === candidate.host.executableSha256) reasonCodes.push("HOST_EXECUTABLE_UNCHANGED");
   if (Date.parse(candidate.generatedAt) < Date.parse(current.generatedAt)) reasonCodes.push("CANDIDATE_RECEIPT_OLDER");
   if (current.vigilVersion !== candidate.vigilVersion) reasonCodes.push("VERIFIER_VERSION_CHANGED");
   if (!same(current.challengePack, candidate.challengePack)) reasonCodes.push("CHALLENGE_PACK_CHANGED");

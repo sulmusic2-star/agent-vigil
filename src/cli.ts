@@ -93,7 +93,7 @@ import {
 import { DISPOSABLE_PROFILE_MARKER, renderGuardRoute, runGuardRoute } from "./guard-route.ts";
 import { compareGuardRouteFiles, renderGuardRouteDiff } from "./guard-route-diff.ts";
 import { sealGuardRoute } from "./guard-route-seal.ts";
-import { loadGuardSignedEnvelope, openGuardControlChallenge } from "./guard-control-protocol.ts";
+import { loadGuardSignedEnvelope } from "./guard-control-protocol.ts";
 import { runGuardObserverCommand } from "./guard-observer-server.ts";
 import {
   runGuardAdmissionCommand,
@@ -108,6 +108,7 @@ import {
   initializeGuardProfileBinding,
   issueGuardEnvironmentStatement,
   loadGuardEnvironmentStatement,
+  loadGuardPolicyFilesManifest,
 } from "./guard-environment.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
 import { releasedDoctorCommand, releasedProtectCommand } from "./adoption.ts";
@@ -394,11 +395,13 @@ function runGuardEnvironmentCommand(args: string[]): number {
     const manifest = resolve(required("--policy-manifest"));
     const signingKey = resolve(required("--signing-key"));
     const output = resolve(required("--output"));
+    const policyManifest = loadGuardPolicyFilesManifest(manifest);
     assertGuardOutputIsDistinct(output, [
       manifest,
       signingKey,
       join(profileHome, ".agent-vigil-disposable-profile"),
       join(profileHome, GUARD_PROFILE_BINDING_FILE),
+      ...policyManifest.files.map((file) => file.path),
     ]);
     const statement = issueGuardEnvironmentStatement({
       host,
@@ -493,12 +496,12 @@ function runGuardRouteCommand(args: string[]): number {
       ...(externalChallengePath ? [externalChallengePath] : []),
       ...(challengePublicKeyPath ? [challengePublicKeyPath] : []),
     ]);
-    const externalChallenge = externalChallengePath && challengePublicKeyPath
-      ? openGuardControlChallenge(
-          loadGuardSignedEnvelope(resolve(externalChallengePath)),
-          readBoundedRegularFile(resolve(challengePublicKeyPath), 64 * 1024, "guard challenge public key"),
-        )
+    const environmentStatement = environmentStatementPath
+      ? loadGuardEnvironmentStatement(environmentStatementPath)
       : undefined;
+    if (output && environmentStatement) {
+      assertGuardOutputIsDistinct(output, environmentStatement.policies.map((policy) => policy.path));
+    }
     const report = runGuardRoute({
       host,
       hostVersion: required("--host-version"),
@@ -506,11 +509,14 @@ function runGuardRouteCommand(args: string[]): number {
       profileHome,
       vigilVersion: VERSION,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      ...(environmentStatementPath && environmentPublicKeyPath ? {
-        environmentStatement: loadGuardEnvironmentStatement(environmentStatementPath),
+      ...(environmentStatement && environmentPublicKeyPath ? {
+        environmentStatement,
         environmentPublicKeyPath: resolve(environmentPublicKeyPath),
       } : {}),
-      ...(externalChallenge ? { externalChallenge } : {}),
+      ...(externalChallengePath && challengePublicKeyPath ? {
+        externalChallengeEnvelope: loadGuardSignedEnvelope(resolve(externalChallengePath)),
+        externalChallengePublicKey: readBoundedRegularFile(resolve(challengePublicKeyPath), 64 * 1024, "guard challenge public key"),
+      } : {}),
     });
     if (output) writePrivateFileAtomic(resolve(output), `${JSON.stringify(report, null, 2)}\n`);
     console.log(format === "json" ? JSON.stringify(report, null, 2) : renderGuardRoute(report));

@@ -90,3 +90,28 @@ test("off-host observer records a deny canary effect and fails closed", async ()
     assert.ok(result.observation.reasonCodes.includes("DENY_EFFECT_OBSERVED"));
   } finally { rmSync(result.directory, { recursive: true, force: true }); }
 });
+
+test("observer refuses to overwrite a signing key or collide its outputs", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "vigil-observer-collision-"));
+  const challengeKeys = generateKeyPairSync("ed25519");
+  const observerKeys = generateKeyPairSync("ed25519");
+  const challengeKey = join(directory, "challenge.pem");
+  const observerKey = join(directory, "observer.pem");
+  const observationOutput = join(directory, "observation.json");
+  const original = observerKeys.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+  writeFileSync(challengeKey, challengeKeys.privateKey.export({ format: "pem", type: "pkcs8" }), { mode: 0o600 });
+  writeFileSync(observerKey, original, { mode: 0o600 });
+  const oldError = console.error;
+  console.error = (() => undefined) as typeof console.error;
+  try {
+    const code = await runGuardObserverCommand([
+      "--host", "claude", "--host-version", "2.1.246",
+      "--host-executable-sha256", guardDigest("candidate"),
+      "--managed-environment-sha256", guardDigest("environment"), "--runner-node", process.execPath,
+      "--challenge-key", challengeKey, "--observer-key", observerKey,
+      "--challenge-output", observerKey, "--observation-output", observationOutput,
+    ]);
+    assert.equal(code, 2);
+    assert.equal(readFileSync(observerKey, "utf8"), original);
+  } finally { console.error = oldError; rmSync(directory, { recursive: true, force: true }); }
+});

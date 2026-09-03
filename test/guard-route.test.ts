@@ -226,7 +226,7 @@ test("a separately running observer sees the exact allow effect from the routed 
       "--runner-node", process.execPath,
       "--challenge-key", challengePrivate, "--observer-key", observerPrivate,
       "--challenge-output", challengeOutput, "--observation-output", observationOutput,
-      "--ready-output", readyOutput, "--duration-ms", "2000",
+      "--ready-output", readyOutput, "--duration-ms", "5000",
     ];
     observer = spawn(process.execPath, observerArgs, { stdio: ["ignore", "pipe", "pipe"] });
     let observerStderr = "";
@@ -241,10 +241,11 @@ test("a separately running observer sees the exact allow effect from the routed 
       profileHome: selected.profile,
       vigilVersion: "test",
       generatedAt: new Date().toISOString(),
-      timeoutMs: ROUTE_TEST_TIMEOUT_MS,
+      timeoutMs: 3_000,
       environmentStatement: statement,
       environmentPublicKeyPath: environmentPublic,
-      externalChallenge: { challenge: opened.challenge, signerKeyId: opened.signerKeyId },
+      externalChallengeEnvelope: challengeEnvelope,
+      externalChallengePublicKey: readFileSync(challengePublic),
     });
     assert.equal(route.status, "PASS");
     assert.equal(route.challengePack.id, "agent-vigil-external-network-route/v1");

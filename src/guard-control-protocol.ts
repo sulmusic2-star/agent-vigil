@@ -176,7 +176,8 @@ function normalizeOrigin(value: unknown): string {
   if (url.username || url.password || url.search || url.hash || url.pathname !== "/") {
     throw new Error("observer origin must contain only scheme, host, and optional port");
   }
-  const loopback = url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "localhost";
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "::1"
+    || url.hostname === "[::1]" || url.hostname === "localhost";
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
     throw new Error("observer origin must use HTTPS except on loopback");
   }
@@ -375,6 +376,9 @@ export function validateGuardControlChallenge(value: unknown): GuardControlChall
     throw new Error("control challenge hash is invalid");
   }
   if (validated.observer.allowPath === validated.observer.denyPath) throw new Error("challenge paths must be distinct");
+  if (validated.observer.bodySha256 !== guardDigest(CANARY_BODY)) {
+    throw new Error("challenge body digest does not match the fixed canary body");
+  }
   if (validated.commands.allowSha256 !== guardDigest(externalCanaryCommand({
     observer: validated.observer,
     nonce: validated.nonce,
@@ -474,6 +478,12 @@ export function buildGuardControlObservation(input: {
   if (unexpected.length !== 0) reasonCodes.push("UNEXPECTED_REQUEST_OBSERVED");
   if (events.some((event) => event.method !== "POST" || event.bodySha256 !== input.challenge.observer.bodySha256)) {
     reasonCodes.push("REQUEST_SHAPE_MISMATCH");
+  }
+  const allowPathSha256 = guardDigest(input.challenge.observer.allowPath);
+  const denyPathSha256 = guardDigest(input.challenge.observer.denyPath);
+  if (events.some((event) => (event.route === "ALLOW" && event.pathSha256 !== allowPathSha256)
+    || (event.route === "DENY" && event.pathSha256 !== denyPathSha256))) {
+    reasonCodes.push("REQUEST_PATH_MISMATCH");
   }
   if (Date.parse(openedAt) < Date.parse(input.challenge.issuedAt)
     || Date.parse(closedAt) > Date.parse(input.challenge.expiresAt)) {

@@ -131,6 +131,7 @@ function close(server: ReturnType<typeof createServer>): Promise<void> {
 }
 
 export async function runGuardObserverCommand(args: string[]): Promise<number> {
+  let server: ReturnType<typeof createServer> | undefined;
   try {
     const parsed = parse(args);
     if (parsed.flags.has("--help")) { console.log(usage()); return 0; }
@@ -157,12 +158,19 @@ export async function runGuardObserverCommand(args: string[]): Promise<number> {
     if (challengeSigner.keyId === observerSigner.keyId) throw new Error("challenge and observer keys must be distinct");
     const challengeOutput = resolve(required(parsed.values, "--challenge-output"));
     const observationOutput = resolve(required(parsed.values, "--observation-output"));
-    if (challengeOutput === observationOutput) throw new Error("challenge and observation outputs must be distinct");
+    const readyOutput = parsed.values.get("--ready-output") ? resolve(parsed.values.get("--ready-output")!) : undefined;
+    const outputs = [challengeOutput, observationOutput, ...(readyOutput ? [readyOutput] : [])];
+    if (new Set(outputs).size !== outputs.length) throw new Error("observer outputs must be distinct");
+    const fileInputs = ["--challenge-key", "--observer-key", "--runner-node", "--aws-cli"]
+      .flatMap((name) => parsed.values.get(name) ? [resolve(parsed.values.get(name)!)] : []);
+    if (outputs.some((output) => fileInputs.includes(output))) {
+      throw new Error("observer outputs must not overwrite a signing or runtime input");
+    }
 
     let plan: GuardControlPlan | undefined;
     let openedAt = "";
     const events: GuardObservedRequest[] = [];
-    const server = createServer(async (request, response) => {
+    server = createServer(async (request, response) => {
       let path = "/";
       let recorded = false;
       try {
@@ -200,8 +208,8 @@ export async function runGuardObserverCommand(args: string[]): Promise<number> {
     });
     plan = issued.plan;
     writePrivateFileAtomic(challengeOutput, `${JSON.stringify(issued.envelope, null, 2)}\n`);
-    if (parsed.values.get("--ready-output")) {
-      writePrivateFileAtomic(resolve(parsed.values.get("--ready-output")!), `${JSON.stringify({
+    if (readyOutput) {
+      writePrivateFileAtomic(readyOutput, `${JSON.stringify({
         origin: issued.challenge.observer.origin,
         challengeHash: issued.challenge.challengeHash,
         challengeSignerKeyId: challengeSigner.keyId,
@@ -211,6 +219,7 @@ export async function runGuardObserverCommand(args: string[]): Promise<number> {
     console.log(`Agent Vigil observer ready: ${issued.challenge.challengeHash}`);
     await new Promise((resolveTimer) => setTimeout(resolveTimer, durationMs));
     await close(server);
+    server = undefined;
     const closedAt = new Date().toISOString();
     const observed = buildGuardControlObservation({
       challenge: issued.challenge,
@@ -225,5 +234,7 @@ export async function runGuardObserverCommand(args: string[]): Promise<number> {
   } catch (error) {
     console.error(`agent-vigil: ${(error as Error).message}\n\n${usage()}`);
     return 2;
+  } finally {
+    if (server?.listening) await close(server).catch(() => undefined);
   }
 }

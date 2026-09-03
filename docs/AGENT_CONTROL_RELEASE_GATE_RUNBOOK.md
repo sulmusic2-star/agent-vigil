@@ -61,8 +61,8 @@ Required Worker secrets and bindings:
 
 ## Required live matrix
 
-The disposable repository must observe GitHub itself approve the one valid case
-and reject all other cases:
+The disposable repository must prove the valid case and every failure at the
+layer that owns the relevant fact:
 
 - matching authorization and admission;
 - missing registration;
@@ -70,13 +70,21 @@ and reject all other cases:
 - forged authorization signature;
 - forged admission signature;
 - wrong repository, commit, or environment;
-- wrong artifact or managed-environment digest;
+- wrong artifact or managed-environment digest (registration or byte gate);
 - expired evidence;
-- replayed webhook delivery;
+- replayed webhook delivery (the ledger must return the retained decision and
+  must not call GitHub twice);
 - GitHub callback failure;
 - unavailable Worker or Durable Object;
 - protected job presenting different artifact bytes to
-  `guard-deploy-bound-gate`.
+  `guard-deploy-bound-gate` (the byte gate must reject before deployment).
+
+GitHub's custom protection callback owns repository, commit, environment,
+freshness, and callback availability. Registration owns signature and evidence
+linkage. `guard-deploy-bound-gate` owns the downloaded artifact bytes and
+managed-environment digest. A release fails if any invalid row is accepted by
+its responsible layer; it does not require GitHub's callback to inspect facts
+that are available only inside the protected job.
 
 Save the GitHub run URL, webhook delivery ID, Worker deployment version,
 authorization hash, admission hash, source SHA, and result for every row. Never

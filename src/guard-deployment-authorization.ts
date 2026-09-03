@@ -214,7 +214,9 @@ export function buildGuardDeploymentAuthorization(input: {
   const opened = openGuardControlAdmission(input.admissionEnvelope, input.admissionPublicKey);
   const admission = opened.admission;
   if (admission.decision !== "APPROVE") throw new Error("cannot authorize deployment from a HOLD admission");
-  if (input.deploymentSigner.keyId === opened.signerKeyId) throw new Error("deployment and admission signers must be distinct");
+  if (Object.values(admission.trust).includes(input.deploymentSigner.keyId)) {
+    throw new Error("deployment signer must be distinct from every admission trust role");
+  }
   if (Date.parse(issuedAt) < Date.parse(admission.evaluatedAt) || Date.parse(issuedAt) > Date.parse(admission.validUntil)) {
     throw new Error("deployment authorization issuance is outside the admission validity window");
   }
@@ -273,6 +275,13 @@ export function gateGuardDeploymentAuthorization(input: {
   if (authorization.artifact.executableSha256 !== digest(input.expectedArtifactSha256, "expected artifact digest")
     || authorization.artifact.executableSha256 !== admission.artifact.executableSha256) {
     throw new Error("deployment authorization is for different artifact bytes");
+  }
+  if (authorization.artifact.host !== admission.artifact.host
+    || authorization.artifact.version !== admission.artifact.version) {
+    throw new Error("deployment authorization is for a different artifact identity");
+  }
+  if (Object.values(admission.trust).includes(authorization.trust.deploymentSignerKeyId)) {
+    throw new Error("deployment signer is not independent from the admission trust roles");
   }
   if (authorization.managedEnvironmentSha256 !== digest(input.expectedManagedEnvironmentSha256, "expected managed environment digest")
     || authorization.managedEnvironmentSha256 !== admission.environmentSha256) {

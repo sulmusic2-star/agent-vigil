@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, type KeyObject } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -28,6 +28,7 @@ import {
   type GuardDecision,
   type GuardHost,
 } from "./guard-compat.ts";
+import { openGuardControlChallenge, type GuardSignedEnvelope } from "./guard-control-protocol.ts";
 import {
   assertGuardEnvironmentUnchanged,
   verifyGuardEnvironment,
@@ -150,7 +151,8 @@ export type GuardRouteInput = {
   nonce?: string;
   environmentStatement?: unknown;
   environmentPublicKeyPath?: string;
-  externalChallenge?: { challenge: GuardControlChallenge; signerKeyId: string };
+  externalChallengeEnvelope?: GuardSignedEnvelope;
+  externalChallengePublicKey?: string | Buffer | KeyObject;
 };
 
 type HookLog = {
@@ -443,10 +445,16 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 300_000) {
     throw new Error("host timeout must be an integer from 1000 to 300000 milliseconds");
   }
-  if (input.externalChallenge && input.nonce && input.externalChallenge.challenge.nonce !== input.nonce) {
+  if ((input.externalChallengeEnvelope === undefined) !== (input.externalChallengePublicKey === undefined)) {
+    throw new Error("external challenge envelope and pinned public key must be provided together");
+  }
+  const externalChallenge = input.externalChallengeEnvelope === undefined
+    ? undefined
+    : openGuardControlChallenge(input.externalChallengeEnvelope, input.externalChallengePublicKey!);
+  if (externalChallenge && input.nonce && externalChallenge.challenge.nonce !== input.nonce) {
     throw new Error("external challenge nonce conflicts with requested nonce");
   }
-  const nonce = safeNonce(input.externalChallenge?.challenge.nonce ?? input.nonce ?? randomBytes(16).toString("hex"));
+  const nonce = safeNonce(externalChallenge?.challenge.nonce ?? input.nonce ?? randomBytes(16).toString("hex"));
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   if (!Number.isFinite(Date.parse(generatedAt))) throw new Error("generated time must be an RFC3339-compatible timestamp");
   if ((input.environmentStatement === undefined) !== (input.environmentPublicKeyPath === undefined)) {
@@ -463,8 +471,8 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
         profileHome: profile.profileHome,
         observedAt: generatedAt,
       });
-  if (input.externalChallenge) {
-    const challenge = input.externalChallenge.challenge;
+  if (externalChallenge) {
+    const challenge = externalChallenge.challenge;
     if (challenge.target.host !== input.host || challenge.target.version !== hostVersion
       || challenge.target.executableSha256 !== hostIdentity.sha256) {
       throw new Error("external challenge does not match the exact host artifact");
@@ -487,8 +495,8 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
   const lastMessagePath = join(root, "last-message.txt");
   mkdirSync(workspace, { mode: 0o700 });
   mkdirSync(temporary, { mode: 0o700 });
-  const allow = liveCommand("allow", nonce, input.externalChallenge?.challenge);
-  const deny = liveCommand("deny", nonce, input.externalChallenge?.challenge);
+  const allow = liveCommand("allow", nonce, externalChallenge?.challenge);
+  const deny = liveCommand("deny", nonce, externalChallenge?.challenge);
   const source = hookSource({
     logPath: hookLogPath,
     processAllow: processCommand("allow", nonce),
@@ -668,8 +676,8 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
       requirement: "BOTH_CURRENT_HOSTS_MUST_PASS" as const,
     },
     challengePack: {
-      id: input.externalChallenge ? EXTERNAL_ROUTE_PACK : GUARD_ROUTE_CHALLENGE_PACK,
-      sha256: challengePackSha256(Boolean(input.externalChallenge)),
+      id: externalChallenge ? EXTERNAL_ROUTE_PACK : GUARD_ROUTE_CHALLENGE_PACK,
+      sha256: challengePackSha256(Boolean(externalChallenge)),
     },
     host: { kind: input.host, version: hostVersion, executableSha256: hostIdentity.sha256, invocationSha256, process: observedProcess },
     control: {
@@ -715,8 +723,8 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
         ...commonLimitations,
         "The managed-environment binding proves that a pinned signer named the profile identity and policy files, their exact bytes were present, and none changed during this drill.",
         "The managed-environment binding does not prove that remote service state outside the signed files was unchanged or that the signed policy was correctly designed.",
-        ...(input.externalChallenge ? [
-          `External challenge ${input.externalChallenge.challenge.challengeHash} was verified against signer ${input.externalChallenge.signerKeyId}; its separate observer receipt is required before admission.`,
+        ...(externalChallenge ? [
+          `External challenge ${externalChallenge.challenge.challengeHash} was verified against signer ${externalChallenge.signerKeyId}; its separate observer receipt is required before admission.`,
           "The external allow effect is observed outside the candidate worker. Deny-attempt evidence still depends on the trusted isolated worker and route control; a compromised worker operating system is outside this proof boundary.",
         ] : []),
       ],
