@@ -19,7 +19,7 @@ function repo(prefix = "vigil-receipt-product-") {
   git(path, ["config", "user.email", "vigil@example.test"]);
   git(path, ["config", "user.name", "Vigil Test"]);
   writeFileSync(join(path, "package.json"), JSON.stringify({ scripts: { test: "node --test test.js" } }));
-  writeFileSync(join(path, "test.js"), "const{test}=require('node:test');test('one',()=>{});\n");
+  writeFileSync(join(path, "test.js"), "const assert=require('node:assert/strict');const{test}=require('node:test');test('one',()=>{assert.equal(1,1);});\n");
   writeFileSync(join(path, "src.js"), "module.exports = 1;\n");
   git(path, ["add", "-A"]);
   git(path, ["commit", "-qm", "base"]);
@@ -85,6 +85,17 @@ test("watch hard-fails verifier pipelines and produces export/corpus artifacts",
   assert.equal(runQuiet(["watch", transcript, "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--output", receiptPath, "--format", "json"]), 1);
   const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
   assert.ok(receipt.results.some((item: any) => item.ruleId === "piped-exit-code"));
+
+  const bypassTranscript = writeCodexTranscript(
+    fixture.path,
+    ["npm test", "true"].join(" || "),
+    "# tests 1\n# pass 1\n# fail 0\n",
+    "The test suite passes.",
+  );
+  const bypassReceiptPath = join(fixture.path, "bypass-receipt.json");
+  assert.equal(runQuiet(["watch", bypassTranscript, "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--output", bypassReceiptPath, "--format", "json"]), 1);
+  const bypassReceipt = JSON.parse(readFileSync(bypassReceiptPath, "utf8"));
+  assert.ok(bypassReceipt.results.some((item: any) => item.ruleId === "verification-bypass"));
 
   const exportPath = join(fixture.path, "soc2.md");
   assert.equal(runQuiet(["vault", "export", receiptPath, "--pack", "soc2", "--format", "markdown", "--output", exportPath]), 1);

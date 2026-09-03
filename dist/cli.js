@@ -19524,7 +19524,8 @@ function commandText2(call) {
       }
       if (Array.isArray(row.args) && row.args.every((item2) => typeof item2 === "string")) return row.args.join(" ");
     }
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
   }
   return input;
 }
@@ -19537,13 +19538,15 @@ function outputText(call) {
       const fields = ["output", "stdout", "stderr", "text", "message"].map((key) => row[key]).filter((value) => typeof value === "string");
       if (fields.length) return fields.join("\n");
     }
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
   }
   return output;
 }
 function commandLooksLikeVerifier(command) {
   return /\b(?:npm|pnpm|yarn|bun)\s+(?:test|run|publish|stage)\b|\b(?:node\s+--test|pytest|go\s+test|cargo\s+test|mvn\s+test|gradle\s+test|dotnet\s+test|rspec|phpunit)\b|\b(?:deploy|publish|release|merge|terraform|kubectl|wrangler|vercel)\b|gh\s+pr\s+merge/i.test(command);
 }
+var swallowedSuccessFallbackPattern = new RegExp(String.raw`\|\|\s*true\b`);
 function hasUnsafePipeline(command) {
   return /(^|[^|])\|([^|]|$)/.test(command) && !/\bpipefail\b/.test(command);
 }
@@ -19593,8 +19596,8 @@ function finalSummaryChecks(finalSummary, loaded, repo, base, head) {
   for (const call of loaded.toolCalls) {
     const command = commandText2(call);
     if (!command) continue;
-    if (/\|\|\s*true\b/.test(command)) {
-      checks.push(result5("integrity", "verification-bypass", "verification command bypass", plain2(command, 120), "contradicted", `tool call ${call.sequence} contains \`|| true\`; the stop-event gate refuses swallowed verification failure`, { contributesToPass: false }));
+    if (swallowedSuccessFallbackPattern.test(command)) {
+      checks.push(result5("integrity", "verification-bypass", "verification command bypass", plain2(command, 120), "contradicted", `tool call ${call.sequence} contains a swallowed-success fallback; the stop-event gate refuses hidden verifier failures`, { contributesToPass: false }));
     } else if (commandLooksLikeVerifier(command) && hasUnsafePipeline(command)) {
       checks.push(result5("integrity", "piped-exit-code", "piped verifier exit code", plain2(command, 120), "contradicted", `tool call ${call.sequence} uses a verifier/deploy pipeline without pipefail, so a failing left-hand command could be hidden`, { contributesToPass: false }));
     }
