@@ -1,6 +1,6 @@
 # Product decision: verified change economics
 
-**Reviewed:** 2026-09-01  
+**Reviewed:** 2026-09-01
 **Decision:** Keep Agent Vigil in independent AI change control. Add verified
 economics to that lane; do not turn it into another review bot, generic agent
 observability dashboard, or standalone loop killer.
@@ -181,4 +181,3 @@ the market and it is not likely to produce millions as-is.
 - CodeRabbit review-loop complaint: <https://www.reddit.com/r/coderabbit/comments/1ub34dh/limits_are_ridicolous_pro_getting_maybe_5_reviews/>
 - GitKraken price and unwanted-AI complaint: <https://www.reddit.com/r/GitKraken/comments/1w2c3li/what_on_earth_are_these_prices/>
 - Study of developer responses to CodeRabbit findings: <https://arxiv.org/abs/2607.03316>
-
