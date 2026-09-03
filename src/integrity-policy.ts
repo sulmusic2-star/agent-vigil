@@ -7,6 +7,7 @@ export type IntegrityMode = "advisory" | "calibrated" | "blocking";
 // calibrated mode because their repository-level precision is not established.
 export const CALIBRATED_BLOCKING_RULES = new Set([
   "coverage-weakened",
+  "ci-workflow-edited",
   "ghost-loader",
   "oracle-falsify",
   "render-gate",

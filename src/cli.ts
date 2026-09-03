@@ -112,6 +112,14 @@ import {
 } from "./guard-environment.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
 import { releasedDoctorCommand, releasedProtectCommand } from "./adoption.ts";
+import {
+  runBlastRadiusCommand,
+  runCorpusCommand,
+  runCounterweightCommand,
+  runTaxonomyCommand,
+  runVaultCommand,
+  runWatchCommand,
+} from "./receipt-product.ts";
 
 type Options = {
   transcript?: string;
@@ -137,6 +145,7 @@ function advancedUsage(): string {
 
 Usage:
   vigil <transcript.jsonl|summary.md> [options]
+  vigil watch <transcript.jsonl|summary.md> [--repo <path>] [--base <sha>] [--head <sha>] [--test-cmd <command>] [--signing-key <private.pem>] [--format text|json|markdown] [--output <receipt.json>]
   vigil demo
   vigil init --action-sha <40-hex> [--repo <path>] [--force] [--runner common|--runner-image <digest> --test-cmd <command>] [--portable --public-key <path>]
   vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
@@ -163,6 +172,11 @@ Usage:
   vigil certify status --corpus <corpus.jsonl> --policy <policy.json> [--as-of <time>] [--format text|json] [--output <path>]
   vigil certify policy --organization <name> --repository <owner/name> --required-check <name> --pack baseline|authority --output <path>
   vigil certify install-action --repo <path> --action-ref <full-commit-sha> [--force]
+  vigil counterweight install --owner-repo <owner/name> --action-sha <full-commit-sha> [--repo <path>] [--apply]
+  vigil vault export <receipt.json> [--pack soc2|ssdf|pcaob|finra|insurer|all] [--format json|markdown] [--output <path>]
+  vigil blast-radius [--repo <path>] [--base <sha>] [--head <sha>] [--intent <intent.json>] [--format json|markdown] [--output <path>]
+  vigil taxonomy [--format json|markdown] [--output <path>]
+  vigil corpus signature <receipt.json> --model <model-id> --harness <harness-version> [--output <path>]
   vigil plan [--repo <path>] [--base <sha>] [--head <sha>] [--policy <path>] [--format text|json] [--output <path>]
   vigil proof-comment <receipt.json> [--verify-url <https-url>] [--output <path>]
   vigil receipt-view <receipt.json> [--format text|markdown|html|json] [--output <path>]
@@ -245,6 +259,8 @@ merges, every new pull request gets one result:
   NOT CHECKED  No decision because required evidence is missing.
 
 Useful commands:
+  vigil watch <transcript>   Wake up to a receipt, not a story
+  vigil counterweight install Add the required non-LLM PR check
   vigil protect              Add Agent Vigil to the current repository
   vigil doctor               Check the setup
   vigil check <pull-request> Check a public GitHub pull request
@@ -1777,6 +1793,12 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "continuity") return runContinuityCommand(argv.slice(1));
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
+  if (argv[0] === "watch") return runWatchCommand(argv.slice(1));
+  if (argv[0] === "counterweight") return runCounterweightCommand(argv.slice(1));
+  if (argv[0] === "vault") return runVaultCommand(argv.slice(1));
+  if (argv[0] === "blast-radius") return runBlastRadiusCommand(argv.slice(1));
+  if (argv[0] === "taxonomy") return runTaxonomyCommand(argv.slice(1));
+  if (argv[0] === "corpus") return runCorpusCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
   if (argv[0] === "prove") return runProve(argv);
   if (argv[0] === "guard-compat") return runGuardCompatibilityCommand(argv);

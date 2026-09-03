@@ -4,35 +4,115 @@
 [![MIT](https://img.shields.io/badge/license-MIT-111827.svg)](LICENSE)
 [![Node 20+](https://img.shields.io/badge/node-20%2B-339933.svg)](package.json)
 
-**Agent Vigil is an independent merge check for AI-assisted pull requests.**
+**Agent Vigil is the required check that is not an LLM: the deterministic,
+signed receipt that an agent's green could have been red.**
 
-It runs the test and evidence policy from the base branch against the exact
-proposed commit. A missing run, stale result, changed policy, weaker test, or
-contradictory claim cannot appear as a pass.
+Wake up to a receipt, not a story.
 
-Review tools look for likely bugs. Agent Vigil answers a different question:
-**did this exact change produce the evidence your repository requires before
-merge?**
+## It catches that?
 
-![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
+Agent Vigil is not another AI reviewer. Detection is the free layer. The product
+is the receipt a maintainer, senior reviewer, auditor, customer, or insurer can
+consume without trusting the agent that wrote the final summary.
+
+The current receipt gates catch the failures that make overnight and unreviewed
+agent runs expensive:
+
+- **Denominator shrink:** a final summary says `4966/4966 ALL PASSED`, but the
+  effect ledger shows `4985/4992` with failures. Detector: `denominator-shrink-4966`.
+- **Test laundering:** deleted tests, new `skip` / `only` / pytest `xfail`, empty
+  tests, constant or self-fulfilling oracles, assertion loss, and coverage gates
+  weakened to zero.
+- **Verifier laundering:** `|| true`, unsafe verifier/deploy pipelines without
+  `pipefail`, changed CI workflows, changed policy, changed lock/config files,
+  and stale required evidence.
+- **Story-only release claims:** “merged,” “published,” or “deployed” in the
+  final summary is not accepted unless the non-narrative effect ledger contains
+  corresponding proof.
+
+Why this now: the research behind this direction cites Faros numbers showing PRs
+merged with no review up **31%** and review time up **441%**. If AI approvals can
+count toward human approval requirements, repositories need a counterweight: a
+required status check that is deterministic, base-owned, and not promptable.
+
+## Start here
+
+### 1. Check an overnight or run-end summary
+
+```bash
+vigil watch .agent-session.jsonl --repo . --base <base-sha> --head <head-sha> \
+  --test-cmd "npm test --silent" \
+  --output agent-vigil-receipt.json \
+  --format markdown
+```
+
+`vigil watch` reads the final agent summary, parses concrete claims, and checks
+them against the effect ledger: changed files, tool calls, test summaries, fresh
+tests, and static anti-reward-hacking detectors. Add `--signing-key` to emit an
+Ed25519-signed receipt.
+
+### 2. Install the non-LLM PR counterweight
+
+```bash
+vigil counterweight install --owner-repo OWNER/REPO --action-sha <agent-vigil-commit>
+```
+
+This writes a required-check workflow, a GitHub ruleset manifest, and an apply
+script. With `--apply`, the CLI calls the GitHub Rulesets API directly; that
+requires repository-rules administration authority. The installer creates the
+rule instead of assuming the repo already has a required status check.
+
+### 3. Export the receipt for counterparties
+
+```bash
+vigil vault export agent-vigil-receipt.json --pack soc2 --format markdown \
+  --output SOC2-CC8.1-agent-vigil.md
+```
+
+The OSS CLI emits deterministic export packs for SOC 2 CC8.1, SSDF PW.7/PW.8/PS.3,
+PCAOB AI-evidence review, FINRA 3110 chain reconstruction, and insurer
+represented-process review. This is local export generation, not hosted
+long-retention storage.
+
+### 4. Prove blast radius after destructive or infra actions
+
+```bash
+vigil blast-radius --repo . --base <base-sha> --head <head-sha> \
+  --intent intent.json --format markdown --output blast-radius.md
+```
+
+`intent.json` declares pre-action scope. The receipt compares that declaration to
+actual changed paths and obvious destructive/infra lines. It is the after-proof
+layer for destructive-command guards, not a replacement for pre-action blocking.
+
+### 5. Use the taxonomy and optional corpus hook
+
+```bash
+vigil taxonomy --format markdown
+vigil corpus signature agent-vigil-receipt.json --model claude-code-x --harness overnight-v1 \
+  --output signature.json
+```
+
+Corpus signatures are opt-in and anonymized: rule IDs, VIGIL taxonomy IDs,
+model/harness labels, first-seen timestamp, and no transcript or repository path
+content.
 
 ## Add it to a repository
 
-The normal install is one command:
+The protection path remains one command:
 
 ```bash
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo .
 ```
 
 The command finds the repository's test setup, runs a disposable red/green
-rehearsal, and writes the setup files. Commit those files and open one setup
-pull request. After that setup merges, open a normal code pull request and read
-one result:
+rehearsal, and writes setup files. Commit those files and open one setup pull
+request. After that setup merges, every normal code PR gets one result:
 
 - **PASS** — ready to merge under the repository's current policy.
-- **FAIL** — do not merge yet; a required check found a contradiction.
-- **NOT CHECKED** — no merge decision; required evidence did not run or could
-  not be bound safely to the current commit.
+- **FAIL** — do not merge yet; required evidence contradicted the claim.
+- **NOT CHECKED** — no merge decision; evidence did not run or could not be
+  safely bound to the current commit.
 
 A failed result is deliberately short:
 
@@ -45,15 +125,18 @@ Fix: Run the configured test command again and report the observed count.
 Reproduce: vigil verify --base <base-sha> --head <head-sha>
 ```
 
-The full receipt keeps the exact SHAs, policy hash, changed files, commands,
-claimed and observed test counts, findings, and reproduction command.
+The full receipt keeps exact SHAs, policy hash, changed files, commands, claimed
+and observed test counts, findings, and reproduction command.
 
-### Current distribution boundary
+## Current distribution boundary
 
-v0.24.0 is a source release candidate until GitHub lists both the package and checksum assets.
-It is not a public release yet.
+v0.24.0 is a source release candidate until GitHub lists both the package and
+checksum assets. It is merged to `main`, tagged, and staged through npm trusted
+publishing with provenance. It is **not installable from npm** until a maintainer
+approves the staged package with npm 2FA. npm still serves v0.21.1 until that
+approval is completed.
 
-The last verified GitHub package is
+The last verified GitHub release tarball is
 [`sulmusic-agent-vigil-0.23.2.tgz`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz).
 GitHub release v0.23.2 is public and immutable.
 npm currently serves v0.21.1. Do not assume that `latest` points to the same
@@ -75,7 +158,7 @@ The default protection path can verify:
 - base-owned policy and workflow bytes;
 - fresh tests in a candidate-only Docker boundary;
 - claimed and observed test counts as separate facts;
-- skipped, focused, weakened, empty, patched, or self-fulfilling tests;
+- skipped, focused, xfailed, weakened, empty, patched, or self-fulfilling tests;
 - a changed regression test that fails on base and passes on head;
 - changed-path and changed-line limits;
 - protected policy, workflow, and verifier paths;
@@ -100,38 +183,16 @@ Project dependencies must already be reproducible from the base-owned setup.
 Tests run without network access. See the [compatibility table](docs/COMPATIBILITY.md)
 and [hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md).
 
-## GitHub App
-
-The public App path is designed to reduce customer setup to:
-
-1. install the App and select repositories;
-2. confirm the base-owned test setup;
-3. open a pull request;
-4. read `PASS`, `FAIL`, or `NOT CHECKED`.
+## GitHub App and Marketplace boundary
 
 The centrally operated App owns the check identity, supports `pull_request` and
 `merge_group`, and keeps App keys and webhook secrets out of customer
-repositories. Its source and threat boundary are in
-[`hosted/public-app`](hosted/public-app). **It is not a live public service until
-a real outside repository demonstrates PASS, FAIL, stale-head NOT CHECKED, and
-a ruleset bound to the App.**
+repositories. A repository-owned Action is useful for trials, but a job name
+alone is not a merge trust root.
 
-A repository-owned Action is useful for trials, but a job name alone is not a
-workflow trust root. GitHub rulesets should require the App-owned check when the
-public service is activated. See [merge-queue handling](docs/MERGE_QUEUES.md).
-
-## Try a public pull request
-
-The [browser checker](https://sulmusic2-star.github.io/agent-vigil/check.html)
-reads public GitHub metadata without a login or token. It does not run trusted
-repository tests, write a check, or authorize a merge. It returns an exact local
-command for the full gate.
-
-The CLI equivalent is:
-
-```bash
-vigil check https://github.com/OWNER/REPOSITORY/pull/123
-```
+Marketplace submission is not a code artifact. It still requires publisher/app
+account authority, listing assets, and an actual submission action by an account
+allowed to publish the App.
 
 ## Verify this project
 
@@ -146,12 +207,13 @@ npm run test:hosted
 npm run test:package
 ```
 
-`vigil help` shows the four first-use commands. `vigil help --all` shows the
-advanced receipt, authority, continuity, upgrade, certification, and outcome
-commands.
+`vigil help` shows the first-use commands. `vigil help --all` shows the advanced
+receipt, authority, continuity, upgrade, certification, outcome, counterweight,
+vault, blast-radius, taxonomy, and corpus commands.
 
 ## Evidence and limits
 
+- [Receipt-product commands and authority boundaries](docs/RECEIPT_PRODUCT.md)
 - [Frozen and comparative benchmarks](docs/BENCHMARKS.md)
 - [Scoped competitor comparison](docs/COMPETITOR_COMPARISON.md)
 - [Published failure corpus](proof/README.md)
@@ -161,8 +223,9 @@ commands.
 - [Commercial proof gates](docs/COMMERCIAL_GATES.md)
 
 This repository's runs prove first-party technical behavior. They do not prove
-outside adoption, retained use, willingness to pay, revenue, or universal
-superiority over competing products.
+outside adoption, retained use, willingness to pay, revenue, auditor acceptance,
+insurer acceptance, legal sufficiency, or universal superiority over competing
+products.
 
 ## Contributing
 
