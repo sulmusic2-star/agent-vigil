@@ -120,25 +120,6 @@ A repository-owned Action is useful for trials, but a job name alone is not a
 workflow trust root. GitHub rulesets should require the App-owned check when the
 public service is activated. See [merge-queue handling](docs/MERGE_QUEUES.md).
 
-## GitHub Action
-
-The generated evidence workflow selects its exact Node runtime as the first executable step in a fresh hosted job:
-
-```yaml
-steps:
-  - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-    with:
-      node-version: 22.23.2
-      package-manager-cache: false
-  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-    with:
-      persist-credentials: false
-  - uses: sulmusic2-star/agent-vigil@33ae20140ffb2e25a034f291225849765ff8d217
-```
-
-Security boundary: do not run untrusted code before it or carry forward a surviving untrusted
-process. The complete boundary is in the [hosted security contract](docs/HOSTED_SECURITY_CONTRACT.md).
-
 ## Try a public pull request
 
 The [browser checker](https://sulmusic2-star.github.io/agent-vigil/check.html)
