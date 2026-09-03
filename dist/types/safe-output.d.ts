@@ -27,6 +27,7 @@ export type AsyncDescriptorSink = {
     queuedBytes: () => number;
     write: (bytes: Buffer) => Promise<void>;
     flush: () => Promise<void>;
+    abort: (error: unknown) => void;
 };
 /**
  * Queue writes to an existing descriptor without blocking the caller's event

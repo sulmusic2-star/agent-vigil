@@ -31,7 +31,9 @@ const MAX_EXECUTABLE_BYTES = 1024 * 1024 * 1024;
 const MAX_TIME_LIMIT_MS = 7 * 24 * 60 * 60 * 1000;
 const POST_KILL_WAIT_MS = 2_000;
 const POLL_INTERVAL_MS = 100;
-const STDOUT_DRAIN_WAIT_MS = 1_000;
+const STDOUT_STREAM_DRAIN_WAIT_MS = 1_000;
+const CAPTURE_FLUSH_WAIT_MS = 5_000;
+const STDOUT_RELAY_FLUSH_WAIT_MS = 1_000;
 const MAX_STDOUT_RELAY_QUEUE_BYTES = 1024 * 1024;
 
 export type ProtectedRunStopCode =
@@ -432,6 +434,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
   let exit: ExitObservation = { code: null, signal: null };
   let exitObservedAtMonotonicMs: number | undefined;
   let stopRequest: StopRequest | undefined;
+  let outputFailure: StopRequest | undefined;
   let termSent = false;
   let killSent = false;
   let processGroupTerminationConfirmed = false;
@@ -440,6 +443,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
   let latestTelemetry: RunTelemetryObservation | undefined;
   let telemetryPollInFlight: Promise<void> | undefined;
   let stdoutDonePromise: Promise<void> = Promise.resolve();
+  let captureClosePromise: Promise<void> | undefined;
   let stdoutRelay: AsyncDescriptorSink | undefined;
   let verificationAbortController: AbortController | undefined;
   let stopHandledPromise: Promise<StopRequest> | undefined;
@@ -455,6 +459,13 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       code: "SUPERVISOR_ERROR",
       detailSha256: sha256(error instanceof Error ? error.message : String(error)),
     });
+  };
+  const requestOutputFailure = (error: unknown): void => {
+    outputFailure ??= {
+      code: "SUPERVISOR_ERROR",
+      detailSha256: sha256(error instanceof Error ? error.message : String(error)),
+    };
+    requestStop(outputFailure);
   };
   const getStopRequest = (): StopRequest | undefined => stopRequest;
   const signalHandlers = new Map<NodeJS.Signals, () => void>();
@@ -574,9 +585,14 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       };
       stdoutDonePromise = new Promise((resolveStdout) => {
         capturedStdout.once("end", resolveStdout);
-        capturedStdout.once("close", resolveStdout);
+        capturedStdout.once("close", () => {
+          if (!capturedStdout.readableEnded) {
+            requestOutputFailure(new Error("Captured stdout closed before EOF"));
+          }
+          resolveStdout();
+        });
         capturedStdout.once("error", (error) => {
-          requestSupervisorError(error);
+          requestOutputFailure(error);
           resolveStdout();
         });
       });
@@ -590,7 +606,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
             capturedStdout.pause();
             void sink!.write(bytes).catch((error: unknown) => {
               captureFailed = true;
-              requestSupervisorError(error);
+              requestOutputFailure(error);
             }).finally(() => {
               captureWritesInFlight -= 1;
               resumeCapturedStdout();
@@ -599,11 +615,14 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
           if (!relayFailed) {
             if (stdoutRelay!.queuedBytes() + bytes.length > MAX_STDOUT_RELAY_QUEUE_BYTES) {
               relayFailed = true;
-              requestSupervisorError(new Error("Mirrored stdout exceeded its bounded asynchronous queue"));
+              const error = new Error("Mirrored stdout exceeded its bounded asynchronous queue");
+              stdoutRelay!.abort(error);
+              requestOutputFailure(error);
             } else {
               void stdoutRelay!.write(bytes).catch((error: unknown) => {
                 relayFailed = true;
-                requestSupervisorError(error);
+                stdoutRelay!.abort(error);
+                requestOutputFailure(error);
               });
             }
           }
@@ -670,21 +689,34 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     if (stopRequest) await stopHandledPromise;
 
     if (child.stdout) {
-      const drain = await settlementWithin(stdoutDonePromise, STDOUT_DRAIN_WAIT_MS);
+      const drain = await settlementWithin(stdoutDonePromise, STDOUT_STREAM_DRAIN_WAIT_MS);
       if (drain.status !== "fulfilled") {
-        requestSupervisorError(drain.status === "rejected"
+        requestOutputFailure(drain.status === "rejected"
           ? drain.error
           : new Error("Captured stdout did not drain before the safety deadline"));
         child.stdout.destroy();
         await settleWithin(stdoutDonePromise, 100);
       }
     }
+    if (sink) {
+      captureClosePromise = sink.close();
+      const captureFlush = await settlementWithin(captureClosePromise, CAPTURE_FLUSH_WAIT_MS);
+      if (captureFlush.status !== "fulfilled") {
+        requestOutputFailure(captureFlush.status === "rejected"
+          ? captureFlush.error
+          : new Error("Captured stdout did not flush before the safety deadline"));
+      } else {
+        sink = undefined;
+      }
+    }
     if (stdoutRelay) {
-      const relayFlush = await settlementWithin(stdoutRelay.flush(), STDOUT_DRAIN_WAIT_MS);
+      const relayFlush = await settlementWithin(stdoutRelay.flush(), STDOUT_RELAY_FLUSH_WAIT_MS);
       if (relayFlush.status !== "fulfilled") {
-        requestSupervisorError(relayFlush.status === "rejected"
+        const error = relayFlush.status === "rejected"
           ? relayFlush.error
-          : new Error("Mirrored stdout did not flush before the safety deadline"));
+          : new Error("Mirrored stdout did not flush before the safety deadline");
+        stdoutRelay.abort(error);
+        requestOutputFailure(error);
       }
     }
     if (telemetry) {
@@ -694,14 +726,11 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       if (finalTelemetry.breach) requestStop(stopFromBreach(finalTelemetry.breach));
     }
     if (stopRequest) await stopHandledPromise;
-    if (sink) {
-      await sink.close();
-      sink = undefined;
-    }
     const finishedAtMs = Date.now();
     const elapsedMs = monotonicNowMs() - startedAtMonotonicMs;
-    const state: ProtectedRunReceipt["state"] = stopRequest
-      ? (stopRequest.code === "SUPERVISOR_ERROR" || stopRequest.code === "EXECUTABLE_CHANGED" ? "ERROR" : "STOPPED")
+    const receiptStop = outputFailure ?? stopRequest;
+    const state: ProtectedRunReceipt["state"] = receiptStop
+      ? (receiptStop.code === "SUPERVISOR_ERROR" || receiptStop.code === "EXECUTABLE_CHANGED" ? "ERROR" : "STOPPED")
       : "EXITED";
     const receipt = buildReceipt({
       run: input,
@@ -713,14 +742,14 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       elapsedMs,
       child,
       exit,
-      ...(stopRequest ? { stop: stopRequest } : {}),
+      ...(receiptStop ? { stop: receiptStop } : {}),
       termSent,
       killSent,
       processGroupTerminationConfirmed,
       ...(latestTelemetry ? { telemetry: latestTelemetry } : {}),
     });
     const exitCode = state === "ERROR" ? 125
-      : state === "STOPPED" ? (stopRequest?.code === "SUPERVISOR_SIGNAL" ? signalExitCode(stopRequest.signal ?? null) : 124)
+      : state === "STOPPED" ? (receiptStop?.code === "SUPERVISOR_SIGNAL" ? signalExitCode(receiptStop.signal ?? null) : 124)
         : exit.code ?? signalExitCode(exit.signal);
     return { exitCode, receipt };
   } catch (error) {
@@ -762,7 +791,11 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     if (timeout) clearTimeout(timeout);
     if (interval) clearInterval(interval);
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);
-    try { await sink?.close(); } catch { /* A receipt still reports the supervisor failure path. */ }
+    if (captureClosePromise) {
+      void captureClosePromise.catch(() => { /* The receipt already reports the output failure. */ });
+    } else {
+      try { await sink?.close(); } catch { /* A receipt still reports the supervisor failure path. */ }
+    }
     try { await telemetry?.close(); } catch { /* The receipt already captures worker failures. */ }
   }
 }

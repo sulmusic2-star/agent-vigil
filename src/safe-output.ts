@@ -263,17 +263,28 @@ export type AsyncDescriptorSink = {
   queuedBytes: () => number;
   write: (bytes: Buffer) => Promise<void>;
   flush: () => Promise<void>;
+  abort: (error: unknown) => void;
 };
 
-function writeBuffer(descriptor: number, bytes: Buffer): Promise<void> {
+function writeBuffer(descriptor: number, bytes: Buffer, abortReason?: () => unknown | undefined): Promise<void> {
   return new Promise((resolveWrite, rejectWrite) => {
     const writeNext = (offset: number): void => {
+      const aborted = abortReason?.();
+      if (aborted !== undefined) {
+        rejectWrite(aborted);
+        return;
+      }
       if (offset === bytes.length) {
         resolveWrite();
         return;
       }
       write(descriptor, bytes, offset, bytes.length - offset, null, (error, written) => {
         if (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "EAGAIN" || code === "EWOULDBLOCK") {
+            setTimeout(() => writeNext(offset), 10);
+            return;
+          }
           rejectWrite(error);
           return;
         }
@@ -310,18 +321,22 @@ export function createAsyncDescriptorSink(descriptor: number): AsyncDescriptorSi
   }
   let pending = Promise.resolve();
   let queuedByteCount = 0;
+  let abortError: unknown | undefined;
   return {
     queuedBytes: () => queuedByteCount,
     write(bytes: Buffer): Promise<void> {
       const copy = Buffer.from(bytes);
       queuedByteCount += copy.length;
       const operation = pending
-        .then(() => writeBuffer(descriptor, copy))
+        .then(() => writeBuffer(descriptor, copy, () => abortError))
         .finally(() => { queuedByteCount -= copy.length; });
       pending = operation;
       return operation;
     },
     flush: () => pending,
+    abort(error: unknown): void {
+      abortError ??= error;
+    },
   };
 }
 

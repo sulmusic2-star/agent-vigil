@@ -4965,15 +4965,25 @@ function writePrivateFileExclusive(destination, content) {
   }
   if (failure !== void 0) throw failure;
 }
-function writeBuffer(descriptor, bytes) {
+function writeBuffer(descriptor, bytes, abortReason) {
   return new Promise((resolveWrite, rejectWrite) => {
     const writeNext = (offset) => {
+      const aborted = abortReason?.();
+      if (aborted !== void 0) {
+        rejectWrite(aborted);
+        return;
+      }
       if (offset === bytes.length) {
         resolveWrite();
         return;
       }
       write(descriptor, bytes, offset, bytes.length - offset, null, (error, written) => {
         if (error) {
+          const code = error.code;
+          if (code === "EAGAIN" || code === "EWOULDBLOCK") {
+            setTimeout(() => writeNext(offset), 10);
+            return;
+          }
           rejectWrite(error);
           return;
         }
@@ -5003,18 +5013,22 @@ function createAsyncDescriptorSink(descriptor) {
   }
   let pending = Promise.resolve();
   let queuedByteCount = 0;
+  let abortError;
   return {
     queuedBytes: () => queuedByteCount,
     write(bytes) {
       const copy = Buffer.from(bytes);
       queuedByteCount += copy.length;
-      const operation = pending.then(() => writeBuffer(descriptor, copy)).finally(() => {
+      const operation = pending.then(() => writeBuffer(descriptor, copy, () => abortError)).finally(() => {
         queuedByteCount -= copy.length;
       });
       pending = operation;
       return operation;
     },
-    flush: () => pending
+    flush: () => pending,
+    abort(error) {
+      abortError ??= error;
+    }
   };
 }
 function createPrivateFileSink(destination) {
@@ -20567,7 +20581,9 @@ var MAX_EXECUTABLE_BYTES = 1024 * 1024 * 1024;
 var MAX_TIME_LIMIT_MS = 7 * 24 * 60 * 60 * 1e3;
 var POST_KILL_WAIT_MS = 2e3;
 var POLL_INTERVAL_MS = 100;
-var STDOUT_DRAIN_WAIT_MS = 1e3;
+var STDOUT_STREAM_DRAIN_WAIT_MS = 1e3;
+var CAPTURE_FLUSH_WAIT_MS = 5e3;
+var STDOUT_RELAY_FLUSH_WAIT_MS = 1e3;
 var MAX_STDOUT_RELAY_QUEUE_BYTES = 1024 * 1024;
 function sha2568(value) {
   return `sha256:${createHash31("sha256").update(value).digest("hex")}`;
@@ -20833,6 +20849,7 @@ async function executeProtectedRun(input) {
   let exit = { code: null, signal: null };
   let exitObservedAtMonotonicMs;
   let stopRequest;
+  let outputFailure;
   let termSent = false;
   let killSent = false;
   let processGroupTerminationConfirmed = false;
@@ -20841,6 +20858,7 @@ async function executeProtectedRun(input) {
   let latestTelemetry;
   let telemetryPollInFlight;
   let stdoutDonePromise = Promise.resolve();
+  let captureClosePromise;
   let stdoutRelay;
   let verificationAbortController;
   let stopHandledPromise;
@@ -20858,6 +20876,13 @@ async function executeProtectedRun(input) {
       code: "SUPERVISOR_ERROR",
       detailSha256: sha2568(error instanceof Error ? error.message : String(error))
     });
+  };
+  const requestOutputFailure = (error) => {
+    outputFailure ??= {
+      code: "SUPERVISOR_ERROR",
+      detailSha256: sha2568(error instanceof Error ? error.message : String(error))
+    };
+    requestStop(outputFailure);
   };
   const getStopRequest = () => stopRequest;
   const signalHandlers = /* @__PURE__ */ new Map();
@@ -20970,9 +20995,14 @@ async function executeProtectedRun(input) {
       };
       stdoutDonePromise = new Promise((resolveStdout) => {
         capturedStdout.once("end", resolveStdout);
-        capturedStdout.once("close", resolveStdout);
+        capturedStdout.once("close", () => {
+          if (!capturedStdout.readableEnded) {
+            requestOutputFailure(new Error("Captured stdout closed before EOF"));
+          }
+          resolveStdout();
+        });
         capturedStdout.once("error", (error) => {
-          requestSupervisorError(error);
+          requestOutputFailure(error);
           resolveStdout();
         });
       });
@@ -20986,7 +21016,7 @@ async function executeProtectedRun(input) {
             capturedStdout.pause();
             void sink.write(bytes).catch((error) => {
               captureFailed = true;
-              requestSupervisorError(error);
+              requestOutputFailure(error);
             }).finally(() => {
               captureWritesInFlight -= 1;
               resumeCapturedStdout();
@@ -20995,11 +21025,14 @@ async function executeProtectedRun(input) {
           if (!relayFailed) {
             if (stdoutRelay.queuedBytes() + bytes.length > MAX_STDOUT_RELAY_QUEUE_BYTES) {
               relayFailed = true;
-              requestSupervisorError(new Error("Mirrored stdout exceeded its bounded asynchronous queue"));
+              const error = new Error("Mirrored stdout exceeded its bounded asynchronous queue");
+              stdoutRelay.abort(error);
+              requestOutputFailure(error);
             } else {
               void stdoutRelay.write(bytes).catch((error) => {
                 relayFailed = true;
-                requestSupervisorError(error);
+                stdoutRelay.abort(error);
+                requestOutputFailure(error);
               });
             }
           }
@@ -21073,17 +21106,28 @@ async function executeProtectedRun(input) {
     if (winner.kind === "exit") await exitDescendantCheckPromise;
     if (stopRequest) await stopHandledPromise;
     if (child.stdout) {
-      const drain = await settlementWithin(stdoutDonePromise, STDOUT_DRAIN_WAIT_MS);
+      const drain = await settlementWithin(stdoutDonePromise, STDOUT_STREAM_DRAIN_WAIT_MS);
       if (drain.status !== "fulfilled") {
-        requestSupervisorError(drain.status === "rejected" ? drain.error : new Error("Captured stdout did not drain before the safety deadline"));
+        requestOutputFailure(drain.status === "rejected" ? drain.error : new Error("Captured stdout did not drain before the safety deadline"));
         child.stdout.destroy();
         await settleWithin(stdoutDonePromise, 100);
       }
     }
+    if (sink) {
+      captureClosePromise = sink.close();
+      const captureFlush = await settlementWithin(captureClosePromise, CAPTURE_FLUSH_WAIT_MS);
+      if (captureFlush.status !== "fulfilled") {
+        requestOutputFailure(captureFlush.status === "rejected" ? captureFlush.error : new Error("Captured stdout did not flush before the safety deadline"));
+      } else {
+        sink = void 0;
+      }
+    }
     if (stdoutRelay) {
-      const relayFlush = await settlementWithin(stdoutRelay.flush(), STDOUT_DRAIN_WAIT_MS);
+      const relayFlush = await settlementWithin(stdoutRelay.flush(), STDOUT_RELAY_FLUSH_WAIT_MS);
       if (relayFlush.status !== "fulfilled") {
-        requestSupervisorError(relayFlush.status === "rejected" ? relayFlush.error : new Error("Mirrored stdout did not flush before the safety deadline"));
+        const error = relayFlush.status === "rejected" ? relayFlush.error : new Error("Mirrored stdout did not flush before the safety deadline");
+        stdoutRelay.abort(error);
+        requestOutputFailure(error);
       }
     }
     if (telemetry) {
@@ -21093,13 +21137,10 @@ async function executeProtectedRun(input) {
       if (finalTelemetry.breach) requestStop(stopFromBreach(finalTelemetry.breach));
     }
     if (stopRequest) await stopHandledPromise;
-    if (sink) {
-      await sink.close();
-      sink = void 0;
-    }
     const finishedAtMs = Date.now();
     const elapsedMs = monotonicNowMs() - startedAtMonotonicMs;
-    const state2 = stopRequest ? stopRequest.code === "SUPERVISOR_ERROR" || stopRequest.code === "EXECUTABLE_CHANGED" ? "ERROR" : "STOPPED" : "EXITED";
+    const receiptStop = outputFailure ?? stopRequest;
+    const state2 = receiptStop ? receiptStop.code === "SUPERVISOR_ERROR" || receiptStop.code === "EXECUTABLE_CHANGED" ? "ERROR" : "STOPPED" : "EXITED";
     const receipt = buildReceipt({
       run: input,
       executable,
@@ -21110,13 +21151,13 @@ async function executeProtectedRun(input) {
       elapsedMs,
       child,
       exit,
-      ...stopRequest ? { stop: stopRequest } : {},
+      ...receiptStop ? { stop: receiptStop } : {},
       termSent,
       killSent,
       processGroupTerminationConfirmed,
       ...latestTelemetry ? { telemetry: latestTelemetry } : {}
     });
-    const exitCode = state2 === "ERROR" ? 125 : state2 === "STOPPED" ? stopRequest?.code === "SUPERVISOR_SIGNAL" ? signalExitCode(stopRequest.signal ?? null) : 124 : exit.code ?? signalExitCode(exit.signal);
+    const exitCode = state2 === "ERROR" ? 125 : state2 === "STOPPED" ? receiptStop?.code === "SUPERVISOR_SIGNAL" ? signalExitCode(receiptStop.signal ?? null) : 124 : exit.code ?? signalExitCode(exit.signal);
     return { exitCode, receipt };
   } catch (error) {
     verificationAbortController?.abort();
@@ -21163,9 +21204,14 @@ async function executeProtectedRun(input) {
     if (timeout) clearTimeout(timeout);
     if (interval) clearInterval(interval);
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);
-    try {
-      await sink?.close();
-    } catch {
+    if (captureClosePromise) {
+      void captureClosePromise.catch(() => {
+      });
+    } else {
+      try {
+        await sink?.close();
+      } catch {
+      }
     }
     try {
       await telemetry?.close();

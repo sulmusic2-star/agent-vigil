@@ -230,6 +230,116 @@ test("slow stdout relay cannot delay wall-limit enforcement", { timeout: 8_000 }
   assert.equal(readFileSync(transcript, "utf8"), row);
 });
 
+test("stdout relay retries transient EAGAIN backpressure", { timeout: 8_000 }, () => {
+  const directory = root();
+  const transcript = join(directory, "relay-eagain.jsonl");
+  const resultPath = join(directory, "result.json");
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const row = `${JSON.stringify({ type: "session_meta", payload: { id: "run" } })}\n`;
+  const harness = `(async () => {
+    const fs = (await import("node:fs")).default;
+    const { syncBuiltinESMExports } = await import("node:module");
+    const originalWrite = fs.write;
+    let retries = 0;
+    fs.write = (descriptor, ...args) => {
+      if (descriptor === 1 && retries < 4) {
+        retries += 1;
+        const callback = args.at(-1);
+        const error = Object.assign(new Error("try again"), { code: "EAGAIN" });
+        setTimeout(() => callback(error, 0, args[0]), 5);
+        return;
+      }
+      return originalWrite(descriptor, ...args);
+    };
+    syncBuiltinESMExports();
+    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+    const protectedEnvironment = { ...process.env };
+    delete protectedEnvironment.NODE_V8_COVERAGE;
+    try {
+      const result = await executeProtectedRun({
+        executable: process.execPath,
+        args: ["-e", ${JSON.stringify(`process.stdout.write(${JSON.stringify(row)})`) }],
+        cwd: process.cwd(),
+        environment: protectedEnvironment,
+        timeLimitMs: 2_000,
+        terminationGraceMs: 50,
+        trajectoryLimits: {},
+        telemetryGraceMs: 200,
+        transcript: { path: ${JSON.stringify(transcript)}, transport: "supervisor-captured-stdout" },
+      });
+      fs.writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result, retries }));
+    } finally {
+      fs.write = originalWrite;
+      syncBuiltinESMExports();
+    }
+  })().catch((error) => { console.error(error); process.exitCode = 1; });`;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "-e", harness], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: coverageHarnessEnvironment(),
+    stdio: ["ignore", "ignore", "pipe"],
+    timeout: 5_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(readFileSync(resultPath, "utf8")) as { result: ProtectedRunResult; retries: number };
+  assert.equal(observed.retries, 4);
+  assert.equal(observed.result.exitCode, 0);
+  assert.equal(observed.result.receipt.state, "EXITED");
+  assert.equal(readFileSync(transcript, "utf8"), row);
+});
+
+test("capture drain failure overrides an earlier limit stop", { timeout: 12_000 }, () => {
+  const directory = root();
+  const transcript = join(directory, "drain-failure.jsonl");
+  const resultPath = join(directory, "result.json");
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const row = `${JSON.stringify({ type: "session_meta", payload: { id: "run" } })}\n`;
+  const harness = `(async () => {
+    const fs = (await import("node:fs")).default;
+    const { syncBuiltinESMExports } = await import("node:module");
+    const originalWrite = fs.write;
+    fs.write = (descriptor, ...args) => descriptor === 1
+      ? originalWrite(descriptor, ...args)
+      : setTimeout(() => originalWrite(descriptor, ...args), 6_000);
+    syncBuiltinESMExports();
+    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+    const protectedEnvironment = { ...process.env };
+    delete protectedEnvironment.NODE_V8_COVERAGE;
+    try {
+      const result = await executeProtectedRun({
+        executable: process.execPath,
+        args: ["-e", ${JSON.stringify(`process.stdout.write(${JSON.stringify(row)});process.on('SIGTERM',()=>{});setInterval(()=>{},1000)`) }],
+        cwd: process.cwd(),
+        environment: protectedEnvironment,
+        timeLimitMs: 100,
+        terminationGraceMs: 50,
+        trajectoryLimits: {},
+        telemetryGraceMs: 200,
+        transcript: { path: ${JSON.stringify(transcript)}, transport: "supervisor-captured-stdout" },
+      });
+      fs.writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));
+    } finally {
+      fs.write = originalWrite;
+      syncBuiltinESMExports();
+    }
+  })().catch((error) => { console.error(error); process.exitCode = 1; });`;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "-e", harness], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: coverageHarnessEnvironment(),
+    stdio: ["ignore", "ignore", "pipe"],
+    timeout: 10_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(readFileSync(resultPath, "utf8")) as ProtectedRunResult;
+  assert.equal(observed.exitCode, 125);
+  assert.equal(observed.receipt.state, "ERROR");
+  assert.equal(observed.receipt.stop?.code, "SUPERVISOR_ERROR");
+  assert.equal(observed.receipt.process.processGroupTerminationConfirmed, true);
+});
+
 test("stdout backpressure cannot discard captured tail telemetry", { timeout: 8_000 }, () => {
   const directory = root();
   const transcript = join(directory, "relay-tail.jsonl");
