@@ -22,6 +22,16 @@ function transcript(session = SESSION): Buffer {
   ].join("\n") + "\n");
 }
 
+function transcriptWithTimestamps(timestamps: string[]): Buffer {
+  const rows = transcript().toString("utf8").split("\n").filter(Boolean).map((line, index) => {
+    const row = JSON.parse(line);
+    delete row.timestamp_ms;
+    row.timestamp = timestamps[index];
+    return JSON.stringify(row);
+  });
+  return Buffer.from(`${rows.join("\n")}\n`);
+}
+
 function event(overrides: Record<string, unknown> = {}) {
   return {
     timestamp: "1788184800000",
@@ -72,6 +82,32 @@ test("Cursor exact cost evidence binds one transcript conversation and sums only
   assert.equal(evidence.endedAt, "2026-08-31T14:02:00.000Z");
   assert.equal(validateExactCostEvidence(evidence).evidenceHash, evidence.evidenceHash);
   assert.doesNotMatch(JSON.stringify(evidence), new RegExp(SESSION));
+
+  const originalTimezone = process.env.TZ;
+  let offsetEvidenceByTimezone: ReturnType<typeof buildCursorExactCostEvidence>[] = [];
+  try {
+    offsetEvidenceByTimezone = ["UTC", "America/Los_Angeles"].map((timezone) => {
+      process.env.TZ = timezone;
+      return buildCursorExactCostEvidence({
+        transcript: transcriptWithTimestamps([
+          "2026-08-31T09:30:00-04:00",
+          "2026-08-31T09:50:00-04:00",
+          "2026-08-31T10:00:00-04:00",
+          "2026-08-31T10:01:00-04:00",
+          "2026-08-31T10:20:00-04:00",
+        ]),
+        usageExport: usageExport(),
+      });
+    });
+  } finally {
+    if (originalTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimezone;
+  }
+  assert.deepEqual(offsetEvidenceByTimezone[1], offsetEvidenceByTimezone[0]);
+  const offsetEvidence = offsetEvidenceByTimezone[0];
+  assert.equal(offsetEvidence.amountUsd, evidence.amountUsd);
+  assert.equal(offsetEvidence.startedAt, evidence.startedAt);
+  assert.equal(offsetEvidence.endedAt, "2026-08-31T14:01:00.000Z");
 });
 
 test("exact cost import refuses ambiguous, unbound, duplicate, and malformed billing evidence", () => {
@@ -133,6 +169,25 @@ test("exact cost import refuses ambiguous, unbound, duplicate, and malformed bil
     () => buildCursorExactCostEvidence({ transcript: Buffer.from(untimed), usageExport: usageExport() }),
     /cannot prove its complete session period/,
   );
+  for (const invalidTimestamp of [
+    "2026-08-31T13:30:00",
+    "2026-08-31 13:30:00Z",
+    "2026-02-30T13:30:00Z",
+    "2026-08-31T24:00:00Z",
+    "2026-08-31T13:30:00+24:00",
+  ]) {
+    const invalidTranscript = transcriptWithTimestamps([
+      invalidTimestamp,
+      "2026-08-31T13:50:00Z",
+      "2026-08-31T14:00:00Z",
+      "2026-08-31T14:01:00Z",
+      "2026-08-31T14:20:00Z",
+    ]);
+    assert.throws(
+      () => buildCursorExactCostEvidence({ transcript: invalidTranscript, usageExport: usageExport() }),
+      /Cursor transcript record 1 timestamp is invalid/,
+    );
+  }
   const truncated = transcript().toString("utf8").split("\n").filter(Boolean).slice(0, -1).join("\n");
   assert.throws(
     () => buildCursorExactCostEvidence({ transcript: Buffer.from(truncated), usageExport: usageExport() }),

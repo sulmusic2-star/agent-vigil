@@ -85,6 +85,28 @@ function evidencePayload(value: Omit<ExactCostEvidence, "evidenceHash">): string
   return canonical(value);
 }
 
+function timezoneQualifiedTimestamp(value: string, label: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value);
+  if (!match) throw new Error(`${label} is invalid`);
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , offsetHourText, offsetMinuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const offsetHour = offsetHourText === undefined ? 0 : Number(offsetHourText);
+  const offsetMinute = offsetMinuteText === undefined ? 0 : Number(offsetMinuteText);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] ?? 0;
+  if (day < 1 || day > daysInMonth || hour > 23 || minute > 59 || second > 59 || offsetHour > 23 || offsetMinute > 59) {
+    throw new Error(`${label} is invalid`);
+  }
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) throw new Error(`${label} is invalid`);
+  return parsed.toISOString();
+}
+
 function cursorTranscriptTimestamp(row: Record<string, unknown>, index: number): string {
   const values: string[] = [];
   if (Object.hasOwn(row, "timestamp_ms")) {
@@ -95,9 +117,7 @@ function cursorTranscriptTimestamp(row: Record<string, unknown>, index: number):
     const value = row.timestamp;
     if (typeof value === "number") values.push(millisecondTimestamp(value, `Cursor transcript record ${index + 1} timestamp`));
     else if (typeof value === "string") {
-      const parsed = new Date(value);
-      if (!Number.isFinite(parsed.getTime())) throw new Error(`Cursor transcript record ${index + 1} timestamp is invalid`);
-      values.push(parsed.toISOString());
+      values.push(timezoneQualifiedTimestamp(value, `Cursor transcript record ${index + 1} timestamp`));
     } else throw new Error(`Cursor transcript record ${index + 1} timestamp is invalid`);
   }
   if (!values.length) throw new Error("Cursor transcript cannot prove its complete session period because a record has no timestamp");
