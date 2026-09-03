@@ -6,7 +6,9 @@ import { join } from "node:path";
 import test from "node:test";
 import { awsKmsEd25519GuardSigner } from "../src/guard-signing.ts";
 
-test("AWS KMS signer uses the ambient credential chain and verifies every returned Ed25519 signature", () => {
+const posixFixture = process.platform === "win32" ? "fake AWS executable uses a POSIX shebang" : false;
+
+test("AWS KMS signer uses the ambient credential chain and verifies every returned Ed25519 signature", { skip: posixFixture }, () => {
   const directory = mkdtempSync(join(tmpdir(), "vigil-fake-kms-"));
   const executable = join(directory, "aws");
   const keyPath = join(directory, "key.pem");
@@ -57,7 +59,7 @@ if (args.includes("get-public-key")) {
   }
 });
 
-test("AWS KMS signer rejects an algorithm mismatch before signing", () => {
+test("AWS KMS signer rejects an algorithm mismatch before signing", { skip: posixFixture }, () => {
   const directory = mkdtempSync(join(tmpdir(), "vigil-fake-kms-algorithm-"));
   const executable = join(directory, "aws");
   writeFileSync(executable, `#!${process.execPath}
@@ -87,7 +89,7 @@ test("AWS KMS signer requires an absolute non-symbolic-link executable", () => {
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("AWS KMS signer rejects executable mutation during a call", () => {
+test("AWS KMS signer rejects executable mutation during a call", { skip: posixFixture }, () => {
   const directory = mkdtempSync(join(tmpdir(), "vigil-fake-kms-mutation-"));
   const executable = join(directory, "aws");
   const pair = generateKeyPairSync("ed25519");

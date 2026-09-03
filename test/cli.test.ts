@@ -266,7 +266,7 @@ test("CLI guard-route refuses an output path that aliases its disposable profile
   assert.equal(readFileSync(marker, "utf8"), "agent-vigil disposable host profile v1\n");
 });
 
-test("CLI creates a unique profile identity and signed managed-environment statement", () => {
+test("CLI creates a unique profile identity and signed managed-environment statement", { skip: process.platform === "win32" ? "managed host profiles require POSIX permission bits" : false }, () => {
   const root = mkdtempSync(join(tmpdir(), "vigil-guard-environment-cli-"));
   const profile = join(root, "profile");
   const marker = join(profile, ".agent-vigil-disposable-profile");

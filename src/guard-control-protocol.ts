@@ -4,7 +4,7 @@ import {
   verify,
   type KeyObject,
 } from "node:crypto";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { readBoundedJson } from "./upgrade/contracts.ts";
 import { canonical } from "./report.ts";
 import { guardDigest } from "./guard-compat.ts";
@@ -281,7 +281,7 @@ export function issueGuardControlChallenge(input: {
     bodySha256: guardDigest(CANARY_BODY),
   };
   const nodeExecutable = text(input.nodeExecutable, "challenge runner node executable", 1_024);
-  if (!nodeExecutable.startsWith("/")) throw new Error("challenge runner node executable must be absolute");
+  if (!isAbsolute(nodeExecutable) || resolve(nodeExecutable) !== nodeExecutable) throw new Error("challenge runner node executable must be absolute and normalized");
   const commandInput = { observer, nonce, nodeExecutable };
   const allowCommand = externalCanaryCommand({ ...commandInput, route: "allow" });
   const denyCommand = externalCanaryCommand({ ...commandInput, route: "deny" });
@@ -338,7 +338,7 @@ export function validateGuardControlChallenge(value: unknown): GuardControlChall
   const commands = object(root.commands, "challenge commands");
   exactKeys(commands, ["nodeExecutable", "allowSha256", "denySha256"], "challenge commands");
   const nodeExecutable = text(commands.nodeExecutable, "challenge runner node executable", 1_024);
-  if (!nodeExecutable.startsWith("/")) throw new Error("challenge runner node executable must be absolute");
+  if (!isAbsolute(nodeExecutable) || resolve(nodeExecutable) !== nodeExecutable) throw new Error("challenge runner node executable must be absolute and normalized");
   const expected = object(root.expected, "challenge expected");
   exactKeys(expected, ["allowRequests", "denyRequests", "unexpectedRequests"], "challenge expected");
   if (expected.allowRequests !== 1 || expected.denyRequests !== 0 || expected.unexpectedRequests !== 0) {

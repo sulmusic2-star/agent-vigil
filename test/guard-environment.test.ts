@@ -42,7 +42,7 @@ function fixture() {
   return { root, profile, policy, publicKey, statement };
 }
 
-test("a pinned signer binds the disposable profile and policy bytes", () => {
+test("a pinned signer binds the disposable profile and policy bytes", { skip: process.platform === "win32" ? "managed host profiles require POSIX permission bits" : false }, () => {
   const value = fixture();
   try {
     const verified = verifyGuardEnvironment({
@@ -62,7 +62,7 @@ test("a pinned signer binds the disposable profile and policy bytes", () => {
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
-test("wrong host and expired observations fail closed", () => {
+test("wrong host and expired observations fail closed", { skip: process.platform === "win32" ? "managed host profiles require POSIX permission bits" : false }, () => {
   const value = fixture();
   try {
     const input = { statement: value.statement, publicKeyPath: value.publicKey, profileHome: value.profile };
