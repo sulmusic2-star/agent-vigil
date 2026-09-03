@@ -108,6 +108,49 @@ test("wall limit remains live during post-launch executable verification", async
   assert.ok(Date.now() - startedAt < 1_500, "verification must not postpone deadline enforcement");
 });
 
+test("an interrupted post-launch executable verification remains explicitly not checked", () => {
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const script = `
+    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+    const { open } = await import("node:fs/promises");
+    const sample = await open(process.execPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(sample);
+    await sample.close();
+    const originalRead = fileHandlePrototype.read;
+    fileHandlePrototype.read = async function (...args) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return originalRead.apply(this, args);
+    };
+    try {
+      const result = await executeProtectedRun({
+        executable: process.execPath,
+        args: ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
+        cwd: process.cwd(),
+        environment: process.env,
+        timeLimitMs: 100,
+        terminationGraceMs: 50,
+        trajectoryLimits: {},
+        telemetryGraceMs: 200,
+      });
+      process.stdout.write(JSON.stringify(result));
+    } finally {
+      fileHandlePrototype.read = originalRead;
+    }
+  `;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(result.stdout) as ProtectedRunResult;
+  assert.equal(observed.exitCode, 124);
+  assert.equal(observed.receipt.stop?.code, "TIME_LIMIT");
+  assert.equal(observed.receipt.command.executableIdentityStable, "NOT_CHECKED");
+  assert.equal(recomputeProtectedRunHash(observed.receipt), observed.receipt.receiptHash);
+});
+
 test("wall limit is not extended when the wall clock moves backward", () => {
   const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
   const script = `
@@ -692,6 +735,27 @@ test("CLI writes an owner-only receipt without retaining raw arguments", async (
   const serialized = readFileSync(receiptPath, "utf8");
   assert.doesNotMatch(serialized, new RegExp(secret));
   assert.equal(JSON.parse(serialized).state, "EXITED");
+});
+
+test("CLI preserves the terminal receipt and returns 125 when private output fails after execution", async () => {
+  const directory = root();
+  const parent = join(directory, "receipt-parent");
+  const receiptPath = join(parent, "receipt.json");
+  mkdirSync(parent);
+  const script = "const fs=require('node:fs');fs.rmdirSync(process.argv[1]);fs.writeFileSync(process.argv[1],'blocked')";
+  const result = spawnSync(process.execPath, [
+    "--import", "tsx", join(process.cwd(), "src/cli.ts"),
+    "run", "--time-limit", "2s", "--format", "json", "--output", receiptPath,
+    "--", process.execPath, "-e", script, parent,
+  ], { cwd: process.cwd(), encoding: "utf8", timeout: 5_000 });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 125, result.stderr);
+  const receipt = JSON.parse(result.stdout);
+  assert.equal(receipt.state, "EXITED");
+  assert.equal(receipt.process.exitCode, 0);
+  assert.equal(existsSync(receiptPath), false);
+  assert.match(result.stderr, /private receipt could not be written/);
+  assert.doesNotMatch(result.stderr, /Usage:/);
 });
 
 test("an unsafe receipt destination is rejected before command launch", async (context) => {

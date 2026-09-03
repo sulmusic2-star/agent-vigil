@@ -43,8 +43,11 @@ function safeSessionId(value: unknown): string {
 }
 
 function timestamp(value: unknown): string {
+  if (typeof value !== "string" && typeof value !== "number") {
+    throw new Error("Cursor usage event timestamp is invalid");
+  }
   const numeric = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
-  const parsed = new Date(numeric as string | number);
+  const parsed = new Date(numeric);
   if (!Number.isFinite(parsed.getTime())) throw new Error("Cursor usage event timestamp is invalid");
   return parsed.toISOString();
 }

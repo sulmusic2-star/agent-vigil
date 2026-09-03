@@ -19501,6 +19501,9 @@ function safeSessionId(value) {
   return value;
 }
 function timestamp8(value) {
+  if (typeof value !== "string" && typeof value !== "number") {
+    throw new Error("Cursor usage event timestamp is invalid");
+  }
   const numeric = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
   const parsed = new Date(numeric);
   if (!Number.isFinite(parsed.getTime())) throw new Error("Cursor usage event timestamp is invalid");
@@ -20918,6 +20921,8 @@ async function executeProtectedRun(input) {
         code: "EXECUTABLE_CHANGED",
         detailSha256: sha2568(verificationWinner.error instanceof Error ? verificationWinner.error.message : String(verificationWinner.error))
       });
+    } else if (verificationWinner.kind === "stop") {
+      stable = "NOT_CHECKED";
     }
     if (stopRequest) {
       await Promise.all([stopHandledPromise, postLaunchVerificationPromise]);
@@ -21224,10 +21229,21 @@ async function runProtectedRunCommand(args, environment = process.env) {
     });
     const json = `${JSON.stringify(result5.receipt, null, 2)}
 `;
-    if (output) writePrivateFileAtomic(resolve36(output), json);
     const terminal = capturePath ? process.stderr : process.stdout;
-    if (format === "json") terminal.write(json);
-    else terminal.write(renderReceipt(result5.receipt));
+    const writeTerminalReceipt = () => {
+      if (format === "json") terminal.write(json);
+      else terminal.write(renderReceipt(result5.receipt));
+    };
+    if (output) {
+      try {
+        writePrivateFileAtomic(resolve36(output), json);
+      } catch (error) {
+        writeTerminalReceipt();
+        console.error(`agent-vigil: protected run completed, but the private receipt could not be written: ${terminalSafe(error instanceof Error ? error.message : String(error))}`);
+        return 125;
+      }
+    }
+    writeTerminalReceipt();
     return result5.exitCode;
   } catch (error) {
     console.error(`agent-vigil: ${terminalSafe(error instanceof Error ? error.message : String(error))}

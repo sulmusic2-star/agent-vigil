@@ -401,6 +401,14 @@ test("autopsy argument and schema contracts reject ambiguous inputs", () => {
   assert.equal(schema.properties.schemaVersion.const, "agent-vigil-run-autopsy/v1");
   assert.ok(schema.required.includes("autopsyHash"));
   assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(
+    schema.properties.cost.allOf.map((condition: { then: { required: string[] } }) => condition.then.required),
+    [["amountUsd", "evidenceHash"], ["amountUsd", "budgetUsd"]],
+  );
+  assert.deepEqual(
+    schema.properties.acceptance.allOf.map((condition: { then: { required: string[] } }) => condition.then.required),
+    [["reviewEvidenceSha256"], ["outcomeEvidenceSha256"]],
+  );
 });
 
 test("run autopsy hash detects mutation and ignores presentation time", () => {

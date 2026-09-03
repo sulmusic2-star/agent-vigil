@@ -211,10 +211,21 @@ export async function runProtectedRunCommand(args: string[], environment: NodeJS
       } : {}),
     });
     const json = `${JSON.stringify(result.receipt, null, 2)}\n`;
-    if (output) writePrivateFileAtomic(resolve(output), json);
     const terminal = capturePath ? process.stderr : process.stdout;
-    if (format === "json") terminal.write(json);
-    else terminal.write(renderReceipt(result.receipt));
+    const writeTerminalReceipt = (): void => {
+      if (format === "json") terminal.write(json);
+      else terminal.write(renderReceipt(result.receipt));
+    };
+    if (output) {
+      try {
+        writePrivateFileAtomic(resolve(output), json);
+      } catch (error) {
+        writeTerminalReceipt();
+        console.error(`agent-vigil: protected run completed, but the private receipt could not be written: ${terminalSafe(error instanceof Error ? error.message : String(error))}`);
+        return 125;
+      }
+    }
+    writeTerminalReceipt();
     return result.exitCode;
   } catch (error) {
     console.error(`agent-vigil: ${terminalSafe(error instanceof Error ? error.message : String(error))}\n\n${protectedRunUsage()}`);

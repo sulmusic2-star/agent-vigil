@@ -98,6 +98,18 @@ test("exact cost import refuses ambiguous, unbound, duplicate, and malformed bil
   const duplicate = event();
   assert.throws(() => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([duplicate, duplicate]) }), /duplicate events/);
   assert.throws(() => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([event({ isChargeable: "yes" })]) }), /isChargeable must be explicit/);
+  for (const invalidTimestamp of [null, true, false, {}, []]) {
+    assert.throws(
+      () => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([event({ timestamp: invalidTimestamp })]) }),
+      /timestamp is invalid/,
+    );
+    const invalidPeriod = JSON.parse(usageExport().toString("utf8"));
+    invalidPeriod.period.startDate = invalidTimestamp;
+    assert.throws(
+      () => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: Buffer.from(JSON.stringify(invalidPeriod)) }),
+      /timestamp is invalid/,
+    );
+  }
   const incomplete = JSON.parse(usageExport().toString("utf8"));
   incomplete.totalUsageEventsCount += 1;
   incomplete.pagination.hasNextPage = true;

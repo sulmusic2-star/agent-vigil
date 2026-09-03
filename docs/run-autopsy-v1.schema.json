@@ -96,7 +96,17 @@
         "evidenceHash": { "$ref": "#/$defs/sha256" },
         "budgetUsd": { "$ref": "#/$defs/nonNegativeNumber" },
         "budgetStatus": { "enum": ["WITHIN", "EXCEEDED", "NOT_CHECKED"] }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "evidence": { "const": "PROVIDER_EXPORTED" } }, "required": ["evidence"] },
+          "then": { "required": ["amountUsd", "evidenceHash"] }
+        },
+        {
+          "if": { "properties": { "budgetStatus": { "enum": ["WITHIN", "EXCEEDED"] } }, "required": ["budgetStatus"] },
+          "then": { "required": ["amountUsd", "budgetUsd"] }
+        }
+      ]
     },
     "acceptance": {
       "type": "object",
@@ -110,7 +120,17 @@
         "outcomeEvidence": { "enum": ["HASHED", "NOT_CHECKED"] },
         "outcomeEvidenceSha256": { "$ref": "#/$defs/sha256" },
         "outcomeAsOf": { "$ref": "#/$defs/timestamp" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reviewEvidence": { "const": "HASHED" } }, "required": ["reviewEvidence"] },
+          "then": { "required": ["reviewEvidenceSha256"] }
+        },
+        {
+          "if": { "properties": { "outcomeEvidence": { "const": "HASHED" } }, "required": ["outcomeEvidence"] },
+          "then": { "required": ["outcomeEvidenceSha256"] }
+        }
+      ]
     },
     "decision": { "enum": ["EARNED", "NOT_EARNED", "NOT_CHECKED"] },
     "reason": { "type": "string", "minLength": 1 },

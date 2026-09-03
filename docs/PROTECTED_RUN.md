@@ -94,7 +94,11 @@ three states:
 
 Usage errors return `2`. The receipt records an `OBSERVED_ONLY` command result
 and an economic result of `NOT_CHECKED`. Its `receiptHash` detects accidental
-mutation when recomputed, but it is not a third-party signature.
+mutation when recomputed, but it is not a third-party signature. If a stop
+interrupts post-launch executable verification, `executableIdentityStable` is
+`NOT_CHECKED`; it never claims stability without completed evidence. If a
+private `--output` write fails after execution, the receipt remains on the
+selected terminal and the CLI returns `125`.
 
 ## Security and privacy boundary
 

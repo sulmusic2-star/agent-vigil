@@ -39,7 +39,7 @@
         "executableBasename": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^/\\u0000-\\u001F\\u007F]+$" },
         "executableSha256": { "$ref": "#/$defs/sha256" },
         "executablePathSha256": { "$ref": "#/$defs/sha256" },
-        "executableIdentityStable": { "type": "boolean" },
+        "executableIdentityStable": { "oneOf": [{ "type": "boolean" }, { "const": "NOT_CHECKED" }] },
         "argvSha256": { "$ref": "#/$defs/sha256" },
         "argumentCount": { "$ref": "#/$defs/count" },
         "cwdSha256": { "$ref": "#/$defs/sha256" },

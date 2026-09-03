@@ -49,7 +49,7 @@ export type ProtectedRunReceipt = {
     executableBasename: string;
     executableSha256: string;
     executablePathSha256: string;
-    executableIdentityStable: boolean;
+    executableIdentityStable: boolean | "NOT_CHECKED";
     argvSha256: string;
     argumentCount: number;
     cwdSha256: string;
@@ -332,7 +332,7 @@ function receiptBoundary(input: ProtectedRunInput): string[] {
 function buildReceipt(input: {
   run: ProtectedRunInput;
   executable: ExecutableEvidence;
-  stable: boolean;
+  stable: boolean | "NOT_CHECKED";
   state: ProtectedRunReceipt["state"];
   startedAtMs: number;
   finishedAtMs: number;
@@ -406,7 +406,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
   let termSent = false;
   let killSent = false;
   let processGroupTerminationConfirmed = false;
-  let stable = true;
+  let stable: boolean | "NOT_CHECKED" = true;
   let telemetry: RunTelemetryMonitor | undefined;
   let latestTelemetry: RunTelemetryObservation | undefined;
   let telemetryPollInFlight: Promise<void> | undefined;
@@ -590,6 +590,8 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
         code: "EXECUTABLE_CHANGED",
         detailSha256: sha256(verificationWinner.error instanceof Error ? verificationWinner.error.message : String(verificationWinner.error)),
       });
+    } else if (verificationWinner.kind === "stop") {
+      stable = "NOT_CHECKED";
     }
     if (stopRequest) {
       await Promise.all([stopHandledPromise, postLaunchVerificationPromise]);
