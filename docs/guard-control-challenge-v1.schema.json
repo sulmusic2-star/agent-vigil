@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/guard-control-challenge-v1.schema.json",
+  "title": "Agent Vigil external control challenge v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "challengeId", "issuedAt", "expiresAt", "nonce", "target", "pack", "observer", "commands", "expected", "challengeHash"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-external-control-challenge/v1" },
+    "challengeId": { "$ref": "#/$defs/digest" },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "nonce": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22,128}$" },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["host", "version", "executableSha256", "managedEnvironmentSha256"],
+      "properties": {
+        "host": { "enum": ["claude", "codex"] },
+        "version": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "executableSha256": { "$ref": "#/$defs/digest" },
+        "managedEnvironmentSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "pack": {
+      "type": "object", "additionalProperties": false, "required": ["id", "sha256"],
+      "properties": { "id": { "const": "agent-vigil-external-network-route/v1" }, "sha256": { "$ref": "#/$defs/digest" } }
+    },
+    "observer": {
+      "type": "object", "additionalProperties": false,
+      "required": ["origin", "allowPath", "denyPath", "method", "bodySha256"],
+      "properties": {
+        "origin": { "type": "string", "format": "uri", "maxLength": 512 },
+        "allowPath": { "$ref": "#/$defs/path" },
+        "denyPath": { "$ref": "#/$defs/path" },
+        "method": { "const": "POST" },
+        "bodySha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "commands": {
+      "type": "object", "additionalProperties": false, "required": ["nodeExecutable", "allowSha256", "denySha256"],
+      "properties": {
+        "nodeExecutable": { "type": "string", "pattern": "^/", "maxLength": 1024 },
+        "allowSha256": { "$ref": "#/$defs/digest" },
+        "denySha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "expected": {
+      "type": "object", "additionalProperties": false,
+      "required": ["allowRequests", "denyRequests", "unexpectedRequests"],
+      "properties": { "allowRequests": { "const": 1 }, "denyRequests": { "const": 0 }, "unexpectedRequests": { "const": 0 } }
+    },
+    "challengeHash": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "path": { "type": "string", "pattern": "^/v1/control-canary/[A-Za-z0-9_-]{22,128}/(allow|deny)$" }
+  }
+}
