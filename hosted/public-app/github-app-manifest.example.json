@@ -7,13 +7,16 @@
   },
   "public": true,
   "default_permissions": {
+    "actions": "read",
     "checks": "write",
     "contents": "read",
+    "deployments": "write",
     "merge_queues": "read",
     "metadata": "read",
     "pull_requests": "read"
   },
   "default_events": [
+    "deployment_protection_rule",
     "merge_group",
     "pull_request"
   ]
