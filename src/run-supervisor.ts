@@ -369,6 +369,11 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     requestStopResolve?.(request);
   };
   const signalHandlers = new Map<NodeJS.Signals, () => void>();
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as NodeJS.Signals[]) {
+    const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
+    signalHandlers.set(signal, handler);
+    process.on(signal, handler);
+  }
 
   try {
     if (input.transcript) {
@@ -431,11 +436,6 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     stable = afterLaunch.sha256 === executable.sha256 && afterLaunch.identity === executable.identity;
     if (!stable) requestStop({ code: "EXECUTABLE_CHANGED" });
 
-    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as NodeJS.Signals[]) {
-      const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
-      signalHandlers.set(signal, handler);
-      process.on(signal, handler);
-    }
     const enforceDeadline = (): void => {
       const elapsed = Date.now() - startedAtMs;
       const remaining = input.timeLimitMs - elapsed;

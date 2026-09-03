@@ -20870,6 +20870,11 @@ async function executeProtectedRun(input) {
     requestStopResolve?.(request);
   };
   const signalHandlers = /* @__PURE__ */ new Map();
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
+    signalHandlers.set(signal, handler);
+    process.on(signal, handler);
+  }
   try {
     if (input.transcript) {
       if (input.transcript.transport === "supervisor-captured-stdout") sink = createPrivateFileSink(input.transcript.path);
@@ -20926,11 +20931,6 @@ async function executeProtectedRun(input) {
     const afterLaunch = hashExecutable(executable.path);
     stable = afterLaunch.sha256 === executable.sha256 && afterLaunch.identity === executable.identity;
     if (!stable) requestStop({ code: "EXECUTABLE_CHANGED" });
-    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-      const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
-      signalHandlers.set(signal, handler);
-      process.on(signal, handler);
-    }
     const enforceDeadline = () => {
       const elapsed = Date.now() - startedAtMs;
       const remaining = input.timeLimitMs - elapsed;

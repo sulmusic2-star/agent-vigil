@@ -3,9 +3,11 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test as nodeTest } from "node:test";
 import { runProtectedRunCommand } from "../src/run-cli.ts";
 import { executeProtectedRun, recomputeProtectedRunHash, type ProtectedRunInput } from "../src/run-supervisor.ts";
+
+const test = process.platform === "win32" ? nodeTest.skip : nodeTest;
 
 function root(): string {
   return mkdtempSync(join(tmpdir(), "vigil-run-"));
@@ -41,6 +43,13 @@ async function waitForFile(path: string): Promise<void> {
   while (!existsSync(path) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
   if (!existsSync(path)) throw new Error(`timed out waiting for ${path}`);
 }
+
+nodeTest("protected run explicitly refuses unsupported Windows execution", { skip: process.platform !== "win32" }, async () => {
+  await assert.rejects(
+    () => executeProtectedRun(input(["-e", "process.exit(0)"])),
+    /requires POSIX process-group controls/,
+  );
+});
 
 test("protected run propagates a normal child exit without calling it earned", async () => {
   const secret = "private prompt never serialized";
