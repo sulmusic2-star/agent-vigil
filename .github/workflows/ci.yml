@@ -43,7 +43,7 @@ jobs:
         if: matrix.node == 22
         run: npm run review:public
       - name: Exercise the packed package
-        if: matrix.node == 22
+        if: matrix.node == 20 || matrix.node == 22
         run: npm run test:package
       - name: Replay public historical failures
         if: matrix.node == 22

@@ -20723,8 +20723,6 @@ function buildReceipt(input) {
 async function executeProtectedRun(input) {
   if (process.platform === "win32") throw new Error("vigil run currently requires POSIX process-group controls (macOS or Linux)");
   validateProtectedRunInput(input);
-  const executablePath = resolveExecutable(input.executable, input.cwd, input.environment);
-  const executable = hashExecutable(executablePath);
   let startedAtMs = Date.now();
   let startedAtMonotonicMs = monotonicNowMs();
   let sink;
@@ -20754,6 +20752,19 @@ async function executeProtectedRun(input) {
     requestStopResolve?.(request);
   };
   const getStopRequest = () => stopRequest;
+  const signalHandlers = /* @__PURE__ */ new Map();
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
+    signalHandlers.set(signal, handler);
+    process.on(signal, handler);
+  }
+  let executable;
+  try {
+    executable = hashExecutable(resolveExecutable(input.executable, input.cwd, input.environment));
+  } catch (error) {
+    for (const [signal, handler] of signalHandlers) process.off(signal, handler);
+    throw error;
+  }
   const finishPreLaunchStop = (stop) => {
     processGroupTerminationConfirmed = true;
     const finishedAtMs = Date.now();
@@ -20776,13 +20787,10 @@ async function executeProtectedRun(input) {
       receipt
     };
   };
-  const signalHandlers = /* @__PURE__ */ new Map();
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-    const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
-    signalHandlers.set(signal, handler);
-    process.on(signal, handler);
-  }
   try {
+    await new Promise((resolveYield) => setImmediate(resolveYield));
+    const hashingStop = getStopRequest();
+    if (hashingStop) return finishPreLaunchStop(hashingStop);
     if (input.transcript) {
       if (input.transcript.transport === "supervisor-captured-stdout") sink = createPrivateFileSink(input.transcript.path);
       telemetry = new RunTelemetryMonitor({

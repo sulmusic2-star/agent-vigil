@@ -216,9 +216,10 @@ test("CLI SIGINT handler terminates the protected group and retains a receipt", 
   }
 });
 
-type PreLaunchSignalObserved = { launched: boolean; result: ProtectedRunResult };
+type PreLaunchSignal = "SIGINT" | "SIGTERM" | "SIGHUP";
+type PreLaunchSignalObserved = { emitted?: boolean; launched: boolean; result: ProtectedRunResult };
 
-function runPreLaunchSignalFixture(signal: "SIGINT" | "SIGTERM", transcriptContents?: string): PreLaunchSignalObserved {
+function runPreLaunchSignalFixture(signal: PreLaunchSignal, transcriptContents?: string): PreLaunchSignalObserved {
   const directory = root();
   const markerPath = join(directory, "launched.txt");
   const transcriptPath = join(directory, "external.jsonl");
@@ -259,7 +260,7 @@ function runPreLaunchSignalFixture(signal: "SIGINT" | "SIGTERM", transcriptConte
 
 function assertPreLaunchSignalResult(
   observed: PreLaunchSignalObserved,
-  signal: "SIGINT" | "SIGTERM",
+  signal: PreLaunchSignal,
   exitCode: number,
 ): void {
   assert.equal(observed.launched, false);
@@ -282,6 +283,57 @@ test("a supervisor signal during telemetry initialization prevents command launc
 
 test("a telemetry initialization error cannot overwrite an earlier supervisor signal", () => {
   assertPreLaunchSignalResult(runPreLaunchSignalFixture("SIGTERM", "{not-json\n"), "SIGTERM", 143);
+});
+
+test("signal handlers are active while the executable is hashed", () => {
+  const directory = root();
+  const markerPath = join(directory, "launched.txt");
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const script = `
+    (async () => {
+      const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+      const fs = (await import("node:fs")).default;
+      const { syncBuiltinESMExports } = await import("node:module");
+      const originalReadSync = fs.readSync;
+      let emitted = false;
+      fs.readSync = (...args) => {
+        const count = originalReadSync(...args);
+        if (!emitted) {
+          emitted = true;
+          process.emit("SIGHUP");
+        }
+        return count;
+      };
+      syncBuiltinESMExports();
+      const { existsSync } = await import("node:fs");
+      const result = await executeProtectedRun({
+        executable: process.execPath,
+        args: ["-e", "require('node:fs').writeFileSync(process.argv[1], 'launched')", ${JSON.stringify(markerPath)}],
+        cwd: process.cwd(),
+        environment: process.env,
+        timeLimitMs: 2_000,
+        terminationGraceMs: 100,
+        trajectoryLimits: {},
+        telemetryGraceMs: 200,
+      });
+      fs.readSync = originalReadSync;
+      syncBuiltinESMExports();
+      process.stdout.write(JSON.stringify({ result, emitted, launched: existsSync(${JSON.stringify(markerPath)}) }));
+    })().catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  `;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(result.stdout) as PreLaunchSignalObserved;
+  assert.equal(observed.emitted, true);
+  assertPreLaunchSignalResult(observed, "SIGHUP", 129);
 });
 
 test("a leader cannot leave an ordinary same-group descendant behind", async () => {

@@ -394,8 +394,6 @@ export function recomputeProtectedRunHash(receipt: ProtectedRunReceipt): string 
 export async function executeProtectedRun(input: ProtectedRunInput): Promise<ProtectedRunResult> {
   if (process.platform === "win32") throw new Error("vigil run currently requires POSIX process-group controls (macOS or Linux)");
   validateProtectedRunInput(input);
-  const executablePath = resolveExecutable(input.executable, input.cwd, input.environment);
-  const executable = hashExecutable(executablePath);
   let startedAtMs = Date.now();
   let startedAtMonotonicMs = monotonicNowMs();
   let sink: PrivateFileSink | undefined;
@@ -423,6 +421,19 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     requestStopResolve?.(request);
   };
   const getStopRequest = (): StopRequest | undefined => stopRequest;
+  const signalHandlers = new Map<NodeJS.Signals, () => void>();
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as NodeJS.Signals[]) {
+    const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
+    signalHandlers.set(signal, handler);
+    process.on(signal, handler);
+  }
+  let executable: ExecutableEvidence;
+  try {
+    executable = hashExecutable(resolveExecutable(input.executable, input.cwd, input.environment));
+  } catch (error) {
+    for (const [signal, handler] of signalHandlers) process.off(signal, handler);
+    throw error;
+  }
   const finishPreLaunchStop = (stop: StopRequest): ProtectedRunResult => {
     processGroupTerminationConfirmed = true;
     const finishedAtMs = Date.now();
@@ -445,14 +456,12 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       receipt,
     };
   };
-  const signalHandlers = new Map<NodeJS.Signals, () => void>();
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as NodeJS.Signals[]) {
-    const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
-    signalHandlers.set(signal, handler);
-    process.on(signal, handler);
-  }
 
   try {
+    await new Promise<void>((resolveYield) => setImmediate(resolveYield));
+    const hashingStop = getStopRequest();
+    if (hashingStop) return finishPreLaunchStop(hashingStop);
+
     if (input.transcript) {
       if (input.transcript.transport === "supervisor-captured-stdout") sink = createPrivateFileSink(input.transcript.path);
       telemetry = new RunTelemetryMonitor({
