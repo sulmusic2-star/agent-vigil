@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.23.4 - 2026-09-01
+
+- Calibrate suppression and assertion-drop advisories against the frozen corpus, reducing presumed-clean advisory coverage from 57.8% to 44.8% without changing the 220/220 frozen oracle result.
+- Present one first-use decision vocabulary across terminal, Markdown, pull-request, and HTML output: PASS, FAIL, or NOT CHECKED, with the matching consequence, evidence, fix, and reproduction command.
+- Add the centrally operated public App worker and control workflow template for exact-head pull-request and merge-queue checks without customer-managed keys or Workers. The public service remains inactive until live outside acceptance.
+- Publish a neutral identical-diff comparison against Swarm with complete rows, bounded statistics, source commits, and explicit limits; no universal-superiority or revenue claim is made.
+- Add a two-commit release-assembly verifier that restricts protected release paths, rebuilds every distributed file, and binds all public Action pins to the reviewed runtime commit.
+
 - Accept GitHub App private keys in either unencrypted RSA PKCS#1 or PKCS#8
   format and normalize them in memory before Web Crypto import.
 - Scope the protected pull-request App token to the target repository instead

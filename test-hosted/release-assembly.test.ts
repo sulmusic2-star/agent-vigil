@@ -43,6 +43,16 @@ test("release assembly binds five public Action pins and rebuilds every dist fil
     "hosted/public-app/control-workflow.yml",
   ]) assert.match(source, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(source, /tracked and rebuilt dist file lists differ/);
+  assert.match(source, /cpSync\(modules, join\(temporary, "node_modules"\), \{ recursive: true, dereference: true \}\)/);
+  assert.doesNotMatch(source, /symlinkSync\(modules/);
   assert.match(source, /is not the deterministic output of the reviewed source/);
   assert.match(source, /release assembly must contain exactly two commits/);
+  assert.match(source, /test-hosted\/repository-contract\.test\.ts/);
+  assert.match(source, /test-hosted\/five-minute-onboarding\.test\.ts/);
+  assert.match(source, /test-hosted\/merge-queue-dispatcher\.test\.ts/);
+  assert.match(source, /test\/control-proof-attestation\.test\.ts/);
+  assert.match(source, /test\/outcome\.test\.ts/);
+  assert.match(source, /test\/package-surface\.test\.ts/);
+  assert.match(source, /test\/protect\.test\.ts/);
+  assert.match(source, /docs\/check\.js/);
 });

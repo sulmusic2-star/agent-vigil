@@ -35,10 +35,10 @@ test("badge and registration links contain only validated repository identity", 
   assert.throws(() => workflowBadge("example/project/extra"));
   assert.equal(
     releasedDoctorCommand(),
-    "npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz doctor --repo .",
+    "npx --yes @sulmusic/agent-vigil@0.23.4 doctor --repo .",
   );
   assert.equal(
     releasedProtectCommand(),
-    "npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo .",
+    "npx --yes @sulmusic/agent-vigil@0.23.4 protect --repo .",
   );
 });

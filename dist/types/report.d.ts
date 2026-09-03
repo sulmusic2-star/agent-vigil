@@ -1,4 +1,4 @@
-export declare const VERSION = "0.23.3";
+export declare const VERSION = "0.23.4";
 export declare const CLAIM_KINDS: readonly ["tests_pass", "file_changed", "path_exists", "command_ran", "work_complete", "session_behavior", "integrity", "policy_attestation", "change_scope", "differential_test", "authority_scope", "authority_action", "telemetry"];
 export type ClaimKind = typeof CLAIM_KINDS[number];
 export declare const TRANSCRIPT_FORMATS: readonly ["claude-code", "codex", "cursor", "gemini-cli", "github-copilot-cli", "opencode", "aider", "markdown", "portable-receipt", "pull-request-evidence", "unified-git-diff", "test-integrity-diff", "github-merge-group-event", "authority/claude-code", "authority/codex", "authority/cursor", "authority/gemini-cli", "authority/github-copilot-cli", "authority/opencode", "authority/aider", "authority/markdown"];

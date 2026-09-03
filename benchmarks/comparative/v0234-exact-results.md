@@ -1,6 +1,6 @@
-# Static audit comparison current pre-release source
+# Static audit comparison v0.23.4 release runtime
 
-Protocol: `513ef52097e98cccdff45b4c55235503cbf4538bfec5f8b456b041628c6b55d8` · Agent Vigil 0.23.3 evaluated at `7707906cb126de69b0774f2d396297e81a848ccc` · Swarm 12.1.1 at `b2b681ff529929d39a14c0541d0e2b71b642b5da`
+Protocol: `513ef52097e98cccdff45b4c55235503cbf4538bfec5f8b456b041628c6b55d8` · Agent Vigil 0.23.4 evaluated at `f9361c74f1cf3a83027ee65c3db79316353d9917` · Swarm 12.1.1 at `b2b681ff529929d39a14c0541d0e2b71b642b5da`
 
 > Maintainer-authored, non-blind comparison on competitor-authored corpora. This does not establish objective universal superiority or any financial outcome.
 

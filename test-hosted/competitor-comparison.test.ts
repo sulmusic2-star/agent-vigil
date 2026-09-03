@@ -6,10 +6,10 @@ const result = JSON.parse(readFileSync("benchmarks/comparative/v0234-exact-resul
 const document = readFileSync("docs/COMPETITOR_COMPARISON.md", "utf8");
 
 test("the scoped comparison retains exact clean source and neutral interpretation", () => {
-  assert.equal(result.generatedAt, "2026-09-01T18:16:21.886Z");
-  assert.equal(result.tools.agentVigil.evaluatedVersion, "0.23.3");
+  assert.equal(result.generatedAt, "2026-09-01T18:43:08.569Z");
+  assert.equal(result.tools.agentVigil.evaluatedVersion, "0.23.4");
   assert.equal(result.tools.agentVigil.evaluatedWithTrackedChanges, false);
-  assert.equal(result.tools.agentVigil.evaluatedCommit, "7707906cb126de69b0774f2d396297e81a848ccc");
+  assert.equal(result.tools.agentVigil.evaluatedCommit, "f9361c74f1cf3a83027ee65c3db79316353d9917");
   assert.equal(result.tools.swarm.version, "12.1.1");
   assert.equal(result.synthetic.agent.balancedAccuracy, 0.884615);
   assert.equal(result.synthetic.swarm.balancedAccuracy, 0.644231);
