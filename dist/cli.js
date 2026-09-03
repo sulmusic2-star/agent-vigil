@@ -19779,16 +19779,29 @@ jobs:
     name: ${checkName}
     runs-on: ubuntu-24.04
     steps:
+      - name: Select the exact trusted host Node.js runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.2
+          package-manager-cache: false
+      - name: Check out the exact pull-request head without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: \${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
       - name: Run deterministic non-LLM PR receipt
         uses: sulmusic2-star/agent-vigil@${actionCommit}
         with:
           mode: maintainer
+          policy: .agent-vigil.json
+          policy-ref: \${{ github.event.pull_request.base.sha }}
           repo: .
-          event: \${{ github.event_path }}
           base: \${{ github.event.pull_request.base.sha }}
           head: \${{ github.event.pull_request.head.sha }}
-          format: markdown
-          github-summary: true
+          isolate-candidate: true
+          candidate-setup-cmd: npm ci --ignore-scripts
 `;
 }
 function counterweightRuleset(ownerRepo, checkName) {

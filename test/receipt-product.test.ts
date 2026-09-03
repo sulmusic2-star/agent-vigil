@@ -130,7 +130,13 @@ test("counterweight install writes the required check workflow and ruleset manif
   const workflow = readFileSync(join(fixture.path, ".github/workflows/agent-vigil-counterweight.yml"), "utf8");
   const ruleset = JSON.parse(readFileSync(join(fixture.path, ".github/agent-vigil-required-check-ruleset.json"), "utf8"));
   assert.match(workflow, /pull_request_target:/);
+  assert.match(workflow, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
+  assert.match(workflow, /actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /policy-ref: \${{ github\.event\.pull_request\.base\.sha }}/);
+  assert.match(workflow, /isolate-candidate: true/);
   assert.match(workflow, new RegExp(`sulmusic2-star/agent-vigil@${ACTION_SHA}`));
+  assert.doesNotMatch(workflow, /^\s+(?:event|format|github-summary):/m);
   assert.equal(ruleset._agentVigil.requiredCheck, "Agent Vigil Counterweight");
   assert.equal(ruleset.rules.some((rule: any) => rule.type === "required_status_checks"), true);
 });
