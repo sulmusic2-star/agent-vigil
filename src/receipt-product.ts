@@ -191,7 +191,7 @@ function versionsIn(text: string): string[] {
 function successfulNpmProof(call: SessionToolCall, finalSummary = ""): boolean {
   const proof = successfulToolText(call);
   if (!proof) return false;
-  if (ranDirectCommand(proof.command, /^(?:npm|npx\s+(?:--yes\s+)?npm@\S+)\s+(?:publish|stage\s+approve)\b/i) && !/\b--dry-run\b/i.test(proof.command)) return true;
+  if (ranDirectCommand(proof.command, /^(?:npm|npx\s+(?:--yes\s+)?npm@\S+)\s+(?:publish|stage\s+approve)\b/i) && !/(?:^|\s)--dry-run(?:\s|$)/i.test(proof.command)) return true;
   if (!ranDirectCommand(proof.command, /^(?:npm|npx\s+(?:--yes\s+)?npm@\S+)\s+view\b/i)) return false;
   const observed = versionsIn(proof.output);
   if (!observed.length) return false;
@@ -208,7 +208,7 @@ function successfulDeployProof(call: SessionToolCall): boolean {
 }
 
 function hasAffirmativeEffectClaim(summary: string, pattern: RegExp, effect: RegExp): boolean {
-  const sentencePattern = /[^.!?\n]+[.!?\n]?/g;
+  const sentencePattern = /[^\n]+?(?:[.!?](?=\s|$)|$)/g;
   for (const match of summary.matchAll(sentencePattern)) {
     const sentence = match[0];
     if (!pattern.test(sentence) || !effect.test(sentence)) continue;
@@ -313,7 +313,7 @@ function finalSummaryChecks(finalSummary: string, loaded: LoadedTranscript, repo
 
   const publicationClaims: Array<{ label: string; pattern: RegExp; effect: RegExp; proof: (call: SessionToolCall, finalSummary: string) => boolean; rule: string }> = [
     { label: "merge", pattern: /\b(?:merged|merge commit)\b/i, effect: /\b(?:merged|merge commit)\b/i, proof: successfulMergeProof, rule: "stop-event-merge-proof" },
-    { label: "npm publication", pattern: /\bnpm\b[^\n.]{0,100}\b(?:published|released|installable|live)\b|\b(?:published|released)\b[^\n.]{0,80}\b(?:to|on)\s+npm\b|\b@[\w.-]+\/[\w.-]+@\d+\.\d+\.\d+\b[^\n.]{0,80}\b(?:published|released|installable|live)\b/i, effect: /\b(?:npm|published|released|installable|live)\b/i, proof: successfulNpmProof, rule: "stop-event-npm-proof" },
+    { label: "npm publication", pattern: /\bnpm\b[^\n]{0,120}\b(?:published|released|installable|live)\b|\b(?:published|released)\b[^\n.]{0,80}\b(?:to|on)\s+npm\b|\b@[\w.-]+\/[\w.-]+@\d+\.\d+\.\d+\b[^\n.]{0,80}\b(?:published|released|installable|live)\b/i, effect: /\b(?:npm|published|released|installable|live)\b/i, proof: successfulNpmProof, rule: "stop-event-npm-proof" },
     { label: "deployment", pattern: /\b(?:deployed|deployment live|production live)\b/i, effect: /\b(?:deployed|deployment live|production live)\b/i, proof: successfulDeployProof, rule: "stop-event-deploy-proof" },
   ];
   for (const claim of publicationClaims) {

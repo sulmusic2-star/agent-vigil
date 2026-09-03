@@ -152,6 +152,93 @@ test("watch requires successful external-operation proof and ignores negated rel
   assert.equal(receipt.results.some((item: any) => item.ruleId.startsWith("stop-event-") && item.ruleId.endsWith("-proof")), false);
 });
 
+test("watch accepts only successful external-operation proofs", () => {
+  const receiptDir = mkdtempSync(join(tmpdir(), "vigil-receipt-proofs-"));
+  const passingProofs = [
+    {
+      name: "npm-stage-approve",
+      command: "npx --yes npm@12.0.2 stage approve 99252c9b-2c3c-4ea0-aa59-d99b17aa64ad",
+      output: "approved @sulmusic/agent-vigil@0.23.5\n",
+      final: "The test suite passes. Published to npm as @sulmusic/agent-vigil@0.23.5.",
+      rule: "stop-event-npm-proof",
+    },
+    {
+      name: "npm-view-observed-version",
+      command: "npm view @sulmusic/agent-vigil version --json",
+      output: "\"0.23.5\"\n",
+      final: "The test suite passes. npm 0.23.5 is live.",
+      rule: "stop-event-npm-proof",
+    },
+    {
+      name: "direct-pr-merge",
+      command: "gh pr merge 177 --merge",
+      output: "Merged pull request #177\n",
+      final: "The test suite passes. The PR merged.",
+      rule: "stop-event-merge-proof",
+    },
+    {
+      name: "merged-at-view",
+      command: "gh pr view 177 --json mergedAt",
+      output: "{\"mergedAt\":\"2026-09-03T23:00:00Z\"}\n",
+      final: "The test suite passes. The PR merged.",
+      rule: "stop-event-merge-proof",
+    },
+    {
+      name: "deploy-command",
+      command: "wrangler deploy",
+      output: "Published worker https://agent-vigil.workers.dev\n",
+      final: "The test suite passes. Production deployed.",
+      rule: "stop-event-deploy-proof",
+    },
+  ];
+
+  for (const proof of passingProofs) {
+    const fixture = repo(`vigil-receipt-${proof.name}-`);
+    const transcript = writeCodexTranscript(fixture.path, proof.command, proof.output, proof.final, false);
+    const receiptPath = join(receiptDir, `${proof.name}.json`);
+    assert.equal(runQuiet(["watch", transcript, "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--test-cmd", "node --test test.js", "--output", receiptPath, "--format", "json"]), 0);
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    assert.equal(receipt.summary.status, "PASS");
+    assert.equal(receipt.results.some((item: any) => item.ruleId === proof.rule), false);
+  }
+
+  const failedProofs = [
+    {
+      name: "failed-merge",
+      command: "gh pr merge 177 --merge",
+      output: "GraphQL: Repository rule violations found\n",
+      final: "The test suite passes. The PR merged.",
+      rule: "stop-event-merge-proof",
+      isError: true,
+    },
+    {
+      name: "dry-run-publish",
+      command: "npm publish --dry-run",
+      output: "+ @sulmusic/agent-vigil@0.23.5\n",
+      final: "The test suite passes. Published to npm as @sulmusic/agent-vigil@0.23.5.",
+      rule: "stop-event-npm-proof",
+      isError: false,
+    },
+    {
+      name: "wrong-npm-view-version",
+      command: "npm view @sulmusic/agent-vigil version --json",
+      output: "\"0.21.1\"\n",
+      final: "The test suite passes. npm 0.23.5 is live.",
+      rule: "stop-event-npm-proof",
+      isError: false,
+    },
+  ];
+
+  for (const proof of failedProofs) {
+    const fixture = repo(`vigil-receipt-${proof.name}-`);
+    const transcript = writeCodexTranscript(fixture.path, proof.command, proof.output, proof.final, proof.isError);
+    const receiptPath = join(receiptDir, `${proof.name}.json`);
+    assert.notEqual(runQuiet(["watch", transcript, "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--test-cmd", "node --test test.js", "--output", receiptPath, "--format", "json"]), 0);
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    assert.ok(receipt.results.some((item: any) => item.ruleId === proof.rule));
+  }
+});
+
 test("counterweight install writes the required check workflow and ruleset manifest", () => {
   const fixture = repo();
   assert.equal(runQuiet(["counterweight", "install", "--repo", fixture.path, "--owner-repo", "example/project", "--action-sha", ACTION_SHA]), 0);
