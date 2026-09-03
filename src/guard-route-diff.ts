@@ -181,6 +181,16 @@ export function compareGuardRoutes(input: {
     if (!same(current.bindings.managedEnvironment, candidate.bindings.managedEnvironment)) {
       reasonCodes.push("MANAGED_ENVIRONMENT_CHANGED");
     }
+    const currentEnvironment = current.bindings.managedEnvironment;
+    const candidateEnvironment = candidate.bindings.managedEnvironment;
+    if (evaluatedEpoch < Date.parse(currentEnvironment.validFrom)
+      || evaluatedEpoch > Date.parse(currentEnvironment.validUntil)) {
+      reasonCodes.push("CURRENT_MANAGED_ENVIRONMENT_NOT_CURRENT");
+    }
+    if (evaluatedEpoch < Date.parse(candidateEnvironment.validFrom)
+      || evaluatedEpoch > Date.parse(candidateEnvironment.validUntil)) {
+      reasonCodes.push("CANDIDATE_MANAGED_ENVIRONMENT_NOT_CURRENT");
+    }
   }
   if (current.status !== "PASS") reasonCodes.push("CURRENT_ROUTE_NOT_PROVEN");
 

@@ -66,12 +66,17 @@ function pairReasonCodes(input: {
   const closed = Date.parse(observation.closedAt);
   const generated = Date.parse(route.generatedAt);
   const evaluated = Date.parse(input.evaluatedAt);
+  const environmentValidFrom = Date.parse(route.bindings.managedEnvironment.validFrom);
+  const environmentValidUntil = Date.parse(route.bindings.managedEnvironment.validUntil);
   if (opened < issued || closed > expires || closed < opened) add("OBSERVATION_WINDOW_MISMATCH");
   if (generated < opened || generated > closed) add("ROUTE_OUTSIDE_OBSERVATION_WINDOW");
   if (observation.events.some((event) => Date.parse(event.observedAt) < opened || Date.parse(event.observedAt) > closed)) {
     add("EVENT_OUTSIDE_OBSERVATION_WINDOW");
   }
   if (evaluated < closed || evaluated - closed > MAX_OBSERVATION_TO_DECISION_MS) add("OBSERVATION_NOT_FRESH");
+  if (opened < environmentValidFrom || closed > environmentValidUntil) add("OBSERVATION_OUTSIDE_ENVIRONMENT_WINDOW");
+  if (generated < environmentValidFrom || generated > environmentValidUntil) add("ROUTE_OUTSIDE_ENVIRONMENT_WINDOW");
+  if (evaluated < environmentValidFrom || evaluated > environmentValidUntil) add("ENVIRONMENT_NOT_CURRENT");
   return reasons;
 }
 
@@ -92,13 +97,6 @@ export function buildGuardControlAdmission(input: {
   if (!Number.isFinite(evaluatedEpoch) || new Date(evaluatedEpoch).toISOString() !== evaluatedAt) {
     throw new Error("control admission evaluation time must be canonical RFC3339 UTC");
   }
-  const validUntil = input.validUntil ?? new Date(evaluatedEpoch + ADMISSION_LIFETIME_MS).toISOString();
-  const validUntilEpoch = Date.parse(validUntil);
-  if (!Number.isFinite(validUntilEpoch) || new Date(validUntilEpoch).toISOString() !== validUntil
-    || validUntilEpoch <= evaluatedEpoch || validUntilEpoch - evaluatedEpoch > ADMISSION_LIFETIME_MS) {
-    throw new Error("control admission validity must be greater than zero and at most one hour");
-  }
-
   const currentChallenge = openGuardControlChallenge(input.current.challenge, input.challengePublicKey);
   const candidateChallenge = openGuardControlChallenge(input.candidate.challenge, input.challengePublicKey);
   const currentObservation = openGuardControlObservation(input.current.observation, input.observerPublicKey);
@@ -107,6 +105,19 @@ export function buildGuardControlAdmission(input: {
   const candidateRoute = openGuardRouteEnvelope(input.candidate.route, input.routePublicKey);
   const currentIsolation = openGuardControlIsolationAttestation(input.current.isolation, input.isolationPublicKey);
   const candidateIsolation = openGuardControlIsolationAttestation(input.candidate.isolation, input.isolationPublicKey);
+  const environmentValidityCeiling = Math.min(
+    Date.parse(currentRoute.report.bindings.managedEnvironment.validUntil),
+    Date.parse(candidateRoute.report.bindings.managedEnvironment.validUntil),
+  );
+  const defaultValidityEpoch = Math.min(evaluatedEpoch + ADMISSION_LIFETIME_MS, environmentValidityCeiling);
+  const validUntil = input.validUntil ?? new Date(
+    defaultValidityEpoch > evaluatedEpoch ? defaultValidityEpoch : evaluatedEpoch + ADMISSION_LIFETIME_MS,
+  ).toISOString();
+  const validUntilEpoch = Date.parse(validUntil);
+  if (!Number.isFinite(validUntilEpoch) || new Date(validUntilEpoch).toISOString() !== validUntil
+    || validUntilEpoch <= evaluatedEpoch || validUntilEpoch - evaluatedEpoch > ADMISSION_LIFETIME_MS) {
+    throw new Error("control admission validity must be greater than zero and at most one hour");
+  }
   const routeDecision = compareGuardRoutes({
     current: input.current.route,
     candidate: input.candidate.route,
@@ -161,6 +172,7 @@ export function buildGuardControlAdmission(input: {
   ];
   if (new Set(roleKeys).size !== roleKeys.length) reasonCodes.push("TRUST_ROOTS_NOT_SEPARATED");
   if (routeDecision.decision !== "APPROVE") reasonCodes.push("ROUTE_DECISION_HOLD");
+  if (validUntilEpoch > environmentValidityCeiling) reasonCodes.push("ADMISSION_OUTLIVES_MANAGED_ENVIRONMENT");
   if (!reasonCodes.length) reasonCodes.push("EXACT_CONTROL_ADMISSION_PROVEN");
   const decision = reasonCodes.length === 1 && reasonCodes[0] === "EXACT_CONTROL_ADMISSION_PROVEN"
     ? "APPROVE" as const

@@ -47,7 +47,10 @@ function keyFiles(directory: string) {
   })) as Record<typeof roles[number], ReturnType<typeof generateKeyPairSync> & { privatePath: string }>;
 }
 
-function environment(keys: ReturnType<typeof keyFiles>["environment"]) {
+function environment(
+  keys: ReturnType<typeof keyFiles>["environment"],
+  validUntil = "2026-09-03T15:00:00.000Z",
+) {
   const unsigned = {
     schemaVersion: "agent-vigil-guard-environment-binding/v1" as const,
     statementHash: guardDigest("managed-environment-statement"),
@@ -57,7 +60,7 @@ function environment(keys: ReturnType<typeof keyFiles>["environment"]) {
     profileIdentitySha256: guardDigest("profile-identity"),
     policySetSha256: guardDigest("policy-set"),
     validFrom: "2026-09-03T13:00:00.000Z",
-    validUntil: "2026-09-03T15:00:00.000Z",
+    validUntil,
   };
   const bindingHash = guardDigest(unsigned);
   return {
@@ -152,10 +155,10 @@ function isolationAttestation(input: {
   }, input.signer);
 }
 
-function fixture() {
+function fixture(environmentValidUntil?: string) {
   const directory = mkdtempSync(join(tmpdir(), "vigil-control-admission-"));
   const keys = keyFiles(directory);
-  const managedEnvironment = environment(keys.environment);
+  const managedEnvironment = environment(keys.environment, environmentValidUntil);
   const environmentSha256 = guardDigest(managedEnvironment);
   const challengeSigner = localGuardSigner(keys.challenge.privatePath);
   const observerSigner = localGuardSigner(keys.observer.privatePath);
@@ -230,6 +233,29 @@ test("fresh independently observed exact-version evidence creates an artifact-sp
       asOf: "2026-09-03T14:10:00.000Z",
     }).decision, "APPROVE");
   } finally { rmSync(f.directory, { recursive: true, force: true }); }
+});
+
+test("admission cannot outlive or revive the signed managed environment", () => {
+  const expiring = fixture("2026-09-03T14:20:00.000Z");
+  try {
+    const capped = admit(expiring, { validUntil: undefined });
+    assert.equal(capped.admission.decision, "APPROVE");
+    assert.equal(capped.admission.validUntil, "2026-09-03T14:20:00.000Z");
+
+    const outlives = admit(expiring, { validUntil: "2026-09-03T14:20:00.001Z" });
+    assert.equal(outlives.admission.decision, "HOLD");
+    assert.ok(outlives.admission.reasonCodes.includes("ADMISSION_OUTLIVES_MANAGED_ENVIRONMENT"));
+  } finally { rmSync(expiring.directory, { recursive: true, force: true }); }
+
+  const expired = fixture("2026-09-03T14:05:30.000Z");
+  try {
+    const result = admit(expired);
+    assert.equal(result.routeDecision.decision, "HOLD");
+    assert.equal(result.admission.decision, "HOLD");
+    assert.ok(result.admission.reasonCodes.includes("CURRENT_ENVIRONMENT_NOT_CURRENT"));
+    assert.ok(result.admission.reasonCodes.includes("CANDIDATE_ENVIRONMENT_NOT_CURRENT"));
+    assert.ok(result.admission.reasonCodes.includes("ADMISSION_OUTLIVES_MANAGED_ENVIRONMENT"));
+  } finally { rmSync(expired.directory, { recursive: true, force: true }); }
 });
 
 test("command substitution, deny effects, stale observations, and artifact mismatch fail closed", () => {

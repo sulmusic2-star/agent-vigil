@@ -212,6 +212,19 @@ test("matching exact bindings and preserved paired routes approve a distinct can
   assert.match(renderGuardRouteDiff(report), /upgrade decision: APPROVE/);
 });
 
+test("an expired managed environment cannot support an unchanged-route approval", () => {
+  const report = compareGuardRoutes({
+    current: routeEnvelope(receipt("2.1.245", CURRENT_TIME)),
+    candidate: routeEnvelope(receipt("2.1.246", CANDIDATE_TIME)),
+    trustedEnvironmentPublicKey: ENVIRONMENT_KEYS.publicKey,
+    trustedRoutePublicKey: ROUTE_KEYS.publicKey,
+    evaluatedAt: "2026-09-02T15:00:00.001Z",
+  });
+  assert.equal(report.decision, "HOLD");
+  assert.ok(report.reasonCodes.includes("CURRENT_MANAGED_ENVIRONMENT_NOT_CURRENT"));
+  assert.ok(report.reasonCodes.includes("CANDIDATE_MANAGED_ENVIRONMENT_NOT_CURRENT"));
+});
+
 test("the offline seal authenticates the complete normalized receipt with DSSE", () => {
   const directory = mkdtempSync(join(tmpdir(), "vigil-route-seal-"));
   const privateKeyPath = join(directory, "route-private.pem");
