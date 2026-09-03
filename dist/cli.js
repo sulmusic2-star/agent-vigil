@@ -19775,6 +19775,13 @@ function buildCursorExactCostEvidence(input) {
   if (shared.length > 1) throw new Error("Cursor usage export matches more than one transcript conversation; split the transcript before importing cost");
   const sessionId = shared[0];
   const matched = normalized.filter((item2) => item2.conversationId === sessionId);
+  const times = matched.map((item2) => item2.timestamp).sort();
+  if (times[0] < transcriptSession.startedAt || times.at(-1) > transcriptSession.endedAt) {
+    throw new Error("Cursor usage event falls outside the transcript session period");
+  }
+  if (times[0] < exportPeriodStartedAt || times.at(-1) > exportPeriodEndedAt) {
+    throw new Error("Cursor usage event falls outside the export period");
+  }
   let totalMicrocents = 0;
   let chargeableRecords = 0;
   for (const { event: event2 } of matched) {
@@ -19786,10 +19793,6 @@ function buildCursorExactCostEvidence(input) {
       throw new Error(`Cursor usage export total exceeds the $${MAX_SESSION_COST_USD} session limit`);
     }
     chargeableRecords += 1;
-  }
-  const times = matched.map((item2) => item2.timestamp).sort();
-  if (times[0] < exportPeriodStartedAt || times.at(-1) > exportPeriodEndedAt) {
-    throw new Error("Cursor usage event falls outside the export period");
   }
   const withoutHash = {
     schemaVersion: "agent-vigil-exact-cost-evidence/v1",
@@ -22681,10 +22684,11 @@ function runValue(args) {
       const evidence = readBoundedFile(resolve37(path), 64 * 1024 * 1024, label);
       return `sha256:${createHash32("sha256").update(evidence).digest("hex")}`;
     };
-    const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
+    let costEvidenceSha256;
     let exactCost;
     if (options.costEvidence) {
       const costEvidence = readBoundedFile(resolve37(options.costEvidence), 64 * 1024 * 1024, "cost evidence");
+      costEvidenceSha256 = `sha256:${createHash32("sha256").update(costEvidence).digest("hex")}`;
       try {
         const parsed = JSON.parse(costEvidence.toString("utf8"));
         if (parsed?.schemaVersion === "agent-vigil-exact-cost-evidence/v1") exactCost = validateExactCostEvidence(parsed);

@@ -228,6 +228,13 @@ export function buildCursorExactCostEvidence(input: {
   if (shared.length > 1) throw new Error("Cursor usage export matches more than one transcript conversation; split the transcript before importing cost");
   const sessionId = shared[0];
   const matched = normalized.filter((item) => item.conversationId === sessionId);
+  const times = matched.map((item) => item.timestamp).sort();
+  if (times[0] < transcriptSession.startedAt || times.at(-1)! > transcriptSession.endedAt) {
+    throw new Error("Cursor usage event falls outside the transcript session period");
+  }
+  if (times[0] < exportPeriodStartedAt || times.at(-1)! > exportPeriodEndedAt) {
+    throw new Error("Cursor usage event falls outside the export period");
+  }
   let totalMicrocents = 0;
   let chargeableRecords = 0;
   for (const { event } of matched) {
@@ -239,10 +246,6 @@ export function buildCursorExactCostEvidence(input: {
       throw new Error(`Cursor usage export total exceeds the $${MAX_SESSION_COST_USD} session limit`);
     }
     chargeableRecords += 1;
-  }
-  const times = matched.map((item) => item.timestamp).sort();
-  if (times[0] < exportPeriodStartedAt || times.at(-1)! > exportPeriodEndedAt) {
-    throw new Error("Cursor usage event falls outside the export period");
   }
   const withoutHash: Omit<ExactCostEvidence, "evidenceHash"> = {
     schemaVersion: "agent-vigil-exact-cost-evidence/v1",

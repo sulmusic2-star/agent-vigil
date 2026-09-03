@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -109,6 +110,20 @@ test("exact cost import refuses ambiguous, unbound, duplicate, and malformed bil
     () => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: Buffer.from(JSON.stringify(lateStart)) }),
     /does not cover the complete transcript session/,
   );
+  assert.throws(
+    () => buildCursorExactCostEvidence({
+      transcript: transcript(),
+      usageExport: usageExport([event({ timestamp: "1788182400000" })]),
+    }),
+    /outside the transcript session period/,
+  );
+  assert.throws(
+    () => buildCursorExactCostEvidence({
+      transcript: transcript(),
+      usageExport: usageExport([event({ timestamp: "1788186600000" })]),
+    }),
+    /outside the transcript session period/,
+  );
   const untimed = transcript().toString("utf8").split("\n").filter(Boolean).map((line) => {
     const row = JSON.parse(line);
     delete row.timestamp_ms;
@@ -202,6 +217,36 @@ test("cost-evidence CLI feeds a provider-exported amount into an exact change Va
   assert.equal(card.cost.amountUsd, 0.5869232);
   assert.equal(card.metrics.costPerAcceptedChangeUsd, 0.5869232);
   assert.equal(card.valueVerdict, "POSITIVE");
+
+  const cliUrl = new URL("../src/cli.ts", import.meta.url).href;
+  const singleSnapshotHarness = `
+    const fs = (await import("node:fs")).default;
+    const { syncBuiltinESMExports } = await import("node:module");
+    const originalOpenSync = fs.openSync;
+    let costEvidenceReads = 0;
+    fs.openSync = (...args) => {
+      if (String(args[0]) === ${JSON.stringify(costPath)}) costEvidenceReads += 1;
+      return originalOpenSync(...args);
+    };
+    syncBuiltinESMExports();
+    const { run } = await import(${JSON.stringify(cliUrl)});
+    const status = run(${JSON.stringify([
+      "value", receiptPath,
+      "--transcript", transcriptPath,
+      "--cost-evidence", costPath,
+      "--disposition", "accepted", "--review-evidence", reviewPath,
+      "--outcome", "merged", "--outcome-evidence", outcomePath,
+      "--format", "json", "--output", join(root, "single-snapshot-card.json"),
+    ])});
+    process.stdout.write(JSON.stringify({ status, costEvidenceReads }));
+  `;
+  const singleSnapshot = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", singleSnapshotHarness], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(singleSnapshot.error, undefined);
+  assert.equal(singleSnapshot.status, 0, singleSnapshot.stderr);
+  assert.deepEqual(JSON.parse(singleSnapshot.stdout), { status: 0, costEvidenceReads: 1 });
 
   assert.equal(run([
     "value", receiptPath, "--transcript", transcriptPath, "--cost-evidence", costPath,

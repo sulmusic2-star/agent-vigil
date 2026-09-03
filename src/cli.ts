@@ -1198,10 +1198,11 @@ function runValue(args: string[]): number {
       const evidence = readBoundedFile(resolve(path), 64 * 1024 * 1024, label);
       return `sha256:${createHash("sha256").update(evidence).digest("hex")}`;
     };
-    const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
+    let costEvidenceSha256: string | undefined;
     let exactCost: ExactCostEvidence | undefined;
     if (options.costEvidence) {
       const costEvidence = readBoundedFile(resolve(options.costEvidence), 64 * 1024 * 1024, "cost evidence");
+      costEvidenceSha256 = `sha256:${createHash("sha256").update(costEvidence).digest("hex")}`;
       try {
         const parsed = JSON.parse(costEvidence.toString("utf8"));
         if (parsed?.schemaVersion === "agent-vigil-exact-cost-evidence/v1") exactCost = validateExactCostEvidence(parsed);
