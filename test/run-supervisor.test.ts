@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test as nodeTest } from "node:test";
 import { runProtectedRunCommand } from "../src/run-cli.ts";
-import { executeProtectedRun, recomputeProtectedRunHash, type ProtectedRunInput } from "../src/run-supervisor.ts";
+import {
+  executeProtectedRun,
+  recomputeProtectedRunHash,
+  type ProtectedRunInput,
+  type ProtectedRunResult,
+} from "../src/run-supervisor.ts";
 
 const test = process.platform === "win32" ? nodeTest.skip : nodeTest;
 
@@ -211,10 +216,13 @@ test("CLI SIGINT handler terminates the protected group and retains a receipt", 
   }
 });
 
-test("a supervisor signal during telemetry initialization prevents command launch", () => {
+type PreLaunchSignalObserved = { launched: boolean; result: ProtectedRunResult };
+
+function runPreLaunchSignalFixture(signal: "SIGINT" | "SIGTERM", transcriptContents?: string): PreLaunchSignalObserved {
   const directory = root();
   const markerPath = join(directory, "launched.txt");
   const transcriptPath = join(directory, "external.jsonl");
+  if (transcriptContents !== undefined) writeFileSync(transcriptPath, transcriptContents);
   const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
   const script = `
     (async () => {
@@ -231,7 +239,7 @@ test("a supervisor signal during telemetry initialization prevents command launc
         telemetryGraceMs: 200,
         transcript: { path: ${JSON.stringify(transcriptPath)}, transport: "external-file" },
       });
-      process.emit("SIGINT");
+      process.emit(${JSON.stringify(signal)});
       const result = await pending;
       process.stdout.write(JSON.stringify({ result, launched: existsSync(${JSON.stringify(markerPath)}) }));
     })().catch((error) => {
@@ -246,17 +254,34 @@ test("a supervisor signal during telemetry initialization prevents command launc
   });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0, result.stderr);
-  const observed = JSON.parse(result.stdout);
+  return JSON.parse(result.stdout) as PreLaunchSignalObserved;
+}
+
+function assertPreLaunchSignalResult(
+  observed: PreLaunchSignalObserved,
+  signal: "SIGINT" | "SIGTERM",
+  exitCode: number,
+): void {
   assert.equal(observed.launched, false);
-  assert.equal(observed.result.exitCode, 130);
+  assert.equal(observed.result.exitCode, exitCode);
   assert.equal(observed.result.receipt.state, "STOPPED");
-  assert.equal(observed.result.receipt.stop.code, "SUPERVISOR_SIGNAL");
-  assert.equal(observed.result.receipt.stop.signal, "SIGINT");
+  const stop = observed.result.receipt.stop;
+  assert.ok(stop);
+  assert.equal(stop.code, "SUPERVISOR_SIGNAL");
+  assert.equal(stop.signal, signal);
   assert.equal(observed.result.receipt.process.leaderPid, undefined);
   assert.equal(observed.result.receipt.process.termSent, false);
   assert.equal(observed.result.receipt.process.killSent, false);
   assert.equal(observed.result.receipt.process.processGroupTerminationConfirmed, true);
   assert.equal(recomputeProtectedRunHash(observed.result.receipt), observed.result.receipt.receiptHash);
+}
+
+test("a supervisor signal during telemetry initialization prevents command launch", () => {
+  assertPreLaunchSignalResult(runPreLaunchSignalFixture("SIGINT"), "SIGINT", 130);
+});
+
+test("a telemetry initialization error cannot overwrite an earlier supervisor signal", () => {
+  assertPreLaunchSignalResult(runPreLaunchSignalFixture("SIGTERM", "{not-json\n"), "SIGTERM", 143);
 });
 
 test("a leader cannot leave an ordinary same-group descendant behind", async () => {

@@ -20754,6 +20754,28 @@ async function executeProtectedRun(input) {
     requestStopResolve?.(request);
   };
   const getStopRequest = () => stopRequest;
+  const finishPreLaunchStop = (stop) => {
+    processGroupTerminationConfirmed = true;
+    const finishedAtMs = Date.now();
+    const receipt = buildReceipt({
+      run: input,
+      executable,
+      stable,
+      state: "STOPPED",
+      startedAtMs,
+      finishedAtMs,
+      elapsedMs: monotonicNowMs() - startedAtMonotonicMs,
+      exit,
+      stop,
+      termSent,
+      killSent,
+      processGroupTerminationConfirmed
+    });
+    return {
+      exitCode: stop.code === "SUPERVISOR_SIGNAL" ? signalExitCode(stop.signal ?? null) : 124,
+      receipt
+    };
+  };
   const signalHandlers = /* @__PURE__ */ new Map();
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
@@ -20773,28 +20795,7 @@ async function executeProtectedRun(input) {
       await telemetry.ready();
     }
     const preLaunchStop = getStopRequest();
-    if (preLaunchStop) {
-      processGroupTerminationConfirmed = true;
-      const finishedAtMs2 = Date.now();
-      const receipt2 = buildReceipt({
-        run: input,
-        executable,
-        stable,
-        state: "STOPPED",
-        startedAtMs,
-        finishedAtMs: finishedAtMs2,
-        elapsedMs: monotonicNowMs() - startedAtMonotonicMs,
-        exit,
-        stop: preLaunchStop,
-        termSent,
-        killSent,
-        processGroupTerminationConfirmed
-      });
-      return {
-        exitCode: preLaunchStop.code === "SUPERVISOR_SIGNAL" ? signalExitCode(preLaunchStop.signal ?? null) : 124,
-        receipt: receipt2
-      };
-    }
+    if (preLaunchStop) return finishPreLaunchStop(preLaunchStop);
     startedAtMs = Date.now();
     startedAtMonotonicMs = monotonicNowMs();
     telemetry?.start(startedAtMonotonicMs);
@@ -20965,6 +20966,8 @@ async function executeProtectedRun(input) {
     return { exitCode, receipt };
   } catch (error) {
     verificationAbortController?.abort();
+    const preLaunchStop = child ? void 0 : getStopRequest();
+    if (preLaunchStop) return finishPreLaunchStop(preLaunchStop);
     const detailSha256 = sha2568(error instanceof Error ? error.message : String(error));
     if (stopRequest && stopHandledPromise) {
       try {

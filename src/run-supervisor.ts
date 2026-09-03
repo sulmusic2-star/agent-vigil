@@ -423,6 +423,28 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     requestStopResolve?.(request);
   };
   const getStopRequest = (): StopRequest | undefined => stopRequest;
+  const finishPreLaunchStop = (stop: StopRequest): ProtectedRunResult => {
+    processGroupTerminationConfirmed = true;
+    const finishedAtMs = Date.now();
+    const receipt = buildReceipt({
+      run: input,
+      executable,
+      stable,
+      state: "STOPPED",
+      startedAtMs,
+      finishedAtMs,
+      elapsedMs: monotonicNowMs() - startedAtMonotonicMs,
+      exit,
+      stop,
+      termSent,
+      killSent,
+      processGroupTerminationConfirmed,
+    });
+    return {
+      exitCode: stop.code === "SUPERVISOR_SIGNAL" ? signalExitCode(stop.signal ?? null) : 124,
+      receipt,
+    };
+  };
   const signalHandlers = new Map<NodeJS.Signals, () => void>();
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as NodeJS.Signals[]) {
     const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
@@ -444,28 +466,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     }
 
     const preLaunchStop = getStopRequest();
-    if (preLaunchStop) {
-      processGroupTerminationConfirmed = true;
-      const finishedAtMs = Date.now();
-      const receipt = buildReceipt({
-        run: input,
-        executable,
-        stable,
-        state: "STOPPED",
-        startedAtMs,
-        finishedAtMs,
-        elapsedMs: monotonicNowMs() - startedAtMonotonicMs,
-        exit,
-        stop: preLaunchStop,
-        termSent,
-        killSent,
-        processGroupTerminationConfirmed,
-      });
-      return {
-        exitCode: preLaunchStop.code === "SUPERVISOR_SIGNAL" ? signalExitCode(preLaunchStop.signal ?? null) : 124,
-        receipt,
-      };
-    }
+    if (preLaunchStop) return finishPreLaunchStop(preLaunchStop);
 
     startedAtMs = Date.now();
     startedAtMonotonicMs = monotonicNowMs();
@@ -637,6 +638,8 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     return { exitCode, receipt };
   } catch (error) {
     verificationAbortController?.abort();
+    const preLaunchStop = child ? undefined : getStopRequest();
+    if (preLaunchStop) return finishPreLaunchStop(preLaunchStop);
     const detailSha256 = sha256(error instanceof Error ? error.message : String(error));
     if (stopRequest && stopHandledPromise) {
       try { await stopHandledPromise; } catch { processGroupTerminationConfirmed = false; }
