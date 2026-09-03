@@ -715,6 +715,11 @@ test("static diff audit ignores generated maps and nested vendored code", () => 
   assert.equal(rules.includes("suppression-added"), false);
 });
 
+test("static diff audit does not hide source merely because a parent directory is named build", () => {
+  const source = unifiedDiff("packages/build/runner.ts", [], ["// @ts-ignore unsafe suppression"]);
+  assert.equal(checkIntegrityDiff(source).some((result) => result.ruleId === "suppression-added"), true);
+});
+
 test("static diff audit treats in-hunk triple-prefix lines as code rather than file headers", () => {
   const addedPrefixCollision = unifiedDiff(
     "src/counter.ts",

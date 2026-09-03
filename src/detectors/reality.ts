@@ -862,8 +862,9 @@ function isTestPath(path: string): boolean {
 }
 
 function isGeneratedOrVendorPath(path: string): boolean {
-  return /(?:^|\/)(?:node_modules|vendor|vendored|dist|build|coverage|\.git)(?:\/|$)/.test(path)
-    || /\.(?:map|snap)$/i.test(path);
+  return /(?:^|\/)(?:node_modules|vendor|vendored|\.git)(?:\/|$)/.test(path)
+    || /^(?:dist|build|coverage)\//.test(path)
+    || /\.map$/i.test(path);
 }
 
 function isDocumentationPath(path: string): boolean {
