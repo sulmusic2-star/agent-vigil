@@ -7,6 +7,8 @@
 **Agent Vigil is the required check that is not an LLM: the deterministic,
 signed receipt that an agent's green could have been red.**
 
+Agent Vigil is an independent merge check for AI-assisted pull requests.
+
 Wake up to a receipt, not a story.
 
 ## It catches that?
@@ -106,8 +108,8 @@ npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.
 ```
 
 The command finds the repository's test setup, runs a disposable red/green
-rehearsal, and writes setup files. Commit those files and open one setup pull
-request. After that setup merges, every normal code PR gets one result:
+rehearsal, and writes setup files. Commit those files, open one setup
+pull request, then read one result on each normal code PR:
 
 - **PASS** — ready to merge under the repository's current policy.
 - **FAIL** — do not merge yet; required evidence contradicted the claim.
@@ -135,6 +137,8 @@ checksum assets. It is merged to `main`, tagged, and staged through npm trusted
 publishing with provenance. It is **not installable from npm** until a maintainer
 approves the staged package with npm 2FA. npm still serves v0.21.1 until that
 approval is completed.
+
+GitHub release v0.23.2 is public and immutable.
 
 The last verified GitHub release tarball is
 [`sulmusic-agent-vigil-0.23.2.tgz`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz).
@@ -193,6 +197,8 @@ alone is not a merge trust root.
 Marketplace submission is not a code artifact. It still requires publisher/app
 account authority, listing assets, and an actual submission action by an account
 allowed to publish the App.
+
+It is not a live public service until a real outside repository demonstrates PASS, FAIL, stale-head NOT CHECKED, required-check retention, and maintainer acceptance without first-party control.
 
 ## Verify this project
 
