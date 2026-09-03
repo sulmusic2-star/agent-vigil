@@ -1,6 +1,6 @@
 # Agent Vigil on the Swarm Orchestrator oracle corpus
 
-- Agent Vigil: 0.23.3
+- Agent Vigil: 0.23.4
 - upstream commit: `b2b681ff529929d39a14c0541d0e2b71b642b5da`
 - verified labels: 326
 - training-corpus mapped cases: 225 across 9 categories

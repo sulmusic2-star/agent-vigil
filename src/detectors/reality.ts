@@ -862,7 +862,8 @@ function isTestPath(path: string): boolean {
 }
 
 function isGeneratedOrVendorPath(path: string): boolean {
-  return /^(?:node_modules|vendor|dist|build|coverage|\.git)\//.test(path);
+  return /(?:^|\/)(?:node_modules|vendor|vendored|dist|build|coverage|\.git)(?:\/|$)/.test(path)
+    || /\.(?:map|snap)$/i.test(path);
 }
 
 function isDocumentationPath(path: string): boolean {
@@ -1484,7 +1485,8 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
   // routinely moved or consolidated across test files; a per-file warning
   // produced heavy review noise even when the PR added more assertions than
   // it removed. A net loss across the entire supplied diff remains visible.
-  if (removedAssertions > addedAssertions && !results.some((result) => result.ruleId === "assertion-drop")) {
+  if (removedAssertions > addedAssertions
+    && !results.some((result) => result.ruleId === "assertion-drop" || result.ruleId === "test-count-drop")) {
     results.push(finding(
       "assertion surface shrank",
       `${removedAssertions} assertion-like lines removed and ${addedAssertions} added`,

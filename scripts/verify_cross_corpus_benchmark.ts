@@ -3,8 +3,13 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const FROZEN_CROSS_CORPUS_GATE = {
-  schemaVersion: 1,
-  source: { commit: "b2b681ff529929d39a14c0541d0e2b71b642b5da" },
+  schemaVersion: 2,
+  source: {
+    repository: "https://github.com/moonrunnerkc/swarm-orchestrator",
+    commit: "b2b681ff529929d39a14c0541d0e2b71b642b5da",
+    oracleTree: "afb71177457fd15a6b8e39b88c0a98564cc5e9a7",
+    realPrTree: "00d30fd8660822313306d6960ffb83c287f3fff3",
+  },
   oracle: { scopedCases: 220, minExactRecall: 1, maxTargetedFalsePositives: 0 },
   realPrCalibration: {
     prs: 232,
@@ -47,7 +52,7 @@ export function verifyCrossCorpusGate(protocolValue: unknown, oracleValue: unkno
   const protocol = record(protocolValue, "protocol", errors);
   const oracle = record(oracleValue, "oracle result", errors);
   const real = record(realValue, "real-PR result", errors);
-  if (number(protocol.schemaVersion, "protocol.schemaVersion", errors) !== 1) errors.push("protocol.schemaVersion must be 1");
+  if (number(protocol.schemaVersion, "protocol.schemaVersion", errors) !== 2) errors.push("protocol.schemaVersion must be 2");
   if (number(oracle.schemaVersion, "oracle.schemaVersion", errors) !== 2) errors.push("oracle.schemaVersion must be 2");
   if (number(real.schemaVersion, "real.schemaVersion", errors) !== 2) errors.push("real.schemaVersion must be 2");
 
@@ -55,10 +60,21 @@ export function verifyCrossCorpusGate(protocolValue: unknown, oracleValue: unkno
   const oracleSource = record(oracle.source, "oracle.source", errors);
   const realSource = record(real.source, "real.source", errors);
   const expectedCommit = string(source.commit, "protocol.source.commit", errors);
+  const expectedRepository = string(source.repository, "protocol.source.repository", errors);
+  const expectedOracleTree = string(source.oracleTree, "protocol.source.oracleTree", errors);
+  const expectedRealTree = string(source.realPrTree, "protocol.source.realPrTree", errors);
   const oracleCommit = string(oracleSource.commit, "oracle.source.commit", errors);
   const realCommit = string(realSource.commit, "real.source.commit", errors);
+  const oracleRepository = string(oracleSource.repository, "oracle.source.repository", errors);
+  const realRepository = string(realSource.repository, "real.source.repository", errors);
+  const oracleTree = string(oracleSource.corpusTree, "oracle.source.corpusTree", errors);
+  const realTree = string(realSource.corpusTree, "real.source.corpusTree", errors);
   if (expectedCommit && oracleCommit !== expectedCommit) errors.push(`oracle source commit ${oracleCommit || "missing"} does not match ${expectedCommit}`);
   if (expectedCommit && realCommit !== expectedCommit) errors.push(`real-PR source commit ${realCommit || "missing"} does not match ${expectedCommit}`);
+  if (expectedRepository && oracleRepository !== expectedRepository) errors.push("oracle source repository does not match the frozen repository");
+  if (expectedRepository && realRepository !== expectedRepository) errors.push("real-PR source repository does not match the frozen repository");
+  if (expectedOracleTree && oracleTree !== expectedOracleTree) errors.push(`oracle corpus tree ${oracleTree || "missing"} does not match ${expectedOracleTree}`);
+  if (expectedRealTree && realTree !== expectedRealTree) errors.push(`real-PR corpus tree ${realTree || "missing"} does not match ${expectedRealTree}`);
 
   const oracleTool = record(oracle.tool, "oracle.tool", errors);
   const realTool = record(real.tool, "real.tool", errors);
@@ -115,12 +131,11 @@ function json(path: string): unknown {
 }
 
 function main(): void {
-  const oraclePath = option("--oracle");
-  const realPath = option("--real");
-  if (!oraclePath || !realPath) {
-    throw new Error("usage: tsx scripts/verify_cross_corpus_benchmark.ts --oracle <oracle.json> --real <real.json>");
-  }
-  const errors = verifyCrossCorpusGate(FROZEN_CROSS_CORPUS_GATE, json(oraclePath), json(realPath));
+  const oraclePath = option("--oracle") ?? "benchmarks/swarm-oracle-results.json";
+  const realPath = option("--real") ?? "benchmarks/swarm-real-results.json";
+  const protocolPath = option("--protocol");
+  const protocol = protocolPath ? json(protocolPath) : FROZEN_CROSS_CORPUS_GATE;
+  const errors = verifyCrossCorpusGate(protocol, json(oraclePath), json(realPath));
   if (errors.length) {
     process.stderr.write(`Frozen cross-corpus gate failed:\n- ${errors.join("\n- ")}\n`);
     process.exitCode = 1;

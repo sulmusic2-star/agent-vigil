@@ -54,6 +54,11 @@ function gitSha(root: string): string | undefined {
   catch { return undefined; }
 }
 
+function gitTree(root: string, path: string): string | undefined {
+  try { return execFileSync("git", ["rev-parse", `HEAD:${path}`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+  catch { return undefined; }
+}
+
 function ratio(numerator: number, denominator: number): number {
   return denominator ? Number((numerator / denominator).toFixed(4)) : 0;
 }
@@ -62,6 +67,7 @@ const corpusRoot = resolve(option("--corpus") ?? "");
 if (!option("--corpus")) throw new Error("usage: npm run benchmark:swarm -- --corpus <swarm-orchestrator/benchmarks/oracle-corpus> [--source-sha <sha>]");
 const sourceRoot = resolve(corpusRoot, "../..");
 const actualSourceSha = gitSha(sourceRoot);
+const actualCorpusTree = gitTree(sourceRoot, "benchmarks/oracle-corpus");
 const expectedSourceSha = option("--source-sha");
 if (expectedSourceSha && actualSourceSha !== expectedSourceSha) {
   throw new Error(`source checkout ${actualSourceSha ?? "has no Git identity"}; expected ${expectedSourceSha}`);
@@ -76,7 +82,8 @@ const rows = walk(corpusRoot).map((labelPath) => {
   const checks = checkIntegrityDiff(diff);
   const firedRules = checks.filter((check) => check.verdict === "contradicted").map((check) => check.ruleId ?? "unlabeled").sort();
   const expectedRules = EXPECTED_RULES[label.category] ?? [];
-  const policyExclusion = /^(?:node_modules|vendor|dist|build|coverage|\.git)\//.test(label.file)
+  const policyExclusion = /(?:^|\/)(?:node_modules|vendor|vendored|dist|build|coverage|\.git)(?:\/|$)/.test(label.file)
+    || /\.(?:map|snap)$/i.test(label.file)
     ? "target path is generated, vendored, or build output and is excluded by Agent Vigil's documented static-audit policy"
     : null;
   return {
@@ -117,6 +124,7 @@ const result = {
   source: {
     repository: "https://github.com/moonrunnerkc/swarm-orchestrator",
     commit: actualSourceSha ?? "unavailable",
+    corpusTree: actualCorpusTree ?? "unavailable",
     corpusRoot: "benchmarks/oracle-corpus",
     labelsVerified: rows.length,
   },

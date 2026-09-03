@@ -22,6 +22,11 @@ function gitSha(root: string): string | undefined {
   catch { return undefined; }
 }
 
+function gitTree(root: string, path: string): string | undefined {
+  try { return execFileSync("git", ["rev-parse", `HEAD:${path}`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+  catch { return undefined; }
+}
+
 function ratio(numerator: number, denominator: number): number {
   return denominator ? Number((numerator / denominator).toFixed(4)) : 0;
 }
@@ -31,6 +36,7 @@ if (!realRootOption) throw new Error("usage: npm run benchmark:swarm-real -- --r
 const realRoot = resolve(realRootOption);
 const sourceRoot = resolve(realRoot, "../..");
 const sourceSha = gitSha(sourceRoot);
+const sourceTree = gitTree(sourceRoot, "benchmarks/real-prs");
 const expectedSourceSha = option("--source-sha");
 if (expectedSourceSha && sourceSha !== expectedSourceSha) throw new Error(`source checkout ${sourceSha ?? "has no Git identity"}; expected ${expectedSourceSha}`);
 
@@ -68,6 +74,7 @@ const result = {
   source: {
     repository: "https://github.com/moonrunnerkc/swarm-orchestrator",
     commit: sourceSha ?? "unavailable",
+    corpusTree: sourceTree ?? "unavailable",
     fetchedAt: sourceDoc.fetchedAt,
     selection: sourceDoc.query,
   },

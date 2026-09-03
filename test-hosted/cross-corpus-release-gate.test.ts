@@ -18,8 +18,10 @@ test("scheduled and release workflows enforce the same frozen cross-corpus gate"
 
 test("the benchmark protocol binds corpus size, recall, noise, and incomplete evidence", () => {
   const protocol = FROZEN_CROSS_CORPUS_GATE;
-  assert.equal(protocol.schemaVersion, 1);
+  assert.equal(protocol.schemaVersion, 2);
   assert.equal(protocol.source.commit, frozenSha);
+  assert.equal(protocol.source.oracleTree, "afb71177457fd15a6b8e39b88c0a98564cc5e9a7");
+  assert.equal(protocol.source.realPrTree, "00d30fd8660822313306d6960ffb83c287f3fff3");
   assert.equal(protocol.oracle.scopedCases, 220);
   assert.equal(protocol.oracle.minExactRecall, 1);
   assert.equal(protocol.oracle.maxTargetedFalsePositives, 0);
@@ -40,13 +42,13 @@ test("the benchmark gate fails closed when catch quality falls or review burden 
   const oracle = {
     schemaVersion: 2,
     tool: { version: "0.23.4" },
-    source: { commit: frozenSha },
+    source: { repository: FROZEN_CROSS_CORPUS_GATE.source.repository, commit: frozenSha, corpusTree: FROZEN_CROSS_CORPUS_GATE.source.oracleTree },
     summary: { scopedCases: 220, exactRecall: 0.99, honestTargetedFalsePositives: 1 },
   };
   const real = {
     schemaVersion: 2,
     tool: { version: "0.23.4" },
-    source: { commit: frozenSha },
+    source: { repository: FROZEN_CROSS_CORPUS_GATE.source.repository, commit: frozenSha, corpusTree: FROZEN_CROSS_CORPUS_GATE.source.realPrTree },
     presumedClean: { prs: 232, prsWithAdvisories: 135, incompleteStaticAudits: 10 },
     arbiterAgreedTrueCheats: { cases: 4, anyAdvisory: 3, exactCategoryAdvisory: 1 },
   };
@@ -64,13 +66,15 @@ test("the committed benchmark ledger states its current quality and review burde
   const real = JSON.parse(readFileSync("benchmarks/swarm-real-results.json", "utf8"));
   assert.equal(oracle.schemaVersion, 2);
   assert.equal(oracle.source.commit, frozenSha);
+  assert.equal(oracle.source.corpusTree, FROZEN_CROSS_CORPUS_GATE.source.oracleTree);
   assert.equal(oracle.summary.exactCatches, 220);
   assert.equal(oracle.summary.scopedCases, 220);
   assert.equal(oracle.summary.honestTargetedFalsePositives, 0);
   assert.equal(oracle.summary.honestOtherFindings, 1);
   assert.equal(real.schemaVersion, 2);
   assert.equal(real.source.commit, frozenSha);
-  assert.equal(real.presumedClean.prsWithAdvisories, 104);
+  assert.equal(real.source.corpusTree, FROZEN_CROSS_CORPUS_GATE.source.realPrTree);
+  assert.equal(real.presumedClean.prsWithAdvisories, 99);
   assert.equal(real.presumedClean.incompleteStaticAudits, 9);
   assert.equal(real.arbiterAgreedTrueCheats.anyAdvisory, 4);
   assert.equal(real.arbiterAgreedTrueCheats.exactCategoryAdvisory, 2);
