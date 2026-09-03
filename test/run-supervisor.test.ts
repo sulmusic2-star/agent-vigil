@@ -18,12 +18,19 @@ function root(): string {
   return mkdtempSync(join(tmpdir(), "vigil-run-"));
 }
 
+function fixtureEnvironment(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  // Killed fixture processes can leave partial V8 JSON and corrupt the parent coverage report.
+  delete environment.NODE_V8_COVERAGE;
+  return environment;
+}
+
 function input(args: string[], overrides: Partial<ProtectedRunInput> = {}): ProtectedRunInput {
   return {
     executable: process.execPath,
     args,
     cwd: process.cwd(),
-    environment: process.env,
+    environment: fixtureEnvironment(),
     timeLimitMs: 2_000,
     terminationGraceMs: 100,
     trajectoryLimits: {},
@@ -140,6 +147,7 @@ test("an interrupted post-launch executable verification remains explicitly not 
   const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
+    env: fixtureEnvironment(),
     timeout: 5_000,
   });
   assert.equal(result.error, undefined);
@@ -175,6 +183,7 @@ test("wall limit is not extended when the wall clock moves backward", () => {
   const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
+    env: fixtureEnvironment(),
     timeout: 5_000,
   });
   assert.equal(result.error, undefined);
@@ -233,7 +242,7 @@ test("CLI SIGINT handler terminates the protected group and retains a receipt", 
     "--import", "tsx", join(process.cwd(), "src/cli.ts"),
     "run", "--time-limit", "5s", "--termination-grace", "100ms", "--output", receiptPath,
     "--", process.execPath, "-e", supervised, pidPath,
-  ], { cwd: process.cwd(), stdio: "ignore" });
+  ], { cwd: process.cwd(), env: fixtureEnvironment(), stdio: "ignore" });
   const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveClose, rejectClose) => {
     cli.once("error", rejectClose);
     cli.once("close", (code, signal) => resolveClose({ code, signal }));
@@ -294,6 +303,7 @@ function runPreLaunchSignalFixture(signal: PreLaunchSignal, transcriptContents?:
   const result = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
+    env: fixtureEnvironment(),
     timeout: 5_000,
   });
   assert.equal(result.error, undefined);
@@ -370,6 +380,7 @@ test("signal handlers are active while the executable is hashed", () => {
   const result = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
+    env: fixtureEnvironment(),
     timeout: 5_000,
   });
   assert.equal(result.error, undefined);
@@ -729,7 +740,7 @@ test("CLI writes an owner-only receipt without retaining raw arguments", async (
     "--time-limit", "2s",
     "--output", receiptPath,
     "--", process.execPath, "-e", "process.exit(0)", secret,
-  ]);
+  ], fixtureEnvironment());
   assert.equal(code, 0);
   assert.equal(statSync(receiptPath).mode & 0o777, 0o600);
   const serialized = readFileSync(receiptPath, "utf8");
@@ -747,7 +758,7 @@ test("CLI preserves the terminal receipt and returns 125 when private output fai
     "--import", "tsx", join(process.cwd(), "src/cli.ts"),
     "run", "--time-limit", "2s", "--format", "json", "--output", receiptPath,
     "--", process.execPath, "-e", script, parent,
-  ], { cwd: process.cwd(), encoding: "utf8", timeout: 5_000 });
+  ], { cwd: process.cwd(), encoding: "utf8", env: fixtureEnvironment(), timeout: 5_000 });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 125, result.stderr);
   const receipt = JSON.parse(result.stdout);
@@ -771,7 +782,7 @@ test("an unsafe receipt destination is rejected before command launch", async (c
     "--time-limit", "1s",
     "--output", output,
     "--", process.execPath, "-e", script, marker,
-  ]);
+  ], fixtureEnvironment());
   assert.equal(code, 2);
   assert.equal(existsSync(marker), false);
   assert.equal(readFileSync(target, "utf8"), "unchanged");
@@ -790,7 +801,7 @@ test("a captured transcript cannot traverse a symbolic-link parent", async (cont
     "--time-limit", "1s",
     "--capture-jsonl", join(linkedParent, "captured.jsonl"),
     "--", process.execPath, "-e", script, marker,
-  ]);
+  ], fixtureEnvironment());
   assert.equal(code, 125);
   assert.equal(existsSync(marker), false);
   assert.equal(existsSync(join(realParent, "captured.jsonl")), false);
@@ -803,7 +814,7 @@ test("a command-side --help argument is passed through", async () => {
   const code = await runProtectedRunCommand([
     "--time-limit", "1s",
     "--", process.execPath, "-e", script, "--", "--help", marker,
-  ]);
+  ], fixtureEnvironment());
   assert.equal(code, 0);
   assert.equal(readFileSync(marker, "utf8"), "--help");
 });
@@ -815,7 +826,7 @@ test("ambiguous receipt format options are rejected before launch", async () => 
   const code = await runProtectedRunCommand([
     "--time-limit", "1s", "--json", "--format", "text",
     "--", process.execPath, "-e", script, marker,
-  ]);
+  ], fixtureEnvironment());
   assert.equal(code, 2);
   assert.equal(existsSync(marker), false);
 });
@@ -828,7 +839,7 @@ test("dollar budget option refuses before launching the command", async () => {
     "--time-limit", "1s",
     "--budget-usd", "1",
     "--", process.execPath, "-e", script, marker,
-  ]);
+  ], fixtureEnvironment());
   assert.equal(code, 2);
   assert.equal(existsSync(marker), false);
 });
