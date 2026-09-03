@@ -78,6 +78,7 @@ test("off-host observer signs PASS only after the exact allow effect", async () 
     assert.equal(result.observation.status, "PASS");
     assert.deepEqual(result.observation.summary, { allowRequests: 1, denyRequests: 0, unexpectedRequests: 0 });
     assert.equal(result.observation.challengeHash, result.challenge.challengeHash);
+    assert.ok(Date.parse(result.observation.closedAt) <= Date.parse(result.challenge.expiresAt));
   } finally { rmSync(result.directory, { recursive: true, force: true }); }
 });
 

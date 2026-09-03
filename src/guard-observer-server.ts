@@ -217,7 +217,11 @@ export async function runGuardObserverCommand(args: string[]): Promise<number> {
       }, null, 2)}\n`);
     }
     console.log(`Agent Vigil observer ready: ${issued.challenge.challengeHash}`);
-    await new Promise((resolveTimer) => setTimeout(resolveTimer, durationMs));
+    // Challenge signing and output writes happen inside the signed window. Wait
+    // only for the time that remains, retaining a close margin so closedAt does
+    // not drift beyond expiresAt under ordinary scheduler delay.
+    const remainingMs = Math.max(0, Date.parse(issued.challenge.expiresAt) - Date.now() - 100);
+    await new Promise((resolveTimer) => setTimeout(resolveTimer, remainingMs));
     await close(server);
     server = undefined;
     const closedAt = new Date().toISOString();

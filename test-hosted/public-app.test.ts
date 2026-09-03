@@ -550,13 +550,23 @@ test("deployment ledger approves only a current exact authorization and reports 
     });
     await decide();
     assert.equal(calls.filter((call) => call.url.endsWith("/deployment_protection_rule")).length, 1);
-    assert.deepEqual(auditEvents.map((item) => ({
+    assert.deepEqual(auditEvents.filter((item) => item.event === "deployment_protection_decision").map((item) => ({
       event: item.event, state: item.state, authorization_hash: item.authorization_hash,
       repository: item.repository, commit_sha: item.commit_sha, environment: item.environment,
     })), [{
       event: "deployment_protection_decision", state: "approved",
       authorization_hash: fixture.authorization.authorization.authorizationHash,
       repository, commit_sha: headSha, environment: "production",
+    }]);
+    assert.deepEqual(auditEvents.filter((item) => item.event === "deployment_authorization_registered").map((item) => ({
+      event: item.event, repository: item.repository, commit_sha: item.commit_sha,
+      environment: item.environment, authorization_hash: item.authorization_hash,
+      issued_at: item.issued_at, valid_until: item.valid_until,
+    })), [{
+      event: "deployment_authorization_registered", repository, commit_sha: headSha,
+      environment: "production", authorization_hash: fixture.authorization.authorization.authorizationHash,
+      issued_at: fixture.authorization.authorization.issuedAt,
+      valid_until: fixture.authorization.authorization.validUntil,
     }]);
     await ledger.alarm();
     assert.equal(storage.size, 0);

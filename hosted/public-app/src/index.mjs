@@ -635,6 +635,15 @@ export class DeploymentAuthorizationLedger {
       }
       await this.state.storage.put("authorization", value.authorization);
       if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.parse(value.authorization.validUntil) + 24 * 60 * 60 * 1000);
+      console.log(JSON.stringify({
+        event: "deployment_authorization_registered",
+        repository: value.authorization.repository,
+        commit_sha: value.authorization.commitSha,
+        environment: value.authorization.environment,
+        authorization_hash: value.authorization.authorizationHash,
+        issued_at: value.authorization.issuedAt,
+        valid_until: value.authorization.validUntil,
+      }));
       return json(201, { status: "registered", authorization_hash: value.authorization.authorizationHash });
     }
     if (value?.operation === "decide") {
