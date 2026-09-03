@@ -1,4 +1,8 @@
 import { recomputeGuardRouteReceiptHash, type GuardRouteReport } from "../guard-route.ts";
+import {
+  GUARD_ENVIRONMENT_BINDING_SCHEMA,
+  guardEnvironmentBindingHash,
+} from "../guard-environment.ts";
 import { resolve } from "node:path";
 import { canonicalSha256, readBoundedJson, validateEventDraft, type ContinuityEventDraft, type ContinuityRoot } from "./contracts.ts";
 
@@ -59,6 +63,15 @@ function canonicalTimestamp(value: unknown, label: string): string {
   return selected;
 }
 
+function canonicalBase64(value: unknown, label: string): string {
+  const selected = text(value, label, 8192);
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(selected)
+    || Buffer.from(selected, "base64").toString("base64") !== selected) {
+    throw new Error(`${label} must be canonical base64`);
+  }
+  return selected;
+}
+
 function challenge(value: unknown, index: number): GuardRouteReport["challenges"][number] {
   const selected = record(value, `challenges[${index}]`);
   const optional = ["toolUseIdSha256", "sessionIdSha256"].filter((key) => key in selected);
@@ -85,7 +98,10 @@ export function validateGuardRouteReport(value: unknown): GuardRouteReport {
     "challengePack", "host", "control", "processConformance", "bindings", "challenges", "summary", "cleanup",
     "reproduction", "limitations", "receiptHash",
   ], "live-host route receipt");
-  if (selected.schemaVersion !== "agent-vigil-live-host-route/v1" || selected.scope !== "LIVE_HOST_ROUTING") {
+  const schemaVersion = oneOf(selected.schemaVersion, [
+    "agent-vigil-live-host-route/v1", "agent-vigil-live-host-route/v2",
+  ] as const, "schemaVersion");
+  if (selected.scope !== "LIVE_HOST_ROUTING") {
     throw new Error("unsupported live-host route receipt");
   }
 
@@ -103,7 +119,10 @@ export function validateGuardRouteReport(value: unknown): GuardRouteReport {
 
   const challengePack = record(selected.challengePack, "challengePack");
   exactKeys(challengePack, ["id", "sha256"], "challengePack");
-  if (challengePack.id !== "agent-vigil-harmless-live-host-route/v1") throw new Error("live-host receipt has the wrong challenge pack");
+  const challengePackId = oneOf(challengePack.id, [
+    "agent-vigil-harmless-live-host-route/v1",
+    "agent-vigil-external-network-route/v1",
+  ] as const, "challengePack.id");
 
   const host = record(selected.host, "host");
   exactKeys(host, ["kind", "version", "executableSha256", "invocationSha256", "process"], "host");
@@ -120,9 +139,26 @@ export function validateGuardRouteReport(value: unknown): GuardRouteReport {
   exactKeys(conformance, ["status", "receiptHash"], "processConformance");
 
   const bindings = record(selected.bindings, "bindings");
-  exactKeys(bindings, ["profileMarkerSha256", "operatingSystem"], "bindings");
+  exactKeys(bindings, schemaVersion === "agent-vigil-live-host-route/v2"
+    ? ["profileMarkerSha256", "operatingSystem", "managedEnvironment"]
+    : ["profileMarkerSha256", "operatingSystem"], "bindings");
   const operatingSystem = record(bindings.operatingSystem, "bindings.operatingSystem");
   exactKeys(operatingSystem, ["platform", "type", "release", "architecture", "machineIdentitySha256"], "bindings.operatingSystem");
+  const managedEnvironment = schemaVersion === "agent-vigil-live-host-route/v2"
+    ? record(bindings.managedEnvironment, "bindings.managedEnvironment")
+    : undefined;
+  if (managedEnvironment) exactKeys(managedEnvironment, [
+    "schemaVersion", "statementHash", "signerKeyId", "environmentIdSha256", "host",
+    "profileIdentitySha256", "policySetSha256", "validFrom", "validUntil", "bindingHash", "signature",
+  ], "bindings.managedEnvironment");
+  const managedEnvironmentSignature = managedEnvironment
+    ? record(managedEnvironment.signature, "bindings.managedEnvironment.signature")
+    : undefined;
+  if (managedEnvironmentSignature) exactKeys(
+    managedEnvironmentSignature,
+    ["algorithm", "value"],
+    "bindings.managedEnvironment.signature",
+  );
 
   if (!Array.isArray(selected.challenges) || selected.challenges.length !== 2) throw new Error("live-host receipt must contain two challenges");
   const challenges = selected.challenges.map(challenge) as GuardRouteReport["challenges"];
@@ -151,8 +187,8 @@ export function validateGuardRouteReport(value: unknown): GuardRouteReport {
   const limitations = selected.limitations;
   if (!Array.isArray(limitations) || !limitations.length) throw new Error("live-host receipt must state its limitations");
   const status = oneOf(selected.status, ["PASS", "FAIL", "INCONCLUSIVE"] as const, "status");
-  const validated: GuardRouteReport = {
-    schemaVersion: "agent-vigil-live-host-route/v1",
+  const validated = {
+    schemaVersion,
     vigilVersion: text(selected.vigilVersion, "vigilVersion", 200),
     generatedAt: canonicalTimestamp(selected.generatedAt, "generatedAt"),
     nonce: text(selected.nonce, "nonce", 128),
@@ -163,7 +199,7 @@ export function validateGuardRouteReport(value: unknown): GuardRouteReport {
       state: oneOf(nextGate.state, ["ONE_HOST_PROVEN", "BLOCKED"] as const, "nextGate.state"),
       requirement: "BOTH_CURRENT_HOSTS_MUST_PASS",
     },
-    challengePack: { id: "agent-vigil-harmless-live-host-route/v1", sha256: digest(challengePack.sha256, "challengePack.sha256") },
+    challengePack: { id: challengePackId, sha256: digest(challengePack.sha256, "challengePack.sha256") },
     host: {
       kind: oneOf(host.kind, ["claude", "codex"] as const, "host.kind"),
       version: text(host.version, "host.version", 200),
@@ -196,6 +232,30 @@ export function validateGuardRouteReport(value: unknown): GuardRouteReport {
         architecture: text(operatingSystem.architecture, "bindings.operatingSystem.architecture", 100),
         machineIdentitySha256: digest(operatingSystem.machineIdentitySha256, "bindings.operatingSystem.machineIdentitySha256"),
       },
+      ...(managedEnvironment ? { managedEnvironment: {
+        schemaVersion: oneOf(
+          managedEnvironment.schemaVersion,
+          [GUARD_ENVIRONMENT_BINDING_SCHEMA] as const,
+          "bindings.managedEnvironment.schemaVersion",
+        ),
+        statementHash: digest(managedEnvironment.statementHash, "bindings.managedEnvironment.statementHash"),
+        signerKeyId: digest(managedEnvironment.signerKeyId, "bindings.managedEnvironment.signerKeyId"),
+        environmentIdSha256: digest(managedEnvironment.environmentIdSha256, "bindings.managedEnvironment.environmentIdSha256"),
+        host: oneOf(managedEnvironment.host, ["claude", "codex"] as const, "bindings.managedEnvironment.host"),
+        profileIdentitySha256: digest(managedEnvironment.profileIdentitySha256, "bindings.managedEnvironment.profileIdentitySha256"),
+        policySetSha256: digest(managedEnvironment.policySetSha256, "bindings.managedEnvironment.policySetSha256"),
+        validFrom: canonicalTimestamp(managedEnvironment.validFrom, "bindings.managedEnvironment.validFrom"),
+        validUntil: canonicalTimestamp(managedEnvironment.validUntil, "bindings.managedEnvironment.validUntil"),
+        bindingHash: digest(managedEnvironment.bindingHash, "bindings.managedEnvironment.bindingHash"),
+        signature: {
+          algorithm: oneOf(
+            managedEnvironmentSignature!.algorithm,
+            ["Ed25519"] as const,
+            "bindings.managedEnvironment.signature.algorithm",
+          ),
+          value: canonicalBase64(managedEnvironmentSignature!.value, "bindings.managedEnvironment.signature.value"),
+        },
+      } } : {}),
     },
     challenges,
     summary: {
@@ -212,9 +272,26 @@ export function validateGuardRouteReport(value: unknown): GuardRouteReport {
     reproduction: text(selected.reproduction, "reproduction", 2_000),
     limitations: limitations.map((item, index) => text(item, `limitations[${index}]`, 2_000)),
     receiptHash: digest(selected.receiptHash, "receiptHash"),
-  };
+  } as GuardRouteReport;
 
   if (!/^[a-zA-Z0-9_-]{16,128}$/.test(validated.nonce)) throw new Error("live-host receipt nonce is invalid");
+  if (validated.schemaVersion === "agent-vigil-live-host-route/v2") {
+    const environment = validated.bindings.managedEnvironment;
+    if (environment.host !== validated.host.kind) {
+      throw new Error("managed environment host does not match the route host");
+    }
+    const environmentValidity = Date.parse(environment.validUntil) - Date.parse(environment.validFrom);
+    if (environmentValidity <= 0 || environmentValidity > 7 * 24 * 60 * 60 * 1000) {
+      throw new Error("managed environment validity window is invalid");
+    }
+    if (guardEnvironmentBindingHash(environment) !== environment.bindingHash) {
+      throw new Error("managed environment binding hash is invalid");
+    }
+    if (Date.parse(validated.generatedAt) < Date.parse(environment.validFrom)
+      || Date.parse(validated.generatedAt) > Date.parse(environment.validUntil)) {
+      throw new Error("live-host route receipt falls outside its managed environment validity window");
+    }
+  }
   if (recomputeGuardRouteReceiptHash(validated) !== validated.receiptHash) throw new Error("live-host receipt hash is invalid");
   const passShape = validated.processConformance.status === "PASS"
     && validated.host.process.process === "EXITED" && validated.host.process.exit === "ZERO"
@@ -275,6 +352,9 @@ export function guardRouteBindingHash(value: unknown): string {
     },
     control: report.control,
     operatingSystem: report.bindings.operatingSystem,
+    managedEnvironment: report.schemaVersion === "agent-vigil-live-host-route/v2"
+      ? report.bindings.managedEnvironment
+      : null,
   });
 }
 

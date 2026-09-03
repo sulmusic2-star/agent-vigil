@@ -28,8 +28,22 @@ import {
   type GuardDecision,
   type GuardHost,
 } from "./guard-compat.ts";
+import {
+  assertGuardEnvironmentUnchanged,
+  verifyGuardEnvironment,
+  type GuardEnvironmentReceiptBinding,
+  type VerifiedGuardEnvironment,
+} from "./guard-environment.ts";
+import {
+  canaryBody,
+  controlCanaryCommand,
+  externalRoutePackSha256,
+  EXTERNAL_ROUTE_PACK,
+  type GuardControlChallenge,
+} from "./guard-control-protocol.ts";
 
 export const GUARD_ROUTE_SCHEMA = "agent-vigil-live-host-route/v1" as const;
+export const GUARD_ROUTE_SCHEMA_V2 = "agent-vigil-live-host-route/v2" as const;
 export const GUARD_ROUTE_CHALLENGE_PACK = "agent-vigil-harmless-live-host-route/v1" as const;
 export const DISPOSABLE_PROFILE_MARKER = "agent-vigil disposable host profile v1\n";
 
@@ -51,7 +65,7 @@ type RouteObservation = {
   passed: boolean;
 };
 
-export type GuardRouteReport = {
+export type GuardRouteReportV1 = {
   schemaVersion: typeof GUARD_ROUTE_SCHEMA;
   vigilVersion: string;
   generatedAt: string;
@@ -67,7 +81,7 @@ export type GuardRouteReport = {
     requirement: "BOTH_CURRENT_HOSTS_MUST_PASS";
   };
   challengePack: {
-    id: typeof GUARD_ROUTE_CHALLENGE_PACK;
+    id: typeof GUARD_ROUTE_CHALLENGE_PACK | typeof EXTERNAL_ROUTE_PACK;
     sha256: string;
   };
   host: {
@@ -116,6 +130,15 @@ export type GuardRouteReport = {
   receiptHash: string;
 };
 
+export type GuardRouteReportV2 = Omit<GuardRouteReportV1, "schemaVersion" | "bindings"> & {
+  schemaVersion: typeof GUARD_ROUTE_SCHEMA_V2;
+  bindings: GuardRouteReportV1["bindings"] & {
+    managedEnvironment: GuardEnvironmentReceiptBinding;
+  };
+};
+
+export type GuardRouteReport = GuardRouteReportV1 | GuardRouteReportV2;
+
 export type GuardRouteInput = {
   host: GuardHost;
   hostVersion: string;
@@ -125,6 +148,9 @@ export type GuardRouteInput = {
   timeoutMs?: number;
   generatedAt?: string;
   nonce?: string;
+  environmentStatement?: unknown;
+  environmentPublicKeyPath?: string;
+  externalChallenge?: { challenge: GuardControlChallenge; signerKeyId: string };
 };
 
 type HookLog = {
@@ -158,11 +184,23 @@ function safeNonce(value: string): string {
   return value;
 }
 
-function liveCommand(kind: "allow" | "deny", nonce: string): { command: string; token: string; file: string } {
+function liveCommand(
+  kind: "allow" | "deny",
+  nonce: string,
+  challenge?: GuardControlChallenge,
+): { command: string; token: string; file: string } {
   const upper = kind.toUpperCase();
   const token = `AGENT_VIGIL_LIVE_HOST_ROUTE_${upper}_V1_${nonce}`;
   const file = `.agent-vigil-live-route-${kind}-${nonce}.txt`;
-  return { command: `printf '%s\\n' '${token}' > '${file}'`, token, file };
+  if (!challenge) return { command: `printf '%s\\n' '${token}' > '${file}'`, token, file };
+  return {
+    command: controlCanaryCommand({
+      challenge,
+      route: kind,
+    }),
+    token: canaryBody().trimEnd(),
+    file,
+  };
 }
 
 function processCommand(kind: "allow" | "deny", nonce: string): string {
@@ -382,7 +420,8 @@ function assertDisposableProfile(host: GuardHost, requested: string): { profileH
   return { profileHome, marker };
 }
 
-function challengePackSha256(): string {
+function challengePackSha256(external = false): string {
+  if (external) return externalRoutePackSha256();
   return guardDigest({
     id: GUARD_ROUTE_CHALLENGE_PACK,
     allow: "printf one random marker to one disposable relative file",
@@ -404,11 +443,39 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 300_000) {
     throw new Error("host timeout must be an integer from 1000 to 300000 milliseconds");
   }
-  const nonce = safeNonce(input.nonce ?? randomBytes(16).toString("hex"));
+  if (input.externalChallenge && input.nonce && input.externalChallenge.challenge.nonce !== input.nonce) {
+    throw new Error("external challenge nonce conflicts with requested nonce");
+  }
+  const nonce = safeNonce(input.externalChallenge?.challenge.nonce ?? input.nonce ?? randomBytes(16).toString("hex"));
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   if (!Number.isFinite(Date.parse(generatedAt))) throw new Error("generated time must be an RFC3339-compatible timestamp");
+  if ((input.environmentStatement === undefined) !== (input.environmentPublicKeyPath === undefined)) {
+    throw new Error("managed environment statement and pinned public key must be provided together");
+  }
   const hostIdentity = hashGuardFile(input.hostExecutable, "host executable");
   const profile = assertDisposableProfile(input.host, input.profileHome);
+  const managedEnvironment: VerifiedGuardEnvironment | undefined = input.environmentStatement === undefined
+    ? undefined
+    : verifyGuardEnvironment({
+        statement: input.environmentStatement,
+        publicKeyPath: input.environmentPublicKeyPath!,
+        host: input.host,
+        profileHome: profile.profileHome,
+        observedAt: generatedAt,
+      });
+  if (input.externalChallenge) {
+    const challenge = input.externalChallenge.challenge;
+    if (challenge.target.host !== input.host || challenge.target.version !== hostVersion
+      || challenge.target.executableSha256 !== hostIdentity.sha256) {
+      throw new Error("external challenge does not match the exact host artifact");
+    }
+    if (!managedEnvironment || challenge.target.managedEnvironmentSha256 !== guardDigest(managedEnvironment.binding)) {
+      throw new Error("external challenge does not match the verified managed environment");
+    }
+    if (Date.parse(generatedAt) < Date.parse(challenge.issuedAt) || Date.parse(generatedAt) > Date.parse(challenge.expiresAt)) {
+      throw new Error("external challenge is not valid at the route generation time");
+    }
+  }
   const ordinary = ordinaryConfiguration(input.host);
 
   const root = mkdtempSync(join(tmpdir(), "agent-vigil-live-host-route-"));
@@ -420,8 +487,8 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
   const lastMessagePath = join(root, "last-message.txt");
   mkdirSync(workspace, { mode: 0o700 });
   mkdirSync(temporary, { mode: 0o700 });
-  const allow = liveCommand("allow", nonce);
-  const deny = liveCommand("deny", nonce);
+  const allow = liveCommand("allow", nonce, input.externalChallenge?.challenge);
+  const deny = liveCommand("deny", nonce, input.externalChallenge?.challenge);
   const source = hookSource({
     logPath: hookLogPath,
     processAllow: processCommand("allow", nonce),
@@ -502,6 +569,7 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
     if (!processReceipt || !completed) throw new Error("live-host route did not produce a receipt");
     assertGuardFileUnchanged(hostIdentity, "host executable");
     assertGuardFileUnchanged(profile.marker, "disposable profile marker");
+    if (managedEnvironment) assertGuardEnvironmentUnchanged(managedEnvironment);
     assertOrdinaryConfigurationUnchanged(ordinary);
     const configSha256 = processReceipt.control.artifactSha256 === hookIdentity.sha256
       ? guardDigest({
@@ -588,8 +656,7 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
     architecture: arch(),
     machineIdentitySha256: guardDigest({ hostname: hostname(), platform: platform(), type: type(), release: release(), architecture: arch() }),
   };
-  const unsigned = {
-    schemaVersion: GUARD_ROUTE_SCHEMA,
+  const common = {
     vigilVersion,
     generatedAt,
     nonce,
@@ -600,7 +667,10 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
       state: status === "PASS" ? "ONE_HOST_PROVEN" as const : "BLOCKED" as const,
       requirement: "BOTH_CURRENT_HOSTS_MUST_PASS" as const,
     },
-    challengePack: { id: GUARD_ROUTE_CHALLENGE_PACK, sha256: challengePackSha256() },
+    challengePack: {
+      id: input.externalChallenge ? EXTERNAL_ROUTE_PACK : GUARD_ROUTE_CHALLENGE_PACK,
+      sha256: challengePackSha256(Boolean(input.externalChallenge)),
+    },
     host: { kind: input.host, version: hostVersion, executableSha256: hostIdentity.sha256, invocationSha256, process: observedProcess },
     control: {
       name: "Agent Vigil temporary route control" as const,
@@ -611,7 +681,6 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
       configurationSha256: configSha256,
     },
     processConformance: { status: processReceipt.status, receiptHash: processReceipt.receiptHash },
-    bindings: { profileMarkerSha256: profile.marker.sha256, operatingSystem },
     challenges: observations,
     summary: {
       passed: observations.filter((item) => item.passed).length,
@@ -625,16 +694,45 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
       disposableProfileRemoval: "OPERATOR_REQUIRED" as const,
     },
     reproduction: `vigil guard-route --host ${input.host} --host-version <same> --host-executable <same> --profile-home <fresh-disposable-profile>`,
-    limitations: [
+  };
+  const commonLimitations = [
       "This receipt proves one exact host version routed two harmless Bash calls through one temporary control on one operating system.",
       "The temporary control denies every tool call except the exact allow and deny canaries. No source repository is mounted into the drill workspace.",
       "One host PASS cannot stand in for the other host. Both current Claude Code and Codex versions must pass before the next infrastructure ticket begins.",
       "The drill proves the tested route, not complete hook coverage, publisher authenticity, production policy correctness, deployment safety, adoption, payment, or revenue.",
       "Deployment stays on HOLD. The command removes its temporary host configuration; the operator must delete the marked disposable authentication profile after retaining the reduced receipt.",
+  ];
+  if (managedEnvironment) {
+    const unsigned = {
+      ...common,
+      schemaVersion: GUARD_ROUTE_SCHEMA_V2,
+      bindings: {
+        profileMarkerSha256: profile.marker.sha256,
+        operatingSystem,
+        managedEnvironment: managedEnvironment.binding,
+      },
+      limitations: [
+        ...commonLimitations,
+        "The managed-environment binding proves that a pinned signer named the profile identity and policy files, their exact bytes were present, and none changed during this drill.",
+        "The managed-environment binding does not prove that remote service state outside the signed files was unchanged or that the signed policy was correctly designed.",
+        ...(input.externalChallenge ? [
+          `External challenge ${input.externalChallenge.challenge.challengeHash} was verified against signer ${input.externalChallenge.signerKeyId}; its separate observer receipt is required before admission.`,
+          "The external allow effect is observed outside the candidate worker. Deny-attempt evidence still depends on the trusted isolated worker and route control; a compromised worker operating system is outside this proof boundary.",
+        ] : []),
+      ],
+    };
+    return { ...unsigned, receiptHash: guardDigest(unsigned) } as GuardRouteReportV2;
+  }
+  const unsigned = {
+    ...common,
+    schemaVersion: GUARD_ROUTE_SCHEMA,
+    bindings: { profileMarkerSha256: profile.marker.sha256, operatingSystem },
+    limitations: [
+      ...commonLimitations,
+      "The v1 receipt uses a constant disposable-profile marker and does not bind an authenticated profile identity or managed policy snapshot.",
     ],
   };
-    const report: GuardRouteReport = { ...unsigned, receiptHash: guardDigest(unsigned) };
-    return report;
+  return { ...unsigned, receiptHash: guardDigest(unsigned) } as GuardRouteReportV1;
   } finally {
     if (existsSync(configPath)) unlinkSync(configPath);
     rmSync(root, { recursive: true, force: true });
