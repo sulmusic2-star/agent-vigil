@@ -567,6 +567,8 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       child!.once("exit", (code, signal) => {
         exit = { code, signal };
         exitObservedAtMonotonicMs = monotonicNowMs();
+        if (timeout) { clearTimeout(timeout); timeout = undefined; }
+        if (interval) { clearInterval(interval); interval = undefined; }
         resolveExit(exit);
       });
     });
@@ -601,7 +603,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
         try {
           const breach = telemetry!.appendCaptured(bytes);
           if (breach) requestStop(stopFromBreach(breach));
-          if (!captureFailed) {
+          if (!breach && !captureFailed) {
             captureWritesInFlight += 1;
             capturedStdout.pause();
             void sink!.write(bytes).catch((error: unknown) => {
@@ -660,6 +662,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     const verificationWinner = await Promise.race([
       postLaunchVerificationPromise,
       stopPromise.then((request) => ({ kind: "stop" as const, request })),
+      exitPromise.then((result) => ({ kind: "exit" as const, result })),
     ]);
     if (verificationWinner.kind === "verified" && !stopRequest) {
       stable = verificationWinner.evidence.sha256 === executable.sha256
@@ -673,6 +676,21 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       });
     } else if (verificationWinner.kind === "stop") {
       stable = "NOT_CHECKED";
+    } else if (verificationWinner.kind === "exit") {
+      const completedVerification = await postLaunchVerificationPromise;
+      if (completedVerification.kind === "verified") {
+        stable = completedVerification.evidence.sha256 === executable.sha256
+          && completedVerification.evidence.identity === executable.identity;
+        if (!stable) requestStop({ code: "EXECUTABLE_CHANGED" });
+      } else {
+        stable = false;
+        requestStop({
+          code: "EXECUTABLE_CHANGED",
+          detailSha256: sha256(completedVerification.error instanceof Error
+            ? completedVerification.error.message
+            : String(completedVerification.error)),
+        });
+      }
     }
     if (stopRequest) {
       await Promise.all([stopHandledPromise, postLaunchVerificationPromise]);
@@ -702,9 +720,11 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       captureClosePromise = sink.close();
       const captureFlush = await settlementWithin(captureClosePromise, CAPTURE_FLUSH_WAIT_MS);
       if (captureFlush.status !== "fulfilled") {
-        requestOutputFailure(captureFlush.status === "rejected"
+        const error = captureFlush.status === "rejected"
           ? captureFlush.error
-          : new Error("Captured stdout did not flush before the safety deadline"));
+          : new Error("Captured stdout did not flush before the safety deadline");
+        sink.abort(error);
+        requestOutputFailure(error);
       } else {
         sink = undefined;
       }

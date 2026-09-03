@@ -45,11 +45,13 @@ vigil run \
   -- codex exec --json -
 ```
 
-The captured transcript contains the full child output. It stays local, is
-created with mode `0600` on POSIX systems, cannot replace an existing path, and
-is capped at 50 MiB. The protected-run receipt contains only digests and counts,
-not transcript content. Captured child bytes are mirrored to stdout; the final
-Vigil summary goes to stderr so the JSONL stream is not polluted. Use
+For a successful run, the captured transcript contains the full child output.
+It stays local, is created with mode `0600` on POSIX systems, cannot replace an
+existing path, and is capped at 50 MiB. A boundary-crossing chunk is refused and
+stops the run with `TRANSCRIPT_SIZE`; it is not written past the cap. The
+protected-run receipt contains only digests and counts, not transcript content.
+Captured child bytes are mirrored to stdout; the final Vigil summary goes to
+stderr so the JSONL stream is not polluted. Use
 `--output` for the complete machine-readable receipt. Capture persistence and
 stdout mirroring use independent asynchronous queues, so a slow output consumer
 cannot pause deadline enforcement or prevent the capture from draining. A

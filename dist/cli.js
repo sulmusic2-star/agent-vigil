@@ -5044,6 +5044,7 @@ function createPrivateFileSink(destination) {
   let accepting = true;
   let pending = Promise.resolve();
   let closePromise;
+  let abortError;
   try {
     fchmodSync2(descriptor, 384);
   } catch (error) {
@@ -5059,7 +5060,7 @@ function createPrivateFileSink(destination) {
     write(bytes) {
       if (!accepting) return Promise.reject(new Error(`Private output is already closed: ${target2}`));
       const copy = Buffer.from(bytes);
-      const operation = pending.then(() => writeBuffer(descriptor, copy));
+      const operation = pending.then(() => writeBuffer(descriptor, copy, () => abortError));
       pending = operation;
       return operation;
     },
@@ -5086,6 +5087,10 @@ function createPrivateFileSink(destination) {
         if (failure !== void 0) throw failure;
       })();
       return closePromise;
+    },
+    abort(error) {
+      abortError ??= error instanceof Error ? error : new Error(String(error));
+      accepting = false;
     }
   };
 }
@@ -20977,6 +20982,14 @@ async function executeProtectedRun(input) {
       child.once("exit", (code, signal) => {
         exit = { code, signal };
         exitObservedAtMonotonicMs = monotonicNowMs();
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = void 0;
+        }
+        if (interval) {
+          clearInterval(interval);
+          interval = void 0;
+        }
         resolveExit(exit);
       });
     });
@@ -21011,7 +21024,7 @@ async function executeProtectedRun(input) {
         try {
           const breach = telemetry.appendCaptured(bytes);
           if (breach) requestStop(stopFromBreach(breach));
-          if (!captureFailed) {
+          if (!breach && !captureFailed) {
             captureWritesInFlight += 1;
             capturedStdout.pause();
             void sink.write(bytes).catch((error) => {
@@ -21074,7 +21087,8 @@ async function executeProtectedRun(input) {
     );
     const verificationWinner = await Promise.race([
       postLaunchVerificationPromise,
-      stopPromise.then((request) => ({ kind: "stop", request }))
+      stopPromise.then((request) => ({ kind: "stop", request })),
+      exitPromise.then((result5) => ({ kind: "exit", result: result5 }))
     ]);
     if (verificationWinner.kind === "verified" && !stopRequest) {
       stable = verificationWinner.evidence.sha256 === executable.sha256 && verificationWinner.evidence.identity === executable.identity;
@@ -21087,6 +21101,18 @@ async function executeProtectedRun(input) {
       });
     } else if (verificationWinner.kind === "stop") {
       stable = "NOT_CHECKED";
+    } else if (verificationWinner.kind === "exit") {
+      const completedVerification = await postLaunchVerificationPromise;
+      if (completedVerification.kind === "verified") {
+        stable = completedVerification.evidence.sha256 === executable.sha256 && completedVerification.evidence.identity === executable.identity;
+        if (!stable) requestStop({ code: "EXECUTABLE_CHANGED" });
+      } else {
+        stable = false;
+        requestStop({
+          code: "EXECUTABLE_CHANGED",
+          detailSha256: sha2568(completedVerification.error instanceof Error ? completedVerification.error.message : String(completedVerification.error))
+        });
+      }
     }
     if (stopRequest) {
       await Promise.all([stopHandledPromise, postLaunchVerificationPromise]);
@@ -21117,7 +21143,9 @@ async function executeProtectedRun(input) {
       captureClosePromise = sink.close();
       const captureFlush = await settlementWithin(captureClosePromise, CAPTURE_FLUSH_WAIT_MS);
       if (captureFlush.status !== "fulfilled") {
-        requestOutputFailure(captureFlush.status === "rejected" ? captureFlush.error : new Error("Captured stdout did not flush before the safety deadline"));
+        const error = captureFlush.status === "rejected" ? captureFlush.error : new Error("Captured stdout did not flush before the safety deadline");
+        sink.abort(error);
+        requestOutputFailure(error);
       } else {
         sink = void 0;
       }

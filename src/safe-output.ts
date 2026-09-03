@@ -257,6 +257,7 @@ export type PrivateFileSink = {
   path: string;
   write: (bytes: Buffer) => Promise<void>;
   close: () => Promise<void>;
+  abort: (error: unknown) => void;
 };
 
 export type AsyncDescriptorSink = {
@@ -357,6 +358,7 @@ export function createPrivateFileSink(destination: string): PrivateFileSink {
   let accepting = true;
   let pending = Promise.resolve();
   let closePromise: Promise<void> | undefined;
+  let abortError: unknown | undefined;
   try {
     fchmodSync(descriptor, 0o600);
   } catch (error) {
@@ -369,7 +371,7 @@ export function createPrivateFileSink(destination: string): PrivateFileSink {
     write(bytes: Buffer): Promise<void> {
       if (!accepting) return Promise.reject(new Error(`Private output is already closed: ${target}`));
       const copy = Buffer.from(bytes);
-      const operation = pending.then(() => writeBuffer(descriptor, copy));
+      const operation = pending.then(() => writeBuffer(descriptor, copy, () => abortError));
       pending = operation;
       return operation;
     },
@@ -384,6 +386,10 @@ export function createPrivateFileSink(destination: string): PrivateFileSink {
         if (failure !== undefined) throw failure;
       })();
       return closePromise;
+    },
+    abort(error: unknown): void {
+      abortError ??= error instanceof Error ? error : new Error(String(error));
+      accepting = false;
     },
   };
 }

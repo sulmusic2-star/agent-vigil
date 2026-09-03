@@ -22,6 +22,7 @@ export type PrivateFileSink = {
     path: string;
     write: (bytes: Buffer) => Promise<void>;
     close: () => Promise<void>;
+    abort: (error: unknown) => void;
 };
 export type AsyncDescriptorSink = {
     queuedBytes: () => number;

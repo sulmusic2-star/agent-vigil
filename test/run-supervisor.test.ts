@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test as nodeTest } from "node:test";
@@ -11,6 +11,7 @@ import {
   type ProtectedRunInput,
   type ProtectedRunResult,
 } from "../src/run-supervisor.ts";
+import { MAX_TRANSCRIPT_BYTES } from "../src/transcript.ts";
 
 const test = process.platform === "win32" ? nodeTest.skip : nodeTest;
 
@@ -128,6 +129,57 @@ test("wall limit remains live during post-launch executable verification", async
   assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
   assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
   assert.ok(Date.now() - startedAt < 1_500, "verification must not postpone deadline enforcement");
+});
+
+test("a normal child exit is not relabeled as a timeout by slow identity verification", () => {
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const script = `
+    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+    const { open } = await import("node:fs/promises");
+    const sample = await open(process.execPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(sample);
+    await sample.close();
+    const originalRead = fileHandlePrototype.read;
+    let delayed = false;
+    const protectedEnvironment = { ...process.env };
+    delete protectedEnvironment.NODE_V8_COVERAGE;
+    fileHandlePrototype.read = async function (...args) {
+      if (!delayed) {
+        delayed = true;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      return originalRead.apply(this, args);
+    };
+    try {
+      const result = await executeProtectedRun({
+        executable: process.execPath,
+        args: ["-e", "process.exit(0)"],
+        cwd: process.cwd(),
+        environment: protectedEnvironment,
+        timeLimitMs: 500,
+        terminationGraceMs: 50,
+        trajectoryLimits: {},
+        telemetryGraceMs: 200,
+      });
+      process.stdout.write(JSON.stringify(result));
+    } finally {
+      fileHandlePrototype.read = originalRead;
+    }
+  `;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: coverageHarnessEnvironment(),
+    timeout: 5_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(result.stdout) as ProtectedRunResult;
+  assert.equal(observed.exitCode, 0);
+  assert.equal(observed.receipt.state, "EXITED");
+  assert.equal(observed.receipt.stop, undefined);
+  assert.equal(observed.receipt.process.exitCode, 0);
+  assert.equal(observed.receipt.command.executableIdentityStable, true);
 });
 
 test("slow capture persistence cannot delay wall-limit enforcement", { timeout: 8_000 }, () => {
@@ -289,7 +341,7 @@ test("stdout relay retries transient EAGAIN backpressure", { timeout: 8_000 }, (
   assert.equal(readFileSync(transcript, "utf8"), row);
 });
 
-test("capture drain failure overrides an earlier limit stop", { timeout: 12_000 }, () => {
+test("capture retry deadline cancels persistence and overrides an earlier limit stop", { timeout: 12_000 }, () => {
   const directory = root();
   const transcript = join(directory, "drain-failure.jsonl");
   const resultPath = join(directory, "result.json");
@@ -299,9 +351,12 @@ test("capture drain failure overrides an earlier limit stop", { timeout: 12_000 
     const fs = (await import("node:fs")).default;
     const { syncBuiltinESMExports } = await import("node:module");
     const originalWrite = fs.write;
-    fs.write = (descriptor, ...args) => descriptor === 1
-      ? originalWrite(descriptor, ...args)
-      : setTimeout(() => originalWrite(descriptor, ...args), 6_000);
+    fs.write = (descriptor, ...args) => {
+      if (descriptor === 1) return originalWrite(descriptor, ...args);
+      const callback = args.at(-1);
+      const error = Object.assign(new Error("try again"), { code: "EAGAIN" });
+      setTimeout(() => callback(error, 0, args[0]), 5);
+    };
     syncBuiltinESMExports();
     const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
     const protectedEnvironment = { ...process.env };
@@ -338,6 +393,64 @@ test("capture drain failure overrides an earlier limit stop", { timeout: 12_000 
   assert.equal(observed.receipt.state, "ERROR");
   assert.equal(observed.receipt.stop?.code, "SUPERVISOR_ERROR");
   assert.equal(observed.receipt.process.processGroupTerminationConfirmed, true);
+});
+
+test("a transcript-size breach never persists bytes beyond the capture cap", { timeout: 30_000 }, () => {
+  const directory = root();
+  const transcript = join(directory, "bounded-capture.jsonl");
+  const resultPath = join(directory, "result.json");
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const emittedBytes = MAX_TRANSCRIPT_BYTES + 64 * 1024;
+  const command = `
+    const row = JSON.stringify({ type: "session_meta", payload: { id: "run", padding: "x".repeat(64 * 1024) } }) + "\\n";
+    let sent = 0;
+    const send = () => {
+      while (sent <= ${emittedBytes}) {
+        sent += Buffer.byteLength(row);
+        if (!process.stdout.write(row)) {
+          process.stdout.once("drain", send);
+          return;
+        }
+      }
+    };
+    send();
+  `;
+  const harness = `(async () => {
+    const { writeFileSync } = await import("node:fs");
+    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+    const protectedEnvironment = { ...process.env };
+    delete protectedEnvironment.NODE_V8_COVERAGE;
+    const result = await executeProtectedRun({
+      executable: process.execPath,
+      args: ["-e", ${JSON.stringify(command)}],
+      cwd: process.cwd(),
+      environment: protectedEnvironment,
+      timeLimitMs: 20_000,
+      terminationGraceMs: 50,
+      trajectoryLimits: {},
+      telemetryGraceMs: 5_000,
+      transcript: { path: ${JSON.stringify(transcript)}, transport: "supervisor-captured-stdout" },
+    });
+    writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));
+  })().catch((error) => { console.error(error); process.exitCode = 1; });`;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "-e", harness], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: coverageHarnessEnvironment(),
+    stdio: ["ignore", "ignore", "pipe"],
+    timeout: 25_000,
+  });
+  try {
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    const observed = JSON.parse(readFileSync(resultPath, "utf8")) as ProtectedRunResult;
+    assert.equal(observed.exitCode, 124);
+    assert.equal(observed.receipt.state, "STOPPED");
+    assert.equal(observed.receipt.stop?.code, "TRANSCRIPT_SIZE");
+    assert.ok(statSync(transcript).size <= MAX_TRANSCRIPT_BYTES);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("stdout backpressure cannot discard captured tail telemetry", { timeout: 8_000 }, () => {
