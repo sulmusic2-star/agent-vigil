@@ -19441,7 +19441,7 @@ function releasedProtectCommand() {
 // src/receipt-product.ts
 import { createHash as createHash28 } from "node:crypto";
 import { execFileSync as execFileSync12 } from "node:child_process";
-import { existsSync as existsSync12 } from "node:fs";
+import { chmodSync as chmodSync6, existsSync as existsSync12 } from "node:fs";
 import { basename as basename8, isAbsolute as isAbsolute15, relative as relative16, resolve as resolve32, win32 as win325 } from "node:path";
 var FULL_COMMIT2 = /^[0-9a-f]{40}$/;
 var OWNER_REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -19550,6 +19550,51 @@ var swallowedSuccessFallbackPattern = new RegExp(String.raw`\|\|\s*true\b`);
 function hasUnsafePipeline(command) {
   return /(^|[^|])\|([^|]|$)/.test(command) && !/\bpipefail\b/.test(command);
 }
+function successfulToolText(call) {
+  if (call.isError === true) return void 0;
+  return { command: commandText2(call), output: outputText(call) };
+}
+function ranDirectCommand(command, pattern) {
+  return command.split(/\n|&&|;/).map((part) => part.trim()).some((part) => pattern.test(part));
+}
+function successfulMergeProof(call) {
+  const proof = successfulToolText(call);
+  if (!proof) return false;
+  if (ranDirectCommand(proof.command, /^gh\s+pr\s+merge\b/i)) return true;
+  if (ranDirectCommand(proof.command, /^gh\s+pr\s+view\b/i) && /"mergedAt"\s*:\s*"20\d\d-/i.test(proof.output)) return true;
+  return ranDirectCommand(proof.command, /^git\s+(?:show|log)\b/i) && /Merge pull request/i.test(proof.output);
+}
+function versionsIn(text5) {
+  const versions = [...text5.matchAll(/(?:@[\w.-]+\/[\w.-]+@|(?:^|[^\w.-])v?)(\d+\.\d+\.\d+)(?![\w.-])/g)].map((match) => match[1]);
+  return [...new Set(versions)];
+}
+function successfulNpmProof(call, finalSummary = "") {
+  const proof = successfulToolText(call);
+  if (!proof) return false;
+  if (ranDirectCommand(proof.command, /^(?:npm|npx\s+(?:--yes\s+)?npm@\S+)\s+(?:publish|stage\s+approve)\b/i) && !/\b--dry-run\b/i.test(proof.command)) return true;
+  if (!ranDirectCommand(proof.command, /^(?:npm|npx\s+(?:--yes\s+)?npm@\S+)\s+view\b/i)) return false;
+  const observed = versionsIn(proof.output);
+  if (!observed.length) return false;
+  const claimed = versionsIn(finalSummary);
+  return claimed.length ? claimed.some((version) => observed.includes(version)) : true;
+}
+function successfulDeployProof(call) {
+  const proof = successfulToolText(call);
+  if (!proof) return false;
+  if (ranDirectCommand(proof.command, /^(?:npx\s+)?(?:wrangler|vercel)\s+deploy\b|\bdeployments?\//i)) return true;
+  return ranDirectCommand(proof.command, /\b(?:wrangler|vercel)\s+deploy\b/i) && /\b(?:pages\.dev|workers\.dev|vercel\.app|deployment_status)\b/i.test(proof.output);
+}
+function hasAffirmativeEffectClaim(summary, pattern, effect) {
+  const sentencePattern = /[^.!?\n]+[.!?\n]?/g;
+  for (const match of summary.matchAll(sentencePattern)) {
+    const sentence = match[0];
+    if (!pattern.test(sentence) || !effect.test(sentence)) continue;
+    pattern.lastIndex = 0;
+    effect.lastIndex = 0;
+    if (!/\b(?:not|never|no|without|did\s+not|didn't|was\s+not|wasn't|is\s+not|isn't|are\s+not|aren't|still\s+blocked|blocked)\b/i.test(sentence)) return true;
+  }
+  return false;
+}
 function testSummaries(toolCalls) {
   const rows = [];
   for (const call of toolCalls) {
@@ -19636,14 +19681,12 @@ function finalSummaryChecks(finalSummary, loaded, repo, base, head) {
     }
   }
   const publicationClaims = [
-    { label: "merge", pattern: /\b(?:merged|merge commit)\b/i, proof: /gh\s+pr\s+merge|"mergedAt"\s*:\s*"20|Merge pull request/i, rule: "stop-event-merge-proof" },
-    { label: "npm publication", pattern: /\bnpm\b[^\n.]{0,100}\b(?:published|released|installable|live)\b|\b(?:published|released)\b[^\n.]{0,80}\b(?:to|on)\s+npm\b|\b@[\w.-]+\/[\w.-]+@\d+\.\d+\.\d+\b[^\n.]{0,80}\b(?:published|released|installable|live)\b/i, proof: /npm\s+(?:publish|stage\s+approve)|npm\s+view[\s\S]{0,120}\bversion\b[\s\S]{0,120}\b\d+\.\d+\.\d+\b/i, rule: "stop-event-npm-proof" },
-    { label: "deployment", pattern: /\b(?:deployed|deployment live|production live)\b/i, proof: /\b(?:wrangler\s+deploy|vercel\s+deploy|deployments?\/|deployment_status|pages\.dev|workers\.dev)\b/i, rule: "stop-event-deploy-proof" }
+    { label: "merge", pattern: /\b(?:merged|merge commit)\b/i, effect: /\b(?:merged|merge commit)\b/i, proof: successfulMergeProof, rule: "stop-event-merge-proof" },
+    { label: "npm publication", pattern: /\bnpm\b[^\n.]{0,100}\b(?:published|released|installable|live)\b|\b(?:published|released)\b[^\n.]{0,80}\b(?:to|on)\s+npm\b|\b@[\w.-]+\/[\w.-]+@\d+\.\d+\.\d+\b[^\n.]{0,80}\b(?:published|released|installable|live)\b/i, effect: /\b(?:npm|published|released|installable|live)\b/i, proof: successfulNpmProof, rule: "stop-event-npm-proof" },
+    { label: "deployment", pattern: /\b(?:deployed|deployment live|production live)\b/i, effect: /\b(?:deployed|deployment live|production live)\b/i, proof: successfulDeployProof, rule: "stop-event-deploy-proof" }
   ];
-  const toolEvidence = loaded.toolCalls.map((call) => `${commandText2(call)}
-${outputText(call)}`).join("\n---\n");
   for (const claim of publicationClaims) {
-    if (claim.pattern.test(finalSummary) && !claim.proof.test(toolEvidence)) {
+    if (hasAffirmativeEffectClaim(finalSummary, claim.pattern, claim.effect) && !loaded.toolCalls.some((call) => claim.proof(call, finalSummary))) {
       checks.push(result5("work_complete", claim.rule, `${claim.label} claim`, plain2(finalSummary, 180), "unverifiable", `final summary claims ${claim.label}, but the transcript has no matching non-narrative ${claim.label} proof in the bounded effect ledger`, { blocksPass: true, contributesToPass: false }));
     }
   }
@@ -19853,6 +19896,7 @@ function installCounterweight(options) {
       continue;
     }
     writePrivateFileAtomicWithin(repo, path, content);
+    if (path.endsWith(".sh")) chmodSync6(absolute, 448);
     created.push(path);
   }
   let applied = false;

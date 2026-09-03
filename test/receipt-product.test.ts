@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run } from "../src/cli.ts";
@@ -31,12 +31,12 @@ function repo(prefix = "vigil-receipt-product-") {
   return { path, base, head };
 }
 
-function writeCodexTranscript(path: string, command: string, output: string, final: string): string {
+function writeCodexTranscript(path: string, command: string, output: string, final: string, isError = !output.includes("# fail 0")): string {
   const transcript = join(path, `session-${Math.random().toString(16).slice(2)}.jsonl`);
   const rows = [
     { type: "session_meta", payload: { id: "receipt-product-test", model: "fixture-model" } },
     { type: "response_item", payload: { type: "function_call", call_id: "call-1", name: "exec_command", arguments: JSON.stringify({ cmd: command }) } },
-    { type: "response_item", payload: { type: "function_call_output", call_id: "call-1", output: JSON.stringify({ exit_code: output.includes("# fail 0") ? 0 : 1, output }) } },
+    { type: "response_item", payload: { type: "function_call_output", call_id: "call-1", output: JSON.stringify({ exit_code: isError ? 1 : 0, output }) } },
     { type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: final }] } },
   ];
   writeFileSync(transcript, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
@@ -124,11 +124,40 @@ test("watch passes an honest final summary with a fresh test command", () => {
   assert.ok(receipt.results.some((item: any) => item.ruleId === "tests-pass" && item.verdict === "verified"));
 });
 
+test("watch requires successful external-operation proof and ignores negated release statements", () => {
+  const receiptDir = mkdtempSync(join(tmpdir(), "vigil-receipt-output-"));
+  const failedFixture = repo();
+  const failedPublish = writeCodexTranscript(
+    failedFixture.path,
+    "npm publish",
+    "npm ERR! code E401\nnpm ERR! unable to authenticate\n",
+    "Published to npm.",
+  );
+  const failedPublishReceipt = join(receiptDir, "failed-publish-receipt.json");
+  assert.notEqual(runQuiet(["watch", failedPublish, "--repo", failedFixture.path, "--base", failedFixture.base, "--head", failedFixture.head, "--output", failedPublishReceipt, "--format", "json"]), 0);
+  const failed = JSON.parse(readFileSync(failedPublishReceipt, "utf8"));
+  assert.ok(failed.results.some((item: any) => item.ruleId === "stop-event-npm-proof"));
+
+  const negatedFixture = repo();
+  const negated = writeCodexTranscript(
+    negatedFixture.path,
+    "node --test test.js",
+    "# tests 1\n# pass 1\n# fail 0\n",
+    "The test suite passes. The PR was not merged. npm is not live. Production was not deployed.",
+  );
+  const negatedReceipt = join(receiptDir, "negated-release-receipt.json");
+  assert.equal(runQuiet(["watch", negated, "--repo", negatedFixture.path, "--base", negatedFixture.base, "--head", negatedFixture.head, "--output", negatedReceipt, "--format", "json"]), 0);
+  const receipt = JSON.parse(readFileSync(negatedReceipt, "utf8"));
+  assert.equal(receipt.summary.status, "PASS");
+  assert.equal(receipt.results.some((item: any) => item.ruleId.startsWith("stop-event-") && item.ruleId.endsWith("-proof")), false);
+});
+
 test("counterweight install writes the required check workflow and ruleset manifest", () => {
   const fixture = repo();
   assert.equal(runQuiet(["counterweight", "install", "--repo", fixture.path, "--owner-repo", "example/project", "--action-sha", ACTION_SHA]), 0);
   const workflow = readFileSync(join(fixture.path, ".github/workflows/agent-vigil-counterweight.yml"), "utf8");
   const ruleset = JSON.parse(readFileSync(join(fixture.path, ".github/agent-vigil-required-check-ruleset.json"), "utf8"));
+  const applyScriptMode = statSync(join(fixture.path, ".github/agent-vigil-apply-ruleset.sh")).mode;
   assert.match(workflow, /pull_request_target:/);
   assert.match(workflow, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
   assert.match(workflow, /actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/);
@@ -137,6 +166,7 @@ test("counterweight install writes the required check workflow and ruleset manif
   assert.match(workflow, /isolate-candidate: true/);
   assert.match(workflow, new RegExp(`sulmusic2-star/agent-vigil@${ACTION_SHA}`));
   assert.doesNotMatch(workflow, /^\s+(?:event|format|github-summary):/m);
+  assert.notEqual(applyScriptMode & 0o111, 0);
   assert.equal(ruleset._agentVigil.requiredCheck, "Agent Vigil Counterweight");
   assert.equal(ruleset.rules.some((rule: any) => rule.type === "required_status_checks"), true);
 });
