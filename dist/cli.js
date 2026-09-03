@@ -19851,9 +19851,7 @@ function requireDigest(value, label) {
 }
 function canonicalTime(value, label) {
   if (value === void 0) return void 0;
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime())) throw new Error(`${label} must be an RFC3339-compatible timestamp`);
-  return parsed.toISOString();
+  return timezoneQualifiedTimestamp(value, label);
 }
 function uniquePush(values, value) {
   if (!values.includes(value)) values.push(value);

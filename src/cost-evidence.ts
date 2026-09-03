@@ -85,7 +85,7 @@ function evidencePayload(value: Omit<ExactCostEvidence, "evidenceHash">): string
   return canonical(value);
 }
 
-function timezoneQualifiedTimestamp(value: string, label: string): string {
+export function timezoneQualifiedTimestamp(value: string, label: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value);
   if (!match) throw new Error(`${label} is invalid`);
   const [, yearText, monthText, dayText, hourText, minuteText, secondText, , offsetHourText, offsetMinuteText] = match;

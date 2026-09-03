@@ -442,6 +442,41 @@ test("run autopsy hash detects mutation and ignores presentation time", () => {
   assert.notEqual(recomputeRunAutopsyHash(changedCost), record.autopsyHash);
 });
 
+test("autopsy outcome timestamps are timezone-qualified and deterministic", () => {
+  const value = fixture();
+  const transcript = loadTranscript(value.transcriptPath);
+  const originalTimezone = process.env.TZ;
+  const records: RunAutopsy[] = [];
+  try {
+    records.push(...["UTC", "America/Los_Angeles"].map((timezone) => {
+      process.env.TZ = timezone;
+      return buildRunAutopsy({
+        transcript,
+        outcome: "merged",
+        outcomeAsOf: "2026-08-31T10:00:00-04:00",
+      });
+    }));
+  } finally {
+    if (originalTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimezone;
+  }
+  assert.equal(records[0].acceptance.outcomeAsOf, "2026-08-31T14:00:00.000Z");
+  assert.equal(records[0].acceptance.outcomeAsOf, records[1].acceptance.outcomeAsOf);
+  assert.equal(records[0].autopsyHash, records[1].autopsyHash);
+  for (const invalid of [
+    "2026-08-31T14:00:00",
+    "2026-08-31 14:00:00Z",
+    "2026-02-30T14:00:00Z",
+    "2026-08-31T24:00:00Z",
+    "2026-08-31T14:00:00+24:00",
+  ]) {
+    assert.throws(
+      () => buildRunAutopsy({ transcript, outcome: "merged", outcomeAsOf: invalid }),
+      /outcome as-of is invalid/,
+    );
+  }
+});
+
 test("review evidence bytes are hashed without being copied", () => {
   const value = fixture();
   const secret = "maintainer private explanation";

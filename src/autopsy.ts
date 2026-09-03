@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonical, recomputeReceiptHash, validateTrustReport, type ReportStatus, type TrustReport } from "./report.ts";
 import type { VerificationResult } from "./signature.ts";
-import { validateExactCostEvidence, type ExactCostEvidence } from "./cost-evidence.ts";
+import { timezoneQualifiedTimestamp, validateExactCostEvidence, type ExactCostEvidence } from "./cost-evidence.ts";
 import type { LoadedTranscript, SessionUsage, TranscriptFormat } from "./transcript.ts";
 import type { ChangeOutcome, MaintainerDisposition } from "./value.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
@@ -98,9 +98,7 @@ function requireDigest(value: string | undefined, label: string): void {
 
 function canonicalTime(value: string | undefined, label: string): string | undefined {
   if (value === undefined) return undefined;
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime())) throw new Error(`${label} must be an RFC3339-compatible timestamp`);
-  return parsed.toISOString();
+  return timezoneQualifiedTimestamp(value, label);
 }
 
 function uniquePush(values: string[], value: string): void {
