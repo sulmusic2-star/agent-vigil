@@ -84,6 +84,17 @@ test("exact cost import refuses ambiguous, unbound, duplicate, and malformed bil
     transcript: Buffer.from(`${JSON.stringify({ type: "assistant", message: { content: `the unrelated ID is ${SESSION}` } })}\n`),
     usageExport: usageExport(),
   }), /no conversationId bound/, "a narrative mention must not bind provider cost");
+  assert.throws(() => buildCursorExactCostEvidence({
+    transcript: Buffer.from(`${JSON.stringify({
+      type: "tool_call",
+      tool_call: { shellToolCall: { args: { conversationId: SESSION } } },
+    })}\n`),
+    usageExport: usageExport(),
+  }), /no conversationId bound/, "a nested tool argument must not bind provider cost");
+  assert.throws(() => buildCursorExactCostEvidence({
+    transcript: Buffer.from(`${JSON.stringify({ type: "assistant", conversationId: SESSION })}\n`),
+    usageExport: usageExport(),
+  }), /no conversationId bound/, "a non-system root record must not bind provider cost");
   const duplicate = event();
   assert.throws(() => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([duplicate, duplicate]) }), /duplicate events/);
   assert.throws(() => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([event({ isChargeable: "yes" })]) }), /isChargeable must be explicit/);

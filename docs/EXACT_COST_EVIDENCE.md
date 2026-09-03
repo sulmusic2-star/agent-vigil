@@ -21,8 +21,9 @@ vigil cost-evidence cursor \
 ```
 
 The import succeeds only when exactly one `conversationId` in the provider
-export is present as a structured identity field in the transcript. Merely
-mentioning an ID in assistant text does not bind it. The importer rejects missing or ambiguous
+export is present on a root-level Cursor `system` record in the transcript. IDs
+inside assistant text, tool arguments, tool results, or other nested data do not
+bind cost. The importer rejects missing or ambiguous
 session identity, incomplete pagination, duplicate events, malformed
 timestamps, implicit billing state, and invalid charge amounts. Events without
 a conversation ID are ignored. Non-chargeable events for the matched session

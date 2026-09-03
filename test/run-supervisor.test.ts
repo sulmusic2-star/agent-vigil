@@ -91,6 +91,35 @@ test("wall limit escalates to SIGKILL when the child ignores SIGTERM", async () 
   assert.ok(result.receipt.stop!.observed! >= 250);
 });
 
+test("wall limit remains live during post-launch executable verification", async () => {
+  const script = "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)";
+  const startedAt = Date.now();
+  const result = await executeProtectedRun(input(["-e", script], {
+    timeLimitMs: 100,
+    terminationGraceMs: 50,
+  }));
+  assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
+  assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
+  assert.ok(Date.now() - startedAt < 1_500, "verification must not postpone deadline enforcement");
+});
+
+test("receipt executable names support Unicode and normalize control characters", async () => {
+  const directory = root();
+  const schema = JSON.parse(readFileSync(join(process.cwd(), "docs/protected-run-v1.schema.json"), "utf8"));
+  const basenamePattern = new RegExp(schema.properties.command.properties.executableBasename.pattern);
+  for (const [name, expected] of [
+    ["vigil-\u96ea", "vigil-\u96ea"],
+    ["vigil-\n-run", "vigil-\uFFFD-run"],
+  ]) {
+    const executable = join(directory, name);
+    writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    const result = await executeProtectedRun(input([], { executable, cwd: directory }));
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.receipt.command.executableBasename, expected);
+    assert.match(result.receipt.command.executableBasename, basenamePattern);
+  }
+});
+
 test("wall limit terminates an ordinary descendant in the same process group", async () => {
   const directory = root();
   const pidPath = join(directory, "descendant.pid");

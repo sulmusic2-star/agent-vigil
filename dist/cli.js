@@ -19538,22 +19538,14 @@ function structuredConversationIds(raw) {
     } catch {
     }
   }
+  const records = roots.flatMap((value) => Array.isArray(value) ? value : [value]);
+  if (records.length > 1e5) throw new Error("Cursor transcript contains too many structured records");
   const found = /* @__PURE__ */ new Set();
-  const queue = roots.map((value) => ({ value, depth: 0 }));
-  let visited = 0;
-  for (let cursor = 0; cursor < queue.length; cursor += 1) {
-    const { value, depth } = queue[cursor];
-    visited += 1;
-    if (visited > 1e5) throw new Error("Cursor transcript contains too many structured values");
-    if (depth > 12 || !value || typeof value !== "object") continue;
-    if (Array.isArray(value)) {
-      for (const item2 of value) queue.push({ value: item2, depth: depth + 1 });
-      continue;
-    }
-    for (const [key, item2] of Object.entries(value)) {
-      if ((key === "conversationId" || key === "conversation_id") && typeof item2 === "string") found.add(safeSessionId(item2));
-      else queue.push({ value: item2, depth: depth + 1 });
-    }
+  for (const value of records) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const row = value;
+    if (row.type !== "system" || !Object.hasOwn(row, "conversationId")) continue;
+    found.add(safeSessionId(row.conversationId));
   }
   return found;
 }
@@ -20380,6 +20372,7 @@ import {
   readSync as readSync10,
   realpathSync as realpathSync20
 } from "node:fs";
+import { open as openFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
 import { basename as basename8, delimiter, isAbsolute as isAbsolute15, join as join21, resolve as resolve35 } from "node:path";
 import { spawn } from "node:child_process";
@@ -20673,6 +20666,9 @@ function resolveExecutable(command, cwd, environment) {
   }
   throw new Error(`run executable was not found or is not executable: ${basename8(command)}`);
 }
+function receiptSafeBasename(path) {
+  return basename8(path).replace(/[\u0000-\u001f\u007f]/g, "\uFFFD");
+}
 function hashExecutable(path) {
   const noFollow = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
   const descriptor = openSync11(path, fsConstants.O_RDONLY | noFollow);
@@ -20697,13 +20693,49 @@ function hashExecutable(path) {
     }
     return {
       path,
-      basename: basename8(path),
+      basename: receiptSafeBasename(path),
       sha256: `sha256:${hash5.digest("hex")}`,
       pathSha256: sha2569(path),
       identity: [before.dev, before.ino, before.size, before.mtimeNs, before.ctimeNs].join(":")
     };
   } finally {
     closeSync11(descriptor);
+  }
+}
+async function hashExecutableAfterLaunch(path, signal) {
+  const noFollow = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
+  const handle = await openFile(path, fsConstants.O_RDONLY | noFollow);
+  try {
+    if (signal.aborted) throw new Error("post-launch executable verification was cancelled");
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile()) throw new Error("run executable must resolve to a regular file");
+    if (before.size > BigInt(MAX_EXECUTABLE_BYTES)) {
+      throw new Error(`run executable exceeds the ${MAX_EXECUTABLE_BYTES}-byte hashing limit`);
+    }
+    const hash5 = createHash32("sha256");
+    const buffer = Buffer.alloc(1024 * 1024);
+    let offset = 0;
+    while (offset < Number(before.size)) {
+      if (signal.aborted) throw new Error("post-launch executable verification was cancelled");
+      const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, Number(before.size) - offset), offset);
+      if (!bytesRead) throw new Error("run executable changed while it was hashed");
+      hash5.update(buffer.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+    if (signal.aborted) throw new Error("post-launch executable verification was cancelled");
+    const after = await handle.stat({ bigint: true });
+    if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs || after.dev !== before.dev || after.ino !== before.ino) {
+      throw new Error("run executable changed while it was hashed");
+    }
+    return {
+      path,
+      basename: receiptSafeBasename(path),
+      sha256: `sha256:${hash5.digest("hex")}`,
+      pathSha256: sha2569(path),
+      identity: [before.dev, before.ino, before.size, before.mtimeNs, before.ctimeNs].join(":")
+    };
+  } finally {
+    await handle.close();
   }
 }
 function processGroupExists(pid) {
@@ -20860,6 +20892,8 @@ async function executeProtectedRun(input) {
   let telemetry;
   let latestTelemetry;
   let stdoutDonePromise = Promise.resolve();
+  let verificationAbortController;
+  let stopHandledPromise;
   let requestStopResolve;
   const stopPromise = new Promise((resolveStop) => {
     requestStopResolve = resolveStop;
@@ -20893,6 +20927,26 @@ async function executeProtectedRun(input) {
       shell: false,
       stdio: input.transcript?.transport === "supervisor-captured-stdout" ? ["inherit", "pipe", "inherit"] : "inherit"
     });
+    const enforceDeadline = () => {
+      const elapsed = Date.now() - startedAtMs;
+      const remaining = input.timeLimitMs - elapsed;
+      if (remaining > 0) {
+        timeout = setTimeout(enforceDeadline, remaining);
+        return;
+      }
+      requestStop({ code: "TIME_LIMIT", observed: elapsed, limit: input.timeLimitMs });
+    };
+    enforceDeadline();
+    interval = setInterval(() => {
+      if (!telemetry) return;
+      try {
+        const result5 = telemetry.poll();
+        latestTelemetry = result5.observation;
+        if (result5.breach) requestStop(stopFromBreach(result5.breach));
+      } catch (error) {
+        requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2569(error instanceof Error ? error.message : String(error)) });
+      }
+    }, POLL_INTERVAL_MS);
     const exitPromise = new Promise((resolveExit) => {
       child.once("exit", (code, signal) => {
         exit = { code, signal };
@@ -20928,32 +20982,56 @@ async function executeProtectedRun(input) {
       });
     }
     await spawnPromise;
-    const afterLaunch = hashExecutable(executable.path);
-    stable = afterLaunch.sha256 === executable.sha256 && afterLaunch.identity === executable.identity;
-    if (!stable) requestStop({ code: "EXECUTABLE_CHANGED" });
-    const enforceDeadline = () => {
-      const elapsed = Date.now() - startedAtMs;
-      const remaining = input.timeLimitMs - elapsed;
-      if (remaining > 0) {
-        timeout = setTimeout(enforceDeadline, remaining);
-        return;
+    verificationAbortController = new AbortController();
+    stopHandledPromise = stopPromise.then(async (request) => {
+      verificationAbortController?.abort();
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = void 0;
       }
-      requestStop({ code: "TIME_LIMIT", observed: elapsed, limit: input.timeLimitMs });
-    };
-    enforceDeadline();
-    interval = setInterval(() => {
-      if (!telemetry) return;
-      try {
-        const result5 = telemetry.poll();
-        latestTelemetry = result5.observation;
-        if (result5.breach) requestStop(stopFromBreach(result5.breach));
-      } catch (error) {
-        requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2569(error instanceof Error ? error.message : String(error)) });
+      if (interval) {
+        clearInterval(interval);
+        interval = void 0;
       }
-    }, POLL_INTERVAL_MS);
+      if (child?.pid) {
+        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
+        termSent = termination.termSent;
+        killSent = termination.killSent;
+        processGroupTerminationConfirmed = termination.confirmed;
+        await settleWithin(exitPromise, POST_KILL_WAIT_MS);
+      } else processGroupTerminationConfirmed = true;
+      return request;
+    });
+    const exitDescendantCheckPromise = exitPromise.then(async () => {
+      await delay(25);
+      if (stopRequest) return;
+      if (child?.pid && processGroupExists(child.pid)) requestStop({ code: "ORPHANED_DESCENDANTS" });
+      else processGroupTerminationConfirmed = true;
+    });
+    const postLaunchVerificationPromise = hashExecutableAfterLaunch(executable.path, verificationAbortController.signal).then(
+      (evidence) => ({ kind: "verified", evidence }),
+      (error) => ({ kind: "error", error })
+    );
+    const verificationWinner = await Promise.race([
+      postLaunchVerificationPromise,
+      stopPromise.then((request) => ({ kind: "stop", request }))
+    ]);
+    if (verificationWinner.kind === "verified" && !stopRequest) {
+      stable = verificationWinner.evidence.sha256 === executable.sha256 && verificationWinner.evidence.identity === executable.identity;
+      if (!stable) requestStop({ code: "EXECUTABLE_CHANGED" });
+    } else if (verificationWinner.kind === "error" && !stopRequest) {
+      stable = false;
+      requestStop({
+        code: "EXECUTABLE_CHANGED",
+        detailSha256: sha2569(verificationWinner.error instanceof Error ? verificationWinner.error.message : String(verificationWinner.error))
+      });
+    }
+    if (stopRequest) {
+      await Promise.all([stopHandledPromise, postLaunchVerificationPromise]);
+    }
     const winner = await Promise.race([
       exitPromise.then((result5) => ({ kind: "exit", result: result5 })),
-      stopPromise.then((request) => ({ kind: "stop", request }))
+      stopHandledPromise.then((request) => ({ kind: "stop", request }))
     ]);
     if (timeout) {
       clearTimeout(timeout);
@@ -20963,22 +21041,8 @@ async function executeProtectedRun(input) {
       clearInterval(interval);
       interval = void 0;
     }
-    if (winner.kind === "exit") {
-      await delay(25);
-      if (child.pid && processGroupExists(child.pid)) {
-        stopRequest = { code: "ORPHANED_DESCENDANTS" };
-        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
-        termSent = termination.termSent;
-        killSent = termination.killSent;
-        processGroupTerminationConfirmed = termination.confirmed;
-      } else processGroupTerminationConfirmed = true;
-    } else if (child.pid) {
-      const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
-      termSent = termination.termSent;
-      killSent = termination.killSent;
-      processGroupTerminationConfirmed = termination.confirmed;
-      await settleWithin(exitPromise, POST_KILL_WAIT_MS);
-    }
+    if (winner.kind === "exit") await exitDescendantCheckPromise;
+    if (stopRequest) await stopHandledPromise;
     if (child.stdout) {
       await settleWithin(stdoutDonePromise, 250);
       child.stdout.destroy();
@@ -20988,6 +21052,7 @@ async function executeProtectedRun(input) {
       latestTelemetry = finalTelemetry.observation;
       if (finalTelemetry.breach) requestStop(stopFromBreach(finalTelemetry.breach));
     }
+    if (stopRequest) await stopHandledPromise;
     if (sink) {
       sink.close();
       sink = void 0;
@@ -21012,8 +21077,15 @@ async function executeProtectedRun(input) {
     const exitCode = state2 === "ERROR" ? 125 : state2 === "STOPPED" ? stopRequest?.code === "SUPERVISOR_SIGNAL" ? signalExitCode(stopRequest.signal ?? null) : 124 : exit.code ?? signalExitCode(exit.signal);
     return { exitCode, receipt };
   } catch (error) {
+    verificationAbortController?.abort();
     const detailSha256 = sha2569(error instanceof Error ? error.message : String(error));
-    if (child?.pid && processGroupExists(child.pid)) {
+    if (stopRequest && stopHandledPromise) {
+      try {
+        await stopHandledPromise;
+      } catch {
+        processGroupTerminationConfirmed = false;
+      }
+    } else if (child?.pid && processGroupExists(child.pid)) {
       try {
         const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
         termSent = termination.termSent;
@@ -21041,6 +21113,7 @@ async function executeProtectedRun(input) {
     });
     return { exitCode: 125, receipt };
   } finally {
+    verificationAbortController?.abort();
     if (timeout) clearTimeout(timeout);
     if (interval) clearInterval(interval);
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);

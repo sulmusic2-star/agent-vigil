@@ -78,22 +78,14 @@ function structuredConversationIds(raw: string): Set<string> {
   if (!roots.length) {
     try { roots.push(JSON.parse(raw)); } catch { /* handled by the empty result */ }
   }
+  const records = roots.flatMap((value) => Array.isArray(value) ? value : [value]);
+  if (records.length > 100_000) throw new Error("Cursor transcript contains too many structured records");
   const found = new Set<string>();
-  const queue = roots.map((value) => ({ value, depth: 0 }));
-  let visited = 0;
-  for (let cursor = 0; cursor < queue.length; cursor += 1) {
-    const { value, depth } = queue[cursor];
-    visited += 1;
-    if (visited > 100_000) throw new Error("Cursor transcript contains too many structured values");
-    if (depth > 12 || !value || typeof value !== "object") continue;
-    if (Array.isArray(value)) {
-      for (const item of value) queue.push({ value: item, depth: depth + 1 });
-      continue;
-    }
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      if ((key === "conversationId" || key === "conversation_id") && typeof item === "string") found.add(safeSessionId(item));
-      else queue.push({ value: item, depth: depth + 1 });
-    }
+  for (const value of records) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const row = value as Record<string, unknown>;
+    if (row.type !== "system" || !Object.hasOwn(row, "conversationId")) continue;
+    found.add(safeSessionId(row.conversationId));
   }
   return found;
 }

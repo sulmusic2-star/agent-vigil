@@ -21,6 +21,9 @@ vigil run \
 `--time-limit` is mandatory. The `--` delimiter is mandatory. Agent Vigil calls
 the executable with the exact argument array and does not invoke a shell.
 Interactive stdin/stdout/stderr remain attached unless JSONL capture is used.
+The wall clock starts before command launch. Deadline and trajectory enforcement
+remain active while Agent Vigil asynchronously verifies the launched executable,
+so verification time cannot extend the declared limit.
 
 ## Codex JSONL trajectory boundary
 
