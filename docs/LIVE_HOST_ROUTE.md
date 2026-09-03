@@ -57,6 +57,56 @@ same profile before running the drill. Remove the disposable login after
 retaining the reduced result. Do not point this command at the ordinary user
 profile.
 
+## Bind both runs to the same managed environment
+
+A version 1 route receipt can show that one host routed the two canaries. It
+cannot show that the current and candidate versions used the same authenticated
+profile or the same organization policy. `guard-diff` therefore holds every
+v1-to-v1 comparison.
+
+For an upgrade decision, create one unique identity in the disposable profile:
+
+```bash
+vigil guard-environment init-profile \
+  --profile-home /exact/path/to/disposable-codex-profile
+```
+
+Create a private manifest naming the local files that define the policy being
+tested. Paths must be absolute. Include a resolved, sanitized policy snapshot
+when a vendor's server-managed settings cannot be exported directly.
+
+```json
+{
+  "schemaVersion": "agent-vigil-guard-policy-files/v1",
+  "files": [
+    {
+      "label": "organization-policy",
+      "path": "/exact/path/to/resolved-agent-policy.json"
+    }
+  ]
+}
+```
+
+Issue a short-lived statement with an organization-controlled Ed25519 key. The
+existing `vigil keygen` command can create a test key pair; production teams
+should pin a key distributed through their normal trusted configuration path.
+
+```bash
+vigil guard-environment issue \
+  --host codex \
+  --profile-home /exact/path/to/disposable-codex-profile \
+  --environment-id engineering-production \
+  --policy-manifest /exact/path/to/policy-files.json \
+  --signing-key /exact/path/to/environment-private.pem \
+  --valid-until 2026-09-02T20:00:00.000Z \
+  --output /private/path/codex-environment.json
+```
+
+The statement lasts no more than seven days. It signs the unique profile
+identity and exact policy-file hashes. It does not copy authentication data or
+policy contents. The statement itself contains local paths, so keep it private
+when those paths are sensitive.
+
 ## Run one host
 
 ```bash
@@ -65,6 +115,8 @@ vigil guard-route \
   --host-version 0.149.1 \
   --host-executable /exact/path/to/codex \
   --profile-home /exact/path/to/disposable-codex-profile \
+  --environment-statement /private/path/codex-environment.json \
+  --environment-public-key /trusted/path/environment-public.pem \
   --output codex-live-route.json
 ```
 
@@ -98,7 +150,56 @@ A host passes only when all of these are true:
 
 A host that fails before any routed call is `INCONCLUSIVE`. A malformed event,
 extra tool call, repeated identifier, deny bypass, timeout, or mismatched
-evidence cannot pass.
+evidence cannot pass. In v2, an expired statement, unpinned signer, different
+profile identity, changed policy byte, or policy mutation during the drill is
+also rejected.
+
+Run the current and candidate exact versions with the same signed environment,
+then transfer both reduced receipts to a separate notary environment. The
+route-notary private key must never be present on the host under test. Seal the
+complete validated receipts there:
+
+```bash
+vigil guard-route-seal \
+  --receipt current-route.json \
+  --signing-key /notary/private/route-private.pem \
+  --output current-route.dsse.json
+
+vigil guard-route-seal \
+  --receipt candidate-route.json \
+  --signing-key /notary/private/route-private.pem \
+  --output candidate-route.dsse.json
+```
+
+The seal uses a DSSE v1 pre-authentication encoding and Ed25519. It authenticates
+the entire normalized receipt, including the observed decisions, execution
+effects, host version, executable hash, operating system, managed environment,
+and receipt time. The notary key must be different from the environment key.
+It authenticates what the notary signed, not whether a compromised test host
+reported truthful observations. A production notary must independently issue
+the challenge and observe its effects rather than blindly signing uploaded
+JSON.
+
+Compare the sealed receipts:
+
+```bash
+vigil guard-diff \
+  --current current-route.dsse.json \
+  --candidate candidate-route.dsse.json \
+  --environment-public-key ./guard-environment-public.pem \
+  --route-public-key ./route-notary-public.pem \
+  --output upgrade-decision.json
+```
+
+`APPROVE` means only that the candidate preserved the two observed route
+outcomes under the same local environment, both compact environment bindings
+verify against the pinned environment key, both complete receipts verify
+against a different pinned route-notary key, and neither route receipt is more
+than 24 hours old. Every missing, forged, stale, or changed binding returns
+`HOLD`. `guard-diff` alone remains a tamper-evident comparison rather than
+sufficient production admission evidence. Use the fresh off-host observer and
+the signed package gate in [Agent control admission](AGENT_CONTROL_ADMISSION.md)
+when evaluating the new admission protocol.
 
 ## HOLD and the next gate
 
@@ -136,5 +237,6 @@ Official behavior checked on August 25, 2026:
 
 A PASS does not prove that the host package is authentic, that a production
 control is correct, that every host tool is covered, that deployment is safe,
-or that anyone installed or paid for Agent Vigil. It is one bounded technical
-proof needed before the next build ticket.
+or that remote service state outside the signed files was unchanged. It also
+does not prove that anyone installed or paid for Agent Vigil. It is one bounded
+technical proof needed before the next build ticket.

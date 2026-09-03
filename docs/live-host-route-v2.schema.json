@@ -1,0 +1,487 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/live-host-route-v2.schema.json",
+  "title": "Agent Vigil live-host route receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "vigilVersion",
+    "generatedAt",
+    "nonce",
+    "scope",
+    "status",
+    "deployment",
+    "nextGate",
+    "challengePack",
+    "host",
+    "control",
+    "processConformance",
+    "bindings",
+    "challenges",
+    "summary",
+    "cleanup",
+    "reproduction",
+    "limitations",
+    "receiptHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "agent-vigil-live-host-route/v2"
+    },
+    "vigilVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]{16,128}$"
+    },
+    "scope": {
+      "const": "LIVE_HOST_ROUTING"
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "INCONCLUSIVE"
+      ]
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "reasonCodes"
+      ],
+      "properties": {
+        "state": {
+          "const": "HOLD"
+        },
+        "reasonCodes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "nextGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "requirement"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "ONE_HOST_PROVEN",
+            "BLOCKED"
+          ]
+        },
+        "requirement": {
+          "const": "BOTH_CURRENT_HOSTS_MUST_PASS"
+        }
+      }
+    },
+    "challengePack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sha256"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "agent-vigil-harmless-live-host-route/v1",
+            "agent-vigil-external-network-route/v1"
+          ]
+        },
+        "sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "version",
+        "executableSha256",
+        "invocationSha256",
+        "process"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "executableSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "invocationSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "process": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "process",
+            "exit",
+            "output"
+          ],
+          "properties": {
+            "process": {
+              "enum": [
+                "EXITED",
+                "TIMED_OUT",
+                "SPAWN_ERROR",
+                "SIGNALED",
+                "OUTPUT_LIMIT"
+              ]
+            },
+            "exit": {
+              "enum": [
+                "ZERO",
+                "NONZERO",
+                "NONE"
+              ]
+            },
+            "output": {
+              "enum": [
+                "EMPTY",
+                "TEXT",
+                "JSON",
+                "INVALID_JSON",
+                "UNREADABLE"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "launcherSha256",
+        "artifactSha256",
+        "policySha256",
+        "configurationSha256"
+      ],
+      "properties": {
+        "name": {
+          "const": "Agent Vigil temporary route control"
+        },
+        "version": {
+          "const": "1"
+        },
+        "launcherSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "artifactSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "policySha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "configurationSha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "processConformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "receiptHash"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE"
+          ]
+        },
+        "receiptHash": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileMarkerSha256",
+        "operatingSystem",
+        "managedEnvironment"
+      ],
+      "properties": {
+        "profileMarkerSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "operatingSystem": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "platform",
+            "type",
+            "release",
+            "architecture",
+            "machineIdentitySha256"
+          ],
+          "properties": {
+            "platform": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "release": {
+              "type": "string",
+              "minLength": 1
+            },
+            "architecture": {
+              "type": "string",
+              "minLength": 1
+            },
+            "machineIdentitySha256": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "managedEnvironment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "statementHash",
+            "signerKeyId",
+            "environmentIdSha256",
+            "host",
+            "profileIdentitySha256",
+            "policySetSha256",
+            "validFrom",
+            "validUntil",
+            "bindingHash",
+            "signature"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "agent-vigil-guard-environment-binding/v1"
+            },
+            "statementHash": {
+              "$ref": "#/$defs/digest"
+            },
+            "signerKeyId": {
+              "$ref": "#/$defs/digest"
+            },
+            "environmentIdSha256": {
+              "$ref": "#/$defs/digest"
+            },
+            "host": {
+              "enum": [
+                "claude",
+                "codex"
+              ]
+            },
+            "profileIdentitySha256": {
+              "$ref": "#/$defs/digest"
+            },
+            "policySetSha256": {
+              "$ref": "#/$defs/digest"
+            },
+            "validFrom": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "validUntil": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "bindingHash": {
+              "$ref": "#/$defs/digest"
+            },
+            "signature": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "algorithm",
+                "value"
+              ],
+              "properties": {
+                "algorithm": {
+                  "const": "Ed25519"
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "challenges": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/challenge"
+        },
+        {
+          "$ref": "#/$defs/challenge"
+        }
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "total",
+        "routedCalls",
+        "unexpectedCalls"
+      ],
+      "properties": {
+        "passed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "total": {
+          "const": 2
+        },
+        "routedCalls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unexpectedCalls": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "temporaryConfigurationRemoved",
+        "ordinaryConfigurationUnchanged",
+        "disposableProfileRemoval"
+      ],
+      "properties": {
+        "temporaryConfigurationRemoved": {
+          "type": "boolean"
+        },
+        "ordinaryConfigurationUnchanged": {
+          "type": "boolean"
+        },
+        "disposableProfileRemoval": {
+          "const": "OPERATOR_REQUIRED"
+        }
+      }
+    },
+    "reproduction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "receiptHash": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "expectedDecision",
+        "actualDecision",
+        "expectedExecution",
+        "observedExecution",
+        "commandSha256",
+        "passed"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "allow-route",
+            "deny-route"
+          ]
+        },
+        "expectedDecision": {
+          "enum": [
+            "ALLOW",
+            "DENY"
+          ]
+        },
+        "actualDecision": {
+          "enum": [
+            "ALLOW",
+            "DENY",
+            "DEFER",
+            "ERROR",
+            "UNKNOWN"
+          ]
+        },
+        "expectedExecution": {
+          "type": "boolean"
+        },
+        "observedExecution": {
+          "type": "boolean"
+        },
+        "commandSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "toolUseIdSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "sessionIdSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

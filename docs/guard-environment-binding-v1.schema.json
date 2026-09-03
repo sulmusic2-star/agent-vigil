@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/guard-environment-binding-v1.schema.json",
+  "title": "Agent Vigil signed guard environment receipt binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "statementHash", "signerKeyId", "environmentIdSha256",
+    "host", "profileIdentitySha256", "policySetSha256", "validFrom",
+    "validUntil", "bindingHash", "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-guard-environment-binding/v1" },
+    "statementHash": { "$ref": "#/$defs/digest" },
+    "signerKeyId": { "$ref": "#/$defs/digest" },
+    "environmentIdSha256": { "$ref": "#/$defs/digest" },
+    "host": { "enum": ["claude", "codex"] },
+    "profileIdentitySha256": { "$ref": "#/$defs/digest" },
+    "policySetSha256": { "$ref": "#/$defs/digest" },
+    "validFrom": { "type": "string", "format": "date-time" },
+    "validUntil": { "type": "string", "format": "date-time" },
+    "bindingHash": { "$ref": "#/$defs/digest" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "value": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}
