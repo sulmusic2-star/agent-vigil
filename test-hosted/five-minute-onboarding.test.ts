@@ -34,6 +34,8 @@ test("a clean repository gets one truthful prepared result without selecting a r
   assert.match(result.stdout, /PASS\s+real regression test failed on old code and passed on proposed code/);
   assert.match(result.stdout, /FAIL\s+planted weak test passed on both versions; merge proof blocked/);
   assert.match(result.stdout, new RegExp(`Pinned\\s+${REVIEWED_PUBLIC_ACTION_SHA} \\(reviewed public release\\)`));
+  assert.match(result.stdout, /Next: commit the generated files and open one setup pull request\./);
+  assert.match(result.stdout, /PASS, FAIL, or NOT CHECKED/);
   assert.doesNotMatch(result.stdout, /Agent Vigil doctor|13 failure/);
 
   const workflow = readFileSync(join(repository, ".github/workflows/agent-vigil.yml"), "utf8");
