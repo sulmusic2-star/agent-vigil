@@ -248,6 +248,10 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
+function monotonicNowMs(): number {
+  return Number(process.hrtime.bigint() / 1_000_000n);
+}
+
 function settleWithin(promise: Promise<unknown>, milliseconds: number): Promise<void> {
   return new Promise((resolveWait) => {
     const timer = setTimeout(resolveWait, milliseconds);
@@ -259,8 +263,10 @@ function settleWithin(promise: Promise<unknown>, milliseconds: number): Promise<
 }
 
 async function waitForGroupExit(pid: number, milliseconds: number): Promise<boolean> {
-  const deadline = Date.now() + milliseconds;
-  while (processGroupExists(pid) && Date.now() < deadline) await delay(Math.min(25, Math.max(1, deadline - Date.now())));
+  const deadline = monotonicNowMs() + milliseconds;
+  while (processGroupExists(pid) && monotonicNowMs() < deadline) {
+    await delay(Math.min(25, Math.max(1, deadline - monotonicNowMs())));
+  }
   return !processGroupExists(pid);
 }
 
@@ -330,6 +336,7 @@ function buildReceipt(input: {
   state: ProtectedRunReceipt["state"];
   startedAtMs: number;
   finishedAtMs: number;
+  elapsedMs: number;
   child?: ChildProcess;
   exit: ExitObservation;
   stop?: StopRequest;
@@ -346,7 +353,7 @@ function buildReceipt(input: {
     state: input.state,
     startedAt: new Date(input.startedAtMs).toISOString(),
     finishedAt: new Date(input.finishedAtMs).toISOString(),
-    elapsedMs: Math.max(0, input.finishedAtMs - input.startedAtMs),
+    elapsedMs: Math.max(0, input.elapsedMs),
     command: {
       executableBasename: input.executable.basename,
       executableSha256: input.executable.sha256,
@@ -389,13 +396,14 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
   validateProtectedRunInput(input);
   const executablePath = resolveExecutable(input.executable, input.cwd, input.environment);
   const executable = hashExecutable(executablePath);
-  const startedAtMs = Date.now();
+  let startedAtMs = Date.now();
+  let startedAtMonotonicMs = monotonicNowMs();
   let sink: PrivateFileSink | undefined;
   let child: ChildProcess | undefined;
   let timeout: NodeJS.Timeout | undefined;
   let interval: NodeJS.Timeout | undefined;
   let exit: ExitObservation = { code: null, signal: null };
-  let exitObservedAtMs: number | undefined;
+  let exitObservedAtMonotonicMs: number | undefined;
   let stopRequest: StopRequest | undefined;
   let termSent = false;
   let killSent = false;
@@ -403,6 +411,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
   let stable = true;
   let telemetry: RunTelemetryMonitor | undefined;
   let latestTelemetry: RunTelemetryObservation | undefined;
+  let telemetryPollInFlight: Promise<void> | undefined;
   let stdoutDonePromise: Promise<void> = Promise.resolve();
   let verificationAbortController: AbortController | undefined;
   let stopHandledPromise: Promise<StopRequest> | undefined;
@@ -428,9 +437,14 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
         transport: input.transcript.transport,
         limits: input.trajectoryLimits,
         telemetryGraceMs: input.telemetryGraceMs,
-        startedAtMs,
+        startedAtMs: startedAtMonotonicMs,
       });
+      await telemetry.ready();
     }
+
+    startedAtMs = Date.now();
+    startedAtMonotonicMs = monotonicNowMs();
+    telemetry?.start(startedAtMonotonicMs);
 
     child = spawn(executable.path, input.args, {
       cwd: input.cwd,
@@ -442,7 +456,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
         : "inherit",
     });
     const enforceDeadline = (): void => {
-      const elapsed = Date.now() - startedAtMs;
+      const elapsed = monotonicNowMs() - startedAtMonotonicMs;
       const remaining = input.timeLimitMs - elapsed;
       if (remaining > 0) {
         timeout = setTimeout(enforceDeadline, remaining);
@@ -451,20 +465,26 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       requestStop({ code: "TIME_LIMIT", observed: elapsed, limit: input.timeLimitMs });
     };
     enforceDeadline();
-    interval = setInterval(() => {
-      if (!telemetry) return;
-      try {
-        const result = telemetry.poll();
+    const pollTelemetry = (): void => {
+      if (!telemetry || telemetryPollInFlight) return;
+      const polling = telemetry.poll(monotonicNowMs()).then((result) => {
         latestTelemetry = result.observation;
         if (result.breach) requestStop(stopFromBreach(result.breach));
-      } catch (error) {
+      }).catch((error: unknown) => {
         requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha256(error instanceof Error ? error.message : String(error)) });
-      }
+      });
+      telemetryPollInFlight = polling;
+      void polling.finally(() => {
+        if (telemetryPollInFlight === polling) telemetryPollInFlight = undefined;
+      });
+    };
+    interval = setInterval(() => {
+      pollTelemetry();
     }, POLL_INTERVAL_MS);
     const exitPromise = new Promise<ExitObservation>((resolveExit) => {
       child!.once("exit", (code, signal) => {
         exit = { code, signal };
-        exitObservedAtMs = Date.now();
+        exitObservedAtMonotonicMs = monotonicNowMs();
         resolveExit(exit);
       });
     });
@@ -555,7 +575,8 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       child.stdout.destroy();
     }
     if (telemetry) {
-      const finalTelemetry = telemetry.poll(exitObservedAtMs ?? Date.now(), true);
+      if (telemetryPollInFlight) await telemetryPollInFlight;
+      const finalTelemetry = await telemetry.poll(exitObservedAtMonotonicMs ?? monotonicNowMs(), true, true);
       latestTelemetry = finalTelemetry.observation;
       if (finalTelemetry.breach) requestStop(stopFromBreach(finalTelemetry.breach));
     }
@@ -565,6 +586,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       sink = undefined;
     }
     const finishedAtMs = Date.now();
+    const elapsedMs = monotonicNowMs() - startedAtMonotonicMs;
     const state: ProtectedRunReceipt["state"] = stopRequest
       ? (stopRequest.code === "SUPERVISOR_ERROR" || stopRequest.code === "EXECUTABLE_CHANGED" ? "ERROR" : "STOPPED")
       : "EXITED";
@@ -575,6 +597,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       state,
       startedAtMs,
       finishedAtMs,
+      elapsedMs,
       child,
       exit,
       ...(stopRequest ? { stop: stopRequest } : {}),
@@ -601,6 +624,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       } catch { processGroupTerminationConfirmed = false; }
     } else processGroupTerminationConfirmed = true;
     const finishedAtMs = Date.now();
+    const elapsedMs = monotonicNowMs() - startedAtMonotonicMs;
     const receipt = buildReceipt({
       run: input,
       executable,
@@ -608,6 +632,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       state: "ERROR",
       startedAtMs,
       finishedAtMs,
+      elapsedMs,
       child,
       exit,
       stop: { code: "SUPERVISOR_ERROR", detailSha256 },
@@ -623,5 +648,6 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     if (interval) clearInterval(interval);
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);
     try { sink?.close(); } catch { /* A receipt still reports the supervisor failure path. */ }
+    try { await telemetry?.close(); } catch { /* The receipt already captures worker failures. */ }
   }
 }

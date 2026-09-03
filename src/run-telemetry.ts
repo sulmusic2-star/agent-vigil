@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync } from "node:fs";
 import { resolve } from "node:path";
+import { Worker } from "node:worker_threads";
 import { analyzeTrajectory, classifyTranscriptActions, type ActionClass, type TrajectoryMetrics } from "./authority.ts";
 import { readRegularFileSnapshot } from "./safe-fs.ts";
 import { MAX_TRANSCRIPT_BYTES, parseTranscript, type LoadedTranscript, type TranscriptFormat } from "./transcript.ts";
@@ -58,6 +59,29 @@ type ParsedLive = {
   partial: boolean;
 };
 
+export type RunTelemetryPollResult = {
+  observation: RunTelemetryObservation;
+  breach?: TelemetryBreach;
+};
+
+export type RunTelemetryWorkerInput = {
+  path: string;
+  transport: TelemetryTransport;
+  limits: RunTrajectoryLimits;
+  telemetryGraceMs: number;
+  startedAtMs: number;
+};
+
+export type RunTelemetryWorkerRequest =
+  | { kind: "append"; bytes: Uint8Array }
+  | { kind: "start"; startedAtMs: number }
+  | { kind: "poll"; id: number; nowMs: number; enforce: boolean; terminal: boolean };
+
+export type RunTelemetryWorkerResponse =
+  | { kind: "ready" }
+  | { kind: "result"; id: number; result: RunTelemetryPollResult }
+  | { kind: "error"; id?: number; message: string };
+
 const PROGRESS_CLASSES = new Set<ActionClass>(["repository_write", "test_execute", "build_execute", "git_commit"]);
 const EMPTY_METRICS: TrajectoryMetrics = {
   toolCalls: 0,
@@ -87,7 +111,7 @@ function breached(observed: number, limit: number | undefined): boolean {
   return limit !== undefined && observed > limit;
 }
 
-export class RunTelemetryMonitor {
+export class RunTelemetryCore {
   readonly path: string;
   readonly transport: TelemetryTransport;
   readonly limits: RunTrajectoryLimits;
@@ -148,7 +172,14 @@ export class RunTelemetryMonitor {
     return undefined;
   }
 
-  poll(nowMs = Date.now(), enforce = true): { observation: RunTelemetryObservation; breach?: TelemetryBreach } {
+  start(startedAtMs: number): void {
+    this.startedAtMs = startedAtMs;
+    this.lastProgressAtMs = startedAtMs;
+    if (this.partialSinceMs !== undefined) this.partialSinceMs = startedAtMs;
+    if (this.parseErrorSinceMs !== undefined) this.parseErrorSinceMs = startedAtMs;
+  }
+
+  poll(nowMs: number, enforce = true, terminal = false): RunTelemetryPollResult {
     if (this.integrityBreach) return { observation: this.observation(nowMs), breach: this.integrityBreach };
     let raw: Buffer | undefined;
     let sourceIsEmpty = false;
@@ -211,7 +242,7 @@ export class RunTelemetryMonitor {
     if (raw?.length) this.updateParsed(raw, nowMs);
     else if (sourceIsEmpty) this.parserStatus = "WAITING";
 
-    const breach = enforce ? this.limitBreach(nowMs) : undefined;
+    const breach = enforce ? this.limitBreach(nowMs, terminal) : undefined;
     return { observation: this.observation(nowMs), ...(breach ? { breach } : {}) };
   }
 
@@ -281,21 +312,21 @@ export class RunTelemetryMonitor {
     }
   }
 
-  private limitBreach(nowMs: number): TelemetryBreach | undefined {
+  private limitBreach(nowMs: number, terminal: boolean): TelemetryBreach | undefined {
     if (this.integrityBreach) return this.integrityBreach;
     if (this.parserStatus === "WAITING" && Object.values(this.limits).some((value) => value !== undefined)
-      && nowMs - this.startedAtMs >= this.telemetryGraceMs) {
+      && (terminal || nowMs - this.startedAtMs >= this.telemetryGraceMs)) {
       return { code: "TELEMETRY_MISSING", observed: nowMs - this.startedAtMs, limit: this.telemetryGraceMs };
     }
-    if (this.parseErrorSinceMs !== undefined && nowMs - this.parseErrorSinceMs >= this.telemetryGraceMs) {
+    if (this.parseErrorSinceMs !== undefined && (terminal || nowMs - this.parseErrorSinceMs >= this.telemetryGraceMs)) {
       return { code: "TELEMETRY_UNREADABLE", observed: nowMs - this.parseErrorSinceMs, limit: this.telemetryGraceMs };
     }
-    if (this.partialSinceMs !== undefined && nowMs - this.partialSinceMs >= this.telemetryGraceMs) {
+    if (this.partialSinceMs !== undefined && (terminal || nowMs - this.partialSinceMs >= this.telemetryGraceMs)) {
       return { code: "TELEMETRY_UNREADABLE", observed: nowMs - this.partialSinceMs, limit: this.telemetryGraceMs };
     }
     if (this.limits.maxObservedTokens !== undefined && this.observedTokens === undefined
       && (this.parserStatus === "READY" || this.parserStatus === "PARTIAL")
-      && nowMs - this.startedAtMs >= this.telemetryGraceMs) {
+      && (terminal || nowMs - this.startedAtMs >= this.telemetryGraceMs)) {
       return { code: "TOKEN_USAGE_UNAVAILABLE", observed: 0, limit: this.limits.maxObservedTokens };
     }
     if (breached(this.metrics.toolCalls, this.limits.maxToolCalls)) {
@@ -339,5 +370,121 @@ export class RunTelemetryMonitor {
       lastProgressElapsedMs: Math.max(0, nowMs - this.lastProgressAtMs),
       ...(this.parseErrorSha256 ? { parseErrorSha256: this.parseErrorSha256 } : {}),
     };
+  }
+}
+
+type PendingPoll = {
+  resolve: (result: RunTelemetryPollResult) => void;
+  reject: (error: Error) => void;
+};
+
+export class RunTelemetryMonitor {
+  readonly path: string;
+  readonly transport: TelemetryTransport;
+  readonly limits: RunTrajectoryLimits;
+  readonly telemetryGraceMs: number;
+
+  private readonly worker: Worker;
+  private readonly readyPromise: Promise<void>;
+  private readonly pending = new Map<number, PendingPoll>();
+  private readyResolve!: () => void;
+  private readyReject!: (error: Error) => void;
+  private nextRequestId = 1;
+  private capturedLength = 0;
+  private failed: Error | undefined;
+  private closed = false;
+
+  constructor(input: RunTelemetryWorkerInput) {
+    this.path = resolve(input.path);
+    this.transport = input.transport;
+    this.limits = input.limits;
+    this.telemetryGraceMs = input.telemetryGraceMs;
+    this.readyPromise = new Promise<void>((resolveReady, rejectReady) => {
+      this.readyResolve = resolveReady;
+      this.readyReject = rejectReady;
+    });
+    const workerName = new URL(import.meta.url).pathname.endsWith(".ts")
+      ? "./run-telemetry-worker.ts"
+      : "./run-telemetry-worker.js";
+    this.worker = new Worker(new URL(workerName, import.meta.url), { workerData: input });
+    this.worker.on("message", (message: RunTelemetryWorkerResponse) => this.handleMessage(message));
+    this.worker.on("error", (error) => this.fail(error));
+    this.worker.on("exit", (code) => {
+      if (!this.closed) this.fail(new Error(`telemetry worker exited unexpectedly with code ${code}`));
+    });
+  }
+
+  async ready(): Promise<void> {
+    await this.readyPromise;
+  }
+
+  start(startedAtMs: number): void {
+    if (this.failed) throw this.failed;
+    if (this.closed) throw new Error("telemetry worker is closed");
+    this.worker.postMessage({ kind: "start", startedAtMs } satisfies RunTelemetryWorkerRequest);
+  }
+
+  appendCaptured(bytes: Buffer): TelemetryBreach | undefined {
+    if (this.transport !== "supervisor-captured-stdout") throw new Error("captured bytes require supervisor-captured stdout");
+    if (this.failed) throw this.failed;
+    if (this.closed) throw new Error("telemetry worker is closed");
+    const copy = Uint8Array.from(bytes);
+    this.worker.postMessage({ kind: "append", bytes: copy } satisfies RunTelemetryWorkerRequest, [copy.buffer]);
+    this.capturedLength += bytes.length;
+    return this.capturedLength > MAX_TRANSCRIPT_BYTES
+      ? { code: "TRANSCRIPT_SIZE", observed: this.capturedLength, limit: MAX_TRANSCRIPT_BYTES }
+      : undefined;
+  }
+
+  async poll(nowMs: number, enforce = true, terminal = false): Promise<RunTelemetryPollResult> {
+    await this.readyPromise;
+    if (this.failed) throw this.failed;
+    if (this.closed) throw new Error("telemetry worker is closed");
+    const id = this.nextRequestId++;
+    return await new Promise<RunTelemetryPollResult>((resolvePoll, rejectPoll) => {
+      this.pending.set(id, { resolve: resolvePoll, reject: rejectPoll });
+      this.worker.postMessage({ kind: "poll", id, nowMs, enforce, terminal } satisfies RunTelemetryWorkerRequest);
+    });
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    const error = new Error("telemetry worker closed before completing its request");
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+    await this.worker.terminate();
+  }
+
+  private handleMessage(message: RunTelemetryWorkerResponse): void {
+    if (message.kind === "ready") {
+      this.readyResolve();
+      return;
+    }
+    if (message.kind === "error") {
+      const error = new Error(message.message);
+      if (message.id !== undefined) {
+        const pending = this.pending.get(message.id);
+        if (pending) {
+          this.pending.delete(message.id);
+          pending.reject(error);
+          return;
+        }
+      }
+      this.fail(error);
+      return;
+    }
+    const pending = this.pending.get(message.id);
+    if (!pending) return;
+    this.pending.delete(message.id);
+    pending.resolve(message.result);
+  }
+
+  private fail(error: Error): void {
+    if (this.failed) return;
+    this.failed = error;
+    this.readyReject(error);
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
   }
 }

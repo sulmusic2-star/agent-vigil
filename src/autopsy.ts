@@ -86,7 +86,7 @@ const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const MAX_BUDGET_USD = 1_000_000;
 const MAX_MODEL_IDS = 32;
-const MAX_MODEL_ID_BYTES = 200;
+const MAX_MODEL_ID_CHARACTERS = 200;
 
 function hash(value: string): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -140,7 +140,7 @@ function normalizedUsage(usage: SessionUsage | undefined): SessionUsage | undefi
   }
   if (usage.modelIds.length > MAX_MODEL_IDS) throw new Error(`transcript exposes more than ${MAX_MODEL_IDS} model identifiers`);
   const modelIds = [...new Set(usage.modelIds)].sort();
-  if (modelIds.some((value) => !value || Buffer.byteLength(value) > MAX_MODEL_ID_BYTES || /[\u0000-\u001f\u007f]/.test(value))) {
+  if (modelIds.some((value) => !value || [...value].length > MAX_MODEL_ID_CHARACTERS || /[\u0000-\u001f\u007f]/.test(value))) {
     throw new Error("transcript model identifiers must be bounded printable strings");
   }
   return { ...usage, modelIds };

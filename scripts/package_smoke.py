@@ -311,6 +311,24 @@ def main() -> int:
             raise RuntimeError("packed protected run did not confirm the ordinary process-group boundary")
         if "private package-smoke argument" in protected_output.read_text() or protected_output.stat().st_mode & 0o777 != 0o600:
             raise RuntimeError("packed protected run disclosed argv or wrote a non-private receipt")
+        telemetry_output = lab / "packed-protected-telemetry.json"
+        telemetry_capture = lab / "packed-protected-telemetry.jsonl"
+        telemetry_rows = "\n".join([
+            json.dumps({"type": "session_meta", "payload": {"id": "run"}}),
+            json.dumps({"type": "response_item", "payload": {
+                "type": "function_call", "call_id": "one", "name": "exec_command", "arguments": "{}"
+            }}),
+        ]) + "\n"
+        telemetry_check = run([
+            str(vigil), "run", "--time-limit", "2s", "--max-tool-calls", "0",
+            "--capture-jsonl", str(telemetry_capture), "--output", str(telemetry_output),
+            "--", node, "-e", f"process.stdout.write({json.dumps(telemetry_rows)})",
+        ], consumer, check=False)
+        telemetry_record = json.loads(telemetry_output.read_text())
+        if telemetry_check.returncode != 124 or telemetry_record.get("stop", {}).get("code") != "TOOL_CALL_LIMIT":
+            raise RuntimeError(f"packed protected run did not execute its telemetry worker: {telemetry_check.stdout}\n{telemetry_check.stderr}")
+        if telemetry_record.get("telemetry", {}).get("toolCalls") != 1 or not telemetry_capture.exists():
+            raise RuntimeError("packed protected run telemetry worker omitted its bounded observation or capture")
         stopped_output = lab / "packed-protected-stop.json"
         stopped_check = run([
             str(vigil), "run", "--time-limit", "250ms", "--termination-grace", "100ms",
@@ -462,6 +480,7 @@ def main() -> int:
             "autopsyMissingEvidenceExit": autopsy_check.returncode,
             "protectedRunHelpExit": protected_help.returncode,
             "protectedRunExit": protected_check.returncode,
+            "protectedRunTelemetryExit": telemetry_check.returncode,
             "protectedRunStopExit": stopped_check.returncode,
             "guardCompatibilityExit": guard_check.returncode,
             "guardDeploymentState": guard_receipt["deployment"]["state"],

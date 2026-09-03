@@ -145,7 +145,7 @@
     "modelIds": {
       "type": "array",
       "maxItems": 32,
-      "items": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[ -~]+$" },
+      "items": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
       "uniqueItems": true
     },
     "nonNegativeNumber": { "type": "number", "minimum": 0, "maximum": 1000000 }

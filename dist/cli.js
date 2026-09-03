@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { createHash as createHash33 } from "node:crypto";
-import { existsSync as existsSync16, readFileSync as readFileSync16, realpathSync as realpathSync22, statSync as statSync7 } from "node:fs";
+import { createHash as createHash32 } from "node:crypto";
+import { existsSync as existsSync15, readFileSync as readFileSync16, realpathSync as realpathSync22, statSync as statSync7 } from "node:fs";
 import { dirname as dirname12, isAbsolute as isAbsolute16, join as join22, relative as relative16, resolve as resolve37 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19157,7 +19157,7 @@ async function runPublicPrReceiptCommand(args, options = {}) {
 // src/build-info.ts
 var REVIEWED_PUBLIC_ACTION_SHA = "33ae20140ffb2e25a034f291225849765ff8d217";
 function defaultActionPin() {
-  const embedded = typeof __AGENT_VIGIL_BUILD_SHA__ === "string" ? __AGENT_VIGIL_BUILD_SHA__ : "";
+  const embedded = true ? "" : "";
   if (/^[0-9a-f]{40}$/.test(embedded)) return { sha: embedded, source: "package-build" };
   return { sha: REVIEWED_PUBLIC_ACTION_SHA, source: "reviewed-public-release" };
 }
@@ -19680,7 +19680,7 @@ var SHA2568 = /^sha256:[0-9a-f]{64}$/;
 var GIT_OBJECT_ID2 = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 var MAX_BUDGET_USD = 1e6;
 var MAX_MODEL_IDS = 32;
-var MAX_MODEL_ID_BYTES = 200;
+var MAX_MODEL_ID_CHARACTERS = 200;
 function hash4(value) {
   return `sha256:${createHash29("sha256").update(value).digest("hex")}`;
 }
@@ -19725,7 +19725,7 @@ function normalizedUsage(usage5) {
   }
   if (usage5.modelIds.length > MAX_MODEL_IDS) throw new Error(`transcript exposes more than ${MAX_MODEL_IDS} model identifiers`);
   const modelIds = [...new Set(usage5.modelIds)].sort();
-  if (modelIds.some((value) => !value || Buffer.byteLength(value) > MAX_MODEL_ID_BYTES || /[\u0000-\u001f\u007f]/.test(value))) {
+  if (modelIds.some((value) => !value || [...value].length > MAX_MODEL_ID_CHARACTERS || /[\u0000-\u001f\u007f]/.test(value))) {
     throw new Error("transcript model identifiers must be bounded printable strings");
   }
   return { ...usage5, modelIds };
@@ -20358,11 +20358,11 @@ ${autopsyUsage()}`);
 }
 
 // src/run-cli.ts
-import { existsSync as existsSync15, realpathSync as realpathSync21, statSync as statSync6 } from "node:fs";
+import { existsSync as existsSync14, realpathSync as realpathSync21, statSync as statSync6 } from "node:fs";
 import { resolve as resolve36 } from "node:path";
 
 // src/run-supervisor.ts
-import { createHash as createHash32 } from "node:crypto";
+import { createHash as createHash31 } from "node:crypto";
 import {
   accessSync as accessSync2,
   closeSync as closeSync11,
@@ -20378,261 +20378,103 @@ import { basename as basename8, delimiter, isAbsolute as isAbsolute15, join as j
 import { spawn } from "node:child_process";
 
 // src/run-telemetry.ts
-import { createHash as createHash31 } from "node:crypto";
-import { existsSync as existsSync14, lstatSync as lstatSync25 } from "node:fs";
 import { resolve as resolve34 } from "node:path";
-var PROGRESS_CLASSES = /* @__PURE__ */ new Set(["repository_write", "test_execute", "build_execute", "git_commit"]);
-var EMPTY_METRICS = {
-  toolCalls: 0,
-  failedToolCalls: 0,
-  maxIdenticalToolCalls: 0,
-  repeatedActionGroups: 0,
-  maxConsecutiveFailedToolCalls: 0,
-  progressBearingActions: 0
-};
-function sha2568(value) {
-  return `sha256:${createHash31("sha256").update(value).digest("hex")}`;
-}
-function parseLive(raw, path) {
-  try {
-    return { transcript: parseTranscript(raw, path), partial: false };
-  } catch (error) {
-    if (!/\.(?:jsonl|ndjson)$/i.test(path) || raw.endsWith("\n")) throw error;
-    const boundary = raw.lastIndexOf("\n");
-    if (boundary < 0 || !raw.slice(0, boundary).trim()) throw error;
-    return { transcript: parseTranscript(raw.slice(0, boundary + 1), path), partial: true };
-  }
-}
-function breached(observed, limit) {
-  return limit !== void 0 && observed > limit;
-}
+import { Worker } from "node:worker_threads";
 var RunTelemetryMonitor = class {
   path;
   transport;
   limits;
   telemetryGraceMs;
-  startedAtMs;
-  lastProgressAtMs;
-  baselineToolCalls = 0;
-  baselineTokens = 0;
-  baselineSha256;
-  expectedDevice;
-  expectedInode;
-  expectedSize;
-  expectedMtimeNs;
-  expectedCtimeNs;
-  previousBytes;
-  capturedChunks = [];
+  worker;
+  readyPromise;
+  pending = /* @__PURE__ */ new Map();
+  readyResolve;
+  readyReject;
+  nextRequestId = 1;
   capturedLength = 0;
-  capturedSnapshot = Buffer.alloc(0);
-  capturedDirty = false;
-  format;
-  parseErrorSinceMs;
-  partialSinceMs;
-  parseErrorSha256;
-  parserStatus = "WAITING";
-  metrics = EMPTY_METRICS;
-  observedTokens;
-  completedProgress = /* @__PURE__ */ new Set();
-  latestSha256;
-  integrityBreach;
+  failed;
+  closed = false;
   constructor(input) {
     this.path = resolve34(input.path);
     this.transport = input.transport;
     this.limits = input.limits;
     this.telemetryGraceMs = input.telemetryGraceMs;
-    this.startedAtMs = input.startedAtMs;
-    this.lastProgressAtMs = input.startedAtMs;
-    if (this.transport === "external-file" && existsSync14(this.path)) this.establishExternalBaseline();
+    this.readyPromise = new Promise((resolveReady, rejectReady) => {
+      this.readyResolve = resolveReady;
+      this.readyReject = rejectReady;
+    });
+    const workerName = new URL(import.meta.url).pathname.endsWith(".ts") ? "./run-telemetry-worker.ts" : "./run-telemetry-worker.js";
+    this.worker = new Worker(new URL(workerName, import.meta.url), { workerData: input });
+    this.worker.on("message", (message) => this.handleMessage(message));
+    this.worker.on("error", (error) => this.fail(error));
+    this.worker.on("exit", (code) => {
+      if (!this.closed) this.fail(new Error(`telemetry worker exited unexpectedly with code ${code}`));
+    });
+  }
+  async ready() {
+    await this.readyPromise;
+  }
+  start(startedAtMs) {
+    if (this.failed) throw this.failed;
+    if (this.closed) throw new Error("telemetry worker is closed");
+    this.worker.postMessage({ kind: "start", startedAtMs });
   }
   appendCaptured(bytes) {
     if (this.transport !== "supervisor-captured-stdout") throw new Error("captured bytes require supervisor-captured stdout");
-    const total = this.capturedLength + bytes.length;
-    if (total > MAX_TRANSCRIPT_BYTES) {
-      this.integrityBreach = { code: "TRANSCRIPT_SIZE", observed: total, limit: MAX_TRANSCRIPT_BYTES };
-      return this.integrityBreach;
-    }
-    this.capturedChunks.push(Buffer.from(bytes));
-    this.capturedLength = total;
-    this.capturedDirty = true;
-    return void 0;
+    if (this.failed) throw this.failed;
+    if (this.closed) throw new Error("telemetry worker is closed");
+    const copy = Uint8Array.from(bytes);
+    this.worker.postMessage({ kind: "append", bytes: copy }, [copy.buffer]);
+    this.capturedLength += bytes.length;
+    return this.capturedLength > MAX_TRANSCRIPT_BYTES ? { code: "TRANSCRIPT_SIZE", observed: this.capturedLength, limit: MAX_TRANSCRIPT_BYTES } : void 0;
   }
-  poll(nowMs = Date.now(), enforce = true) {
-    if (this.integrityBreach) return { observation: this.observation(nowMs), breach: this.integrityBreach };
-    let raw;
-    let sourceIsEmpty = false;
-    if (this.transport === "supervisor-captured-stdout") {
-      if (this.capturedDirty) {
-        this.capturedSnapshot = Buffer.concat(this.capturedChunks, this.capturedLength);
-        this.capturedDirty = false;
-        raw = this.capturedSnapshot;
-      }
-      sourceIsEmpty = this.capturedLength === 0;
-    } else {
-      try {
-        if (existsSync14(this.path)) {
-          const linked2 = lstatSync25(this.path, { bigint: true });
-          if (linked2.isSymbolicLink() || !linked2.isFile()) {
-            this.integrityBreach = { code: "TELEMETRY_INTEGRITY", observed: 1, limit: 0 };
-          } else if (this.expectedDevice !== void 0 && (linked2.dev !== this.expectedDevice || linked2.ino !== this.expectedInode)) {
-            this.integrityBreach = { code: "TELEMETRY_INTEGRITY", observed: 1, limit: 0 };
-          } else if (linked2.size > BigInt(MAX_TRANSCRIPT_BYTES)) {
-            this.integrityBreach = { code: "TRANSCRIPT_SIZE", observed: Number(linked2.size), limit: MAX_TRANSCRIPT_BYTES };
-          } else {
-            const unchanged = this.expectedDevice !== void 0 && linked2.size === this.expectedSize && linked2.mtimeNs === this.expectedMtimeNs && linked2.ctimeNs === this.expectedCtimeNs;
-            if (!unchanged) {
-              const snapshot = readRegularFileSnapshot(this.path, MAX_TRANSCRIPT_BYTES, "live transcript");
-              if (this.expectedDevice !== void 0 && (snapshot.device !== this.expectedDevice || snapshot.inode !== this.expectedInode)) {
-                this.integrityBreach = { code: "TELEMETRY_INTEGRITY", observed: 1, limit: 0 };
-              }
-              if (!this.integrityBreach && this.previousBytes && (snapshot.bytes.length < this.previousBytes.length || !snapshot.bytes.subarray(0, this.previousBytes.length).equals(this.previousBytes))) {
-                this.integrityBreach = { code: "TELEMETRY_INTEGRITY", observed: 1, limit: 0 };
-              }
-              if (!this.integrityBreach) {
-                this.rememberSnapshot(snapshot);
-                raw = snapshot.bytes;
-              }
-            }
-          }
-          sourceIsEmpty = this.previousBytes?.length === 0;
-        } else if (this.expectedDevice !== void 0) {
-          this.integrityBreach = { code: "TELEMETRY_INTEGRITY", observed: 1, limit: 0 };
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (/changed while it was (?:opened|read)/.test(message)) {
-          this.parserStatus = "UNREADABLE";
-          this.parseErrorSinceMs ??= nowMs;
-          this.parseErrorSha256 = sha2568(message);
-        } else if (error.code !== "ENOENT" || this.expectedDevice !== void 0) {
-          this.integrityBreach = { code: "TELEMETRY_INTEGRITY", observed: 1, limit: 0 };
-          this.parseErrorSha256 = sha2568(message);
+  async poll(nowMs, enforce = true, terminal = false) {
+    await this.readyPromise;
+    if (this.failed) throw this.failed;
+    if (this.closed) throw new Error("telemetry worker is closed");
+    const id = this.nextRequestId++;
+    return await new Promise((resolvePoll, rejectPoll) => {
+      this.pending.set(id, { resolve: resolvePoll, reject: rejectPoll });
+      this.worker.postMessage({ kind: "poll", id, nowMs, enforce, terminal });
+    });
+  }
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    const error = new Error("telemetry worker closed before completing its request");
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+    await this.worker.terminate();
+  }
+  handleMessage(message) {
+    if (message.kind === "ready") {
+      this.readyResolve();
+      return;
+    }
+    if (message.kind === "error") {
+      const error = new Error(message.message);
+      if (message.id !== void 0) {
+        const pending2 = this.pending.get(message.id);
+        if (pending2) {
+          this.pending.delete(message.id);
+          pending2.reject(error);
+          return;
         }
       }
+      this.fail(error);
+      return;
     }
-    if (this.integrityBreach) return { observation: this.observation(nowMs), breach: this.integrityBreach };
-    if (raw?.length) this.updateParsed(raw, nowMs);
-    else if (sourceIsEmpty) this.parserStatus = "WAITING";
-    const breach = enforce ? this.limitBreach(nowMs) : void 0;
-    return { observation: this.observation(nowMs), ...breach ? { breach } : {} };
+    const pending = this.pending.get(message.id);
+    if (!pending) return;
+    this.pending.delete(message.id);
+    pending.resolve(message.result);
   }
-  establishExternalBaseline() {
-    const snapshot = readRegularFileSnapshot(this.path, MAX_TRANSCRIPT_BYTES, "live transcript");
-    this.rememberSnapshot(snapshot);
-    this.baselineSha256 = sha2568(snapshot.bytes);
-    if (!snapshot.bytes.length) return;
-    const parsed = parseLive(snapshot.bytes.toString("utf8"), this.path);
-    const actions = classifyTranscriptActions(parsed.transcript);
-    this.baselineToolCalls = actions.length;
-    this.baselineTokens = parsed.transcript.usage?.totalTokens ?? 0;
-    this.format = parsed.transcript.format;
-    this.parserStatus = parsed.partial ? "PARTIAL" : "READY";
-    if (parsed.partial) this.partialSinceMs = this.startedAtMs;
-  }
-  rememberSnapshot(snapshot) {
-    this.expectedDevice = snapshot.device;
-    this.expectedInode = snapshot.inode;
-    this.expectedSize = snapshot.size;
-    this.expectedMtimeNs = snapshot.mtimeNs;
-    this.expectedCtimeNs = snapshot.ctimeNs;
-    this.previousBytes = Buffer.from(snapshot.bytes);
-  }
-  updateParsed(raw, nowMs) {
-    const digest12 = sha2568(raw);
-    if (digest12 === this.latestSha256) return;
-    this.latestSha256 = digest12;
-    try {
-      const parsed = parseLive(raw.toString("utf8"), this.path);
-      if (this.format && parsed.transcript.format !== this.format) {
-        this.integrityBreach = { code: "TELEMETRY_INTEGRITY", observed: 1, limit: 0 };
-        return;
-      }
-      this.format = parsed.transcript.format;
-      this.parserStatus = parsed.partial ? "PARTIAL" : "READY";
-      if (parsed.partial) this.partialSinceMs ??= nowMs;
-      else this.partialSinceMs = void 0;
-      this.parseErrorSinceMs = void 0;
-      this.parseErrorSha256 = void 0;
-      const actions = classifyTranscriptActions(parsed.transcript);
-      if (actions.length < this.baselineToolCalls) {
-        this.integrityBreach = { code: "TELEMETRY_INTEGRITY", observed: 1, limit: 0 };
-        return;
-      }
-      const runActions = actions.slice(this.baselineToolCalls);
-      this.metrics = analyzeTrajectory(runActions);
-      const totalTokens = parsed.transcript.usage?.totalTokens;
-      if (totalTokens !== void 0 && totalTokens < this.baselineTokens) {
-        this.integrityBreach = { code: "TELEMETRY_INTEGRITY", observed: totalTokens, limit: this.baselineTokens };
-        return;
-      }
-      this.observedTokens = totalTokens === void 0 ? void 0 : totalTokens - this.baselineTokens;
-      for (const action of runActions) {
-        if (!action.completed || action.failed || !action.classes.some((item2) => PROGRESS_CLASSES.has(item2))) continue;
-        const key = `${action.sequence}\0${action.toolCallId}\0${action.identitySha256}`;
-        if (this.completedProgress.has(key)) continue;
-        this.completedProgress.add(key);
-        this.lastProgressAtMs = nowMs;
-      }
-    } catch (error) {
-      this.parserStatus = "UNREADABLE";
-      this.parseErrorSinceMs ??= nowMs;
-      this.parseErrorSha256 = sha2568(error instanceof Error ? error.message : String(error));
-    }
-  }
-  limitBreach(nowMs) {
-    if (this.integrityBreach) return this.integrityBreach;
-    if (this.parserStatus === "WAITING" && Object.values(this.limits).some((value) => value !== void 0) && nowMs - this.startedAtMs >= this.telemetryGraceMs) {
-      return { code: "TELEMETRY_MISSING", observed: nowMs - this.startedAtMs, limit: this.telemetryGraceMs };
-    }
-    if (this.parseErrorSinceMs !== void 0 && nowMs - this.parseErrorSinceMs >= this.telemetryGraceMs) {
-      return { code: "TELEMETRY_UNREADABLE", observed: nowMs - this.parseErrorSinceMs, limit: this.telemetryGraceMs };
-    }
-    if (this.partialSinceMs !== void 0 && nowMs - this.partialSinceMs >= this.telemetryGraceMs) {
-      return { code: "TELEMETRY_UNREADABLE", observed: nowMs - this.partialSinceMs, limit: this.telemetryGraceMs };
-    }
-    if (this.limits.maxObservedTokens !== void 0 && this.observedTokens === void 0 && (this.parserStatus === "READY" || this.parserStatus === "PARTIAL") && nowMs - this.startedAtMs >= this.telemetryGraceMs) {
-      return { code: "TOKEN_USAGE_UNAVAILABLE", observed: 0, limit: this.limits.maxObservedTokens };
-    }
-    if (breached(this.metrics.toolCalls, this.limits.maxToolCalls)) {
-      return { code: "TOOL_CALL_LIMIT", observed: this.metrics.toolCalls, limit: this.limits.maxToolCalls };
-    }
-    if (breached(this.metrics.failedToolCalls, this.limits.maxFailedToolCalls)) {
-      return { code: "FAILED_TOOL_CALL_LIMIT", observed: this.metrics.failedToolCalls, limit: this.limits.maxFailedToolCalls };
-    }
-    if (breached(this.metrics.maxIdenticalToolCalls, this.limits.maxIdenticalToolCalls)) {
-      return { code: "IDENTICAL_TOOL_CALL_LIMIT", observed: this.metrics.maxIdenticalToolCalls, limit: this.limits.maxIdenticalToolCalls };
-    }
-    if (breached(this.metrics.maxConsecutiveFailedToolCalls, this.limits.maxConsecutiveFailures)) {
-      return { code: "CONSECUTIVE_FAILURE_LIMIT", observed: this.metrics.maxConsecutiveFailedToolCalls, limit: this.limits.maxConsecutiveFailures };
-    }
-    if (this.observedTokens !== void 0 && breached(this.observedTokens, this.limits.maxObservedTokens)) {
-      return { code: "OBSERVED_TOKEN_LIMIT", observed: this.observedTokens, limit: this.limits.maxObservedTokens };
-    }
-    if (this.limits.noProgressMs !== void 0 && nowMs - this.lastProgressAtMs > this.limits.noProgressMs) {
-      return { code: "NO_PROGRESS", observed: nowMs - this.lastProgressAtMs, limit: this.limits.noProgressMs };
-    }
-    return void 0;
-  }
-  observation(nowMs) {
-    return {
-      configured: true,
-      authority: "child-controlled",
-      transport: this.transport,
-      pathSha256: sha2568(this.path),
-      parserStatus: this.parserStatus,
-      ...this.format ? { format: this.format } : {},
-      ...this.baselineSha256 ? { baselineSha256: this.baselineSha256 } : {},
-      ...this.latestSha256 ? { latestSha256: this.latestSha256 } : {},
-      appendOnly: !this.integrityBreach,
-      toolCalls: this.metrics.toolCalls,
-      failedToolCalls: this.metrics.failedToolCalls,
-      maxIdenticalToolCalls: this.metrics.maxIdenticalToolCalls,
-      maxConsecutiveFailedToolCalls: this.metrics.maxConsecutiveFailedToolCalls,
-      completedProgressActions: this.completedProgress.size,
-      ...this.observedTokens !== void 0 ? { observedTokens: this.observedTokens } : {},
-      lastProgressElapsedMs: Math.max(0, nowMs - this.lastProgressAtMs),
-      ...this.parseErrorSha256 ? { parseErrorSha256: this.parseErrorSha256 } : {}
-    };
+  fail(error) {
+    if (this.failed) return;
+    this.failed = error;
+    this.readyReject(error);
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
   }
 };
 
@@ -20641,11 +20483,11 @@ var MAX_EXECUTABLE_BYTES = 1024 * 1024 * 1024;
 var MAX_TIME_LIMIT_MS = 7 * 24 * 60 * 60 * 1e3;
 var POST_KILL_WAIT_MS = 2e3;
 var POLL_INTERVAL_MS = 100;
-function sha2569(value) {
-  return `sha256:${createHash32("sha256").update(value).digest("hex")}`;
+function sha2568(value) {
+  return `sha256:${createHash31("sha256").update(value).digest("hex")}`;
 }
 function invocationDigest(executablePath, args) {
-  const hash5 = createHash32("sha256");
+  const hash5 = createHash31("sha256");
   for (const value of [executablePath, ...args]) {
     const bytes = Buffer.from(value, "utf8");
     const length = Buffer.alloc(8);
@@ -20678,7 +20520,7 @@ function hashExecutable(path) {
     if (before.size > BigInt(MAX_EXECUTABLE_BYTES)) {
       throw new Error(`run executable exceeds the ${MAX_EXECUTABLE_BYTES}-byte hashing limit`);
     }
-    const hash5 = createHash32("sha256");
+    const hash5 = createHash31("sha256");
     const buffer = Buffer.alloc(1024 * 1024);
     let offset = 0;
     while (offset < Number(before.size)) {
@@ -20695,7 +20537,7 @@ function hashExecutable(path) {
       path,
       basename: receiptSafeBasename(path),
       sha256: `sha256:${hash5.digest("hex")}`,
-      pathSha256: sha2569(path),
+      pathSha256: sha2568(path),
       identity: [before.dev, before.ino, before.size, before.mtimeNs, before.ctimeNs].join(":")
     };
   } finally {
@@ -20712,7 +20554,7 @@ async function hashExecutableAfterLaunch(path, signal) {
     if (before.size > BigInt(MAX_EXECUTABLE_BYTES)) {
       throw new Error(`run executable exceeds the ${MAX_EXECUTABLE_BYTES}-byte hashing limit`);
     }
-    const hash5 = createHash32("sha256");
+    const hash5 = createHash31("sha256");
     const buffer = Buffer.alloc(1024 * 1024);
     let offset = 0;
     while (offset < Number(before.size)) {
@@ -20731,7 +20573,7 @@ async function hashExecutableAfterLaunch(path, signal) {
       path,
       basename: receiptSafeBasename(path),
       sha256: `sha256:${hash5.digest("hex")}`,
-      pathSha256: sha2569(path),
+      pathSha256: sha2568(path),
       identity: [before.dev, before.ino, before.size, before.mtimeNs, before.ctimeNs].join(":")
     };
   } finally {
@@ -20758,6 +20600,9 @@ function sendGroupSignal(pid, signal) {
 function delay(milliseconds) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
+function monotonicNowMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
 function settleWithin(promise, milliseconds) {
   return new Promise((resolveWait) => {
     const timer = setTimeout(resolveWait, milliseconds);
@@ -20774,8 +20619,10 @@ function settleWithin(promise, milliseconds) {
   });
 }
 async function waitForGroupExit(pid, milliseconds) {
-  const deadline = Date.now() + milliseconds;
-  while (processGroupExists(pid) && Date.now() < deadline) await delay(Math.min(25, Math.max(1, deadline - Date.now())));
+  const deadline = monotonicNowMs() + milliseconds;
+  while (processGroupExists(pid) && monotonicNowMs() < deadline) {
+    await delay(Math.min(25, Math.max(1, deadline - monotonicNowMs())));
+  }
   return !processGroupExists(pid);
 }
 async function terminateProcessGroup(pid, graceMs) {
@@ -20840,7 +20687,7 @@ function buildReceipt(input) {
     state: input.state,
     startedAt: new Date(input.startedAtMs).toISOString(),
     finishedAt: new Date(input.finishedAtMs).toISOString(),
-    elapsedMs: Math.max(0, input.finishedAtMs - input.startedAtMs),
+    elapsedMs: Math.max(0, input.elapsedMs),
     command: {
       executableBasename: input.executable.basename,
       executableSha256: input.executable.sha256,
@@ -20848,7 +20695,7 @@ function buildReceipt(input) {
       executableIdentityStable: input.stable,
       argvSha256: invocationDigest(input.executable.path, input.run.args),
       argumentCount: input.run.args.length,
-      cwdSha256: sha2569(resolve35(input.run.cwd)),
+      cwdSha256: sha2568(resolve35(input.run.cwd)),
       launchedWithoutShell: true
     },
     limits: {
@@ -20870,20 +20717,21 @@ function buildReceipt(input) {
     outcome: { commandCompletion: "OBSERVED_ONLY", economicResult: "NOT_CHECKED" },
     evidenceBoundary: receiptBoundary(input.run)
   };
-  return { ...payload, receiptHash: sha2569(canonical(payload)) };
+  return { ...payload, receiptHash: sha2568(canonical(payload)) };
 }
 async function executeProtectedRun(input) {
   if (process.platform === "win32") throw new Error("vigil run currently requires POSIX process-group controls (macOS or Linux)");
   validateProtectedRunInput(input);
   const executablePath = resolveExecutable(input.executable, input.cwd, input.environment);
   const executable = hashExecutable(executablePath);
-  const startedAtMs = Date.now();
+  let startedAtMs = Date.now();
+  let startedAtMonotonicMs = monotonicNowMs();
   let sink;
   let child;
   let timeout;
   let interval;
   let exit = { code: null, signal: null };
-  let exitObservedAtMs;
+  let exitObservedAtMonotonicMs;
   let stopRequest;
   let termSent = false;
   let killSent = false;
@@ -20891,6 +20739,7 @@ async function executeProtectedRun(input) {
   let stable = true;
   let telemetry;
   let latestTelemetry;
+  let telemetryPollInFlight;
   let stdoutDonePromise = Promise.resolve();
   let verificationAbortController;
   let stopHandledPromise;
@@ -20917,9 +20766,13 @@ async function executeProtectedRun(input) {
         transport: input.transcript.transport,
         limits: input.trajectoryLimits,
         telemetryGraceMs: input.telemetryGraceMs,
-        startedAtMs
+        startedAtMs: startedAtMonotonicMs
       });
+      await telemetry.ready();
     }
+    startedAtMs = Date.now();
+    startedAtMonotonicMs = monotonicNowMs();
+    telemetry?.start(startedAtMonotonicMs);
     child = spawn(executable.path, input.args, {
       cwd: input.cwd,
       env: input.environment,
@@ -20928,7 +20781,7 @@ async function executeProtectedRun(input) {
       stdio: input.transcript?.transport === "supervisor-captured-stdout" ? ["inherit", "pipe", "inherit"] : "inherit"
     });
     const enforceDeadline = () => {
-      const elapsed = Date.now() - startedAtMs;
+      const elapsed = monotonicNowMs() - startedAtMonotonicMs;
       const remaining = input.timeLimitMs - elapsed;
       if (remaining > 0) {
         timeout = setTimeout(enforceDeadline, remaining);
@@ -20937,20 +20790,26 @@ async function executeProtectedRun(input) {
       requestStop({ code: "TIME_LIMIT", observed: elapsed, limit: input.timeLimitMs });
     };
     enforceDeadline();
-    interval = setInterval(() => {
-      if (!telemetry) return;
-      try {
-        const result5 = telemetry.poll();
+    const pollTelemetry = () => {
+      if (!telemetry || telemetryPollInFlight) return;
+      const polling = telemetry.poll(monotonicNowMs()).then((result5) => {
         latestTelemetry = result5.observation;
         if (result5.breach) requestStop(stopFromBreach(result5.breach));
-      } catch (error) {
-        requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2569(error instanceof Error ? error.message : String(error)) });
-      }
+      }).catch((error) => {
+        requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2568(error instanceof Error ? error.message : String(error)) });
+      });
+      telemetryPollInFlight = polling;
+      void polling.finally(() => {
+        if (telemetryPollInFlight === polling) telemetryPollInFlight = void 0;
+      });
+    };
+    interval = setInterval(() => {
+      pollTelemetry();
     }, POLL_INTERVAL_MS);
     const exitPromise = new Promise((resolveExit) => {
       child.once("exit", (code, signal) => {
         exit = { code, signal };
-        exitObservedAtMs = Date.now();
+        exitObservedAtMonotonicMs = monotonicNowMs();
         resolveExit(exit);
       });
     });
@@ -20974,11 +20833,11 @@ async function executeProtectedRun(input) {
             process.stdout.once("drain", () => child?.stdout?.resume());
           }
         } catch (error) {
-          requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2569(error instanceof Error ? error.message : String(error)) });
+          requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2568(error instanceof Error ? error.message : String(error)) });
         }
       });
       child.stdout.on("error", (error) => {
-        requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2569(error.message) });
+        requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2568(error.message) });
       });
     }
     await spawnPromise;
@@ -21023,7 +20882,7 @@ async function executeProtectedRun(input) {
       stable = false;
       requestStop({
         code: "EXECUTABLE_CHANGED",
-        detailSha256: sha2569(verificationWinner.error instanceof Error ? verificationWinner.error.message : String(verificationWinner.error))
+        detailSha256: sha2568(verificationWinner.error instanceof Error ? verificationWinner.error.message : String(verificationWinner.error))
       });
     }
     if (stopRequest) {
@@ -21048,7 +20907,8 @@ async function executeProtectedRun(input) {
       child.stdout.destroy();
     }
     if (telemetry) {
-      const finalTelemetry = telemetry.poll(exitObservedAtMs ?? Date.now(), true);
+      if (telemetryPollInFlight) await telemetryPollInFlight;
+      const finalTelemetry = await telemetry.poll(exitObservedAtMonotonicMs ?? monotonicNowMs(), true, true);
       latestTelemetry = finalTelemetry.observation;
       if (finalTelemetry.breach) requestStop(stopFromBreach(finalTelemetry.breach));
     }
@@ -21058,6 +20918,7 @@ async function executeProtectedRun(input) {
       sink = void 0;
     }
     const finishedAtMs = Date.now();
+    const elapsedMs = monotonicNowMs() - startedAtMonotonicMs;
     const state2 = stopRequest ? stopRequest.code === "SUPERVISOR_ERROR" || stopRequest.code === "EXECUTABLE_CHANGED" ? "ERROR" : "STOPPED" : "EXITED";
     const receipt = buildReceipt({
       run: input,
@@ -21066,6 +20927,7 @@ async function executeProtectedRun(input) {
       state: state2,
       startedAtMs,
       finishedAtMs,
+      elapsedMs,
       child,
       exit,
       ...stopRequest ? { stop: stopRequest } : {},
@@ -21078,7 +20940,7 @@ async function executeProtectedRun(input) {
     return { exitCode, receipt };
   } catch (error) {
     verificationAbortController?.abort();
-    const detailSha256 = sha2569(error instanceof Error ? error.message : String(error));
+    const detailSha256 = sha2568(error instanceof Error ? error.message : String(error));
     if (stopRequest && stopHandledPromise) {
       try {
         await stopHandledPromise;
@@ -21096,6 +20958,7 @@ async function executeProtectedRun(input) {
       }
     } else processGroupTerminationConfirmed = true;
     const finishedAtMs = Date.now();
+    const elapsedMs = monotonicNowMs() - startedAtMonotonicMs;
     const receipt = buildReceipt({
       run: input,
       executable,
@@ -21103,6 +20966,7 @@ async function executeProtectedRun(input) {
       state: "ERROR",
       startedAtMs,
       finishedAtMs,
+      elapsedMs,
       child,
       exit,
       stop: { code: "SUPERVISOR_ERROR", detailSha256 },
@@ -21119,6 +20983,10 @@ async function executeProtectedRun(input) {
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);
     try {
       sink?.close();
+    } catch {
+    }
+    try {
+      await telemetry?.close();
     } catch {
     }
   }
@@ -21230,7 +21098,7 @@ function assertDistinctFiles(left, right) {
   const leftPath = resolve36(left);
   const rightPath = resolve36(right);
   if (leftPath === rightPath) throw new Error("run receipt and transcript outputs must be different files");
-  if (!existsSync15(leftPath) || !existsSync15(rightPath)) return;
+  if (!existsSync14(leftPath) || !existsSync14(rightPath)) return;
   const leftReal = realpathSync21(leftPath);
   const rightReal = realpathSync21(rightPath);
   if (leftReal === rightReal) throw new Error("run receipt and transcript outputs must not alias the same file");
@@ -21293,7 +21161,7 @@ async function runProtectedRunCommand(args, environment = process.env) {
     if (Object.keys(trajectoryLimits).length && !transcriptPath && !capturePath) {
       throw new Error("trajectory limits require --transcript or --capture-jsonl");
     }
-    if (capturePath && existsSync15(resolve36(capturePath))) throw new Error("--capture-jsonl must name a new file");
+    if (capturePath && existsSync14(resolve36(capturePath))) throw new Error("--capture-jsonl must name a new file");
     if (capturePath && !/\.(?:jsonl|ndjson)$/i.test(capturePath)) throw new Error("--capture-jsonl must end in .jsonl or .ndjson");
     if (transcriptPath && !/\.(?:jsonl|ndjson)$/i.test(transcriptPath)) throw new Error("--transcript must end in .jsonl or .ndjson");
     const output = parsed.values.get("--output");
@@ -21631,7 +21499,7 @@ function runProve(args) {
     }
     const repo = resolve37(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_SHA ?? "HEAD";
-    if (!existsSync16(repo)) throw new Error(`repository not found: ${repo}`);
+    if (!existsSync15(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef)) throw new Error(`invalid Git commit ${baseRef}`);
     const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
     if (!(/* @__PURE__ */ new Set(["text", "json"])).has(format)) throw new Error("prove --format must be text or json");
@@ -21776,7 +21644,7 @@ function runPlan(args) {
     const repo = resolve37(optionValue(args, "--repo") ?? ".");
     const baseRef = optionValue(args, "--base") ?? process.env.GITHUB_BASE_SHA ?? "HEAD~1";
     const headRef = optionValue(args, "--head") ?? process.env.GITHUB_HEAD_SHA ?? "HEAD";
-    if (!existsSync16(repo)) throw new Error(`repository not found: ${repo}`);
+    if (!existsSync15(repo)) throw new Error(`repository not found: ${repo}`);
     if (!gitRefExists(repo, baseRef) || !gitRefExists(repo, headRef)) throw new Error(`invalid git range ${baseRef}..${headRef}`);
     const format = args.includes("--json") ? "json" : optionValue(args, "--format") ?? "text";
     if (!(/* @__PURE__ */ new Set(["text", "json", "markdown"])).has(format)) throw new Error("plan --format must be text, json, or markdown");
@@ -22073,7 +21941,7 @@ function runMaintainer(args) {
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     const rawEvent = readFileSync16(eventPath);
-    const eventHash = `sha256:${createHash33("sha256").update(rawEvent).digest("hex")}`;
+    const eventHash = `sha256:${createHash32("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative16(repo, policy.path) : void 0;
     const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
     const tree = git9(repo, ["rev-parse", `${head}^{tree}`]);
@@ -22236,14 +22104,14 @@ function parseCommandArgs(args, valueOptions, booleanOptions = /* @__PURE__ */ n
 function assertGuardOutputIsDistinct(output, inputs) {
   if (!output) return;
   const selected = resolve37(output);
-  const selectedExists = existsSync16(selected);
+  const selectedExists = existsSync15(selected);
   const selectedReal = selectedExists ? realpathSync22(selected) : selected;
   const selectedStatus = selectedExists ? statSync7(selected) : void 0;
   for (const input of inputs) {
     if (!input) continue;
     const requestedInput = resolve37(input);
     if (selected === requestedInput) throw new Error("--output must not replace or alias a guard input");
-    if (!existsSync16(requestedInput)) continue;
+    if (!existsSync15(requestedInput)) continue;
     const realInput = realpathSync22(requestedInput);
     if (selectedReal === realInput) throw new Error("--output must not replace or alias a guard input");
     if (selectedStatus) {
@@ -22484,7 +22352,7 @@ function runValue(args) {
         resolve37(dirname12(receiptPath), report.transcript),
         ...isAbsolute16(report.repo) ? [resolve37(report.repo, report.transcript)] : []
       ];
-      transcriptPath = candidates.find((candidate) => existsSync16(candidate));
+      transcriptPath = candidates.find((candidate) => existsSync15(candidate));
     }
     let loaded;
     if (transcriptPath) {
@@ -22494,7 +22362,7 @@ function runValue(args) {
     const evidenceHash = (path, label) => {
       if (!path) return void 0;
       const evidence = readBoundedFile(resolve37(path), 64 * 1024 * 1024, label);
-      return `sha256:${createHash33("sha256").update(evidence).digest("hex")}`;
+      return `sha256:${createHash32("sha256").update(evidence).digest("hex")}`;
     };
     const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
     let exactCost;
@@ -22678,7 +22546,7 @@ function runAudit(args) {
     const raw = readFileSync16(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
-    const digest12 = `sha256:${createHash33("sha256").update(raw).digest("hex")}`;
+    const digest12 = `sha256:${createHash32("sha256").update(raw).digest("hex")}`;
     const integrity = routeIntegrity(checkIntegrityDiff(diff), options.strict ? "blocking" : "advisory");
     if (!integrity.results.length && integrity.advisories.length) {
       integrity.results.push({
@@ -22697,7 +22565,7 @@ function runAudit(args) {
       head: digest12,
       results: integrity.results,
       advisories: integrity.advisories,
-      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash33("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
+      policy: { minVerified: 1, strict: true, source: options.strict ? "built-in strict static diff policy" : "built-in advisory static diff policy", sha256: `sha256:${createHash32("sha256").update(`agent-vigil-static-diff-v2:${options.strict ? "blocking" : "advisory"}`).digest("hex")}` },
       reproduction: `vigil audit ${shellQuote2(diffPath)}${options.strict ? " --strict" : ""}`
     });
     writeOutputs(report, options);
@@ -22733,7 +22601,7 @@ function runTestIntegrity(args) {
     }
     const diffArgs = head === "WORKTREE" ? ["diff", "--no-color", base] : ["diff", "--no-color", base, head];
     const diff = trustedGit(repo, diffArgs);
-    const digest12 = `sha256:${createHash33("sha256").update(diff).digest("hex")}`;
+    const digest12 = `sha256:${createHash32("sha256").update(diff).digest("hex")}`;
     const policyName = options.strict ? "all static integrity findings block" : "calibrated high-confidence test integrity rules block";
     const report = buildReport({
       transcript: `${base}..${head}`,
@@ -22748,7 +22616,7 @@ function runTestIntegrity(args) {
         minVerified: 1,
         strict: true,
         source: policyName,
-        sha256: `sha256:${createHash33("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
+        sha256: `sha256:${createHash32("sha256").update(`agent-vigil-test-integrity-v1:${options.strict ? "blocking" : "calibrated"}`).digest("hex")}`
       },
       repository: {
         ...git9(repo, ["config", "--get", "remote.origin.url"]) ? { remote: git9(repo, ["config", "--get", "remote.origin.url"]) } : {},
@@ -22788,7 +22656,7 @@ function runAuthority(args) {
     const base = resolveGitRef(repo, options.base);
     const head = resolveGitRef(repo, options.head);
     const transcriptPath = isAbsolute16(transcriptOption) ? transcriptOption : resolve37(repo, transcriptOption);
-    if (!existsSync16(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
+    if (!existsSync15(transcriptPath)) throw new Error(`transcript not found: ${transcriptPath}`);
     const contract = loadAuthorityContract(repo, contractOption, contractRef);
     const verificationPolicy = options.policy || options.policyRef ? loadPolicy(repo, options.policy, options.policyRef) : void 0;
     const testCommand = options.testCmd ?? verificationPolicy?.value.testCommand;
@@ -22970,11 +22838,11 @@ ${usage4()}`);
   const testCmd = options.testCmd ?? policy.value.testCommand;
   const strict = options.strict ?? policy.value.strict ?? false;
   const minVerified = Math.max(options.minVerified ?? 0, policy.value.minVerified ?? 1);
-  if (!existsSync16(transcriptPath)) {
+  if (!existsSync15(transcriptPath)) {
     console.error(`agent-vigil: transcript not found: ${transcriptPath}`);
     return 2;
   }
-  if (!existsSync16(repo)) {
+  if (!existsSync15(repo)) {
     console.error(`agent-vigil: repository not found: ${repo}`);
     return 2;
   }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -101,6 +101,40 @@ test("wall limit remains live during post-launch executable verification", async
   assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
   assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
   assert.ok(Date.now() - startedAt < 1_500, "verification must not postpone deadline enforcement");
+});
+
+test("wall limit is not extended when the wall clock moves backward", () => {
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const script = `
+    import { executeProtectedRun } from ${JSON.stringify(supervisorUrl)};
+    const wallNow = Date.now.bind(Date);
+    const rewind = setTimeout(() => { Date.now = () => wallNow() - 3_600_000; }, 25);
+    const emergency = setTimeout(() => process.kill(process.pid, "SIGINT"), 1_000);
+    const result = await executeProtectedRun({
+      executable: process.execPath,
+      args: ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
+      cwd: process.cwd(),
+      environment: process.env,
+      timeLimitMs: 150,
+      terminationGraceMs: 50,
+      trajectoryLimits: {},
+      telemetryGraceMs: 200,
+    });
+    clearTimeout(rewind);
+    clearTimeout(emergency);
+    process.stdout.write(JSON.stringify({ exitCode: result.exitCode, stop: result.receipt.stop }));
+  `;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(result.stdout);
+  assert.equal(observed.exitCode, 124);
+  assert.equal(observed.stop.code, "TIME_LIMIT");
+  assert.ok(observed.stop.observed >= 150 && observed.stop.observed < 750);
 });
 
 test("receipt executable names support Unicode and normalize control characters", async () => {
@@ -261,6 +295,61 @@ test("final buffered telemetry rejects a fast command that already crossed its c
   assert.equal(result.receipt.state, "STOPPED");
   assert.equal(result.receipt.stop?.code, "TOOL_CALL_LIMIT");
   assert.equal(result.receipt.process.termSent, false);
+  assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
+});
+
+test("final telemetry rejects malformed EOF without waiting out the grace period", async () => {
+  const directory = root();
+  const transcript = join(directory, "fast-invalid.jsonl");
+  const result = await executeProtectedRun(input(["-e", "process.stdout.write('{not-json\\n')"], {
+    telemetryGraceMs: 5_000,
+    transcript: { path: transcript, transport: "supervisor-captured-stdout" },
+  }));
+  assert.equal(result.exitCode, 124);
+  assert.equal(result.receipt.state, "STOPPED");
+  assert.equal(result.receipt.stop?.code, "TELEMETRY_UNREADABLE");
+  assert.equal(result.receipt.telemetry?.parserStatus, "UNREADABLE");
+  assert.ok(result.receipt.elapsedMs < 5_000);
+});
+
+test("final telemetry rejects missing requested token usage at EOF", async () => {
+  const directory = root();
+  const transcript = join(directory, "fast-no-usage.jsonl");
+  const row = `${JSON.stringify({ type: "session_meta", payload: { id: "run" } })}\n`;
+  const result = await executeProtectedRun(input(["-e", `process.stdout.write(${JSON.stringify(row)})`], {
+    trajectoryLimits: { maxObservedTokens: 100 },
+    telemetryGraceMs: 5_000,
+    transcript: { path: transcript, transport: "supervisor-captured-stdout" },
+  }));
+  assert.equal(result.exitCode, 124);
+  assert.equal(result.receipt.state, "STOPPED");
+  assert.equal(result.receipt.stop?.code, "TOKEN_USAGE_UNAVAILABLE");
+  assert.equal(result.receipt.telemetry?.observedTokens, undefined);
+  assert.ok(result.receipt.elapsedMs < 5_000);
+});
+
+test("large transcript parsing cannot delay wall-limit enforcement", { timeout: 15_000 }, async () => {
+  const directory = root();
+  const transcript = join(directory, "large-external.jsonl");
+  const baseline = `${JSON.stringify({
+    type: "session_meta",
+    payload: { id: "run", padding: "x".repeat(49 * 1024 * 1024) },
+  })}\n`;
+  writeFileSync(transcript, baseline);
+  const appended = `${JSON.stringify({
+    type: "response_item",
+    payload: { type: "function_call", call_id: "one", name: "exec_command", arguments: "{}" },
+  })}\n`;
+  const script = "require('node:fs').appendFileSync(process.argv[1],process.argv[2]);process.on('SIGTERM',()=>{});setInterval(()=>{},1000)";
+  const result = await executeProtectedRun(input(["-e", script, transcript, appended], {
+    timeLimitMs: 150,
+    terminationGraceMs: 50,
+    trajectoryLimits: { maxToolCalls: 5 },
+    telemetryGraceMs: 1_000,
+    transcript: { path: transcript, transport: "external-file" },
+  }));
+  assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
+  assert.ok(result.receipt.stop!.observed! >= 150 && result.receipt.stop!.observed! < 750);
   assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
 });
 

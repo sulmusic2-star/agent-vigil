@@ -5,6 +5,9 @@
 - Add `vigil run`, a POSIX process-group circuit breaker with a mandatory wall
   limit, optional fail-closed JSONL trajectory limits, and private self-hashed
   receipts that keep correctness, exact cost, and economic value `NOT_CHECKED`.
+- Keep deadline and signal enforcement independent from transcript parsing with
+  a monotonic supervisor clock and packaged telemetry worker; enforce malformed
+  or incomplete requested telemetry immediately when the observed command exits.
 
 ## 0.23.4 - 2026-09-01
 

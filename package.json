@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "npm run build:cli && npm run build:library",
-    "build:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/cli.js",
+    "build:cli": "node scripts/build_cli.mjs",
     "build:library": "esbuild src/continuity-staple-library.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/continuity-staple.js && tsc -p tsconfig.library.json",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run_tests.mjs",

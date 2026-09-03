@@ -337,6 +337,7 @@ test("npm package surface excludes internal product and commercial working docum
   const packedPaths = packedPackagePaths();
   assert.equal(new Set(packedPaths).size, packedPaths.length, "npm pack manifest paths must be unique");
   assert.ok(packedPaths.includes("DISCLOSURE"), "DISCLOSURE must be at the root of the concrete npm package");
+  assert.ok(packedPaths.includes("dist/run-telemetry-worker.js"), "the protected-run telemetry worker must ship with the CLI");
   for (const packedPath of packedPaths) {
     assert.ok(
       packedPath === "package.json" || files.some((entry) => manifestEntryCoversPath(entry, packedPath)),
@@ -394,6 +395,8 @@ test("repository protection runs one direct offline test contract after bounded 
   assert.ok((policy.maintainer?.protectedPaths as string[]).includes(".agent-vigil.json"));
   assert.ok((policy.maintainer?.protectedPaths as string[]).includes(".github/workflows/**"));
   assert.ok((policy.maintainer?.protectedPaths as string[]).includes("dist/cli.js"));
+  assert.ok((policy.maintainer?.protectedPaths as string[]).includes("dist/run-telemetry-worker.js"));
+  assert.ok((policy.maintainer?.protectedPaths as string[]).includes("scripts/build_cli.mjs"));
   assert.ok((policy.maintainer?.protectedPaths as string[]).includes("test/package-surface.test.ts"));
 });
 
@@ -783,21 +786,34 @@ test("reviewed self pin and source-dist identity are a visible release gate", (c
   const runtimeCommit = selfReferences[0];
   execFileSync("git", ["cat-file", "-e", `${runtimeCommit}^{commit}`], { cwd: ROOT, stdio: "pipe" });
   execFileSync("git", ["merge-base", "--is-ancestor", runtimeCommit, "HEAD"], { cwd: ROOT, stdio: "pipe" });
-  execFileSync("git", ["diff", "--quiet", runtimeCommit, "--", "action.yml", "src", "dist/cli.js"], { cwd: ROOT, stdio: "pipe" });
+  execFileSync("git", [
+    "diff", "--quiet", runtimeCommit, "--",
+    "action.yml", "src", "dist/cli.js", "dist/run-telemetry-worker.js", "scripts/build_cli.mjs", "package.json",
+  ], { cwd: ROOT, stdio: "pipe" });
 
   const temporary = mkdtempSync(join(tmpdir(), "agent-vigil-package-surface-"));
-  const rebuilt = join(temporary, "cli.js");
   buildSync({
-    entryPoints: [join(ROOT, "src", "cli.ts")],
+    entryPoints: {
+      cli: join(ROOT, "src", "cli.ts"),
+      "run-telemetry-worker": join(ROOT, "src", "run-telemetry-worker.ts"),
+    },
     bundle: true,
     platform: "node",
     format: "esm",
     target: "node20",
-    outfile: rebuilt,
+    outdir: temporary,
+    entryNames: "[name]",
+    define: { __AGENT_VIGIL_BUILD_SHA__: JSON.stringify("") },
     logLevel: "silent",
   });
   const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
-  assert.equal(sha256(join(ROOT, "dist", "cli.js")), sha256(rebuilt), "dist/cli.js must be the deterministic bundle of the pinned source");
+  for (const filename of ["cli.js", "run-telemetry-worker.js"]) {
+    assert.equal(
+      sha256(join(ROOT, "dist", filename)),
+      sha256(join(temporary, filename)),
+      `dist/${filename} must be the deterministic bundle of the pinned source`,
+    );
+  }
 });
 
 test("CodeQL scans maintained source while excluding deterministic bundles and hostile fixtures", () => {

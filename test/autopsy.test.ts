@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { discoverAutopsyCandidates } from "../src/autopsy-discovery.ts";
 import { runAutopsyCommand } from "../src/autopsy-cli.ts";
-import { recomputeRunAutopsyHash, type RunAutopsy } from "../src/autopsy.ts";
+import { buildRunAutopsy, recomputeRunAutopsyHash, type RunAutopsy } from "../src/autopsy.ts";
 import { buildCursorExactCostEvidence } from "../src/cost-evidence.ts";
 import { run } from "../src/cli.ts";
 import { buildReport, type CheckResult } from "../src/report.ts";
@@ -372,6 +372,22 @@ test("unbounded model identifiers fail closed before entering a record", () => {
   const output = join(home, "autopsy.json");
   assert.equal(run(["autopsy", transcript, "--json", "--output", output]), 2);
   assert.equal(existsSync(output), false);
+});
+
+test("printable Unicode model identifiers satisfy the emitted autopsy schema", () => {
+  const home = mkdtempSync(join(tmpdir(), "vigil-autopsy-unicode-model-"));
+  const transcript = join(home, "codex.jsonl");
+  const model = "model-模型-α";
+  writeFileSync(transcript, [
+    JSON.stringify({ type: "session_meta", payload: { id: "run", model } }),
+    JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 1, output_tokens: 1 } } } }),
+  ].join("\n"));
+  const record = buildRunAutopsy({ transcript: loadTranscript(transcript) });
+  assert.deepEqual(record.run.modelIds, [model]);
+  const schema = JSON.parse(readFileSync(new URL("../docs/run-autopsy-v1.schema.json", import.meta.url), "utf8"));
+  const item = schema.$defs.modelIds.items;
+  assert.match(model, new RegExp(item.pattern));
+  assert.ok([...model].length <= item.maxLength);
 });
 
 test("autopsy argument and schema contracts reject ambiguous inputs", () => {
