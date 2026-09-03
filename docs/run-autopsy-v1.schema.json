@@ -152,6 +152,90 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "decision": { "const": "EARNED" } },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "change": {
+            "required": [
+              "verification", "receiptAuthority", "transcriptJoin", "strictPolicy",
+              "receiptHash", "policySha256", "repositoryRefSha256", "base", "head", "tree"
+            ],
+            "properties": {
+              "verification": { "const": "PASS" },
+              "receiptAuthority": { "const": "VALID_PINNED" },
+              "transcriptJoin": { "const": "MATCHED" },
+              "strictPolicy": { "const": true },
+              "receiptHash": { "$ref": "#/$defs/sha256" },
+              "policySha256": { "$ref": "#/$defs/sha256" },
+              "repositoryRefSha256": { "$ref": "#/$defs/sha256" },
+              "base": { "$ref": "#/$defs/gitObjectId" },
+              "head": { "$ref": "#/$defs/gitObjectId" },
+              "tree": { "$ref": "#/$defs/gitObjectId" }
+            }
+          },
+          "cost": {
+            "required": ["evidence", "transcriptJoin", "amountUsd", "evidenceHash", "budgetStatus"],
+            "properties": {
+              "evidence": { "const": "PROVIDER_EXPORTED" },
+              "transcriptJoin": { "const": "MATCHED" },
+              "amountUsd": { "$ref": "#/$defs/nonNegativeNumber" },
+              "evidenceHash": { "$ref": "#/$defs/sha256" },
+              "budgetStatus": { "enum": ["WITHIN", "NOT_CHECKED"] }
+            }
+          },
+          "acceptance": {
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "disposition": { "const": "accepted" },
+                      "reviewEvidence": { "const": "HASHED" }
+                    },
+                    "required": ["disposition", "reviewEvidence", "reviewEvidenceSha256"]
+                  },
+                  {
+                    "properties": {
+                      "outcome": { "const": "merged" },
+                      "outcomeEvidence": { "const": "HASHED" }
+                    },
+                    "required": ["outcome", "outcomeEvidence", "outcomeEvidenceSha256"]
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "disposition": { "enum": ["dismissed", "changes-requested"] },
+                        "reviewEvidence": { "const": "HASHED" }
+                      },
+                      "required": ["disposition", "reviewEvidence"]
+                    },
+                    {
+                      "properties": {
+                        "outcome": { "enum": ["closed", "reverted", "hotfixed", "incident-linked"] },
+                        "outcomeEvidence": { "const": "HASHED" }
+                      },
+                      "required": ["outcome", "outcomeEvidence"]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "reasonCodes": { "contains": { "const": "verified-accepted-change-with-exact-cost" } },
+          "evidenceGaps": { "maxItems": 0 }
+        }
+      }
+    }
+  ],
   "$defs": {
     "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "timestamp": {

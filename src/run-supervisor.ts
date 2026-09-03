@@ -406,11 +406,13 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
   let termSent = false;
   let killSent = false;
   let processGroupTerminationConfirmed = false;
-  let stable: boolean | "NOT_CHECKED" = true;
+  let stable: boolean | "NOT_CHECKED" = "NOT_CHECKED";
   let telemetry: RunTelemetryMonitor | undefined;
   let latestTelemetry: RunTelemetryObservation | undefined;
   let telemetryPollInFlight: Promise<void> | undefined;
   let stdoutDonePromise: Promise<void> = Promise.resolve();
+  let stdoutErrorHandler: ((error: Error) => void) | undefined;
+  let stdoutDrainHandler: (() => void) | undefined;
   let verificationAbortController: AbortController | undefined;
   let stopHandledPromise: Promise<StopRequest> | undefined;
   let requestStopResolve: ((request: StopRequest) => void) | undefined;
@@ -419,6 +421,12 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     if (stopRequest) return;
     stopRequest = request;
     requestStopResolve?.(request);
+  };
+  const requestSupervisorError = (error: unknown): void => {
+    requestStop({
+      code: "SUPERVISOR_ERROR",
+      detailSha256: sha256(error instanceof Error ? error.message : String(error)),
+    });
   };
   const getStopRequest = (): StopRequest | undefined => stopRequest;
   const signalHandlers = new Map<NodeJS.Signals, () => void>();
@@ -528,26 +536,56 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       child!.once("error", rejectSpawn);
     });
     if (child.stdout) {
+      const capturedStdout = child.stdout;
+      let captureWritesInFlight = 0;
+      let relayBackpressured = false;
+      const resumeCapturedStdout = (): void => {
+        if (!stopRequest && captureWritesInFlight === 0 && !relayBackpressured) capturedStdout.resume();
+      };
+      stdoutErrorHandler = (error) => {
+        relayBackpressured = false;
+        if (stdoutDrainHandler) {
+          process.stdout.off("drain", stdoutDrainHandler);
+          stdoutDrainHandler = undefined;
+        }
+        requestSupervisorError(error);
+      };
+      process.stdout.on("error", stdoutErrorHandler);
       stdoutDonePromise = new Promise((resolveStdout) => {
-        child!.stdout!.once("end", resolveStdout);
-        child!.stdout!.once("close", resolveStdout);
+        capturedStdout.once("end", resolveStdout);
+        capturedStdout.once("close", resolveStdout);
       });
-      child.stdout.on("data", (chunk: Buffer | string) => {
+      capturedStdout.on("data", (chunk: Buffer | string) => {
         const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         try {
           const breach = telemetry!.appendCaptured(bytes);
           if (breach) requestStop(stopFromBreach(breach));
-          else sink!.write(bytes);
+          else {
+            captureWritesInFlight += 1;
+            capturedStdout.pause();
+            void sink!.write(bytes).catch((error: unknown) => {
+              requestSupervisorError(error);
+            }).finally(() => {
+              captureWritesInFlight -= 1;
+              resumeCapturedStdout();
+            });
+          }
           if (!process.stdout.write(bytes)) {
-            child!.stdout!.pause();
-            process.stdout.once("drain", () => child?.stdout?.resume());
+            relayBackpressured = true;
+            capturedStdout.pause();
+            stdoutDrainHandler = () => {
+              relayBackpressured = false;
+              stdoutDrainHandler = undefined;
+              resumeCapturedStdout();
+            };
+            process.stdout.once("drain", stdoutDrainHandler);
           }
         } catch (error) {
-          requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha256(error instanceof Error ? error.message : String(error)) });
+          requestSupervisorError(error);
         }
       });
-      child.stdout.on("error", (error) => {
-        requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha256(error.message) });
+      capturedStdout.on("error", (error) => {
+        requestSupervisorError(error);
       });
     }
     await spawnPromise;
@@ -619,7 +657,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     }
     if (stopRequest) await stopHandledPromise;
     if (sink) {
-      sink.close();
+      await sink.close();
       sink = undefined;
     }
     const finishedAtMs = Date.now();
@@ -685,8 +723,10 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     verificationAbortController?.abort();
     if (timeout) clearTimeout(timeout);
     if (interval) clearInterval(interval);
+    if (stdoutErrorHandler) process.stdout.off("error", stdoutErrorHandler);
+    if (stdoutDrainHandler) process.stdout.off("drain", stdoutDrainHandler);
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);
-    try { sink?.close(); } catch { /* A receipt still reports the supervisor failure path. */ }
+    try { await sink?.close(); } catch { /* A receipt still reports the supervisor failure path. */ }
     try { await telemetry?.close(); } catch { /* The receipt already captures worker failures. */ }
   }
 }

@@ -409,6 +409,25 @@ test("autopsy argument and schema contracts reject ambiguous inputs", () => {
     schema.properties.acceptance.allOf.map((condition: { then: { required: string[] } }) => condition.then.required),
     [["reviewEvidenceSha256"], ["outcomeEvidenceSha256"]],
   );
+  const earned = schema.allOf.find((condition: any) => condition.if?.properties?.decision?.const === "EARNED");
+  assert.ok(earned, "the schema must bind EARNED to its supporting evidence");
+  assert.deepEqual(earned.then.properties.change.properties.verification, { const: "PASS" });
+  assert.deepEqual(earned.then.properties.change.properties.receiptAuthority, { const: "VALID_PINNED" });
+  assert.deepEqual(earned.then.properties.change.properties.transcriptJoin, { const: "MATCHED" });
+  assert.deepEqual(earned.then.properties.cost.properties.evidence, { const: "PROVIDER_EXPORTED" });
+  assert.deepEqual(earned.then.properties.cost.properties.transcriptJoin, { const: "MATCHED" });
+  assert.deepEqual(
+    earned.then.properties.acceptance.allOf[0].anyOf.map((condition: any) => condition.required),
+    [
+      ["disposition", "reviewEvidence", "reviewEvidenceSha256"],
+      ["outcome", "outcomeEvidence", "outcomeEvidenceSha256"],
+    ],
+  );
+  assert.equal(earned.then.properties.evidenceGaps.maxItems, 0);
+  assert.equal(
+    earned.then.properties.reasonCodes.contains.const,
+    "verified-accepted-change-with-exact-cost",
+  );
 });
 
 test("run autopsy hash detects mutation and ignores presentation time", () => {

@@ -18,11 +18,25 @@ function root(): string {
   return mkdtempSync(join(tmpdir(), "vigil-run-"));
 }
 
-function fixtureEnvironment(): NodeJS.ProcessEnv {
+function protectedEnvironment(): NodeJS.ProcessEnv {
   const environment = { ...process.env };
   // Killed fixture processes can leave partial V8 JSON and corrupt the parent coverage report.
   delete environment.NODE_V8_COVERAGE;
   return environment;
+}
+
+function coverageHarnessEnvironment(): NodeJS.ProcessEnv {
+  return { ...process.env };
+}
+
+function protectedCliHarness(args: string[]): string {
+  const runCliUrl = new URL("../src/run-cli.ts", import.meta.url).href;
+  return `
+    const { runProtectedRunCommand } = await import(${JSON.stringify(runCliUrl)});
+    const environment = { ...process.env };
+    delete environment.NODE_V8_COVERAGE;
+    process.exitCode = await runProtectedRunCommand(${JSON.stringify(args)}, environment);
+  `;
 }
 
 function input(args: string[], overrides: Partial<ProtectedRunInput> = {}): ProtectedRunInput {
@@ -30,7 +44,7 @@ function input(args: string[], overrides: Partial<ProtectedRunInput> = {}): Prot
     executable: process.execPath,
     args,
     cwd: process.cwd(),
-    environment: fixtureEnvironment(),
+    environment: protectedEnvironment(),
     timeLimitMs: 2_000,
     terminationGraceMs: 100,
     trajectoryLimits: {},
@@ -71,6 +85,7 @@ test("protected run propagates a normal child exit without calling it earned", a
   assert.equal(result.receipt.process.exitCode, 7);
   assert.equal(result.receipt.outcome.commandCompletion, "OBSERVED_ONLY");
   assert.equal(result.receipt.outcome.economicResult, "NOT_CHECKED");
+  assert.equal(result.receipt.command.executableIdentityStable, true);
   assert.equal(result.receipt.command.launchedWithoutShell, true);
   assert.equal(recomputeProtectedRunHash(result.receipt), result.receipt.receiptHash);
   assert.doesNotMatch(JSON.stringify(result.receipt), new RegExp(secret));
@@ -115,6 +130,117 @@ test("wall limit remains live during post-launch executable verification", async
   assert.ok(Date.now() - startedAt < 1_500, "verification must not postpone deadline enforcement");
 });
 
+test("slow capture persistence cannot delay wall-limit enforcement", { timeout: 8_000 }, () => {
+  const directory = root();
+  const transcript = join(directory, "slow-capture.jsonl");
+  const resultPath = join(directory, "result.json");
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const row = `${JSON.stringify({ type: "session_meta", payload: { id: "run" } })}\n`;
+  const harness = `(async () => {
+    const fs = (await import("node:fs")).default;
+    const { syncBuiltinESMExports } = await import("node:module");
+    const originalWrite = fs.write;
+    fs.write = (...args) => setTimeout(() => originalWrite(...args), 400);
+    syncBuiltinESMExports();
+    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+    const protectedEnvironment = { ...process.env };
+    delete protectedEnvironment.NODE_V8_COVERAGE;
+    try {
+      const result = await executeProtectedRun({
+        executable: process.execPath,
+        args: ["-e", ${JSON.stringify(`process.stdout.write(${JSON.stringify(row)});process.on('SIGTERM',()=>{});setInterval(()=>{},1000)`) }],
+        cwd: process.cwd(),
+        environment: protectedEnvironment,
+        timeLimitMs: 100,
+        terminationGraceMs: 50,
+        trajectoryLimits: {},
+        telemetryGraceMs: 200,
+        transcript: { path: ${JSON.stringify(transcript)}, transport: "supervisor-captured-stdout" },
+      });
+      fs.writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));
+    } finally {
+      fs.write = originalWrite;
+      syncBuiltinESMExports();
+    }
+  })().catch((error) => { console.error(error); process.exitCode = 1; });`;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "-e", harness], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: coverageHarnessEnvironment(),
+    stdio: ["ignore", "ignore", "pipe"],
+    timeout: 5_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(readFileSync(resultPath, "utf8")) as ProtectedRunResult;
+  assert.equal(observed.receipt.stop?.code, "TIME_LIMIT");
+  assert.ok(observed.receipt.stop!.observed! >= 100 && observed.receipt.stop!.observed! < 300);
+  assert.equal(observed.receipt.process.processGroupTerminationConfirmed, true);
+  assert.equal(readFileSync(transcript, "utf8"), row);
+});
+
+test("a closed stdout consumer stops and cleans up the protected process group", { timeout: 8_000 }, async () => {
+  const directory = root();
+  const transcript = join(directory, "closed-relay.jsonl");
+  const resultPath = join(directory, "result.json");
+  const pidPath = join(directory, "leader.pid");
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const firstRow = `${JSON.stringify({ type: "session_meta", payload: { id: "run" } })}\n`;
+  const nextRow = `${JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 1, output_tokens: 1 } } } })}\n`;
+  const command = [
+    "const fs=require('node:fs')",
+    "fs.writeFileSync(process.argv[1],String(process.pid))",
+    `process.stdout.write(${JSON.stringify(firstRow)})`,
+    "process.on('SIGTERM',()=>{})",
+    `setInterval(()=>process.stdout.write(${JSON.stringify(nextRow)}),5)`,
+  ].join(";");
+  const harness = `(async () => {
+    const { writeFileSync } = await import("node:fs");
+    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+    const protectedEnvironment = { ...process.env };
+    delete protectedEnvironment.NODE_V8_COVERAGE;
+    const result = await executeProtectedRun({
+      executable: process.execPath,
+      args: ["-e", ${JSON.stringify(command)}, ${JSON.stringify(pidPath)}],
+      cwd: process.cwd(),
+      environment: protectedEnvironment,
+      timeLimitMs: 5_000,
+      terminationGraceMs: 50,
+      trajectoryLimits: {},
+      telemetryGraceMs: 200,
+      transcript: { path: ${JSON.stringify(transcript)}, transport: "supervisor-captured-stdout" },
+    });
+    writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));
+  })().catch((error) => { console.error(error); process.exitCode = 1; });`;
+  const outer = spawn(process.execPath, ["--import", "tsx", "-e", harness], {
+    cwd: process.cwd(),
+    env: coverageHarnessEnvironment(),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  outer.stderr!.setEncoding("utf8");
+  outer.stderr!.on("data", (chunk: string) => { stderr += chunk; });
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveClose, rejectClose) => {
+    outer.once("error", rejectClose);
+    outer.once("close", (code, signal) => resolveClose({ code, signal }));
+  });
+  await new Promise<void>((resolveOutput, rejectOutput) => {
+    outer.stdout!.once("data", () => resolveOutput());
+    outer.once("error", rejectOutput);
+  });
+  outer.stdout!.destroy();
+  const outerResult = await closed;
+  assert.equal(outerResult.signal, null, stderr);
+  assert.equal(outerResult.code, 0, stderr);
+  const observed = JSON.parse(readFileSync(resultPath, "utf8")) as ProtectedRunResult;
+  const leaderPid = Number(readFileSync(pidPath, "utf8"));
+  assert.equal(observed.exitCode, 125);
+  assert.equal(observed.receipt.state, "ERROR");
+  assert.equal(observed.receipt.stop?.code, "SUPERVISOR_ERROR");
+  assert.equal(observed.receipt.process.processGroupTerminationConfirmed, true);
+  assert.equal(await waitForPidExit(leaderPid), true);
+});
+
 test("an interrupted post-launch executable verification remains explicitly not checked", () => {
   const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
   const script = `
@@ -124,6 +250,8 @@ test("an interrupted post-launch executable verification remains explicitly not 
     const fileHandlePrototype = Object.getPrototypeOf(sample);
     await sample.close();
     const originalRead = fileHandlePrototype.read;
+    const protectedEnvironment = { ...process.env };
+    delete protectedEnvironment.NODE_V8_COVERAGE;
     fileHandlePrototype.read = async function (...args) {
       await new Promise((resolve) => setTimeout(resolve, 300));
       return originalRead.apply(this, args);
@@ -133,7 +261,7 @@ test("an interrupted post-launch executable verification remains explicitly not 
         executable: process.execPath,
         args: ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
         cwd: process.cwd(),
-        environment: process.env,
+        environment: protectedEnvironment,
         timeLimitMs: 100,
         terminationGraceMs: 50,
         trajectoryLimits: {},
@@ -147,7 +275,7 @@ test("an interrupted post-launch executable verification remains explicitly not 
   const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: fixtureEnvironment(),
+    env: coverageHarnessEnvironment(),
     timeout: 5_000,
   });
   assert.equal(result.error, undefined);
@@ -163,6 +291,8 @@ test("wall limit is not extended when the wall clock moves backward", () => {
   const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
   const script = `
     import { executeProtectedRun } from ${JSON.stringify(supervisorUrl)};
+    const protectedEnvironment = { ...process.env };
+    delete protectedEnvironment.NODE_V8_COVERAGE;
     const wallNow = Date.now.bind(Date);
     const rewind = setTimeout(() => { Date.now = () => wallNow() - 3_600_000; }, 25);
     const emergency = setTimeout(() => process.kill(process.pid, "SIGINT"), 1_000);
@@ -170,7 +300,7 @@ test("wall limit is not extended when the wall clock moves backward", () => {
       executable: process.execPath,
       args: ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
       cwd: process.cwd(),
-      environment: process.env,
+      environment: protectedEnvironment,
       timeLimitMs: 150,
       terminationGraceMs: 50,
       trajectoryLimits: {},
@@ -183,7 +313,7 @@ test("wall limit is not extended when the wall clock moves backward", () => {
   const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: fixtureEnvironment(),
+    env: coverageHarnessEnvironment(),
     timeout: 5_000,
   });
   assert.equal(result.error, undefined);
@@ -209,6 +339,15 @@ test("receipt executable names support Unicode and normalize control characters"
     assert.equal(result.receipt.command.executableBasename, expected);
     assert.match(result.receipt.command.executableBasename, basenamePattern);
   }
+});
+
+test("protected-run schema binds stop evidence to the receipt state", () => {
+  const schema = JSON.parse(readFileSync(join(process.cwd(), "docs/protected-run-v1.schema.json"), "utf8"));
+  const exited = schema.allOf.find((condition: any) => condition.if?.properties?.state?.const === "EXITED");
+  const interrupted = schema.allOf.find((condition: any) => condition.if?.properties?.state?.enum);
+  assert.deepEqual(exited.then.not.required, ["stop"]);
+  assert.deepEqual(interrupted.if.properties.state.enum, ["STOPPED", "ERROR"]);
+  assert.deepEqual(interrupted.then.required, ["stop"]);
 });
 
 test("wall limit terminates an ordinary descendant in the same process group", async () => {
@@ -238,11 +377,13 @@ test("CLI SIGINT handler terminates the protected group and retains a receipt", 
   const pidPath = join(directory, "leader.pid");
   const receiptPath = join(directory, "interrupt.json");
   const supervised = "require('node:fs').writeFileSync(process.argv[1],String(process.pid));process.on('SIGTERM',()=>{});setInterval(()=>{},1000)";
-  const cli = spawn(process.execPath, [
-    "--import", "tsx", join(process.cwd(), "src/cli.ts"),
-    "run", "--time-limit", "5s", "--termination-grace", "100ms", "--output", receiptPath,
+  const cliArgs = [
+    "--time-limit", "5s", "--termination-grace", "100ms", "--output", receiptPath,
     "--", process.execPath, "-e", supervised, pidPath,
-  ], { cwd: process.cwd(), env: fixtureEnvironment(), stdio: "ignore" });
+  ];
+  const cli = spawn(process.execPath, [
+    "--import", "tsx", "--input-type=module", "-e", protectedCliHarness(cliArgs),
+  ], { cwd: process.cwd(), env: coverageHarnessEnvironment(), stdio: "ignore" });
   const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveClose, rejectClose) => {
     cli.once("error", rejectClose);
     cli.once("close", (code, signal) => resolveClose({ code, signal }));
@@ -281,11 +422,13 @@ function runPreLaunchSignalFixture(signal: PreLaunchSignal, transcriptContents?:
     (async () => {
       const { existsSync } = await import("node:fs");
       const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+      const protectedEnvironment = { ...process.env };
+      delete protectedEnvironment.NODE_V8_COVERAGE;
       const pending = executeProtectedRun({
         executable: process.execPath,
         args: ["-e", "require('node:fs').writeFileSync(process.argv[1], 'launched')", ${JSON.stringify(markerPath)}],
         cwd: process.cwd(),
-        environment: process.env,
+        environment: protectedEnvironment,
         timeLimitMs: 2_000,
         terminationGraceMs: 100,
         trajectoryLimits: {},
@@ -303,7 +446,7 @@ function runPreLaunchSignalFixture(signal: PreLaunchSignal, transcriptContents?:
   const result = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: fixtureEnvironment(),
+    env: coverageHarnessEnvironment(),
     timeout: 5_000,
   });
   assert.equal(result.error, undefined);
@@ -327,6 +470,7 @@ function assertPreLaunchSignalResult(
   assert.equal(observed.result.receipt.process.termSent, false);
   assert.equal(observed.result.receipt.process.killSent, false);
   assert.equal(observed.result.receipt.process.processGroupTerminationConfirmed, true);
+  assert.equal(observed.result.receipt.command.executableIdentityStable, "NOT_CHECKED");
   assert.equal(recomputeProtectedRunHash(observed.result.receipt), observed.result.receipt.receiptHash);
 }
 
@@ -345,6 +489,8 @@ test("signal handlers are active while the executable is hashed", () => {
   const script = `
     (async () => {
       const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+      const protectedEnvironment = { ...process.env };
+      delete protectedEnvironment.NODE_V8_COVERAGE;
       const fs = (await import("node:fs")).default;
       const { syncBuiltinESMExports } = await import("node:module");
       const originalReadSync = fs.readSync;
@@ -363,7 +509,7 @@ test("signal handlers are active while the executable is hashed", () => {
         executable: process.execPath,
         args: ["-e", "require('node:fs').writeFileSync(process.argv[1], 'launched')", ${JSON.stringify(markerPath)}],
         cwd: process.cwd(),
-        environment: process.env,
+        environment: protectedEnvironment,
         timeLimitMs: 2_000,
         terminationGraceMs: 100,
         trajectoryLimits: {},
@@ -380,7 +526,7 @@ test("signal handlers are active while the executable is hashed", () => {
   const result = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: fixtureEnvironment(),
+    env: coverageHarnessEnvironment(),
     timeout: 5_000,
   });
   assert.equal(result.error, undefined);
@@ -740,7 +886,7 @@ test("CLI writes an owner-only receipt without retaining raw arguments", async (
     "--time-limit", "2s",
     "--output", receiptPath,
     "--", process.execPath, "-e", "process.exit(0)", secret,
-  ], fixtureEnvironment());
+  ], protectedEnvironment());
   assert.equal(code, 0);
   assert.equal(statSync(receiptPath).mode & 0o777, 0o600);
   const serialized = readFileSync(receiptPath, "utf8");
@@ -754,11 +900,13 @@ test("CLI preserves the terminal receipt and returns 125 when private output fai
   const receiptPath = join(parent, "receipt.json");
   mkdirSync(parent);
   const script = "const fs=require('node:fs');fs.rmdirSync(process.argv[1]);fs.writeFileSync(process.argv[1],'blocked')";
-  const result = spawnSync(process.execPath, [
-    "--import", "tsx", join(process.cwd(), "src/cli.ts"),
-    "run", "--time-limit", "2s", "--format", "json", "--output", receiptPath,
+  const cliArgs = [
+    "--time-limit", "2s", "--format", "json", "--output", receiptPath,
     "--", process.execPath, "-e", script, parent,
-  ], { cwd: process.cwd(), encoding: "utf8", env: fixtureEnvironment(), timeout: 5_000 });
+  ];
+  const result = spawnSync(process.execPath, [
+    "--import", "tsx", "--input-type=module", "-e", protectedCliHarness(cliArgs),
+  ], { cwd: process.cwd(), encoding: "utf8", env: coverageHarnessEnvironment(), timeout: 5_000 });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 125, result.stderr);
   const receipt = JSON.parse(result.stdout);
@@ -782,7 +930,7 @@ test("an unsafe receipt destination is rejected before command launch", async (c
     "--time-limit", "1s",
     "--output", output,
     "--", process.execPath, "-e", script, marker,
-  ], fixtureEnvironment());
+  ], protectedEnvironment());
   assert.equal(code, 2);
   assert.equal(existsSync(marker), false);
   assert.equal(readFileSync(target, "utf8"), "unchanged");
@@ -801,7 +949,7 @@ test("a captured transcript cannot traverse a symbolic-link parent", async (cont
     "--time-limit", "1s",
     "--capture-jsonl", join(linkedParent, "captured.jsonl"),
     "--", process.execPath, "-e", script, marker,
-  ], fixtureEnvironment());
+  ], protectedEnvironment());
   assert.equal(code, 125);
   assert.equal(existsSync(marker), false);
   assert.equal(existsSync(join(realParent, "captured.jsonl")), false);
@@ -814,7 +962,7 @@ test("a command-side --help argument is passed through", async () => {
   const code = await runProtectedRunCommand([
     "--time-limit", "1s",
     "--", process.execPath, "-e", script, "--", "--help", marker,
-  ], fixtureEnvironment());
+  ], protectedEnvironment());
   assert.equal(code, 0);
   assert.equal(readFileSync(marker, "utf8"), "--help");
 });
@@ -826,7 +974,7 @@ test("ambiguous receipt format options are rejected before launch", async () => 
   const code = await runProtectedRunCommand([
     "--time-limit", "1s", "--json", "--format", "text",
     "--", process.execPath, "-e", script, marker,
-  ], fixtureEnvironment());
+  ], protectedEnvironment());
   assert.equal(code, 2);
   assert.equal(existsSync(marker), false);
 });
@@ -839,7 +987,7 @@ test("dollar budget option refuses before launching the command", async () => {
     "--time-limit", "1s",
     "--budget-usd", "1",
     "--", process.execPath, "-e", script, marker,
-  ], fixtureEnvironment());
+  ], protectedEnvironment());
   assert.equal(code, 2);
   assert.equal(existsSync(marker), false);
 });

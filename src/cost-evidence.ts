@@ -20,6 +20,8 @@ export type ExactCostEvidence = {
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const MAX_USAGE_EVENTS = 100_000;
 const MAX_SESSION_COST_USD = 1_000_000;
+const MICROCENTS_PER_USD = 100_000_000;
+const MAX_SESSION_COST_MICROCENTS = MAX_SESSION_COST_USD * MICROCENTS_PER_USD;
 
 function hash(value: string | Buffer): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -42,21 +44,32 @@ function safeSessionId(value: unknown): string {
   return value;
 }
 
-function timestamp(value: unknown): string {
-  if (typeof value !== "string" && typeof value !== "number") {
+function millisecondTimestamp(value: number, label: string): string {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} is invalid`);
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) throw new Error(`${label} is invalid`);
+  return parsed.toISOString();
+}
+
+function cursorEventTimestamp(value: unknown): string {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
     throw new Error("Cursor usage event timestamp is invalid");
   }
-  const numeric = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
-  const parsed = new Date(numeric);
-  if (!Number.isFinite(parsed.getTime())) throw new Error("Cursor usage event timestamp is invalid");
-  return parsed.toISOString();
+  return millisecondTimestamp(Number(value), "Cursor usage event timestamp");
+}
+
+function cursorPeriodTimestamp(value: unknown): string {
+  if (typeof value !== "number") throw new Error("Cursor usage export period timestamp is invalid");
+  return millisecondTimestamp(value, "Cursor usage export period timestamp");
 }
 
 function canonicalTimestamp(value: unknown, label: string): string {
   if (typeof value !== "string") throw new Error(`exact cost evidence ${label} is invalid`);
-  const parsed = timestamp(value);
-  if (parsed !== value) throw new Error(`exact cost evidence ${label} must be a canonical timestamp`);
-  return parsed;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
+    throw new Error(`exact cost evidence ${label} must be a canonical timestamp`);
+  }
+  return value;
 }
 
 function chargeMicocents(value: unknown): number {
@@ -152,8 +165,8 @@ export function buildCursorExactCostEvidence(input: {
     throw new Error("Cursor usage export is paginated; request a narrow period whose complete result fits one response");
   }
   const period = record(root.period, "Cursor usage export period");
-  const exportPeriodStartedAt = timestamp(period.startDate);
-  const exportPeriodEndedAt = timestamp(period.endDate);
+  const exportPeriodStartedAt = cursorPeriodTimestamp(period.startDate);
+  const exportPeriodEndedAt = cursorPeriodTimestamp(period.endDate);
   if (exportPeriodStartedAt > exportPeriodEndedAt) throw new Error("Cursor usage export period is invalid");
 
   const transcriptSessions = structuredConversationIds(input.transcript.toString("utf8"));
@@ -163,7 +176,7 @@ export function buildCursorExactCostEvidence(input: {
     return {
       event,
       conversationId,
-      timestamp: timestamp(event.timestamp),
+      timestamp: cursorEventTimestamp(event.timestamp),
       fingerprint: hash(canonical(event)),
     };
   });
@@ -183,6 +196,9 @@ export function buildCursorExactCostEvidence(input: {
     if (!event.isChargeable) continue;
     totalMicrocents += chargeMicocents(event.chargedCents);
     if (!Number.isSafeInteger(totalMicrocents)) throw new Error("Cursor usage export total exceeds safe accounting precision");
+    if (totalMicrocents > MAX_SESSION_COST_MICROCENTS) {
+      throw new Error(`Cursor usage export total exceeds the $${MAX_SESSION_COST_USD} session limit`);
+    }
     chargeableRecords += 1;
   }
   const times = matched.map((item) => item.timestamp).sort();
@@ -197,7 +213,7 @@ export function buildCursorExactCostEvidence(input: {
     sessionIdSha256: hash(sessionId),
     recordsObserved: matched.length,
     chargeableRecords,
-    amountUsd: totalMicrocents / 100_000_000,
+    amountUsd: totalMicrocents / MICROCENTS_PER_USD,
     exportPeriodStartedAt,
     exportPeriodEndedAt,
     startedAt: times[0],

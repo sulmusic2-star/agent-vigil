@@ -29,6 +29,12 @@ timestamps, implicit billing state, and invalid charge amounts. Events without
 a conversation ID are ignored. Non-chargeable events for the matched session
 remain in the observed record count but do not increase the amount.
 
+The accepted Admin API shape is field-specific: each usage-event `timestamp`
+is a decimal millisecond string, while `period.startDate` and `period.endDate`
+are numeric milliseconds. The importer rejects other timestamp encodings and a
+matched-session aggregate above $1,000,000 instead of emitting evidence that a
+downstream verifier would refuse.
+
 The output keeps hashes rather than the raw conversation ID. It records:
 
 - the transcript hash;

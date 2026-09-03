@@ -149,6 +149,22 @@
       "items": { "type": "string", "minLength": 1, "maxLength": 500 }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "state": { "const": "EXITED" } },
+        "required": ["state"]
+      },
+      "then": { "not": { "required": ["stop"] } }
+    },
+    {
+      "if": {
+        "properties": { "state": { "enum": ["STOPPED", "ERROR"] } },
+        "required": ["state"]
+      },
+      "then": { "required": ["stop"] }
+    }
+  ],
   "$defs": {
     "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "timestamp": {

@@ -20,8 +20,8 @@ export declare function writePrivateFileAtomicWithin(root: string, destination: 
 export declare function writePrivateFileExclusive(destination: string, content: string): void;
 export type PrivateFileSink = {
     path: string;
-    write: (bytes: Buffer) => void;
-    close: () => void;
+    write: (bytes: Buffer) => Promise<void>;
+    close: () => Promise<void>;
 };
 /**
  * Open a new owner-only regular file for bounded streaming output. The caller

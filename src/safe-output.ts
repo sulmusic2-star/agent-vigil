@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
 import {
+  close,
   closeSync,
   constants,
   fchmodSync,
   fstatSync,
+  fsync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -12,8 +14,8 @@ import {
   realpathSync,
   renameSync,
   unlinkSync,
+  write,
   writeFileSync,
-  writeSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, normalize, parse, relative, resolve, sep, win32 } from "node:path";
 
@@ -253,9 +255,44 @@ export function writePrivateFileExclusive(destination: string, content: string):
 
 export type PrivateFileSink = {
   path: string;
-  write: (bytes: Buffer) => void;
-  close: () => void;
+  write: (bytes: Buffer) => Promise<void>;
+  close: () => Promise<void>;
 };
+
+function writeBuffer(descriptor: number, bytes: Buffer): Promise<void> {
+  return new Promise((resolveWrite, rejectWrite) => {
+    const writeNext = (offset: number): void => {
+      if (offset === bytes.length) {
+        resolveWrite();
+        return;
+      }
+      write(descriptor, bytes, offset, bytes.length - offset, null, (error, written) => {
+        if (error) {
+          rejectWrite(error);
+          return;
+        }
+        if (written <= 0) {
+          rejectWrite(new Error("Private output write made no progress"));
+          return;
+        }
+        writeNext(offset + written);
+      });
+    };
+    writeNext(0);
+  });
+}
+
+function flushDescriptor(descriptor: number): Promise<void> {
+  return new Promise((resolveFlush, rejectFlush) => {
+    fsync(descriptor, (error) => error ? rejectFlush(error) : resolveFlush());
+  });
+}
+
+function closeDescriptor(descriptor: number): Promise<void> {
+  return new Promise((resolveClose, rejectClose) => {
+    close(descriptor, (error) => error ? rejectClose(error) : resolveClose());
+  });
+}
 
 /**
  * Open a new owner-only regular file for bounded streaming output. The caller
@@ -271,7 +308,9 @@ export function createPrivateFileSink(destination: string): PrivateFileSink {
     constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | noFollow,
     0o600,
   );
-  let open = true;
+  let accepting = true;
+  let pending = Promise.resolve();
+  let closePromise: Promise<void> | undefined;
   try {
     fchmodSync(descriptor, 0o600);
   } catch (error) {
@@ -281,18 +320,24 @@ export function createPrivateFileSink(destination: string): PrivateFileSink {
   }
   return {
     path: target,
-    write(bytes: Buffer): void {
-      if (!open) throw new Error(`Private output is already closed: ${target}`);
-      let offset = 0;
-      while (offset < bytes.length) offset += writeSync(descriptor, bytes, offset, bytes.length - offset);
+    write(bytes: Buffer): Promise<void> {
+      if (!accepting) return Promise.reject(new Error(`Private output is already closed: ${target}`));
+      const copy = Buffer.from(bytes);
+      const operation = pending.then(() => writeBuffer(descriptor, copy));
+      pending = operation;
+      return operation;
     },
-    close(): void {
-      if (!open) return;
-      open = false;
-      let failure: unknown;
-      try { fsyncSync(descriptor); } catch (error) { failure = error; }
-      try { closeSync(descriptor); } catch (error) { failure ??= error; }
-      if (failure !== undefined) throw failure;
+    close(): Promise<void> {
+      if (closePromise) return closePromise;
+      accepting = false;
+      closePromise = (async () => {
+        let failure: unknown;
+        try { await pending; } catch (error) { failure = error; }
+        try { await flushDescriptor(descriptor); } catch (error) { failure ??= error; }
+        try { await closeDescriptor(descriptor); } catch (error) { failure ??= error; }
+        if (failure !== undefined) throw failure;
+      })();
+      return closePromise;
     },
   };
 }

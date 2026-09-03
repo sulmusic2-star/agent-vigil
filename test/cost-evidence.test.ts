@@ -98,11 +98,13 @@ test("exact cost import refuses ambiguous, unbound, duplicate, and malformed bil
   const duplicate = event();
   assert.throws(() => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([duplicate, duplicate]) }), /duplicate events/);
   assert.throws(() => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([event({ isChargeable: "yes" })]) }), /isChargeable must be explicit/);
-  for (const invalidTimestamp of [null, true, false, {}, []]) {
+  for (const invalidTimestamp of [1788184800000, "2026-08-31T14:00:00.000Z", "not-a-timestamp", null, true, false, {}, []]) {
     assert.throws(
       () => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([event({ timestamp: invalidTimestamp })]) }),
       /timestamp is invalid/,
     );
+  }
+  for (const invalidTimestamp of ["1788181200000", "2026-08-31T13:00:00.000Z", "not-a-timestamp", null, true, false, {}, []]) {
     const invalidPeriod = JSON.parse(usageExport().toString("utf8"));
     invalidPeriod.period.startDate = invalidTimestamp;
     assert.throws(
@@ -110,6 +112,13 @@ test("exact cost import refuses ambiguous, unbound, duplicate, and malformed bil
       /timestamp is invalid/,
     );
   }
+  assert.throws(() => buildCursorExactCostEvidence({
+    transcript: transcript(),
+    usageExport: usageExport([
+      event({ chargedCents: 60_000_000 }),
+      event({ timestamp: "1788184860000", chargedCents: 60_000_000 }),
+    ]),
+  }), /total exceeds the \$1000000 session limit/);
   const incomplete = JSON.parse(usageExport().toString("utf8"));
   incomplete.totalUsageEventsCount += 1;
   incomplete.pagination.hasNextPage = true;

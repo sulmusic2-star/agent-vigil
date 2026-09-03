@@ -4749,10 +4749,12 @@ ${advisories ? `<section aria-labelledby="advisory-title"><h2 id="advisory-title
 // src/safe-output.ts
 import { randomBytes as randomBytes2 } from "node:crypto";
 import {
+  close,
   closeSync as closeSync6,
   constants as constants6,
   fchmodSync as fchmodSync2,
   fstatSync as fstatSync6,
+  fsync,
   fsyncSync,
   lstatSync as lstatSync6,
   mkdirSync as mkdirSync2,
@@ -4761,8 +4763,8 @@ import {
   realpathSync as realpathSync4,
   renameSync,
   unlinkSync,
-  writeFileSync as writeFileSync2,
-  writeSync as writeSync2
+  write,
+  writeFileSync as writeFileSync2
 } from "node:fs";
 import { basename, dirname, isAbsolute as isAbsolute5, join as join2, normalize, parse, relative as relative3, resolve as resolve7, sep as sep4, win32 } from "node:path";
 function isMissing(error) {
@@ -4963,6 +4965,38 @@ function writePrivateFileExclusive(destination, content) {
   }
   if (failure !== void 0) throw failure;
 }
+function writeBuffer(descriptor, bytes) {
+  return new Promise((resolveWrite, rejectWrite) => {
+    const writeNext = (offset) => {
+      if (offset === bytes.length) {
+        resolveWrite();
+        return;
+      }
+      write(descriptor, bytes, offset, bytes.length - offset, null, (error, written) => {
+        if (error) {
+          rejectWrite(error);
+          return;
+        }
+        if (written <= 0) {
+          rejectWrite(new Error("Private output write made no progress"));
+          return;
+        }
+        writeNext(offset + written);
+      });
+    };
+    writeNext(0);
+  });
+}
+function flushDescriptor(descriptor) {
+  return new Promise((resolveFlush, rejectFlush) => {
+    fsync(descriptor, (error) => error ? rejectFlush(error) : resolveFlush());
+  });
+}
+function closeDescriptor(descriptor) {
+  return new Promise((resolveClose, rejectClose) => {
+    close(descriptor, (error) => error ? rejectClose(error) : resolveClose());
+  });
+}
 function createPrivateFileSink(destination) {
   const requested = resolve7(destination);
   const parent = resolveSafeParent(requested);
@@ -4973,7 +5007,9 @@ function createPrivateFileSink(destination) {
     constants6.O_CREAT | constants6.O_EXCL | constants6.O_WRONLY | noFollow,
     384
   );
-  let open = true;
+  let accepting = true;
+  let pending = Promise.resolve();
+  let closePromise;
   try {
     fchmodSync2(descriptor, 384);
   } catch (error) {
@@ -4987,25 +5023,35 @@ function createPrivateFileSink(destination) {
   return {
     path: target2,
     write(bytes) {
-      if (!open) throw new Error(`Private output is already closed: ${target2}`);
-      let offset = 0;
-      while (offset < bytes.length) offset += writeSync2(descriptor, bytes, offset, bytes.length - offset);
+      if (!accepting) return Promise.reject(new Error(`Private output is already closed: ${target2}`));
+      const copy = Buffer.from(bytes);
+      const operation = pending.then(() => writeBuffer(descriptor, copy));
+      pending = operation;
+      return operation;
     },
     close() {
-      if (!open) return;
-      open = false;
-      let failure;
-      try {
-        fsyncSync(descriptor);
-      } catch (error) {
-        failure = error;
-      }
-      try {
-        closeSync6(descriptor);
-      } catch (error) {
-        failure ??= error;
-      }
-      if (failure !== void 0) throw failure;
+      if (closePromise) return closePromise;
+      accepting = false;
+      closePromise = (async () => {
+        let failure;
+        try {
+          await pending;
+        } catch (error) {
+          failure = error;
+        }
+        try {
+          await flushDescriptor(descriptor);
+        } catch (error) {
+          failure ??= error;
+        }
+        try {
+          await closeDescriptor(descriptor);
+        } catch (error) {
+          failure ??= error;
+        }
+        if (failure !== void 0) throw failure;
+      })();
+      return closePromise;
     }
   };
 }
@@ -19483,6 +19529,8 @@ import { createHash as createHash28 } from "node:crypto";
 var SHA2567 = /^sha256:[0-9a-f]{64}$/;
 var MAX_USAGE_EVENTS = 1e5;
 var MAX_SESSION_COST_USD = 1e6;
+var MICROCENTS_PER_USD = 1e8;
+var MAX_SESSION_COST_MICROCENTS = MAX_SESSION_COST_USD * MICROCENTS_PER_USD;
 function hash3(value) {
   return `sha256:${createHash28("sha256").update(value).digest("hex")}`;
 }
@@ -19500,20 +19548,29 @@ function safeSessionId(value) {
   }
   return value;
 }
-function timestamp8(value) {
-  if (typeof value !== "string" && typeof value !== "number") {
+function millisecondTimestamp(value, label) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} is invalid`);
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) throw new Error(`${label} is invalid`);
+  return parsed.toISOString();
+}
+function cursorEventTimestamp(value) {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
     throw new Error("Cursor usage event timestamp is invalid");
   }
-  const numeric = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
-  const parsed = new Date(numeric);
-  if (!Number.isFinite(parsed.getTime())) throw new Error("Cursor usage event timestamp is invalid");
-  return parsed.toISOString();
+  return millisecondTimestamp(Number(value), "Cursor usage event timestamp");
+}
+function cursorPeriodTimestamp(value) {
+  if (typeof value !== "number") throw new Error("Cursor usage export period timestamp is invalid");
+  return millisecondTimestamp(value, "Cursor usage export period timestamp");
 }
 function canonicalTimestamp5(value, label) {
   if (typeof value !== "string") throw new Error(`exact cost evidence ${label} is invalid`);
-  const parsed = timestamp8(value);
-  if (parsed !== value) throw new Error(`exact cost evidence ${label} must be a canonical timestamp`);
-  return parsed;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
+    throw new Error(`exact cost evidence ${label} must be a canonical timestamp`);
+  }
+  return value;
 }
 function chargeMicocents(value) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e8) {
@@ -19619,8 +19676,8 @@ function buildCursorExactCostEvidence(input) {
     throw new Error("Cursor usage export is paginated; request a narrow period whose complete result fits one response");
   }
   const period = record7(root.period, "Cursor usage export period");
-  const exportPeriodStartedAt = timestamp8(period.startDate);
-  const exportPeriodEndedAt = timestamp8(period.endDate);
+  const exportPeriodStartedAt = cursorPeriodTimestamp(period.startDate);
+  const exportPeriodEndedAt = cursorPeriodTimestamp(period.endDate);
   if (exportPeriodStartedAt > exportPeriodEndedAt) throw new Error("Cursor usage export period is invalid");
   const transcriptSessions = structuredConversationIds(input.transcript.toString("utf8"));
   const normalized = events.map((value, index) => {
@@ -19629,7 +19686,7 @@ function buildCursorExactCostEvidence(input) {
     return {
       event: event2,
       conversationId,
-      timestamp: timestamp8(event2.timestamp),
+      timestamp: cursorEventTimestamp(event2.timestamp),
       fingerprint: hash3(canonical(event2))
     };
   });
@@ -19648,6 +19705,9 @@ function buildCursorExactCostEvidence(input) {
     if (!event2.isChargeable) continue;
     totalMicrocents += chargeMicocents(event2.chargedCents);
     if (!Number.isSafeInteger(totalMicrocents)) throw new Error("Cursor usage export total exceeds safe accounting precision");
+    if (totalMicrocents > MAX_SESSION_COST_MICROCENTS) {
+      throw new Error(`Cursor usage export total exceeds the $${MAX_SESSION_COST_USD} session limit`);
+    }
     chargeableRecords += 1;
   }
   const times = matched.map((item2) => item2.timestamp).sort();
@@ -19662,7 +19722,7 @@ function buildCursorExactCostEvidence(input) {
     sessionIdSha256: hash3(sessionId),
     recordsObserved: matched.length,
     chargeableRecords,
-    amountUsd: totalMicrocents / 1e8,
+    amountUsd: totalMicrocents / MICROCENTS_PER_USD,
     exportPeriodStartedAt,
     exportPeriodEndedAt,
     startedAt: times[0],
@@ -20738,11 +20798,13 @@ async function executeProtectedRun(input) {
   let termSent = false;
   let killSent = false;
   let processGroupTerminationConfirmed = false;
-  let stable = true;
+  let stable = "NOT_CHECKED";
   let telemetry;
   let latestTelemetry;
   let telemetryPollInFlight;
   let stdoutDonePromise = Promise.resolve();
+  let stdoutErrorHandler;
+  let stdoutDrainHandler;
   let verificationAbortController;
   let stopHandledPromise;
   let requestStopResolve;
@@ -20753,6 +20815,12 @@ async function executeProtectedRun(input) {
     if (stopRequest) return;
     stopRequest = request;
     requestStopResolve?.(request);
+  };
+  const requestSupervisorError = (error) => {
+    requestStop({
+      code: "SUPERVISOR_ERROR",
+      detailSha256: sha2568(error instanceof Error ? error.message : String(error))
+    });
   };
   const getStopRequest = () => stopRequest;
   const signalHandlers = /* @__PURE__ */ new Map();
@@ -20855,26 +20923,56 @@ async function executeProtectedRun(input) {
       child.once("error", rejectSpawn);
     });
     if (child.stdout) {
+      const capturedStdout = child.stdout;
+      let captureWritesInFlight = 0;
+      let relayBackpressured = false;
+      const resumeCapturedStdout = () => {
+        if (!stopRequest && captureWritesInFlight === 0 && !relayBackpressured) capturedStdout.resume();
+      };
+      stdoutErrorHandler = (error) => {
+        relayBackpressured = false;
+        if (stdoutDrainHandler) {
+          process.stdout.off("drain", stdoutDrainHandler);
+          stdoutDrainHandler = void 0;
+        }
+        requestSupervisorError(error);
+      };
+      process.stdout.on("error", stdoutErrorHandler);
       stdoutDonePromise = new Promise((resolveStdout) => {
-        child.stdout.once("end", resolveStdout);
-        child.stdout.once("close", resolveStdout);
+        capturedStdout.once("end", resolveStdout);
+        capturedStdout.once("close", resolveStdout);
       });
-      child.stdout.on("data", (chunk) => {
+      capturedStdout.on("data", (chunk) => {
         const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         try {
           const breach = telemetry.appendCaptured(bytes);
           if (breach) requestStop(stopFromBreach(breach));
-          else sink.write(bytes);
+          else {
+            captureWritesInFlight += 1;
+            capturedStdout.pause();
+            void sink.write(bytes).catch((error) => {
+              requestSupervisorError(error);
+            }).finally(() => {
+              captureWritesInFlight -= 1;
+              resumeCapturedStdout();
+            });
+          }
           if (!process.stdout.write(bytes)) {
-            child.stdout.pause();
-            process.stdout.once("drain", () => child?.stdout?.resume());
+            relayBackpressured = true;
+            capturedStdout.pause();
+            stdoutDrainHandler = () => {
+              relayBackpressured = false;
+              stdoutDrainHandler = void 0;
+              resumeCapturedStdout();
+            };
+            process.stdout.once("drain", stdoutDrainHandler);
           }
         } catch (error) {
-          requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2568(error instanceof Error ? error.message : String(error)) });
+          requestSupervisorError(error);
         }
       });
-      child.stdout.on("error", (error) => {
-        requestStop({ code: "SUPERVISOR_ERROR", detailSha256: sha2568(error.message) });
+      capturedStdout.on("error", (error) => {
+        requestSupervisorError(error);
       });
     }
     await spawnPromise;
@@ -20953,7 +21051,7 @@ async function executeProtectedRun(input) {
     }
     if (stopRequest) await stopHandledPromise;
     if (sink) {
-      sink.close();
+      await sink.close();
       sink = void 0;
     }
     const finishedAtMs = Date.now();
@@ -21021,9 +21119,11 @@ async function executeProtectedRun(input) {
     verificationAbortController?.abort();
     if (timeout) clearTimeout(timeout);
     if (interval) clearInterval(interval);
+    if (stdoutErrorHandler) process.stdout.off("error", stdoutErrorHandler);
+    if (stdoutDrainHandler) process.stdout.off("drain", stdoutDrainHandler);
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);
     try {
-      sink?.close();
+      await sink?.close();
     } catch {
     }
     try {
