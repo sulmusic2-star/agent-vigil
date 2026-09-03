@@ -608,6 +608,17 @@ async function decideDeployment(env, event, authorization) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ environment_name: event.environment, state, comment }),
   });
+  console.log(JSON.stringify({
+    event: "deployment_protection_decision",
+    state,
+    delivery_id: event.deliveryId,
+    repository: event.repository,
+    commit_sha: event.commitSha,
+    environment: event.environment,
+    run_id: event.runId,
+    authorization_hash: authorization?.authorizationHash ?? null,
+    decided_at: now,
+  }));
   return { status: "decided", delivery_id: event.deliveryId, state, authorization_hash: authorization?.authorizationHash ?? null };
 }
 

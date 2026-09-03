@@ -759,6 +759,10 @@ export function validateGuardControlAdmission(value: unknown): GuardControlAdmis
     && new Set(Object.values(validated.trust)).size !== Object.keys(validated.trust).length) {
     throw new Error("approved control admission trust roots must be distinct");
   }
+  if (validated.decision === "APPROVE"
+    && canonical(validated.reasonCodes) !== canonical(["EXACT_CONTROL_ADMISSION_PROVEN"])) {
+    throw new Error("approved control admission reason codes are invalid");
+  }
   return validated;
 }
 

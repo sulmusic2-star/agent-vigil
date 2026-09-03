@@ -357,6 +357,8 @@ test("tampered challenges and expired or misbound admission decisions fail close
     const { admissionHash: _hash, ...tooLong } = approved.admission;
     const excessive = signGuardControlAdmission({ ...tooLong, validUntil: "2026-09-03T15:06:00.001Z" }, localGuardSigner(f.keys.admission.privatePath));
     assert.throws(() => openGuardControlAdmission(excessive.envelope, f.keys.admission.publicKey), /at most one hour/);
+    const malformedApprove = signGuardControlAdmission({ ...tooLong, reasonCodes: ["CONTROL_REGRESSION"] }, localGuardSigner(f.keys.admission.privatePath));
+    assert.throws(() => openGuardControlAdmission(malformedApprove.envelope, f.keys.admission.publicKey), /reason codes are invalid/);
     assert.throws(() => gateGuardControlAdmission({
       envelope: approved.envelope,
       publicKey: f.keys.admission.publicKey,

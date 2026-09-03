@@ -502,6 +502,9 @@ test("deployment ledger approves only a current exact authorization and reports 
   const fixture = deploymentAuthorizationFixture();
   const calls: Array<{ url: string; body?: any }> = [];
   const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const auditEvents: any[] = [];
+  console.log = ((line: string) => auditEvents.push(JSON.parse(line))) as typeof console.log;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
@@ -547,9 +550,17 @@ test("deployment ledger approves only a current exact authorization and reports 
     });
     await decide();
     assert.equal(calls.filter((call) => call.url.endsWith("/deployment_protection_rule")).length, 1);
+    assert.deepEqual(auditEvents.map((item) => ({
+      event: item.event, state: item.state, authorization_hash: item.authorization_hash,
+      repository: item.repository, commit_sha: item.commit_sha, environment: item.environment,
+    })), [{
+      event: "deployment_protection_decision", state: "approved",
+      authorization_hash: fixture.authorization.authorization.authorizationHash,
+      repository, commit_sha: headSha, environment: "production",
+    }]);
     await ledger.alarm();
     assert.equal(storage.size, 0);
-  } finally { globalThis.fetch = originalFetch; }
+  } finally { globalThis.fetch = originalFetch; console.log = originalLog; }
 });
 
 test("missing authorization rejects deployment and callback failure is never recorded as a decision", async () => {
@@ -557,6 +568,9 @@ test("missing authorization rejects deployment and callback failure is never rec
   const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
   const event = parseDeploymentProtectionPayload(deploymentPayload(), deliveryId);
   const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const auditEvents: any[] = [];
+  console.log = ((line: string) => auditEvents.push(JSON.parse(line))) as typeof console.log;
   const storage = new Map<string, any>();
   const state = { storage: {
     async get(key: string) { return storage.get(key); },
@@ -573,6 +587,10 @@ test("missing authorization rejects deployment and callback failure is never rec
       .fetch(new Request("https://ledger/", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ operation: "decide", event }) }));
     assert.equal((await rejected.json() as any).state, "rejected");
+    assert.equal(auditEvents.length, 1);
+    assert.deepEqual({ event: auditEvents[0].event, state: auditEvents[0].state, authorization_hash: auditEvents[0].authorization_hash }, {
+      event: "deployment_protection_decision", state: "rejected", authorization_hash: null,
+    });
 
     storage.clear();
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -585,7 +603,7 @@ test("missing authorization rejects deployment and callback failure is never rec
       .fetch(new Request("https://ledger/", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ operation: "decide", event }) })), /GitHub API 503/);
     assert.equal(storage.has(`decision:${deliveryId}`), false);
-  } finally { globalThis.fetch = originalFetch; }
+  } finally { globalThis.fetch = originalFetch; console.log = originalLog; }
 });
 
 test("public App manifest and control workflow keep customer setup to one App installation", () => {
