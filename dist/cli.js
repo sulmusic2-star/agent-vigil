@@ -20403,7 +20403,8 @@ var RunTelemetryMonitor = class {
       this.readyResolve = resolveReady;
       this.readyReject = rejectReady;
     });
-    const workerName = new URL(import.meta.url).pathname.endsWith(".ts") ? "./run-telemetry-worker-source.mjs" : "./run-telemetry-worker.js";
+    const sourceRuntime = new URL(import.meta.url).pathname.endsWith(".ts");
+    const workerName = sourceRuntime ? process.features.typescript ? "./run-telemetry-worker.ts" : "./run-telemetry-worker-source.mjs" : "./run-telemetry-worker.js";
     this.worker = new Worker(new URL(workerName, import.meta.url), { workerData: input });
     this.worker.on("message", (message) => this.handleMessage(message));
     this.worker.on("error", (error) => this.fail(error));
