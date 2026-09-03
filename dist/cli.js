@@ -20753,6 +20753,7 @@ async function executeProtectedRun(input) {
     stopRequest = request;
     requestStopResolve?.(request);
   };
+  const getStopRequest = () => stopRequest;
   const signalHandlers = /* @__PURE__ */ new Map();
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
@@ -20770,6 +20771,29 @@ async function executeProtectedRun(input) {
         startedAtMs: startedAtMonotonicMs
       });
       await telemetry.ready();
+    }
+    const preLaunchStop = getStopRequest();
+    if (preLaunchStop) {
+      processGroupTerminationConfirmed = true;
+      const finishedAtMs2 = Date.now();
+      const receipt2 = buildReceipt({
+        run: input,
+        executable,
+        stable,
+        state: "STOPPED",
+        startedAtMs,
+        finishedAtMs: finishedAtMs2,
+        elapsedMs: monotonicNowMs() - startedAtMonotonicMs,
+        exit,
+        stop: preLaunchStop,
+        termSent,
+        killSent,
+        processGroupTerminationConfirmed
+      });
+      return {
+        exitCode: preLaunchStop.code === "SUPERVISOR_SIGNAL" ? signalExitCode(preLaunchStop.signal ?? null) : 124,
+        receipt: receipt2
+      };
     }
     startedAtMs = Date.now();
     startedAtMonotonicMs = monotonicNowMs();

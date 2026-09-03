@@ -422,6 +422,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     stopRequest = request;
     requestStopResolve?.(request);
   };
+  const getStopRequest = (): StopRequest | undefined => stopRequest;
   const signalHandlers = new Map<NodeJS.Signals, () => void>();
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as NodeJS.Signals[]) {
     const handler = () => requestStop({ code: "SUPERVISOR_SIGNAL", signal });
@@ -440,6 +441,30 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
         startedAtMs: startedAtMonotonicMs,
       });
       await telemetry.ready();
+    }
+
+    const preLaunchStop = getStopRequest();
+    if (preLaunchStop) {
+      processGroupTerminationConfirmed = true;
+      const finishedAtMs = Date.now();
+      const receipt = buildReceipt({
+        run: input,
+        executable,
+        stable,
+        state: "STOPPED",
+        startedAtMs,
+        finishedAtMs,
+        elapsedMs: monotonicNowMs() - startedAtMonotonicMs,
+        exit,
+        stop: preLaunchStop,
+        termSent,
+        killSent,
+        processGroupTerminationConfirmed,
+      });
+      return {
+        exitCode: preLaunchStop.code === "SUPERVISOR_SIGNAL" ? signalExitCode(preLaunchStop.signal ?? null) : 124,
+        receipt,
+      };
     }
 
     startedAtMs = Date.now();

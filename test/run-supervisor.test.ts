@@ -211,6 +211,54 @@ test("CLI SIGINT handler terminates the protected group and retains a receipt", 
   }
 });
 
+test("a supervisor signal during telemetry initialization prevents command launch", () => {
+  const directory = root();
+  const markerPath = join(directory, "launched.txt");
+  const transcriptPath = join(directory, "external.jsonl");
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const script = `
+    (async () => {
+      const { existsSync } = await import("node:fs");
+      const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+      const pending = executeProtectedRun({
+        executable: process.execPath,
+        args: ["-e", "require('node:fs').writeFileSync(process.argv[1], 'launched')", ${JSON.stringify(markerPath)}],
+        cwd: process.cwd(),
+        environment: process.env,
+        timeLimitMs: 2_000,
+        terminationGraceMs: 100,
+        trajectoryLimits: {},
+        telemetryGraceMs: 200,
+        transcript: { path: ${JSON.stringify(transcriptPath)}, transport: "external-file" },
+      });
+      process.emit("SIGINT");
+      const result = await pending;
+      process.stdout.write(JSON.stringify({ result, launched: existsSync(${JSON.stringify(markerPath)}) }));
+    })().catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  `;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(result.stdout);
+  assert.equal(observed.launched, false);
+  assert.equal(observed.result.exitCode, 130);
+  assert.equal(observed.result.receipt.state, "STOPPED");
+  assert.equal(observed.result.receipt.stop.code, "SUPERVISOR_SIGNAL");
+  assert.equal(observed.result.receipt.stop.signal, "SIGINT");
+  assert.equal(observed.result.receipt.process.leaderPid, undefined);
+  assert.equal(observed.result.receipt.process.termSent, false);
+  assert.equal(observed.result.receipt.process.killSent, false);
+  assert.equal(observed.result.receipt.process.processGroupTerminationConfirmed, true);
+  assert.equal(recomputeProtectedRunHash(observed.result.receipt), observed.result.receipt.receiptHash);
+});
+
 test("a leader cannot leave an ordinary same-group descendant behind", async () => {
   const directory = root();
   const pidPath = join(directory, "orphan.pid");
