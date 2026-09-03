@@ -23,6 +23,16 @@ export type PrivateFileSink = {
     write: (bytes: Buffer) => Promise<void>;
     close: () => Promise<void>;
 };
+export type AsyncDescriptorSink = {
+    queuedBytes: () => number;
+    write: (bytes: Buffer) => Promise<void>;
+    flush: () => Promise<void>;
+};
+/**
+ * Queue writes to an existing descriptor without blocking the caller's event
+ * loop. The descriptor remains owned by the caller and is never closed here.
+ */
+export declare function createAsyncDescriptorSink(descriptor: number): AsyncDescriptorSink;
 /**
  * Open a new owner-only regular file for bounded streaming output. The caller
  * must close the sink; close flushes the file before releasing its descriptor.

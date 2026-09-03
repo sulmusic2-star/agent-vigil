@@ -50,7 +50,11 @@ created with mode `0600` on POSIX systems, cannot replace an existing path, and
 is capped at 50 MiB. The protected-run receipt contains only digests and counts,
 not transcript content. Captured child bytes are mirrored to stdout; the final
 Vigil summary goes to stderr so the JSONL stream is not polluted. Use
-`--output` for the complete machine-readable receipt.
+`--output` for the complete machine-readable receipt. Capture persistence and
+stdout mirroring use independent asynchronous queues, so a slow output consumer
+cannot pause deadline enforcement or prevent the capture from draining. A
+capture or mirror that cannot drain within the bounded shutdown window makes the
+run `ERROR`; Agent Vigil does not silently certify a partial transcript.
 
 `--transcript <path>` observes an existing append-only JSONL file instead. The
 pre-run calls and token count become the baseline. Replacement, deletion,

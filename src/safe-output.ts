@@ -259,6 +259,12 @@ export type PrivateFileSink = {
   close: () => Promise<void>;
 };
 
+export type AsyncDescriptorSink = {
+  queuedBytes: () => number;
+  write: (bytes: Buffer) => Promise<void>;
+  flush: () => Promise<void>;
+};
+
 function writeBuffer(descriptor: number, bytes: Buffer): Promise<void> {
   return new Promise((resolveWrite, rejectWrite) => {
     const writeNext = (offset: number): void => {
@@ -272,7 +278,7 @@ function writeBuffer(descriptor: number, bytes: Buffer): Promise<void> {
           return;
         }
         if (written <= 0) {
-          rejectWrite(new Error("Private output write made no progress"));
+          rejectWrite(new Error("Output descriptor write made no progress"));
           return;
         }
         writeNext(offset + written);
@@ -292,6 +298,31 @@ function closeDescriptor(descriptor: number): Promise<void> {
   return new Promise((resolveClose, rejectClose) => {
     close(descriptor, (error) => error ? rejectClose(error) : resolveClose());
   });
+}
+
+/**
+ * Queue writes to an existing descriptor without blocking the caller's event
+ * loop. The descriptor remains owned by the caller and is never closed here.
+ */
+export function createAsyncDescriptorSink(descriptor: number): AsyncDescriptorSink {
+  if (!Number.isSafeInteger(descriptor) || descriptor < 0) {
+    throw new Error("Output descriptor must be a non-negative integer");
+  }
+  let pending = Promise.resolve();
+  let queuedByteCount = 0;
+  return {
+    queuedBytes: () => queuedByteCount,
+    write(bytes: Buffer): Promise<void> {
+      const copy = Buffer.from(bytes);
+      queuedByteCount += copy.length;
+      const operation = pending
+        .then(() => writeBuffer(descriptor, copy))
+        .finally(() => { queuedByteCount -= copy.length; });
+      pending = operation;
+      return operation;
+    },
+    flush: () => pending,
+  };
 }
 
 /**

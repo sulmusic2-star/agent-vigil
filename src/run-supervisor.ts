@@ -13,7 +13,12 @@ import { constants as osConstants } from "node:os";
 import { basename, delimiter, isAbsolute, join, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { canonical, VERSION } from "./report.ts";
-import { createPrivateFileSink, type PrivateFileSink } from "./safe-output.ts";
+import {
+  createAsyncDescriptorSink,
+  createPrivateFileSink,
+  type AsyncDescriptorSink,
+  type PrivateFileSink,
+} from "./safe-output.ts";
 import {
   RunTelemetryMonitor,
   type RunTelemetryObservation,
@@ -26,6 +31,8 @@ const MAX_EXECUTABLE_BYTES = 1024 * 1024 * 1024;
 const MAX_TIME_LIMIT_MS = 7 * 24 * 60 * 60 * 1000;
 const POST_KILL_WAIT_MS = 2_000;
 const POLL_INTERVAL_MS = 100;
+const STDOUT_DRAIN_WAIT_MS = 1_000;
+const MAX_STDOUT_RELAY_QUEUE_BYTES = 1024 * 1024;
 
 export type ProtectedRunStopCode =
   | "TIME_LIMIT"
@@ -262,6 +269,28 @@ function settleWithin(promise: Promise<unknown>, milliseconds: number): Promise<
   });
 }
 
+type TimedSettlement =
+  | { status: "fulfilled" }
+  | { status: "rejected"; error: unknown }
+  | { status: "timed-out" };
+
+function settlementWithin(promise: Promise<unknown>, milliseconds: number): Promise<TimedSettlement> {
+  return new Promise((resolveSettlement) => {
+    let settled = false;
+    const finish = (result: TimedSettlement): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveSettlement(result);
+    };
+    const timer = setTimeout(() => finish({ status: "timed-out" }), milliseconds);
+    void promise.then(
+      () => finish({ status: "fulfilled" }),
+      (error: unknown) => finish({ status: "rejected", error }),
+    );
+  });
+}
+
 async function waitForGroupExit(pid: number, milliseconds: number): Promise<boolean> {
   const deadline = monotonicNowMs() + milliseconds;
   while (processGroupExists(pid) && monotonicNowMs() < deadline) {
@@ -411,8 +440,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
   let latestTelemetry: RunTelemetryObservation | undefined;
   let telemetryPollInFlight: Promise<void> | undefined;
   let stdoutDonePromise: Promise<void> = Promise.resolve();
-  let stdoutErrorHandler: ((error: Error) => void) | undefined;
-  let stdoutDrainHandler: (() => void) | undefined;
+  let stdoutRelay: AsyncDescriptorSink | undefined;
   let verificationAbortController: AbortController | undefined;
   let stopHandledPromise: Promise<StopRequest> | undefined;
   let requestStopResolve: ((request: StopRequest) => void) | undefined;
@@ -538,54 +566,50 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     if (child.stdout) {
       const capturedStdout = child.stdout;
       let captureWritesInFlight = 0;
-      let relayBackpressured = false;
+      let captureFailed = false;
+      let relayFailed = false;
+      stdoutRelay = createAsyncDescriptorSink(process.stdout.fd);
       const resumeCapturedStdout = (): void => {
-        if (!stopRequest && captureWritesInFlight === 0 && !relayBackpressured) capturedStdout.resume();
+        if (captureWritesInFlight === 0) capturedStdout.resume();
       };
-      stdoutErrorHandler = (error) => {
-        relayBackpressured = false;
-        if (stdoutDrainHandler) {
-          process.stdout.off("drain", stdoutDrainHandler);
-          stdoutDrainHandler = undefined;
-        }
-        requestSupervisorError(error);
-      };
-      process.stdout.on("error", stdoutErrorHandler);
       stdoutDonePromise = new Promise((resolveStdout) => {
         capturedStdout.once("end", resolveStdout);
         capturedStdout.once("close", resolveStdout);
+        capturedStdout.once("error", (error) => {
+          requestSupervisorError(error);
+          resolveStdout();
+        });
       });
       capturedStdout.on("data", (chunk: Buffer | string) => {
         const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         try {
           const breach = telemetry!.appendCaptured(bytes);
           if (breach) requestStop(stopFromBreach(breach));
-          else {
+          if (!captureFailed) {
             captureWritesInFlight += 1;
             capturedStdout.pause();
             void sink!.write(bytes).catch((error: unknown) => {
+              captureFailed = true;
               requestSupervisorError(error);
             }).finally(() => {
               captureWritesInFlight -= 1;
               resumeCapturedStdout();
             });
           }
-          if (!process.stdout.write(bytes)) {
-            relayBackpressured = true;
-            capturedStdout.pause();
-            stdoutDrainHandler = () => {
-              relayBackpressured = false;
-              stdoutDrainHandler = undefined;
-              resumeCapturedStdout();
-            };
-            process.stdout.once("drain", stdoutDrainHandler);
+          if (!relayFailed) {
+            if (stdoutRelay!.queuedBytes() + bytes.length > MAX_STDOUT_RELAY_QUEUE_BYTES) {
+              relayFailed = true;
+              requestSupervisorError(new Error("Mirrored stdout exceeded its bounded asynchronous queue"));
+            } else {
+              void stdoutRelay!.write(bytes).catch((error: unknown) => {
+                relayFailed = true;
+                requestSupervisorError(error);
+              });
+            }
           }
         } catch (error) {
           requestSupervisorError(error);
         }
-      });
-      capturedStdout.on("error", (error) => {
-        requestSupervisorError(error);
       });
     }
     await spawnPromise;
@@ -646,8 +670,22 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     if (stopRequest) await stopHandledPromise;
 
     if (child.stdout) {
-      await settleWithin(stdoutDonePromise, 250);
-      child.stdout.destroy();
+      const drain = await settlementWithin(stdoutDonePromise, STDOUT_DRAIN_WAIT_MS);
+      if (drain.status !== "fulfilled") {
+        requestSupervisorError(drain.status === "rejected"
+          ? drain.error
+          : new Error("Captured stdout did not drain before the safety deadline"));
+        child.stdout.destroy();
+        await settleWithin(stdoutDonePromise, 100);
+      }
+    }
+    if (stdoutRelay) {
+      const relayFlush = await settlementWithin(stdoutRelay.flush(), STDOUT_DRAIN_WAIT_MS);
+      if (relayFlush.status !== "fulfilled") {
+        requestSupervisorError(relayFlush.status === "rejected"
+          ? relayFlush.error
+          : new Error("Mirrored stdout did not flush before the safety deadline"));
+      }
     }
     if (telemetry) {
       if (telemetryPollInFlight) await telemetryPollInFlight;
@@ -723,8 +761,6 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     verificationAbortController?.abort();
     if (timeout) clearTimeout(timeout);
     if (interval) clearInterval(interval);
-    if (stdoutErrorHandler) process.stdout.off("error", stdoutErrorHandler);
-    if (stdoutDrainHandler) process.stdout.off("drain", stdoutDrainHandler);
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);
     try { await sink?.close(); } catch { /* A receipt still reports the supervisor failure path. */ }
     try { await telemetry?.close(); } catch { /* The receipt already captures worker failures. */ }
