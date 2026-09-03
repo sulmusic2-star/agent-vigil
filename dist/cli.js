@@ -19634,7 +19634,7 @@ function finalSummaryChecks(finalSummary, loaded, repo, base, head) {
   }
   const publicationClaims = [
     { label: "merge", pattern: /\b(?:merged|merge commit)\b/i, proof: /gh\s+pr\s+merge|"mergedAt"\s*:\s*"20|Merge pull request/i, rule: "stop-event-merge-proof" },
-    { label: "npm publication", pattern: /\b(?:npm\s+)?(?:published|installable|live on npm)\b/i, proof: /npm\s+(?:publish|stage\s+approve)|npm\s+view[\s\S]{0,120}\bversion\b[\s\S]{0,120}\b\d+\.\d+\.\d+\b/i, rule: "stop-event-npm-proof" },
+    { label: "npm publication", pattern: /\bnpm\b[^\n.]{0,100}\b(?:published|released|installable|live)\b|\b(?:published|released)\b[^\n.]{0,80}\b(?:to|on)\s+npm\b|\b@[\w.-]+\/[\w.-]+@\d+\.\d+\.\d+\b[^\n.]{0,80}\b(?:published|released|installable|live)\b/i, proof: /npm\s+(?:publish|stage\s+approve)|npm\s+view[\s\S]{0,120}\bversion\b[\s\S]{0,120}\b\d+\.\d+\.\d+\b/i, rule: "stop-event-npm-proof" },
     { label: "deployment", pattern: /\b(?:deployed|deployment live|production live)\b/i, proof: /\b(?:wrangler\s+deploy|vercel\s+deploy|deployments?\/|deployment_status|pages\.dev|workers\.dev)\b/i, rule: "stop-event-deploy-proof" }
   ];
   const toolEvidence = loaded.toolCalls.map((call) => `${commandText2(call)}
