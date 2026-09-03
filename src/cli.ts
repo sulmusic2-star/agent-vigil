@@ -1218,6 +1218,9 @@ function runValue(args: string[]): number {
     if (exactCost && options.costSource !== undefined && options.costSource !== "provider-exported") {
       throw new Error("--cost-source contradicts provider-exported exact cost evidence");
     }
+    if (options.costSource === "provider-exported" && !exactCost) {
+      throw new Error("--cost-source provider-exported requires validated exact cost evidence");
+    }
     const github = options.githubEvidence ? loadGitHubEvidence(resolve(options.githubEvidence)) : undefined;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;
     const inferredOutcome = options.outcome ?? github?.inference.outcome;

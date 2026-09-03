@@ -190,10 +190,15 @@ test("value CLI refuses tampered receipts and mismatched transcripts", () => {
 });
 
 test("value CLI rejects ambiguous cost inputs and invalid enums", () => {
-  const { receipt } = fixture();
+  const { root, receipt } = fixture();
+  const arbitraryEvidence = join(root, "arbitrary-cost.txt");
+  writeFileSync(arbitraryEvidence, "self-declared cost\n");
   assert.equal(run(["value", receipt, "--cost-usd", "1.00"]), 2);
   assert.equal(run(["value", receipt, "--cost-source", "provider-billed"]), 2);
   assert.equal(run(["value", receipt, "--cost-usd", "-1", "--cost-source", "provider-billed"]), 2);
+  assert.equal(run([
+    "value", receipt, "--cost-usd", "1", "--cost-source", "provider-exported", "--cost-evidence", arbitraryEvidence,
+  ]), 2);
   assert.equal(run(["value", receipt, "--outcome", "amazing"]), 2);
   assert.equal(run(["value", receipt, "--unknown", "x"]), 2);
 });

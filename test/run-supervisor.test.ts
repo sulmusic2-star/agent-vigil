@@ -604,6 +604,57 @@ test("an interrupted post-launch executable verification remains explicitly not 
   assert.equal(recomputeProtectedRunHash(observed.receipt), observed.receipt.receiptHash);
 });
 
+test("a signal after child exit keeps interrupted executable verification not checked", () => {
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const script = `
+    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+    const { open } = await import("node:fs/promises");
+    const sample = await open(process.execPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(sample);
+    await sample.close();
+    const originalRead = fileHandlePrototype.read;
+    const protectedEnvironment = { ...process.env };
+    delete protectedEnvironment.NODE_V8_COVERAGE;
+    fileHandlePrototype.read = async function (...args) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return originalRead.apply(this, args);
+    };
+    const interrupt = setTimeout(() => process.kill(process.pid, "SIGINT"), 200);
+    try {
+      const result = await executeProtectedRun({
+        executable: process.execPath,
+        args: ["-e", "process.exit(0)"],
+        cwd: process.cwd(),
+        environment: protectedEnvironment,
+        timeLimitMs: 2_000,
+        terminationGraceMs: 50,
+        trajectoryLimits: {},
+        telemetryGraceMs: 200,
+      });
+      process.stdout.write(JSON.stringify(result));
+    } finally {
+      clearTimeout(interrupt);
+      fileHandlePrototype.read = originalRead;
+    }
+  `;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: coverageHarnessEnvironment(),
+    timeout: 5_000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(result.stdout) as ProtectedRunResult;
+  assert.equal(observed.exitCode, 130);
+  assert.equal(observed.receipt.state, "STOPPED");
+  assert.equal(observed.receipt.stop?.code, "SUPERVISOR_SIGNAL");
+  assert.equal(observed.receipt.stop?.signal, "SIGINT");
+  assert.equal(observed.receipt.process.exitCode, 0, "the child must have exited before verification was interrupted");
+  assert.equal(observed.receipt.command.executableIdentityStable, "NOT_CHECKED");
+  assert.equal(recomputeProtectedRunHash(observed.receipt), observed.receipt.receiptHash);
+});
+
 test("wall limit is not extended when the wall clock moves backward", () => {
   const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
   const script = `

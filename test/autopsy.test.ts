@@ -28,12 +28,14 @@ const SESSION = "8f2e4a1b-6c3d-4e5f-9a7b-2d1c8e6f4a3b";
 const POLICY_SHA = `sha256:${"c".repeat(64)}`;
 
 function cursorTranscript(session = SESSION, secret = "private prompt contents"): Buffer {
+  const row = (value: Record<string, unknown>, timestamp_ms: number) => ({ ...value, conversationId: session, timestamp_ms });
   return Buffer.from([
-    JSON.stringify({ type: "system", conversationId: session }),
-    JSON.stringify({ type: "user", message: { content: secret } }),
-    JSON.stringify({ type: "assistant", message: { content: "Implemented the requested change." } }),
-    JSON.stringify({ type: "tool_call", subtype: "started", call_id: "one", tool_call: { shellToolCall: { args: { command: "npm test" } } } }),
-    JSON.stringify({ type: "tool_call", subtype: "completed", call_id: "one", tool_call: { shellToolCall: { result: "ok" } } }),
+    JSON.stringify(row({ type: "system" }, 1788183000000)),
+    JSON.stringify(row({ type: "user", message: { content: secret } }, 1788183600000)),
+    JSON.stringify(row({ type: "assistant", message: { content: "Implemented the requested change." } }, 1788184200000)),
+    JSON.stringify(row({ type: "tool_call", subtype: "started", call_id: "one", tool_call: { shellToolCall: { args: { command: "npm test" } } } }, 1788184800000)),
+    JSON.stringify(row({ type: "tool_call", subtype: "completed", call_id: "one", tool_call: { shellToolCall: { result: "ok" } } }, 1788184860000)),
+    JSON.stringify(row({ type: "result", subtype: "success", result: "Implemented the requested change." }, 1788186000000)),
   ].join("\n") + "\n");
 }
 

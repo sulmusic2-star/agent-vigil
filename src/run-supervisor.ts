@@ -196,11 +196,22 @@ function hashExecutable(path: string): ExecutableEvidence {
   }
 }
 
+class PostLaunchVerificationCancelledError extends Error {
+  constructor() {
+    super("post-launch executable verification was cancelled");
+    this.name = "PostLaunchVerificationCancelledError";
+  }
+}
+
+function postLaunchVerificationCancelled(error: unknown): error is PostLaunchVerificationCancelledError {
+  return error instanceof PostLaunchVerificationCancelledError;
+}
+
 async function hashExecutableAfterLaunch(path: string, signal: AbortSignal): Promise<ExecutableEvidence> {
   const noFollow = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
   const handle = await openFile(path, fsConstants.O_RDONLY | noFollow);
   try {
-    if (signal.aborted) throw new Error("post-launch executable verification was cancelled");
+    if (signal.aborted) throw new PostLaunchVerificationCancelledError();
     const before = await handle.stat({ bigint: true });
     if (!before.isFile()) throw new Error("run executable must resolve to a regular file");
     if (before.size > BigInt(MAX_EXECUTABLE_BYTES)) {
@@ -210,14 +221,15 @@ async function hashExecutableAfterLaunch(path: string, signal: AbortSignal): Pro
     const buffer = Buffer.alloc(1024 * 1024);
     let offset = 0;
     while (offset < Number(before.size)) {
-      if (signal.aborted) throw new Error("post-launch executable verification was cancelled");
+      if (signal.aborted) throw new PostLaunchVerificationCancelledError();
       const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, Number(before.size) - offset), offset);
       if (!bytesRead) throw new Error("run executable changed while it was hashed");
       hash.update(buffer.subarray(0, bytesRead));
       offset += bytesRead;
     }
-    if (signal.aborted) throw new Error("post-launch executable verification was cancelled");
+    if (signal.aborted) throw new PostLaunchVerificationCancelledError();
     const after = await handle.stat({ bigint: true });
+    if (signal.aborted) throw new PostLaunchVerificationCancelledError();
     if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs
       || after.dev !== before.dev || after.ino !== before.ino) {
       throw new Error("run executable changed while it was hashed");
@@ -682,6 +694,8 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
         stable = completedVerification.evidence.sha256 === executable.sha256
           && completedVerification.evidence.identity === executable.identity;
         if (!stable) requestStop({ code: "EXECUTABLE_CHANGED" });
+      } else if (postLaunchVerificationCancelled(completedVerification.error)) {
+        stable = "NOT_CHECKED";
       } else {
         stable = false;
         requestStop({

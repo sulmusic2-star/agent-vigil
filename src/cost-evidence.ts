@@ -85,25 +85,61 @@ function evidencePayload(value: Omit<ExactCostEvidence, "evidenceHash">): string
   return canonical(value);
 }
 
-function structuredConversationIds(raw: string): Set<string> {
+function cursorTranscriptTimestamp(row: Record<string, unknown>, index: number): string {
+  const values: string[] = [];
+  if (Object.hasOwn(row, "timestamp_ms")) {
+    if (typeof row.timestamp_ms !== "number") throw new Error(`Cursor transcript record ${index + 1} timestamp_ms is invalid`);
+    values.push(millisecondTimestamp(row.timestamp_ms, `Cursor transcript record ${index + 1} timestamp_ms`));
+  }
+  if (Object.hasOwn(row, "timestamp")) {
+    const value = row.timestamp;
+    if (typeof value === "number") values.push(millisecondTimestamp(value, `Cursor transcript record ${index + 1} timestamp`));
+    else if (typeof value === "string") {
+      const parsed = new Date(value);
+      if (!Number.isFinite(parsed.getTime())) throw new Error(`Cursor transcript record ${index + 1} timestamp is invalid`);
+      values.push(parsed.toISOString());
+    } else throw new Error(`Cursor transcript record ${index + 1} timestamp is invalid`);
+  }
+  if (!values.length) throw new Error("Cursor transcript cannot prove its complete session period because a record has no timestamp");
+  if (new Set(values).size !== 1) throw new Error(`Cursor transcript record ${index + 1} timestamps disagree`);
+  return values[0];
+}
+
+function structuredCursorSession(raw: string): { sessionIds: Set<string>; startedAt: string; endedAt: string } {
   const roots: unknown[] = [];
+  let ndjsonInvalid = false;
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue;
-    try { roots.push(JSON.parse(line)); } catch { /* A narrative line is not structured identity evidence. */ }
+    try { roots.push(JSON.parse(line)); }
+    catch { ndjsonInvalid = true; break; }
   }
-  if (!roots.length) {
-    try { roots.push(JSON.parse(raw)); } catch { /* handled by the empty result */ }
+  if (ndjsonInvalid || !roots.length) {
+    roots.length = 0;
+    try { roots.push(JSON.parse(raw)); }
+    catch { throw new Error("Cursor transcript must be complete structured JSON"); }
   }
   const records = roots.flatMap((value) => Array.isArray(value) ? value : [value]);
+  if (!records.length) throw new Error("Cursor transcript contains no structured records");
   if (records.length > 100_000) throw new Error("Cursor transcript contains too many structured records");
-  const found = new Set<string>();
-  for (const value of records) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    const row = value as Record<string, unknown>;
-    if (row.type !== "system" || !Object.hasOwn(row, "conversationId")) continue;
-    found.add(safeSessionId(row.conversationId));
+  const rows = records.map((value, index) => record(value, `Cursor transcript record ${index + 1}`));
+  if (rows[0].type !== "system") throw new Error("Cursor transcript must start with a system initialization record");
+  if (rows.at(-1)!.type !== "result") throw new Error("Cursor transcript must end with a terminal result record");
+
+  const sessionIds = new Set<string>();
+  const timestamps = rows.map((row, index) => {
+    const camelId = Object.hasOwn(row, "conversationId") ? safeSessionId(row.conversationId) : undefined;
+    const snakeId = Object.hasOwn(row, "session_id") ? safeSessionId(row.session_id) : undefined;
+    if (camelId && snakeId && camelId !== snakeId) throw new Error(`Cursor transcript record ${index + 1} session identifiers disagree`);
+    const sessionId = camelId ?? snakeId;
+    if (!sessionId) throw new Error("Cursor transcript cannot bind every record to one session");
+    sessionIds.add(sessionId);
+    return cursorTranscriptTimestamp(row, index);
+  });
+  if (sessionIds.size !== 1) throw new Error("Cursor transcript contains more than one session");
+  for (let index = 1; index < timestamps.length; index += 1) {
+    if (timestamps[index] < timestamps[index - 1]) throw new Error("Cursor transcript timestamps are not ordered");
   }
-  return found;
+  return { sessionIds, startedAt: timestamps[0], endedAt: timestamps.at(-1)! };
 }
 
 export function recomputeExactCostEvidenceHash(value: ExactCostEvidence): string {
@@ -169,7 +205,10 @@ export function buildCursorExactCostEvidence(input: {
   const exportPeriodEndedAt = cursorPeriodTimestamp(period.endDate);
   if (exportPeriodStartedAt > exportPeriodEndedAt) throw new Error("Cursor usage export period is invalid");
 
-  const transcriptSessions = structuredConversationIds(input.transcript.toString("utf8"));
+  const transcriptSession = structuredCursorSession(input.transcript.toString("utf8"));
+  if (exportPeriodStartedAt > transcriptSession.startedAt || exportPeriodEndedAt < transcriptSession.endedAt) {
+    throw new Error("Cursor usage export period does not cover the complete transcript session");
+  }
   const normalized = events.map((value, index) => {
     const event = record(value, `Cursor usage event ${index + 1}`);
     const conversationId = event.conversationId === undefined ? undefined : safeSessionId(event.conversationId);
@@ -184,7 +223,7 @@ export function buildCursorExactCostEvidence(input: {
     throw new Error("Cursor usage export contains duplicate events; refusing to double-count cost");
   }
 
-  const shared = [...new Set(normalized.map((item) => item.conversationId).filter((id): id is string => typeof id === "string" && transcriptSessions.has(id)))];
+  const shared = [...new Set(normalized.map((item) => item.conversationId).filter((id): id is string => typeof id === "string" && transcriptSession.sessionIds.has(id)))];
   if (shared.length === 0) throw new Error("Cursor usage export has no conversationId bound to the transcript");
   if (shared.length > 1) throw new Error("Cursor usage export matches more than one transcript conversation; split the transcript before importing cost");
   const sessionId = shared[0];

@@ -19622,31 +19622,66 @@ function chargeMicocents(value) {
 function evidencePayload(value) {
   return canonical(value);
 }
-function structuredConversationIds(raw) {
+function cursorTranscriptTimestamp(row, index) {
+  const values = [];
+  if (Object.hasOwn(row, "timestamp_ms")) {
+    if (typeof row.timestamp_ms !== "number") throw new Error(`Cursor transcript record ${index + 1} timestamp_ms is invalid`);
+    values.push(millisecondTimestamp(row.timestamp_ms, `Cursor transcript record ${index + 1} timestamp_ms`));
+  }
+  if (Object.hasOwn(row, "timestamp")) {
+    const value = row.timestamp;
+    if (typeof value === "number") values.push(millisecondTimestamp(value, `Cursor transcript record ${index + 1} timestamp`));
+    else if (typeof value === "string") {
+      const parsed = new Date(value);
+      if (!Number.isFinite(parsed.getTime())) throw new Error(`Cursor transcript record ${index + 1} timestamp is invalid`);
+      values.push(parsed.toISOString());
+    } else throw new Error(`Cursor transcript record ${index + 1} timestamp is invalid`);
+  }
+  if (!values.length) throw new Error("Cursor transcript cannot prove its complete session period because a record has no timestamp");
+  if (new Set(values).size !== 1) throw new Error(`Cursor transcript record ${index + 1} timestamps disagree`);
+  return values[0];
+}
+function structuredCursorSession(raw) {
   const roots = [];
+  let ndjsonInvalid = false;
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue;
     try {
       roots.push(JSON.parse(line));
     } catch {
+      ndjsonInvalid = true;
+      break;
     }
   }
-  if (!roots.length) {
+  if (ndjsonInvalid || !roots.length) {
+    roots.length = 0;
     try {
       roots.push(JSON.parse(raw));
     } catch {
+      throw new Error("Cursor transcript must be complete structured JSON");
     }
   }
   const records = roots.flatMap((value) => Array.isArray(value) ? value : [value]);
+  if (!records.length) throw new Error("Cursor transcript contains no structured records");
   if (records.length > 1e5) throw new Error("Cursor transcript contains too many structured records");
-  const found = /* @__PURE__ */ new Set();
-  for (const value of records) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    const row = value;
-    if (row.type !== "system" || !Object.hasOwn(row, "conversationId")) continue;
-    found.add(safeSessionId(row.conversationId));
+  const rows = records.map((value, index) => record7(value, `Cursor transcript record ${index + 1}`));
+  if (rows[0].type !== "system") throw new Error("Cursor transcript must start with a system initialization record");
+  if (rows.at(-1).type !== "result") throw new Error("Cursor transcript must end with a terminal result record");
+  const sessionIds = /* @__PURE__ */ new Set();
+  const timestamps = rows.map((row, index) => {
+    const camelId = Object.hasOwn(row, "conversationId") ? safeSessionId(row.conversationId) : void 0;
+    const snakeId = Object.hasOwn(row, "session_id") ? safeSessionId(row.session_id) : void 0;
+    if (camelId && snakeId && camelId !== snakeId) throw new Error(`Cursor transcript record ${index + 1} session identifiers disagree`);
+    const sessionId = camelId ?? snakeId;
+    if (!sessionId) throw new Error("Cursor transcript cannot bind every record to one session");
+    sessionIds.add(sessionId);
+    return cursorTranscriptTimestamp(row, index);
+  });
+  if (sessionIds.size !== 1) throw new Error("Cursor transcript contains more than one session");
+  for (let index = 1; index < timestamps.length; index += 1) {
+    if (timestamps[index] < timestamps[index - 1]) throw new Error("Cursor transcript timestamps are not ordered");
   }
-  return found;
+  return { sessionIds, startedAt: timestamps[0], endedAt: timestamps.at(-1) };
 }
 function recomputeExactCostEvidenceHash(value) {
   const { evidenceHash: _evidenceHash, ...payload } = value;
@@ -19718,7 +19753,10 @@ function buildCursorExactCostEvidence(input) {
   const exportPeriodStartedAt = cursorPeriodTimestamp(period.startDate);
   const exportPeriodEndedAt = cursorPeriodTimestamp(period.endDate);
   if (exportPeriodStartedAt > exportPeriodEndedAt) throw new Error("Cursor usage export period is invalid");
-  const transcriptSessions = structuredConversationIds(input.transcript.toString("utf8"));
+  const transcriptSession = structuredCursorSession(input.transcript.toString("utf8"));
+  if (exportPeriodStartedAt > transcriptSession.startedAt || exportPeriodEndedAt < transcriptSession.endedAt) {
+    throw new Error("Cursor usage export period does not cover the complete transcript session");
+  }
   const normalized = events.map((value, index) => {
     const event2 = record7(value, `Cursor usage event ${index + 1}`);
     const conversationId = event2.conversationId === void 0 ? void 0 : safeSessionId(event2.conversationId);
@@ -19732,7 +19770,7 @@ function buildCursorExactCostEvidence(input) {
   if (new Set(normalized.map((item2) => item2.fingerprint)).size !== normalized.length) {
     throw new Error("Cursor usage export contains duplicate events; refusing to double-count cost");
   }
-  const shared = [...new Set(normalized.map((item2) => item2.conversationId).filter((id) => typeof id === "string" && transcriptSessions.has(id)))];
+  const shared = [...new Set(normalized.map((item2) => item2.conversationId).filter((id) => typeof id === "string" && transcriptSession.sessionIds.has(id)))];
   if (shared.length === 0) throw new Error("Cursor usage export has no conversationId bound to the transcript");
   if (shared.length > 1) throw new Error("Cursor usage export matches more than one transcript conversation; split the transcript before importing cost");
   const sessionId = shared[0];
@@ -20651,11 +20689,20 @@ function hashExecutable(path) {
     closeSync11(descriptor);
   }
 }
+var PostLaunchVerificationCancelledError = class extends Error {
+  constructor() {
+    super("post-launch executable verification was cancelled");
+    this.name = "PostLaunchVerificationCancelledError";
+  }
+};
+function postLaunchVerificationCancelled(error) {
+  return error instanceof PostLaunchVerificationCancelledError;
+}
 async function hashExecutableAfterLaunch(path, signal) {
   const noFollow = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
   const handle = await openFile(path, fsConstants.O_RDONLY | noFollow);
   try {
-    if (signal.aborted) throw new Error("post-launch executable verification was cancelled");
+    if (signal.aborted) throw new PostLaunchVerificationCancelledError();
     const before = await handle.stat({ bigint: true });
     if (!before.isFile()) throw new Error("run executable must resolve to a regular file");
     if (before.size > BigInt(MAX_EXECUTABLE_BYTES)) {
@@ -20665,14 +20712,15 @@ async function hashExecutableAfterLaunch(path, signal) {
     const buffer = Buffer.alloc(1024 * 1024);
     let offset = 0;
     while (offset < Number(before.size)) {
-      if (signal.aborted) throw new Error("post-launch executable verification was cancelled");
+      if (signal.aborted) throw new PostLaunchVerificationCancelledError();
       const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, Number(before.size) - offset), offset);
       if (!bytesRead) throw new Error("run executable changed while it was hashed");
       hash5.update(buffer.subarray(0, bytesRead));
       offset += bytesRead;
     }
-    if (signal.aborted) throw new Error("post-launch executable verification was cancelled");
+    if (signal.aborted) throw new PostLaunchVerificationCancelledError();
     const after = await handle.stat({ bigint: true });
+    if (signal.aborted) throw new PostLaunchVerificationCancelledError();
     if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs || after.dev !== before.dev || after.ino !== before.ino) {
       throw new Error("run executable changed while it was hashed");
     }
@@ -21106,6 +21154,8 @@ async function executeProtectedRun(input) {
       if (completedVerification.kind === "verified") {
         stable = completedVerification.evidence.sha256 === executable.sha256 && completedVerification.evidence.identity === executable.identity;
         if (!stable) requestStop({ code: "EXECUTABLE_CHANGED" });
+      } else if (postLaunchVerificationCancelled(completedVerification.error)) {
+        stable = "NOT_CHECKED";
       } else {
         stable = false;
         requestStop({
@@ -22650,6 +22700,9 @@ function runValue(args) {
     }
     if (exactCost && options.costSource !== void 0 && options.costSource !== "provider-exported") {
       throw new Error("--cost-source contradicts provider-exported exact cost evidence");
+    }
+    if (options.costSource === "provider-exported" && !exactCost) {
+      throw new Error("--cost-source provider-exported requires validated exact cost evidence");
     }
     const github = options.githubEvidence ? loadGitHubEvidence(resolve37(options.githubEvidence)) : void 0;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;

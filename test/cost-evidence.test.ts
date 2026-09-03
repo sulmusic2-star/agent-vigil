@@ -11,11 +11,13 @@ import { loadTranscript } from "../src/transcript.ts";
 const SESSION = "8f2e4a1b-6c3d-4e5f-9a7b-2d1c8e6f4a3b";
 
 function transcript(session = SESSION): Buffer {
+  const row = (value: Record<string, unknown>, timestamp_ms: number) => ({ ...value, conversationId: session, timestamp_ms });
   return Buffer.from([
-    JSON.stringify({ type: "system", conversationId: session }),
-    JSON.stringify({ type: "assistant", message: { content: "Tests pass." } }),
-    JSON.stringify({ type: "tool_call", subtype: "started", call_id: "one", tool_call: { shellToolCall: { args: { command: "npm test" } } } }),
-    JSON.stringify({ type: "tool_call", subtype: "completed", call_id: "one", tool_call: { shellToolCall: { result: "ok" } } }),
+    JSON.stringify(row({ type: "system" }, 1788183000000)),
+    JSON.stringify(row({ type: "assistant", message: { content: "Tests pass." } }, 1788184200000)),
+    JSON.stringify(row({ type: "tool_call", subtype: "started", call_id: "one", tool_call: { shellToolCall: { args: { command: "npm test" } } } }, 1788184800000)),
+    JSON.stringify(row({ type: "tool_call", subtype: "completed", call_id: "one", tool_call: { shellToolCall: { result: "ok" } } }, 1788184860000)),
+    JSON.stringify(row({ type: "result", subtype: "success", result: "Tests pass." }, 1788186000000)),
   ].join("\n") + "\n");
 }
 
@@ -74,27 +76,53 @@ test("Cursor exact cost evidence binds one transcript conversation and sums only
 test("exact cost import refuses ambiguous, unbound, duplicate, and malformed billing evidence", () => {
   assert.throws(() => buildCursorExactCostEvidence({
     transcript: Buffer.from([
-      JSON.stringify({ type: "system", conversationId: SESSION }),
-      JSON.stringify({ type: "system", conversationId: "another-session" }),
+      JSON.stringify({ type: "system", conversationId: SESSION, timestamp_ms: 1788183000000 }),
+      JSON.stringify({ type: "result", conversationId: "another-session", timestamp_ms: 1788186000000 }),
     ].join("\n")),
     usageExport: usageExport([event(), event({ conversationId: "another-session", timestamp: "1788184860000" })]),
-  }), /more than one transcript conversation/);
+  }), /more than one session/);
   assert.throws(() => buildCursorExactCostEvidence({ transcript: transcript("missing-session"), usageExport: usageExport() }), /no conversationId bound/);
   assert.throws(() => buildCursorExactCostEvidence({
     transcript: Buffer.from(`${JSON.stringify({ type: "assistant", message: { content: `the unrelated ID is ${SESSION}` } })}\n`),
     usageExport: usageExport(),
-  }), /no conversationId bound/, "a narrative mention must not bind provider cost");
+  }), /start with a system initialization/, "a narrative mention must not bind provider cost");
   assert.throws(() => buildCursorExactCostEvidence({
     transcript: Buffer.from(`${JSON.stringify({
       type: "tool_call",
       tool_call: { shellToolCall: { args: { conversationId: SESSION } } },
     })}\n`),
     usageExport: usageExport(),
-  }), /no conversationId bound/, "a nested tool argument must not bind provider cost");
+  }), /start with a system initialization/, "a nested tool argument must not bind provider cost");
   assert.throws(() => buildCursorExactCostEvidence({
-    transcript: Buffer.from(`${JSON.stringify({ type: "assistant", conversationId: SESSION })}\n`),
+    transcript: Buffer.from(`${JSON.stringify({ type: "assistant", conversationId: SESSION, timestamp_ms: 1788183000000 })}\n`),
     usageExport: usageExport(),
-  }), /no conversationId bound/, "a non-system root record must not bind provider cost");
+  }), /start with a system initialization/, "a non-system root record must not bind provider cost");
+  const narrow = JSON.parse(usageExport().toString("utf8"));
+  narrow.period.endDate = 1788185400000;
+  assert.throws(
+    () => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: Buffer.from(JSON.stringify(narrow)) }),
+    /does not cover the complete transcript session/,
+  );
+  const lateStart = JSON.parse(usageExport().toString("utf8"));
+  lateStart.period.startDate = 1788183600000;
+  assert.throws(
+    () => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: Buffer.from(JSON.stringify(lateStart)) }),
+    /does not cover the complete transcript session/,
+  );
+  const untimed = transcript().toString("utf8").split("\n").filter(Boolean).map((line) => {
+    const row = JSON.parse(line);
+    delete row.timestamp_ms;
+    return JSON.stringify(row);
+  }).join("\n");
+  assert.throws(
+    () => buildCursorExactCostEvidence({ transcript: Buffer.from(untimed), usageExport: usageExport() }),
+    /cannot prove its complete session period/,
+  );
+  const truncated = transcript().toString("utf8").split("\n").filter(Boolean).slice(0, -1).join("\n");
+  assert.throws(
+    () => buildCursorExactCostEvidence({ transcript: Buffer.from(truncated), usageExport: usageExport() }),
+    /end with a terminal result record/,
+  );
   const duplicate = event();
   assert.throws(() => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([duplicate, duplicate]) }), /duplicate events/);
   assert.throws(() => buildCursorExactCostEvidence({ transcript: transcript(), usageExport: usageExport([event({ isChargeable: "yes" })]) }), /isChargeable must be explicit/);

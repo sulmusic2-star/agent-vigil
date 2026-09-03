@@ -20,10 +20,17 @@ vigil cost-evidence cursor \
   --output ./agent-vigil-cost.json
 ```
 
-The import succeeds only when exactly one `conversationId` in the provider
-export is present on a root-level Cursor `system` record in the transcript. IDs
-inside assistant text, tool arguments, tool results, or other nested data do not
-bind cost. The importer rejects missing or ambiguous
+The import succeeds only for a complete, single-session structured Cursor
+stream. It must start with a `system` record, end with a terminal `result`, bind
+every root record to the same `conversationId` or `session_id`, and provide
+ordered root `timestamp_ms` or `timestamp` values. The Admin API export period
+must start no later than the first transcript record and end no earlier than the
+terminal record. If the transcript cannot establish those bounds, cost remains
+unavailable rather than being presented as exact.
+
+The one transcript session ID must match exactly one `conversationId` in the
+provider export. IDs inside assistant text, tool arguments, tool results, or
+other nested data do not bind cost. The importer rejects missing or ambiguous
 session identity, incomplete pagination, duplicate events, malformed
 timestamps, implicit billing state, and invalid charge amounts. Events without
 a conversation ID are ignored. Non-chargeable events for the matched session
@@ -56,7 +63,8 @@ vigil value ./agent-vigil-report.json \
 ```
 
 For this format, Agent Vigil reads the amount directly. A conflicting
-`--cost-usd` or `--cost-source` is rejected. The source is labeled
+`--cost-usd` or `--cost-source` is rejected, and `provider-exported` cannot be
+selected for an arbitrary hashed file. The source is labeled
 `provider-exported`, not `provider-billed`: hashing proves which export was
 used, but a downloaded JSON file is not a provider signature or an invoice.
 
