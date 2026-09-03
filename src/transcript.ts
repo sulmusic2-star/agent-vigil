@@ -19,7 +19,7 @@ export type SessionToolCall = {
   input: string;
   output?: string;
   isError?: boolean;
-  timestamp?: string;
+  timestamp?: string | number;
   sequence: number;
 };
 

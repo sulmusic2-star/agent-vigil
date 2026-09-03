@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonical, recomputeReceiptHash, validateTrustReport, type ReportStatus, type TrustReport } from "./report.ts";
 import type { VerificationResult } from "./signature.ts";
-import { timezoneQualifiedTimestamp, validateExactCostEvidence, type ExactCostEvidence } from "./cost-evidence.ts";
+import { millisecondTimestamp, timezoneQualifiedTimestamp, validateExactCostEvidence, type ExactCostEvidence } from "./cost-evidence.ts";
 import type { LoadedTranscript, SessionUsage, TranscriptFormat } from "./transcript.ts";
 import type { ChangeOutcome, MaintainerDisposition } from "./value.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
@@ -101,6 +101,13 @@ function canonicalTime(value: string | undefined, label: string): string | undef
   return timezoneQualifiedTimestamp(value, label);
 }
 
+function canonicalToolTime(value: string | number | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return typeof value === "number"
+    ? millisecondTimestamp(value, "tool-call timestamp")
+    : timezoneQualifiedTimestamp(value, "tool-call timestamp");
+}
+
 function uniquePush(values: string[], value: string): void {
   if (!values.includes(value)) values.push(value);
 }
@@ -115,7 +122,7 @@ function receiptAuthority(report: TrustReport | undefined, verification: Verific
 
 function observedTimes(transcript: LoadedTranscript, cost: ExactCostEvidence | undefined, costJoined: boolean): string[] {
   const values = transcript.toolCalls
-    .map((call) => canonicalTime(call.timestamp, "tool-call timestamp"))
+    .map((call) => canonicalToolTime(call.timestamp))
     .filter((value): value is string => value !== undefined);
   if (cost && costJoined) values.push(cost.startedAt, cost.endedAt);
   return values.sort();

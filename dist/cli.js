@@ -19853,6 +19853,10 @@ function canonicalTime(value, label) {
   if (value === void 0) return void 0;
   return timezoneQualifiedTimestamp(value, label);
 }
+function canonicalToolTime(value) {
+  if (value === void 0) return void 0;
+  return typeof value === "number" ? millisecondTimestamp(value, "tool-call timestamp") : timezoneQualifiedTimestamp(value, "tool-call timestamp");
+}
 function uniquePush(values, value) {
   if (!values.includes(value)) values.push(value);
 }
@@ -19864,7 +19868,7 @@ function receiptAuthority(report, verification2) {
   return verification2.keyPinned ? "VALID_PINNED" : "VALID_SELF_ASSERTED";
 }
 function observedTimes(transcript, cost, costJoined) {
-  const values = transcript.toolCalls.map((call) => canonicalTime(call.timestamp, "tool-call timestamp")).filter((value) => value !== void 0);
+  const values = transcript.toolCalls.map((call) => canonicalToolTime(call.timestamp)).filter((value) => value !== void 0);
   if (cost && costJoined) values.push(cost.startedAt, cost.endedAt);
   return values.sort();
 }

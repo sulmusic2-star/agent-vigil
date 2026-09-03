@@ -44,7 +44,7 @@ function safeSessionId(value: unknown): string {
   return value;
 }
 
-function millisecondTimestamp(value: number, label: string): string {
+export function millisecondTimestamp(value: number, label: string): string {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} is invalid`);
   const parsed = new Date(value);
   if (!Number.isFinite(parsed.getTime())) throw new Error(`${label} is invalid`);

@@ -477,6 +477,33 @@ test("autopsy outcome timestamps are timezone-qualified and deterministic", () =
   }
 });
 
+test("autopsy preserves numeric Cursor tool timestamps as epoch milliseconds", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-autopsy-numeric-time-"));
+  const transcriptPath = join(root, "cursor.jsonl");
+  writeFileSync(transcriptPath, [
+    JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      call_id: "numeric-time",
+      timestamp: 1788184800000,
+      tool_call: { shellToolCall: { args: { command: "npm test" } } },
+    }),
+    JSON.stringify({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: "numeric-time",
+      timestamp: 1788184860000,
+      tool_call: { shellToolCall: { result: "ok" } },
+    }),
+  ].join("\n") + "\n");
+
+  const transcript = loadTranscript(transcriptPath);
+  assert.equal(transcript.toolCalls[0].timestamp, 1788184800000);
+  const record = buildRunAutopsy({ transcript });
+  assert.equal(record.run.startedAt, "2026-08-31T14:00:00.000Z");
+  assert.equal(record.run.endedAt, "2026-08-31T14:00:00.000Z");
+});
+
 test("review evidence bytes are hashed without being copied", () => {
   const value = fixture();
   const secret = "maintainer private explanation";
