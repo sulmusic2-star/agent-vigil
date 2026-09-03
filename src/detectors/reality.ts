@@ -861,7 +861,7 @@ function isTestPath(path: string): boolean {
   return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|\.cy|_test)\.[^.]+$/i.test(path);
 }
 
-function isGeneratedOrVendorPath(path: string): boolean {
+export function isGeneratedOrVendorPath(path: string): boolean {
   return /(?:^|\/)(?:node_modules|vendor|vendored|\.git)(?:\/|$)/.test(path)
     || /^(?:dist|build|coverage)\//.test(path)
     || /\.map$/i.test(path);

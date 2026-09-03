@@ -3,6 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createConnection } from "node:net";
 import test from "node:test";
 import { canaryBody, openGuardControlChallenge, openGuardControlObservation } from "../src/guard-control-protocol.ts";
 import { guardDigest } from "../src/guard-compat.ts";
@@ -90,6 +91,54 @@ test("off-host observer records a deny canary effect and fails closed", async ()
     assert.equal(result.observation.summary.denyRequests, 1);
     assert.ok(result.observation.reasonCodes.includes("DENY_EFFECT_OBSERVED"));
   } finally { rmSync(result.directory, { recursive: true, force: true }); }
+});
+
+test("a slow request is destroyed at the signed observation deadline", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "vigil-observer-slow-request-"));
+  const challengeKeys = generateKeyPairSync("ed25519");
+  const observerKeys = generateKeyPairSync("ed25519");
+  const challengeKey = join(directory, "challenge.pem");
+  const observerKey = join(directory, "observer.pem");
+  const challengeOutput = join(directory, "challenge.json");
+  const observationOutput = join(directory, "observation.json");
+  const readyOutput = join(directory, "ready.json");
+  writeFileSync(challengeKey, challengeKeys.privateKey.export({ format: "pem", type: "pkcs8" }), { mode: 0o600 });
+  writeFileSync(observerKey, observerKeys.privateKey.export({ format: "pem", type: "pkcs8" }), { mode: 0o600 });
+  const logs = { log: console.log, error: console.error };
+  console.log = (() => undefined) as typeof console.log;
+  console.error = (() => undefined) as typeof console.error;
+  let socket: ReturnType<typeof createConnection> | undefined;
+  try {
+    const started = Date.now();
+    const running = runGuardObserverCommand([
+      "--host", "claude", "--host-version", "2.1.246",
+      "--host-executable-sha256", guardDigest("candidate"),
+      "--managed-environment-sha256", guardDigest("environment"),
+      "--runner-node", process.execPath,
+      "--challenge-key", challengeKey, "--observer-key", observerKey,
+      "--challenge-output", challengeOutput, "--observation-output", observationOutput,
+      "--ready-output", readyOutput, "--duration-ms", "100",
+    ]);
+    await waitForFile(readyOutput);
+    const { challenge } = openGuardControlChallenge(JSON.parse(readFileSync(challengeOutput, "utf8")), challengeKeys.publicKey);
+    const origin = new URL(challenge.observer.origin);
+    socket = createConnection({ host: origin.hostname, port: Number(origin.port) });
+    await new Promise<void>((resolveConnected, reject) => {
+      socket!.once("connect", resolveConnected);
+      socket!.once("error", reject);
+    });
+    socket.write(`POST ${challenge.observer.allowPath} HTTP/1.1\r\nHost: ${origin.host}\r\nContent-Length: 10\r\nConnection: keep-alive\r\n\r\nx`);
+    const code = await running;
+    assert.equal(code, 1);
+    assert.ok(Date.now() - started < 3_000, "observer must not wait for an untrusted body after the deadline");
+    const { observation } = openGuardControlObservation(JSON.parse(readFileSync(observationOutput, "utf8")), observerKeys.publicKey);
+    assert.ok(Date.parse(observation.closedAt) <= Date.parse(challenge.expiresAt));
+  } finally {
+    socket?.destroy();
+    console.log = logs.log;
+    console.error = logs.error;
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("observer refuses to overwrite a signing key or collide its outputs", async () => {

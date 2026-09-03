@@ -86,21 +86,32 @@ function digest(value: string, label: string): string {
   return value;
 }
 
-function requestBody(request: IncomingMessage): Promise<Buffer> {
+function requestBody(request: IncomingMessage, deadline: number): Promise<Buffer> {
   return new Promise((resolveBody, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
+    let settled = false;
+    const settle = (operation: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      operation();
+    };
+    const timer = setTimeout(() => {
+      settle(() => reject(new Error("canary request did not finish inside the observation window")));
+      request.destroy();
+    }, Math.max(0, deadline - Date.now()));
     request.on("data", (chunk: Buffer) => {
       total += chunk.length;
       if (total > MAX_REQUEST_BYTES) {
-        reject(new Error("canary request exceeded the body limit"));
+        settle(() => reject(new Error("canary request exceeded the body limit")));
         request.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    request.on("end", () => resolveBody(Buffer.concat(chunks)));
-    request.on("error", reject);
+    request.on("end", () => settle(() => resolveBody(Buffer.concat(chunks))));
+    request.on("error", (error) => settle(() => reject(error)));
   });
 }
 
@@ -126,8 +137,11 @@ function listen(server: ReturnType<typeof createServer>, host: string, port: num
   });
 }
 
-function close(server: ReturnType<typeof createServer>): Promise<void> {
-  return new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()));
+function close(server: ReturnType<typeof createServer>, forceConnections = false): Promise<void> {
+  return new Promise((resolveClose, reject) => {
+    server.close((error) => error ? reject(error) : resolveClose());
+    if (forceConnections) server.closeAllConnections();
+  });
 }
 
 export async function runGuardObserverCommand(args: string[]): Promise<number> {
@@ -177,7 +191,8 @@ export async function runGuardObserverCommand(args: string[]): Promise<number> {
         path = new URL(request.url ?? "/", "http://observer.invalid").pathname;
         if (request.method === "GET" && path === "/healthz") { respond(response, 200, "ok\n"); return; }
         if (!plan) { respond(response, 503, "observer not ready\n"); return; }
-        const body = await requestBody(request);
+        const requestDeadline = Date.parse(plan.expiresAt) - 100;
+        const body = await requestBody(request, requestDeadline);
         const event = classifyObserverRequest({ plan, path, method: request.method ?? "UNKNOWN", body });
         if (events.length < 8) events.push(event);
         recorded = true;
@@ -222,7 +237,7 @@ export async function runGuardObserverCommand(args: string[]): Promise<number> {
     // not drift beyond expiresAt under ordinary scheduler delay.
     const remainingMs = Math.max(0, Date.parse(issued.challenge.expiresAt) - Date.now() - 100);
     await new Promise((resolveTimer) => setTimeout(resolveTimer, remainingMs));
-    await close(server);
+    await close(server, true);
     server = undefined;
     const closedAt = new Date().toISOString();
     const observed = buildGuardControlObservation({

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { FROZEN_CROSS_CORPUS_GATE, verifyCrossCorpusGate } from "../scripts/verify_cross_corpus_benchmark.ts";
+import { isGeneratedOrVendorPath } from "../src/detectors/reality.ts";
 
 const frozenSha = "b2b681ff529929d39a14c0541d0e2b71b642b5da";
 
@@ -31,6 +32,14 @@ test("the benchmark protocol binds corpus size, recall, noise, and incomplete ev
   assert.equal(protocol.realPrCalibration.arbiterCases, 4);
   assert.equal(protocol.realPrCalibration.minAnyAdvisory, 4);
   assert.equal(protocol.realPrCalibration.minExactCategoryAdvisory, 2);
+});
+
+test("the benchmark derives exclusions from the production static-audit predicate", () => {
+  const source = readFileSync("scripts/benchmark_swarm_oracle.ts", "utf8");
+  assert.match(source, /isGeneratedOrVendorPath\(label\.file\)/);
+  assert.equal(isGeneratedOrVendorPath("dist/generated.js"), true);
+  assert.equal(isGeneratedOrVendorPath("packages/app/dist/source.test.js"), false);
+  assert.equal(isGeneratedOrVendorPath("tests/example.snap"), false);
 });
 
 test("the package exposes one deterministic benchmark gate command", () => {

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { checkIntegrityDiff } from "../src/detectors/reality.ts";
+import { checkIntegrityDiff, isGeneratedOrVendorPath } from "../src/detectors/reality.ts";
 import { VERSION } from "../src/report.ts";
 
 type Label = {
@@ -82,8 +82,7 @@ const rows = walk(corpusRoot).map((labelPath) => {
   const checks = checkIntegrityDiff(diff);
   const firedRules = checks.filter((check) => check.verdict === "contradicted").map((check) => check.ruleId ?? "unlabeled").sort();
   const expectedRules = EXPECTED_RULES[label.category] ?? [];
-  const policyExclusion = /(?:^|\/)(?:node_modules|vendor|vendored|dist|build|coverage|\.git)(?:\/|$)/.test(label.file)
-    || /\.(?:map|snap)$/i.test(label.file)
+  const policyExclusion = isGeneratedOrVendorPath(label.file)
     ? "target path is generated, vendored, or build output and is excluded by Agent Vigil's documented static-audit policy"
     : null;
   return {
