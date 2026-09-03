@@ -37,22 +37,22 @@ function signer(): GuardSigner {
 function fixture(decision: "APPROVE" | "HOLD" = "APPROVE") {
   const admissionSigner = signer();
   const deploymentSigner = signer();
-  const roleIds = Array.from({ length: 4 }, (_, index) => guardDigest(`role-${index}`));
+  const roleIds = Array.from({ length: 5 }, (_, index) => guardDigest(`role-${index}`));
   const unsigned: Omit<GuardControlAdmission, "admissionHash"> = {
     schemaVersion: "agent-vigil-control-admission/v1",
     evaluatedAt: "2026-09-03T15:55:00.000Z",
-    validUntil: "2026-09-03T18:00:00.000Z",
+    validUntil: "2026-09-03T16:55:00.000Z",
     decision,
     artifact: { host: "codex", version: "future-1", executableSha256: guardDigest("exact-package-bytes") },
     environmentSha256: guardDigest("managed-environment"),
     evidence: {
-      current: { challengeHash: guardDigest("cc"), observationHash: guardDigest("co"), routeReceiptHash: guardDigest("cr") },
-      candidate: { challengeHash: guardDigest("nc"), observationHash: guardDigest("no"), routeReceiptHash: guardDigest("nr") },
+      current: { challengeHash: guardDigest("cc"), observationHash: guardDigest("co"), routeReceiptHash: guardDigest("cr"), isolationHash: guardDigest("ci") },
+      candidate: { challengeHash: guardDigest("nc"), observationHash: guardDigest("no"), routeReceiptHash: guardDigest("nr"), isolationHash: guardDigest("ni") },
       routeDecisionHash: guardDigest("decision"),
     },
     trust: {
       challengeSignerKeyId: roleIds[0], observerSignerKeyId: roleIds[1], routeSignerKeyId: roleIds[2],
-      environmentSignerKeyId: roleIds[3], admissionSignerKeyId: admissionSigner.keyId,
+      environmentSignerKeyId: roleIds[3], isolationSignerKeyId: roleIds[4], admissionSignerKeyId: admissionSigner.keyId,
     },
     reasonCodes: [decision === "APPROVE" ? "EXACT_CONTROL_ADMISSION_PROVEN" : "CONTROL_REGRESSION"],
     limitations: ["Synthetic deployment authorization fixture."],
@@ -160,7 +160,7 @@ test("HOLD admissions, reused trust keys, excessive lifetimes, and unsafe identi
     admissionEnvelope: f.admission.envelope, admissionPublicKey: f.admissionSigner.publicKey,
     repository: "owner/repo", commitSha, environment: "production", deploymentSigner: f.deploymentSigner,
     issuedAt, validUntil: "2026-09-03T17:00:01.000Z",
-  }), /at most one hour/);
+  }), /cannot outlive|at most one hour/);
   assert.throws(() => buildGuardDeploymentAuthorization({
     admissionEnvelope: f.admission.envelope, admissionPublicKey: f.admissionSigner.publicKey,
     repository: "owner/repo\nattack", commitSha, environment: "production", deploymentSigner: f.deploymentSigner,
@@ -183,19 +183,19 @@ test("CLI creates, registers, and rechecks a signed deployment authorization aga
   });
   const admissionSigner = makeSigner(admissionPair);
   const deploymentSigner = makeSigner(deploymentPair);
-  const ids = Array.from({ length: 4 }, (_, index) => guardDigest(`cli-role-${index}`));
+  const ids = Array.from({ length: 5 }, (_, index) => guardDigest(`cli-role-${index}`));
   const signedAdmission = signGuardControlAdmission({
     schemaVersion: "agent-vigil-control-admission/v1", evaluatedAt: "2026-09-03T15:55:00.000Z",
-    validUntil: "2026-09-03T17:00:00.000Z", decision: "APPROVE",
+    validUntil: "2026-09-03T16:55:00.000Z", decision: "APPROVE",
     artifact: { host: "codex", version: "future-1", executableSha256: guardDigest("exact-package-bytes") },
     environmentSha256: guardDigest("managed-environment"),
     evidence: {
-      current: { challengeHash: guardDigest("cc"), observationHash: guardDigest("co"), routeReceiptHash: guardDigest("cr") },
-      candidate: { challengeHash: guardDigest("nc"), observationHash: guardDigest("no"), routeReceiptHash: guardDigest("nr") },
+      current: { challengeHash: guardDigest("cc"), observationHash: guardDigest("co"), routeReceiptHash: guardDigest("cr"), isolationHash: guardDigest("ci") },
+      candidate: { challengeHash: guardDigest("nc"), observationHash: guardDigest("no"), routeReceiptHash: guardDigest("nr"), isolationHash: guardDigest("ni") },
       routeDecisionHash: guardDigest("decision"),
     },
     trust: { challengeSignerKeyId: ids[0], observerSignerKeyId: ids[1], routeSignerKeyId: ids[2],
-      environmentSignerKeyId: ids[3], admissionSignerKeyId: admissionSigner.keyId },
+      environmentSignerKeyId: ids[3], isolationSignerKeyId: ids[4], admissionSignerKeyId: admissionSigner.keyId },
     reasonCodes: ["EXACT_CONTROL_ADMISSION_PROVEN"], limitations: ["CLI fixture."],
   }, admissionSigner);
   const paths = Object.fromEntries(["admission", "admissionPublic", "deploymentPrivate", "deploymentPublic", "authorization", "artifact"]

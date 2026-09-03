@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sulmusic2-star.github.io/agent-vigil/guard-control-isolation-v1.schema.json",
+  "title": "Agent Vigil control isolation attestation v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "issuedAt",
+    "validUntil",
+    "challengeHash",
+    "routeReceiptHash",
+    "artifactSha256",
+    "environmentSha256",
+    "boundary",
+    "status",
+    "reasonCodes",
+    "isolationHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "agent-vigil-control-isolation/v1"
+    },
+    "issuedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "validUntil": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "challengeHash": {
+      "$ref": "#/$defs/digest"
+    },
+    "routeReceiptHash": {
+      "$ref": "#/$defs/digest"
+    },
+    "artifactSha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "environmentSha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "candidateUid",
+        "monitorUid",
+        "verifierState",
+        "monitorIpc",
+        "egress"
+      ],
+      "properties": {
+        "platform": {
+          "const": "linux"
+        },
+        "candidateUid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "monitorUid": {
+          "const": 0
+        },
+        "verifierState": {
+          "const": "MONITOR_OWNED_READ_ONLY"
+        },
+        "monitorIpc": {
+          "const": "AUTHENTICATED"
+        },
+        "egress": {
+          "const": "OBSERVER_ONLY"
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL"
+      ]
+    },
+    "reasonCodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
+    "isolationHash": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

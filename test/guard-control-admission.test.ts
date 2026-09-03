@@ -11,6 +11,8 @@ import {
   classifyObserverRequest,
   gateGuardControlAdmission,
   issueGuardControlChallenge,
+  signGuardControlIsolationAttestation,
+  signGuardControlAdmission,
   openGuardControlAdmission,
   type GuardControlChallenge,
   type GuardControlObservation,
@@ -36,7 +38,7 @@ const TIMES = {
 };
 
 function keyFiles(directory: string) {
-  const roles = ["environment", "route", "challenge", "observer", "admission"] as const;
+  const roles = ["environment", "route", "challenge", "observer", "isolation", "admission"] as const;
   return Object.fromEntries(roles.map((role) => {
     const pair = generateKeyPairSync("ed25519");
     const privatePath = join(directory, `${role}-private.pem`);
@@ -128,6 +130,28 @@ function routeReceipt(input: {
   return report;
 }
 
+function isolationAttestation(input: {
+  challenge: GuardControlChallenge;
+  report: GuardRouteReportV2;
+  signer: ReturnType<typeof localGuardSigner>;
+}) {
+  return signGuardControlIsolationAttestation({
+    schemaVersion: "agent-vigil-control-isolation/v1",
+    issuedAt: input.challenge.issuedAt,
+    validUntil: input.challenge.expiresAt,
+    challengeHash: input.challenge.challengeHash,
+    routeReceiptHash: input.report.receiptHash,
+    artifactSha256: input.challenge.target.executableSha256,
+    environmentSha256: input.challenge.target.managedEnvironmentSha256,
+    boundary: {
+      platform: "linux", candidateUid: 10001, monitorUid: 0,
+      verifierState: "MONITOR_OWNED_READ_ONLY", monitorIpc: "AUTHENTICATED", egress: "OBSERVER_ONLY",
+    },
+    status: "PASS",
+    reasonCodes: ["DISTINCT_UID_IMMUTABLE_STATE_AUTHENTICATED_MONITOR"],
+  }, input.signer);
+}
+
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "vigil-control-admission-"));
   const keys = keyFiles(directory);
@@ -138,13 +162,13 @@ function fixture() {
   const current = issueGuardControlChallenge({
     origin: "https://observer.example", host: "claude", version: "2.1.245",
     executableSha256: guardDigest("current-package"), managedEnvironmentSha256: environmentSha256,
-    nodeExecutable: "/usr/local/bin/node", signer: challengeSigner,
+    nodeExecutable: process.execPath, signer: challengeSigner,
     issuedAt: TIMES.currentIssued, expiresAt: "2026-09-03T14:10:00.000Z", nonce: "current_challenge_nonce_0001",
   });
   const candidate = issueGuardControlChallenge({
     origin: "https://observer.example", host: "claude", version: "2.1.246",
     executableSha256: guardDigest("candidate-package"), managedEnvironmentSha256: environmentSha256,
-    nodeExecutable: "/usr/local/bin/node", signer: challengeSigner,
+    nodeExecutable: process.execPath, signer: challengeSigner,
     issuedAt: TIMES.candidateIssued, expiresAt: "2026-09-03T14:13:00.000Z", nonce: "candidate_challenge_nonce_01",
   });
   const observe = (challenge: GuardControlChallenge, openedAt: string, eventAt: string, closedAt: string) => buildGuardControlObservation({
@@ -162,9 +186,12 @@ function fixture() {
   const candidateObserved = observe(candidate.challenge, TIMES.candidateIssued, TIMES.candidateEvent, TIMES.candidateClosed);
   const currentReport = routeReceipt({ challenge: current.challenge, generatedAt: TIMES.currentRoute, managedEnvironment });
   const candidateReport = routeReceipt({ challenge: candidate.challenge, generatedAt: TIMES.candidateRoute, managedEnvironment });
+  const isolationSigner = localGuardSigner(keys.isolation.privatePath);
+  const currentIsolation = isolationAttestation({ challenge: current.challenge, report: currentReport, signer: isolationSigner });
+  const candidateIsolation = isolationAttestation({ challenge: candidate.challenge, report: candidateReport, signer: isolationSigner });
   return {
     directory, keys, managedEnvironment, environmentSha256, current, candidate, currentObserved, candidateObserved,
-    currentReport, candidateReport,
+    currentReport, candidateReport, currentIsolation, candidateIsolation,
     currentRoute: sealGuardRoute(currentReport, keys.route.privatePath),
     candidateRoute: sealGuardRoute(candidateReport, keys.route.privatePath),
   };
@@ -172,12 +199,13 @@ function fixture() {
 
 function admit(f: ReturnType<typeof fixture>, overrides: Record<string, unknown> = {}) {
   return buildGuardControlAdmission({
-    current: { route: f.currentRoute, challenge: f.current.envelope, observation: f.currentObserved.envelope },
-    candidate: { route: f.candidateRoute, challenge: f.candidate.envelope, observation: f.candidateObserved.envelope },
+    current: { route: f.currentRoute, challenge: f.current.envelope, observation: f.currentObserved.envelope, isolation: f.currentIsolation.envelope },
+    candidate: { route: f.candidateRoute, challenge: f.candidate.envelope, observation: f.candidateObserved.envelope, isolation: f.candidateIsolation.envelope },
     challengePublicKey: f.keys.challenge.publicKey,
     observerPublicKey: f.keys.observer.publicKey,
     routePublicKey: f.keys.route.publicKey,
     environmentPublicKey: f.keys.environment.publicKey,
+    isolationPublicKey: f.keys.isolation.publicKey,
     admissionSigner: localGuardSigner(f.keys.admission.privatePath),
     evaluatedAt: TIMES.evaluated,
     validUntil: TIMES.validUntil,
@@ -214,6 +242,7 @@ test("command substitution, deny effects, stale observations, and artifact misma
       route: sealGuardRoute(substituted, f.keys.route.privatePath),
       challenge: f.candidate.envelope,
       observation: f.candidateObserved.envelope,
+      isolation: f.candidateIsolation.envelope,
     } });
     assert.equal(commandHold.admission.decision, "HOLD");
     assert.ok(commandHold.admission.reasonCodes.includes("CANDIDATE_ALLOW_COMMAND_MISMATCH"));
@@ -229,7 +258,7 @@ test("command substitution, deny effects, stale observations, and artifact misma
       ],
       signer: localGuardSigner(f.keys.observer.privatePath),
     });
-    const denyHold = admit(f, { candidate: { route: f.candidateRoute, challenge: f.candidate.envelope, observation: denyObservation.envelope } });
+    const denyHold = admit(f, { candidate: { route: f.candidateRoute, challenge: f.candidate.envelope, observation: denyObservation.envelope, isolation: f.candidateIsolation.envelope } });
     assert.equal(denyHold.admission.decision, "HOLD");
     assert.ok(denyHold.admission.reasonCodes.includes("CANDIDATE_OBSERVATION_NOT_PASS"));
     assert.ok(denyHold.admission.reasonCodes.includes("CANDIDATE_FORBIDDEN_OR_UNEXPECTED_EFFECT"));
@@ -247,16 +276,17 @@ test("command substitution, deny effects, stale observations, and artifact misma
   } finally { rmSync(f.directory, { recursive: true, force: true }); }
 });
 
-test("all five trust roles must remain distinct", () => {
+test("all six trust roles must remain distinct", () => {
   const f = fixture();
   try {
     const result = buildGuardControlAdmission({
-      current: { route: f.currentRoute, challenge: f.current.envelope, observation: f.currentObserved.envelope },
-      candidate: { route: f.candidateRoute, challenge: f.candidate.envelope, observation: f.candidateObserved.envelope },
+      current: { route: f.currentRoute, challenge: f.current.envelope, observation: f.currentObserved.envelope, isolation: f.currentIsolation.envelope },
+      candidate: { route: f.candidateRoute, challenge: f.candidate.envelope, observation: f.candidateObserved.envelope, isolation: f.candidateIsolation.envelope },
       challengePublicKey: f.keys.challenge.publicKey,
       observerPublicKey: f.keys.observer.publicKey,
       routePublicKey: f.keys.route.publicKey,
       environmentPublicKey: f.keys.environment.publicKey,
+      isolationPublicKey: f.keys.isolation.publicKey,
       admissionSigner: localGuardSigner(f.keys.challenge.privatePath),
       evaluatedAt: TIMES.evaluated,
       validUntil: TIMES.validUntil,
@@ -264,6 +294,42 @@ test("all five trust roles must remain distinct", () => {
     assert.equal(result.admission.decision, "HOLD");
     assert.ok(result.admission.reasonCodes.includes("TRUST_ROOTS_NOT_SEPARATED"));
     assert.equal(openGuardControlAdmission(result.envelope, f.keys.challenge.publicKey).admission.decision, "HOLD");
+  } finally { rmSync(f.directory, { recursive: true, force: true }); }
+});
+
+test("candidate-controlled route evidence cannot pass without a separately signed isolation boundary", () => {
+  const f = fixture();
+  try {
+    const { isolationHash: _isolationHash, ...candidateIsolation } = f.candidateIsolation.attestation;
+    const forgedIsolation = signGuardControlIsolationAttestation({
+      ...candidateIsolation,
+      routeReceiptHash: guardDigest("candidate-forged-route"),
+    }, localGuardSigner(f.keys.isolation.privatePath));
+    const result = admit(f, { candidate: {
+      route: f.candidateRoute,
+      challenge: f.candidate.envelope,
+      observation: f.candidateObserved.envelope,
+      isolation: forgedIsolation.envelope,
+    } });
+    assert.equal(result.admission.decision, "HOLD");
+    assert.ok(result.admission.reasonCodes.includes("CANDIDATE_ISOLATION_ROUTE_MISMATCH"));
+    const { isolationHash: _invalidHash, ...invalidBoundary } = f.candidateIsolation.attestation;
+    assert.throws(() => signGuardControlIsolationAttestation({
+      ...invalidBoundary,
+      boundary: { ...invalidBoundary.boundary, candidateUid: 0 },
+    }, localGuardSigner(f.keys.isolation.privatePath)), /not production-grade/);
+    assert.throws(() => buildGuardControlAdmission({
+      current: { route: f.currentRoute, challenge: f.current.envelope, observation: f.currentObserved.envelope } as never,
+      candidate: { route: f.candidateRoute, challenge: f.candidate.envelope, observation: f.candidateObserved.envelope } as never,
+      challengePublicKey: f.keys.challenge.publicKey,
+      observerPublicKey: f.keys.observer.publicKey,
+      routePublicKey: f.keys.route.publicKey,
+      environmentPublicKey: f.keys.environment.publicKey,
+      isolationPublicKey: f.keys.isolation.publicKey,
+      admissionSigner: localGuardSigner(f.keys.admission.privatePath),
+      evaluatedAt: TIMES.evaluated,
+      validUntil: TIMES.validUntil,
+    }), /object/);
   } finally { rmSync(f.directory, { recursive: true, force: true }); }
 });
 
@@ -275,18 +341,22 @@ test("tampered challenges and expired or misbound admission decisions fail close
     payload.target.version = "2.1.999-substituted";
     tamperedChallenge.payload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
     assert.throws(() => buildGuardControlAdmission({
-      current: { route: f.currentRoute, challenge: f.current.envelope, observation: f.currentObserved.envelope },
-      candidate: { route: f.candidateRoute, challenge: tamperedChallenge, observation: f.candidateObserved.envelope },
+      current: { route: f.currentRoute, challenge: f.current.envelope, observation: f.currentObserved.envelope, isolation: f.currentIsolation.envelope },
+      candidate: { route: f.candidateRoute, challenge: tamperedChallenge, observation: f.candidateObserved.envelope, isolation: f.candidateIsolation.envelope },
       challengePublicKey: f.keys.challenge.publicKey,
       observerPublicKey: f.keys.observer.publicKey,
       routePublicKey: f.keys.route.publicKey,
       environmentPublicKey: f.keys.environment.publicKey,
+      isolationPublicKey: f.keys.isolation.publicKey,
       admissionSigner: localGuardSigner(f.keys.admission.privatePath),
       evaluatedAt: TIMES.evaluated,
       validUntil: TIMES.validUntil,
     }), /signature is invalid/);
 
     const approved = admit(f);
+    const { admissionHash: _hash, ...tooLong } = approved.admission;
+    const excessive = signGuardControlAdmission({ ...tooLong, validUntil: "2026-09-03T15:06:00.001Z" }, localGuardSigner(f.keys.admission.privatePath));
+    assert.throws(() => openGuardControlAdmission(excessive.envelope, f.keys.admission.publicKey), /at most one hour/);
     assert.throws(() => gateGuardControlAdmission({
       envelope: approved.envelope,
       publicKey: f.keys.admission.publicKey,
@@ -341,8 +411,10 @@ test("the CLI produces and enforces a real file-byte deployment gate", () => {
     currentRoute: join(f.directory, "current-route.json"), currentChallenge: join(f.directory, "current-challenge.json"),
     currentObservation: join(f.directory, "current-observation.json"), candidateRoute: join(f.directory, "candidate-route.json"),
     candidateChallenge: join(f.directory, "candidate-challenge.json"), candidateObservation: join(f.directory, "candidate-observation.json"),
+    currentIsolation: join(f.directory, "current-isolation.json"), candidateIsolation: join(f.directory, "candidate-isolation.json"),
     environmentPublic: join(f.directory, "environment-public.pem"), routePublic: join(f.directory, "route-public.pem"),
     challengePublic: join(f.directory, "challenge-public.pem"), observerPublic: join(f.directory, "observer-public.pem"),
+    isolationPublic: join(f.directory, "isolation-public.pem"),
     admissionPublic: join(f.directory, "admission-public.pem"), admission: join(f.directory, "admission.json"),
     artifact: join(f.directory, "candidate-package.bin"),
   };
@@ -352,10 +424,12 @@ test("the CLI produces and enforces a real file-byte deployment gate", () => {
       [files.currentRoute, f.currentRoute], [files.currentChallenge, f.current.envelope],
       [files.currentObservation, f.currentObserved.envelope], [files.candidateRoute, f.candidateRoute],
       [files.candidateChallenge, f.candidate.envelope], [files.candidateObservation, f.candidateObserved.envelope],
+      [files.currentIsolation, f.currentIsolation.envelope], [files.candidateIsolation, f.candidateIsolation.envelope],
     ] as const) writeFileSync(path, `${JSON.stringify(value)}\n`);
     for (const [path, key] of [
       [files.environmentPublic, f.keys.environment.publicKey], [files.routePublic, f.keys.route.publicKey],
       [files.challengePublic, f.keys.challenge.publicKey], [files.observerPublic, f.keys.observer.publicKey],
+      [files.isolationPublic, f.keys.isolation.publicKey],
       [files.admissionPublic, f.keys.admission.publicKey],
     ] as const) writeFileSync(path, key.export({ format: "pem", type: "spki" }));
     writeFileSync(files.artifact, "candidate-package");
@@ -363,9 +437,12 @@ test("the CLI produces and enforces a real file-byte deployment gate", () => {
     console.error = (() => undefined) as typeof console.error;
     assert.equal(runGuardAdmissionCommand([
       "--current-route", files.currentRoute, "--current-challenge", files.currentChallenge, "--current-observation", files.currentObservation,
+      "--current-isolation", files.currentIsolation,
       "--candidate-route", files.candidateRoute, "--candidate-challenge", files.candidateChallenge, "--candidate-observation", files.candidateObservation,
+      "--candidate-isolation", files.candidateIsolation,
       "--environment-public-key", files.environmentPublic, "--route-public-key", files.routePublic,
       "--challenge-public-key", files.challengePublic, "--observer-public-key", files.observerPublic,
+      "--isolation-public-key", files.isolationPublic,
       "--admission-key", f.keys.admission.privatePath, "--output", files.admission,
       "--evaluated-at", TIMES.evaluated, "--valid-until", TIMES.validUntil,
     ]), 0);

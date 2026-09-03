@@ -15,15 +15,16 @@ Anything missing, forged, stale, inconclusive, or bound to different bytes is
 
 ## What is separate
 
-Production use needs five trust roles:
+Production use needs six trust roles:
 
 1. **Environment authority** signs the managed profile and policy snapshot.
 2. **Challenge authority** issues fresh, one-time allow and deny routes.
 3. **Observer** records the external network effects.
 4. **Route notary** seals the complete live-host route receipt.
-5. **Admission authority** signs the final package decision.
+5. **Isolation authority** attests the worker boundary from outside the candidate.
+6. **Admission authority** signs the final package decision.
 
-An `APPROVE` decision requires five different key IDs. Do not put any private
+An `APPROVE` decision requires six different key IDs. Do not put any private
 key on the candidate worker. The current CLI supports local Ed25519 test keys
 and AWS KMS Ed25519 keys for the challenge, observer, and admission roles. KMS
 mode requires `--aws-cli` to point to an absolute executable chosen before any
@@ -78,6 +79,16 @@ attempts the exact signed deny command. The observer must see one allow request
 and no deny request. The route receipt must independently show that the hook
 allowed and executed the first command and denied the second.
 
+The route receipt and observer output are not sufficient by themselves. Before
+admission, a separately controlled Linux supervisor must sign an isolation
+attestation bound to the exact challenge, route receipt, artifact, and managed
+environment. A passing attestation states that the candidate ran as a non-root
+UID distinct from the monitor, verifier state was monitor-owned and read-only
+to the candidate, monitor IPC was authenticated, and candidate egress was
+restricted to the observer. Agent Vigil intentionally provides no local
+"trust me" command for minting this evidence. The platform operating that
+boundary must issue it using an isolation key unavailable to the worker.
+
 Repeat the complete sequence for the current version. Every challenge is
 fresh; do not reuse the candidate's paths or nonce for the baseline.
 
@@ -91,13 +102,16 @@ vigil guard-admit \
   --current-route current-route.dsse.json \
   --current-challenge current-challenge.dsse.json \
   --current-observation current-observation.dsse.json \
+  --current-isolation current-isolation.dsse.json \
   --candidate-route candidate-route.dsse.json \
   --candidate-challenge candidate-challenge.dsse.json \
   --candidate-observation candidate-observation.dsse.json \
+  --candidate-isolation candidate-isolation.dsse.json \
   --environment-public-key environment-public.pem \
   --route-public-key route-public.pem \
   --challenge-public-key challenge-public.pem \
   --observer-public-key observer-public.pem \
+  --isolation-public-key isolation-public.pem \
   --admission-kms-key alias/agent-vigil-admission \
   --aws-cli /usr/local/bin/aws \
   --output admission.dsse.json

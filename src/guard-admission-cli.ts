@@ -75,10 +75,10 @@ function usage(): string {
 
 Create a signed package/deployment decision:
   vigil guard-admit \\
-    --current-route <route.dsse.json> --current-challenge <challenge.dsse.json> --current-observation <observation.dsse.json> \\
-    --candidate-route <route.dsse.json> --candidate-challenge <challenge.dsse.json> --candidate-observation <observation.dsse.json> \\
+    --current-route <route.dsse.json> --current-challenge <challenge.dsse.json> --current-observation <observation.dsse.json> --current-isolation <isolation.dsse.json> \\
+    --candidate-route <route.dsse.json> --candidate-challenge <challenge.dsse.json> --candidate-observation <observation.dsse.json> --candidate-isolation <isolation.dsse.json> \\
     --environment-public-key <environment.pem> --route-public-key <route.pem> \\
-    --challenge-public-key <challenge.pem> --observer-public-key <observer.pem> \\
+    --challenge-public-key <challenge.pem> --observer-public-key <observer.pem> --isolation-public-key <isolation.pem> \\
     (--admission-key <private.pem> | --admission-kms-key <aws-kms-key-id>) \\
     --output <admission.dsse.json> [--evaluated-at <RFC3339>] [--valid-until <RFC3339>] [--aws-cli <absolute-path>] [--aws-region <region>]
 
@@ -266,9 +266,9 @@ export function runGuardDeployBoundGateCommand(args: string[]): number {
 export function runGuardAdmissionCommand(args: string[]): number {
   try {
     const allowed = new Set([
-      "--current-route", "--current-challenge", "--current-observation",
-      "--candidate-route", "--candidate-challenge", "--candidate-observation",
-      "--environment-public-key", "--route-public-key", "--challenge-public-key", "--observer-public-key",
+      "--current-route", "--current-challenge", "--current-observation", "--current-isolation",
+      "--candidate-route", "--candidate-challenge", "--candidate-observation", "--candidate-isolation",
+      "--environment-public-key", "--route-public-key", "--challenge-public-key", "--observer-public-key", "--isolation-public-key",
       "--admission-key", "--admission-kms-key", "--output", "--evaluated-at", "--valid-until",
       "--aws-cli", "--aws-region",
     ]);
@@ -277,9 +277,9 @@ export function runGuardAdmissionCommand(args: string[]): number {
     const values = parsed.values;
     const output = resolve(required(values, "--output"));
     const inputPaths = [
-      "--current-route", "--current-challenge", "--current-observation",
-      "--candidate-route", "--candidate-challenge", "--candidate-observation",
-      "--environment-public-key", "--route-public-key", "--challenge-public-key", "--observer-public-key",
+      "--current-route", "--current-challenge", "--current-observation", "--current-isolation",
+      "--candidate-route", "--candidate-challenge", "--candidate-observation", "--candidate-isolation",
+      "--environment-public-key", "--route-public-key", "--challenge-public-key", "--observer-public-key", "--isolation-public-key",
       ...(values.get("--admission-key") ? ["--admission-key"] : []),
     ].map((name) => resolve(required(values, name)));
     if (inputPaths.includes(output)) throw new Error("admission output must be distinct from every input and key");
@@ -287,6 +287,7 @@ export function runGuardAdmissionCommand(args: string[]): number {
       route: loadGuardRouteEnvelope(resolve(required(values, `--${prefix}-route`))),
       challenge: readBoundedJson(resolve(required(values, `--${prefix}-challenge`)), MAX_JSON, `${prefix} challenge`),
       observation: readBoundedJson(resolve(required(values, `--${prefix}-observation`)), MAX_JSON, `${prefix} observation`),
+      isolation: readBoundedJson(resolve(required(values, `--${prefix}-isolation`)), MAX_JSON, `${prefix} isolation attestation`),
     });
     const result = buildGuardControlAdmission({
       current: bundle("current"),
@@ -295,6 +296,7 @@ export function runGuardAdmissionCommand(args: string[]): number {
       routePublicKey: key(values, "--route-public-key", "route public key"),
       challengePublicKey: key(values, "--challenge-public-key", "challenge public key"),
       observerPublicKey: key(values, "--observer-public-key", "observer public key"),
+      isolationPublicKey: key(values, "--isolation-public-key", "isolation public key"),
       admissionSigner: admissionSigner(values),
       ...(values.get("--evaluated-at") ? { evaluatedAt: values.get("--evaluated-at")! } : {}),
       ...(values.get("--valid-until") ? { validUntil: values.get("--valid-until")! } : {}),

@@ -323,13 +323,13 @@ export async function verifyControlAdmissionEnvelope(value, publicKeyPem, asOf =
   }
   exactKeys(payload.evidence, ["current", "candidate", "routeDecisionHash"], "control admission evidence");
   for (const label of ["current", "candidate"]) {
-    exactKeys(payload.evidence[label], ["challengeHash", "observationHash", "routeReceiptHash"], `control admission ${label} evidence`);
-    for (const name of ["challengeHash", "observationHash", "routeReceiptHash"]) {
+    exactKeys(payload.evidence[label], ["challengeHash", "observationHash", "routeReceiptHash", "isolationHash"], `control admission ${label} evidence`);
+    for (const name of ["challengeHash", "observationHash", "routeReceiptHash", "isolationHash"]) {
       if (!DIGEST.test(payload.evidence[label][name])) throw new Error("control admission evidence digest is invalid");
     }
   }
   if (!DIGEST.test(payload.evidence.routeDecisionHash)) throw new Error("control admission route decision digest is invalid");
-  const trustKeys = ["challengeSignerKeyId", "observerSignerKeyId", "routeSignerKeyId", "environmentSignerKeyId", "admissionSignerKeyId"];
+  const trustKeys = ["challengeSignerKeyId", "observerSignerKeyId", "routeSignerKeyId", "environmentSignerKeyId", "isolationSignerKeyId", "admissionSignerKeyId"];
   exactKeys(payload.trust, trustKeys, "control admission trust");
   if (trustKeys.some((name) => !DIGEST.test(payload.trust[name]))
     || new Set(trustKeys.map((name) => payload.trust[name])).size !== trustKeys.length
@@ -351,6 +351,9 @@ export async function verifyDeploymentRegistration(value, deploymentPublicKeyPem
   if (value.schemaVersion !== DEPLOYMENT_REGISTRATION_SCHEMA) throw new Error("deployment registration schema is invalid");
   const authorization = await verifyDeploymentAuthorizationEnvelope(value.authorization, deploymentPublicKeyPem, asOf);
   const admission = await verifyControlAdmissionEnvelope(value.admission, admissionPublicKeyPem, asOf);
+  if (Object.values(admission.payload.trust).includes(authorization.trust.deploymentSignerKeyId)) {
+    throw new Error("deployment signer must be distinct from every admission trust role");
+  }
   if (authorization.admissionHash !== admission.payload.admissionHash
     || authorization.trust.admissionSignerKeyId !== admission.keyId
     || authorization.artifact.host !== admission.payload.artifact.host

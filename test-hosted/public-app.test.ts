@@ -23,7 +23,9 @@ import worker, {
 import { buildGuardDeploymentAuthorization } from "../src/guard-deployment-authorization.ts";
 import { signGuardControlAdmission, type GuardControlAdmission } from "../src/guard-control-protocol.ts";
 import { guardDigest } from "../src/guard-compat.ts";
+import { dssePae } from "../src/dsse.ts";
 import type { GuardSigner } from "../src/guard-signing.ts";
+import { canonical } from "../src/report.ts";
 import { publicKeyDer, signingKeyId } from "../src/signature.ts";
 
 const deliveryId = "550e8400-e29b-41d4-a716-446655440000";
@@ -87,7 +89,7 @@ function deploymentAuthorizationFixture() {
   const now = Date.now();
   const issuedAt = new Date(now - 60_000).toISOString();
   const validUntil = new Date(now + 10 * 60_000).toISOString();
-  const roleIds = Array.from({ length: 4 }, (_, index) => guardDigest(`hosted-role-${index}`));
+  const roleIds = Array.from({ length: 5 }, (_, index) => guardDigest(`hosted-role-${index}`));
   const unsigned: Omit<GuardControlAdmission, "admissionHash"> = {
     schemaVersion: "agent-vigil-control-admission/v1",
     evaluatedAt: new Date(now - 2 * 60_000).toISOString(),
@@ -96,13 +98,13 @@ function deploymentAuthorizationFixture() {
     artifact: { host: "codex", version: "future-1", executableSha256: guardDigest("hosted-package") },
     environmentSha256: guardDigest("hosted-environment"),
     evidence: {
-      current: { challengeHash: guardDigest("hc"), observationHash: guardDigest("ho"), routeReceiptHash: guardDigest("hr") },
-      candidate: { challengeHash: guardDigest("nc"), observationHash: guardDigest("no"), routeReceiptHash: guardDigest("nr") },
+      current: { challengeHash: guardDigest("hc"), observationHash: guardDigest("ho"), routeReceiptHash: guardDigest("hr"), isolationHash: guardDigest("hi") },
+      candidate: { challengeHash: guardDigest("nc"), observationHash: guardDigest("no"), routeReceiptHash: guardDigest("nr"), isolationHash: guardDigest("ni") },
       routeDecisionHash: guardDigest("hd"),
     },
     trust: {
       challengeSignerKeyId: roleIds[0], observerSignerKeyId: roleIds[1], routeSignerKeyId: roleIds[2],
-      environmentSignerKeyId: roleIds[3], admissionSignerKeyId: admissionSigner.keyId,
+      environmentSignerKeyId: roleIds[3], isolationSignerKeyId: roleIds[4], admissionSignerKeyId: admissionSigner.keyId,
     },
     reasonCodes: ["EXACT_CONTROL_ADMISSION_PROVEN"],
     limitations: ["Hosted deployment protection fixture."],
@@ -350,6 +352,43 @@ test("the Worker verifies the signed deployment authorization before storing it"
   assert.equal((await verifyDeploymentRegistration(
     registration, fixture.publicKeyPem, fixture.admissionPublicKeyPem,
   )).authorizationHash, fixture.authorization.authorization.authorizationHash);
+
+  const admissionSigner = guardSigner();
+  const deploymentSigner = guardSigner();
+  const roleIds = Array.from({ length: 4 }, (_, index) => guardDigest(`registration-role-${index}`));
+  const { admissionHash: _admissionHash, ...reusedAdmissionBase } = fixture.admission.admission;
+  const reusedAdmission = signGuardControlAdmission({
+    ...reusedAdmissionBase,
+    trust: {
+      challengeSignerKeyId: deploymentSigner.keyId,
+      observerSignerKeyId: roleIds[0],
+      routeSignerKeyId: roleIds[1],
+      environmentSignerKeyId: roleIds[2],
+      isolationSignerKeyId: roleIds[3],
+      admissionSignerKeyId: admissionSigner.keyId,
+    },
+  }, admissionSigner);
+  const authorizationBase = {
+    ...fixture.authorization.authorization,
+    admissionHash: reusedAdmission.admission.admissionHash,
+    trust: { admissionSignerKeyId: admissionSigner.keyId, deploymentSignerKeyId: deploymentSigner.keyId },
+  };
+  const { authorizationHash: _authorizationHash, ...authorizationWithoutHash } = authorizationBase;
+  const reusedAuthorization = { ...authorizationWithoutHash, authorizationHash: guardDigest(authorizationWithoutHash) };
+  const authorizationBytes = Buffer.from(canonical(reusedAuthorization));
+  const reusedEnvelope = {
+    payloadType: "application/vnd.agent-vigil.deployment-authorization+json;version=1",
+    payload: authorizationBytes.toString("base64"),
+    signatures: [{ keyid: deploymentSigner.keyId, sig: deploymentSigner.sign(dssePae(
+      "application/vnd.agent-vigil.deployment-authorization+json;version=1", authorizationBytes,
+    )).toString("base64") }],
+  };
+  await assert.rejects(() => verifyDeploymentRegistration({
+    schemaVersion: "agent-vigil-deployment-registration/v1",
+    authorization: reusedEnvelope,
+    admission: reusedAdmission.envelope,
+  }, deploymentSigner.publicKey.export({ format: "pem", type: "spki" }).toString(),
+  admissionSigner.publicKey.export({ format: "pem", type: "spki" }).toString()), /distinct from every admission trust role/);
 
   const tampered = structuredClone(fixture.authorization.envelope);
   const payload = JSON.parse(Buffer.from(tampered.payload, "base64").toString("utf8"));

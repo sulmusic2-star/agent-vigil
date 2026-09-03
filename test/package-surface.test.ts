@@ -295,6 +295,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/guard-route-diff-v1.schema.json",
     "docs/guard-control-challenge-v1.schema.json",
     "docs/guard-control-observation-v1.schema.json",
+    "docs/guard-control-isolation-v1.schema.json",
     "docs/guard-control-admission-v1.schema.json",
     "docs/guard-deployment-authorization-v1.schema.json",
     "docs/guard-deployment-registration-v1.schema.json",

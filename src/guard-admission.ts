@@ -4,6 +4,7 @@ import {
   EXTERNAL_ROUTE_PACK,
   GUARD_CONTROL_ADMISSION_SCHEMA,
   openGuardControlChallenge,
+  openGuardControlIsolationAttestation,
   openGuardControlObservation,
   signGuardControlAdmission,
   type GuardControlChallenge,
@@ -21,6 +22,7 @@ export type GuardControlEvidenceBundle = {
   route: GuardRouteEnvelope;
   challenge: unknown;
   observation: unknown;
+  isolation: unknown;
 };
 
 type PublicKeyValue = string | Buffer | KeyObject;
@@ -80,6 +82,7 @@ export function buildGuardControlAdmission(input: {
   observerPublicKey: PublicKeyValue;
   routePublicKey: PublicKeyValue;
   environmentPublicKey: PublicKeyValue;
+  isolationPublicKey: PublicKeyValue;
   admissionSigner: GuardSigner;
   evaluatedAt?: string;
   validUntil?: string;
@@ -102,6 +105,8 @@ export function buildGuardControlAdmission(input: {
   const candidateObservation = openGuardControlObservation(input.candidate.observation, input.observerPublicKey);
   const currentRoute = openGuardRouteEnvelope(input.current.route, input.routePublicKey);
   const candidateRoute = openGuardRouteEnvelope(input.candidate.route, input.routePublicKey);
+  const currentIsolation = openGuardControlIsolationAttestation(input.current.isolation, input.isolationPublicKey);
+  const candidateIsolation = openGuardControlIsolationAttestation(input.candidate.isolation, input.isolationPublicKey);
   const routeDecision = compareGuardRoutes({
     current: input.current.route,
     candidate: input.candidate.route,
@@ -120,9 +125,28 @@ export function buildGuardControlAdmission(input: {
       route: candidateRoute.report, evaluatedAt,
     }),
   ];
+  const isolationReasons = (label: "CURRENT" | "CANDIDATE", isolation: typeof currentIsolation, challenge: typeof currentChallenge, route: typeof currentRoute) => {
+    const reasons: string[] = [];
+    const add = (reason: string) => reasons.push(`${label}_${reason}`);
+    if (isolation.attestation.status !== "PASS") add("ISOLATION_NOT_PASS");
+    if (isolation.attestation.challengeHash !== challenge.challenge.challengeHash) add("ISOLATION_CHALLENGE_MISMATCH");
+    if (isolation.attestation.routeReceiptHash !== route.report.receiptHash) add("ISOLATION_ROUTE_MISMATCH");
+    if (isolation.attestation.artifactSha256 !== challenge.challenge.target.executableSha256) add("ISOLATION_ARTIFACT_MISMATCH");
+    if (isolation.attestation.environmentSha256 !== challenge.challenge.target.managedEnvironmentSha256) add("ISOLATION_ENVIRONMENT_MISMATCH");
+    const evaluated = Date.parse(evaluatedAt);
+    if (evaluated < Date.parse(isolation.attestation.issuedAt) || evaluated > Date.parse(isolation.attestation.validUntil)) {
+      add("ISOLATION_NOT_CURRENT");
+    }
+    return reasons;
+  };
+  reasonCodes.push(
+    ...isolationReasons("CURRENT", currentIsolation, currentChallenge, currentRoute),
+    ...isolationReasons("CANDIDATE", candidateIsolation, candidateChallenge, candidateRoute),
+  );
   if (currentChallenge.signerKeyId !== candidateChallenge.signerKeyId) reasonCodes.push("CHALLENGE_SIGNER_CHANGED");
   if (currentObservation.signerKeyId !== candidateObservation.signerKeyId) reasonCodes.push("OBSERVER_SIGNER_CHANGED");
   if (currentRoute.routeSignerKeyId !== candidateRoute.routeSignerKeyId) reasonCodes.push("ROUTE_SIGNER_CHANGED");
+  if (currentIsolation.signerKeyId !== candidateIsolation.signerKeyId) reasonCodes.push("ISOLATION_SIGNER_CHANGED");
   const environmentSignerKeyId = currentRoute.report.bindings.managedEnvironment.signerKeyId;
   if (environmentSignerKeyId !== candidateRoute.report.bindings.managedEnvironment.signerKeyId) {
     reasonCodes.push("ENVIRONMENT_SIGNER_CHANGED");
@@ -132,6 +156,7 @@ export function buildGuardControlAdmission(input: {
     currentObservation.signerKeyId,
     currentRoute.routeSignerKeyId,
     environmentSignerKeyId,
+    currentIsolation.signerKeyId,
     input.admissionSigner.keyId,
   ];
   if (new Set(roleKeys).size !== roleKeys.length) reasonCodes.push("TRUST_ROOTS_NOT_SEPARATED");
@@ -157,11 +182,13 @@ export function buildGuardControlAdmission(input: {
         challengeHash: currentChallenge.challenge.challengeHash,
         observationHash: currentObservation.observation.observationHash,
         routeReceiptHash: currentRoute.report.receiptHash,
+        isolationHash: currentIsolation.attestation.isolationHash,
       },
       candidate: {
         challengeHash: candidateChallenge.challenge.challengeHash,
         observationHash: candidateObservation.observation.observationHash,
         routeReceiptHash: candidateRoute.report.receiptHash,
+        isolationHash: candidateIsolation.attestation.isolationHash,
       },
       routeDecisionHash: routeDecision.decisionHash,
     },
@@ -170,13 +197,14 @@ export function buildGuardControlAdmission(input: {
       observerSignerKeyId: currentObservation.signerKeyId,
       routeSignerKeyId: currentRoute.routeSignerKeyId,
       environmentSignerKeyId,
+      isolationSignerKeyId: currentIsolation.signerKeyId,
       admissionSignerKeyId: input.admissionSigner.keyId,
     },
     reasonCodes,
     limitations: [
-      "APPROVE authenticates one exact candidate artifact, managed environment, route receipt, fresh challenge, external allow effect, absent deny effect, and unchanged paired control behavior against one current baseline.",
+      "APPROVE authenticates one exact candidate artifact, managed environment, isolated route receipt, fresh challenge, external allow effect, absent deny effect, and unchanged paired control behavior against one current baseline.",
       "The observer independently proves that the allow endpoint was reached and that its deny endpoint was not reached during the signed window. It does not see local worker actions that never reach the observer.",
-      "Deny-attempt and hook-routing evidence still depends on the isolated worker, host process, and route notary. A compromised worker operating system or collusion across separately pinned trust roots is outside this proof boundary.",
+      "A separate isolation authority attests that the candidate ran as a non-root UID, verifier state was monitor-owned and read-only to the candidate, monitor IPC was authenticated, and egress was restricted to the observer. A compromised monitor or collusion across separately pinned trust roots is outside this proof boundary.",
       "The admission is short-lived and artifact-specific. It does not prove publisher identity, complete security, production policy correctness, adoption, payment, or revenue.",
       "The deployment system must pin the admission public key and exact environment digest and must fail closed when this envelope is missing, invalid, expired, HOLD, or bound to another artifact.",
     ],

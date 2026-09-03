@@ -16,16 +16,19 @@ import type { GuardHost } from "./guard-compat.ts";
 export const GUARD_CONTROL_CHALLENGE_SCHEMA = "agent-vigil-external-control-challenge/v1" as const;
 export const GUARD_CONTROL_OBSERVATION_SCHEMA = "agent-vigil-external-control-observation/v1" as const;
 export const GUARD_CONTROL_ADMISSION_SCHEMA = "agent-vigil-control-admission/v1" as const;
+export const GUARD_CONTROL_ISOLATION_SCHEMA = "agent-vigil-control-isolation/v1" as const;
 export const GUARD_CONTROL_PLAN_SCHEMA = "agent-vigil-external-control-plan/v1" as const;
 export const GUARD_CONTROL_CHALLENGE_PAYLOAD = "application/vnd.agent-vigil.control-challenge+json;version=1" as const;
 export const GUARD_CONTROL_OBSERVATION_PAYLOAD = "application/vnd.agent-vigil.control-observation+json;version=1" as const;
 export const GUARD_CONTROL_ADMISSION_PAYLOAD = "application/vnd.agent-vigil.control-admission+json;version=1" as const;
+export const GUARD_CONTROL_ISOLATION_PAYLOAD = "application/vnd.agent-vigil.control-isolation+json;version=1" as const;
 export const EXTERNAL_ROUTE_PACK = "agent-vigil-external-network-route/v1" as const;
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9_-]{22,128}$/;
 const MAX_ENVELOPE_BYTES = 2 * 1024 * 1024;
 const MAX_CHALLENGE_MS = 15 * 60 * 1000;
+const MAX_ADMISSION_MS = 60 * 60 * 1000;
 const CANARY_BODY = "agent-vigil-external-control-canary/v1\n";
 
 export type GuardSignedEnvelope = {
@@ -103,8 +106,8 @@ export type GuardControlAdmission = {
   artifact: { host: GuardHost; version: string; executableSha256: string };
   environmentSha256: string;
   evidence: {
-    current: { challengeHash: string; observationHash: string; routeReceiptHash: string };
-    candidate: { challengeHash: string; observationHash: string; routeReceiptHash: string };
+    current: { challengeHash: string; observationHash: string; routeReceiptHash: string; isolationHash: string };
+    candidate: { challengeHash: string; observationHash: string; routeReceiptHash: string; isolationHash: string };
     routeDecisionHash: string;
   };
   trust: {
@@ -112,11 +115,33 @@ export type GuardControlAdmission = {
     observerSignerKeyId: string;
     routeSignerKeyId: string;
     environmentSignerKeyId: string;
+    isolationSignerKeyId: string;
     admissionSignerKeyId: string;
   };
   reasonCodes: string[];
   limitations: string[];
   admissionHash: string;
+};
+
+export type GuardControlIsolationAttestation = {
+  schemaVersion: typeof GUARD_CONTROL_ISOLATION_SCHEMA;
+  issuedAt: string;
+  validUntil: string;
+  challengeHash: string;
+  routeReceiptHash: string;
+  artifactSha256: string;
+  environmentSha256: string;
+  boundary: {
+    platform: "linux";
+    candidateUid: number;
+    monitorUid: 0;
+    verifierState: "MONITOR_OWNED_READ_ONLY";
+    monitorIpc: "AUTHENTICATED";
+    egress: "OBSERVER_ONLY";
+  };
+  status: "PASS" | "FAIL";
+  reasonCodes: string[];
+  isolationHash: string;
 };
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -586,6 +611,80 @@ export function openGuardControlObservation(value: unknown, publicKey: string | 
   return { observation: validateGuardControlObservation(opened.payload), signerKeyId: opened.signerKeyId };
 }
 
+export function signGuardControlIsolationAttestation(
+  value: Omit<GuardControlIsolationAttestation, "isolationHash">,
+  signer: GuardSigner,
+): { attestation: GuardControlIsolationAttestation; envelope: GuardSignedEnvelope } {
+  const attestation: GuardControlIsolationAttestation = { ...value, isolationHash: guardDigest(value) };
+  const validated = validateGuardControlIsolationAttestation(attestation);
+  return { attestation: validated, envelope: envelope(GUARD_CONTROL_ISOLATION_PAYLOAD, validated, signer) };
+}
+
+export function validateGuardControlIsolationAttestation(value: unknown): GuardControlIsolationAttestation {
+  const root = object(value, "control isolation attestation");
+  exactKeys(root, [
+    "schemaVersion", "issuedAt", "validUntil", "challengeHash", "routeReceiptHash", "artifactSha256",
+    "environmentSha256", "boundary", "status", "reasonCodes", "isolationHash",
+  ], "control isolation attestation");
+  if (root.schemaVersion !== GUARD_CONTROL_ISOLATION_SCHEMA) throw new Error("unsupported control isolation schema");
+  if (root.status !== "PASS" && root.status !== "FAIL") throw new Error("control isolation status is invalid");
+  const issuedAt = timestamp(root.issuedAt, "control isolation issuedAt");
+  const validUntil = timestamp(root.validUntil, "control isolation validUntil");
+  const lifetime = Date.parse(validUntil) - Date.parse(issuedAt);
+  if (lifetime <= 0 || lifetime > MAX_CHALLENGE_MS) {
+    throw new Error("control isolation validity must be greater than zero and at most 15 minutes");
+  }
+  const boundary = object(root.boundary, "control isolation boundary");
+  exactKeys(boundary, ["platform", "candidateUid", "monitorUid", "verifierState", "monitorIpc", "egress"], "control isolation boundary");
+  if (boundary.platform !== "linux"
+    || !Number.isInteger(boundary.candidateUid) || Number(boundary.candidateUid) <= 0 || Number(boundary.candidateUid) > 65535
+    || boundary.monitorUid !== 0
+    || boundary.verifierState !== "MONITOR_OWNED_READ_ONLY"
+    || boundary.monitorIpc !== "AUTHENTICATED"
+    || boundary.egress !== "OBSERVER_ONLY") {
+    throw new Error("control isolation boundary is not production-grade");
+  }
+  if (!Array.isArray(root.reasonCodes) || !root.reasonCodes.length) {
+    throw new Error("control isolation attestation needs reason codes");
+  }
+  const validated: GuardControlIsolationAttestation = {
+    schemaVersion: GUARD_CONTROL_ISOLATION_SCHEMA,
+    issuedAt,
+    validUntil,
+    challengeHash: digest(root.challengeHash, "control isolation challengeHash"),
+    routeReceiptHash: digest(root.routeReceiptHash, "control isolation routeReceiptHash"),
+    artifactSha256: digest(root.artifactSha256, "control isolation artifactSha256"),
+    environmentSha256: digest(root.environmentSha256, "control isolation environmentSha256"),
+    boundary: {
+      platform: "linux",
+      candidateUid: Number(boundary.candidateUid),
+      monitorUid: 0,
+      verifierState: "MONITOR_OWNED_READ_ONLY",
+      monitorIpc: "AUTHENTICATED",
+      egress: "OBSERVER_ONLY",
+    },
+    status: root.status,
+    reasonCodes: root.reasonCodes.map((reason, index) => text(reason, `reasonCodes[${index}]`, 200)),
+    isolationHash: digest(root.isolationHash, "isolationHash"),
+  };
+  if (validated.isolationHash !== hashWithout(validated as unknown as Record<string, unknown>, "isolationHash")) {
+    throw new Error("control isolation hash is invalid");
+  }
+  if (validated.status === "PASS"
+    && canonical(validated.reasonCodes) !== canonical(["DISTINCT_UID_IMMUTABLE_STATE_AUTHENTICATED_MONITOR"])) {
+    throw new Error("passing control isolation attestation has invalid reason codes");
+  }
+  return validated;
+}
+
+export function openGuardControlIsolationAttestation(value: unknown, publicKey: string | Buffer | KeyObject): {
+  attestation: GuardControlIsolationAttestation;
+  signerKeyId: string;
+} {
+  const opened = openEnvelope(value, GUARD_CONTROL_ISOLATION_PAYLOAD, publicKey);
+  return { attestation: validateGuardControlIsolationAttestation(opened.payload), signerKeyId: opened.signerKeyId };
+}
+
 export function signGuardControlAdmission(value: Omit<GuardControlAdmission, "admissionHash">, signer: GuardSigner): {
   admission: GuardControlAdmission;
   envelope: GuardSignedEnvelope;
@@ -606,7 +705,7 @@ export function validateGuardControlAdmission(value: unknown): GuardControlAdmis
   exactKeys(artifact, ["host", "version", "executableSha256"], "control admission artifact");
   if (artifact.host !== "claude" && artifact.host !== "codex") throw new Error("control admission host is invalid");
   const trust = object(root.trust, "control admission trust");
-  const trustKeys = ["challengeSignerKeyId", "observerSignerKeyId", "routeSignerKeyId", "environmentSignerKeyId", "admissionSignerKeyId"];
+  const trustKeys = ["challengeSignerKeyId", "observerSignerKeyId", "routeSignerKeyId", "environmentSignerKeyId", "isolationSignerKeyId", "admissionSignerKeyId"];
   exactKeys(trust, trustKeys, "control admission trust");
   if (!Array.isArray(root.reasonCodes) || !root.reasonCodes.length || !Array.isArray(root.limitations) || !root.limitations.length) {
     throw new Error("control admission must state reason codes and limitations");
@@ -616,7 +715,7 @@ export function validateGuardControlAdmission(value: unknown): GuardControlAdmis
   const current = object(evidence.current, "control admission current evidence");
   const candidate = object(evidence.candidate, "control admission candidate evidence");
   for (const [label, item] of [["current", current], ["candidate", candidate]] as const) {
-    exactKeys(item, ["challengeHash", "observationHash", "routeReceiptHash"], `control admission ${label} evidence`);
+    exactKeys(item, ["challengeHash", "observationHash", "routeReceiptHash", "isolationHash"], `control admission ${label} evidence`);
   }
   const validated: GuardControlAdmission = {
     schemaVersion: GUARD_CONTROL_ADMISSION_SCHEMA,
@@ -634,11 +733,13 @@ export function validateGuardControlAdmission(value: unknown): GuardControlAdmis
         challengeHash: digest(current.challengeHash, "control admission current challengeHash"),
         observationHash: digest(current.observationHash, "control admission current observationHash"),
         routeReceiptHash: digest(current.routeReceiptHash, "control admission current routeReceiptHash"),
+        isolationHash: digest(current.isolationHash, "control admission current isolationHash"),
       },
       candidate: {
         challengeHash: digest(candidate.challengeHash, "control admission candidate challengeHash"),
         observationHash: digest(candidate.observationHash, "control admission candidate observationHash"),
         routeReceiptHash: digest(candidate.routeReceiptHash, "control admission candidate routeReceiptHash"),
+        isolationHash: digest(candidate.isolationHash, "control admission candidate isolationHash"),
       },
       routeDecisionHash: digest(evidence.routeDecisionHash, "control admission routeDecisionHash"),
     },
@@ -650,7 +751,10 @@ export function validateGuardControlAdmission(value: unknown): GuardControlAdmis
   if (validated.admissionHash !== hashWithout(validated as unknown as Record<string, unknown>, "admissionHash")) {
     throw new Error("control admission hash is invalid");
   }
-  if (Date.parse(validated.validUntil) <= Date.parse(validated.evaluatedAt)) throw new Error("control admission validity is invalid");
+  const admissionLifetime = Date.parse(validated.validUntil) - Date.parse(validated.evaluatedAt);
+  if (admissionLifetime <= 0 || admissionLifetime > MAX_ADMISSION_MS) {
+    throw new Error("control admission validity must be greater than zero and at most one hour");
+  }
   if (validated.decision === "APPROVE"
     && new Set(Object.values(validated.trust)).size !== Object.keys(validated.trust).length) {
     throw new Error("approved control admission trust roots must be distinct");

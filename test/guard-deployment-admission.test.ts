@@ -16,7 +16,7 @@ function signer(): GuardSigner {
 function fixture() {
   const admissionSigner = signer();
   const deploymentSigner = signer();
-  const roles = Array.from({ length: 4 }, (_, index) => guardDigest(`role-${index}`));
+  const roles = Array.from({ length: 5 }, (_, index) => guardDigest(`role-${index}`));
   const admission = signGuardControlAdmission({
     schemaVersion: "agent-vigil-control-admission/v1",
     evaluatedAt: "2026-09-03T18:00:00.000Z",
@@ -25,12 +25,12 @@ function fixture() {
     artifact: { host: "codex", version: "future-1", executableSha256: guardDigest("package") },
     environmentSha256: guardDigest("environment"),
     evidence: {
-      current: { challengeHash: guardDigest("cc"), observationHash: guardDigest("co"), routeReceiptHash: guardDigest("cr") },
-      candidate: { challengeHash: guardDigest("nc"), observationHash: guardDigest("no"), routeReceiptHash: guardDigest("nr") },
+      current: { challengeHash: guardDigest("cc"), observationHash: guardDigest("co"), routeReceiptHash: guardDigest("cr"), isolationHash: guardDigest("ci") },
+      candidate: { challengeHash: guardDigest("nc"), observationHash: guardDigest("no"), routeReceiptHash: guardDigest("nr"), isolationHash: guardDigest("ni") },
       routeDecisionHash: guardDigest("decision"),
     },
     trust: { challengeSignerKeyId: roles[0], observerSignerKeyId: roles[1], routeSignerKeyId: roles[2],
-      environmentSignerKeyId: roles[3], admissionSignerKeyId: admissionSigner.keyId },
+      environmentSignerKeyId: roles[3], isolationSignerKeyId: roles[4], admissionSignerKeyId: admissionSigner.keyId },
     reasonCodes: ["EXACT_CONTROL_ADMISSION_PROVEN"],
     limitations: ["Focused test fixture."],
   }, admissionSigner);
