@@ -460,6 +460,19 @@ test("candidate CI never masquerades as trusted Agent Vigil evidence", () => {
   assert.match(ci, /Run protected group regression under a non-reaping PID 1/);
   assert.match(ci, /docker exec --env AGENT_VIGIL_REQUIRE_LINUX_THREAD_FIXTURE=true "\$container"/);
   assert.match(ci, /a zombie process leader cannot hide a runnable worker thread/);
+  const containmentPattern = ci.match(/--test-name-pattern="([^"]+)"/)?.[1];
+  assert.ok(containmentPattern, "candidate CI declares its focused Linux containment pattern");
+  const containmentNames = containmentPattern.split("|");
+  assert.equal(new Set(containmentNames).size, containmentNames.length, "candidate CI does not repeat a containment test name");
+  const runSupervisorTests = readFileSync(new URL("run-supervisor.test.ts", import.meta.url), "utf8");
+  const runSupervisorTestNames = [...runSupervisorTests.matchAll(/(?:nodeTest|test)\("([^"]+)"/g)]
+    .map((match) => match[1]);
+  for (const pattern of containmentNames) {
+    assert.ok(
+      runSupervisorTestNames.some((name) => new RegExp(pattern).test(name)),
+      `candidate CI containment pattern matches no test: ${pattern}`,
+    );
+  }
   assert.match(
     ci,
     /- name: Exercise the packed package\n\s+if: matrix\.node == 20 \|\| matrix\.node == 22\n\s+run: npm run test:package/,
