@@ -7301,6 +7301,9 @@ function initRepository(repo, force = false, portableSignerKeyId, profile = "def
   const result5 = { created: [], kept: [] };
   const inferred = hostedContract.testCommand;
   const mode = profile === "maintainer" || profile === "protect" ? "maintainer" : profile === "authority" ? "authority" : portableSignerKeyId ? "portable" : "transcript";
+  if (mode === "maintainer" && !inferred) {
+    throw new Error("No test command found. Add tests with a supported command, or choose a runner with --runner common --test-cmd <command>. No setup files were written.");
+  }
   const defaultPolicy = policyTemplate(inferred, portableSignerKeyId);
   const authorityPolicy = defaultPolicy.replace('"transcript": ".agent-vigil/session.md"', '"transcript": ".agent-vigil/session.jsonl"');
   const protectCommands = profile === "protect" ? inferProtectCommands(root, inferred) : void 0;

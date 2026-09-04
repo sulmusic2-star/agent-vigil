@@ -32,6 +32,9 @@ for this version. The matching GitHub package can also be run directly:
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz protect --repo .
 ```
 
+If no test command is found, installation stops without writing setup files.
+Add tests or choose an explicit runner as described below.
+
 The command finds the repository's test setup, runs a disposable red/green
 rehearsal, and writes the setup files. Commit those files and open one setup
 pull request. After it merges, the printed `doctor` command uses the same
