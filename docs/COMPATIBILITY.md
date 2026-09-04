@@ -37,11 +37,16 @@ release evidence.
 
 ## Generated hosted repository contract
 
-The automatic path used by `init` and `protect` supports:
+`protect` and `init --profile maintainer` require a test command. A repository
+without one, including a plain Git repository, is rejected before any setup
+files are written.
 
-- a plain Git repository with no inferred non-Node hosted test toolchain; or
-- a root Node/npm repository with one bounded direct `node --test` command in
-  `scripts.test` or `agentVigil.hostedTestCommand`.
+The automatic path supports a root Node/npm repository with one bounded direct
+`node --test` command in `scripts.test` or `agentVigil.hostedTestCommand`.
+
+The transcript and authority profiles of `init` can scaffold a plain Git
+repository without a test command. Those setup files do not prove that tests ran
+or that a merge check is required.
 
 The hosted override does not allow an arbitrary shell command. A root npm lock
 permits base-owned `npm ci --ignore-scripts` during the isolated setup phase.
@@ -52,7 +57,8 @@ submodules, and unsafe setup inputs fail closed.
 The v0.23.1 release includes a second, explicit path for Python, Rust, Go,
 Java, Ruby, PHP, .NET, pnpm, Yarn, and Bun. The operator supplies both a
 digest-pinned container image and one command from the bounded direct-runner
-grammar:
+grammar. Use `--runner common --test-cmd <command>` to select the published
+runner and an explicit test command, for example:
 
 ```bash
 vigil protect --repo . \
@@ -73,7 +79,7 @@ provenance and an SBOM. `runners/common/Dockerfile` is its reviewed recipe.
 Runtime policy accepts the immutable digest, never the recipe's moving tag.
 
 `npm run test:package` installs the generated tarball into disposable consumers
-and checks supported plain and root Node paths plus expected fail-closed
+and checks supported scaffold and root Node test paths plus expected fail-closed
 unsupported shapes. Treat each run's artifact and exit status as the evidence;
 this page does not claim a pending integrated run has passed.
 

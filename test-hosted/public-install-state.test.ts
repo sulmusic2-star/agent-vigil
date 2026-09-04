@@ -9,6 +9,17 @@ const releaseUrl = `https://github.com/sulmusic2-star/agent-vigil/releases/downl
 const releaseSha256 = "586e48f45030aa34c42107a0dc418a2f905c79186c8eebca3aebfbc376defe18";
 const registryIntegrity = "sha512-jLAH7Bl83WzYdawZ1cSnJZGkOsSiOotDi+9K/F3JCtQiQqj1Kw+Fa3y1W4XMXsVi9n+9Q9ADp5lRNqrjPflc6Q==";
 
+for (const filename of ["HOSTED_SECURITY_CONTRACT.md", "COMPATIBILITY.md"]) {
+  test(`${filename} distinguishes test-required setup from transcript scaffolding`, () => {
+    const guide = readFileSync(new URL(`../docs/${filename}`, import.meta.url), "utf8").replace(/\s+/g, " ");
+    assert.match(guide, /`protect` and `init --profile maintainer` require a test command/);
+    assert.match(guide, /without one[\s\S]*?rejected before any setup files are written/);
+    assert.match(guide, /--runner common --test-cmd/);
+    assert.match(guide, /transcript and authority profiles[\s\S]*?do not prove that tests ran/);
+    assert.doesNotMatch(guide, /a plain (?:Git )?repository with no inferred non-Node/);
+  });
+}
+
 test("the packaged guide uses an evergreen checksum-first install", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
   assert.ok(guide.includes("https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz"));
