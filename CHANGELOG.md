@@ -19,10 +19,19 @@
   processes proven to predate the detached session while failing closed for new
   or changed inaccessible entries, and exercise containment under a deliberately
   non-reaping container PID 1.
+
+## 0.24.2 - 2026-09-04
+
 - Install the reviewed public App control workflow on the default branch so the
   Worker dispatch target exists before activation.
 - Make the hosted App readiness endpoint fail closed until every check,
   deployment, registration, and Durable Object binding is configured.
+- Bind hosted pull-request verdicts to the current issue evidence so a body edit
+  cannot reuse a stale PASS.
+- Update artifact Actions and GitHub App authentication to their reviewed,
+  warning-free runtimes.
+- Prove the App-owned gate on live PASS, FAIL, stale-head, rollback, and
+  merge-queue staging paths without presenting first-party tests as adoption.
 
 ## 0.24.1 - 2026-09-04
 

@@ -27,6 +27,7 @@ const FINAL_PATHS = new Set([
   "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md",
   "docs/PUBLISHING.md",
   "docs/index.html",
+  "docs/check.html",
   "docs/check.js",
   "docs/public-install-state.json",
   "docs/COMPETITOR_COMPARISON.md",

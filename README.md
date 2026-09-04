@@ -18,18 +18,26 @@ merge?**
 
 ## Add it to a repository
 
-The v0.24.1 package and checksum are public on GitHub. Setup and the
-follow-up check use that same immutable release, so the first run does not
-depend on npm publication.
+This release keeps setup and the follow-up check on one immutable package.
+v0.24.2 is a source release candidate until GitHub lists both the package and checksum assets.
+Until then, the verified public package remains
+[`sulmusic-agent-vigil-0.24.1.tgz`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz).
+Use it now with:
 
 ```bash
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo .
 ```
 
+After GitHub lists both v0.24.2 assets, use:
+
+```bash
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz protect --repo .
+```
+
 The command finds the repository's test setup, runs a disposable red/green
 rehearsal, and writes the setup files. Commit those files and open one setup
 pull request. After it merges, the printed `doctor` command uses the same
-v0.24.1 GitHub package. Then open a normal code pull request and read
+package version selected above. Then open a normal code pull request and read
 one result:
 
 - **PASS** — ready to merge under the repository's current policy.
@@ -53,18 +61,18 @@ claimed and observed test counts, findings, and reproduction command.
 
 ### Verify the distribution channel
 
-This packaged README describes v0.24.1; it is not a claim that v0.24.1 remains
+This packaged README describes v0.24.2; it is not a claim that v0.24.2 remains
 the newest release. The live, machine-readable channel record is
 [`docs/public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
 
-Do not substitute an npm install until this query returns `0.24.1`:
+Do not substitute an npm install until this query returns `0.24.2`:
 
 ```bash
 npm view @sulmusic/agent-vigil version
 ```
 
-All five public workflows for this release pin the reviewed runtime commit
-`0d1f1c9f95f32a55c1a83772feab1944b0fcbd9e`. For the checksum-first download
+All six public workflows for this release pin the reviewed runtime commit
+`8df4ae8c7349c526d18fb1df67e87a5da68a820d`. For the checksum-first download
 and an explicit non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 ## What it checks
@@ -91,7 +99,7 @@ The generated Node/npm path is automatic. Python, Rust, Go, Java, Ruby, PHP,
 test command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
@@ -112,9 +120,9 @@ The public App path is designed to reduce customer setup to:
 The centrally operated App owns the check identity, supports `pull_request` and
 `merge_group`, and keeps App keys and webhook secrets out of customer
 repositories. Its source and threat boundary are in
-[`hosted/public-app`](hosted/public-app). **It is not a live public service until
-a real outside repository demonstrates PASS, FAIL, stale-head NOT CHECKED, and
-a ruleset bound to the App.**
+[`hosted/public-app`](hosted/public-app). First-party staging has exercised
+PASS, FAIL, stale-head NOT CHECKED, rollback, and merge-queue blocking. **That
+does not make the production App a live public service or prove outside use.**
 
 A repository-owned Action is useful for trials, but a job name alone is not a
 workflow trust root. GitHub rulesets should require the App-owned check when the
