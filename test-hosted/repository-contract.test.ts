@@ -84,15 +84,15 @@ test("the released package and public channels keep explicit version identities"
   const changelog = readFileSync("CHANGELOG.md", "utf8");
   const installState = JSON.parse(readFileSync("docs/public-install-state.json", "utf8"));
 
-  assert.equal(manifest.version, "0.24.0");
+  assert.equal(manifest.version, "0.24.1");
   assert.equal(lock.version, manifest.version);
   assert.equal(lock.packages[""].version, manifest.version);
-  assert.match(report, /VERSION = "0\.24\.0"/);
+  assert.match(report, /VERSION = "0\.24\.1"/);
   assert.doesNotMatch(setup, /generated v0\.22\.0 hosted workflow/);
   assert.equal(installState.latest_github_release.version, "0.23.2");
   assert.equal(installState.latest_github_release.commit, "1c5544d84586249c452adda3f8432a9bdac2ca7a");
   assert.deepEqual(installState.source_release_candidate, {
-    version: "0.24.0",
+    version: "0.24.1",
     github_release_published: false,
     npm_published: false,
   });
@@ -102,7 +102,7 @@ test("the released package and public channels keep explicit version identities"
   assert.match(readme, /GitHub release v0\.23\.2 is\s+public and immutable/);
   assert.match(
     readme,
-    /v0\.24\.0 is a source release candidate until GitHub lists both the package and checksum assets\./,
+    /v0\.24\.1 is the receipt-product source release candidate on this pull request\./,
   );
   assert.match(readme, /--runner common/);
   assert.doesNotMatch(readme, /node dist\/cli\.js protect --action-sha/);
@@ -112,7 +112,7 @@ test("the released package and public channels keep explicit version identities"
   assertBefore(
     changelog,
     "## Unreleased",
-    "## 0.24.0 - 2026-09-04",
+    "## 0.24.1 - 2026-09-04",
     "unreleased changes precede the latest released version",
   );
   assert.match(changelog, /## 0\.21\.2 - 2026-08-28/);

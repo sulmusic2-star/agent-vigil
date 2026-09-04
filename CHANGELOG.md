@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.24.1 - 2026-09-04
+
+- Add the receipt-product surfaces from the September 2 value-equation research: Overnight Receipt stop-event assertion checking, Counterweight required-check installer, Evidence Vault export packs, Blast-Radius Receipt, VIGIL taxonomy, and anonymized cheat-signature corpus entries.
+- Harden release-proof claims so failed tool calls, negated claims, dry-run publication, mismatched `npm view` output, and denominator shrink cannot prove a published or all-green result.
+- Keep npm/public distribution fail-closed: this source candidate is not installable from npm until staged-package maintainer approval makes the registry version match the source and release artifacts.
+
 ## 0.24.0 - 2026-09-04
 
 - Add a production-shaped independent release gate that binds fresh challenges, external allow effects, denied effects, exact executable bytes, managed policy bytes, and current-versus-candidate behavior to short-lived signed evidence.

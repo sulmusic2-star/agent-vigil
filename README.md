@@ -132,11 +132,10 @@ and observed test counts, findings, and reproduction command.
 
 ## Current distribution boundary
 
-v0.24.0 is a source release candidate until GitHub lists both the package and
-checksum assets. It is merged to `main`, tagged, and staged through npm trusted
-publishing with provenance. It is **not installable from npm** until a maintainer
-approves the staged package with npm 2FA. npm still serves v0.21.1 until that
-approval is completed.
+v0.24.1 is the receipt-product source release candidate on this pull request.
+It is not merged, tagged, staged through npm trusted publishing, or installable
+from npm yet. npm still serves v0.21.1 until a maintainer approves a staged
+package with npm 2FA and the registry actually reports the new version.
 
 GitHub release v0.23.2 is public and immutable.
 
@@ -144,7 +143,7 @@ The last verified GitHub release tarball is
 [`sulmusic-agent-vigil-0.23.2.tgz`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz).
 GitHub release v0.23.2 is public and immutable.
 npm currently serves v0.21.1. Do not assume that `latest` points to the same
-code on every channel. v0.24.0 can replace those versions only after npm,
+code on every channel. v0.24.1 can replace those versions only after npm,
 GitHub Releases, the Marketplace listing, checksums, README, and Action pins
 all identify the same commit.
 
