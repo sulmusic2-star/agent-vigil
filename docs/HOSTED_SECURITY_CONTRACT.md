@@ -1,6 +1,6 @@
 # Hosted evidence security contract
 
-**Applies to:** Agent Vigil v0.24.0 `init` and `protect` workflows
+**Applies to:** Agent Vigil v0.24.1 `init` and `protect` workflows
 
 Agent Vigil's generated hosted lane checks one GitHub pull-request head under a
 base-owned policy. It is intentionally narrower than the local CLI.
@@ -11,14 +11,14 @@ base-owned policy. It is intentionally narrower than the local CLI.
 node dist/cli.js protect
 ```
 
-The current source tree contains this corrected contract. The immutable v0.24.0
-package contains the earlier contract text naming v0.23.2; it does not contain
-this promoted wording. The runtime behavior was verified separately, but the
-archive is not documentary proof of this updated page. Download the package
-without npm credentials and verify its checksum:
+The immutable v0.24.1 package contains the preceding documentation snapshot:
+it labels this contract v0.24.0 and retains the v0.24.0 package disclosure. It
+does not contain this post-release wording. The v0.24.1 runtime and package were
+verified separately. Download that package without npm credentials and verify
+its checksum:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz doctor
 ```
 
 `protect` selects the immutable reviewed public Action commit and writes it into
@@ -56,7 +56,7 @@ Node invocation. A missing, moved, differently versioned, or digest-mismatched
 runtime blocks the Action. Updating Node therefore requires a reviewed workflow
 pin and reviewed binary digests, not a floating `22` selector.
 
-The v0.24.0 runtime bindings were derived from the official Node.js v22.23.2
+The v0.24.1 runtime bindings were derived from the official Node.js v22.23.2
 release archives after each archive matched the release
 [`SHASUMS256.txt`](https://nodejs.org/download/release/v22.23.2/SHASUMS256.txt):
 

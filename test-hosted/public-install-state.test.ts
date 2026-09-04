@@ -2,23 +2,23 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const releaseVersion = "0.24.0";
-const releaseCommit = "ef583e6c9cac87941a7f283ef07af46187315912";
+const releaseVersion = "0.24.1";
+const releaseCommit = "ccf2cae545e910e1ea27eb8b9746302879fd645d";
 const releaseAsset = `sulmusic-agent-vigil-${releaseVersion}.tgz`;
 const releaseUrl = `https://github.com/sulmusic2-star/agent-vigil/releases/download/v${releaseVersion}/${releaseAsset}`;
-const releaseSha256 = "49fc66f97e4ce1ae530513062430ae9a81dba94c3f722dd91bd3d1009e629151";
+const releaseSha256 = "87f6cef0bc6194ec9785bf359c6d4c7c8e5d9c1a2ac3133d694d3e08956f1ced";
 const registryIntegrity = "sha512-svknWHc0DT9Jh77tatKFmvsr3lJr8dSDLBrXud1pr1DKkgW8Yx7uIvS1+Xkq72TQfyP091sWUZZzDH8ku6RjuA==";
 
-test("the npm-free guide freezes pre-release state without presenting it as current", () => {
+test("the npm-free guide records the release snapshot without presenting npm as current", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
 
   assert.match(guide, new RegExp(releaseUrl.replaceAll(".", "\\.")));
   assert.match(guide, new RegExp(releaseSha256));
   assert.match(guide, new RegExp(releaseCommit));
-  assert.match(guide, /v0\.24\.1 is a source release candidate until GitHub lists both/);
+  assert.match(guide, /v0\.24\.1 package and checksum are public on GitHub/);
   assert.match(guide, /same\s+immutable v0\.24\.1 GitHub package/s);
   assert.match(guide, /npm served v0\.21\.1/);
-  assert.match(guide, /dated provenance facts, not current-channel/);
+  assert.match(guide, /verification time recorded.*npm served v0\.21\.1/s);
   assert.doesNotMatch(guide, /@sulmusic\/agent-vigil@0\.24\.1/);
 });
 
@@ -33,11 +33,7 @@ test("the public install state keeps GitHub and npm publication separate", () =>
   assert.equal(state.latest_github_release.asset_url, releaseUrl);
   assert.equal(state.latest_github_release.sha256, releaseSha256);
   assert.equal(state.latest_github_release.immutable, true);
-  assert.deepEqual(state.source_release_candidate, {
-    version: "0.24.1",
-    github_release_published: false,
-    npm_published: false,
-  });
+  assert.equal(state.source_release_candidate, undefined);
   assert.equal(state.npm_registry.package, "@sulmusic/agent-vigil");
   assert.equal(state.npm_registry.target_version, releaseVersion);
   assert.equal(state.npm_registry.observed_version, "0.21.1");

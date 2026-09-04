@@ -89,17 +89,13 @@ test("the released package and public channels keep explicit version identities"
   assert.equal(lock.packages[""].version, manifest.version);
   assert.match(report, /VERSION = "0\.24\.1"/);
   assert.doesNotMatch(setup, /generated v0\.22\.0 hosted workflow/);
-  assert.equal(installState.latest_github_release.version, "0.24.0");
-  assert.equal(installState.latest_github_release.commit, "ef583e6c9cac87941a7f283ef07af46187315912");
-  assert.deepEqual(installState.source_release_candidate, {
-    version: "0.24.1",
-    github_release_published: false,
-    npm_published: false,
-  });
+  assert.equal(installState.latest_github_release.version, "0.24.1");
+  assert.equal(installState.latest_github_release.commit, "ccf2cae545e910e1ea27eb8b9746302879fd645d");
+  assert.equal(installState.source_release_candidate, undefined);
   assert.equal(installState.npm_registry.observed_version, "0.21.1");
-  assert.equal(installState.npm_registry.target_version, "0.24.0");
+  assert.equal(installState.npm_registry.target_version, "0.24.1");
   assert.equal(installState.npm_registry.target_published, false);
-  assert.match(readme, /v0\.24\.1 is a source release candidate until GitHub lists both/);
+  assert.match(readme, /v0\.24\.1 package and checksum are public on GitHub/);
   assert.match(readme, /--runner common/);
   assert.doesNotMatch(readme, /node dist\/cli\.js protect --action-sha/);
   assert.match(readme, /releases\/download\/v0\.24\.1\/sulmusic-agent-vigil-0\.24\.1\.tgz/);

@@ -1,10 +1,10 @@
 # Install Agent Vigil v0.24.1 without npm
 
-This guide is an immutable snapshot for v0.24.1. It does not claim that v0.24.1
-is still the newest release or that npm currently serves it.
+This guide describes the immutable v0.24.1 release assets. It does not claim
+that v0.24.1 remains the newest release or that npm currently serves it.
 
-v0.24.1 is a source release candidate until GitHub lists both the package and checksum assets.
-Do not run the candidate commands until both assets named below exist.
+The v0.24.1 package and checksum are public on GitHub. The commands below
+use that immutable release and do not depend on npm publication.
 
 ## Verify the GitHub package
 
@@ -63,13 +63,11 @@ npm view @sulmusic/agent-vigil version
 The current cross-channel record lives on the default branch in
 [`public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json). This packaged guide deliberately does not copy that changing state.
 
-At the time this release candidate was assembled, the verified public GitHub
-package was
-`https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz`
-from commit `ef583e6c9cac87941a7f283ef07af46187315912`, with SHA-256
-`49fc66f97e4ce1ae530513062430ae9a81dba94c3f722dd91bd3d1009e629151`.
-npm served v0.21.1. These are dated provenance facts, not current-channel
-claims.
+The verified public GitHub package is
+`https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz`
+from commit `ccf2cae545e910e1ea27eb8b9746302879fd645d`, with SHA-256
+`87f6cef0bc6194ec9785bf359c6d4c7c8e5d9c1a2ac3133d694d3e08956f1ced`.
+At the verification time recorded in `public-install-state.json`, npm served v0.21.1.
 
 ## Enforcement
 
