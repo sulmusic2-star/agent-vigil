@@ -18,6 +18,8 @@ test("the npm-free guide identifies the exact v0.24.0 GitHub package", () => {
   assert.match(guide, /Marketplace listing also exposes v0\.24\.0/);
   assert.match(guide, /npm has staged v0\.24\.0/);
   assert.match(guide, /still serves\s+v0\.21\.1/s);
+  assert.match(guide, /immutable tarball contains the earlier[\s\S]*pre-publication README and installation guide/);
+  assert.match(guide, /Use this current web guide and the attached checksum/);
   assert.doesNotMatch(guide, /source release candidate/);
 });
 

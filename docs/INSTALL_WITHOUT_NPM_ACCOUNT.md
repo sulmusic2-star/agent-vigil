@@ -20,6 +20,12 @@ v0.21.1. Use the immutable GitHub package until registry promotion, integrity,
 and a clean registry install are separately verified. The exact channel state
 is recorded in [`public-install-state.json`](public-install-state.json).
 
+> **v0.24.0 packaging note:** the immutable tarball contains the earlier
+> pre-publication README and installation guide, which still name v0.23.2 as
+> the last verified release. The executable and package metadata report
+> v0.24.0. Use this current web guide and the attached checksum rather than the
+> guide embedded in that tarball.
+
 ## One setup pull request
 
 `protect` writes the policy and workflows, then runs a disposable rehearsal. A

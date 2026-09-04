@@ -59,6 +59,13 @@ npm has staged v0.24.0 with trusted-publishing provenance, but the public
 `latest` tag still serves v0.21.1. Use the immutable GitHub package until npm
 promotion, registry integrity, and a fresh registry install are verified.
 
+**Packaging note:** the immutable v0.24.0 tarball contains the pre-publication
+README and installation guide, which still name v0.23.2 as the last verified
+release. The executable reports v0.24.0 and passed the attached-artifact checks,
+but use this current web guide and the release checksum for installation. A
+follow-up release must remove version-specific distribution state from packaged
+documentation.
+
 The machine-readable channel record is in
 [`docs/public-install-state.json`](docs/public-install-state.json).
 
