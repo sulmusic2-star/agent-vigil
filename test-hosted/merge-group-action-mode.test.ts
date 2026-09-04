@@ -19,3 +19,12 @@ test("adding queue support does not relax ordinary candidate provenance", () => 
   assert.match(action, /candidate verification requires the base-selected pull_request_target event/);
   assert.match(action, /candidate verification requires a bounded GitHub pull_request event with full commit IDs/);
 });
+
+test("the reviewed Action accepts central App pull-request evidence only in maintainer workflow dispatch", () => {
+  assert.match(action, /pull-request-event:\n\s+description: "Authenticated pull_request event envelope from the central App/);
+  assert.match(action, /pull-request-event is restricted to maintainer mode/);
+  assert.match(action, /centrally dispatched maintainer mode requires an authenticated pull-request-event/);
+  assert.match(action, /authenticated pull-request verification requires workflow_dispatch/);
+  assert.match(action, /VIGIL_EVENT_SOURCE="\$VIGIL_PULL_REQUEST_EVENT"/);
+  assert.match(action, /args=\(maintainer --event "\$GITHUB_EVENT_PATH"/);
+});

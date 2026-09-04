@@ -137,11 +137,15 @@ test("public App binds pull-request and merge-queue identities without a reposit
   assert.throws(() => parseMergeGroupPayload({ ...queuePayload(), merge_group: { ...queuePayload().merge_group, head_ref: "refs/heads/main" } }, deliveryId), /head ref/);
 });
 
-test("public App reruns when the pull-request base changes and accepts valid punctuation in branch names", () => {
+test("public App reruns when pull-request evidence changes and accepts valid punctuation in branch names", () => {
   const editedBase = pullPayload("edited");
   editedBase.changes = { base: { ref: { from: "main" } } };
   editedBase.pull_request.base.ref = "release@v2+candidate";
   assert.equal(parsePullRequestPayload(editedBase, deliveryId).baseRef, "release@v2+candidate");
+
+  const editedBody = pullPayload("edited");
+  editedBody.changes = { body: { from: "old evidence" } };
+  assert.equal(parsePullRequestPayload(editedBody, deliveryId).event, "pull_request");
 
   const editedTitle = pullPayload("edited");
   editedTitle.changes = { title: { from: "old title" } };
@@ -295,10 +299,12 @@ test("delivery ledger creates one queued App check and dispatches the internal c
     throw new Error(`unexpected fetch ${url}`);
   }) as typeof fetch;
   try {
-    let stored: any;
+    const stored = new Map<string, any>();
+    const alarms: number[] = [];
     const ledger = new DeliveryLedger({ storage: {
-      async get() { return stored; },
-      async put(_key: string, value: any) { stored = value; },
+      async get(key: string) { return stored.get(key); },
+      async put(key: string, value: any) { stored.set(key, value); },
+      async setAlarm(value: number) { alarms.push(value); },
     } }, {
       GITHUB_APP_ID: "1001",
       GITHUB_APP_PRIVATE_KEY: pem,
@@ -329,12 +335,95 @@ test("delivery ledger creates one queued App check and dispatches the internal c
     const tokenBodies = calls.filter((call) => call.url.includes("/access_tokens")).map((call) => call.body);
     assert.deepEqual(tokenBodies[0].permissions, { checks: "write", contents: "read", pull_requests: "read" });
     assert.deepEqual(tokenBodies[1].permissions, { actions: "write" });
+    assert.equal(alarms.length, 1);
+    assert.ok(alarms[0] > Date.now());
 
     const replay = await ledger.fetch(new Request("https://ledger.internal/dispatch", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value),
     }));
     assert.equal(replay.status, 202);
     assert.equal(calls.filter((call) => call.url.endsWith("/check-runs")).length, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("delivery ledger fails a check closed when the control workflow never completes", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const value = { ...parsePullRequestPayload(pullPayload(), deliveryId), checkRunId: "34567" };
+  const stored = new Map<string, any>([
+    ["dispatch", { status: "dispatched", delivery_id: deliveryId, check_run_id: "34567" }],
+    ["target", value],
+  ]);
+  const alarms: number[] = [];
+  const calls: Array<{ url: string; method?: string; body?: any }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    calls.push({ url, method: init?.method, body });
+    if (url.includes("/access_tokens")) return new Response(JSON.stringify({ token: `token-${"x".repeat(24)}` }), { status: 201 });
+    if (url.endsWith("/check-runs/34567") && init?.method === "PATCH") return new Response(JSON.stringify({ id: 34567 }), { status: 200 });
+    if (url.endsWith("/check-runs/34567")) return new Response(JSON.stringify({
+      id: 34567,
+      head_sha: headSha,
+      external_id: `pull_request:${deliveryId}:${headSha}`,
+      status: "queued",
+    }), { status: 200 });
+    throw new Error(`unexpected fetch ${url}`);
+  }) as typeof fetch;
+  try {
+    const state = { storage: {
+      async get(key: string) { return stored.get(key); },
+      async put(key: string, item: any) { stored.set(key, item); },
+      async setAlarm(item: number) { alarms.push(item); },
+      async deleteAll() { stored.clear(); },
+    } };
+    const ledger = new DeliveryLedger(state, { GITHUB_APP_ID: "1001", GITHUB_APP_PRIVATE_KEY: pem });
+    await ledger.alarm();
+    const completion = calls.find((call) => call.url.endsWith("/check-runs/34567") && call.method === "PATCH");
+    assert.equal(completion?.body?.conclusion, "failure");
+    assert.equal(completion?.body?.output?.title, "NOT CHECKED");
+    assert.match(completion?.body?.output?.summary, /did not finish within one hour/);
+    assert.equal(stored.get("dispatch")?.status, "retained");
+    assert.equal(stored.get("dispatch")?.terminal_status, "timed_out");
+    assert.equal(alarms.length, 1);
+    await ledger.alarm();
+    assert.equal(stored.size, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("delivery ledger preserves a completed App check during timeout cleanup", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const value = { ...parsePullRequestPayload(pullPayload(), deliveryId), checkRunId: "34567" };
+  const stored = new Map<string, any>([
+    ["dispatch", { status: "dispatched", delivery_id: deliveryId, check_run_id: "34567" }],
+    ["target", value],
+  ]);
+  const originalFetch = globalThis.fetch;
+  const methods: Array<string | undefined> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    methods.push(init?.method);
+    if (url.includes("/access_tokens")) return new Response(JSON.stringify({ token: `token-${"x".repeat(24)}` }), { status: 201 });
+    if (url.endsWith("/check-runs/34567")) return new Response(JSON.stringify({
+      id: 34567,
+      head_sha: headSha,
+      external_id: `pull_request:${deliveryId}:${headSha}`,
+      status: "completed",
+    }), { status: 200 });
+    throw new Error(`unexpected fetch ${url}`);
+  }) as typeof fetch;
+  try {
+    const ledger = new DeliveryLedger({ storage: {
+      async get(key: string) { return stored.get(key); },
+      async put(key: string, item: any) { stored.set(key, item); },
+      async setAlarm() {},
+      async deleteAll() { stored.clear(); },
+    } }, { GITHUB_APP_ID: "1001", GITHUB_APP_PRIVATE_KEY: pem });
+    await ledger.alarm();
+    assert.equal(methods.includes("PATCH"), false);
+    assert.equal(stored.get("dispatch")?.terminal_status, "completed");
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -720,9 +809,18 @@ test("public App manifest and control workflow keep customer setup to one App in
   assert.match(workflow, /JSON\.parse\(Buffer\.from\(envelope, "base64url"\)/);
   assert.match(workflow, /Object\.keys\(value\)\.sort\(\)/);
   assert.match(workflow, /uses: sulmusic2-star\/agent-vigil@[0-9a-f]{40}/);
-  assert.match(workflow, /mode: merge-group/);
-  assert.match(workflow, /merge-group-event: \$\{\{ steps\.change-event\.outputs\.path \}\}/);
-  assert.match(workflow, /Materialize the authenticated exact-change envelope outside the checkout/);
+  assert.match(workflow, /AGENT_VIGIL_CONTROL_APP_ACTOR \|\| vars\.AGENT_VIGIL_PUBLIC_APP_ACTOR/);
+  assert.match(workflow, /mode: \$\{\{ needs\.authenticate\.outputs\.event == 'pull_request' && 'maintainer' \|\| 'merge-group' \}\}/);
+  assert.match(workflow, /pull-request-event: \$\{\{ needs\.authenticate\.outputs\.event == 'pull_request' && steps\.change-event\.outputs\.path \|\| '' \}\}/);
+  assert.match(workflow, /merge-group-event: \$\{\{ needs\.authenticate\.outputs\.event == 'merge_group' && steps\.change-event\.outputs\.path \|\| '' \}\}/);
+  assert.match(workflow, /Materialize trusted pull-request or merge-group evidence outside the checkout/);
+  assert.match(workflow, /\/pulls\/\$\{e\.PR_NUMBER\}/);
+  assert.match(workflow, /live pull-request evidence does not match the signed exact-change envelope/);
+  assert.match(workflow, /pull_request:\s*\{[\s\S]*body: pull\.body \?\? ""/);
+  assert.match(workflow, /pr-body-sha256: \$\{\{ steps\.change-event\.outputs\.pr_body_sha256 \}\}/);
+  assert.match(workflow, /EXPECTED_PR_BODY_SHA256: \$\{\{ needs\.evidence\.outputs\.pr-body-sha256 \}\}/);
+  assert.match(workflow, /createHash\("sha256"\)\.update\(body, "utf8"\)\.digest\("hex"\) === e\.EXPECTED_PR_BODY_SHA256/);
+  assert.match(workflow, /current && e\.VIGIL_STATUS === "FAIL" \? "FAIL" : "NOT CHECKED"/);
   assert.doesNotMatch(workflow, /path: candidate|uses: \.\/control/);
   assert.match(workflow, /candidate-setup-cmd: npm ci --ignore-scripts/);
   assert.match(workflow, /PASS.*FAIL.*NOT CHECKED/s);
