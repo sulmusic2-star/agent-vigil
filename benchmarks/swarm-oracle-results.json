@@ -2,11 +2,12 @@
   "schemaVersion": 2,
   "tool": {
     "name": "agent-vigil",
-    "version": "0.23.3"
+    "version": "0.23.4"
   },
   "source": {
     "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",
     "commit": "b2b681ff529929d39a14c0541d0e2b71b642b5da",
+    "corpusTree": "afb71177457fd15a6b8e39b88c0a98564cc5e9a7",
     "corpusRoot": "benchmarks/oracle-corpus",
     "labelsVerified": 326
   },

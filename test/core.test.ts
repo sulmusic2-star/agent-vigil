@@ -706,6 +706,20 @@ test("static diff audit catches error swallowing, lost context, dead branches, s
   }
 });
 
+test("static diff audit ignores generated maps and nested vendored code", () => {
+  const generated = [
+    unifiedDiff("packages/app/output/runtime.js.map", [], ["// @ts-ignore generated source map text"]),
+    unifiedDiff("packages/sdk/src/vendored/client.ts", [], ["// eslint-disable-next-line no-console"]),
+  ].join("");
+  const rules = checkIntegrityDiff(generated).map((result) => result.ruleId);
+  assert.equal(rules.includes("suppression-added"), false);
+});
+
+test("static diff audit does not hide source merely because a parent directory is named build", () => {
+  const source = unifiedDiff("packages/build/runner.ts", [], ["// @ts-ignore unsafe suppression"]);
+  assert.equal(checkIntegrityDiff(source).some((result) => result.ruleId === "suppression-added"), true);
+});
+
 test("static diff audit treats in-hunk triple-prefix lines as code rather than file headers", () => {
   const addedPrefixCollision = unifiedDiff(
     "src/counter.ts",
@@ -749,6 +763,19 @@ test("static diff audit does not call an assertion move a net assertion drop", (
     unifiedDiff("test/new.test.ts", [], ["expect(value()).toBe(2);"]),
   ].join("");
   assert.equal(checkIntegrityDiff(moved).some((result) => result.ruleId === "assertion-drop"), false);
+});
+test("static diff audit reports one test-surface loss when tests and assertions both shrink", () => {
+  const reduced = unifiedDiff(
+    "test/value.test.ts",
+    [
+      "test('first', () => { expect(first()).toBe(1); });",
+      "test('second', () => { expect(second()).toBe(2); });",
+    ],
+    ["test('first', () => { expect(first()).toBe(1); });"],
+  );
+  const findings = checkIntegrityDiff(reduced);
+  assert.equal(findings.filter((result) => result.ruleId === "test-count-drop").length, 1);
+  assert.equal(findings.filter((result) => result.ruleId === "assertion-drop").length, 0);
 });
 test("static diff audit catches a retained test body emptied of assertions", () => {
   const emptied = [

@@ -41,7 +41,9 @@ test("CLI command parsers reject ambiguous or incomplete requests before side ef
 
   assert.equal(run(["--version"]), 0);
   assert.equal(run(["guard-compat", "--help"]), 0);
+  assert.equal(run(["guard-environment", "--help"]), 0);
   assert.equal(run(["guard-route", "--help"]), 0);
+  assert.equal(run(["guard-diff", "--help"]), 0);
   const invalid: string[][] = [
     ["--unknown"],
     ["evidence.md", "--format", "yaml"],
@@ -54,11 +56,17 @@ test("CLI command parsers reject ambiguous or incomplete requests before side ef
     ["guard-compat", "--host", "cursor"],
     ["guard-compat", "--host", "claude", "--format", "yaml"],
     ["guard-compat", "--host", "claude", "--timeout-ms", "1.5"],
+    ["guard-environment", "unknown"],
+    ["guard-environment", "init-profile"],
+    ["guard-environment", "issue"],
     ["guard-route", "positional"],
     ["guard-route", "--host"],
     ["guard-route", "--host", "cursor"],
     ["guard-route", "--host", "codex", "--format", "yaml"],
     ["guard-route", "--host", "codex", "--timeout-ms", "slow"],
+    ["guard-diff"],
+    ["guard-diff", "--current", first],
+    ["guard-diff", "--current", first, "--candidate", second, "--format", "yaml"],
     ["protect", "--unknown"],
     ["protect", "--repo", root, "--runner", "common"],
     ["protect", "--repo", root, "--runner", "unknown", "--test-cmd", "go test ./..."],
@@ -256,6 +264,41 @@ test("CLI guard-route refuses an output path that aliases its disposable profile
     "--profile-home", profile, "--output", marker,
   ]), 2);
   assert.equal(readFileSync(marker, "utf8"), "agent-vigil disposable host profile v1\n");
+});
+
+test("CLI creates a unique profile identity and signed managed-environment statement", { skip: process.platform === "win32" ? "managed host profiles require POSIX permission bits" : false }, () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-guard-environment-cli-"));
+  const profile = join(root, "profile");
+  const marker = join(profile, ".agent-vigil-disposable-profile");
+  const policy = join(root, "managed-policy.json");
+  const manifest = join(root, "policy-files.json");
+  const privateKey = join(root, "private.pem");
+  const publicKey = join(root, "public.pem");
+  const output = join(root, "environment.json");
+  try {
+    mkdirSync(profile, { mode: 0o700 });
+    writeFileSync(marker, "agent-vigil disposable host profile v1\n", { mode: 0o600 });
+    writeFileSync(policy, '{"network":"deny"}\n', { mode: 0o600 });
+    writeFileSync(manifest, JSON.stringify({
+      schemaVersion: "agent-vigil-guard-policy-files/v1",
+      files: [{ label: "organization-policy", path: policy }],
+    }));
+    generateSigningKey(privateKey, publicKey);
+    assert.equal(run(["guard-environment", "init-profile", "--profile-home", profile]), 0);
+    const binding = join(profile, ".agent-vigil-profile-binding");
+    assert.match(readFileSync(binding, "utf8"), /^agent-vigil-profile-binding\/v1:[0-9a-f]{64}\n$/);
+    assert.equal(run([
+      "guard-environment", "issue", "--host", "codex", "--profile-home", profile,
+      "--environment-id", "engineering-production", "--policy-manifest", manifest,
+      "--signing-key", privateKey, "--issued-at", "2026-09-02T12:00:00.000Z",
+      "--valid-until", "2026-09-02T13:00:00.000Z", "--output", output,
+    ]), 0);
+    const statement = JSON.parse(readFileSync(output, "utf8"));
+    assert.equal(statement.schemaVersion, "agent-vigil-guard-environment/v1");
+    assert.equal(statement.policies[0].path, policy);
+    assert.equal(readFileSync(policy, "utf8"), '{"network":"deny"}\n');
+    assert.equal(run(["guard-environment", "init-profile", "--profile-home", profile]), 2, "identity cannot be overwritten");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("CLI init and doctor provide a working exact-SHA scaffold", () => {
