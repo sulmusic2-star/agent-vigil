@@ -23541,15 +23541,36 @@ function numericDirectoryNames(entries) {
 function sameNames(left, right) {
   return left.length === right.length && left.every((name2, index) => name2 === right[index]);
 }
-function isHidepidEntryOutsideSameUserBoundary(pid, processGroupId) {
-  if (pid === String(processGroupId) || typeof process.geteuid !== "function") return false;
+function linuxProcDirectoryIdentity(pid) {
   try {
-    return statSync6(join23("/proc", pid)).uid !== process.geteuid();
+    const stat = statSync6(join23("/proc", pid), { bigint: true });
+    if (!stat.isDirectory()) return void 0;
+    return [stat.dev, stat.ino, stat.uid, stat.ctimeNs].join(":");
   } catch {
-    return false;
+    return void 0;
   }
 }
-function snapshotLinuxProcessGroup(processGroupId) {
+function captureLinuxProcessBaseline() {
+  if (process.platform !== "linux") return void 0;
+  let entries;
+  try {
+    entries = readdirSync5("/proc", { withFileTypes: true });
+  } catch {
+    return void 0;
+  }
+  const baseline = /* @__PURE__ */ new Map();
+  for (const pid of numericDirectoryNames(entries)) {
+    const identity2 = linuxProcDirectoryIdentity(pid);
+    if (identity2) baseline.set(pid, identity2);
+  }
+  return baseline;
+}
+function inaccessibleEntryPredatesDetachedSession(pid, processGroupId, baseline) {
+  if (!baseline || pid === String(processGroupId)) return false;
+  const before = baseline.get(pid);
+  return before !== void 0 && linuxProcDirectoryIdentity(pid) === before;
+}
+function snapshotLinuxProcessGroup(processGroupId, baseline) {
   let entries;
   try {
     entries = readdirSync5("/proc", { withFileTypes: true });
@@ -23566,7 +23587,7 @@ function snapshotLinuxProcessGroup(processGroupId) {
     } catch (error) {
       const code = error.code;
       if (code === "ENOENT" || code === "ESRCH") continue;
-      if ((code === "EACCES" || code === "EPERM") && isHidepidEntryOutsideSameUserBoundary(entry.name, processGroupId)) continue;
+      if ((code === "EACCES" || code === "EPERM") && inaccessibleEntryPredatesDetachedSession(entry.name, processGroupId, baseline)) continue;
       incomplete = true;
       continue;
     }
@@ -23636,21 +23657,21 @@ function snapshotLinuxProcessGroup(processGroupId) {
   if (incomplete || memberFingerprints.length === 0) return { state: "unknown" };
   return { state: "zombie-only", fingerprint: memberFingerprints.sort().join("|") };
 }
-function linuxProcessGroupState(processGroupId) {
-  const first = snapshotLinuxProcessGroup(processGroupId);
+function linuxProcessGroupState(processGroupId, baseline) {
+  const first = snapshotLinuxProcessGroup(processGroupId, baseline);
   if (first.state !== "zombie-only") return first.state;
-  const second = snapshotLinuxProcessGroup(processGroupId);
+  const second = snapshotLinuxProcessGroup(processGroupId, baseline);
   if (second.state !== "zombie-only") return second.state;
   return first.fingerprint === second.fingerprint ? "zombie-only" : "unknown";
 }
-function processGroupHasLiveMembers(pid) {
+function processGroupHasLiveMembers(pid, baseline) {
   try {
     process.kill(-pid, 0);
   } catch (error) {
     if (error.code !== "EPERM") return false;
   }
   if (process.platform !== "linux") return true;
-  return linuxProcessGroupState(pid) !== "zombie-only";
+  return linuxProcessGroupState(pid, baseline) !== "zombie-only";
 }
 function sendGroupSignal(pid, signal) {
   try {
@@ -23698,18 +23719,18 @@ function settlementWithin(promise, milliseconds) {
     );
   });
 }
-async function waitForGroupExit(pid, milliseconds) {
+async function waitForGroupExit(pid, milliseconds, baseline) {
   const deadline = monotonicNowMs() + milliseconds;
-  while (processGroupHasLiveMembers(pid) && monotonicNowMs() < deadline) {
+  while (processGroupHasLiveMembers(pid, baseline) && monotonicNowMs() < deadline) {
     await delay(Math.min(25, Math.max(1, deadline - monotonicNowMs())));
   }
-  return !processGroupHasLiveMembers(pid);
+  return !processGroupHasLiveMembers(pid, baseline);
 }
-async function terminateProcessGroup(pid, graceMs) {
+async function terminateProcessGroup(pid, graceMs, baseline) {
   const termSent = sendGroupSignal(pid, "SIGTERM");
-  if (!termSent || await waitForGroupExit(pid, graceMs)) return { termSent, killSent: false, confirmed: true };
+  if (!termSent || await waitForGroupExit(pid, graceMs, baseline)) return { termSent, killSent: false, confirmed: true };
   const killSent = sendGroupSignal(pid, "SIGKILL");
-  const confirmed = !killSent || await waitForGroupExit(pid, POST_KILL_WAIT_MS);
+  const confirmed = !killSent || await waitForGroupExit(pid, POST_KILL_WAIT_MS, baseline);
   return { termSent, killSent, confirmed };
 }
 function signalExitCode(signal) {
@@ -23823,6 +23844,7 @@ async function executeProtectedRun(input) {
   let captureClosePromise;
   let stdoutRelay;
   let verificationAbortController;
+  let linuxProcessBaseline;
   let stopHandledPromise;
   let requestStopResolve;
   const stopPromise = new Promise((resolveStop) => {
@@ -23899,6 +23921,7 @@ async function executeProtectedRun(input) {
     }
     const preLaunchStop = getStopRequest();
     if (preLaunchStop) return finishPreLaunchStop(preLaunchStop);
+    linuxProcessBaseline = captureLinuxProcessBaseline();
     startedAtMs = Date.now();
     startedAtMonotonicMs = monotonicNowMs();
     telemetry?.start(startedAtMonotonicMs);
@@ -24024,7 +24047,7 @@ async function executeProtectedRun(input) {
         interval = void 0;
       }
       if (child?.pid) {
-        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
+        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs, linuxProcessBaseline);
         termSent = termination.termSent;
         killSent = termination.killSent;
         processGroupTerminationConfirmed = termination.confirmed;
@@ -24035,7 +24058,7 @@ async function executeProtectedRun(input) {
     const exitDescendantCheckPromise = exitPromise.then(async () => {
       await delay(25);
       if (stopRequest) return;
-      if (child?.pid && processGroupHasLiveMembers(child.pid)) requestStop({ code: "ORPHANED_DESCENDANTS" });
+      if (child?.pid && processGroupHasLiveMembers(child.pid, linuxProcessBaseline)) requestStop({ code: "ORPHANED_DESCENDANTS" });
       else processGroupTerminationConfirmed = true;
     });
     const postLaunchVerificationPromise = hashExecutableAfterLaunch(executable.path, verificationAbortController.signal).then(
@@ -24161,9 +24184,9 @@ async function executeProtectedRun(input) {
       } catch {
         processGroupTerminationConfirmed = false;
       }
-    } else if (child?.pid && processGroupHasLiveMembers(child.pid)) {
+    } else if (child?.pid && processGroupHasLiveMembers(child.pid, linuxProcessBaseline)) {
       try {
-        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
+        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs, linuxProcessBaseline);
         termSent = termination.termSent;
         killSent = termination.killSent;
         processGroupTerminationConfirmed = termination.confirmed;

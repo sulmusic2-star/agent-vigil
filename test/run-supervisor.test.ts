@@ -244,9 +244,9 @@ test("unconfirmed process-group termination is a supervisor error", { timeout: 6
   assert.equal(recomputeProtectedRunHash(result.receipt), result.receipt.receiptHash);
 });
 
-nodeTest("hidepid-inaccessible unrelated processes do not poison group evidence", {
+nodeTest("hidepid-inaccessible processes require a stable pre-launch identity", {
   skip: process.platform !== "linux",
-  timeout: 6_000,
+  timeout: 12_000,
 }, () => {
   const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
   const script = `
@@ -260,7 +260,8 @@ nodeTest("hidepid-inaccessible unrelated processes do not poison group evidence"
       const originalStatSync = fs.statSync;
       let groupPid;
       let killSent = false;
-      let inaccessibleUid = process.geteuid() + 1;
+      const inaccessiblePid = 4_000_000;
+      let baselineMode = "stable";
       const directory = (name) => ({ name: String(name), isDirectory: () => true });
       const fakeStat = (pid) => {
         const fields = [
@@ -280,8 +281,9 @@ nodeTest("hidepid-inaccessible unrelated processes do not poison group evidence"
       };
       fs.readdirSync = (...args) => {
         const path = String(args[0]);
-        if (killSent && path === "/proc") {
-          return [directory(groupPid + 100_000), directory(groupPid)];
+        if (path === "/proc") {
+          if (!killSent) return baselineMode === "new" ? [] : [directory(inaccessiblePid)];
+          return [directory(inaccessiblePid), directory(groupPid)];
         }
         if (killSent && path === "/proc/" + groupPid + "/task") {
           return [directory(groupPid)];
@@ -290,7 +292,7 @@ nodeTest("hidepid-inaccessible unrelated processes do not poison group evidence"
       };
       fs.readFileSync = (...args) => {
         const path = String(args[0]);
-        if (killSent && path === "/proc/" + (groupPid + 100_000) + "/stat") {
+        if (path === "/proc/" + inaccessiblePid + "/stat") {
           throw Object.assign(new Error("simulated hidepid denial"), { code: "EACCES" });
         }
         if (killSent && (path === "/proc/" + groupPid + "/stat"
@@ -301,8 +303,14 @@ nodeTest("hidepid-inaccessible unrelated processes do not poison group evidence"
       };
       fs.statSync = (...args) => {
         const path = String(args[0]);
-        if (killSent && path === "/proc/" + (groupPid + 100_000)) {
-          return { uid: inaccessibleUid };
+        if (path === "/proc/" + inaccessiblePid) {
+          return {
+            isDirectory: () => true,
+            dev: 1n,
+            ino: BigInt(inaccessiblePid),
+            uid: 0n,
+            ctimeNs: baselineMode === "changed" && killSent ? 2n : 1n,
+          };
         }
         return originalStatSync(...args);
       };
@@ -323,9 +331,13 @@ nodeTest("hidepid-inaccessible unrelated processes do not poison group evidence"
         const unrelated = await run();
         groupPid = undefined;
         killSent = false;
-        inaccessibleUid = process.geteuid();
+        baselineMode = "changed";
+        const changedIdentity = await run();
+        groupPid = undefined;
+        killSent = false;
+        baselineMode = "new";
         const possibleMember = await run();
-        process.stdout.write(JSON.stringify({ unrelated, possibleMember }));
+        process.stdout.write(JSON.stringify({ unrelated, changedIdentity, possibleMember }));
       } finally {
         process.kill = originalKill;
         fs.readdirSync = originalReaddirSync;
@@ -342,12 +354,13 @@ nodeTest("hidepid-inaccessible unrelated processes do not poison group evidence"
     cwd: process.cwd(),
     encoding: "utf8",
     env: coverageHarnessEnvironment(),
-    timeout: 5_000,
+    timeout: 10_000,
   });
   assert.equal(observed.error, undefined);
   assert.equal(observed.status, 0, observed.stderr);
   const result = JSON.parse(observed.stdout) as {
     unrelated: ProtectedRunResult;
+    changedIdentity: ProtectedRunResult;
     possibleMember: ProtectedRunResult;
   };
   assert.equal(result.unrelated.exitCode, 124);
@@ -357,12 +370,14 @@ nodeTest("hidepid-inaccessible unrelated processes do not poison group evidence"
   assert.equal(result.unrelated.receipt.process.processGroupTerminationConfirmed, true);
   assert.equal(recomputeProtectedRunHash(result.unrelated.receipt), result.unrelated.receipt.receiptHash);
 
-  assert.equal(result.possibleMember.exitCode, 125);
-  assert.equal(result.possibleMember.receipt.state, "ERROR");
-  assert.equal(result.possibleMember.receipt.stop?.code, "SUPERVISOR_ERROR");
-  assert.equal(result.possibleMember.receipt.process.killSent, true);
-  assert.equal(result.possibleMember.receipt.process.processGroupTerminationConfirmed, false);
-  assert.equal(recomputeProtectedRunHash(result.possibleMember.receipt), result.possibleMember.receipt.receiptHash);
+  for (const possibleMember of [result.changedIdentity, result.possibleMember]) {
+    assert.equal(possibleMember.exitCode, 125);
+    assert.equal(possibleMember.receipt.state, "ERROR");
+    assert.equal(possibleMember.receipt.stop?.code, "SUPERVISOR_ERROR");
+    assert.equal(possibleMember.receipt.process.killSent, true);
+    assert.equal(possibleMember.receipt.process.processGroupTerminationConfirmed, false);
+    assert.equal(recomputeProtectedRunHash(possibleMember.receipt), possibleMember.receipt.receiptHash);
+  }
 });
 
 nodeTest("changing Linux task membership is not accepted as zombie-only", {

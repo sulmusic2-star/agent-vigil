@@ -283,6 +283,8 @@ type LinuxProcessGroupSnapshot =
   | { state: "active" | "unknown" }
   | { state: "zombie-only"; fingerprint: string };
 
+type LinuxProcessBaseline = ReadonlyMap<string, string>;
+
 function numericDirectoryNames(entries: Array<{ name: string; isDirectory(): boolean }>): string[] {
   return entries
     .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
@@ -294,16 +296,46 @@ function sameNames(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((name, index) => name === right[index]);
 }
 
-function isHidepidEntryOutsideSameUserBoundary(pid: string, processGroupId: number): boolean {
-  if (pid === String(processGroupId) || typeof process.geteuid !== "function") return false;
+function linuxProcDirectoryIdentity(pid: string): string | undefined {
   try {
-    return statSync(join("/proc", pid)).uid !== process.geteuid();
+    const stat = statSync(join("/proc", pid), { bigint: true });
+    if (!stat.isDirectory()) return undefined;
+    return [stat.dev, stat.ino, stat.uid, stat.ctimeNs].join(":");
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-function snapshotLinuxProcessGroup(processGroupId: number): LinuxProcessGroupSnapshot {
+function captureLinuxProcessBaseline(): LinuxProcessBaseline | undefined {
+  if (process.platform !== "linux") return undefined;
+  let entries;
+  try {
+    entries = readdirSync("/proc", { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const baseline = new Map<string, string>();
+  for (const pid of numericDirectoryNames(entries)) {
+    const identity = linuxProcDirectoryIdentity(pid);
+    if (identity) baseline.set(pid, identity);
+  }
+  return baseline;
+}
+
+function inaccessibleEntryPredatesDetachedSession(
+  pid: string,
+  processGroupId: number,
+  baseline: LinuxProcessBaseline | undefined,
+): boolean {
+  if (!baseline || pid === String(processGroupId)) return false;
+  const before = baseline.get(pid);
+  return before !== undefined && linuxProcDirectoryIdentity(pid) === before;
+}
+
+function snapshotLinuxProcessGroup(
+  processGroupId: number,
+  baseline: LinuxProcessBaseline | undefined,
+): LinuxProcessGroupSnapshot {
   let entries;
   try {
     entries = readdirSync("/proc", { withFileTypes: true });
@@ -322,7 +354,7 @@ function snapshotLinuxProcessGroup(processGroupId: number): LinuxProcessGroupSna
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT" || code === "ESRCH") continue;
       if ((code === "EACCES" || code === "EPERM")
-        && isHidepidEntryOutsideSameUserBoundary(entry.name, processGroupId)) continue;
+        && inaccessibleEntryPredatesDetachedSession(entry.name, processGroupId, baseline)) continue;
       incomplete = true;
       continue;
     }
@@ -411,22 +443,25 @@ function snapshotLinuxProcessGroup(processGroupId: number): LinuxProcessGroupSna
   return { state: "zombie-only", fingerprint: memberFingerprints.sort().join("|") };
 }
 
-function linuxProcessGroupState(processGroupId: number): LinuxProcessGroupState {
-  const first = snapshotLinuxProcessGroup(processGroupId);
+function linuxProcessGroupState(
+  processGroupId: number,
+  baseline: LinuxProcessBaseline | undefined,
+): LinuxProcessGroupState {
+  const first = snapshotLinuxProcessGroup(processGroupId, baseline);
   if (first.state !== "zombie-only") return first.state;
-  const second = snapshotLinuxProcessGroup(processGroupId);
+  const second = snapshotLinuxProcessGroup(processGroupId, baseline);
   if (second.state !== "zombie-only") return second.state;
   return first.fingerprint === second.fingerprint ? "zombie-only" : "unknown";
 }
 
-function processGroupHasLiveMembers(pid: number): boolean {
+function processGroupHasLiveMembers(pid: number, baseline: LinuxProcessBaseline | undefined): boolean {
   try {
     process.kill(-pid, 0);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EPERM") return false;
   }
   if (process.platform !== "linux") return true;
-  return linuxProcessGroupState(pid) !== "zombie-only";
+  return linuxProcessGroupState(pid, baseline) !== "zombie-only";
 }
 
 function sendGroupSignal(pid: number, signal: NodeJS.Signals): boolean {
@@ -479,19 +514,27 @@ function settlementWithin(promise: Promise<unknown>, milliseconds: number): Prom
   });
 }
 
-async function waitForGroupExit(pid: number, milliseconds: number): Promise<boolean> {
+async function waitForGroupExit(
+  pid: number,
+  milliseconds: number,
+  baseline: LinuxProcessBaseline | undefined,
+): Promise<boolean> {
   const deadline = monotonicNowMs() + milliseconds;
-  while (processGroupHasLiveMembers(pid) && monotonicNowMs() < deadline) {
+  while (processGroupHasLiveMembers(pid, baseline) && monotonicNowMs() < deadline) {
     await delay(Math.min(25, Math.max(1, deadline - monotonicNowMs())));
   }
-  return !processGroupHasLiveMembers(pid);
+  return !processGroupHasLiveMembers(pid, baseline);
 }
 
-async function terminateProcessGroup(pid: number, graceMs: number): Promise<{ termSent: boolean; killSent: boolean; confirmed: boolean }> {
+async function terminateProcessGroup(
+  pid: number,
+  graceMs: number,
+  baseline: LinuxProcessBaseline | undefined,
+): Promise<{ termSent: boolean; killSent: boolean; confirmed: boolean }> {
   const termSent = sendGroupSignal(pid, "SIGTERM");
-  if (!termSent || await waitForGroupExit(pid, graceMs)) return { termSent, killSent: false, confirmed: true };
+  if (!termSent || await waitForGroupExit(pid, graceMs, baseline)) return { termSent, killSent: false, confirmed: true };
   const killSent = sendGroupSignal(pid, "SIGKILL");
-  const confirmed = !killSent || await waitForGroupExit(pid, POST_KILL_WAIT_MS);
+  const confirmed = !killSent || await waitForGroupExit(pid, POST_KILL_WAIT_MS, baseline);
   return { termSent, killSent, confirmed };
 }
 
@@ -632,6 +675,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
   let captureClosePromise: Promise<void> | undefined;
   let stdoutRelay: AsyncDescriptorSink | undefined;
   let verificationAbortController: AbortController | undefined;
+  let linuxProcessBaseline: LinuxProcessBaseline | undefined;
   let stopHandledPromise: Promise<StopRequest> | undefined;
   let requestStopResolve: ((request: StopRequest) => void) | undefined;
   const stopPromise = new Promise<StopRequest>((resolveStop) => { requestStopResolve = resolveStop; });
@@ -710,6 +754,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     const preLaunchStop = getStopRequest();
     if (preLaunchStop) return finishPreLaunchStop(preLaunchStop);
 
+    linuxProcessBaseline = captureLinuxProcessBaseline();
     startedAtMs = Date.now();
     startedAtMonotonicMs = monotonicNowMs();
     telemetry?.start(startedAtMonotonicMs);
@@ -827,7 +872,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       if (timeout) { clearTimeout(timeout); timeout = undefined; }
       if (interval) { clearInterval(interval); interval = undefined; }
       if (child?.pid) {
-        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
+        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs, linuxProcessBaseline);
         termSent = termination.termSent;
         killSent = termination.killSent;
         processGroupTerminationConfirmed = termination.confirmed;
@@ -838,7 +883,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     const exitDescendantCheckPromise = exitPromise.then(async () => {
       await delay(25);
       if (stopRequest) return;
-      if (child?.pid && processGroupHasLiveMembers(child.pid)) requestStop({ code: "ORPHANED_DESCENDANTS" });
+      if (child?.pid && processGroupHasLiveMembers(child.pid, linuxProcessBaseline)) requestStop({ code: "ORPHANED_DESCENDANTS" });
       else processGroupTerminationConfirmed = true;
     });
     const postLaunchVerificationPromise = hashExecutableAfterLaunch(executable.path, verificationAbortController.signal).then(
@@ -973,9 +1018,9 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     const detailSha256 = sha256(error instanceof Error ? error.message : String(error));
     if (stopRequest && stopHandledPromise) {
       try { await stopHandledPromise; } catch { processGroupTerminationConfirmed = false; }
-    } else if (child?.pid && processGroupHasLiveMembers(child.pid)) {
+    } else if (child?.pid && processGroupHasLiveMembers(child.pid, linuxProcessBaseline)) {
       try {
-        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
+        const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs, linuxProcessBaseline);
         termSent = termination.termSent;
         killSent = termination.killSent;
         processGroupTerminationConfirmed = termination.confirmed;
