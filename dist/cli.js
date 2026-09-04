@@ -23504,6 +23504,22 @@ async function hashExecutableAfterLaunch(path, signal) {
     await handle.close();
   }
 }
+function parseLinuxTaskStat(stat) {
+  const commandEnd = stat.lastIndexOf(")");
+  const fields = commandEnd >= 0 ? stat.slice(commandEnd + 1).trim().split(/\s+/) : [];
+  const state2 = fields[0];
+  const processGroupId = fields[2] && /^\d+$/.test(fields[2]) ? Number(fields[2]) : void 0;
+  const threadCount = fields[17] && /^\d+$/.test(fields[17]) ? Number(fields[17]) : void 0;
+  if (!state2 || !/^[A-Za-z]$/.test(state2) || processGroupId === void 0 || threadCount === void 0 || !Number.isSafeInteger(processGroupId) || !Number.isSafeInteger(threadCount) || threadCount < 1) return void 0;
+  return { state: state2, processGroupId, threadCount };
+}
+function linuxTaskCanExecute(state2) {
+  return state2 !== "Z" && state2 !== "X" && state2 !== "x";
+}
+function processEntryDisappeared(error) {
+  const code = error.code;
+  return code === "ENOENT" || code === "ESRCH";
+}
 function linuxProcessGroupState(processGroupId) {
   let entries;
   try {
@@ -23524,17 +23540,40 @@ function linuxProcessGroupState(processGroupId) {
       incomplete = true;
       continue;
     }
-    const commandEnd = stat.lastIndexOf(")");
-    const fields = commandEnd >= 0 ? stat.slice(commandEnd + 1).trim().split(/\s+/) : [];
-    const state2 = fields[0];
-    const parsedGroupId = fields[2] && /^\d+$/.test(fields[2]) ? Number(fields[2]) : void 0;
-    if (!state2 || !/^[A-Za-z]$/.test(state2) || !Number.isSafeInteger(parsedGroupId)) {
+    const leader = parseLinuxTaskStat(stat);
+    if (!leader) {
       incomplete = true;
       continue;
     }
-    if (parsedGroupId !== processGroupId) continue;
-    sawMember = true;
-    if (state2 !== "Z" && state2 !== "X" && state2 !== "x") return "active";
+    if (leader.processGroupId !== processGroupId) continue;
+    if (linuxTaskCanExecute(leader.state)) return "active";
+    let taskEntries;
+    try {
+      taskEntries = readdirSync5(join23("/proc", entry.name, "task"), { withFileTypes: true });
+    } catch {
+      incomplete = true;
+      continue;
+    }
+    let observedTasks = 0;
+    for (const taskEntry of taskEntries) {
+      if (!taskEntry.isDirectory() || !/^\d+$/.test(taskEntry.name)) continue;
+      let taskStatText;
+      try {
+        taskStatText = readFileSync16(join23("/proc", entry.name, "task", taskEntry.name, "stat"), "utf8");
+      } catch (error) {
+        if (!processEntryDisappeared(error)) incomplete = true;
+        continue;
+      }
+      const taskStat = parseLinuxTaskStat(taskStatText);
+      if (!taskStat || taskStat.processGroupId !== processGroupId) {
+        incomplete = true;
+        continue;
+      }
+      observedTasks += 1;
+      sawMember = true;
+      if (linuxTaskCanExecute(taskStat.state)) return "active";
+    }
+    if (observedTasks !== leader.threadCount) incomplete = true;
   }
   if (incomplete) return "unknown";
   return sawMember ? "zombie-only" : "unknown";

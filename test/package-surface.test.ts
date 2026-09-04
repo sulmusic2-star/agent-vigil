@@ -458,7 +458,8 @@ test("candidate CI never masquerades as trusted Agent Vigil evidence", () => {
   assert.match(ci, /node@sha256:[0-9a-f]{64}/);
   assert.match(ci, /docker image inspect/);
   assert.match(ci, /Run protected group regression under a non-reaping PID 1/);
-  assert.match(ci, /docker exec "\$container" node --import tsx --test --test-concurrency=1/);
+  assert.match(ci, /docker exec --env AGENT_VIGIL_REQUIRE_LINUX_THREAD_FIXTURE=true "\$container"/);
+  assert.match(ci, /a zombie process leader cannot hide a runnable worker thread/);
   assert.match(
     ci,
     /- name: Exercise the packed package\n\s+if: matrix\.node == 20 \|\| matrix\.node == 22\n\s+run: npm run test:package/,

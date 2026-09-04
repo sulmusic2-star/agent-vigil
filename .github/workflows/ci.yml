@@ -126,6 +126,7 @@ jobs:
             "$CANDIDATE_IMAGE" sleep 300 >/dev/null
           cleanup() { docker rm -f "$container" >/dev/null; }
           trap cleanup EXIT
-          docker exec "$container" node --import tsx --test --test-concurrency=1 \
-            --test-name-pattern="wall limit terminates an ordinary descendant|a leader cannot leave an ordinary same-group descendant" \
+          docker exec --env AGENT_VIGIL_REQUIRE_LINUX_THREAD_FIXTURE=true "$container" \
+            node --import tsx --test --test-concurrency=1 \
+            --test-name-pattern="wall limit terminates an ordinary descendant|a leader cannot leave an ordinary same-group descendant|a zombie process leader cannot hide a runnable worker thread" \
             test/run-supervisor.test.ts

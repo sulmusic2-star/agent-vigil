@@ -250,6 +250,36 @@ async function hashExecutableAfterLaunch(path: string, signal: AbortSignal): Pro
 
 type LinuxProcessGroupState = "active" | "zombie-only" | "unknown";
 
+type LinuxTaskStat = {
+  state: string;
+  processGroupId: number;
+  threadCount: number;
+};
+
+function parseLinuxTaskStat(stat: string): LinuxTaskStat | undefined {
+  const commandEnd = stat.lastIndexOf(")");
+  const fields = commandEnd >= 0 ? stat.slice(commandEnd + 1).trim().split(/\s+/) : [];
+  const state = fields[0];
+  const processGroupId = fields[2] && /^\d+$/.test(fields[2]) ? Number(fields[2]) : undefined;
+  const threadCount = fields[17] && /^\d+$/.test(fields[17]) ? Number(fields[17]) : undefined;
+  if (!state || !/^[A-Za-z]$/.test(state)
+    || processGroupId === undefined
+    || threadCount === undefined
+    || !Number.isSafeInteger(processGroupId)
+    || !Number.isSafeInteger(threadCount)
+    || threadCount < 1) return undefined;
+  return { state, processGroupId, threadCount };
+}
+
+function linuxTaskCanExecute(state: string): boolean {
+  return state !== "Z" && state !== "X" && state !== "x";
+}
+
+function processEntryDisappeared(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ESRCH";
+}
+
 function linuxProcessGroupState(processGroupId: number): LinuxProcessGroupState {
   let entries;
   try {
@@ -272,18 +302,44 @@ function linuxProcessGroupState(processGroupId: number): LinuxProcessGroupState 
       continue;
     }
 
-    const commandEnd = stat.lastIndexOf(")");
-    const fields = commandEnd >= 0 ? stat.slice(commandEnd + 1).trim().split(/\s+/) : [];
-    const state = fields[0];
-    const parsedGroupId = fields[2] && /^\d+$/.test(fields[2]) ? Number(fields[2]) : undefined;
-    if (!state || !/^[A-Za-z]$/.test(state) || !Number.isSafeInteger(parsedGroupId)) {
+    const leader = parseLinuxTaskStat(stat);
+    if (!leader) {
       incomplete = true;
       continue;
     }
-    if (parsedGroupId !== processGroupId) continue;
-    sawMember = true;
-    // Zombie and dead tasks cannot execute, but can keep kill(-pgid, 0) positive under a non-reaping PID 1.
-    if (state !== "Z" && state !== "X" && state !== "x") return "active";
+    if (leader.processGroupId !== processGroupId) continue;
+    if (linuxTaskCanExecute(leader.state)) return "active";
+
+    let taskEntries;
+    try {
+      taskEntries = readdirSync(join("/proc", entry.name, "task"), { withFileTypes: true });
+    } catch {
+      // A vanished leader and a live thread group can both make this directory unavailable.
+      incomplete = true;
+      continue;
+    }
+
+    let observedTasks = 0;
+    for (const taskEntry of taskEntries) {
+      if (!taskEntry.isDirectory() || !/^\d+$/.test(taskEntry.name)) continue;
+      let taskStatText: string;
+      try {
+        taskStatText = readFileSync(join("/proc", entry.name, "task", taskEntry.name, "stat"), "utf8");
+      } catch (error) {
+        if (!processEntryDisappeared(error)) incomplete = true;
+        continue;
+      }
+
+      const taskStat = parseLinuxTaskStat(taskStatText);
+      if (!taskStat || taskStat.processGroupId !== processGroupId) {
+        incomplete = true;
+        continue;
+      }
+      observedTasks += 1;
+      sawMember = true;
+      if (linuxTaskCanExecute(taskStat.state)) return "active";
+    }
+    if (observedTasks !== leader.threadCount) incomplete = true;
   }
 
   if (incomplete) return "unknown";

@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, sym
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test as nodeTest } from "node:test";
+import { fileURLToPath } from "node:url";
 import { runProtectedRunCommand } from "../src/run-cli.ts";
 import {
   executeProtectedRun,
@@ -127,6 +128,56 @@ test("wall limit escalates to SIGKILL when the child ignores SIGTERM", async () 
   assert.equal(result.receipt.process.killSent, true);
   assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
   assert.ok(result.receipt.stop!.observed! >= 250);
+});
+
+nodeTest("a zombie process leader cannot hide a runnable worker thread", {
+  skip: process.platform !== "linux",
+  timeout: 8_000,
+}, async (context) => {
+  const directory = root();
+  const executable = join(directory, "zombie-leader-worker");
+  const heartbeat = join(directory, "worker.heartbeat");
+  const fixture = fileURLToPath(new URL("fixtures/zombie-leader-worker.c", import.meta.url));
+  const compiled = spawnSync("cc", ["-std=c11", "-O2", "-pthread", fixture, "-o", executable], {
+    encoding: "utf8",
+  });
+  if (compiled.error && (compiled.error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (process.env.AGENT_VIGIL_REQUIRE_LINUX_THREAD_FIXTURE === "true") {
+      assert.fail("the required Linux C compiler is unavailable");
+    }
+    context.skip("requires a Linux C compiler");
+    return;
+  }
+  assert.equal(compiled.error, undefined);
+  assert.equal(compiled.status, 0, compiled.stderr);
+
+  let processGroupId: number | undefined;
+  try {
+    const result = await executeProtectedRun(input([], {
+      executable,
+      args: [heartbeat],
+      timeLimitMs: 250,
+      terminationGraceMs: 50,
+    }));
+    processGroupId = result.receipt.process.processGroupId;
+    assert.equal(result.exitCode, 124);
+    assert.equal(result.receipt.state, "STOPPED");
+    assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
+    assert.equal(result.receipt.process.termSent, true);
+    assert.equal(result.receipt.process.killSent, true);
+    assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
+
+    const heartbeatSize = statSync(heartbeat).size;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(statSync(heartbeat).size, heartbeatSize, "worker thread continued after the supervisor returned");
+  } finally {
+    if (processGroupId) {
+      try { process.kill(-processGroupId, "SIGKILL"); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+    }
+  }
 });
 
 test("unconfirmed process-group termination is a supervisor error", { timeout: 6_000 }, () => {

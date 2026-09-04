@@ -95,7 +95,10 @@ three states:
 - `EXITED`: the child exited before a limit; its exit code is propagated.
 - `STOPPED`: a limit, supervisor signal, or surviving same-group descendant
   invalidated the protected run. The supervisor terminates a live process group;
-  a fast process can already be gone when its final buffered evidence crosses a
+  on Linux it inspects every task in a matching thread group before treating
+  zombie-only process-group entries as non-executable. Missing or inconsistent
+  process-state evidence remains a containment failure. A fast process can
+  already be gone when its final buffered evidence crosses a
   trajectory limit. Limit stops return `124`.
 - `ERROR`: the supervisor could not establish or retain its boundary. It
   returns `125`, including when process-group termination cannot be confirmed
