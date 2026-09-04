@@ -215,4 +215,5 @@ test("the static checker has an accessible mobile result surface and no browser 
   assert.match(script, /credentials: "omit"/);
   assert.match(script, /sourceCodeFetched: false/);
   assert.match(script, /allowsProtectedAction: false/);
+  assert.match(script, /Reviewed receipt decision logic; not the release commit or deployed-file digest/);
 });
