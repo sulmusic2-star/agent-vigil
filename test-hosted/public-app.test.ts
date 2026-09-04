@@ -189,7 +189,7 @@ test("public App health is ready only when every protected path is configured", 
       idFromName(value: string) { return value; },
       get() { return { async fetch() { return new Response(null, { status: 204 }); } }; },
     };
-    const ready = await worker.fetch(new Request("https://app.example/health"), {
+    const readyEnv = {
       WEBHOOK_SECRET: secret,
       DISPATCH_SECRET: `${secret}-dispatch`,
       GITHUB_APP_ID: "1001",
@@ -205,9 +205,20 @@ test("public App health is ready only when every protected path is configured", 
       REGISTRATION_SECRET: `${secret}-registration`,
       DELIVERY_LEDGER: durableObjectBinding,
       DEPLOYMENT_AUTHORIZATIONS: durableObjectBinding,
-    });
+    };
+    const ready = await worker.fetch(new Request("https://app.example/health"), readyEnv);
     assert.equal(ready.status, 200);
     assert.deepEqual(await ready.json(), { status: "ready", service: "agent-vigil-public-app" });
+
+    for (const malformed of [
+      { ...readyEnv, GITHUB_APP_ID: "not-an-id" },
+      { ...readyEnv, GITHUB_APP_PRIVATE_KEY: "not a private key" },
+      { ...readyEnv, DEPLOYMENT_PUBLIC_KEY_PEM: "not a public key" },
+    ]) {
+      const response = await worker.fetch(new Request("https://app.example/health"), malformed);
+      assert.equal(response.status, 503);
+      assert.deepEqual(await response.json(), { status: "not_ready", service: "agent-vigil-public-app" });
+    }
   } finally { console.error = originalError; }
 });
 
