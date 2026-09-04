@@ -463,7 +463,13 @@ test("candidate CI never masquerades as trusted Agent Vigil evidence", () => {
   const containmentPattern = ci.match(/--test-name-pattern="([^"]+)"/)?.[1];
   assert.ok(containmentPattern, "candidate CI declares its focused Linux containment pattern");
   const containmentNames = containmentPattern.split("|");
-  assert.equal(new Set(containmentNames).size, containmentNames.length, "candidate CI does not repeat a containment test name");
+  assert.deepEqual([...containmentNames].sort(), [
+    "wall limit terminates an ordinary descendant",
+    "a leader cannot leave an ordinary same-group descendant",
+    "a zombie process leader cannot hide a runnable worker thread",
+    "changing Linux task membership is not accepted as zombie-only",
+    "hidepid-inaccessible processes require a stable pre-launch identity",
+  ].sort(), "candidate CI must retain every required containment test exactly once");
   const runSupervisorTests = readFileSync(new URL("run-supervisor.test.ts", import.meta.url), "utf8");
   const runSupervisorTestNames = [...runSupervisorTests.matchAll(/(?:nodeTest|test)\("([^"]+)"/g)]
     .map((match) => match[1]);
