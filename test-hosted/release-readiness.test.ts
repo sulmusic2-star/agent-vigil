@@ -31,4 +31,5 @@ test("published registry state remains valid during release assembly", () => {
     /changed\["npm_registry"\]\["target_published"\] = False\s+changed\["npm_registry"\]\["observed_version"\]/,
   );
   assert.match(assemblyGate, /"docs\/PUBLISHING\.md"/);
+  assert.match(assemblyGate, /"docs\/index\.html"/);
 });
