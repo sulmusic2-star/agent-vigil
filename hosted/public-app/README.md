@@ -16,6 +16,10 @@ merge queues read. For deployment protection it also asks for Actions read and
 Deployments write, as GitHub requires. It never asks for Actions write or
 Contents write.
 
+`GET /health` returns HTTP 200 with `status: ready` only when every check,
+deployment, registration, and Durable Object binding is present. An incomplete
+deployment returns HTTP 503 and must not receive a GitHub webhook.
+
 ## Customer path
 
 1. Install the App and choose repositories.

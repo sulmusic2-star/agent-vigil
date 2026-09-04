@@ -11,6 +11,7 @@ const SELF_PIN_FILES = [
   ".github/workflows/agent-vigil-merge-group.yml",
   ".github/workflows/agent-vigil-outcomes.yml",
   ".github/workflows/control-proof-weekly.yml",
+  ".github/workflows/public-app-gate.yml",
   "hosted/public-app/control-workflow.yml",
 ];
 const RUNTIME_PATHS = new Set([
