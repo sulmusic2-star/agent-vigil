@@ -120,12 +120,12 @@ jobs:
         run: |
           set -euo pipefail
           container="agent-vigil-zombie-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
-          trap cleanup EXIT INT TERM HUP
           docker run --detach --name "$container" \
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
             --workdir /workspace \
             "$CANDIDATE_IMAGE" sleep 300 >/dev/null
+          cleanup() { docker rm -f "$container" >/dev/null; }
+          trap cleanup EXIT
           docker exec "$container" node --import tsx --test --test-concurrency=1 \
             --test-name-pattern="wall limit terminates an ordinary descendant|a leader cannot leave an ordinary same-group descendant" \
             test/run-supervisor.test.ts
