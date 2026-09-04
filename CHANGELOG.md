@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Keep packaged install instructions valid before and after publication, with
+  exact-version checks and a separate link to live distribution status.
+- Stop the GitHub download sequence if either download or checksum fails.
+- Rehearse the packed README's npm command in an empty repository without
+  credentials, using a local registry that serves the actual release tarball.
+
 ## 0.24.2 - 2026-09-04
 
 - Install the reviewed public App control workflow on the default branch so the

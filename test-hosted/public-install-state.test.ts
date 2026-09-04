@@ -9,16 +9,14 @@ const releaseUrl = `https://github.com/sulmusic2-star/agent-vigil/releases/downl
 const releaseSha256 = "00267aa8bdd0612e3e9416523c4085d75e5594b8c5d584bf9e4279e2c833fb3b";
 const registryIntegrity = "sha512-E2BScm2OAaXDtnbqpQV0hnOpUht8lyad/FzS625MOBHGuCKNxCW4FMmRUuxVd/jbSf9fEY/EXVJj5ltBAkVtxg==";
 
-test("the npm-free guide records the exact public release", () => {
+test("the packaged guide uses an evergreen checksum-first install", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
-
-  assert.match(guide, new RegExp(releaseUrl.replaceAll(".", "\\.")));
-  assert.match(guide, new RegExp(releaseSha256));
-  assert.match(guide, new RegExp(releaseCommit));
+  assert.ok(guide.includes(releaseUrl));
+  assert.match(guide, /shasum -a 256 -c .* &&/);
   assert.match(guide, /same\s+immutable v0\.24\.2 GitHub package/s);
-  assert.match(guide, /verification time recorded.*npm served\s+v0\.24\.2/s);
-  assert.match(guide, /@sulmusic\/agent-vigil@0\.24\.2/);
-  assert.doesNotMatch(guide, /source release candidate/);
+  assert.doesNotMatch(guide, /source release candidate|verification snapshot/);
+  assert.ok(!guide.includes(releaseSha256), "the tarball cannot embed its own future checksum");
+  assert.ok(!guide.includes(releaseCommit), "the tarball cannot embed its own future commit");
 });
 
 test("the public install state keeps GitHub and npm publication separate", () => {
@@ -37,7 +35,7 @@ test("the public install state keeps GitHub and npm publication separate", () =>
   assert.equal(state.npm_registry.target_version, releaseVersion);
   assert.equal(state.npm_registry.observed_version, "0.24.2");
   assert.equal(state.npm_registry.observed_integrity, registryIntegrity);
-  assert.equal(state.npm_registry.observed_published_at, "2026-09-04T19:31:50.014Z");
+  assert.equal(state.npm_registry.observed_published_at, "2026-09-04T19:31:49.601Z");
   assert.equal(state.npm_registry.target_published, true);
 });
 
