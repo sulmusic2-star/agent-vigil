@@ -22,6 +22,16 @@ except ImportError:
     from package_docs import install_command, package_document_failures
 
 
+def anonymous_environment() -> dict[str, str]:
+    env = {key: value for key, value in os.environ.items()
+           if not key.lower().startswith('npm_') and key not in {
+               'NPM_TOKEN', 'NODE_AUTH_TOKEN', 'NODE_OPTIONS', 'GITHUB_TOKEN', 'GH_TOKEN'}
+           and key.lower() not in {'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'}}
+    # A loopback registry must never depend on an inherited corporate proxy.
+    env.update({'NO_PROXY': '127.0.0.1,localhost', 'no_proxy': '127.0.0.1,localhost'})
+    return env
+
+
 def anonymous_package_install(tarball: Path, lab: Path, action_sha: str) -> dict[str, object]:
     with tarfile.open(tarball, 'r:gz') as archive:
         def read(name: str) -> str:
@@ -77,9 +87,7 @@ def anonymous_package_install(tarball: Path, lab: Path, action_sha: str) -> dict
     userconfig, globalconfig = home / '.npmrc', home / 'global-npmrc'
     userconfig.write_text('')
     globalconfig.write_text('')
-    env = {key: value for key, value in os.environ.items()
-           if not key.lower().startswith('npm_') and key not in {
-               'NPM_TOKEN', 'NODE_AUTH_TOKEN', 'NODE_OPTIONS', 'GITHUB_TOKEN', 'GH_TOKEN'}}
+    env = anonymous_environment()
     server = ThreadingHTTPServer(('127.0.0.1', 0), Registry)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()

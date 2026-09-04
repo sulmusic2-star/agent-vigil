@@ -2,6 +2,24 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
+test("anonymous npm consumers ignore inherited credentials and proxies", () => {
+  const probe = spawnSync("python3", ["-c", String.raw`
+import os
+from unittest.mock import patch
+from scripts.package_install_smoke import anonymous_environment
+poison = {key: 'http://127.0.0.1:9' for key in ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy']}
+poison.update({'NO_PROXY': 'browser', 'no_proxy': 'browser', 'NODE_AUTH_TOKEN': 'fake-secret', 'NPM_TOKEN': 'fake-secret', 'npm_config_proxy': 'http://127.0.0.1:9', 'NPM_CONFIG_USERCONFIG': '/fake/npmrc'})
+with patch.dict(os.environ, poison):
+    clean = anonymous_environment()
+for key in poison:
+    if key.lower() == 'no_proxy':
+        assert clean[key] == '127.0.0.1,localhost', clean[key]
+    else:
+        assert key not in clean, key
+`], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+});
+
 test("packaged instructions survive publication without accepting stale links or unchecked installs", () => {
   const probe = spawnSync("python3", ["-c", String.raw`
 import json
