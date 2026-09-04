@@ -8,8 +8,9 @@
 - Keep deadline and signal enforcement independent from transcript parsing with
   a monotonic supervisor clock and packaged telemetry worker; enforce malformed
   or incomplete requested telemetry immediately when the observed command exits.
-- Reject malformed token counters instead of treating them as zero, and return
-  a supervisor error when final process-group termination cannot be confirmed.
+- Reject malformed or internally contradictory token counters instead of
+  treating them as valid usage, and return a supervisor error when final
+  process-group termination cannot be confirmed.
 - Distinguish Linux zombie-only process groups from executable descendants,
   including runnable threads hidden behind a zombie thread-group leader; require
   stable repeated task-membership snapshots before confirming termination, and

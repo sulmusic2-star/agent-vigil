@@ -93,6 +93,37 @@ test("Codex usage selects the greatest cumulative session snapshot", () => {
   });
 });
 
+test("Codex usage validates totals without double-counting detail counters", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-codex-usage-total-"));
+  const transcript = join(root, "codex.jsonl");
+  const session = { type: "session_meta", payload: { id: "session" } };
+  const row = (totalTokens?: number) => ({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        total_token_usage: {
+          input_tokens: 1_000,
+          cached_input_tokens: 900,
+          cache_write_input_tokens: 0,
+          output_tokens: 50,
+          reasoning_output_tokens: 40,
+          total_tokens: totalTokens,
+        },
+      },
+    },
+  });
+
+  writeFileSync(transcript, `${[session, row(1_050)].map((item) => JSON.stringify(item)).join("\n")}\n`);
+  assert.equal(loadTranscript(transcript).usage?.totalTokens, 1_050);
+
+  writeFileSync(transcript, `${[session, row()].map((item) => JSON.stringify(item)).join("\n")}\n`);
+  assert.equal(loadTranscript(transcript).usage?.totalTokens, 1_050);
+
+  writeFileSync(transcript, `${[session, row(1_049)].map((item) => JSON.stringify(item)).join("\n")}\n`);
+  assert.throws(() => loadTranscript(transcript), /total_tokens contradicts its component counters/);
+});
+
 test("value CLI produces a positive evidence-hashed card with budget and outcome", () => {
   const { root, transcript, receipt } = fixture();
   const evidence = join(root, "invoice.csv");

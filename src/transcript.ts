@@ -122,8 +122,9 @@ function tokenSum(values: number[], field: string): number {
 }
 
 type UsageCounters = Omit<SessionUsage, "source" | "accounting" | "modelIds" | "recordsObserved" | "accountedUnits">;
+type UsageCounterSemantics = "cache-additive" | "cache-inclusive";
 
-function usageCounters(value: Record<string, unknown>): UsageCounters {
+function usageCounters(value: Record<string, unknown>, semantics: UsageCounterSemantics = "cache-additive"): UsageCounters {
   const recognizedFields = [
     "input_tokens",
     "cached_input_tokens",
@@ -152,16 +153,22 @@ function usageCounters(value: Record<string, unknown>): UsageCounters {
   const reasoningOutputTokens = tokenCounter(value.reasoning_output_tokens, "reasoning_output_tokens");
   const reportedTotal = tokenCounter(value.total_tokens, "total_tokens");
   const calculatedTotal = tokenSum(
-    [inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens],
+    semantics === "cache-inclusive"
+      ? [inputTokens, outputTokens]
+      : [inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens],
     "total_tokens",
   );
+  const hasReportedTotal = Object.prototype.hasOwnProperty.call(value, "total_tokens");
+  if (hasReportedTotal && reportedTotal < calculatedTotal) {
+    throw new Error("token usage total_tokens contradicts its component counters");
+  }
   return {
     inputTokens,
     cachedInputTokens,
     cacheWriteInputTokens,
     outputTokens,
     reasoningOutputTokens,
-    totalTokens: reportedTotal || calculatedTotal,
+    totalTokens: hasReportedTotal ? reportedTotal : calculatedTotal,
   };
 }
 
@@ -261,7 +268,7 @@ function parseCodex(rows: any[], transcriptSha256: string): LoadedTranscript {
       const total = row?.payload?.info?.total_token_usage;
       if (total && typeof total === "object") {
         usageRecords += 1;
-        const candidate = usageCounters(total);
+        const candidate = usageCounters(total, "cache-inclusive");
         if (!cumulativeUsage || candidate.totalTokens >= cumulativeUsage.totalTokens) cumulativeUsage = candidate;
       }
     }
