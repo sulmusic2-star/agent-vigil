@@ -3216,7 +3216,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash6 } from "node:crypto";
-var VERSION = "0.23.4";
+var VERSION = "0.24.0";
 var CLAIM_KINDS = [
   "tests_pass",
   "file_changed",
@@ -22124,7 +22124,7 @@ ${outcomeUsage()}`);
 }
 
 // src/adoption.ts
-var RELEASE_PACKAGE = "@sulmusic/agent-vigil@0.23.4";
+var RELEASE_PACKAGE = "@sulmusic/agent-vigil@0.24.0";
 function releasedDoctorCommand() {
   return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
 }
