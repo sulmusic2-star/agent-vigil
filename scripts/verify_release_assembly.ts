@@ -25,6 +25,7 @@ const FINAL_PATHS = new Set([
   ...SELF_PIN_FILES,
   "README.md",
   "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md",
+  "docs/PUBLISHING.md",
   "docs/check.js",
   "docs/public-install-state.json",
   "docs/COMPETITOR_COMPARISON.md",
