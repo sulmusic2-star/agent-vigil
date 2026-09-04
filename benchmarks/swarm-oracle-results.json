@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "tool": {
     "name": "agent-vigil",
-    "version": "0.23.4"
+    "version": "0.24.1"
   },
   "source": {
     "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",

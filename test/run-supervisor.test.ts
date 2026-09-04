@@ -1359,3 +1359,53 @@ test("dollar budget option refuses before launching the command", async () => {
   assert.equal(code, 2);
   assert.equal(existsSync(marker), false);
 });
+
+test("CLI rejects malformed run option combinations before launching", async () => {
+  const directory = root();
+  const marker = join(directory, "launched.txt");
+  const existingCapture = join(directory, "existing.jsonl");
+  const sharedOutput = join(directory, "shared.jsonl");
+  writeFileSync(existingCapture, "");
+  const command = ["--", process.execPath, "-e", "require('node:fs').writeFileSync(process.argv[1],'launched')", marker];
+  const scenarios = [
+    ["--time-limit", "1s"],
+    ["--time-limit", "1s", "--"],
+    ["unexpected", ...command],
+    ["--time-limit", "1s", "--time-limit", "2s", ...command],
+    ["--time-limit", "--json", ...command],
+    ["--json", "--json", "--time-limit", "1s", ...command],
+    ["--unknown", "value", "--time-limit", "1s", ...command],
+    [...command],
+    ["--time-limit", "1", ...command],
+    ["--time-limit", "1ms", ...command],
+    ["--time-limit", "169h", ...command],
+    ["--time-limit", "1s", "--max-tool-calls", "-1", ...command],
+    ["--time-limit", "1s", "--transcript", "input.jsonl", "--capture-jsonl", "capture.jsonl", ...command],
+    ["--time-limit", "1s", "--max-tool-calls", "1", ...command],
+    ["--time-limit", "1s", "--capture-jsonl", existingCapture, ...command],
+    ["--time-limit", "1s", "--capture-jsonl", "capture.txt", ...command],
+    ["--time-limit", "1s", "--transcript", "transcript.txt", ...command],
+    ["--time-limit", "1s", "--transcript", sharedOutput, "--output", sharedOutput, ...command],
+    ["--time-limit", "1s", "--format", "yaml", ...command],
+  ];
+  const originalError = console.error;
+  console.error = () => undefined;
+  try {
+    for (const args of scenarios) assert.equal(await runProtectedRunCommand(args, protectedEnvironment()), 2);
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(existsSync(marker), false);
+});
+
+test("CLI help is available without a command boundary", async () => {
+  const originalLog = console.log;
+  let output = "";
+  console.log = (value?: unknown) => { output += String(value); };
+  try {
+    assert.equal(await runProtectedRunCommand(["--help"], protectedEnvironment()), 0);
+  } finally {
+    console.log = originalLog;
+  }
+  assert.match(output, /vigil run --time-limit/);
+});

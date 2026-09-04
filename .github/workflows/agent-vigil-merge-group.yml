@@ -188,7 +188,7 @@ jobs:
           allow-unsafe-pr-checkout: true
       - id: vigil
         name: Verify the composed head in the candidate-only Docker contract
-        uses: sulmusic2-star/agent-vigil@0d1f1c9f95f32a55c1a83772feab1944b0fcbd9e # reviewed merge-group runtime bytes
+        uses: sulmusic2-star/agent-vigil@c51f1ec704bdaac5dc891eae5f164e251723e7c0 # reviewed merge-group runtime bytes
         with:
           mode: merge-group
           merge-group-event: ${{ steps.queue-event.outputs.path }}
