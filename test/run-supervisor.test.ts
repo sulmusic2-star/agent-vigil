@@ -54,15 +54,25 @@ function input(args: string[], overrides: Partial<ProtectedRunInput> = {}): Prot
   };
 }
 
-function pidExists(pid: number): boolean {
-  try { process.kill(pid, 0); return true; }
+function pidCanExecute(pid: number): boolean {
+  try { process.kill(pid, 0); }
   catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
+  if (process.platform !== "linux") return true;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const commandEnd = stat.lastIndexOf(")");
+    const state = commandEnd >= 0 ? stat.slice(commandEnd + 1).trim().split(/\s+/)[0] : undefined;
+    return state !== "Z" && state !== "X" && state !== "x";
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code !== "ENOENT" && code !== "ESRCH";
+  }
 }
 
-async function waitForPidExit(pid: number): Promise<boolean> {
+async function waitForPidToStopExecuting(pid: number): Promise<boolean> {
   const deadline = Date.now() + 2_000;
-  while (pidExists(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
-  return !pidExists(pid);
+  while (pidCanExecute(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+  return !pidCanExecute(pid);
 }
 
 async function waitForFile(path: string): Promise<void> {
@@ -603,7 +613,7 @@ test("a closed stdout consumer stops and cleans up the protected process group",
   assert.equal(observed.receipt.state, "ERROR");
   assert.equal(observed.receipt.stop?.code, "SUPERVISOR_ERROR");
   assert.equal(observed.receipt.process.processGroupTerminationConfirmed, true);
-  assert.equal(await waitForPidExit(leaderPid), true);
+  assert.equal(await waitForPidToStopExecuting(leaderPid), true);
 });
 
 test("an interrupted post-launch executable verification remains explicitly not checked", () => {
@@ -785,7 +795,7 @@ test("wall limit terminates an ordinary descendant in the same process group", a
   const descendantPid = Number(readFileSync(pidPath, "utf8"));
   assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
   assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
-  assert.equal(await waitForPidExit(descendantPid), true);
+  assert.equal(await waitForPidToStopExecuting(descendantPid), true);
 });
 
 test("CLI SIGINT handler terminates the protected group and retains a receipt", { timeout: 8_000 }, async () => {
@@ -818,7 +828,7 @@ test("CLI SIGINT handler terminates the protected group and retains a receipt", 
     assert.equal(receipt.stop.signal, "SIGINT");
     assert.equal(receipt.process.processGroupTerminationConfirmed, true);
   } finally {
-    if (leaderPid && cli.exitCode === null && cli.signalCode === null && pidExists(leaderPid)) {
+    if (leaderPid && cli.exitCode === null && cli.signalCode === null && pidCanExecute(leaderPid)) {
       try { process.kill(-leaderPid, "SIGKILL"); } catch { /* Best-effort fixture cleanup. */ }
     }
     if (cli.exitCode === null && cli.signalCode === null) cli.kill("SIGKILL");
@@ -968,7 +978,7 @@ test("a leader cannot leave an ordinary same-group descendant behind", async () 
   assert.equal(result.exitCode, 124);
   assert.equal(result.receipt.state, "STOPPED");
   assert.equal(result.receipt.stop?.code, "ORPHANED_DESCENDANTS");
-  assert.equal(await waitForPidExit(descendantPid), true);
+  assert.equal(await waitForPidToStopExecuting(descendantPid), true);
 });
 
 test("receipt does not claim containment of a hostile descendant that creates a new session", async () => {
@@ -988,10 +998,10 @@ test("receipt does not claim containment of a hostile descendant that creates a 
     escapedPid = Number(readFileSync(pidPath, "utf8"));
     assert.equal(result.receipt.state, "EXITED");
     assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
-    assert.equal(pidExists(escapedPid), true);
+    assert.equal(pidCanExecute(escapedPid), true);
     assert.match(result.receipt.evidenceBoundary.join(" "), /escape by creating a new session/);
   } finally {
-    if (escapedPid && pidExists(escapedPid)) process.kill(escapedPid, "SIGKILL");
+    if (escapedPid && pidCanExecute(escapedPid)) process.kill(escapedPid, "SIGKILL");
   }
 });
 

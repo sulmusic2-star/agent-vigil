@@ -4,7 +4,7 @@
 writes a privacy-preserving run receipt. On macOS and Linux it launches the
 command directly in a new POSIX process group, sends `SIGTERM` when a declared
 limit is crossed, waits for the configured grace period, and sends `SIGKILL` if
-the group remains alive.
+the group retains live members.
 
 This is a circuit breaker for ordinary runaway agent processes. It is not an OS
 sandbox, a billing authority, or proof that completed work was correct.
@@ -121,6 +121,9 @@ selected terminal and the CLI returns `125`.
   own telemetry, or interfere with the host clock. Strong adversarial
   containment requires a separate OS user, container/cgroup, VM, or managed
   supervisor outside the agent's authority.
+- On Linux, termination confirmation ignores `/proc/<pid>/stat` entries that
+  the kernel marks zombie or dead. If process-state evidence is incomplete,
+  confirmation remains fail-closed instead of assuming containment.
 - Windows is rejected before launch because this release does not claim an
   equivalent tested process-tree boundary there.
 - Nothing is uploaded by `vigil run`.

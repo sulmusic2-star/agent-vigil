@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { createHash as createHash32 } from "node:crypto";
-import { existsSync as existsSync15, readFileSync as readFileSync16, realpathSync as realpathSync23, statSync as statSync7 } from "node:fs";
+import { existsSync as existsSync15, readFileSync as readFileSync17, realpathSync as realpathSync23, statSync as statSync7 } from "node:fs";
 import { dirname as dirname12, isAbsolute as isAbsolute19, join as join24, relative as relative16, resolve as resolve43 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23276,6 +23276,8 @@ import {
   constants as fsConstants,
   fstatSync as fstatSync11,
   openSync as openSync11,
+  readdirSync as readdirSync5,
+  readFileSync as readFileSync16,
   readSync as readSync10,
   realpathSync as realpathSync21
 } from "node:fs";
@@ -23502,13 +23504,49 @@ async function hashExecutableAfterLaunch(path, signal) {
     await handle.close();
   }
 }
-function processGroupExists(pid) {
+function linuxProcessGroupState(processGroupId) {
+  let entries;
+  try {
+    entries = readdirSync5("/proc", { withFileTypes: true });
+  } catch {
+    return "unknown";
+  }
+  let sawMember = false;
+  let incomplete = false;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
+    let stat;
+    try {
+      stat = readFileSync16(join23("/proc", entry.name, "stat"), "utf8");
+    } catch (error) {
+      const code = error.code;
+      if (code === "ENOENT" || code === "ESRCH") continue;
+      incomplete = true;
+      continue;
+    }
+    const commandEnd = stat.lastIndexOf(")");
+    const fields = commandEnd >= 0 ? stat.slice(commandEnd + 1).trim().split(/\s+/) : [];
+    const state2 = fields[0];
+    const parsedGroupId = fields[2] && /^\d+$/.test(fields[2]) ? Number(fields[2]) : void 0;
+    if (!state2 || !/^[A-Za-z]$/.test(state2) || !Number.isSafeInteger(parsedGroupId)) {
+      incomplete = true;
+      continue;
+    }
+    if (parsedGroupId !== processGroupId) continue;
+    sawMember = true;
+    if (state2 !== "Z" && state2 !== "X" && state2 !== "x") return "active";
+  }
+  if (incomplete) return "unknown";
+  return sawMember ? "zombie-only" : "unknown";
+}
+function processGroupHasLiveMembers(pid) {
   try {
     process.kill(-pid, 0);
-    return true;
   } catch (error) {
-    return error.code === "EPERM";
+    if (error.code !== "EPERM") return false;
   }
+  if (process.platform !== "linux") return true;
+  return linuxProcessGroupState(pid) !== "zombie-only";
 }
 function sendGroupSignal(pid, signal) {
   try {
@@ -23558,10 +23596,10 @@ function settlementWithin(promise, milliseconds) {
 }
 async function waitForGroupExit(pid, milliseconds) {
   const deadline = monotonicNowMs() + milliseconds;
-  while (processGroupExists(pid) && monotonicNowMs() < deadline) {
+  while (processGroupHasLiveMembers(pid) && monotonicNowMs() < deadline) {
     await delay(Math.min(25, Math.max(1, deadline - monotonicNowMs())));
   }
-  return !processGroupExists(pid);
+  return !processGroupHasLiveMembers(pid);
 }
 async function terminateProcessGroup(pid, graceMs) {
   const termSent = sendGroupSignal(pid, "SIGTERM");
@@ -23893,7 +23931,7 @@ async function executeProtectedRun(input) {
     const exitDescendantCheckPromise = exitPromise.then(async () => {
       await delay(25);
       if (stopRequest) return;
-      if (child?.pid && processGroupExists(child.pid)) requestStop({ code: "ORPHANED_DESCENDANTS" });
+      if (child?.pid && processGroupHasLiveMembers(child.pid)) requestStop({ code: "ORPHANED_DESCENDANTS" });
       else processGroupTerminationConfirmed = true;
     });
     const postLaunchVerificationPromise = hashExecutableAfterLaunch(executable.path, verificationAbortController.signal).then(
@@ -24019,7 +24057,7 @@ async function executeProtectedRun(input) {
       } catch {
         processGroupTerminationConfirmed = false;
       }
-    } else if (child?.pid && processGroupExists(child.pid)) {
+    } else if (child?.pid && processGroupHasLiveMembers(child.pid)) {
       try {
         const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
         termSent = termination.termSent;
@@ -25296,7 +25334,7 @@ function runMaintainer(args) {
     const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
-    const rawEvent = readFileSync16(eventPath);
+    const rawEvent = readFileSync17(eventPath);
     const eventHash = `sha256:${createHash32("sha256").update(rawEvent).digest("hex")}`;
     const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative16(repo, policy.path) : void 0;
     const remote = git9(repo, ["config", "--get", "remote.origin.url"]);
@@ -25903,7 +25941,7 @@ function runAudit(args) {
     const diffPath = options.transcript;
     if (!diffPath) throw new Error("audit requires a unified Git diff path");
     const absolute = resolve43(diffPath);
-    const raw = readFileSync16(absolute);
+    const raw = readFileSync17(absolute);
     if (raw.byteLength > 64 * 1024 * 1024) throw new Error("audit input exceeds the 64 MiB limit");
     const diff = raw.toString("utf8");
     const digest17 = `sha256:${createHash32("sha256").update(raw).digest("hex")}`;

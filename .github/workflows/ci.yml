@@ -114,3 +114,18 @@ jobs:
         env:
           AGENT_VIGIL_REQUIRE_REAL_DOCKER: "true"
         run: node --import tsx --test test/action-runtime-security.test.ts
+      - name: Run protected group regression under a non-reaping PID 1
+        env:
+          CANDIDATE_IMAGE: node@sha256:46e94f8cf91baab69a2deb3153e74eeffd73c20c7cc1d8432f5b96469eaa0322
+        run: |
+          set -euo pipefail
+          container="agent-vigil-zombie-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT INT TERM HUP
+          docker run --detach --name "$container" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
+            --workdir /workspace \
+            "$CANDIDATE_IMAGE" sleep 300 >/dev/null
+          docker exec "$container" node --import tsx --test --test-concurrency=1 \
+            --test-name-pattern="wall limit terminates an ordinary descendant|a leader cannot leave an ordinary same-group descendant" \
+            test/run-supervisor.test.ts

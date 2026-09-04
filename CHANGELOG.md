@@ -10,6 +10,8 @@
   or incomplete requested telemetry immediately when the observed command exits.
 - Reject malformed token counters instead of treating them as zero, and return
   a supervisor error when final process-group termination cannot be confirmed.
+- Distinguish Linux zombie-only process groups from executable descendants and
+  exercise containment under a deliberately non-reaping container PID 1.
 - Install the reviewed public App control workflow on the default branch so the
   Worker dispatch target exists before activation.
 - Make the hosted App readiness endpoint fail closed until every check,

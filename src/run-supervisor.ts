@@ -5,6 +5,8 @@ import {
   constants as fsConstants,
   fstatSync,
   openSync,
+  readdirSync,
+  readFileSync,
   readSync,
   realpathSync,
 } from "node:fs";
@@ -246,13 +248,56 @@ async function hashExecutableAfterLaunch(path: string, signal: AbortSignal): Pro
   }
 }
 
-function processGroupExists(pid: number): boolean {
+type LinuxProcessGroupState = "active" | "zombie-only" | "unknown";
+
+function linuxProcessGroupState(processGroupId: number): LinuxProcessGroupState {
+  let entries;
+  try {
+    entries = readdirSync("/proc", { withFileTypes: true });
+  } catch {
+    return "unknown";
+  }
+
+  let sawMember = false;
+  let incomplete = false;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
+    let stat: string;
+    try {
+      stat = readFileSync(join("/proc", entry.name, "stat"), "utf8");
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ESRCH") continue;
+      incomplete = true;
+      continue;
+    }
+
+    const commandEnd = stat.lastIndexOf(")");
+    const fields = commandEnd >= 0 ? stat.slice(commandEnd + 1).trim().split(/\s+/) : [];
+    const state = fields[0];
+    const parsedGroupId = fields[2] && /^\d+$/.test(fields[2]) ? Number(fields[2]) : undefined;
+    if (!state || !/^[A-Za-z]$/.test(state) || !Number.isSafeInteger(parsedGroupId)) {
+      incomplete = true;
+      continue;
+    }
+    if (parsedGroupId !== processGroupId) continue;
+    sawMember = true;
+    // Zombie and dead tasks cannot execute, but can keep kill(-pgid, 0) positive under a non-reaping PID 1.
+    if (state !== "Z" && state !== "X" && state !== "x") return "active";
+  }
+
+  if (incomplete) return "unknown";
+  return sawMember ? "zombie-only" : "unknown";
+}
+
+function processGroupHasLiveMembers(pid: number): boolean {
   try {
     process.kill(-pid, 0);
-    return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    if ((error as NodeJS.ErrnoException).code !== "EPERM") return false;
   }
+  if (process.platform !== "linux") return true;
+  return linuxProcessGroupState(pid) !== "zombie-only";
 }
 
 function sendGroupSignal(pid: number, signal: NodeJS.Signals): boolean {
@@ -307,10 +352,10 @@ function settlementWithin(promise: Promise<unknown>, milliseconds: number): Prom
 
 async function waitForGroupExit(pid: number, milliseconds: number): Promise<boolean> {
   const deadline = monotonicNowMs() + milliseconds;
-  while (processGroupExists(pid) && monotonicNowMs() < deadline) {
+  while (processGroupHasLiveMembers(pid) && monotonicNowMs() < deadline) {
     await delay(Math.min(25, Math.max(1, deadline - monotonicNowMs())));
   }
-  return !processGroupExists(pid);
+  return !processGroupHasLiveMembers(pid);
 }
 
 async function terminateProcessGroup(pid: number, graceMs: number): Promise<{ termSent: boolean; killSent: boolean; confirmed: boolean }> {
@@ -664,7 +709,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     const exitDescendantCheckPromise = exitPromise.then(async () => {
       await delay(25);
       if (stopRequest) return;
-      if (child?.pid && processGroupExists(child.pid)) requestStop({ code: "ORPHANED_DESCENDANTS" });
+      if (child?.pid && processGroupHasLiveMembers(child.pid)) requestStop({ code: "ORPHANED_DESCENDANTS" });
       else processGroupTerminationConfirmed = true;
     });
     const postLaunchVerificationPromise = hashExecutableAfterLaunch(executable.path, verificationAbortController.signal).then(
@@ -799,7 +844,7 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     const detailSha256 = sha256(error instanceof Error ? error.message : String(error));
     if (stopRequest && stopHandledPromise) {
       try { await stopHandledPromise; } catch { processGroupTerminationConfirmed = false; }
-    } else if (child?.pid && processGroupExists(child.pid)) {
+    } else if (child?.pid && processGroupHasLiveMembers(child.pid)) {
       try {
         const termination = await terminateProcessGroup(child.pid, input.terminationGraceMs);
         termSent = termination.termSent;
