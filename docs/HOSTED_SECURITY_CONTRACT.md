@@ -11,9 +11,11 @@ base-owned policy. It is intentionally narrower than the local CLI.
 node dist/cli.js protect
 ```
 
-The immutable v0.24.1 package contains this contract and the reviewed runtime.
-Setup and the follow-up check use the same GitHub release asset. Download the
-package without npm credentials and verify its checksum:
+The immutable v0.24.1 package contains the preceding documentation snapshot:
+it labels this contract v0.24.0 and retains the v0.24.0 package disclosure. It
+does not contain this post-release wording. The v0.24.1 runtime and package were
+verified separately. Download that package without npm credentials and verify
+its checksum:
 
 ```bash
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz doctor
