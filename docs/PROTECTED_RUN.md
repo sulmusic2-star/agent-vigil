@@ -74,6 +74,8 @@ truncation, or rewriting after launch stops the run with
 - A requested token cap stops with `TOKEN_USAGE_UNAVAILABLE` when the selected
   transcript adapter exposes no token accounting within the telemetry grace
   period.
+- Malformed, negative, fractional, or unsafe token counters are unreadable
+  telemetry; they are never normalized into observed zero usage.
 - A requested trajectory limit stops with `TELEMETRY_MISSING` when no readable
   stream appears within the telemetry grace period.
 - Persistently malformed JSONL stops with `TELEMETRY_UNREADABLE`.
@@ -96,7 +98,8 @@ three states:
   a fast process can already be gone when its final buffered evidence crosses a
   trajectory limit. Limit stops return `124`.
 - `ERROR`: the supervisor could not establish or retain its boundary. It
-  returns `125`.
+  returns `125`, including when process-group termination cannot be confirmed
+  after the final kill wait.
 
 Usage errors return `2`. The receipt records an `OBSERVED_ONLY` command result
 and an economic result of `NOT_CHECKED`. Its `receiptHash` detects accidental

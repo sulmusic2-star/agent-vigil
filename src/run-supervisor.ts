@@ -762,7 +762,13 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     if (stopRequest) await stopHandledPromise;
     const finishedAtMs = Date.now();
     const elapsedMs = monotonicNowMs() - startedAtMonotonicMs;
-    const receiptStop = outputFailure ?? stopRequest;
+    const containmentFailure: StopRequest | undefined = processGroupTerminationConfirmed
+      ? undefined
+      : {
+        code: "SUPERVISOR_ERROR",
+        detailSha256: sha256("process group termination could not be confirmed after the final kill wait"),
+      };
+    const receiptStop = containmentFailure ?? outputFailure ?? stopRequest;
     const state: ProtectedRunReceipt["state"] = receiptStop
       ? (receiptStop.code === "SUPERVISOR_ERROR" || receiptStop.code === "EXECUTABLE_CHANGED" ? "ERROR" : "STOPPED")
       : "EXITED";

@@ -243,23 +243,53 @@ function textFromBlocks(content) {
   }
   return out;
 }
-function nonNegativeNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+function tokenCounter(value, field) {
+  if (value === void 0) return 0;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`invalid token usage counter ${field}`);
+  }
+  return value;
+}
+function tokenSum(values, field) {
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (!Number.isSafeInteger(total)) throw new Error(`invalid token usage aggregate ${field}`);
+  return total;
 }
 function usageCounters(value) {
-  const inputTokens = nonNegativeNumber(value.input_tokens);
-  const cachedInputTokens = nonNegativeNumber(value.cached_input_tokens ?? value.cache_read_input_tokens);
-  const cacheWriteInputTokens = nonNegativeNumber(value.cache_write_input_tokens ?? value.cache_creation_input_tokens);
-  const outputTokens = nonNegativeNumber(value.output_tokens);
-  const reasoningOutputTokens = nonNegativeNumber(value.reasoning_output_tokens);
-  const reportedTotal = nonNegativeNumber(value.total_tokens);
+  const recognizedFields = [
+    "input_tokens",
+    "cached_input_tokens",
+    "cache_read_input_tokens",
+    "cache_write_input_tokens",
+    "cache_creation_input_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+    "total_tokens"
+  ];
+  if (!recognizedFields.some((field) => Object.prototype.hasOwnProperty.call(value, field))) {
+    throw new Error("token usage record contains no recognized counters");
+  }
+  const inputTokens = tokenCounter(value.input_tokens, "input_tokens");
+  const cachedInputTokensPrimary = tokenCounter(value.cached_input_tokens, "cached_input_tokens");
+  const cachedInputTokensAlias = tokenCounter(value.cache_read_input_tokens, "cache_read_input_tokens");
+  const cachedInputTokens = value.cached_input_tokens === void 0 ? cachedInputTokensAlias : cachedInputTokensPrimary;
+  const cacheWriteInputTokensPrimary = tokenCounter(value.cache_write_input_tokens, "cache_write_input_tokens");
+  const cacheWriteInputTokensAlias = tokenCounter(value.cache_creation_input_tokens, "cache_creation_input_tokens");
+  const cacheWriteInputTokens = value.cache_write_input_tokens === void 0 ? cacheWriteInputTokensAlias : cacheWriteInputTokensPrimary;
+  const outputTokens = tokenCounter(value.output_tokens, "output_tokens");
+  const reasoningOutputTokens = tokenCounter(value.reasoning_output_tokens, "reasoning_output_tokens");
+  const reportedTotal = tokenCounter(value.total_tokens, "total_tokens");
+  const calculatedTotal = tokenSum(
+    [inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens],
+    "total_tokens"
+  );
   return {
     inputTokens,
     cachedInputTokens,
     cacheWriteInputTokens,
     outputTokens,
     reasoningOutputTokens,
-    totalTokens: reportedTotal || inputTokens + cachedInputTokens + cacheWriteInputTokens + outputTokens
+    totalTokens: reportedTotal || calculatedTotal
   };
 }
 function maxUsage(left, right) {
@@ -316,12 +346,12 @@ function parseClaude(rows, transcriptSha256) {
     }
   }
   const usage = [...usageByMessage.values()].reduce((total, item) => ({
-    inputTokens: total.inputTokens + item.inputTokens,
-    cachedInputTokens: total.cachedInputTokens + item.cachedInputTokens,
-    cacheWriteInputTokens: total.cacheWriteInputTokens + item.cacheWriteInputTokens,
-    outputTokens: total.outputTokens + item.outputTokens,
-    reasoningOutputTokens: total.reasoningOutputTokens + item.reasoningOutputTokens,
-    totalTokens: total.totalTokens + item.totalTokens
+    inputTokens: tokenSum([total.inputTokens, item.inputTokens], "input_tokens"),
+    cachedInputTokens: tokenSum([total.cachedInputTokens, item.cachedInputTokens], "cached_input_tokens"),
+    cacheWriteInputTokens: tokenSum([total.cacheWriteInputTokens, item.cacheWriteInputTokens], "cache_write_input_tokens"),
+    outputTokens: tokenSum([total.outputTokens, item.outputTokens], "output_tokens"),
+    reasoningOutputTokens: tokenSum([total.reasoningOutputTokens, item.reasoningOutputTokens], "reasoning_output_tokens"),
+    totalTokens: tokenSum([total.totalTokens, item.totalTokens], "total_tokens")
   }), { inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
   return {
     narrative: messages.slice(-8).join("\n\n"),

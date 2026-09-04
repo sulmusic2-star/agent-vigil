@@ -132,23 +132,53 @@ function textFromBlocks(content) {
   }
   return out;
 }
-function nonNegativeNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+function tokenCounter(value, field) {
+  if (value === void 0) return 0;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`invalid token usage counter ${field}`);
+  }
+  return value;
+}
+function tokenSum(values, field) {
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (!Number.isSafeInteger(total)) throw new Error(`invalid token usage aggregate ${field}`);
+  return total;
 }
 function usageCounters(value) {
-  const inputTokens = nonNegativeNumber(value.input_tokens);
-  const cachedInputTokens = nonNegativeNumber(value.cached_input_tokens ?? value.cache_read_input_tokens);
-  const cacheWriteInputTokens = nonNegativeNumber(value.cache_write_input_tokens ?? value.cache_creation_input_tokens);
-  const outputTokens = nonNegativeNumber(value.output_tokens);
-  const reasoningOutputTokens = nonNegativeNumber(value.reasoning_output_tokens);
-  const reportedTotal = nonNegativeNumber(value.total_tokens);
+  const recognizedFields = [
+    "input_tokens",
+    "cached_input_tokens",
+    "cache_read_input_tokens",
+    "cache_write_input_tokens",
+    "cache_creation_input_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+    "total_tokens"
+  ];
+  if (!recognizedFields.some((field) => Object.prototype.hasOwnProperty.call(value, field))) {
+    throw new Error("token usage record contains no recognized counters");
+  }
+  const inputTokens = tokenCounter(value.input_tokens, "input_tokens");
+  const cachedInputTokensPrimary = tokenCounter(value.cached_input_tokens, "cached_input_tokens");
+  const cachedInputTokensAlias = tokenCounter(value.cache_read_input_tokens, "cache_read_input_tokens");
+  const cachedInputTokens = value.cached_input_tokens === void 0 ? cachedInputTokensAlias : cachedInputTokensPrimary;
+  const cacheWriteInputTokensPrimary = tokenCounter(value.cache_write_input_tokens, "cache_write_input_tokens");
+  const cacheWriteInputTokensAlias = tokenCounter(value.cache_creation_input_tokens, "cache_creation_input_tokens");
+  const cacheWriteInputTokens = value.cache_write_input_tokens === void 0 ? cacheWriteInputTokensAlias : cacheWriteInputTokensPrimary;
+  const outputTokens = tokenCounter(value.output_tokens, "output_tokens");
+  const reasoningOutputTokens = tokenCounter(value.reasoning_output_tokens, "reasoning_output_tokens");
+  const reportedTotal = tokenCounter(value.total_tokens, "total_tokens");
+  const calculatedTotal = tokenSum(
+    [inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens],
+    "total_tokens"
+  );
   return {
     inputTokens,
     cachedInputTokens,
     cacheWriteInputTokens,
     outputTokens,
     reasoningOutputTokens,
-    totalTokens: reportedTotal || inputTokens + cachedInputTokens + cacheWriteInputTokens + outputTokens
+    totalTokens: reportedTotal || calculatedTotal
   };
 }
 function maxUsage(left, right) {
@@ -205,12 +235,12 @@ function parseClaude(rows, transcriptSha256) {
     }
   }
   const usage7 = [...usageByMessage.values()].reduce((total, item2) => ({
-    inputTokens: total.inputTokens + item2.inputTokens,
-    cachedInputTokens: total.cachedInputTokens + item2.cachedInputTokens,
-    cacheWriteInputTokens: total.cacheWriteInputTokens + item2.cacheWriteInputTokens,
-    outputTokens: total.outputTokens + item2.outputTokens,
-    reasoningOutputTokens: total.reasoningOutputTokens + item2.reasoningOutputTokens,
-    totalTokens: total.totalTokens + item2.totalTokens
+    inputTokens: tokenSum([total.inputTokens, item2.inputTokens], "input_tokens"),
+    cachedInputTokens: tokenSum([total.cachedInputTokens, item2.cachedInputTokens], "cached_input_tokens"),
+    cacheWriteInputTokens: tokenSum([total.cacheWriteInputTokens, item2.cacheWriteInputTokens], "cache_write_input_tokens"),
+    outputTokens: tokenSum([total.outputTokens, item2.outputTokens], "output_tokens"),
+    reasoningOutputTokens: tokenSum([total.reasoningOutputTokens, item2.reasoningOutputTokens], "reasoning_output_tokens"),
+    totalTokens: tokenSum([total.totalTokens, item2.totalTokens], "total_tokens")
   }), { inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
   return {
     narrative: messages.slice(-8).join("\n\n"),
@@ -23954,7 +23984,11 @@ async function executeProtectedRun(input) {
     if (stopRequest) await stopHandledPromise;
     const finishedAtMs = Date.now();
     const elapsedMs = monotonicNowMs() - startedAtMonotonicMs;
-    const receiptStop = outputFailure ?? stopRequest;
+    const containmentFailure = processGroupTerminationConfirmed ? void 0 : {
+      code: "SUPERVISOR_ERROR",
+      detailSha256: sha2568("process group termination could not be confirmed after the final kill wait")
+    };
+    const receiptStop = containmentFailure ?? outputFailure ?? stopRequest;
     const state2 = receiptStop ? receiptStop.code === "SUPERVISOR_ERROR" || receiptStop.code === "EXECUTABLE_CHANGED" ? "ERROR" : "STOPPED" : "EXITED";
     const receipt = buildReceipt({
       run: input,

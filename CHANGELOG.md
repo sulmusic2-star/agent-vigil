@@ -8,6 +8,8 @@
 - Keep deadline and signal enforcement independent from transcript parsing with
   a monotonic supervisor clock and packaged telemetry worker; enforce malformed
   or incomplete requested telemetry immediately when the observed command exits.
+- Reject malformed token counters instead of treating them as zero, and return
+  a supervisor error when final process-group termination cannot be confirmed.
 - Install the reviewed public App control workflow on the default branch so the
   Worker dispatch target exists before activation.
 - Make the hosted App readiness endpoint fail closed until every check,

@@ -119,6 +119,54 @@ test("wall limit escalates to SIGKILL when the child ignores SIGTERM", async () 
   assert.ok(result.receipt.stop!.observed! >= 250);
 });
 
+test("unconfirmed process-group termination is a supervisor error", { timeout: 6_000 }, () => {
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const script = `
+    (async () => {
+      const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+      const originalKill = process.kill.bind(process);
+      let killSent = false;
+      process.kill = (pid, signal) => {
+        if (typeof pid === "number" && pid < 0 && signal === 0 && killSent) return true;
+        const result = originalKill(pid, signal);
+        if (typeof pid === "number" && pid < 0 && signal === "SIGKILL") killSent = true;
+        return result;
+      };
+      const environment = { ...process.env };
+      delete environment.NODE_V8_COVERAGE;
+      const result = await executeProtectedRun({
+        executable: process.execPath,
+        args: ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
+        cwd: process.cwd(),
+        environment,
+        timeLimitMs: 100,
+        terminationGraceMs: 0,
+        trajectoryLimits: {},
+        telemetryGraceMs: 200,
+      });
+      process.stdout.write(JSON.stringify(result));
+    })().catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  `;
+  const observed = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: coverageHarnessEnvironment(),
+    timeout: 5_000,
+  });
+  assert.equal(observed.error, undefined);
+  assert.equal(observed.status, 0, observed.stderr);
+  const result = JSON.parse(observed.stdout) as ProtectedRunResult;
+  assert.equal(result.exitCode, 125);
+  assert.equal(result.receipt.state, "ERROR");
+  assert.equal(result.receipt.stop?.code, "SUPERVISOR_ERROR");
+  assert.equal(result.receipt.process.killSent, true);
+  assert.equal(result.receipt.process.processGroupTerminationConfirmed, false);
+  assert.equal(recomputeProtectedRunHash(result.receipt), result.receipt.receiptHash);
+});
+
 test("wall limit remains live during post-launch executable verification", async () => {
   const script = "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)";
   const startedAt = Date.now();
@@ -1019,6 +1067,38 @@ test("final telemetry rejects missing requested token usage at EOF", async () =>
   assert.equal(result.receipt.stop?.code, "TOKEN_USAGE_UNAVAILABLE");
   assert.equal(result.receipt.telemetry?.observedTokens, undefined);
   assert.ok(result.receipt.elapsedMs < 5_000);
+});
+
+test("malformed token counters cannot satisfy a requested token cap", async () => {
+  const invalidCounters: Array<[string, Record<string, unknown>]> = [
+    ["numeric string", { input_tokens: "12", output_tokens: 0 }],
+    ["negative", { input_tokens: -1, output_tokens: 0 }],
+    ["fractional", { input_tokens: 1.5, output_tokens: 0 }],
+    ["unsafe integer", { input_tokens: Number.MAX_SAFE_INTEGER + 1, output_tokens: 0 }],
+    ["aggregate overflow", { input_tokens: Number.MAX_SAFE_INTEGER, output_tokens: 1 }],
+    ["invalid alias", { input_tokens: 1, cached_input_tokens: 1, cache_read_input_tokens: "1", output_tokens: 0 }],
+    ["missing counters", {}],
+  ];
+  for (const [label, counters] of invalidCounters) {
+    const directory = root();
+    const transcript = join(directory, `${label.replace(" ", "-")}.jsonl`);
+    const rows = [
+      { type: "session_meta", payload: { id: "run" } },
+      { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: counters } } },
+    ];
+    const output = `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
+    const result = await executeProtectedRun(input(["-e", `process.stdout.write(${JSON.stringify(output)})`], {
+      trajectoryLimits: { maxObservedTokens: 100 },
+      telemetryGraceMs: 5_000,
+      transcript: { path: transcript, transport: "supervisor-captured-stdout" },
+    }));
+    assert.equal(result.exitCode, 124, label);
+    assert.equal(result.receipt.state, "STOPPED", label);
+    assert.equal(result.receipt.stop?.code, "TELEMETRY_UNREADABLE", label);
+    assert.equal(result.receipt.telemetry?.parserStatus, "UNREADABLE", label);
+    assert.equal(result.receipt.telemetry?.observedTokens, undefined, label);
+    assert.ok(result.receipt.telemetry?.parseErrorSha256?.startsWith("sha256:"), label);
+  }
 });
 
 test("large transcript parsing cannot delay wall-limit enforcement", { timeout: 15_000 }, async () => {
