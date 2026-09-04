@@ -1146,7 +1146,6 @@ export function checkIntegrity(repo: string, base: string, head: string): CheckR
     ruleId,
     contributesToPass: false,
   });
-
   let baselineTests = 0;
   let headTests = 0;
   const deletedTestFiles: Array<{ path: string; identity: string }> = [];
@@ -1356,8 +1355,16 @@ function isStandaloneCommentLine(line: string): boolean {
 
 function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
   const results: CheckResult[] = [];
+  const workflowEdits = patches.filter((patch) => patch.path.startsWith(".github/workflows/")).map((patch) => patch.path);
+  if (workflowEdits.length) {
+    results.push(finding(
+      "CI workflow edited",
+      `candidate changed workflow file(s): ${workflowEdits.slice(0, 8).join(", ")}${workflowEdits.length > 8 ? ", …" : ""}`,
+      "ci-workflow-edited",
+    ));
+  }
   const checks: Array<[string, RegExp, string, (patch: FilePatch) => boolean]> = [
-    ["focused or skipped test introduced", /\b(?:test|it|describe)\.(?:skip|only)\s*\(|\b(?:xit|xdescribe)\s*\(|@pytest\.mark\.skip|@unittest\.skip\s*\(|#\[ignore\]|\bt\.Skip(?:Now|f)?\s*\(|@Disabled\b|\[(?:Ignore|Explicit)\b[^\]]*\]/i, "test-skip-added", (patch) => isTestPath(patch.path)], // vigil:detector-pattern
+    ["focused or skipped test introduced", /\b(?:test|it|describe)\.(?:skip|only)\s*\(|\b(?:xit|xdescribe)\s*\(|@pytest\.mark\.(?:skip|xfail)|@unittest\.(?:skip|expectedFailure)\s*\(|#\[ignore\]|\bt\.Skip(?:Now|f)?\s*\(|@Disabled\b|\[(?:Ignore|Explicit)\b[^\]]*\]/i, "test-skip-added", (patch) => isTestPath(patch.path)], // vigil:detector-pattern
     ["verification bypass introduced", /--no-verify|\|\|\s*true\b|passWithNoTests|allowEmptyTests/i, "verification-bypass", (patch) => !isDocumentationPath(patch.path)], // vigil:detector-pattern
     ["compiler or linter suppression introduced", /@ts-nocheck|@ts-ignore|@ts-expect-error|eslint-disable|type:\s*ignore|noqa\b/i, "suppression-added", (patch) => !isDocumentationPath(patch.path)], // vigil:detector-pattern
     ["coverage gate weakened", /coverageThreshold\s*[:=]\s*0|--fail-under[=\s]+0|minimum_coverage\s*[:=]\s*0/i, "coverage-weakened", (patch) => !isDocumentationPath(patch.path)], // vigil:detector-pattern

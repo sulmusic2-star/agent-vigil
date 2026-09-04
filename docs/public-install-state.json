@@ -19,7 +19,7 @@
     "target_published": false
   },
   "source_release_candidate": {
-    "version": "0.24.0",
+    "version": "0.24.1",
     "github_release_published": false,
     "npm_published": false
   }

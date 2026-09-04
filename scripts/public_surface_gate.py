@@ -162,18 +162,27 @@ def candidate_disclosure_failures(
     text: str,
     candidate_version: str | None,
 ) -> list[str]:
-    disclosure_pattern = re.compile(
-        r"v([0-9]+\.[0-9]+\.[0-9]+) is a source release candidate until GitHub lists both "
-        r"the package and checksum assets\."
-    )
-    disclosures = disclosure_pattern.findall(text)
+    disclosure_patterns = [
+        re.compile(
+            r"v([0-9]+\.[0-9]+\.[0-9]+) is a source release candidate until GitHub lists both "
+            r"the package and checksum assets\."
+        ),
+        re.compile(
+            r"v([0-9]+\.[0-9]+\.[0-9]+) is the receipt-product source release candidate "
+            r"on this pull request\."
+        ),
+    ]
+    disclosures = [version for pattern in disclosure_patterns for version in pattern.findall(text)]
     if candidate_version is None:
         return [f"{label} retains a release-candidate disclosure after promotion"] if disclosures else []
-    expected = (
-        f"v{candidate_version} is a source release candidate until GitHub lists both "
-        "the package and checksum assets."
-    )
-    if expected not in text:
+    expected_options = [
+        (
+            f"v{candidate_version} is a source release candidate until GitHub lists both "
+            "the package and checksum assets."
+        ),
+        f"v{candidate_version} is the receipt-product source release candidate on this pull request.",
+    ]
+    if not any(expected in text for expected in expected_options):
         return [f"{label} does not label the release-candidate install path"]
     if any(version != candidate_version for version in disclosures):
         return [f"{label} contains a stale release-candidate disclosure"]

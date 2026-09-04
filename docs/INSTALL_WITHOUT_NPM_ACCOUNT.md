@@ -18,14 +18,14 @@ npm serves v0.21.1, which predates the no-SHA `protect` path shown here. Do not
 use that registry version for this setup. The exact public state is recorded in
 [`public-install-state.json`](public-install-state.json).
 
-## v0.24.0 release candidate
+## v0.24.1 release candidate
 
-v0.24.0 is a source release candidate until GitHub lists both the package and checksum assets.
-Do not install a v0.24.0 URL or npm specifier before that happens. The release
+v0.24.1 is a source release candidate until GitHub lists both the package and checksum assets.
+Do not install a v0.24.1 URL or npm specifier before that happens. The release
 gate will verify the packed artifact, checksum, commit, README, Action pin,
 GitHub release, Marketplace listing, and npm package before promotion.
 
-After every public channel identifies the same v0.24.0 code, this guide and the
+After every public channel identifies the same v0.24.1 code, this guide and the
 machine-readable channel record will be promoted together.
 
 ## One setup pull request
