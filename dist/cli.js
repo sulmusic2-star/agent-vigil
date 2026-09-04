@@ -6772,8 +6772,8 @@ function authorityContractTemplate() {
 var CHECKOUT_ACTION_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 var SETUP_NODE_ACTION_SHA = "820762786026740c76f36085b0efc47a31fe5020";
 var HOSTED_NODE_VERSION = "22.23.2";
-var DOWNLOAD_ARTIFACT_ACTION_SHA = "634f93cb2916e3fdff6788551b99b062d0335ce0";
-var UPLOAD_ARTIFACT_ACTION_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02";
+var DOWNLOAD_ARTIFACT_ACTION_SHA = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
+var UPLOAD_ARTIFACT_ACTION_SHA = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 var OFFICIAL_COMMON_RUNNER_IMAGE = "ghcr.io/sulmusic2-star/agent-vigil-runner@sha256:efdaa365db14cb8d64408beac91361ed0875111e4c07254e2b3729801df606a0";
 var HOSTED_RUNNER_FILE = ".agent-vigil-runner.json";
 var IMMUTABLE_IMAGE = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$/;
@@ -6820,7 +6820,7 @@ ${setupCommand ? `          candidate-setup-cmd: ${setupCommand}
 ` : ""}${candidateImage ? `          candidate-image: ${candidateImage}
 ` : ""}      - name: Retain auditable Agent Vigil receipt
         if: always() && steps.vigil.outputs.report != ''
-        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_ACTION_SHA} # v4
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_ACTION_SHA} # v7.0.1
         with:
           name: agent-vigil-receipt
           path: |
@@ -6867,7 +6867,7 @@ jobs:
           fi
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
       - name: Download the immutable receipt artifact
-        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_ACTION_SHA} # v5
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_ACTION_SHA} # v8.0.1
         with:
           name: agent-vigil-receipt
           path: .agent-vigil-prior
@@ -6882,7 +6882,7 @@ jobs:
           github-token: \${{ github.token }}
       - name: Retain the post-run Value Card
         if: always() && steps.outcome.outputs.value-card != ''
-        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_ACTION_SHA} # v4
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_ACTION_SHA} # v7.0.1
         with:
           name: agent-vigil-outcome-\${{ steps.source.outputs.run_id }}
           path: |
@@ -13805,8 +13805,8 @@ import { dirname as dirname9, join as join11, resolve as resolve23, sep as sep14
 var CHECKOUT_COMMIT = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 var SETUP_NODE_COMMIT = "820762786026740c76f36085b0efc47a31fe5020";
 var HOSTED_NODE_VERSION2 = "22.23.2";
-var UPLOAD_COMMIT = "ea165f8d65b6e75b540449e92b4886f43607fa02";
-var DOWNLOAD_COMMIT = "634f93cb2916e3fdff6788551b99b062d0335ce0";
+var UPLOAD_COMMIT = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
+var DOWNLOAD_COMMIT = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
 var ATTEST_COMMIT = "1e69f48acb82d1966a394da916b4c1698aa569d6";
 var FULL_COMMIT = /^[0-9a-f]{40}$/;
 var MANAGED_MARKER = /^# agent-vigil-keyless-control-proof\/v[0-9]+\n/;
@@ -18753,8 +18753,8 @@ var ACTION_COMMIT = /^[0-9a-f]{40}$/;
 var CHECKOUT_COMMIT2 = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 var SETUP_NODE_COMMIT2 = "820762786026740c76f36085b0efc47a31fe5020";
 var HOSTED_NODE_VERSION3 = "22.23.2";
-var DOWNLOAD_COMMIT2 = "634f93cb2916e3fdff6788551b99b062d0335ce0";
-var UPLOAD_COMMIT2 = "ea165f8d65b6e75b540449e92b4886f43607fa02";
+var DOWNLOAD_COMMIT2 = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
+var UPLOAD_COMMIT2 = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 function repositoryRoot2(path) {
   let root;
   try {

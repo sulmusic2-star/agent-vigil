@@ -520,20 +520,20 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
   };
   const expectedPrivilegedSteps: Record<string, string[]> = {
     "control-proof-weekly.yml:attest-proof": [
-      "uses=actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0|64b4f35dc6780d7f02680763767ffd7d41558dd154caa597dfab69172ebf9e8e",
+      "uses=actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c|bf822b38701dd09f7c5bcb7c2ec4efb99e526aa4c3ff31038c16261e2fb8a4ac",
       "run|65e96cd6e94e1883dae07be73530634729c027b30e27ab8af34eaf932bf2734f",
       "uses=actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6|c9cc1d7163a258c94d57165041142cf6f605c61b17d49ec16581ad0a9be84dd9",
-      "uses=actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02|16faa1e3dec4a01308913952efc4fea320aaf88c4b41d614d2633dfff71238ca",
+      "uses=actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a|8a5e599e3822df9dbf0ff8b046d797e1697aca81a7222c23537bab51f36276fc",
     ],
     "publish.yml:publish": [
       "uses=actions/setup-node@820762786026740c76f36085b0efc47a31fe5020|67e07e2dfa04f8a7834dbd56f20be3c32ae679f3b5b9f0ce3476c9864f72a265",
-      "uses=actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0|72a8e30d016a37162721c9d6a45a2d0594c127a2b8b2cf6ed3c5ee1fab47ad2b",
+      "uses=actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c|fad9d9403104d0f5f632658b2955f9aff9a4b579c22bfaa43daa58a27cdf6b0f",
       "run|e31d77739bfdb506f1376095aa907f5218db62499f504f1ef40d816c4af661e1",
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "306fb32b04f12b98c6dd5395c45d33d5e8fb3b1f9e8b8c0ddc0c4e9382ded080",
-    "publish.yml": "94658e1c855256cdc26b8964fce044c1f89cbfbc8612bd75e60eda4b7112cc71",
+    "control-proof-weekly.yml": "9cdc4ef537ca99955540b898ac7340162916f9b66ea7b8a64a2513c19d78e9c6",
+    "publish.yml": "42717f1fd22395db0c7bae200161430ae12639032b4fc3379994443bb1ca54af",
   };
 
   const workflows = workflowSources();
