@@ -10,6 +10,11 @@ from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
 
+try:
+    from .package_docs import package_document_failures
+except ImportError:
+    from package_docs import package_document_failures
+
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_TEXT = [
     ROOT / "README.md",
@@ -157,29 +162,6 @@ def install_reference_failures(
     return failures
 
 
-def candidate_disclosure_failures(
-    label: str,
-    text: str,
-    candidate_version: str | None,
-) -> list[str]:
-    disclosure_pattern = re.compile(
-        r"v([0-9]+\.[0-9]+\.[0-9]+) is a source release candidate until GitHub lists both "
-        r"the package and checksum assets\."
-    )
-    disclosures = disclosure_pattern.findall(text)
-    if candidate_version is None:
-        return [f"{label} retains a release-candidate disclosure after promotion"] if disclosures else []
-    expected = (
-        f"v{candidate_version} is a source release candidate until GitHub lists both "
-        "the package and checksum assets."
-    )
-    if expected not in text:
-        return [f"{label} does not label the release-candidate install path"]
-    if any(version != candidate_version for version in disclosures):
-        return [f"{label} contains a stale release-candidate disclosure"]
-    return []
-
-
 def install_state_failures(package_version: str, install_state: dict[str, object]) -> list[str]:
     release = install_state.get("latest_github_release", {})
     registry = install_state.get("npm_registry", {})
@@ -297,7 +279,6 @@ def version_failures() -> list[str]:
 
     release = install_state["latest_github_release"]
     registry = install_state["npm_registry"]
-    release_url = release["asset_url"]
     candidate = install_state.get("source_release_candidate")
     candidate_version = candidate.get("version") if isinstance(candidate, dict) else None
     current_install_files = [
@@ -310,27 +291,19 @@ def version_failures() -> list[str]:
         ROOT / "docs/PRIVATE_RECEIPT_GATE.md",
         ROOT / "docs/PUBLIC_PR_RECEIPT.md",
     ]
-    candidate_release_files = {ROOT / "README.md", ROOT / "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md"}
+    packaged_files = {ROOT / "README.md", ROOT / "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md"}
+    failures.extend(package_document_failures(
+        package_version,
+        (ROOT / "README.md").read_text(),
+        (ROOT / "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md").read_text(),
+    ))
     for path in current_install_files:
-        allow_candidate_release = path in candidate_release_files
-        failures.extend(
-            install_reference_failures(
-                relative(path),
-                path.read_text(),
-                release["version"],
+        if path not in packaged_files:
+            failures.extend(install_reference_failures(
+                relative(path), path.read_text(), release["version"],
                 candidate_version if isinstance(candidate_version, str) else None,
                 registry["observed_version"],
-                allow_candidate_release=allow_candidate_release,
-            )
-        )
-        if allow_candidate_release:
-            failures.extend(
-                candidate_disclosure_failures(
-                    relative(path),
-                    path.read_text(),
-                    candidate_version if isinstance(candidate_version, str) else None,
-                )
-            )
+            ))
 
     publishing = ROOT / "docs/PUBLISHING.md"
     failures.extend(
@@ -340,16 +313,6 @@ def version_failures() -> list[str]:
             registry["observed_version"],
         )
     )
-
-    guide = (ROOT / "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md").read_text()
-    for required in [release_url, release["sha256"], release["commit"], registry["observed_version"]]:
-        if required not in guide:
-            failures.append(f"docs/INSTALL_WITHOUT_NPM_ACCOUNT.md is missing verified release state: {required}")
-    registry_spec = f"@sulmusic/agent-vigil@{release['version']}"
-    if registry["target_published"] is False and registry_spec in guide:
-        failures.append("npm-free guide presents the unpublished target as a registry package")
-    if registry["target_published"] is True and registry_spec not in guide:
-        failures.append("npm-free guide omits the independently verified public registry package")
 
     stale_package_url = "releases/download/v0.21.0/sulmusic-agent-vigil-0.21.0.tgz"
     for path in [
@@ -583,15 +546,6 @@ def self_test() -> None:
         published_registry_version,
         allow_candidate_release=True,
     ) == []
-    disclosure = (
-        f"v{candidate_version} is a source release candidate until GitHub lists both "
-        "the package and checksum assets."
-    )
-    assert candidate_disclosure_failures("fixture", disclosure, candidate_version) == []
-    assert any(
-        "after promotion" in failure
-        for failure in candidate_disclosure_failures("fixture", disclosure, None)
-    )
     assert any(
         "unrecorded npm package version" in failure
         for failure in install_reference_failures(

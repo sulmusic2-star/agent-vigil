@@ -18,13 +18,15 @@ merge?**
 
 ## Add it to a repository
 
-Install the published v0.24.2 package:
+This page describes v0.24.2. Check that exact version is available, then install it:
 
 ```bash
-npx --yes --package=@sulmusic/agent-vigil@0.24.2 agent-vigil protect --repo .
+npm view @sulmusic/agent-vigil@0.24.2 version && \
+  npx --yes --package=@sulmusic/agent-vigil@0.24.2 agent-vigil protect --repo .
 ```
 
-For an immutable, checksum-verifiable install, use the matching GitHub release:
+Prefer a download? First follow the [checksum instructions](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+for this version. The matching GitHub package can also be run directly:
 
 ```bash
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz protect --repo .

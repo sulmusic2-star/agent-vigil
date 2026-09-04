@@ -10,6 +10,8 @@ import shutil
 import subprocess
 import tempfile
 
+from package_install_smoke import anonymous_package_install
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ACTION_SHA = "0123456789abcdef0123456789abcdef01234567"
 
@@ -243,6 +245,7 @@ def main() -> int:
         packed = run(["npm", "pack", "--pack-destination", str(lab)], ROOT)
         tarball_name = packed.stdout.strip().splitlines()[-1]
         tarball = lab / tarball_name
+        anonymous_install = anonymous_package_install(tarball, lab, ACTION_SHA)
         consumer = lab / "consumer"
         consumer.mkdir()
         (consumer / "package.json").write_text('{"private":true}\n')
@@ -403,6 +406,7 @@ def main() -> int:
 
         print(json.dumps({
             "packed": tarball.name,
+            "anonymousInstall": anonymous_install,
             "supportedRepositories": len(supported_results),
             "rejectedRepositories": len(rejected_results),
             "controlProof": control_proof_result,
