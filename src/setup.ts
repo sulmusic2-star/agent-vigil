@@ -8,8 +8,8 @@ import { trustedGit } from "./trusted-git.ts";
 const CHECKOUT_ACTION_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE_ACTION_SHA = "820762786026740c76f36085b0efc47a31fe5020";
 const HOSTED_NODE_VERSION = "22.23.2";
-const DOWNLOAD_ARTIFACT_ACTION_SHA = "634f93cb2916e3fdff6788551b99b062d0335ce0";
-const UPLOAD_ARTIFACT_ACTION_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02";
+const DOWNLOAD_ARTIFACT_ACTION_SHA = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
+const UPLOAD_ARTIFACT_ACTION_SHA = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
 import { authorityContractTemplate, loadAuthorityContract } from "./authority.ts";
 
 type InitResult = { created: string[]; kept: string[] };
@@ -60,7 +60,7 @@ jobs:
           isolate-candidate: true
 ${setupCommand ? `          candidate-setup-cmd: ${setupCommand}\n` : ""}${candidateImage ? `          candidate-image: ${candidateImage}\n` : ""}      - name: Retain auditable Agent Vigil receipt
         if: always() && steps.vigil.outputs.report != ''
-        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_ACTION_SHA} # v4
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_ACTION_SHA} # v7.0.1
         with:
           name: agent-vigil-receipt
           path: |
@@ -106,7 +106,7 @@ jobs:
           fi
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
       - name: Download the immutable receipt artifact
-        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_ACTION_SHA} # v5
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_ACTION_SHA} # v8.0.1
         with:
           name: agent-vigil-receipt
           path: .agent-vigil-prior
@@ -121,7 +121,7 @@ jobs:
           github-token: \${{ github.token }}
       - name: Retain the post-run Value Card
         if: always() && steps.outcome.outputs.value-card != ''
-        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_ACTION_SHA} # v4
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_ACTION_SHA} # v7.0.1
         with:
           name: agent-vigil-outcome-\${{ steps.source.outputs.run_id }}
           path: |

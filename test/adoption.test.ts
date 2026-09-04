@@ -981,7 +981,7 @@ test("doctor fails unsafe candidate privilege, checkout, isolation, and mutable-
     .replace("  pull-requests: read\n", "  pull-requests: read\n  id-token: write\n")
     .replace("        with:\n          transcript:", "        with:\n          attest: true\n          github-token: ${{ github.token }}\n          transcript:");
   const unsafeOutcome = readFileSync(outcomePath, "utf8")
-    .replace(/actions\/download-artifact@[0-9a-f]{40}/, "actions/download-artifact@v5")
+    .replace(/actions\/download-artifact@[0-9a-f]{40}/, "actions/download-artifact@v8")
     .replace("  pull-requests: read\n", "  pull-requests: read\n  contents: write\n");
   writeFileSync(evidencePath, unsafeEvidence);
   writeFileSync(outcomePath, unsafeOutcome);

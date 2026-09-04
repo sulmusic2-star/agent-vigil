@@ -64,7 +64,7 @@ measured separately.
 The control account must configure the `agent-vigil-public-app` GitHub
 environment and the Worker once. Customers never receive these values:
 
-- `AGENT_VIGIL_PUBLIC_APP_ID` (environment variable)
+- `AGENT_VIGIL_PUBLIC_APP_CLIENT_ID` (environment variable)
 - `AGENT_VIGIL_CONTROL_APP_ACTOR` (environment variable; the login of the
   separate App that dispatches the central workflow)
 - `AGENT_VIGIL_PUBLIC_APP_PRIVATE_KEY` (environment secret)
