@@ -11,9 +11,9 @@ const registryIntegrity = "sha512-E2BScm2OAaXDtnbqpQV0hnOpUht8lyad/FzS625MOBHGuC
 
 test("the packaged guide uses an evergreen checksum-first install", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
-  assert.ok(guide.includes(releaseUrl));
+  assert.ok(guide.includes("https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz"));
   assert.match(guide, /shasum -a 256 -c .* &&/);
-  assert.match(guide, /same\s+immutable v0\.24\.2 GitHub package/s);
+  assert.match(guide, /same\s+immutable v0\.24\.3 GitHub package/s);
   assert.doesNotMatch(guide, /source release candidate|verification snapshot/);
   assert.ok(!guide.includes(releaseSha256), "the tarball cannot embed its own future checksum");
   assert.ok(!guide.includes(releaseCommit), "the tarball cannot embed its own future commit");
@@ -30,7 +30,7 @@ test("the public install state keeps GitHub and npm publication separate", () =>
   assert.equal(state.latest_github_release.asset_url, releaseUrl);
   assert.equal(state.latest_github_release.sha256, releaseSha256);
   assert.equal(state.latest_github_release.immutable, true);
-  assert.equal(state.source_release_candidate, undefined);
+  assert.deepEqual(state.source_release_candidate, { version: "0.24.3", github_release_published: false, npm_published: false });
   assert.equal(state.npm_registry.package, "@sulmusic/agent-vigil");
   assert.equal(state.npm_registry.target_version, releaseVersion);
   assert.equal(state.npm_registry.observed_version, "0.24.2");
@@ -42,7 +42,7 @@ test("the public install state keeps GitHub and npm publication separate", () =>
 test("the five-minute guide preserves one complete value path", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
   const orderedSteps = [
-    "sulmusic-agent-vigil-0.24.2.tgz protect",
+    "sulmusic-agent-vigil-0.24.3.tgz protect",
     "One setup pull request",
     "PASS",
     "FAIL",
