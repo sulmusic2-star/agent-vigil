@@ -18,17 +18,13 @@ merge?**
 
 ## Add it to a repository
 
-This release keeps setup and the follow-up check on one immutable package.
-v0.24.2 is a source release candidate until GitHub lists both the package and checksum assets.
-Until then, the verified public package remains
-[`sulmusic-agent-vigil-0.24.1.tgz`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz).
-Use it now with:
+Install the published v0.24.2 package:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo .
+npx --yes --package=@sulmusic/agent-vigil@0.24.2 agent-vigil protect --repo .
 ```
 
-After GitHub lists both v0.24.2 assets, use:
+For an immutable, checksum-verifiable install, use the matching GitHub release:
 
 ```bash
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz protect --repo .
@@ -65,10 +61,11 @@ This packaged README describes v0.24.2; it is not a claim that v0.24.2 remains
 the newest release. The live, machine-readable channel record is
 [`docs/public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
 
-Do not substitute an npm install until this query returns `0.24.2`:
+Verify the registry before installation:
 
 ```bash
 npm view @sulmusic/agent-vigil version
+npm view @sulmusic/agent-vigil@0.24.2 dist.integrity
 ```
 
 All six public workflows for this release pin the reviewed runtime commit
