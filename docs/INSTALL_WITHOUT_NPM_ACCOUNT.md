@@ -1,50 +1,35 @@
-# Install Agent Vigil
+# Install Agent Vigil v0.24.1 without npm
 
-## Verified package
+This guide is an immutable snapshot for v0.24.1. It does not claim that v0.24.1
+is still the newest release or that npm currently serves it.
 
-GitHub Releases serves v0.24.0 from exact release commit
-`ef583e6c9cac87941a7f283ef07af46187315912`:
+v0.24.1 is a source release candidate until GitHub lists both the package and checksum assets.
+Do not run the candidate commands until both assets named below exist.
+
+## Verify the GitHub package
+
+Open the [v0.24.1 release page](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.24.1). Do not continue unless it contains both
+`sulmusic-agent-vigil-0.24.1.tgz` and
+`sulmusic-agent-vigil-0.24.1.tgz.sha256`.
 
 ```bash
 curl -fLO \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz
-printf '%s  %s\n' \
-  '49fc66f97e4ce1ae530513062430ae9a81dba94c3f722dd91bd3d1009e629151' \
-  'sulmusic-agent-vigil-0.24.0.tgz' | shasum -a 256 -c -
-npx --yes ./sulmusic-agent-vigil-0.24.0.tgz protect --repo .
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz
+curl -fLO \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz.sha256
+shasum -a 256 -c sulmusic-agent-vigil-0.24.1.tgz.sha256
+npx --yes ./sulmusic-agent-vigil-0.24.1.tgz protect --repo .
 ```
 
-The GitHub Marketplace listing also exposes v0.24.0. npm has staged v0.24.0
-with trusted-publishing provenance, but its public `latest` tag still serves
-v0.21.1. Use the immutable GitHub package until registry promotion, integrity,
-and a clean registry install are separately verified. The exact channel state
-is recorded in [`public-install-state.json`](public-install-state.json).
-
-> **v0.24.0 packaging note:** the immutable tarball contains the earlier
-> pre-publication README and installation guide, which still name v0.23.2 as
-> the last verified release. The executable and package metadata report
-> v0.24.0. Use this current web guide and the attached checksum rather than the
-> guide embedded in that tarball.
-
-> **Controlled-trial limitation:** after a successful `protect` run, v0.24.0
-> prints an npm-based `doctor` command that is not currently available. Do not
-> use that printed command. After the setup pull request merges, use the pinned
-> GitHub command below. A patch release must correct the embedded handoff before
-> broad self-serve onboarding.
+A successful `protect` run prints a `doctor` command that uses this same
+immutable v0.24.1 GitHub package. It does not depend on npm publication.
 
 ## One setup pull request
 
-`protect` writes the policy and workflows, then runs a disposable rehearsal. A
-successful run ends with one next action: commit the generated files and open a
-setup pull request.
-
-After that setup merges:
-
-```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz doctor --repo .
-```
-
-Then open a normal code pull request. The check says:
+`protect` writes the policy and workflows, then runs a disposable rehearsal.
+Review the generated files, commit them, and open one setup pull request. After
+that setup merges, run the printed `doctor` command. Then open a normal code
+pull request. The check says:
 
 - `PASS` — ready to merge under the base-owned policy;
 - `FAIL` — do not merge yet;
@@ -57,7 +42,7 @@ The automatic path recognizes a narrow root Node/npm layout. Other toolchains
 use the immutable common runner and an explicit command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
@@ -66,6 +51,25 @@ The common image contains Node, Python, Rust, Go, Java, Ruby, PHP, .NET, pnpm,
 Yarn, and Bun. It does not fetch project dependencies during the networkless
 test phase. Use a reviewed organization-owned `--runner-image` when the project
 needs dependencies preinstalled.
+
+## npm boundary
+
+Use npm only if this query returns `0.24.1`:
+
+```bash
+npm view @sulmusic/agent-vigil version
+```
+
+The current cross-channel record lives on the default branch in
+[`public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json). This packaged guide deliberately does not copy that changing state.
+
+At the time this release candidate was assembled, the verified public GitHub
+package was
+`https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz`
+from commit `ef583e6c9cac87941a7f283ef07af46187315912`, with SHA-256
+`49fc66f97e4ce1ae530513062430ae9a81dba94c3f722dd91bd3d1009e629151`.
+npm served v0.21.1. These are dated provenance facts, not current-channel
+claims.
 
 ## Enforcement
 
@@ -83,5 +87,5 @@ can no longer run.
 
 ## Evidence boundary
 
-A successful install proves setup, not retained use, a useful catch, payment, or
-revenue. Those are measured separately with maintainer consent.
+A successful install proves setup, not retained use, a useful catch, payment,
+or revenue. Those are measured separately with maintainer consent.
