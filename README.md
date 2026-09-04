@@ -16,7 +16,7 @@ merge?**
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-## Controlled trial install
+## Add it to a repository
 
 The current GitHub package can be used for a controlled repository trial:
 
