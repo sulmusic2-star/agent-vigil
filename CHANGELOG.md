@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.24.1 - 2026-09-04
+
+- Keep the successful `protect` handoff on the same immutable GitHub release
+  package instead of printing an npm command before that version is public.
+- Treat packaged release instructions as an immutable release snapshot rather
+  than a claim about which distribution channel is currently newest.
+
 ## 0.24.0 - 2026-09-04
 
 - Add a production-shaped independent release gate that binds fresh challenges, external allow effects, denied effects, exact executable bytes, managed policy bytes, and current-versus-candidate behavior to short-lived signed evidence.
