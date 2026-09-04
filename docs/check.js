@@ -1,4 +1,4 @@
-const TOOL_VERSION = "0.24.0-browser.1";
+const TOOL_VERSION = "0.24.2-browser.1";
 // Reviewed receipt decision logic; not the release commit or deployed-file digest.
 const TOOL_COMMIT = "7f335abbd5a4d12bed07e7b49896ae3ef86800e5";
 const RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz";

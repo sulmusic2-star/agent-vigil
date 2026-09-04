@@ -1,28 +1,28 @@
-# Install Agent Vigil v0.24.1 without npm
+# Install Agent Vigil v0.24.2 without npm
 
-This guide describes the immutable v0.24.1 release assets. It does not claim
-that v0.24.1 remains the newest release or that npm currently serves it.
+This guide is an immutable snapshot for v0.24.2. It does not claim that v0.24.2
+is still the newest release or that npm currently serves it.
 
-The v0.24.1 package and checksum are public on GitHub. The commands below
-use that immutable release and do not depend on npm publication.
+v0.24.2 is a source release candidate until GitHub lists both the package and checksum assets.
+Do not run the candidate commands until both assets exist.
 
 ## Verify the GitHub package
 
-Open the [v0.24.1 release page](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.24.1). Do not continue unless it contains both
-`sulmusic-agent-vigil-0.24.1.tgz` and
-`sulmusic-agent-vigil-0.24.1.tgz.sha256`.
+Open the [v0.24.2 release page](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.24.2). Do not continue unless it contains both
+`sulmusic-agent-vigil-0.24.2.tgz` and
+`sulmusic-agent-vigil-0.24.2.tgz.sha256`.
 
 ```bash
 curl -fLO \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz
 curl -fLO \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz.sha256
-shasum -a 256 -c sulmusic-agent-vigil-0.24.1.tgz.sha256
-npx --yes ./sulmusic-agent-vigil-0.24.1.tgz protect --repo .
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz.sha256
+shasum -a 256 -c sulmusic-agent-vigil-0.24.2.tgz.sha256
+npx --yes ./sulmusic-agent-vigil-0.24.2.tgz protect --repo .
 ```
 
 A successful `protect` run prints a `doctor` command that uses this same
-immutable v0.24.1 GitHub package. It does not depend on npm publication.
+immutable v0.24.2 GitHub package. It does not depend on npm publication.
 
 ## One setup pull request
 
@@ -42,7 +42,7 @@ The automatic path recognizes a narrow root Node/npm layout. Other toolchains
 use the immutable common runner and an explicit command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
@@ -54,7 +54,7 @@ needs dependencies preinstalled.
 
 ## npm boundary
 
-Use npm only if this query returns `0.24.1`:
+Use npm only if this query returns `0.24.2`:
 
 ```bash
 npm view @sulmusic/agent-vigil version
@@ -67,15 +67,23 @@ The verified public GitHub package is
 `https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz`
 from commit `ccf2cae545e910e1ea27eb8b9746302879fd645d`, with SHA-256
 `87f6cef0bc6194ec9785bf359c6d4c7c8e5d9c1a2ac3133d694d3e08956f1ced`.
-At the verification time recorded in `public-install-state.json`, npm served v0.21.1.
+At the verification time recorded in `public-install-state.json`, npm served
+v0.24.1 with registry integrity
+`sha512-WucBmWgKjYim1GEwNGtvY/LZu5VxxmiKG5BcxT5+ZQ7B8QltTvfhmfMeRz5aRtNzclYnJLgi0Z/FVXmXwvGlBA==`.
+Verify that exact published package without substituting the candidate:
+
+```bash
+npm view @sulmusic/agent-vigil@0.24.1 dist.integrity
+```
 
 ## Enforcement
 
 A repository-owned workflow is suitable for a trial. A job name alone does not
 prove who supplied the workflow. Protected enforcement requires the centrally
 operated Agent Vigil App and a GitHub ruleset bound to that App-owned check. The
-App is not public until a real outside repository demonstrates PASS, FAIL,
-stale-head NOT CHECKED, and merge-queue handling.
+First-party staging has demonstrated PASS, FAIL, stale-head NOT CHECKED,
+rollback, and merge-queue blocking. That does not make the production App
+public or prove outside use.
 
 ## Remove it
 

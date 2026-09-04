@@ -56,7 +56,7 @@ test("the browser receipt matches the reviewed CLI receipt contract", async () =
   const cli = buildPublicPrReceipt(value, PR_URL, {
     generatedAt: GENERATED_AT,
     maxAgeHours: 168,
-    toolVersion: "0.24.0-browser.1",
+    toolVersion: "0.24.2-browser.1",
     toolCommit: TOOL_COMMIT,
   });
   const web = await browser.buildBrowserReceipt(browserSnapshot(value), {

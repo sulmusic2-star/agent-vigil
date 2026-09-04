@@ -11,12 +11,12 @@ test("the public entry point gives one install path, one result, and an honest A
   const readme = read("README.md");
   const form = read(".github/ISSUE_TEMPLATE/adopter-feedback.yml");
   assert.match(readme, /Agent Vigil is an independent merge check for AI-assisted pull requests/);
-  assert.match(readme, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.24\.1\/sulmusic-agent-vigil-0\.24\.1\.tgz protect --repo \./);
-  assert.match(readme, /v0\.24\.1 package and checksum are public on GitHub/);
-  assert.match(readme, /same\s+v0\.24\.1 GitHub package/s);
+  assert.match(readme, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.24\.2\/sulmusic-agent-vigil-0\.24\.2\.tgz protect --repo \./);
+  assert.match(readme, /v0\.24\.2 is a source release candidate until GitHub lists both/);
+  assert.match(readme, /same\s+package version selected above/s);
   assert.match(readme, /open one setup\s+pull request.*read\s+one result/s);
   assert.match(readme, /\*\*PASS\*\*.*\*\*FAIL\*\*.*\*\*NOT CHECKED\*\*/s);
-  assert.match(readme, /It is not a live public service until\s+a real outside repository demonstrates PASS, FAIL, stale-head NOT CHECKED/s);
+  assert.match(readme, /does not make the production App a live public service or prove outside use/);
   assert.match(readme, /--runner common/);
   assert.doesNotMatch(readme, /register a trial|adoption experiment/i);
   assert.match(form, /Opening this form does not count as an installation/);
