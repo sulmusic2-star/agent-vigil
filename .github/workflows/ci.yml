@@ -128,5 +128,5 @@ jobs:
           trap cleanup EXIT
           docker exec --env AGENT_VIGIL_REQUIRE_LINUX_THREAD_FIXTURE=true "$container" \
             node --import tsx --test --test-concurrency=1 \
-            --test-name-pattern="wall limit terminates an ordinary descendant|a leader cannot leave an ordinary same-group descendant|a zombie process leader cannot hide a runnable worker thread" \
+            --test-name-pattern="wall limit terminates an ordinary descendant|a leader cannot leave an ordinary same-group descendant|a zombie process leader cannot hide a runnable worker thread|changing Linux task membership is not accepted as zombie-only" \
             test/run-supervisor.test.ts

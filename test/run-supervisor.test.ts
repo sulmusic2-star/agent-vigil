@@ -244,6 +244,111 @@ test("unconfirmed process-group termination is a supervisor error", { timeout: 6
   assert.equal(recomputeProtectedRunHash(result.receipt), result.receipt.receiptHash);
 });
 
+nodeTest("changing Linux task membership is not accepted as zombie-only", {
+  skip: process.platform !== "linux",
+  timeout: 6_000,
+}, () => {
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const script = `
+    (async () => {
+      const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+      const fs = (await import("node:fs")).default;
+      const { syncBuiltinESMExports } = await import("node:module");
+      const originalKill = process.kill.bind(process);
+      const originalReaddirSync = fs.readdirSync;
+      const originalReadFileSync = fs.readFileSync;
+      let groupPid;
+      let killSent = false;
+      let taskDirectoryReads = 0;
+      const directory = (name) => ({ name: String(name), isDirectory: () => true });
+      const fakeStat = (pid, state, threadCount, startTime) => {
+        const fields = [
+          state, "1", String(groupPid), "1", "1", "0", "0", "0", "0", "0",
+          "0", "0", "0", "0", "0", "0", "0", String(threadCount), "0", String(startTime),
+        ];
+        return String(pid) + " (membership-race) " + fields.join(" ");
+      };
+      process.kill = (pid, signal) => {
+        if (typeof pid === "number" && pid < 0 && signal === 0 && killSent) return true;
+        const result = originalKill(pid, signal);
+        if (typeof pid === "number" && pid < 0 && signal === "SIGKILL") {
+          groupPid = -pid;
+          killSent = true;
+        }
+        return result;
+      };
+      fs.readdirSync = (...args) => {
+        const path = String(args[0]);
+        if (killSent && path === "/proc") {
+          return [directory(groupPid)];
+        }
+        if (killSent && path === "/proc/" + groupPid + "/task") {
+          taskDirectoryReads += 1;
+          return taskDirectoryReads === 1
+            ? [directory(groupPid), directory(groupPid + 1)]
+            : [directory(groupPid), directory(groupPid + 2)];
+        }
+        return originalReaddirSync(...args);
+      };
+      fs.readFileSync = (...args) => {
+        const path = String(args[0]);
+        if (killSent && path === "/proc/" + groupPid + "/stat") {
+          return fakeStat(groupPid, "Z", 2, 100);
+        }
+        if (killSent && path === "/proc/" + groupPid + "/task/" + groupPid + "/stat") {
+          return fakeStat(groupPid, "Z", 2, 100);
+        }
+        if (killSent && path === "/proc/" + groupPid + "/task/" + (groupPid + 1) + "/stat") {
+          return fakeStat(groupPid + 1, "Z", 2, 101);
+        }
+        if (killSent && path === "/proc/" + groupPid + "/task/" + (groupPid + 2) + "/stat") {
+          return fakeStat(groupPid + 2, "S", 2, 102);
+        }
+        return originalReadFileSync(...args);
+      };
+      syncBuiltinESMExports();
+      const environment = { ...process.env };
+      delete environment.NODE_V8_COVERAGE;
+      try {
+        const result = await executeProtectedRun({
+          executable: process.execPath,
+          args: ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
+          cwd: process.cwd(),
+          environment,
+          timeLimitMs: 100,
+          terminationGraceMs: 0,
+          trajectoryLimits: {},
+          telemetryGraceMs: 200,
+        });
+        process.stdout.write(JSON.stringify(result));
+      } finally {
+        process.kill = originalKill;
+        fs.readdirSync = originalReaddirSync;
+        fs.readFileSync = originalReadFileSync;
+        syncBuiltinESMExports();
+      }
+    })().catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  `;
+  const observed = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: coverageHarnessEnvironment(),
+    timeout: 5_000,
+  });
+  assert.equal(observed.error, undefined);
+  assert.equal(observed.status, 0, observed.stderr);
+  const result = JSON.parse(observed.stdout) as ProtectedRunResult;
+  assert.equal(result.exitCode, 125);
+  assert.equal(result.receipt.state, "ERROR");
+  assert.equal(result.receipt.stop?.code, "SUPERVISOR_ERROR");
+  assert.equal(result.receipt.process.killSent, true);
+  assert.equal(result.receipt.process.processGroupTerminationConfirmed, false);
+  assert.equal(recomputeProtectedRunHash(result.receipt), result.receipt.receiptHash);
+});
+
 test("wall limit remains live during post-launch executable verification", async () => {
   const script = "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)";
   const startedAt = Date.now();

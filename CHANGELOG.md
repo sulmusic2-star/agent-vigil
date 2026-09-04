@@ -11,7 +11,8 @@
 - Reject malformed token counters instead of treating them as zero, and return
   a supervisor error when final process-group termination cannot be confirmed.
 - Distinguish Linux zombie-only process groups from executable descendants,
-  including runnable threads hidden behind a zombie thread-group leader, and
+  including runnable threads hidden behind a zombie thread-group leader; require
+  stable repeated task-membership snapshots before confirming termination, and
   exercise containment under a deliberately non-reaping container PID 1.
 - Install the reviewed public App control workflow on the default branch so the
   Worker dispatch target exists before activation.

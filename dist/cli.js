@@ -23510,24 +23510,27 @@ function parseLinuxTaskStat(stat) {
   const state2 = fields[0];
   const processGroupId = fields[2] && /^\d+$/.test(fields[2]) ? Number(fields[2]) : void 0;
   const threadCount = fields[17] && /^\d+$/.test(fields[17]) ? Number(fields[17]) : void 0;
-  if (!state2 || !/^[A-Za-z]$/.test(state2) || processGroupId === void 0 || threadCount === void 0 || !Number.isSafeInteger(processGroupId) || !Number.isSafeInteger(threadCount) || threadCount < 1) return void 0;
-  return { state: state2, processGroupId, threadCount };
+  const startTimeTicks = fields[19] && /^\d+$/.test(fields[19]) ? fields[19] : void 0;
+  if (!state2 || !/^[A-Za-z]$/.test(state2) || processGroupId === void 0 || threadCount === void 0 || startTimeTicks === void 0 || !Number.isSafeInteger(processGroupId) || !Number.isSafeInteger(threadCount) || threadCount < 1) return void 0;
+  return { state: state2, processGroupId, threadCount, startTimeTicks };
 }
 function linuxTaskCanExecute(state2) {
   return state2 !== "Z" && state2 !== "X" && state2 !== "x";
 }
-function processEntryDisappeared(error) {
-  const code = error.code;
-  return code === "ENOENT" || code === "ESRCH";
+function numericDirectoryNames(entries) {
+  return entries.filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name)).map((entry) => entry.name).sort();
 }
-function linuxProcessGroupState(processGroupId) {
+function sameNames(left, right) {
+  return left.length === right.length && left.every((name2, index) => name2 === right[index]);
+}
+function snapshotLinuxProcessGroup(processGroupId) {
   let entries;
   try {
     entries = readdirSync5("/proc", { withFileTypes: true });
   } catch {
-    return "unknown";
+    return { state: "unknown" };
   }
-  let sawMember = false;
+  const memberFingerprints = [];
   let incomplete = false;
   for (const entry of entries) {
     if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
@@ -23540,43 +23543,78 @@ function linuxProcessGroupState(processGroupId) {
       incomplete = true;
       continue;
     }
-    const leader = parseLinuxTaskStat(stat);
-    if (!leader) {
+    const leaderBefore = parseLinuxTaskStat(stat);
+    if (!leaderBefore) {
       incomplete = true;
       continue;
     }
-    if (leader.processGroupId !== processGroupId) continue;
-    if (linuxTaskCanExecute(leader.state)) return "active";
-    let taskEntries;
+    if (leaderBefore.processGroupId !== processGroupId) continue;
+    if (linuxTaskCanExecute(leaderBefore.state)) return { state: "active" };
+    const taskDirectory = join23("/proc", entry.name, "task");
+    let taskEntriesBefore;
     try {
-      taskEntries = readdirSync5(join23("/proc", entry.name, "task"), { withFileTypes: true });
+      taskEntriesBefore = readdirSync5(taskDirectory, { withFileTypes: true });
     } catch {
       incomplete = true;
       continue;
     }
-    let observedTasks = 0;
-    for (const taskEntry of taskEntries) {
-      if (!taskEntry.isDirectory() || !/^\d+$/.test(taskEntry.name)) continue;
+    const taskNamesBefore = numericDirectoryNames(taskEntriesBefore);
+    const taskFingerprints = [];
+    let memberIncomplete = taskNamesBefore.length !== leaderBefore.threadCount;
+    for (const taskName of taskNamesBefore) {
       let taskStatText;
       try {
-        taskStatText = readFileSync16(join23("/proc", entry.name, "task", taskEntry.name, "stat"), "utf8");
+        taskStatText = readFileSync16(join23(taskDirectory, taskName, "stat"), "utf8");
       } catch (error) {
-        if (!processEntryDisappeared(error)) incomplete = true;
+        memberIncomplete = true;
         continue;
       }
       const taskStat = parseLinuxTaskStat(taskStatText);
-      if (!taskStat || taskStat.processGroupId !== processGroupId) {
-        incomplete = true;
+      if (!taskStat || taskStat.processGroupId !== processGroupId || taskStat.threadCount !== leaderBefore.threadCount) {
+        memberIncomplete = true;
         continue;
       }
-      observedTasks += 1;
-      sawMember = true;
-      if (linuxTaskCanExecute(taskStat.state)) return "active";
+      if (linuxTaskCanExecute(taskStat.state)) return { state: "active" };
+      taskFingerprints.push(`${taskName}:${taskStat.startTimeTicks}:${taskStat.state}`);
     }
-    if (observedTasks !== leader.threadCount) incomplete = true;
+    let taskEntriesAfter;
+    let leaderAfterText;
+    try {
+      taskEntriesAfter = readdirSync5(taskDirectory, { withFileTypes: true });
+      leaderAfterText = readFileSync16(join23("/proc", entry.name, "stat"), "utf8");
+    } catch (error) {
+      incomplete = true;
+      continue;
+    }
+    const taskNamesAfter = numericDirectoryNames(taskEntriesAfter);
+    const leaderAfter = parseLinuxTaskStat(leaderAfterText);
+    if (!leaderAfter || leaderAfter.processGroupId !== processGroupId || linuxTaskCanExecute(leaderAfter.state)) {
+      if (leaderAfter && leaderAfter.processGroupId === processGroupId && linuxTaskCanExecute(leaderAfter.state)) {
+        return { state: "active" };
+      }
+      incomplete = true;
+      continue;
+    }
+    if (leaderAfter.startTimeTicks !== leaderBefore.startTimeTicks || leaderAfter.state !== leaderBefore.state || leaderAfter.threadCount !== leaderBefore.threadCount || !sameNames(taskNamesBefore, taskNamesAfter) || taskFingerprints.length !== taskNamesBefore.length) {
+      memberIncomplete = true;
+    }
+    if (memberIncomplete) {
+      incomplete = true;
+      continue;
+    }
+    memberFingerprints.push(
+      `${entry.name}:${leaderBefore.startTimeTicks}:${leaderBefore.state}:${leaderBefore.threadCount}[${taskFingerprints.join(",")}]`
+    );
   }
-  if (incomplete) return "unknown";
-  return sawMember ? "zombie-only" : "unknown";
+  if (incomplete || memberFingerprints.length === 0) return { state: "unknown" };
+  return { state: "zombie-only", fingerprint: memberFingerprints.sort().join("|") };
+}
+function linuxProcessGroupState(processGroupId) {
+  const first = snapshotLinuxProcessGroup(processGroupId);
+  if (first.state !== "zombie-only") return first.state;
+  const second = snapshotLinuxProcessGroup(processGroupId);
+  if (second.state !== "zombie-only") return second.state;
+  return first.fingerprint === second.fingerprint ? "zombie-only" : "unknown";
 }
 function processGroupHasLiveMembers(pid) {
   try {
