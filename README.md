@@ -18,26 +18,21 @@ merge?**
 
 ## Add it to a repository
 
-The current GitHub package can be used for a controlled repository trial:
+This release keeps setup and the follow-up check on one immutable package.
+v0.24.1 is a source release candidate until GitHub lists both the package and checksum assets.
+Until then, the recorded public GitHub package remains
+[`v0.24.0`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz),
+whose onboarding limitation is documented on its release page. Do not run the
+v0.24.1 command below before its package and checksum are both present.
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz protect --repo .
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo .
 ```
-
-**Do not use v0.24.0 for broad self-serve onboarding.** Its successful
-`protect` run prints an npm-based `doctor` command, but npm does not yet serve
-v0.24.0. After the setup pull request merges, use this pinned command instead:
-
-```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz doctor --repo .
-```
-
-The next patch release must correct that embedded handoff before this section
-can return to a normal five-minute install claim.
 
 The command finds the repository's test setup, runs a disposable red/green
 rehearsal, and writes the setup files. Commit those files and open one setup
-pull request. After that setup merges, open a normal code pull request and read
+pull request. After it merges, the printed `doctor` command uses the same
+v0.24.1 GitHub package. Then open a normal code pull request and read
 one result:
 
 - **PASS** — ready to merge under the repository's current policy.
@@ -59,29 +54,21 @@ Reproduce: vigil verify --base <base-sha> --head <head-sha>
 The full receipt keeps the exact SHAs, policy hash, changed files, commands,
 claimed and observed test counts, findings, and reproduction command.
 
-### Current distribution boundary
+### Verify the distribution channel
 
-GitHub release v0.24.0 is public and immutable. The Marketplace listing exposes
-v0.24.0, and all five public workflows pin the reviewed runtime commit
-`7f335abbd5a4d12bed07e7b49896ae3ef86800e5`. The attached package SHA-256 is
-`49fc66f97e4ce1ae530513062430ae9a81dba94c3f722dd91bd3d1009e629151`.
+This packaged README describes v0.24.1; it is not a claim that v0.24.1 remains
+the newest release. The live, machine-readable channel record is
+[`docs/public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
 
-npm has staged v0.24.0 with trusted-publishing provenance, but the public
-`latest` tag still serves v0.21.1. Use the immutable GitHub package until npm
-promotion, registry integrity, and a fresh registry install are verified.
+Do not substitute an npm install until this query returns `0.24.1`:
 
-**Packaging note:** the immutable v0.24.0 tarball contains the pre-publication
-README and installation guide, which still name v0.23.2 as the last verified
-release. The executable reports v0.24.0 and passed the attached-artifact checks,
-but use this current web guide and the release checksum for installation. A
-follow-up release must remove version-specific distribution state from packaged
-documentation and correct the unavailable npm-based `doctor` handoff.
+```bash
+npm view @sulmusic/agent-vigil version
+```
 
-The machine-readable channel record is in
-[`docs/public-install-state.json`](docs/public-install-state.json).
-
-For a no-account GitHub package install, checksum verification, or an explicit
-non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+All five public workflows for this release pin the reviewed runtime commit
+`0d1f1c9f95f32a55c1a83772feab1944b0fcbd9e`. For the checksum-first download
+and an explicit non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 ## What it checks
 
@@ -107,7 +94,7 @@ The generated Node/npm path is automatic. Python, Rust, Go, Java, Ruby, PHP,
 test command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```

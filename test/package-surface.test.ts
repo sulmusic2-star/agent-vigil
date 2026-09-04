@@ -216,6 +216,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/PUBLISHING.md",
     "docs/RESEARCH.md",
     "docs/research",
+    "docs/index.html",
   ];
   for (const internalPath of internalPaths) {
     assert.ok(
@@ -299,7 +300,6 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/guard-control-admission-v1.schema.json",
     "docs/guard-deployment-authorization-v1.schema.json",
     "docs/guard-deployment-registration-v1.schema.json",
-    "docs/index.html",
     "docs/live-host-route-v1.schema.json",
     "docs/live-host-route-v2.schema.json",
     "docs/notary-app-manifest.example.json",
@@ -511,7 +511,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "9dc64132e4c903d5ba5c12e32d5f1ed899c559ad54c57710d8f39c98891a80d0",
+    "control-proof-weekly.yml": "a4124d50c7fff0933ab523b4cc493ccea710b8f19c68c746599d4b267e139968",
     "publish.yml": "94658e1c855256cdc26b8964fce044c1f89cbfbc8612bd75e60eda4b7112cc71",
   };
 
