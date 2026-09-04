@@ -8,9 +8,9 @@ const releaseAsset = `sulmusic-agent-vigil-${releaseVersion}.tgz`;
 const releaseUrl = `https://github.com/sulmusic2-star/agent-vigil/releases/download/v${releaseVersion}/${releaseAsset}`;
 const releaseSha256 = "85dd030bc638625ae75181030268e5561dc7483c32e74253bfb17bf76ad2b839";
 const registryIntegrity = "sha512-svknWHc0DT9Jh77tatKFmvsr3lJr8dSDLBrXud1pr1DKkgW8Yx7uIvS1+Xkq72TQfyP091sWUZZzDH8ku6RjuA==";
-const candidateVersion = "0.23.4";
+const candidateVersion = "0.24.0";
 
-test("the npm-free guide separates verified packages from the unpublished v0.23.4 candidate", () => {
+test("the npm-free guide separates verified packages from the unpublished v0.24.0 candidate", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
 
   assert.doesNotMatch(guide, new RegExp(`releases/download/v${candidateVersion}/sulmusic-agent-vigil-${candidateVersion}\\.tgz`));
@@ -20,10 +20,10 @@ test("the npm-free guide separates verified packages from the unpublished v0.23.
   assert.match(guide, new RegExp(releaseCommit));
   assert.match(
     guide,
-    /v0\.23\.4 is a source release candidate until GitHub lists both the package and checksum assets\./,
+    /v0\.24\.0 is a source release candidate until GitHub lists both the package and checksum assets\./,
   );
   assert.match(guide, /npm serves v0\.21\.1/);
-  assert.match(guide, /Do not install a v0\.23\.4 URL or npm specifier/);
+  assert.match(guide, /Do not install a v0\.24\.0 URL or npm specifier/);
 });
 
 test("the public install state keeps GitHub and npm publication separate", () => {

@@ -16,7 +16,7 @@ function run(args: string[]) {
 test("the source CLI gives a new user one start command and one decision vocabulary", () => {
   const first = run([]);
   assert.equal(first.status, 0, first.stderr);
-  assert.match(first.stdout, /npx --yes @sulmusic\/agent-vigil@0\.23\.4 protect --repo \./);
+  assert.match(first.stdout, /npx --yes @sulmusic\/agent-vigil@0\.24\.0 protect --repo \./);
   assert.match(first.stdout, /PASS\s+Ready to merge\./);
   assert.match(first.stdout, /FAIL\s+Do not merge yet\./);
   assert.match(first.stdout, /NOT CHECKED\s+No decision because required evidence is missing\./);

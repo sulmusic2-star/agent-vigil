@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.24.0 - 2026-09-04
+
+- Add a production-shaped independent release gate that binds fresh challenges, external allow effects, denied effects, exact executable bytes, managed policy bytes, and current-versus-candidate behavior to short-lived signed evidence.
+- Keep six trust roles separate across environment, challenge, observer, route, isolation, and admission signing, with KMS-compatible signing and fail-closed key checks.
+- Put exact repository, commit, environment, and artifact authorization behind the public GitHub App deployment-protection path while retaining the protected job's final byte check.
+- Record route-event and completion times and refuse admission when either falls outside the signed observer or managed-environment window.
+- Retain approved and rejected deployment decisions for bounded webhook replay, including rejections made without a registered authorization.
+- Preserve the frozen benchmark and publish a neutral competitor comparison: Agent Vigil leads paired-synthetic separation while Swarm leads constructive-injection recall and lower presumed-clean advisory coverage. No universal winner is claimed.
+- Keep production deployment, outside adoption, payment, and revenue as separate unproven gates.
+
 ## 0.23.4 - 2026-09-01
 
 - Calibrate suppression and assertion-drop advisories against the frozen corpus, reducing presumed-clean advisory coverage from 57.8% to 44.8% without changing the 220/220 frozen oracle result.
