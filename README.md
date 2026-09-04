@@ -32,9 +32,6 @@ for this version. The matching GitHub package can also be run directly:
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz protect --repo .
 ```
 
-If no test command is found, installation stops without writing setup files.
-Add tests or choose an explicit runner as described below.
-
 The command finds the repository's test setup, runs a disposable red/green
 rehearsal, and writes the setup files. Commit those files and open one setup
 pull request. After it merges, the printed `doctor` command uses the same
@@ -73,8 +70,8 @@ npm view @sulmusic/agent-vigil version
 npm view @sulmusic/agent-vigil@0.24.2 dist.integrity
 ```
 
-All six public workflows for this release pin the reviewed runtime commit
-`8df4ae8c7349c526d18fb1df67e87a5da68a820d`. For the checksum-first download
+The six repository workflows in this source checkout pin runtime commit
+`b0bbbe31935f53ae2635ea8434eb728440b43e05`. For the checksum-first download
 and an explicit non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 ## What it checks
