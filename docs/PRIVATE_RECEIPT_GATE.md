@@ -70,12 +70,12 @@ vigil keygen \
 Prepare the credential-free Action in portable-receipt mode:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz \
   init --portable \
   --public-key ~/.config/agent-vigil/operator.pub \
   --action-sha <reviewed-full-commit>
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz \
   doctor
 ```
 

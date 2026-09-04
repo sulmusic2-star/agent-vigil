@@ -4,7 +4,7 @@
 target repository:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz pr-receipt \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref <reviewed-full-Agent-Vigil-commit> \
   --signing-key operator-private.pem \
@@ -19,7 +19,7 @@ commit.
 
 The static [public PR evidence desk](check.html) runs the same normalized
 unsigned receipt decision in a browser. Its receipt uses a distinct browser
-build version and the reviewed v0.23.2 release commit. It makes direct read-only requests from
+build version and the reviewed v0.24.0 release commit. It makes direct read-only requests from
 the browser to `api.github.com`, calculates response and receipt SHA-256 hashes
 with Web Crypto, and offers the normalized JSON as a local download.
 
@@ -102,7 +102,7 @@ change to the normalized receipt invalidates the content hash and signature.
 Verify a saved receipt locally without network access:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz pr-receipt verify pr-123.receipt.json
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz pr-receipt verify pr-123.receipt.json
 ```
 
 Verification returns `VALID` only when the content hash is valid and, if a

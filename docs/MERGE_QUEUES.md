@@ -24,7 +24,7 @@ reviewed Agent Vigil commit. A candidate workflow can report the same name.
 Requiring `Agent Vigil evidence` by name alone therefore does not establish an
 enforceable Agent Vigil control.
 
-The v0.23.2 `init` and `protect` generators use base-selected
+The v0.24.0 `init` and `protect` generators use base-selected
 `pull_request_target` for pull-request evidence and intentionally omit
 `merge_group`. `vigil doctor` reports a repository-owned merge-group path as a
 failure.

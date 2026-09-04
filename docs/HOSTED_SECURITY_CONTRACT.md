@@ -1,6 +1,6 @@
 # Hosted evidence security contract
 
-**Applies to:** Agent Vigil v0.23.2 `init` and `protect` workflows
+**Applies to:** Agent Vigil v0.24.0 `init` and `protect` workflows
 
 Agent Vigil's generated hosted lane checks one GitHub pull-request head under a
 base-owned policy. It is intentionally narrower than the local CLI.
@@ -11,11 +11,11 @@ base-owned policy. It is intentionally narrower than the local CLI.
 node dist/cli.js protect
 ```
 
-The published v0.23.2 GitHub package includes this contract and remains available
+The published v0.24.0 GitHub package includes this contract and remains available
 at its immutable release asset:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz doctor
 ```
 
 `protect` selects the immutable reviewed public Action commit and writes it into
@@ -53,7 +53,7 @@ Node invocation. A missing, moved, differently versioned, or digest-mismatched
 runtime blocks the Action. Updating Node therefore requires a reviewed workflow
 pin and reviewed binary digests, not a floating `22` selector.
 
-The v0.23.2 runtime bindings were derived from the official Node.js v22.23.2
+The v0.24.0 runtime bindings were derived from the official Node.js v22.23.2
 release archives after each archive matched the release
 [`SHASUMS256.txt`](https://nodejs.org/download/release/v22.23.2/SHASUMS256.txt):
 

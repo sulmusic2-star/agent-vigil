@@ -21,7 +21,7 @@ merge?**
 The normal install is one command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo .
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz protect --repo .
 ```
 
 The command finds the repository's test setup, runs a disposable red/green
@@ -50,16 +50,14 @@ claimed and observed test counts, findings, and reproduction command.
 
 ### Current distribution boundary
 
-v0.24.0 is a source release candidate until GitHub lists both the package and checksum assets.
-It is not a public release yet.
+GitHub release v0.24.0 is public and immutable. The Marketplace listing exposes
+v0.24.0, and all five public workflows pin the reviewed runtime commit
+`7f335abbd5a4d12bed07e7b49896ae3ef86800e5`. The attached package SHA-256 is
+`49fc66f97e4ce1ae530513062430ae9a81dba94c3f722dd91bd3d1009e629151`.
 
-The last verified GitHub package is
-[`sulmusic-agent-vigil-0.23.2.tgz`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz).
-GitHub release v0.23.2 is public and immutable.
-npm currently serves v0.21.1. Do not assume that `latest` points to the same
-code on every channel. v0.24.0 can replace those versions only after npm,
-GitHub Releases, the Marketplace listing, checksums, README, and Action pins
-all identify the same commit.
+npm has staged v0.24.0 with trusted-publishing provenance, but the public
+`latest` tag still serves v0.21.1. Use the immutable GitHub package until npm
+promotion, registry integrity, and a fresh registry install are verified.
 
 The machine-readable channel record is in
 [`docs/public-install-state.json`](docs/public-install-state.json).
@@ -91,7 +89,7 @@ The generated Node/npm path is automatic. Python, Rust, Go, Java, Ruby, PHP,
 test command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```

@@ -1,6 +1,6 @@
 # Attestation boundaries
 
-The Agent Vigil v0.23.2 release keeps signing authority out of
+The Agent Vigil v0.24.0 release keeps signing authority out of
 candidate-executing evidence jobs. A signature can prove the origin and
 integrity of a file. It does not
 prove that candidate code is correct or that a live repository requires the
@@ -23,7 +23,7 @@ node dist/cli.js protect
 If independent candidate-receipt signing is required, place it in a separately
 controlled workflow or service that never checks out or runs candidate code.
 That signer must independently bind the exact receipt digest, base, head,
-policy, repository, and expected evidence source. Agent Vigil v0.23.2 does not
+policy, repository, and expected evidence source. Agent Vigil v0.24.0 does not
 generate that signer.
 
 ## Control Proof signing is separate
@@ -41,10 +41,10 @@ vigil certify install-action \
   --action-ref <reviewed-full-commit>
 ```
 
-Verify one downloaded proof with the currently public v0.23.2 GitHub package:
+Verify one downloaded proof with the currently public v0.24.0 GitHub package:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz \
   verify-control-attestation control-proof.json \
   --repository OWNER/REPOSITORY \
   --signer-workflow OWNER/REPOSITORY/.github/workflows/agent-vigil-control-proof.yml
@@ -63,13 +63,13 @@ change a ruleset, or that the control covers every detector. See
 ## Existing full-receipt attestation commands
 
 The CLI still understands the v1 full-receipt predicate and can verify an
-already signed receipt. Predicate preparation does not sign anything. The public verification command remains pinned to the immutable v0.23.2 GitHub package:
+already signed receipt. Predicate preparation does not sign anything. The public verification command remains pinned to the immutable v0.24.0 GitHub package:
 
 ```bash
 vigil attest agent-vigil-report.json \
   --predicate-output agent-vigil-attestation-predicate.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz \
   verify-attestation agent-vigil-report.json \
   --repository OWNER/REPOSITORY \
   --signer-workflow OWNER/REPOSITORY/.github/workflows/separate-receipt-signer.yml

@@ -1,32 +1,24 @@
 # Install Agent Vigil
 
-## Verified packages today
+## Verified package
 
-GitHub Releases serves v0.23.2 from commit
-`1c5544d84586249c452adda3f8432a9bdac2ca7a`:
+GitHub Releases serves v0.24.0 from exact release commit
+`ef583e6c9cac87941a7f283ef07af46187315912`:
 
 ```bash
 curl -fLO \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz
 printf '%s  %s\n' \
-  '85dd030bc638625ae75181030268e5561dc7483c32e74253bfb17bf76ad2b839' \
-  'sulmusic-agent-vigil-0.23.2.tgz' | shasum -a 256 -c -
-npx --yes ./sulmusic-agent-vigil-0.23.2.tgz protect
+  '49fc66f97e4ce1ae530513062430ae9a81dba94c3f722dd91bd3d1009e629151' \
+  'sulmusic-agent-vigil-0.24.0.tgz' | shasum -a 256 -c -
+npx --yes ./sulmusic-agent-vigil-0.24.0.tgz protect --repo .
 ```
 
-npm serves v0.21.1, which predates the no-SHA `protect` path shown here. Do not
-use that registry version for this setup. The exact public state is recorded in
-[`public-install-state.json`](public-install-state.json).
-
-## v0.24.0 release candidate
-
-v0.24.0 is a source release candidate until GitHub lists both the package and checksum assets.
-Do not install a v0.24.0 URL or npm specifier before that happens. The release
-gate will verify the packed artifact, checksum, commit, README, Action pin,
-GitHub release, Marketplace listing, and npm package before promotion.
-
-After every public channel identifies the same v0.24.0 code, this guide and the
-machine-readable channel record will be promoted together.
+The GitHub Marketplace listing also exposes v0.24.0. npm has staged v0.24.0
+with trusted-publishing provenance, but its public `latest` tag still serves
+v0.21.1. Use the immutable GitHub package until registry promotion, integrity,
+and a clean registry install are separately verified. The exact channel state
+is recorded in [`public-install-state.json`](public-install-state.json).
 
 ## One setup pull request
 
@@ -37,7 +29,7 @@ setup pull request.
 After that setup merges:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz doctor --repo .
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz doctor --repo .
 ```
 
 Then open a normal code pull request. The check says:
@@ -53,7 +45,7 @@ The automatic path recognizes a narrow root Node/npm layout. Other toolchains
 use the immutable common runner and an explicit command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
