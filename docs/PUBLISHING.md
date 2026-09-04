@@ -61,13 +61,13 @@ The root `DISCLOSURE` file and `package.json` declaration must remain present in
 every later package version unless npm Trust & Safety approves their removal.
 
 Verify each release independently. The current public registry identity is
-v0.24.2; do not substitute an unpublished source-candidate version:
+v0.24.3; do not substitute an unpublished source-candidate version:
 
 ```bash
 npm whoami
 npm view @sulmusic/agent-vigil version dist-tags.latest
-npm view @sulmusic/agent-vigil@0.24.2 dist.integrity
-npx --yes --package=@sulmusic/agent-vigil@0.24.2 agent-vigil doctor
+npm view @sulmusic/agent-vigil@0.24.3 dist.integrity
+npx --yes --package=@sulmusic/agent-vigil@0.24.3 agent-vigil doctor
 ```
 
 The canonical npm name is scoped because npm rejected the unscoped
