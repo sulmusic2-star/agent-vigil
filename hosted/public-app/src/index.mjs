@@ -535,6 +535,9 @@ function assertConfiguration(env) {
   if (!REPOSITORY.test(env.CONTROL_REPOSITORY)) throw new Error("CONTROL_REPOSITORY is invalid");
   if (!/^[A-Za-z0-9_.-]+\.ya?ml$/.test(env.CONTROL_WORKFLOW)) throw new Error("CONTROL_WORKFLOW is invalid");
   if (!/^[A-Za-z0-9._/-]+$/.test(env.CONTROL_REF)) throw new Error("CONTROL_REF is invalid");
+  if (!env.DELIVERY_LEDGER?.idFromName || !env.DELIVERY_LEDGER?.get) {
+    throw new Error("missing Worker binding DELIVERY_LEDGER");
+  }
 }
 
 function assertDeploymentConfiguration(env) {
@@ -710,7 +713,17 @@ export class DeploymentAuthorizationLedger {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === "/health") return json(200, { status: "ok", service: "agent-vigil-public-app" });
+    if (url.pathname === "/health") {
+      try {
+        assertConfiguration(env);
+        assertDeploymentConfiguration(env);
+        assertAuthorizationRegistrationConfiguration(env);
+        return json(200, { status: "ready", service: "agent-vigil-public-app" });
+      } catch (error) {
+        console.error(JSON.stringify({ event: "public_app_not_ready", message: String(error) }));
+        return json(503, { status: "not_ready", service: "agent-vigil-public-app" });
+      }
+    }
     if (url.pathname === "/deployment/authorizations" && request.method === "POST") {
       try {
         assertAuthorizationRegistrationConfiguration(env);

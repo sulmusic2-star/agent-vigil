@@ -322,6 +322,7 @@ test("npm package surface excludes internal product and commercial working docum
   ];
   const allowedPublishedWorkflows = [
     ".github/workflows/agent-vigil-merge-group.yml",
+    ".github/workflows/public-app-gate.yml",
   ];
   const allowedPublishedHostedTests = [
     "test-hosted/merge-queue-dispatcher.test.ts",
@@ -468,6 +469,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "cross-corpus-benchmark.yml": ["contents:read"],
     "publish-hermetic-runner.yml": ["contents:read", "packages:write"],
     "publish.yml": [],
+    "public-app-gate.yml": ["contents:read"],
   };
   const expectedEffectiveJobPermissions: Record<string, string[]> = {
     "adoption-census.yml:census": ["contents:read"],
@@ -496,6 +498,9 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     "publish-hermetic-runner.yml:publish": ["contents:read", "packages:write"],
     "publish.yml:publish": ["actions:read", "id-token:write"],
     "publish.yml:verify-and-pack": ["contents:read"],
+    "public-app-gate.yml:authenticate": ["contents:read"],
+    "public-app-gate.yml:evidence": ["contents:read"],
+    "public-app-gate.yml:publish": ["contents:read"],
   };
   const expectedPrivilegedSteps: Record<string, string[]> = {
     "control-proof-weekly.yml:attest-proof": [
@@ -792,7 +797,7 @@ test("reviewed self pin and source-dist identity are a visible release gate", (c
     .filter((reference) => reference.startsWith("sulmusic2-star/agent-vigil@"))
     .map((reference) => reference.slice(reference.indexOf("@") + 1));
 
-  assert.equal(selfReferences.length, 4, "pull-request evidence, merge-queue evidence, outcomes, and weekly proof must each use the reviewed runtime once");
+  assert.equal(selfReferences.length, 5, "pull-request evidence, merge-queue evidence, outcomes, weekly proof, and the public App gate must each use the reviewed runtime once");
   if (selfReferences.every((reference) => reference === REVIEWED_RUNTIME_PLACEHOLDER)) {
     context.todo("replace REVIEWED_40_HEX_AGENT_VIGIL_COMMIT with the frozen reviewed runtime commit before release");
     return;

@@ -172,6 +172,45 @@ test("public App signatures bind the queued check and every exact-change field",
   assert.notEqual(await dispatchSignature(secret, { ...value, headSha: "3".repeat(40) }), signature);
 });
 
+test("public App health is ready only when every protected path is configured", async () => {
+  const originalError = console.error;
+  const healthErrors: any[] = [];
+  console.error = ((line: string) => healthErrors.push(JSON.parse(line))) as typeof console.error;
+  try {
+    const missing = await worker.fetch(new Request("https://app.example/health"), {});
+    assert.equal(missing.status, 503);
+    assert.deepEqual(await missing.json(), { status: "not_ready", service: "agent-vigil-public-app" });
+    assert.equal(healthErrors[0].event, "public_app_not_ready");
+
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const { publicKeyPem, admissionPublicKeyPem } = deploymentAuthorizationFixture();
+    const durableObjectBinding = {
+      idFromName(value: string) { return value; },
+      get() { return { async fetch() { return new Response(null, { status: 204 }); } }; },
+    };
+    const ready = await worker.fetch(new Request("https://app.example/health"), {
+      WEBHOOK_SECRET: secret,
+      DISPATCH_SECRET: `${secret}-dispatch`,
+      GITHUB_APP_ID: "1001",
+      GITHUB_APP_PRIVATE_KEY: pem,
+      CONTROL_APP_ID: "1002",
+      CONTROL_APP_PRIVATE_KEY: pem,
+      CONTROL_INSTALLATION_ID: "1003",
+      CONTROL_REPOSITORY: "sulmusic2-star/agent-vigil",
+      CONTROL_WORKFLOW: "public-app-gate.yml",
+      CONTROL_REF: "main",
+      DEPLOYMENT_PUBLIC_KEY_PEM: publicKeyPem,
+      ADMISSION_PUBLIC_KEY_PEM: admissionPublicKeyPem,
+      REGISTRATION_SECRET: `${secret}-registration`,
+      DELIVERY_LEDGER: durableObjectBinding,
+      DEPLOYMENT_AUTHORIZATIONS: durableObjectBinding,
+    });
+    assert.equal(ready.status, 200);
+    assert.deepEqual(await ready.json(), { status: "ready", service: "agent-vigil-public-app" });
+  } finally { console.error = originalError; }
+});
+
 test("public App verifies the exact raw webhook body before replay storage", async () => {
   const body = new TextEncoder().encode(JSON.stringify(pullPayload()));
   const signature = await webhookSignature(secret, body);
@@ -656,6 +695,12 @@ test("public App manifest and control workflow keep customer setup to one App in
   assert.equal(manifest.default_permissions.contents, "read");
 
   const workflow = readFileSync("hosted/public-app/control-workflow.yml", "utf8");
+  const installedWorkflow = readFileSync(".github/workflows/public-app-gate.yml", "utf8");
+  assert.equal(
+    installedWorkflow,
+    workflow,
+    "the default-branch dispatch target must exactly match the reviewed public App control workflow",
+  );
   assert.match(workflow, /^\s{2}workflow_dispatch:/m);
   const inputBlock = workflow.match(/^\s{4}inputs:\n([\s\S]*?)^\s{0,2}permissions:/m)?.[1] ?? "";
   assert.deepEqual([...inputBlock.matchAll(/^\s{6}([A-Za-z][A-Za-z0-9]*):/gm)].map((match) => match[1]), ["envelope", "dispatchSignature"]);

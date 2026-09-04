@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Install the reviewed public App control workflow on the default branch so the
+  Worker dispatch target exists before activation.
+- Make the hosted App readiness endpoint fail closed until every check,
+  deployment, registration, and Durable Object binding is configured.
+
 ## 0.24.1 - 2026-09-04
 
 - Keep the successful `protect` handoff on the same immutable GitHub release

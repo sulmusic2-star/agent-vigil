@@ -73,6 +73,7 @@
   },
   "files": [
     ".github/workflows/agent-vigil-merge-group.yml",
+    ".github/workflows/public-app-gate.yml",
     "dist",
     "action.yml",
     "github-marker/action.yml",
