@@ -134,7 +134,10 @@ test("unconfirmed process-group termination is a supervisor error", { timeout: 6
   const script = `
     (async () => {
       const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+      const fs = (await import("node:fs")).default;
+      const { syncBuiltinESMExports } = await import("node:module");
       const originalKill = process.kill.bind(process);
+      const originalReaddirSync = fs.readdirSync;
       let killSent = false;
       process.kill = (pid, signal) => {
         if (typeof pid === "number" && pid < 0 && signal === 0 && killSent) return true;
@@ -142,19 +145,32 @@ test("unconfirmed process-group termination is a supervisor error", { timeout: 6
         if (typeof pid === "number" && pid < 0 && signal === "SIGKILL") killSent = true;
         return result;
       };
+      fs.readdirSync = (...args) => {
+        if (args[0] === "/proc" && killSent) {
+          throw Object.assign(new Error("simulated unavailable process-state evidence"), { code: "EACCES" });
+        }
+        return originalReaddirSync(...args);
+      };
+      syncBuiltinESMExports();
       const environment = { ...process.env };
       delete environment.NODE_V8_COVERAGE;
-      const result = await executeProtectedRun({
-        executable: process.execPath,
-        args: ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
-        cwd: process.cwd(),
-        environment,
-        timeLimitMs: 100,
-        terminationGraceMs: 0,
-        trajectoryLimits: {},
-        telemetryGraceMs: 200,
-      });
-      process.stdout.write(JSON.stringify(result));
+      try {
+        const result = await executeProtectedRun({
+          executable: process.execPath,
+          args: ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
+          cwd: process.cwd(),
+          environment,
+          timeLimitMs: 100,
+          terminationGraceMs: 0,
+          trajectoryLimits: {},
+          telemetryGraceMs: 200,
+        });
+        process.stdout.write(JSON.stringify(result));
+      } finally {
+        process.kill = originalKill;
+        fs.readdirSync = originalReaddirSync;
+        syncBuiltinESMExports();
+      }
     })().catch((error) => {
       console.error(error);
       process.exitCode = 1;
