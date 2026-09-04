@@ -70,8 +70,8 @@ npm view @sulmusic/agent-vigil version
 npm view @sulmusic/agent-vigil@0.24.2 dist.integrity
 ```
 
-All six public workflows for this release pin the reviewed runtime commit
-`8df4ae8c7349c526d18fb1df67e87a5da68a820d`. For the checksum-first download
+The six repository workflows in this source checkout pin runtime commit
+`b0bbbe31935f53ae2635ea8434eb728440b43e05`. For the checksum-first download
 and an explicit non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 ## What it checks

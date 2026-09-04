@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Stop protection setup before writing files when no test command is found,
+  rather than reporting readiness with a placeholder that fails the next step.
+- Extend the packed install rehearsal through commit and `doctor`, and require
+  repositories without test commands to be rejected without partial setup.
+
 - Keep packaged install instructions valid before and after publication, with
   exact-version checks and a separate link to live distribution status.
 - Stop the GitHub download sequence if either download or checksum fails.

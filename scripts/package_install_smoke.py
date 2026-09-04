@@ -99,18 +99,24 @@ def anonymous_package_install(tarball: Path, lab: Path, action_sha: str) -> dict
         'npm_config_fund': 'false', 'npm_config_update_notifier': 'false',
     })
 
-    def run(args: list[str]) -> str:
-        result = subprocess.run(args, cwd=consumer, env=env, capture_output=True, text=True, timeout=120)
-        if result.returncode:
+    def run(args: list[str], expected_exit: int = 0, cwd: Path = consumer) -> str:
+        result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
+        if result.returncode != expected_exit:
             raise RuntimeError(f'anonymous install failed ({result.returncode}): {result.stdout}\n{result.stderr}')
-        return result.stdout
+        return result.stdout + result.stderr
 
     try:
         run(['git', 'init', '-q'])
         run(['git', 'config', 'user.name', 'Anonymous Package Trial'])
         run(['git', 'config', 'user.email', 'trial@agent-vigil.invalid'])
         (consumer / 'README.md').write_text('Disposable first-install repository.\n')
-        run(['git', 'add', 'README.md'])
+        (consumer / 'package.json').write_text(json.dumps({'name': 'anonymous-consumer', 'private': True,
+            'scripts': {'test': 'node --test test/basic.test.cjs'}}) + '\n')
+        (consumer / 'test').mkdir()
+        (consumer / 'test/basic.test.cjs').write_text(
+            "const { test } = require('node:test'); const assert = require('node:assert/strict');\n"
+            "test('addition', () => assert.equal(1 + 1, 2));\n")
+        run(['git', 'add', '.'])
         run(['git', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture'])
         observed = run(['npm', 'view', f'@sulmusic/agent-vigil@{version}', 'version']).strip()
         if observed != version:
@@ -122,12 +128,29 @@ def anonymous_package_install(tarball: Path, lab: Path, action_sha: str) -> dict
         workflow = (consumer / '.github/workflows/agent-vigil.yml').read_text()
         if f'sulmusic2-star/agent-vigil@{action_sha}' not in workflow:
             raise RuntimeError('anonymous protect wrote an incorrect Action pin')
+        prefix = ['npx', '--yes', f'--package=@sulmusic/agent-vigil@{version}', 'agent-vigil']
+        run(prefix + ['doctor', '--repo', '.'], expected_exit=2)
+        run(['git', 'add', '.'])
+        run(['git', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'install controls'])
+        doctor = run(prefix + ['doctor', '--repo', '.'])
+        if '0 failure(s)' not in doctor:
+            raise RuntimeError('the committed install did not complete the doctor handoff')
+        missing = lab / 'no-test-command'
+        missing.mkdir()
+        run(['git', 'init', '-q'], cwd=missing)
+        (missing / 'README.md').write_text('No test command is defined.\n')
+        rejected = run(prefix + ['protect', '--repo', str(missing), '--action-sha', action_sha], expected_exit=2)
+        if 'No test command found' not in rejected or 'Setup: READY' in rejected:
+            raise RuntimeError('a repository without a test command was not rejected clearly')
+        if (missing / '.agent-vigil.json').exists() or (missing / '.github').exists():
+            raise RuntimeError('a rejected install left partial setup files')
         if any(auth for _, auth in requests):
             raise RuntimeError('anonymous install sent registry authentication')
         if not any(path == '/package.tgz' for path, _ in requests):
             raise RuntimeError('anonymous npx did not download the actual packed tarball')
         return {'version': version, 'registry': 'loopback fixture, not public publication',
-                'packedDocs': 'PASS', 'protect': 'PASS', 'authenticatedRequests': 0,
+                'packedDocs': 'PASS', 'protect': 'PASS', 'committedDoctor': 'PASS',
+                'missingTestCommand': 'BLOCKED before writing files', 'authenticatedRequests': 0,
                 'tarballSha256': hashlib.sha256(body).hexdigest()}
     finally:
         server.shutdown()
