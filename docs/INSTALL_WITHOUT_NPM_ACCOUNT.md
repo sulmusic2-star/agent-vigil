@@ -1,10 +1,7 @@
 # Install Agent Vigil v0.24.2 without npm
 
-This guide is an immutable snapshot for v0.24.2. It does not claim that v0.24.2
-is still the newest release or that npm currently serves it.
-
-v0.24.2 is a source release candidate until GitHub lists both the package and checksum assets.
-Do not run the candidate commands until both assets exist.
+This guide records the immutable GitHub package for v0.24.2. Check the live
+release page and checksum before installation.
 
 ## Verify the GitHub package
 
@@ -61,19 +58,21 @@ npm view @sulmusic/agent-vigil version
 ```
 
 The current cross-channel record lives on the default branch in
-[`public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json). This packaged guide deliberately does not copy that changing state.
+[`public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
+This default-branch guide records the v0.24.2 verification snapshot below; check
+the machine-readable record before use in case a later release supersedes it.
 
 The verified public GitHub package is
-`https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz`
-from commit `ccf2cae545e910e1ea27eb8b9746302879fd645d`, with SHA-256
-`87f6cef0bc6194ec9785bf359c6d4c7c8e5d9c1a2ac3133d694d3e08956f1ced`.
+`https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz`
+from commit `3dbd10d64563f10cb6a45b5199fbb74ae744fbec`, with SHA-256
+`00267aa8bdd0612e3e9416523c4085d75e5594b8c5d584bf9e4279e2c833fb3b`.
 At the verification time recorded in `public-install-state.json`, npm served
-v0.24.1 with registry integrity
-`sha512-WucBmWgKjYim1GEwNGtvY/LZu5VxxmiKG5BcxT5+ZQ7B8QltTvfhmfMeRz5aRtNzclYnJLgi0Z/FVXmXwvGlBA==`.
-Verify that exact published package without substituting the candidate:
+v0.24.2 with registry integrity
+`sha512-E2BScm2OAaXDtnbqpQV0hnOpUht8lyad/FzS625MOBHGuCKNxCW4FMmRUuxVd/jbSf9fEY/EXVJj5ltBAkVtxg==`.
+Verify that exact published package:
 
 ```bash
-npm view @sulmusic/agent-vigil@0.24.1 dist.integrity
+npm view @sulmusic/agent-vigil@0.24.2 dist.integrity
 ```
 
 ## Enforcement

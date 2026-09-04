@@ -1,26 +1,21 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-09-04T16:15:00Z",
+  "verified_at": "2026-09-04T19:34:00Z",
   "latest_github_release": {
-    "version": "0.24.1",
-    "commit": "ccf2cae545e910e1ea27eb8b9746302879fd645d",
-    "url": "https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.24.1",
-    "asset": "sulmusic-agent-vigil-0.24.1.tgz",
-    "asset_url": "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz",
-    "sha256": "87f6cef0bc6194ec9785bf359c6d4c7c8e5d9c1a2ac3133d694d3e08956f1ced",
+    "version": "0.24.2",
+    "commit": "3dbd10d64563f10cb6a45b5199fbb74ae744fbec",
+    "url": "https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.24.2",
+    "asset": "sulmusic-agent-vigil-0.24.2.tgz",
+    "asset_url": "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz",
+    "sha256": "00267aa8bdd0612e3e9416523c4085d75e5594b8c5d584bf9e4279e2c833fb3b",
     "immutable": true
   },
   "npm_registry": {
     "package": "@sulmusic/agent-vigil",
-    "target_version": "0.24.1",
-    "observed_version": "0.24.1",
-    "observed_integrity": "sha512-WucBmWgKjYim1GEwNGtvY/LZu5VxxmiKG5BcxT5+ZQ7B8QltTvfhmfMeRz5aRtNzclYnJLgi0Z/FVXmXwvGlBA==",
-    "observed_published_at": "2026-09-04T14:05:43.578Z",
+    "target_version": "0.24.2",
+    "observed_version": "0.24.2",
+    "observed_integrity": "sha512-E2BScm2OAaXDtnbqpQV0hnOpUht8lyad/FzS625MOBHGuCKNxCW4FMmRUuxVd/jbSf9fEY/EXVJj5ltBAkVtxg==",
+    "observed_published_at": "2026-09-04T19:31:50.014Z",
     "target_published": true
-  },
-  "source_release_candidate": {
-    "version": "0.24.2",
-    "github_release_published": false,
-    "npm_published": false
   }
 }
