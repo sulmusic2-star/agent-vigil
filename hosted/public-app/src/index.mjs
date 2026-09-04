@@ -172,7 +172,8 @@ function validBranchName(value, maxLength = 255) {
 
 export function parsePullRequestPayload(payload, deliveryId) {
   const baseWasEdited = payload?.action === "edited" && typeof payload?.changes?.base?.ref?.from === "string" && payload.changes.base.ref.from.length > 0;
-  if (!["opened", "reopened", "synchronize", "ready_for_review"].includes(payload?.action) && !baseWasEdited) {
+  const bodyWasEdited = payload?.action === "edited" && Object.prototype.hasOwnProperty.call(payload?.changes ?? {}, "body");
+  if (!["opened", "reopened", "synchronize", "ready_for_review"].includes(payload?.action) && !baseWasEdited && !bodyWasEdited) {
     throw new Error("pull_request action is not a verification trigger");
   }
   const common = commonIdentity(payload, deliveryId);

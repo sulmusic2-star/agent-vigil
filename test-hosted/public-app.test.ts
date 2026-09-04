@@ -137,11 +137,15 @@ test("public App binds pull-request and merge-queue identities without a reposit
   assert.throws(() => parseMergeGroupPayload({ ...queuePayload(), merge_group: { ...queuePayload().merge_group, head_ref: "refs/heads/main" } }, deliveryId), /head ref/);
 });
 
-test("public App reruns when the pull-request base changes and accepts valid punctuation in branch names", () => {
+test("public App reruns when pull-request evidence changes and accepts valid punctuation in branch names", () => {
   const editedBase = pullPayload("edited");
   editedBase.changes = { base: { ref: { from: "main" } } };
   editedBase.pull_request.base.ref = "release@v2+candidate";
   assert.equal(parsePullRequestPayload(editedBase, deliveryId).baseRef, "release@v2+candidate");
+
+  const editedBody = pullPayload("edited");
+  editedBody.changes = { body: { from: "old evidence" } };
+  assert.equal(parsePullRequestPayload(editedBody, deliveryId).event, "pull_request");
 
   const editedTitle = pullPayload("edited");
   editedTitle.changes = { title: { from: "old title" } };
@@ -813,6 +817,10 @@ test("public App manifest and control workflow keep customer setup to one App in
   assert.match(workflow, /\/pulls\/\$\{e\.PR_NUMBER\}/);
   assert.match(workflow, /live pull-request evidence does not match the signed exact-change envelope/);
   assert.match(workflow, /pull_request:\s*\{[\s\S]*body: pull\.body \?\? ""/);
+  assert.match(workflow, /pr-body-sha256: \$\{\{ steps\.change-event\.outputs\.pr_body_sha256 \}\}/);
+  assert.match(workflow, /EXPECTED_PR_BODY_SHA256: \$\{\{ needs\.evidence\.outputs\.pr-body-sha256 \}\}/);
+  assert.match(workflow, /createHash\("sha256"\)\.update\(body, "utf8"\)\.digest\("hex"\) === e\.EXPECTED_PR_BODY_SHA256/);
+  assert.match(workflow, /current && e\.VIGIL_STATUS === "FAIL" \? "FAIL" : "NOT CHECKED"/);
   assert.doesNotMatch(workflow, /path: candidate|uses: \.\/control/);
   assert.match(workflow, /candidate-setup-cmd: npm ci --ignore-scripts/);
   assert.match(workflow, /PASS.*FAIL.*NOT CHECKED/s);

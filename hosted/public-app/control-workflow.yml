@@ -98,6 +98,7 @@ jobs:
     outputs:
       vigil-status: ${{ steps.vigil.outputs.status }}
       receipt-hash: ${{ steps.vigil.outputs['receipt-hash'] }}
+      pr-body-sha256: ${{ steps.change-event.outputs.pr_body_sha256 }}
     steps:
       - id: checkout-token
         name: Mint a short-lived checkout token
@@ -124,6 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
           import { appendFileSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
           import { join } from "node:path";
           const e = process.env;
@@ -142,6 +144,7 @@ jobs:
           const stat = lstatSync(root);
           if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("runner temporary directory is not a real directory");
           const path = join(root, `agent-vigil-public-app-${e.DELIVERY_ID}.json`);
+          let prBodySha256 = "";
           let event;
           if (e.EVENT_KIND === "pull_request") {
             const pull = await request(`/repos/${e.TARGET_REPOSITORY}/pulls/${e.PR_NUMBER}`);
@@ -164,6 +167,7 @@ jobs:
                 head: { sha: pull.head.sha, ref: pull.head.ref },
               },
             };
+            prBodySha256 = createHash("sha256").update(pull.body ?? "", "utf8").digest("hex");
           } else {
             const baseRef = e.BASE_REF.startsWith("refs/") ? e.BASE_REF : `refs/heads/${e.BASE_REF}`;
             event = {
@@ -174,7 +178,7 @@ jobs:
             };
           }
           writeFileSync(path, `${JSON.stringify(event)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
-          appendFileSync(e.GITHUB_OUTPUT, `path=${path}\n`);
+          appendFileSync(e.GITHUB_OUTPUT, `path=${path}\npr_body_sha256=${prBodySha256}\n`);
           NODE
       - name: Select the exact trusted host Node.js runtime
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -260,9 +264,11 @@ jobs:
           EVIDENCE_RESULT: ${{ needs.evidence.result }}
           VIGIL_STATUS: ${{ needs.evidence.outputs.vigil-status }}
           RECEIPT_HASH: ${{ needs.evidence.outputs.receipt-hash }}
+          EXPECTED_PR_BODY_SHA256: ${{ needs.evidence.outputs.pr-body-sha256 }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
           const e = process.env;
           async function request(path, options = {}) {
             const response = await fetch(`${e.GITHUB_API_URL}${path}`, {
@@ -276,7 +282,11 @@ jobs:
           let current = false;
           if (e.EVENT_KIND === "pull_request") {
             const pull = await request(`/repos/${e.TARGET_REPOSITORY}/pulls/${e.PR_NUMBER}`);
-            current = pull?.state === "open" && pull?.base?.sha === e.BASE_SHA && pull?.head?.sha === e.HEAD_SHA;
+            const body = pull?.body ?? "";
+            const bodyCurrent = /^[0-9a-f]{64}$/.test(e.EXPECTED_PR_BODY_SHA256 ?? "")
+              && typeof body === "string"
+              && createHash("sha256").update(body, "utf8").digest("hex") === e.EXPECTED_PR_BODY_SHA256;
+            current = pull?.state === "open" && pull?.base?.sha === e.BASE_SHA && pull?.head?.sha === e.HEAD_SHA && bodyCurrent;
           } else {
             try {
               const ref = e.HEAD_REF.replace(/^refs\//, "");
@@ -287,7 +297,7 @@ jobs:
           const receiptValid = /^sha256:[0-9a-f]{64}$/.test(e.RECEIPT_HASH ?? "");
           const status = current && e.EVIDENCE_RESULT === "success" && e.VIGIL_STATUS === "PASS" && receiptValid
             ? "PASS"
-            : e.VIGIL_STATUS === "FAIL" ? "FAIL" : "NOT CHECKED";
+            : current && e.VIGIL_STATUS === "FAIL" ? "FAIL" : "NOT CHECKED";
           const conclusion = status === "PASS" ? "success" : "failure";
           const summary = status === "PASS"
             ? "Independent verification passed for the exact current commit."
