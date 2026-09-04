@@ -44,13 +44,22 @@ function writeCodexTranscript(path: string, command: string, output: string, fin
 }
 
 function runQuiet(args: string[]): number {
+  return runCaptured(args).code;
+}
+
+function runCaptured(args: string[]): { code: number; stdout: string; stderr: string } {
   const originalLog = console.log;
   const originalError = console.error;
   const originalWrite = process.stdout.write;
-  console.log = () => {};
-  console.error = () => {};
-  (process.stdout.write as typeof process.stdout.write) = (() => true) as typeof process.stdout.write;
-  try { return run(args); }
+  let stdout = "";
+  let stderr = "";
+  console.log = (...items: unknown[]) => { stdout += `${items.join(" ")}\n`; };
+  console.error = (...items: unknown[]) => { stderr += `${items.join(" ")}\n`; };
+  (process.stdout.write as typeof process.stdout.write) = ((chunk: string | Uint8Array) => {
+    stdout += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+    return true;
+  }) as typeof process.stdout.write;
+  try { return { code: run(args), stdout, stderr }; }
   finally {
     console.log = originalLog;
     console.error = originalError;
@@ -122,6 +131,41 @@ test("watch passes an honest final summary with a fresh test command", () => {
   const receipt = JSON.parse(readFileSync(output, "utf8"));
   assert.equal(receipt.summary.status, "PASS");
   assert.ok(receipt.results.some((item: any) => item.ruleId === "tests-pass" && item.verdict === "verified"));
+});
+
+test("watch renders alternate formats and refuses ambiguous inputs", () => {
+  const fixture = repo();
+  const transcript = writeCodexTranscript(
+    fixture.path,
+    "node --test test.js",
+    "# tests 1\n# pass 1\n# fail 0\n",
+    "The test suite passes.",
+  );
+  const receiptDir = mkdtempSync(join(tmpdir(), "vigil-watch-output-"));
+  const receiptPath = join(receiptDir, "markdown-receipt.json");
+  const sarifPath = join(receiptDir, "watch.sarif");
+  const markdown = runCaptured(["watch", transcript, "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--test-cmd", "node --test test.js", "--format", "markdown", "--output", receiptPath, "--sarif", sarifPath]);
+  assert.equal(markdown.code, 0);
+  assert.match(markdown.stdout, /### Agent Vigil: PASS/);
+  assert.equal(JSON.parse(readFileSync(receiptPath, "utf8")).summary.status, "PASS");
+  assert.equal(JSON.parse(readFileSync(sarifPath, "utf8")).runs[0].properties.status, "PASS");
+
+  const json = runCaptured(["watch", transcript, "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--test-cmd", "node --test test.js", "--json"]);
+  assert.equal(json.code, 0);
+  assert.equal(JSON.parse(json.stdout).summary.status, "PASS");
+  assert.match(runCaptured(["watch", "--help"]).stdout, /Overnight Receipt/);
+  assert.equal(runQuiet(["watch"]), 2);
+  assert.equal(runQuiet(["watch", transcript, "--repo", fixture.path, "--repo", fixture.path]), 2);
+  assert.equal(runQuiet(["watch", transcript, "--repo", fixture.path, "--format", "xml"]), 2);
+  assert.equal(runQuiet(["watch", transcript, "--repo", fixture.path, "--output", transcript]), 2);
+  assert.equal(runQuiet(["watch", transcript, "--repo", fixture.path, "--base", "bad", "--head", fixture.head]), 2);
+  assert.equal(runQuiet(["watch", transcript, "--repo", join(fixture.path, "missing"), "--base", fixture.base, "--head", fixture.head]), 2);
+
+  const emptyFinal = join(fixture.path, "empty-final.jsonl");
+  writeFileSync(emptyFinal, `${JSON.stringify({ type: "session_meta", payload: { id: "empty", model: "fixture" } })}\n`);
+  const emptyReceipt = join(receiptDir, "empty-final-receipt.json");
+  assert.equal(runQuiet(["watch", emptyFinal, "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--output", emptyReceipt]), 2);
+  assert.ok(JSON.parse(readFileSync(emptyReceipt, "utf8")).results.some((item: any) => item.ruleId === "stop-event-present"));
 });
 
 test("watch requires successful external-operation proof and ignores negated release statements", () => {
@@ -261,6 +305,26 @@ test("counterweight install writes the required check workflow and ruleset manif
   assert.equal(ruleset.rules.some((rule: any) => rule.type === "required_status_checks"), true);
 });
 
+test("counterweight validates authority inputs and preserves reviewed files unless forced", () => {
+  const fixture = repo();
+  assert.match(runCaptured(["counterweight", "--help"]).stdout, /Counterweight/);
+  assert.equal(runQuiet(["counterweight"]), 2);
+  assert.equal(runQuiet(["counterweight", "apply"]), 2);
+  assert.equal(runQuiet(["counterweight", "install", "--repo", fixture.path, "--owner-repo", "bad", "--action-sha", ACTION_SHA]), 2);
+  assert.equal(runQuiet(["counterweight", "install", "--repo", fixture.path, "--owner-repo", "example/project", "--action-sha", "abc"]), 2);
+  assert.equal(runQuiet(["counterweight", "install", "--repo", fixture.path, "--owner-repo", "example/project", "--action-sha", ACTION_SHA, "--check-name", "bad\nname"]), 2);
+  assert.equal(runQuiet(["counterweight", "install", "--repo", join(fixture.path, "missing"), "--owner-repo", "example/project", "--action-sha", ACTION_SHA]), 2);
+
+  git(fixture.path, ["remote", "add", "origin", "https://github.com/example/project.git"]);
+  assert.equal(runQuiet(["counterweight", "install", "--repo", fixture.path, "--action-sha", ACTION_SHA, "--check-name", "Agent Vigil Counterweight"]), 0);
+  const workflow = join(fixture.path, ".github/workflows/agent-vigil-counterweight.yml");
+  const first = readFileSync(workflow, "utf8");
+  assert.equal(runQuiet(["counterweight", "install", "--repo", fixture.path, "--action-sha", "1111111111111111111111111111111111111111", "--check-name", "Renamed Check"]), 0);
+  assert.equal(readFileSync(workflow, "utf8"), first);
+  assert.equal(runQuiet(["counterweight", "install", "--repo", fixture.path, "--action-sha", "1111111111111111111111111111111111111111", "--check-name", "Renamed Check", "--force"]), 0);
+  assert.match(readFileSync(workflow, "utf8"), /name: Renamed Check/);
+});
+
 test("blast-radius compares declared scope to actual effects", () => {
   const fixture = repo();
   const intent = join(fixture.path, "intent.json");
@@ -272,6 +336,39 @@ test("blast-radius compares declared scope to actual effects", () => {
   assert.equal(receipt.actualEffect.changedPaths.includes("src.js"), true);
 });
 
+test("blast-radius separates missing scope, out-of-scope edits, destructive tokens, and bad intent", () => {
+  const fixture = repo();
+  const noIntent = join(fixture.path, "blast-no-intent.json");
+  assert.equal(runQuiet(["blast-radius", "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--output", noIntent]), 1);
+  const noIntentReceipt = JSON.parse(readFileSync(noIntent, "utf8"));
+  assert.equal(noIntentReceipt.status, "BLOCK");
+  assert.ok(noIntentReceipt.checks.some((check: any) => check.id === "pre-action-scope-attestation" && check.status === "HOLD"));
+
+  const globIntent = join(fixture.path, "glob-intent.json");
+  const globOutput = join(fixture.path, "glob-blast.md");
+  writeFileSync(globIntent, JSON.stringify({ declaredScope: { paths: ["*.js"], services: ["agent-vigil"], environment: "test" } }));
+  assert.equal(runQuiet(["blast-radius", "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--intent", globIntent, "--format", "markdown", "--output", globOutput]), 0);
+  assert.match(readFileSync(globOutput, "utf8"), /Status: \*\*PASS\*\*/);
+
+  writeFileSync(join(fixture.path, "ops.sh"), "rm -rf /tmp/agent-vigil-fixture\n");
+  git(fixture.path, ["add", "ops.sh"]);
+  git(fixture.path, ["commit", "-qm", "destructive"]);
+  const destructiveHead = git(fixture.path, ["rev-parse", "HEAD"]);
+  const destructiveIntent = join(fixture.path, "destructive-intent.json");
+  const destructiveOutput = join(fixture.path, "destructive-blast.json");
+  writeFileSync(destructiveIntent, JSON.stringify({ declaredScope: { paths: ["src.js", "ops.sh"] } }));
+  assert.equal(runQuiet(["blast-radius", "--repo", fixture.path, "--base", fixture.base, "--head", destructiveHead, "--intent", destructiveIntent, "--json", "--output", destructiveOutput]), 2);
+  assert.ok(JSON.parse(readFileSync(destructiveOutput, "utf8")).checks.some((check: any) => check.id === "destructive-effect-scan" && check.status === "HOLD"));
+
+  const badIntent = join(fixture.path, "bad-intent.json");
+  writeFileSync(badIntent, "[]");
+  assert.equal(runQuiet(["blast-radius", "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--intent", badIntent]), 2);
+  writeFileSync(badIntent, JSON.stringify({ declaredScope: { paths: [""] } }));
+  assert.equal(runQuiet(["blast-radius", "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--intent", badIntent]), 2);
+  assert.equal(runQuiet(["blast-radius", "extra", "--repo", fixture.path]), 2);
+  assert.match(runCaptured(["blast-radius", "--help"]).stdout, /Blast-Radius/);
+});
+
 test("taxonomy command emits stable VIGIL identifiers", () => {
   const root = mkdtempSync(join(tmpdir(), "vigil-taxonomy-"));
   const output = join(root, "taxonomy.json");
@@ -279,6 +376,48 @@ test("taxonomy command emits stable VIGIL identifiers", () => {
   const taxonomy = JSON.parse(readFileSync(output, "utf8"));
   assert.equal(taxonomy.entries[0].id, "VIGIL-001");
   assert.ok(taxonomy.entries.some((entry: any) => entry.id === "VIGIL-002" && entry.catches.includes("denominator-shrink-4966")));
+  const markdown = join(root, "taxonomy.md");
+  assert.equal(runQuiet(["taxonomy", "--output", markdown]), 0);
+  assert.match(readFileSync(markdown, "utf8"), /## VIGIL-004 verifier-bypass/);
+  assert.equal(runQuiet(["taxonomy", "--format", "xml"]), 2);
+  assert.equal(runQuiet(["taxonomy", "extra"]), 2);
+});
+
+test("vault and corpus exports validate receipts, packs, and privacy labels", () => {
+  const fixture = repo();
+  const transcript = writeCodexTranscript(
+    fixture.path,
+    "node --test test.js",
+    "# tests 1\n# pass 1\n# fail 0\n",
+    "The test suite passes.",
+  );
+  const receiptPath = join(fixture.path, "pass-receipt.json");
+  assert.equal(runQuiet(["watch", transcript, "--repo", fixture.path, "--base", fixture.base, "--head", fixture.head, "--test-cmd", "node --test test.js", "--output", receiptPath, "--format", "json"]), 0);
+
+  const exportJson = join(fixture.path, "all-pack.json");
+  assert.equal(runQuiet(["vault", "export", receiptPath, "--pack", "all", "--json", "--output", exportJson]), 0);
+  const pack = JSON.parse(readFileSync(exportJson, "utf8"));
+  assert.equal(pack.receipt.status, "PASS");
+  assert.ok(pack.mappings.some((item: any) => item.control === "FINRA 3110 full chain"));
+
+  const exportMarkdown = join(fixture.path, "insurer-pack.md");
+  assert.equal(runQuiet(["vault", "export", receiptPath, "--pack", "insurer", "--format", "markdown", "--output", exportMarkdown]), 0);
+  assert.match(readFileSync(exportMarkdown, "utf8"), /represented-process pack/);
+  assert.equal(runQuiet(["vault", "export", receiptPath, "--pack", "unknown"]), 2);
+  assert.equal(runQuiet(["vault"]), 2);
+  assert.equal(runQuiet(["vault", "export"]), 2);
+  assert.match(runCaptured(["vault", "--help"]).stdout, /Evidence Vault/);
+
+  const corpus = join(fixture.path, "corpus.json");
+  assert.equal(runQuiet(["corpus", "signature", receiptPath, "--model", "fixture", "--harness", "node-test", "--format", "json", "--output", corpus]), 0);
+  const signature = JSON.parse(readFileSync(corpus, "utf8"));
+  assert.equal(signature.privacy.repositoryIncluded, false);
+  assert.equal(signature.ruleIds.length, 0);
+  assert.equal(runQuiet(["corpus"]), 2);
+  assert.equal(runQuiet(["corpus", "signature", receiptPath, "--model", "fixture"]), 2);
+  assert.equal(runQuiet(["corpus", "signature", receiptPath, "--model", "bad\nmodel", "--harness", "node-test"]), 2);
+  assert.equal(runQuiet(["corpus", "signature", receiptPath, "--model", "fixture", "--harness", "node-test", "--format", "markdown"]), 2);
+  assert.match(runCaptured(["corpus", "--help"]).stdout, /cheat-signature/);
 });
 
 test("static integrity catches workflow edits and xfail markers", () => {
