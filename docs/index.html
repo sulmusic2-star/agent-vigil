@@ -132,7 +132,7 @@
             <a class="button secondary" href="#install">Install the gate</a>
           </div>
           <p class="fine"><strong>Hosted installer:</strong> direct <code>node --test</code> inference for root Node/npm repositories, or an explicit digest-pinned runner and test command for other toolchains. Local transcript adapters support Codex, Claude Code, Copilot, Cursor, Gemini CLI, Aider, and OpenCode.</p>
-          <p class="fine"><strong>Current distribution:</strong> GitHub release and versioned Action v0.23.2 are public; the Marketplace listing exposes v0.23.2. npm remains v0.21.1. Use the immutable GitHub package until npm reaches release parity.</p>
+          <p class="fine"><strong>Current distribution:</strong> GitHub release, versioned Action, and Marketplace listing v0.24.1 are public. npm has staged v0.24.1 but still serves v0.21.1 publicly. Use the immutable GitHub package until registry promotion is verified.</p>
         </div>
         <div class="terminal" aria-label="Example failed receipt">
           <header>agent-vigil-report.json / exact base ↔ head</header>
@@ -168,12 +168,12 @@
         <p class="section-lead">Use the browser evidence desk or the read-only command to observe public GitHub metadata. Neither path fetches source files, adds an app, changes the repository, or authorizes deployment.</p>
         <div class="terminal" aria-label="Public pull-request receipt commands">
           <header>public PR receipt / no repository write</header>
-          <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz pr-receipt \
+          <pre>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz pr-receipt \
   https://github.com/OWNER/REPOSITORY/pull/123 \
   --tool-ref FULL_AGENT_VIGIL_COMMIT \
   --output pr-123.receipt.json
 
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz pr-receipt verify pr-123.receipt.json</pre>
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz pr-receipt verify pr-123.receipt.json</pre>
         </div>
         <div class="actions">
           <a class="button" href="check.html">Open the browser checker</a>
@@ -269,7 +269,7 @@ npm run demo:60s</pre>
       <section id="attestation">
         <p class="eyebrow">Separate signing authority</p>
         <h2>Do not sign in the candidate job.</h2>
-        <p class="section-lead">Candidate receipt attestation is disabled in v0.23.2. The separately scheduled Control Proof workflow can ask GitHub to sign planted non-candidate challenges. It does not check out or execute pull-request code.</p>
+        <p class="section-lead">Candidate receipt attestation is disabled in v0.24.1. The separately scheduled Control Proof workflow can ask GitHub to sign planted non-candidate challenges. It does not check out or execute pull-request code.</p>
         <div class="status" aria-label="Attested receipt checks">
           <div><b>Exact file</b>The Control Proof signature covers the SHA-256 digest of the whole proof file.</div>
           <div><b>Exact runtime</b>The proof binds the reviewed Agent Vigil source commit and signer workflow.</div>
@@ -310,11 +310,12 @@ npm run demo:60s</pre>
       </section>
 
       <section id="install" class="install">
-        <div><p class="eyebrow">Install</p><h2>Add the exact-pin pull-request gate.</h2><p class="section-lead">The protection profile works without an agent transcript. It writes the base-selected evidence workflow, calibrated Test Integrity Guard policy, receipt retention, and completed-run outcome workflow for review before commit.</p></div>
+        <div><p class="eyebrow">Controlled trial</p><h2>Add the exact-pin pull-request gate.</h2><p class="section-lead">The protection profile works without an agent transcript. It writes the base-selected evidence workflow, calibrated Test Integrity Guard policy, receipt retention, and completed-run outcome workflow for review before commit.</p></div>
         <div>
-          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo .</code>
-          <p>Root Node/npm repositories can use inferred direct <code>node --test</code>. Other toolchains use <code>--runner common</code> or an organization-owned <code>--runner-image</code> plus an explicit <code>--test-cmd</code>. Review and commit the four prepared control files, then run <code>npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz doctor --repo .</code>. A passing doctor result verifies the installed files; it does not make the check required in GitHub.</p>
-          <p>GitHub Action: <code>sulmusic2-star/agent-vigil@f10e5363510b7781bd35e7970bc7f88d4eb073e4</code>.</p>
+          <code class="command">npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo .</code>
+          <p><strong>v0.24.1 is ready for controlled trials.</strong> Its successful <code>protect</code> run prints a <code>doctor</code> command using the same immutable GitHub package, so the handoff does not depend on npm. Review and commit the four prepared control files, merge the setup pull request, then run the printed command.</p>
+          <p>Root Node/npm repositories can use inferred direct <code>node --test</code>. Other toolchains use <code>--runner common</code> or an organization-owned <code>--runner-image</code> plus an explicit <code>--test-cmd</code>. A passing doctor result verifies the installed files; it does not make the check required in GitHub.</p>
+          <p>GitHub Action: <code>sulmusic2-star/agent-vigil@0d1f1c9f95f32a55c1a83772feab1944b0fcbd9e</code>.</p>
           <p class="fine">A required job name does not bind GitHub to the expected workflow or event. Use an external required-workflow ruleset or App exact-head check for enforcement and merge queues.</p>
           <p class="fine">Generated hosted execution requires either an inferred direct <code>node --test</code> command or a base-owned digest-pinned image and explicit bounded test command. Missing setup or project dependencies fail closed. Local CLI commands use host privileges and are not sandboxed.</p>
           <div class="actions">

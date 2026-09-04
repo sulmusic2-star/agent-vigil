@@ -216,6 +216,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/PUBLISHING.md",
     "docs/RESEARCH.md",
     "docs/research",
+    "docs/index.html",
   ];
   for (const internalPath of internalPaths) {
     assert.ok(
@@ -228,6 +229,8 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/60_SECOND_DEMO.md",
     "docs/ADOPTION_EVIDENCE.md",
     "docs/AGENT_VALUE_CARD.md",
+    "docs/AGENT_CONTROL_ADMISSION.md",
+    "docs/AGENT_CONTROL_RELEASE_GATE_RUNBOOK.md",
     "docs/AI_CHANGE_EPISODE_V1.md",
     "docs/AI_CHANGE_RECEIPT.md",
     "docs/assets/outcome-verifier-demo.html",
@@ -289,8 +292,19 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/control-status-v1.schema.json",
     "docs/continuity-staple-v1.schema.json",
     "docs/guard-compatibility-v1.schema.json",
-    "docs/index.html",
+    "docs/guard-environment-binding-v1.schema.json",
+    "docs/guard-environment-v1.schema.json",
+    "docs/guard-policy-files-v1.schema.json",
+    "docs/guard-route-envelope-v1.schema.json",
+    "docs/guard-route-diff-v1.schema.json",
+    "docs/guard-control-challenge-v1.schema.json",
+    "docs/guard-control-observation-v1.schema.json",
+    "docs/guard-control-isolation-v1.schema.json",
+    "docs/guard-control-admission-v1.schema.json",
+    "docs/guard-deployment-authorization-v1.schema.json",
+    "docs/guard-deployment-registration-v1.schema.json",
     "docs/live-host-route-v1.schema.json",
+    "docs/live-host-route-v2.schema.json",
     "docs/notary-app-manifest.example.json",
     "docs/policy.schema.json",
     "docs/portable-receipt-v1.schema.json",
@@ -510,7 +524,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "2acef201696cc650739c6ab2dce1bb89f2d3f2617922ffbda2a79adaf8dbda0b",
+    "control-proof-weekly.yml": "a4124d50c7fff0933ab523b4cc493ccea710b8f19c68c746599d4b267e139968",
     "publish.yml": "94658e1c855256cdc26b8964fce044c1f89cbfbc8612bd75e60eda4b7112cc71",
   };
 
@@ -772,6 +786,17 @@ test("README keeps first use simple and delegates the low-level Action contract"
   assert.match(readme, /hosted security contract/);
   assert.doesNotMatch(readme, /## GitHub Action/);
   assert.doesNotMatch(readme, /actions\/setup-node@|package-manager-cache:/);
+});
+
+test("the concise README points to the exact hosted-runtime security contract", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const contract = readFileSync(new URL("../docs/HOSTED_SECURITY_CONTRACT.md", import.meta.url), "utf8");
+  assert.match(readme, /\[hosted security contract\]\(docs\/HOSTED_SECURITY_CONTRACT\.md\)/);
+  assert.match(contract, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020|commit-pinned `setup-node` Action/);
+  assert.match(contract, /Node\.js `22\.23\.2`/);
+  assert.match(contract, /package-manager-cache:\s*false|no ambient or system Node fallback/);
+  assert.match(contract, /fresh GitHub-hosted job with no prior untrusted step/);
+  assert.match(contract, /must not execute repository code, package lifecycle scripts, or another\s+untrusted process before Agent Vigil/);
 });
 
 test("reviewed self pin and source-dist identity are a visible release gate", (context) => {

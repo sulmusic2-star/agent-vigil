@@ -18,15 +18,18 @@ merge?**
 
 ## Add it to a repository
 
-The normal install is one command:
+The v0.24.1 package and checksum are public on GitHub. Setup and the
+follow-up check use that same immutable release, so the first run does not
+depend on npm publication.
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo .
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo .
 ```
 
 The command finds the repository's test setup, runs a disposable red/green
 rehearsal, and writes the setup files. Commit those files and open one setup
-pull request. After that setup merges, open a normal code pull request and read
+pull request. After it merges, the printed `doctor` command uses the same
+v0.24.1 GitHub package. Then open a normal code pull request and read
 one result:
 
 - **PASS** — ready to merge under the repository's current policy.
@@ -48,24 +51,21 @@ Reproduce: vigil verify --base <base-sha> --head <head-sha>
 The full receipt keeps the exact SHAs, policy hash, changed files, commands,
 claimed and observed test counts, findings, and reproduction command.
 
-### Current distribution boundary
+### Verify the distribution channel
 
-v0.23.4 is a source release candidate until GitHub lists both the package and checksum assets.
-It is not a public release yet.
+This packaged README describes v0.24.1; it is not a claim that v0.24.1 remains
+the newest release. The live, machine-readable channel record is
+[`docs/public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
 
-The last verified GitHub package is
-[`sulmusic-agent-vigil-0.23.2.tgz`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz).
-GitHub release v0.23.2 is public and immutable.
-npm currently serves v0.21.1. Do not assume that `latest` points to the same
-code on every channel. v0.23.4 can replace those versions only after npm,
-GitHub Releases, the Marketplace listing, checksums, README, and Action pins
-all identify the same commit.
+Do not substitute an npm install until this query returns `0.24.1`:
 
-The machine-readable channel record is in
-[`docs/public-install-state.json`](docs/public-install-state.json).
+```bash
+npm view @sulmusic/agent-vigil version
+```
 
-For a no-account GitHub package install, checksum verification, or an explicit
-non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
+All five public workflows for this release pin the reviewed runtime commit
+`0d1f1c9f95f32a55c1a83772feab1944b0fcbd9e`. For the checksum-first download
+and an explicit non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 ## What it checks
 
@@ -91,7 +91,7 @@ The generated Node/npm path is automatic. Python, Rust, Go, Java, Ruby, PHP,
 test command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.23.2/sulmusic-agent-vigil-0.23.2.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```

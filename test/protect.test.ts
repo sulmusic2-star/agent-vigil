@@ -73,7 +73,7 @@ test("protect needs no SHA and reports one truthful prepared state", () => {
   assert.match(output, /real regression test failed on old code and passed on proposed code/);
   assert.match(output, /planted weak test passed on both versions; merge proof blocked/);
   assert.match(output, /Next: commit the generated files and open one setup pull request\./);
-  assert.match(output, /npx --yes @sulmusic\/agent-vigil@0\.23\.4 doctor --repo \./);
+  assert.match(output, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.24\.1\/sulmusic-agent-vigil-0\.24\.1\.tgz doctor --repo \./);
   assert.match(output, /PASS, FAIL, or NOT CHECKED/);
   assert.match(output, /protected merge requirement still needs the Agent Vigil App/);
   assert.doesNotMatch(output, /Optional workflow badge|Register an outside trial|adopter-feedback/);

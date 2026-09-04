@@ -170,7 +170,7 @@ jobs:
           fi
       - id: vigil
         name: Run the independent exact-commit gate
-        uses: sulmusic2-star/agent-vigil@f9361c74f1cf3a83027ee65c3db79316353d9917 # reviewed workflow-dispatch runtime bytes
+        uses: sulmusic2-star/agent-vigil@0d1f1c9f95f32a55c1a83772feab1944b0fcbd9e # reviewed workflow-dispatch runtime bytes
         with:
           mode: merge-group
           merge-group-event: ${{ steps.change-event.outputs.path }}

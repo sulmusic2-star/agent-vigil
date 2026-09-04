@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/guard-deployment-authorization-v1.schema.json",
+  "title": "Agent Vigil deployment authorization v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "issuedAt", "validUntil", "repository", "commitSha", "environment", "admissionHash", "artifact", "managedEnvironmentSha256", "trust", "authorizationHash"],
+  "properties": {
+    "schemaVersion": { "const": "agent-vigil-deployment-authorization/v1" },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "validUntil": { "type": "string", "format": "date-time" },
+    "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "maxLength": 201 },
+    "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "environment": { "type": "string", "pattern": "^[A-Za-z0-9_. /:@+\\-]+$", "maxLength": 255 },
+    "admissionHash": { "$ref": "#/$defs/digest" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "version", "executableSha256"],
+      "properties": {
+        "host": { "enum": ["claude", "codex"] },
+        "version": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "executableSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "managedEnvironmentSha256": { "$ref": "#/$defs/digest" },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["admissionSignerKeyId", "deploymentSignerKeyId"],
+      "properties": {
+        "admissionSignerKeyId": { "$ref": "#/$defs/digest" },
+        "deploymentSignerKeyId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "authorizationHash": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}
