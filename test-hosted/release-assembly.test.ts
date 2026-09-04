@@ -55,5 +55,6 @@ test("release assembly binds six public Action pins and rebuilds every dist file
   assert.match(source, /test\/outcome\.test\.ts/);
   assert.match(source, /test\/package-surface\.test\.ts/);
   assert.match(source, /test\/protect\.test\.ts/);
+  assert.match(source, /docs\/check\.html/);
   assert.match(source, /docs\/check\.js/);
 });
