@@ -18,12 +18,9 @@ merge?**
 
 ## Add it to a repository
 
-This release keeps setup and the follow-up check on one immutable package.
-v0.24.1 is a source release candidate until GitHub lists both the package and checksum assets.
-Until then, the recorded public GitHub package remains
-[`v0.24.0`](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz),
-whose onboarding limitation is documented on its release page. Do not run the
-v0.24.1 command below before its package and checksum are both present.
+The v0.24.1 package and checksum are public on GitHub. Setup and the
+follow-up check use that same immutable release, so the first run does not
+depend on npm publication.
 
 ```bash
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.1/sulmusic-agent-vigil-0.24.1.tgz protect --repo .
