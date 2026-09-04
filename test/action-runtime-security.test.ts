@@ -86,6 +86,7 @@ function baseActionEnvironment(root: string, repo: string): NodeJS.ProcessEnv {
     VIGIL_ISOLATE_CANDIDATE: "false",
     VIGIL_MIN_VERIFIED: "1",
     VIGIL_MERGE_GROUP_EVENT: "",
+    VIGIL_PULL_REQUEST_EVENT: "",
     VIGIL_MODE: "",
     VIGIL_OUTCOME_RECEIPT: "",
     VIGIL_POLICY: "",
@@ -339,6 +340,10 @@ test("Action rejects unsafe credential and candidate-execution combinations befo
       message: /merge-group-event is restricted to merge-group mode/,
     },
     {
+      env: { VIGIL_MODE: "prove", VIGIL_PULL_REQUEST_EVENT: "pull-request.json" },
+      message: /pull-request-event is restricted to maintainer mode/,
+    },
+    {
       env: { VIGIL_MODE: "prove", VIGIL_AUTHORITY_CONTRACT_REF: "a".repeat(40) },
       message: /authority-contract-ref requires authority-contract/,
     },
@@ -407,6 +412,24 @@ test("Action rejects merge-group envelopes outside authenticated dispatch and ex
   });
   assert.equal(wrongHead.status, 2, `${wrongHead.stdout}\n${wrongHead.stderr}`);
   assert.match(wrongHead.stderr, /exactly matching base, head, and policy-ref/);
+});
+
+test("Action rejects centrally dispatched maintainer mode without an authenticated pull-request event", {
+  skip: compositeActionRuntimeUnavailable || !existsSync("/usr/bin/docker"),
+}, () => {
+  const base = "1".repeat(40);
+  const head = "2".repeat(40);
+  const result = runRejectedAction({
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    VIGIL_BASE: base,
+    VIGIL_HEAD: head,
+    VIGIL_ISOLATE_CANDIDATE: "true",
+    VIGIL_MODE: "maintainer",
+    VIGIL_POLICY: ".agent-vigil.json",
+    VIGIL_POLICY_REF: base,
+  });
+  assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, /requires an authenticated pull-request-event/);
 });
 
 test("Action validates candidate commit IDs before printing or using them", () => {

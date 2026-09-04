@@ -2,6 +2,7 @@ const MAX_WEBHOOK_BYTES = 256 * 1024;
 const MAX_GITHUB_RESPONSE_BYTES = 64 * 1024;
 const AUTHORIZATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const WEBHOOK_REDELIVERY_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
+const CHECK_COMPLETION_TIMEOUT_MS = 60 * 60 * 1000;
 const SHA = /^[0-9a-f]{40}$/;
 const DELIVERY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -601,16 +602,63 @@ export class DeliveryLedger {
     if (request.method !== "POST") return json(405, { error: "method not allowed" });
     const value = await request.json();
     const prior = await this.state.storage.get("dispatch");
-    if (prior?.status === "dispatched" || prior?.status === "pending") return json(202, prior);
+    if (prior?.status === "dispatched" || prior?.status === "pending" || prior?.status === "retained") return json(202, prior);
     await this.state.storage.put("dispatch", { status: "pending", delivery_id: value.deliveryId });
     try {
       const dispatched = await queueCheckAndDispatch(this.env, value);
       const result = { status: "dispatched", delivery_id: value.deliveryId, check_run_id: dispatched.checkRunId };
       await this.state.storage.put("dispatch", result);
+      await this.state.storage.put("target", dispatched);
+      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + CHECK_COMPLETION_TIMEOUT_MS);
       return json(202, result);
     } catch (error) {
       await this.state.storage.put("dispatch", { status: "failed", delivery_id: value.deliveryId });
       throw error;
+    }
+  }
+  async alarm() {
+    const dispatch = await this.state.storage.get("dispatch");
+    const target = await this.state.storage.get("target");
+    if (dispatch?.status === "retained") {
+      await this.state.storage.deleteAll();
+      return;
+    }
+    if (dispatch?.status !== "dispatched" || !target || target.checkRunId !== dispatch.check_run_id) {
+      await this.state.storage.deleteAll();
+      return;
+    }
+    try {
+      const token = await installationToken(this.env.GITHUB_APP_ID, this.env.GITHUB_APP_PRIVATE_KEY, target.installationId, { checks: "write" });
+      const [owner, repository] = target.repository.split("/");
+      const path = `/repos/${owner}/${repository}/check-runs/${target.checkRunId}`;
+      const check = await github(path, token);
+      const expectedExternalId = `${target.event}:${target.deliveryId}:${target.headSha}`;
+      if (String(check?.id ?? "") !== target.checkRunId || check?.head_sha !== target.headSha || check?.external_id !== expectedExternalId) {
+        throw new Error("queued check identity no longer matches the signed dispatch");
+      }
+      if (check.status !== "completed") {
+        await github(path, token, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            status: "completed",
+            conclusion: "failure",
+            output: {
+              title: "NOT CHECKED",
+              summary: "The independent verification did not finish within one hour. Push or reopen the pull request to retry.",
+            },
+          }),
+        });
+      }
+      await this.state.storage.put("dispatch", {
+        ...dispatch,
+        status: "retained",
+        terminal_status: check.status === "completed" ? "completed" : "timed_out",
+      });
+      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + WEBHOOK_REDELIVERY_RETENTION_MS);
+    } catch (error) {
+      console.error(JSON.stringify({ event: "public_app_check_timeout_failed", message: String(error), check_run_id: target.checkRunId }));
+      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + CHECK_COMPLETION_TIMEOUT_MS);
     }
   }
 }
