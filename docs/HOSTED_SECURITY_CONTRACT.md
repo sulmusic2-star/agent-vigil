@@ -1,6 +1,6 @@
 # Hosted evidence security contract
 
-**Applies to:** Agent Vigil v0.24.2 `init` and `protect` workflows
+**Applies to:** Agent Vigil v0.24.3 `init` and `protect` workflows
 
 Agent Vigil's generated hosted lane checks one GitHub pull-request head under a
 base-owned policy. It is intentionally narrower than the local CLI.
@@ -11,15 +11,17 @@ base-owned policy. It is intentionally narrower than the local CLI.
 node dist/cli.js protect
 ```
 
-The immutable v0.24.2 package contains the preceding documentation snapshot:
-it labels this contract v0.24.1, and its packaged README retains the v0.24.2
-pre-publication disclosure. It does not contain this post-release wording. The
-v0.24.2 runtime and package were
-verified separately. Download that package without npm credentials and verify
-its checksum:
+The v0.24.3 package retains the preceding security-contract document, headed
+v0.24.2. This live document extends that contract to v0.24.3; the signing and
+isolation boundaries below are unchanged. Its packaged README and installation
+guide describe v0.24.3. The setup fix additionally stops before writing files
+when no test command is found.
+
+Follow the [checksum-first installation guide](INSTALL_WITHOUT_NPM_ACCOUNT.md)
+before using the immutable package:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz doctor
 ```
 
 `protect` selects the immutable reviewed public Action commit and writes it into
