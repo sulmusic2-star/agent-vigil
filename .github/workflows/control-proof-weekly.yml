@@ -44,7 +44,7 @@ jobs:
           [[ -n "$CONTROL_PROOF_PREDICATE" && -f "$CONTROL_PROOF_PREDICATE" && ! -L "$CONTROL_PROOF_PREDICATE" && -s "$CONTROL_PROOF_PREDICATE" ]]
       - name: Upload only the unsigned proof and predicate
         if: always() && steps.vigil.outputs.report != '' && steps.vigil.outputs.control-proof-predicate != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: agent-vigil-control-proof-unsigned-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
@@ -202,7 +202,7 @@ jobs:
           predicate-path: ${{ runner.temp }}/agent-vigil-control-proof/agent-vigil-control-proof-predicate.json
       - name: Retain the proof, predicate, and attestation bundle
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: agent-vigil-control-proof-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
