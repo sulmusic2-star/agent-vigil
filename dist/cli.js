@@ -3216,7 +3216,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash6 } from "node:crypto";
-var VERSION = "0.24.2";
+var VERSION = "0.24.3";
 var CLAIM_KINDS = [
   "tests_pass",
   "file_changed",
@@ -22127,7 +22127,7 @@ ${outcomeUsage()}`);
 }
 
 // src/adoption.ts
-var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz";
+var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz";
 function releasedDoctorCommand() {
   return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
 }

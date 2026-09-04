@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.24.3 - 2026-09-04
+
 - Stop protection setup before writing files when no test command is found,
   rather than reporting readiness with a placeholder that fails the next step.
 - Extend the packed install rehearsal through commit and `doctor`, and require
