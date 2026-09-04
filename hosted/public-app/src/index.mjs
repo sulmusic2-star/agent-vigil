@@ -1,5 +1,7 @@
 const MAX_WEBHOOK_BYTES = 256 * 1024;
 const MAX_GITHUB_RESPONSE_BYTES = 64 * 1024;
+const AUTHORIZATION_RETENTION_MS = 24 * 60 * 60 * 1000;
+const WEBHOOK_REDELIVERY_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const SHA = /^[0-9a-f]{40}$/;
 const DELIVERY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -634,7 +636,10 @@ export class DeploymentAuthorizationLedger {
         return json(409, { error: "an equal or newer authorization is already registered for this deployment identity" });
       }
       await this.state.storage.put("authorization", value.authorization);
-      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.parse(value.authorization.validUntil) + 24 * 60 * 60 * 1000);
+      const authorizationDeleteAt = Date.parse(value.authorization.validUntil) + AUTHORIZATION_RETENTION_MS;
+      const decisionsDeleteAt = Date.parse(value.authorization.validUntil) + WEBHOOK_REDELIVERY_RETENTION_MS;
+      await this.state.storage.put("retention", { phase: "authorization", authorizationDeleteAt, decisionsDeleteAt });
+      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(authorizationDeleteAt);
       console.log(JSON.stringify({
         event: "deployment_authorization_registered",
         repository: value.authorization.repository,
@@ -664,7 +669,16 @@ export class DeploymentAuthorizationLedger {
     }
     return json(400, { error: "invalid deployment ledger operation" });
   }
-  async alarm() { await this.state.storage.deleteAll(); }
+  async alarm() {
+    const retention = await this.state.storage.get("retention");
+    if (retention?.phase === "authorization") {
+      await this.state.storage.delete("authorization");
+      await this.state.storage.put("retention", { ...retention, phase: "decisions" });
+      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(retention.decisionsDeleteAt);
+      return;
+    }
+    await this.state.storage.deleteAll();
+  }
 }
 
 export default {
@@ -680,7 +694,13 @@ export default {
           env.REGISTRATION_SECRET,
           body,
           request.headers.get("x-agent-vigil-registration-signature") ?? "",
-        ))) return json(401, { error: "invalid registration signature" });
+        ))) {
+          console.error(JSON.stringify({
+            event: "deployment_authorization_registration_failed",
+            reason_code: "INVALID_REGISTRATION_SIGNATURE",
+          }));
+          return json(401, { error: "invalid registration signature" });
+        }
         let registration;
         try { registration = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)); }
         catch { return json(400, { error: "invalid authorization JSON" }); }
@@ -708,7 +728,10 @@ export default {
       if (!hasJsonContentType(request)) return json(415, { error: "GitHub webhook must be application/json" });
       const deliveryId = request.headers.get("x-github-delivery") ?? "";
       const body = await readBoundedBody(request);
-      if (!(await verifyWebhookSignature(env.WEBHOOK_SECRET, body, request.headers.get("x-hub-signature-256") ?? ""))) return json(401, { error: "invalid webhook signature" });
+      if (!(await verifyWebhookSignature(env.WEBHOOK_SECRET, body, request.headers.get("x-hub-signature-256") ?? ""))) {
+        console.error(JSON.stringify({ event: "public_app_dispatch_failed", reason_code: "INVALID_WEBHOOK_SIGNATURE" }));
+        return json(401, { error: "invalid webhook signature" });
+      }
       let payload;
       try { payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)); }
       catch { return json(400, { error: "invalid webhook JSON" }); }

@@ -73,7 +73,9 @@ layer that owns the relevant fact:
 - wrong artifact or managed-environment digest (registration or byte gate);
 - expired evidence;
 - replayed webhook delivery (the ledger must return the retained decision and
-  must not call GitHub twice);
+  must not call GitHub twice, including after the matching authorization has
+  expired; decisions remain available for GitHub.com's three-day manual
+  redelivery window);
 - GitHub callback failure;
 - unavailable Worker or Durable Object;
 - protected job presenting different artifact bytes to

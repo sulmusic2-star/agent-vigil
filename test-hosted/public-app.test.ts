@@ -207,7 +207,12 @@ test("public App verifies the exact raw webhook body before replay storage", asy
     },
     body,
   });
+  const originalError = console.error;
+  const webhookRejections: any[] = [];
+  console.error = ((line: string) => webhookRejections.push(JSON.parse(line))) as typeof console.error;
   assert.equal((await worker.fetch(request(`sha256=${"0".repeat(64)}`), env)).status, 401);
+  console.error = originalError;
+  assert.deepEqual(webhookRejections, [{ event: "public_app_dispatch_failed", reason_code: "INVALID_WEBHOOK_SIGNATURE" }]);
   assert.equal(ledgerCalls, 0);
   assert.equal((await worker.fetch(request(signature), env)).status, 202);
   assert.equal(ledgerCalls, 1);
@@ -435,10 +440,18 @@ test("the Worker verifies the signed deployment authorization before storing it"
   }), env);
   assert.equal(forgedResponse.status, 400);
 
+  const originalError = console.error;
+  const registrationRejections: any[] = [];
+  console.error = ((line: string) => registrationRejections.push(JSON.parse(line))) as typeof console.error;
   const unauthenticated = await worker.fetch(new Request("https://app.example/deployment/authorizations", {
     method: "POST", headers: { "content-type": "application/json" }, body: registrationBody,
   }), env);
+  console.error = originalError;
   assert.equal(unauthenticated.status, 401);
+  assert.deepEqual(registrationRejections, [{
+    event: "deployment_authorization_registration_failed",
+    reason_code: "INVALID_REGISTRATION_SIGNATURE",
+  }]);
 
   const wrongContentType = await worker.fetch(new Request("https://app.example/deployment/authorizations", {
     method: "POST", headers: {
@@ -519,6 +532,7 @@ test("deployment ledger approves only a current exact authorization and reports 
     const ledger = new DeploymentAuthorizationLedger({ storage: {
       async get(key: string) { return storage.get(key); },
       async put(key: string, value: any) { storage.set(key, value); },
+      async delete(key: string) { storage.delete(key); },
       async setAlarm(value: number) { alarms.push(value); },
       async deleteAll() { storage.clear(); },
     } }, { GITHUB_APP_ID: "1001", GITHUB_APP_PRIVATE_KEY: pem });
@@ -568,6 +582,12 @@ test("deployment ledger approves only a current exact authorization and reports 
       issued_at: fixture.authorization.authorization.issuedAt,
       valid_until: fixture.authorization.authorization.validUntil,
     }]);
+    await ledger.alarm();
+    assert.equal(storage.has("authorization"), false);
+    assert.equal(storage.has(`decision:${deliveryId}`), true);
+    assert.equal((await decide()).status, 200);
+    assert.equal(calls.filter((call) => call.url.endsWith("/deployment_protection_rule")).length, 1);
+    assert.equal(alarms[1], Date.parse(fixture.authorization.authorization.validUntil) + 3 * 24 * 60 * 60 * 1000);
     await ledger.alarm();
     assert.equal(storage.size, 0);
   } finally { globalThis.fetch = originalFetch; console.log = originalLog; }

@@ -40,6 +40,11 @@ is rejected. The deployment job must then run `vigil guard-deploy-bound-gate`
 against the actual downloaded package or installer. The App cannot see those
 later bytes, so App approval by itself is not package-byte proof.
 
+Expired authorizations are removed after a 24-hour audit margin. A recorded
+deployment decision is retained separately through GitHub.com's three-day
+manual webhook-redelivery window, so a replay returns the original result
+without calling GitHub a second time.
+
 GitHub custom deployment protection rules are currently in public preview.
 Public repositories can use them on all plans. Private and internal repositories
 require GitHub Enterprise. This implementation is locally tested but has not
