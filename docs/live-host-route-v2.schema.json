@@ -38,6 +38,10 @@
       "type": "string",
       "format": "date-time"
     },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
     "nonce": {
       "type": "string",
       "pattern": "^[a-zA-Z0-9_-]{16,128}$"
@@ -471,6 +475,10 @@
         },
         "commandSha256": {
           "$ref": "#/$defs/digest"
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
         },
         "toolUseIdSha256": {
           "$ref": "#/$defs/digest"

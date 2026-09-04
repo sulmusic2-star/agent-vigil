@@ -61,6 +61,7 @@ type RouteObservation = {
   expectedExecution: boolean;
   observedExecution: boolean;
   commandSha256: string;
+  observedAt?: string;
   toolUseIdSha256?: string;
   sessionIdSha256?: string;
   passed: boolean;
@@ -70,6 +71,7 @@ export type GuardRouteReportV1 = {
   schemaVersion: typeof GUARD_ROUTE_SCHEMA;
   vigilVersion: string;
   generatedAt: string;
+  completedAt?: string;
   nonce: string;
   scope: "LIVE_HOST_ROUTING";
   status: GuardCheckStatus;
@@ -160,6 +162,7 @@ type HookLog = {
   decision: "ALLOW" | "DENY";
   event: string;
   tool: string;
+  observedAt: string;
   commandSha256?: string;
   toolUseIdSha256?: string;
   sessionIdSha256?: string;
@@ -260,6 +263,7 @@ try {
     decision,
     event: typeof payload?.hook_event_name === "string" ? payload.hook_event_name : "INVALID",
     tool: typeof payload?.tool_name === "string" ? payload.tool_name : "INVALID",
+    observedAt: new Date().toISOString(),
     ...(command ? { commandSha256: sha(command) } : {}),
     ...(typeof payload?.tool_use_id === "string" ? { toolUseIdSha256: sha(payload.tool_use_id) } : {}),
     ...(typeof payload?.session_id === "string" ? { sessionIdSha256: sha(payload.session_id) } : {}),
@@ -270,7 +274,7 @@ try {
     process.stdout.write(deny(route === "UNKNOWN" ? "Agent Vigil route drill permits only its two exact harmless calls." : "Agent Vigil harmless deny canary blocked."));
   }
 } catch {
-  try { appendFileSync(expected.logPath, JSON.stringify({ route: "MALFORMED", decision: "DENY", event: "INVALID", tool: "INVALID" }) + "\\n", { encoding: "utf8", mode: 0o600 }); }
+  try { appendFileSync(expected.logPath, JSON.stringify({ route: "MALFORMED", decision: "DENY", event: "INVALID", tool: "INVALID", observedAt: new Date().toISOString() }) + "\\n", { encoding: "utf8", mode: 0o600 }); }
   catch { process.stderr.write("Agent Vigil could not record malformed route input.\\n"); }
   process.stdout.write(deny("Agent Vigil rejected malformed route input."));
 }
@@ -368,6 +372,10 @@ function readHookLog(path: string): HookLog[] {
   return rows.map((row) => {
     const value = JSON.parse(row) as HookLog;
     if (!value || typeof value !== "object") throw new Error("live-host hook log contains a malformed event");
+    const observed = Date.parse(value.observedAt);
+    if (!Number.isFinite(observed) || new Date(observed).toISOString() !== value.observedAt) {
+      throw new Error("live-host hook log contains an invalid observation time");
+    }
     return value;
   });
 }
@@ -517,6 +525,7 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
     const policyIdentity = hashGuardFile(policyPath, "temporary route policy");
     let processReceipt: GuardCompatibilityReport | undefined;
     let completed: ReturnType<typeof spawnSync> | undefined;
+    let completedAt: string | undefined;
     let logs: HookLog[] = [];
     let configurationRemoved = false;
     let invocationSha256 = guardDigest("host-not-invoked");
@@ -565,6 +574,7 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
       killSignal: "SIGKILL",
       windowsHide: true,
     });
+      completedAt = new Date().toISOString();
       logs = readHookLog(hookLogPath);
       assertGuardFileUnchanged(configIdentity, "temporary host hook configuration");
       assertGuardFileUnchanged(hookIdentity, "temporary route control");
@@ -574,7 +584,7 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
       configurationRemoved = !existsSync(configPath);
     }
 
-    if (!processReceipt || !completed) throw new Error("live-host route did not produce a receipt");
+    if (!processReceipt || !completed || !completedAt) throw new Error("live-host route did not produce a receipt");
     assertGuardFileUnchanged(hostIdentity, "host executable");
     assertGuardFileUnchanged(profile.marker, "disposable profile marker");
     if (managedEnvironment) assertGuardEnvironmentUnchanged(managedEnvironment);
@@ -615,6 +625,7 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
       expectedExecution: true,
       observedExecution: allowExecuted,
       commandSha256: guardDigest(allow.command),
+      ...(allowLog.length === 1 ? { observedAt: allowLog[0].observedAt } : {}),
       ...(allowLog.length === 1 && allowLog[0].toolUseIdSha256 ? { toolUseIdSha256: allowLog[0].toolUseIdSha256 } : {}),
       ...(allowLog.length === 1 && allowLog[0].sessionIdSha256 ? { sessionIdSha256: allowLog[0].sessionIdSha256 } : {}),
       passed: allowLog.length === 1 && allowExecuted && allowLog[0].decision === "ALLOW" && Boolean(allowLog[0].toolUseIdSha256),
@@ -626,6 +637,7 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
       expectedExecution: false,
       observedExecution: denyExecuted,
       commandSha256: guardDigest(deny.command),
+      ...(denyLog.length === 1 ? { observedAt: denyLog[0].observedAt } : {}),
       ...(denyLog.length === 1 && denyLog[0].toolUseIdSha256 ? { toolUseIdSha256: denyLog[0].toolUseIdSha256 } : {}),
       ...(denyLog.length === 1 && denyLog[0].sessionIdSha256 ? { sessionIdSha256: denyLog[0].sessionIdSha256 } : {}),
       passed: denyLog.length === 1 && !denyExecuted && denyLog[0].decision === "DENY" && Boolean(denyLog[0].toolUseIdSha256),
@@ -635,6 +647,13 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
     && observations[0].sessionIdSha256 === observations[1].sessionIdSha256;
   const distinctCalls = observations.every((item) => item.toolUseIdSha256)
     && observations[0].toolUseIdSha256 !== observations[1].toolUseIdSha256;
+  const routeInsideChallengeWindow = !externalChallenge || (
+    Date.parse(completedAt) >= Date.parse(externalChallenge.challenge.issuedAt)
+    && Date.parse(completedAt) <= Date.parse(externalChallenge.challenge.expiresAt)
+    && observations.every((item) => item.observedAt
+      && Date.parse(item.observedAt) >= Date.parse(externalChallenge.challenge.issuedAt)
+      && Date.parse(item.observedAt) <= Date.parse(externalChallenge.challenge.expiresAt))
+  );
   const exactPass = processReceipt.status === "PASS"
     && observedProcess.process === "EXITED"
     && observedProcess.exit === "ZERO"
@@ -643,6 +662,7 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
     && unexpected.length === 0
     && sameSession
     && distinctCalls
+    && routeInsideChallengeWindow
     && configurationRemoved;
   const noRouteBeforeHostFailure = routed.length === 0 && observedProcess.exit !== "ZERO";
   const status: GuardCheckStatus = exactPass
@@ -667,6 +687,7 @@ export function runGuardRoute(input: GuardRouteInput): GuardRouteReport {
   const common = {
     vigilVersion,
     generatedAt,
+    completedAt,
     nonce,
     scope: "LIVE_HOST_ROUTING" as const,
     status,

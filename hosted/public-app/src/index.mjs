@@ -621,11 +621,32 @@ async function decideDeployment(env, event, authorization) {
     authorization_hash: authorization?.authorizationHash ?? null,
     decided_at: now,
   }));
-  return { status: "decided", delivery_id: event.deliveryId, state, authorization_hash: authorization?.authorizationHash ?? null };
+  return {
+    status: "decided",
+    delivery_id: event.deliveryId,
+    state,
+    authorization_hash: authorization?.authorizationHash ?? null,
+    decided_at: now,
+  };
 }
 
 export class DeploymentAuthorizationLedger {
   constructor(state, env) { this.state = state; this.env = env; this.inFlight = new Map(); }
+  async retainDecision(decidedAt) {
+    const decisionDeleteAt = Date.parse(decidedAt) + WEBHOOK_REDELIVERY_RETENTION_MS;
+    if (!Number.isFinite(decisionDeleteAt)) throw new Error("deployment decision time is invalid");
+    const retention = await this.state.storage.get("retention");
+    if (!retention) {
+      await this.state.storage.put("retention", { phase: "decisions", decisionsDeleteAt: decisionDeleteAt });
+      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(decisionDeleteAt);
+      return;
+    }
+    const decisionsDeleteAt = Math.max(Number(retention.decisionsDeleteAt) || 0, decisionDeleteAt);
+    await this.state.storage.put("retention", { ...retention, decisionsDeleteAt });
+    if (retention.phase === "decisions" && this.state.storage.setAlarm) {
+      await this.state.storage.setAlarm(decisionsDeleteAt);
+    }
+  }
   async fetch(request) {
     if (request.method !== "POST") return json(405, { error: "method not allowed" });
     const value = await request.json();
@@ -637,7 +658,11 @@ export class DeploymentAuthorizationLedger {
       }
       await this.state.storage.put("authorization", value.authorization);
       const authorizationDeleteAt = Date.parse(value.authorization.validUntil) + AUTHORIZATION_RETENTION_MS;
-      const decisionsDeleteAt = Date.parse(value.authorization.validUntil) + WEBHOOK_REDELIVERY_RETENTION_MS;
+      const priorRetention = await this.state.storage.get("retention");
+      const decisionsDeleteAt = Math.max(
+        Date.parse(value.authorization.validUntil) + WEBHOOK_REDELIVERY_RETENTION_MS,
+        Number(priorRetention?.decisionsDeleteAt) || 0,
+      );
       await this.state.storage.put("retention", { phase: "authorization", authorizationDeleteAt, decisionsDeleteAt });
       if (this.state.storage.setAlarm) await this.state.storage.setAlarm(authorizationDeleteAt);
       console.log(JSON.stringify({
@@ -661,6 +686,7 @@ export class DeploymentAuthorizationLedger {
         const authorization = await this.state.storage.get("authorization");
         const result = await decideDeployment(this.env, value.event, authorization);
         await this.state.storage.put(decisionKey, result);
+        await this.retainDecision(result.decided_at);
         return result;
       })();
       this.inFlight.set(decisionKey, pending);

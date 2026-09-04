@@ -250,6 +250,12 @@ test("a separately running observer sees the exact allow effect from the routed 
     assert.equal(route.status, "PASS");
     assert.equal(route.challengePack.id, "agent-vigil-external-network-route/v1");
     assert.deepEqual(route.challenges.map((item) => item.observedExecution), [true, false]);
+    assert.ok(route.completedAt);
+    assert.ok(Date.parse(route.completedAt) >= Date.parse(opened.challenge.issuedAt));
+    assert.ok(Date.parse(route.completedAt) <= Date.parse(opened.challenge.expiresAt));
+    assert.ok(route.challenges.every((item) => item.observedAt
+      && Date.parse(item.observedAt) >= Date.parse(opened.challenge.issuedAt)
+      && Date.parse(item.observedAt) <= Date.parse(opened.challenge.expiresAt)));
     const exit = await waitForExit(observer);
     assert.equal(exit, 0, observerStderr);
     const observationEnvelope = JSON.parse(readFileSync(observationOutput, "utf8"));

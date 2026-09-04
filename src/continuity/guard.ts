@@ -74,7 +74,7 @@ function canonicalBase64(value: unknown, label: string): string {
 
 function challenge(value: unknown, index: number): GuardRouteReport["challenges"][number] {
   const selected = record(value, `challenges[${index}]`);
-  const optional = ["toolUseIdSha256", "sessionIdSha256"].filter((key) => key in selected);
+  const optional = ["observedAt", "toolUseIdSha256", "sessionIdSha256"].filter((key) => key in selected);
   exactKeys(selected, [
     "id", "expectedDecision", "actualDecision", "expectedExecution", "observedExecution", "commandSha256", "passed", ...optional,
   ], `challenges[${index}]`);
@@ -85,6 +85,7 @@ function challenge(value: unknown, index: number): GuardRouteReport["challenges"
     expectedExecution: boolean(selected.expectedExecution, `challenges[${index}].expectedExecution`),
     observedExecution: boolean(selected.observedExecution, `challenges[${index}].observedExecution`),
     commandSha256: digest(selected.commandSha256, `challenges[${index}].commandSha256`),
+    ...(selected.observedAt === undefined ? {} : { observedAt: canonicalTimestamp(selected.observedAt, `challenges[${index}].observedAt`) }),
     ...(selected.toolUseIdSha256 === undefined ? {} : { toolUseIdSha256: digest(selected.toolUseIdSha256, `challenges[${index}].toolUseIdSha256`) }),
     ...(selected.sessionIdSha256 === undefined ? {} : { sessionIdSha256: digest(selected.sessionIdSha256, `challenges[${index}].sessionIdSha256`) }),
     passed: boolean(selected.passed, `challenges[${index}].passed`),
@@ -93,10 +94,11 @@ function challenge(value: unknown, index: number): GuardRouteReport["challenges"
 
 export function validateGuardRouteReport(value: unknown): GuardRouteReport {
   const selected = record(value, "live-host route receipt");
+  const optionalRoot = ["completedAt"].filter((key) => key in selected);
   exactKeys(selected, [
     "schemaVersion", "vigilVersion", "generatedAt", "nonce", "scope", "status", "deployment", "nextGate",
     "challengePack", "host", "control", "processConformance", "bindings", "challenges", "summary", "cleanup",
-    "reproduction", "limitations", "receiptHash",
+    "reproduction", "limitations", "receiptHash", ...optionalRoot,
   ], "live-host route receipt");
   const schemaVersion = oneOf(selected.schemaVersion, [
     "agent-vigil-live-host-route/v1", "agent-vigil-live-host-route/v2",
@@ -191,6 +193,7 @@ export function validateGuardRouteReport(value: unknown): GuardRouteReport {
     schemaVersion,
     vigilVersion: text(selected.vigilVersion, "vigilVersion", 200),
     generatedAt: canonicalTimestamp(selected.generatedAt, "generatedAt"),
+    ...(selected.completedAt === undefined ? {} : { completedAt: canonicalTimestamp(selected.completedAt, "completedAt") }),
     nonce: text(selected.nonce, "nonce", 128),
     scope: "LIVE_HOST_ROUTING",
     status,
@@ -273,6 +276,14 @@ export function validateGuardRouteReport(value: unknown): GuardRouteReport {
     limitations: limitations.map((item, index) => text(item, `limitations[${index}]`, 2_000)),
     receiptHash: digest(selected.receiptHash, "receiptHash"),
   } as GuardRouteReport;
+
+  if (validated.completedAt && Date.parse(validated.completedAt) < Date.parse(validated.generatedAt)) {
+    throw new Error("live-host route completion precedes route generation");
+  }
+  if (validated.completedAt && validated.challenges.some((item) => item.observedAt
+    && Date.parse(item.observedAt) > Date.parse(validated.completedAt!))) {
+    throw new Error("live-host challenge observation follows route completion");
+  }
 
   if (!/^[a-zA-Z0-9_-]{16,128}$/.test(validated.nonce)) throw new Error("live-host receipt nonce is invalid");
   if (validated.schemaVersion === "agent-vigil-live-host-route/v2") {

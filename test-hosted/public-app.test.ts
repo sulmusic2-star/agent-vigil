@@ -602,9 +602,12 @@ test("missing authorization rejects deployment and callback failure is never rec
   const auditEvents: any[] = [];
   console.log = ((line: string) => auditEvents.push(JSON.parse(line))) as typeof console.log;
   const storage = new Map<string, any>();
+  const alarms: number[] = [];
   const state = { storage: {
     async get(key: string) { return storage.get(key); },
     async put(key: string, value: any) { storage.set(key, value); },
+    async setAlarm(value: number) { alarms.push(value); },
+    async deleteAll() { storage.clear(); },
   } };
   try {
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -616,7 +619,13 @@ test("missing authorization rejects deployment and callback failure is never rec
     const rejected = await new DeploymentAuthorizationLedger(state, { GITHUB_APP_ID: "1001", GITHUB_APP_PRIVATE_KEY: pem })
       .fetch(new Request("https://ledger/", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ operation: "decide", event }) }));
-    assert.equal((await rejected.json() as any).state, "rejected");
+    const rejectedBody = await rejected.json() as any;
+    assert.equal(rejectedBody.state, "rejected");
+    assert.equal(typeof rejectedBody.decided_at, "string");
+    assert.deepEqual(alarms, [Date.parse(rejectedBody.decided_at) + 3 * 24 * 60 * 60 * 1000]);
+    assert.equal(storage.has("retention"), true);
+    await new DeploymentAuthorizationLedger(state, { GITHUB_APP_ID: "1001", GITHUB_APP_PRIVATE_KEY: pem }).alarm();
+    assert.equal(storage.size, 0);
     assert.equal(auditEvents.length, 1);
     assert.deepEqual({ event: auditEvents[0].event, state: auditEvents[0].state, authorization_hash: auditEvents[0].authorization_hash }, {
       event: "deployment_protection_decision", state: "rejected", authorization_hash: null,

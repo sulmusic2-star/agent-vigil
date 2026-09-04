@@ -50,6 +50,9 @@ Required Worker secrets and bindings:
 1. Record the reviewed Git commit and clean working-tree status.
 2. Run typecheck, build, full tests, hosted tests, coverage, benchmark gate,
    package smoke, npm audit, CodeQL, and the Wrangler staging dry run.
+   External route evidence must record both hook-event times and route
+   completion. Admission must hold if either falls outside the observer's
+   signed challenge window.
 3. Deploy staging and record the returned deployment version and URL.
 4. Check `/health` and inspect structured Worker logs.
 5. Install the staging App on one disposable public repository only.

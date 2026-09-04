@@ -77,10 +77,12 @@ function routeReceipt(input: {
 }): GuardRouteReportV2 {
   const { challenge } = input;
   const session = guardDigest(`session-${challenge.challengeHash}`);
+  const routeStarted = Date.parse(input.generatedAt);
   const report: GuardRouteReportV2 = {
     schemaVersion: "agent-vigil-live-host-route/v2",
     vigilVersion: "0.23.4-test",
     generatedAt: input.generatedAt,
+    completedAt: new Date(routeStarted + 30_000).toISOString(),
     nonce: challenge.nonce,
     scope: "LIVE_HOST_ROUTING",
     status: "PASS",
@@ -115,11 +117,13 @@ function routeReceipt(input: {
       {
         id: "allow-route", expectedDecision: "ALLOW", actualDecision: "ALLOW", expectedExecution: true,
         observedExecution: true, commandSha256: challenge.commands.allowSha256,
+        observedAt: new Date(routeStarted + 10_000).toISOString(),
         toolUseIdSha256: guardDigest(`allow-call-${challenge.challengeHash}`), sessionIdSha256: session, passed: true,
       },
       {
         id: "deny-route", expectedDecision: "DENY", actualDecision: "DENY", expectedExecution: false,
         observedExecution: false, commandSha256: challenge.commands.denySha256,
+        observedAt: new Date(routeStarted + 20_000).toISOString(),
         toolUseIdSha256: guardDigest(`deny-call-${challenge.challengeHash}`), sessionIdSha256: session, passed: true,
       },
     ],
@@ -299,6 +303,49 @@ test("command substitution, deny effects, stale observations, and artifact misma
       expectedArtifactSha256: guardDigest("different-package"), expectedEnvironmentSha256: f.environmentSha256,
       asOf: "2026-09-03T14:10:00.000Z",
     }), /different artifact/);
+  } finally { rmSync(f.directory, { recursive: true, force: true }); }
+});
+
+test("route execution and completion must stay inside the signed observation window", () => {
+  const f = fixture();
+  try {
+    const late = structuredClone(f.candidateReport);
+    late.challenges[1].observedAt = "2026-09-03T14:05:00.001Z";
+    late.completedAt = "2026-09-03T14:05:00.002Z";
+    late.receiptHash = recomputeGuardRouteReceiptHash(late);
+    const lateIsolation = isolationAttestation({
+      challenge: f.candidate.challenge,
+      report: late,
+      signer: localGuardSigner(f.keys.isolation.privatePath),
+    });
+    const lateResult = admit(f, { candidate: {
+      route: sealGuardRoute(late, f.keys.route.privatePath),
+      challenge: f.candidate.envelope,
+      observation: f.candidateObserved.envelope,
+      isolation: lateIsolation.envelope,
+    } });
+    assert.equal(lateResult.admission.decision, "HOLD");
+    assert.ok(lateResult.admission.reasonCodes.includes("CANDIDATE_ROUTE_EVENT_OUTSIDE_OBSERVATION_WINDOW"));
+    assert.ok(lateResult.admission.reasonCodes.includes("CANDIDATE_ROUTE_COMPLETION_OUTSIDE_OBSERVATION_WINDOW"));
+
+    const missing = structuredClone(f.candidateReport);
+    delete missing.completedAt;
+    delete missing.challenges[1].observedAt;
+    missing.receiptHash = recomputeGuardRouteReceiptHash(missing);
+    const missingIsolation = isolationAttestation({
+      challenge: f.candidate.challenge,
+      report: missing,
+      signer: localGuardSigner(f.keys.isolation.privatePath),
+    });
+    const missingResult = admit(f, { candidate: {
+      route: sealGuardRoute(missing, f.keys.route.privatePath),
+      challenge: f.candidate.envelope,
+      observation: f.candidateObserved.envelope,
+      isolation: missingIsolation.envelope,
+    } });
+    assert.equal(missingResult.admission.decision, "HOLD");
+    assert.ok(missingResult.admission.reasonCodes.includes("CANDIDATE_ROUTE_EVENT_OUTSIDE_OBSERVATION_WINDOW"));
+    assert.ok(missingResult.admission.reasonCodes.includes("CANDIDATE_ROUTE_COMPLETION_OUTSIDE_OBSERVATION_WINDOW"));
   } finally { rmSync(f.directory, { recursive: true, force: true }); }
 });
 

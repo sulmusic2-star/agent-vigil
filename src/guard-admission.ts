@@ -65,17 +65,26 @@ function pairReasonCodes(input: {
   const opened = Date.parse(observation.openedAt);
   const closed = Date.parse(observation.closedAt);
   const generated = Date.parse(route.generatedAt);
+  const completed = route.completedAt === undefined ? Number.NaN : Date.parse(route.completedAt);
   const evaluated = Date.parse(input.evaluatedAt);
   const environmentValidFrom = Date.parse(route.bindings.managedEnvironment.validFrom);
   const environmentValidUntil = Date.parse(route.bindings.managedEnvironment.validUntil);
   if (opened < issued || closed > expires || closed < opened) add("OBSERVATION_WINDOW_MISMATCH");
   if (generated < opened || generated > closed) add("ROUTE_OUTSIDE_OBSERVATION_WINDOW");
+  if (!Number.isFinite(completed) || completed < opened || completed > closed) add("ROUTE_COMPLETION_OUTSIDE_OBSERVATION_WINDOW");
+  if (route.challenges.some((item) => item.observedAt === undefined
+    || Date.parse(item.observedAt) < opened || Date.parse(item.observedAt) > closed)) {
+    add("ROUTE_EVENT_OUTSIDE_OBSERVATION_WINDOW");
+  }
   if (observation.events.some((event) => Date.parse(event.observedAt) < opened || Date.parse(event.observedAt) > closed)) {
     add("EVENT_OUTSIDE_OBSERVATION_WINDOW");
   }
   if (evaluated < closed || evaluated - closed > MAX_OBSERVATION_TO_DECISION_MS) add("OBSERVATION_NOT_FRESH");
   if (opened < environmentValidFrom || closed > environmentValidUntil) add("OBSERVATION_OUTSIDE_ENVIRONMENT_WINDOW");
   if (generated < environmentValidFrom || generated > environmentValidUntil) add("ROUTE_OUTSIDE_ENVIRONMENT_WINDOW");
+  if (!Number.isFinite(completed) || completed < environmentValidFrom || completed > environmentValidUntil) {
+    add("ROUTE_COMPLETION_OUTSIDE_ENVIRONMENT_WINDOW");
+  }
   if (evaluated < environmentValidFrom || evaluated > environmentValidUntil) add("ENVIRONMENT_NOT_CURRENT");
   return reasons;
 }

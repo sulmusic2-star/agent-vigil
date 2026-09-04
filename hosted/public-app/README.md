@@ -43,7 +43,8 @@ later bytes, so App approval by itself is not package-byte proof.
 Expired authorizations are removed after a 24-hour audit margin. A recorded
 deployment decision is retained separately through GitHub.com's three-day
 manual webhook-redelivery window, so a replay returns the original result
-without calling GitHub a second time.
+without calling GitHub a second time. Rejections made without any matching
+authorization use the same bounded retention and cleanup schedule.
 
 GitHub custom deployment protection rules are currently in public preview.
 Public repositories can use them on all plans. Private and internal repositories
