@@ -54,7 +54,9 @@ Required Worker secrets and bindings:
    completion. Admission must hold if either falls outside the observer's
    signed challenge window.
 3. Deploy staging and record the returned deployment version and URL.
-4. Check `/health` and inspect structured Worker logs.
+4. Require `/health` to return HTTP 200 with `status: ready`, then inspect
+   structured Worker logs. HTTP 503 means secrets or bindings are incomplete;
+   do not activate the GitHub webhook.
 5. Install the staging App on one disposable public repository only.
 6. Run the live decision matrix below.
 7. Exercise rollback to the previous Worker version and repeat `/health`.

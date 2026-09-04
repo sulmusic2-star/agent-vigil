@@ -8,6 +8,10 @@
 - Keep deadline and signal enforcement independent from transcript parsing with
   a monotonic supervisor clock and packaged telemetry worker; enforce malformed
   or incomplete requested telemetry immediately when the observed command exits.
+- Install the reviewed public App control workflow on the default branch so the
+  Worker dispatch target exists before activation.
+- Make the hosted App readiness endpoint fail closed until every check,
+  deployment, registration, and Durable Object binding is configured.
 
 ## 0.24.1 - 2026-09-04
 

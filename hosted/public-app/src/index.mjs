@@ -436,6 +436,15 @@ async function appJwt(appId, privateKey) {
   return `${unsigned}.${base64Url(new Uint8Array(signature))}`;
 }
 
+async function importEd25519PublicKey(pem, label) {
+  if (typeof pem !== "string") throw new Error(`${label} must be SPKI PEM`);
+  const normalized = pem.replace(/\r\n/g, "\n").trim();
+  const match = /^-----BEGIN PUBLIC KEY-----\n([A-Za-z0-9+/=\n]+)\n-----END PUBLIC KEY-----$/.exec(normalized);
+  if (!match) throw new Error(`${label} must be SPKI PEM`);
+  const bytes = canonicalBase64(match[1].replace(/\n/g, ""), label, 8192);
+  await crypto.subtle.importKey("spki", bytes, { name: "Ed25519" }, false, ["verify"]);
+}
+
 async function readStreamBounded(stream, limit, label) {
   if (!stream) return new Uint8Array();
   const reader = stream.getReader();
@@ -531,10 +540,26 @@ function assertConfiguration(env) {
     if (typeof env[name] !== "string" || env[name].length === 0) throw new Error(`missing Worker binding ${name}`);
   }
   if (env.WEBHOOK_SECRET.length < 32 || env.DISPATCH_SECRET.length < 32) throw new Error("App secrets must contain at least 32 characters");
+  if (!POSITIVE_INTEGER.test(env.GITHUB_APP_ID) || !POSITIVE_INTEGER.test(env.CONTROL_APP_ID)) {
+    throw new Error("GitHub App IDs are invalid");
+  }
   if (!POSITIVE_INTEGER.test(env.CONTROL_INSTALLATION_ID)) throw new Error("CONTROL_INSTALLATION_ID is invalid");
   if (!REPOSITORY.test(env.CONTROL_REPOSITORY)) throw new Error("CONTROL_REPOSITORY is invalid");
   if (!/^[A-Za-z0-9_.-]+\.ya?ml$/.test(env.CONTROL_WORKFLOW)) throw new Error("CONTROL_WORKFLOW is invalid");
   if (!/^[A-Za-z0-9._/-]+$/.test(env.CONTROL_REF)) throw new Error("CONTROL_REF is invalid");
+  if (!env.DELIVERY_LEDGER?.idFromName || !env.DELIVERY_LEDGER?.get) {
+    throw new Error("missing Worker binding DELIVERY_LEDGER");
+  }
+}
+
+async function assertReadyConfiguration(env) {
+  assertConfiguration(env);
+  assertDeploymentConfiguration(env);
+  assertAuthorizationRegistrationConfiguration(env);
+  await appJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
+  await appJwt(env.CONTROL_APP_ID, env.CONTROL_APP_PRIVATE_KEY);
+  await importEd25519PublicKey(env.DEPLOYMENT_PUBLIC_KEY_PEM, "deployment public key");
+  await importEd25519PublicKey(env.ADMISSION_PUBLIC_KEY_PEM, "admission public key");
 }
 
 function assertDeploymentConfiguration(env) {
@@ -710,7 +735,15 @@ export class DeploymentAuthorizationLedger {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === "/health") return json(200, { status: "ok", service: "agent-vigil-public-app" });
+    if (url.pathname === "/health") {
+      try {
+        await assertReadyConfiguration(env);
+        return json(200, { status: "ready", service: "agent-vigil-public-app" });
+      } catch (error) {
+        console.error(JSON.stringify({ event: "public_app_not_ready", message: String(error) }));
+        return json(503, { status: "not_ready", service: "agent-vigil-public-app" });
+      }
+    }
     if (url.pathname === "/deployment/authorizations" && request.method === "POST") {
       try {
         assertAuthorizationRegistrationConfiguration(env);

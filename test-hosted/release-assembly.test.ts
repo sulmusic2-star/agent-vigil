@@ -33,13 +33,14 @@ test("release assembly rejects an unexpected runtime path before packaging", () 
   );
 });
 
-test("release assembly binds five public Action pins and rebuilds every dist file", () => {
+test("release assembly binds six public Action pins and rebuilds every dist file", () => {
   const source = readFileSync("scripts/verify_release_assembly.ts", "utf8");
   for (const path of [
     ".github/workflows/agent-vigil.yml",
     ".github/workflows/agent-vigil-merge-group.yml",
     ".github/workflows/agent-vigil-outcomes.yml",
     ".github/workflows/control-proof-weekly.yml",
+    ".github/workflows/public-app-gate.yml",
     "hosted/public-app/control-workflow.yml",
   ]) assert.match(source, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(source, /tracked and rebuilt dist file lists differ/);
