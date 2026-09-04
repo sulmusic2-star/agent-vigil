@@ -26,6 +26,12 @@ is recorded in [`public-install-state.json`](public-install-state.json).
 > v0.24.0. Use this current web guide and the attached checksum rather than the
 > guide embedded in that tarball.
 
+> **Controlled-trial limitation:** after a successful `protect` run, v0.24.0
+> prints an npm-based `doctor` command that is not currently available. Do not
+> use that printed command. After the setup pull request merges, use the pinned
+> GitHub command below. A patch release must correct the embedded handoff before
+> broad self-serve onboarding.
+
 ## One setup pull request
 
 `protect` writes the policy and workflows, then runs a disposable rehearsal. A

@@ -16,13 +16,24 @@ merge?**
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
 
-## Add it to a repository
+## Controlled trial install
 
-The normal install is one command:
+The current GitHub package can be used for a controlled repository trial:
 
 ```bash
 npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz protect --repo .
 ```
+
+**Do not use v0.24.0 for broad self-serve onboarding.** Its successful
+`protect` run prints an npm-based `doctor` command, but npm does not yet serve
+v0.24.0. After the setup pull request merges, use this pinned command instead:
+
+```bash
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.0/sulmusic-agent-vigil-0.24.0.tgz doctor --repo .
+```
+
+The next patch release must correct that embedded handoff before this section
+can return to a normal five-minute install claim.
 
 The command finds the repository's test setup, runs a disposable red/green
 rehearsal, and writes the setup files. Commit those files and open one setup
@@ -64,7 +75,7 @@ README and installation guide, which still name v0.23.2 as the last verified
 release. The executable reports v0.24.0 and passed the attached-artifact checks,
 but use this current web guide and the release checksum for installation. A
 follow-up release must remove version-specific distribution state from packaged
-documentation.
+documentation and correct the unavailable npm-based `doctor` handoff.
 
 The machine-readable channel record is in
 [`docs/public-install-state.json`](docs/public-install-state.json).
