@@ -125,8 +125,10 @@ selected terminal and the CLI returns `125`.
   containment requires a separate OS user, container/cgroup, VM, or managed
   supervisor outside the agent's authority.
 - On Linux, termination confirmation ignores `/proc/<pid>/stat` entries that
-  the kernel marks zombie or dead. If process-state evidence is incomplete,
-  confirmation remains fail-closed instead of assuming containment.
+  the kernel marks zombie or dead. A `hidepid`-inaccessible process owned by a
+  different user is outside the documented same-user group boundary; the target
+  leader, same-user entries, and entries with unknown ownership remain
+  fail-closed when their process-state evidence is incomplete.
 - Windows is rejected before launch because this release does not claim an
   equivalent tested process-tree boundary there.
 - Nothing is uploaded by `vigil run`.

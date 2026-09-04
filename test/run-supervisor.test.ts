@@ -244,6 +244,127 @@ test("unconfirmed process-group termination is a supervisor error", { timeout: 6
   assert.equal(recomputeProtectedRunHash(result.receipt), result.receipt.receiptHash);
 });
 
+nodeTest("hidepid-inaccessible unrelated processes do not poison group evidence", {
+  skip: process.platform !== "linux",
+  timeout: 6_000,
+}, () => {
+  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
+  const script = `
+    (async () => {
+      const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+      const fs = (await import("node:fs")).default;
+      const { syncBuiltinESMExports } = await import("node:module");
+      const originalKill = process.kill.bind(process);
+      const originalReaddirSync = fs.readdirSync;
+      const originalReadFileSync = fs.readFileSync;
+      const originalStatSync = fs.statSync;
+      let groupPid;
+      let killSent = false;
+      let inaccessibleUid = process.geteuid() + 1;
+      const directory = (name) => ({ name: String(name), isDirectory: () => true });
+      const fakeStat = (pid) => {
+        const fields = [
+          "Z", "1", String(groupPid), "1", "1", "0", "0", "0", "0", "0",
+          "0", "0", "0", "0", "0", "0", "0", "1", "0", "100",
+        ];
+        return String(pid) + " (hidepid-target) " + fields.join(" ");
+      };
+      process.kill = (pid, signal) => {
+        if (typeof pid === "number" && pid < 0 && signal === 0 && killSent) return true;
+        const result = originalKill(pid, signal);
+        if (typeof pid === "number" && pid < 0 && signal === "SIGKILL") {
+          groupPid = -pid;
+          killSent = true;
+        }
+        return result;
+      };
+      fs.readdirSync = (...args) => {
+        const path = String(args[0]);
+        if (killSent && path === "/proc") {
+          return [directory(groupPid + 100_000), directory(groupPid)];
+        }
+        if (killSent && path === "/proc/" + groupPid + "/task") {
+          return [directory(groupPid)];
+        }
+        return originalReaddirSync(...args);
+      };
+      fs.readFileSync = (...args) => {
+        const path = String(args[0]);
+        if (killSent && path === "/proc/" + (groupPid + 100_000) + "/stat") {
+          throw Object.assign(new Error("simulated hidepid denial"), { code: "EACCES" });
+        }
+        if (killSent && (path === "/proc/" + groupPid + "/stat"
+          || path === "/proc/" + groupPid + "/task/" + groupPid + "/stat")) {
+          return fakeStat(groupPid);
+        }
+        return originalReadFileSync(...args);
+      };
+      fs.statSync = (...args) => {
+        const path = String(args[0]);
+        if (killSent && path === "/proc/" + (groupPid + 100_000)) {
+          return { uid: inaccessibleUid };
+        }
+        return originalStatSync(...args);
+      };
+      syncBuiltinESMExports();
+      const environment = { ...process.env };
+      delete environment.NODE_V8_COVERAGE;
+      try {
+        const run = () => executeProtectedRun({
+          executable: process.execPath,
+          args: ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],
+          cwd: process.cwd(),
+          environment,
+          timeLimitMs: 100,
+          terminationGraceMs: 0,
+          trajectoryLimits: {},
+          telemetryGraceMs: 200,
+        });
+        const unrelated = await run();
+        groupPid = undefined;
+        killSent = false;
+        inaccessibleUid = process.geteuid();
+        const possibleMember = await run();
+        process.stdout.write(JSON.stringify({ unrelated, possibleMember }));
+      } finally {
+        process.kill = originalKill;
+        fs.readdirSync = originalReaddirSync;
+        fs.readFileSync = originalReadFileSync;
+        fs.statSync = originalStatSync;
+        syncBuiltinESMExports();
+      }
+    })().catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  `;
+  const observed = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: coverageHarnessEnvironment(),
+    timeout: 5_000,
+  });
+  assert.equal(observed.error, undefined);
+  assert.equal(observed.status, 0, observed.stderr);
+  const result = JSON.parse(observed.stdout) as {
+    unrelated: ProtectedRunResult;
+    possibleMember: ProtectedRunResult;
+  };
+  assert.equal(result.unrelated.exitCode, 124);
+  assert.equal(result.unrelated.receipt.state, "STOPPED");
+  assert.equal(result.unrelated.receipt.stop?.code, "TIME_LIMIT");
+  assert.equal(result.unrelated.receipt.process.killSent, true);
+  assert.equal(result.unrelated.receipt.process.processGroupTerminationConfirmed, true);
+  assert.equal(recomputeProtectedRunHash(result.unrelated.receipt), result.unrelated.receipt.receiptHash);
+
+  assert.equal(result.possibleMember.exitCode, 125);
+  assert.equal(result.possibleMember.receipt.state, "ERROR");
+  assert.equal(result.possibleMember.receipt.stop?.code, "SUPERVISOR_ERROR");
+  assert.equal(result.possibleMember.receipt.process.killSent, true);
+  assert.equal(result.possibleMember.receipt.process.processGroupTerminationConfirmed, false);
+  assert.equal(recomputeProtectedRunHash(result.possibleMember.receipt), result.possibleMember.receipt.receiptHash);
+});
+
 nodeTest("changing Linux task membership is not accepted as zombie-only", {
   skip: process.platform !== "linux",
   timeout: 6_000,

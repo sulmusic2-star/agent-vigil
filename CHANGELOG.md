@@ -13,8 +13,10 @@
   process-group termination cannot be confirmed.
 - Distinguish Linux zombie-only process groups from executable descendants,
   including runnable threads hidden behind a zombie thread-group leader; require
-  stable repeated task-membership snapshots before confirming termination, and
-  exercise containment under a deliberately non-reaping container PID 1.
+  stable repeated task-membership snapshots before confirming termination,
+  avoid poisoning those snapshots with `hidepid`-inaccessible processes owned
+  by unrelated users, and exercise containment under a deliberately non-reaping
+  container PID 1.
 - Install the reviewed public App control workflow on the default branch so the
   Worker dispatch target exists before activation.
 - Make the hosted App readiness endpoint fail closed until every check,

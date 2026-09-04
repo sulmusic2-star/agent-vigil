@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { createHash as createHash32 } from "node:crypto";
-import { existsSync as existsSync15, readFileSync as readFileSync17, realpathSync as realpathSync23, statSync as statSync7 } from "node:fs";
+import { existsSync as existsSync15, readFileSync as readFileSync17, realpathSync as realpathSync23, statSync as statSync8 } from "node:fs";
 import { dirname as dirname12, isAbsolute as isAbsolute19, join as join24, relative as relative16, resolve as resolve43 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23269,7 +23269,7 @@ ${autopsyUsage()}`);
 }
 
 // src/run-cli.ts
-import { existsSync as existsSync14, realpathSync as realpathSync22, statSync as statSync6 } from "node:fs";
+import { existsSync as existsSync14, realpathSync as realpathSync22, statSync as statSync7 } from "node:fs";
 import { resolve as resolve42 } from "node:path";
 
 // src/run-supervisor.ts
@@ -23283,7 +23283,8 @@ import {
   readdirSync as readdirSync5,
   readFileSync as readFileSync16,
   readSync as readSync10,
-  realpathSync as realpathSync21
+  realpathSync as realpathSync21,
+  statSync as statSync6
 } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
@@ -23527,6 +23528,14 @@ function numericDirectoryNames(entries) {
 function sameNames(left, right) {
   return left.length === right.length && left.every((name2, index) => name2 === right[index]);
 }
+function isHidepidEntryOutsideSameUserBoundary(pid, processGroupId) {
+  if (pid === String(processGroupId) || typeof process.geteuid !== "function") return false;
+  try {
+    return statSync6(join23("/proc", pid)).uid !== process.geteuid();
+  } catch {
+    return false;
+  }
+}
 function snapshotLinuxProcessGroup(processGroupId) {
   let entries;
   try {
@@ -23544,6 +23553,7 @@ function snapshotLinuxProcessGroup(processGroupId) {
     } catch (error) {
       const code = error.code;
       if (code === "ENOENT" || code === "ESRCH") continue;
+      if ((code === "EACCES" || code === "EPERM") && isHidepidEntryOutsideSameUserBoundary(entry.name, processGroupId)) continue;
       incomplete = true;
       continue;
     }
@@ -24298,8 +24308,8 @@ function assertDistinctFiles(left, right) {
   const leftReal = realpathSync22(leftPath);
   const rightReal = realpathSync22(rightPath);
   if (leftReal === rightReal) throw new Error("run receipt and transcript outputs must not alias the same file");
-  const leftStatus = statSync6(leftReal);
-  const rightStatus = statSync6(rightReal);
+  const leftStatus = statSync7(leftReal);
+  const rightStatus = statSync7(rightReal);
   if (leftStatus.dev === rightStatus.dev && leftStatus.ino === rightStatus.ino) {
     throw new Error("run receipt and transcript outputs must not alias the same file");
   }
@@ -25581,7 +25591,7 @@ function assertGuardOutputIsDistinct(output, inputs) {
   const selected = resolve43(output);
   const selectedExists = existsSync15(selected);
   const selectedReal = selectedExists ? realpathSync23(selected) : selected;
-  const selectedStatus = selectedExists ? statSync7(selected) : void 0;
+  const selectedStatus = selectedExists ? statSync8(selected) : void 0;
   for (const input of inputs) {
     if (!input) continue;
     const requestedInput = resolve43(input);
@@ -25590,7 +25600,7 @@ function assertGuardOutputIsDistinct(output, inputs) {
     const realInput = realpathSync23(requestedInput);
     if (selectedReal === realInput) throw new Error("--output must not replace or alias a guard input");
     if (selectedStatus) {
-      const inputStatus = statSync7(realInput);
+      const inputStatus = statSync8(realInput);
       if (selectedStatus.dev === inputStatus.dev && selectedStatus.ino === inputStatus.ino) {
         throw new Error("--output must not replace or alias a guard input");
       }

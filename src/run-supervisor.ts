@@ -9,6 +9,7 @@ import {
   readFileSync,
   readSync,
   realpathSync,
+  statSync,
 } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
@@ -293,6 +294,15 @@ function sameNames(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((name, index) => name === right[index]);
 }
 
+function isHidepidEntryOutsideSameUserBoundary(pid: string, processGroupId: number): boolean {
+  if (pid === String(processGroupId) || typeof process.geteuid !== "function") return false;
+  try {
+    return statSync(join("/proc", pid)).uid !== process.geteuid();
+  } catch {
+    return false;
+  }
+}
+
 function snapshotLinuxProcessGroup(processGroupId: number): LinuxProcessGroupSnapshot {
   let entries;
   try {
@@ -311,6 +321,8 @@ function snapshotLinuxProcessGroup(processGroupId: number): LinuxProcessGroupSna
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT" || code === "ESRCH") continue;
+      if ((code === "EACCES" || code === "EPERM")
+        && isHidepidEntryOutsideSameUserBoundary(entry.name, processGroupId)) continue;
       incomplete = true;
       continue;
     }
