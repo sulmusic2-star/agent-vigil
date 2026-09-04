@@ -124,6 +124,30 @@ function tokenSum(values: number[], field: string): number {
 type UsageCounters = Omit<SessionUsage, "source" | "accounting" | "modelIds" | "recordsObserved" | "accountedUnits">;
 type UsageCounterSemantics = "cache-additive" | "cache-inclusive";
 
+function aliasedTokenCounter(value: Record<string, unknown>, primary: string, alias: string): number {
+  const hasPrimary = Object.prototype.hasOwnProperty.call(value, primary);
+  const hasAlias = Object.prototype.hasOwnProperty.call(value, alias);
+  const primaryValue = tokenCounter(value[primary], primary);
+  const aliasValue = tokenCounter(value[alias], alias);
+  if (hasPrimary && hasAlias && primaryValue !== aliasValue) {
+    throw new Error(`token usage counters ${primary} and ${alias} contradict`);
+  }
+  return hasPrimary ? primaryValue : aliasValue;
+}
+
+function validateUsageTotal(counters: UsageCounters, semantics: UsageCounterSemantics): UsageCounters {
+  const calculatedTotal = tokenSum(
+    semantics === "cache-inclusive"
+      ? [counters.inputTokens, counters.outputTokens]
+      : [counters.inputTokens, counters.cachedInputTokens, counters.cacheWriteInputTokens, counters.outputTokens],
+    "total_tokens",
+  );
+  if (counters.totalTokens < calculatedTotal) {
+    throw new Error("token usage total_tokens contradicts its component counters");
+  }
+  return counters;
+}
+
 function usageCounters(value: Record<string, unknown>, semantics: UsageCounterSemantics = "cache-additive"): UsageCounters {
   const recognizedFields = [
     "input_tokens",
@@ -139,16 +163,8 @@ function usageCounters(value: Record<string, unknown>, semantics: UsageCounterSe
     throw new Error("token usage record contains no recognized counters");
   }
   const inputTokens = tokenCounter(value.input_tokens, "input_tokens");
-  const cachedInputTokensPrimary = tokenCounter(value.cached_input_tokens, "cached_input_tokens");
-  const cachedInputTokensAlias = tokenCounter(value.cache_read_input_tokens, "cache_read_input_tokens");
-  const cachedInputTokens = value.cached_input_tokens === undefined
-    ? cachedInputTokensAlias
-    : cachedInputTokensPrimary;
-  const cacheWriteInputTokensPrimary = tokenCounter(value.cache_write_input_tokens, "cache_write_input_tokens");
-  const cacheWriteInputTokensAlias = tokenCounter(value.cache_creation_input_tokens, "cache_creation_input_tokens");
-  const cacheWriteInputTokens = value.cache_write_input_tokens === undefined
-    ? cacheWriteInputTokensAlias
-    : cacheWriteInputTokensPrimary;
+  const cachedInputTokens = aliasedTokenCounter(value, "cached_input_tokens", "cache_read_input_tokens");
+  const cacheWriteInputTokens = aliasedTokenCounter(value, "cache_write_input_tokens", "cache_creation_input_tokens");
   const outputTokens = tokenCounter(value.output_tokens, "output_tokens");
   const reasoningOutputTokens = tokenCounter(value.reasoning_output_tokens, "reasoning_output_tokens");
   const reportedTotal = tokenCounter(value.total_tokens, "total_tokens");
@@ -159,29 +175,26 @@ function usageCounters(value: Record<string, unknown>, semantics: UsageCounterSe
     "total_tokens",
   );
   const hasReportedTotal = Object.prototype.hasOwnProperty.call(value, "total_tokens");
-  if (hasReportedTotal && reportedTotal < calculatedTotal) {
-    throw new Error("token usage total_tokens contradicts its component counters");
-  }
-  return {
+  return validateUsageTotal({
     inputTokens,
     cachedInputTokens,
     cacheWriteInputTokens,
     outputTokens,
     reasoningOutputTokens,
     totalTokens: hasReportedTotal ? reportedTotal : calculatedTotal,
-  };
+  }, semantics);
 }
 
 function maxUsage(left: UsageCounters | undefined, right: UsageCounters): UsageCounters {
   if (!left) return right;
-  return {
+  return validateUsageTotal({
     inputTokens: Math.max(left.inputTokens, right.inputTokens),
     cachedInputTokens: Math.max(left.cachedInputTokens, right.cachedInputTokens),
     cacheWriteInputTokens: Math.max(left.cacheWriteInputTokens, right.cacheWriteInputTokens),
     outputTokens: Math.max(left.outputTokens, right.outputTokens),
     reasoningOutputTokens: Math.max(left.reasoningOutputTokens, right.reasoningOutputTokens),
     totalTokens: Math.max(left.totalTokens, right.totalTokens),
-  };
+  }, "cache-additive");
 }
 
 function parseClaude(rows: any[], transcriptSha256: string): LoadedTranscript {

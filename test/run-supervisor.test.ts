@@ -1380,6 +1380,8 @@ test("malformed token counters cannot satisfy a requested token cap", async () =
     ["unsafe integer", { input_tokens: Number.MAX_SAFE_INTEGER + 1, output_tokens: 0 }],
     ["aggregate overflow", { input_tokens: Number.MAX_SAFE_INTEGER, output_tokens: 1 }],
     ["invalid alias", { input_tokens: 1, cached_input_tokens: 1, cache_read_input_tokens: "1", output_tokens: 0 }],
+    ["conflicting alias", { input_tokens: 1, cached_input_tokens: 0, cache_read_input_tokens: 1_000, output_tokens: 0, total_tokens: 1 }],
+    ["conflicting write alias", { input_tokens: 1, cache_write_input_tokens: 0, cache_creation_input_tokens: 1_000, output_tokens: 0, total_tokens: 1 }],
     ["contradictory reported total", { input_tokens: 1_000, output_tokens: 1, total_tokens: 1 }],
     ["missing counters", {}],
   ];

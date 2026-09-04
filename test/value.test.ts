@@ -76,6 +76,55 @@ test("Claude usage deduplicates streamed assistant message IDs using final maxim
   });
 });
 
+test("Claude usage rejects conflicting aliases and incoherent deduplicated snapshots", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-claude-usage-conflict-"));
+  const transcript = join(root, "claude.jsonl");
+  const assistant = (usage: Record<string, number>) => ({
+    type: "assistant",
+    message: {
+      id: "m1",
+      model: "claude-test",
+      content: [{ type: "text", text: "working" }],
+      usage,
+    },
+  });
+
+  writeFileSync(transcript, JSON.stringify(assistant({
+    input_tokens: 1,
+    cached_input_tokens: 0,
+    cache_read_input_tokens: 1_000,
+    output_tokens: 0,
+    total_tokens: 1,
+  })));
+  assert.throws(() => loadTranscript(transcript), /cached_input_tokens and cache_read_input_tokens contradict/);
+
+  writeFileSync(transcript, JSON.stringify(assistant({
+    input_tokens: 1,
+    cache_write_input_tokens: 0,
+    cache_creation_input_tokens: 1_000,
+    output_tokens: 0,
+    total_tokens: 1,
+  })));
+  assert.throws(() => loadTranscript(transcript), /cache_write_input_tokens and cache_creation_input_tokens contradict/);
+
+  writeFileSync(transcript, JSON.stringify(assistant({
+    input_tokens: 1,
+    cached_input_tokens: 2,
+    cache_read_input_tokens: 2,
+    cache_write_input_tokens: 3,
+    cache_creation_input_tokens: 3,
+    output_tokens: 4,
+    total_tokens: 10,
+  })));
+  assert.equal(loadTranscript(transcript).usage?.totalTokens, 10);
+
+  writeFileSync(transcript, [
+    assistant({ input_tokens: 100, output_tokens: 1, total_tokens: 101 }),
+    assistant({ input_tokens: 1, output_tokens: 100, total_tokens: 101 }),
+  ].map((row) => JSON.stringify(row)).join("\n"));
+  assert.throws(() => loadTranscript(transcript), /total_tokens contradicts its component counters/);
+});
+
 test("Codex usage selects the greatest cumulative session snapshot", () => {
   const { loaded } = fixture();
   assert.deepEqual(loaded.usage, {
