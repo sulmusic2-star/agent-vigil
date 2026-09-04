@@ -11,8 +11,8 @@ test("the public entry point gives one install path, one result, and an honest A
   const readme = read("README.md");
   const form = read(".github/ISSUE_TEMPLATE/adopter-feedback.yml");
   assert.match(readme, /Agent Vigil is an independent merge check for AI-assisted pull requests/);
-  assert.match(readme, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.24\.2\/sulmusic-agent-vigil-0\.24\.2\.tgz protect --repo \./);
-  assert.match(readme, /--package=@sulmusic\/agent-vigil@0\.24\.2 agent-vigil protect --repo \./);
+  assert.match(readme, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.24\.3\/sulmusic-agent-vigil-0\.24\.3\.tgz protect --repo \./);
+  assert.match(readme, /--package=@sulmusic\/agent-vigil@0\.24\.3 agent-vigil protect --repo \./);
   assert.doesNotMatch(readme, /source release candidate/);
   assert.match(readme, /same\s+package version selected above/s);
   assert.match(readme, /open one setup\s+pull request.*read\s+one result/s);
