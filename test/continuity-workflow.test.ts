@@ -9,7 +9,7 @@ import { installContinuityAction } from "../src/continuity/workflow.ts";
 const ACTION_COMMIT = "a".repeat(40);
 const CHECKOUT_COMMIT = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const SETUP_NODE_COMMIT = "820762786026740c76f36085b0efc47a31fe5020";
-const DOWNLOAD_COMMIT = "634f93cb2916e3fdff6788551b99b062d0335ce0";
+const DOWNLOAD_COMMIT = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
 
 function repository(): string {
   const repo = mkdtempSync(join(tmpdir(), "vigil-continuity-workflow-"));

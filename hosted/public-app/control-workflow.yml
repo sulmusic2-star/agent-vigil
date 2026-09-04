@@ -104,7 +104,7 @@ jobs:
         name: Mint a short-lived checkout token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ID }}
+          client-id: ${{ vars.AGENT_VIGIL_PUBLIC_APP_CLIENT_ID }}
           private-key: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_PRIVATE_KEY }}
           owner: ${{ needs.authenticate.outputs.owner }}
           repositories: ${{ needs.authenticate.outputs.name }}
@@ -209,7 +209,7 @@ jobs:
           fi
       - id: vigil
         name: Run the independent exact-commit gate
-        uses: sulmusic2-star/agent-vigil@be0393135685578dee2fa9837dca59060b695a91 # reviewed workflow-dispatch runtime bytes
+        uses: sulmusic2-star/agent-vigil@6b6ee63bfc5c86c834948404af00bfe7f56826bd # reviewed workflow-dispatch runtime bytes
         with:
           mode: ${{ needs.authenticate.outputs.event == 'pull_request' && 'maintainer' || 'merge-group' }}
           pull-request-event: ${{ needs.authenticate.outputs.event == 'pull_request' && steps.change-event.outputs.path || '' }}
@@ -223,7 +223,7 @@ jobs:
           candidate-setup-cmd: npm ci --ignore-scripts
       - name: Retain the customer receipt in the central control repository
         if: always() && steps.vigil.outputs.report != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-vigil-${{ needs.authenticate.outputs.owner }}-${{ needs.authenticate.outputs.name }}-${{ needs.authenticate.outputs.head-sha }}
           path: |
@@ -243,7 +243,7 @@ jobs:
       - id: token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ID }}
+          client-id: ${{ vars.AGENT_VIGIL_PUBLIC_APP_CLIENT_ID }}
           private-key: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_PRIVATE_KEY }}
           owner: ${{ needs.authenticate.outputs.owner }}
           repositories: ${{ needs.authenticate.outputs.name }}

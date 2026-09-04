@@ -101,12 +101,15 @@ Keep the App webhook inactive after deployment. Configure its URL as
 the App and Worker. Before enabling delivery, add the Worker's
 `DISPATCH_SECRET` value to the protected `agent-vigil-gate` environment as
 `AGENT_VIGIL_MERGE_GROUP_DISPATCH_SECRET`. The protected environment also needs
-the registered queue App's numeric ID as the variable
-`AGENT_VIGIL_GATE_APP_ID`, the exact bot login as the variable
+the registered queue App's client ID as the variable
+`AGENT_VIGIL_GATE_CLIENT_ID`, the exact bot login as the variable
 `AGENT_VIGIL_GATE_ACTOR`, and the same private key as the secret
 `AGENT_VIGIL_GATE_PRIVATE_KEY`. The Worker receives those credentials under
-its own names, `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`; do not put either
-private-key value in repository variables or files.
+its own names, `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`; the Worker still
+uses the numeric App ID to request installation tokens. Do not put either
+private-key value in repository variables or files. If this environment was
+configured before the client-ID migration, replace `AGENT_VIGIL_GATE_APP_ID`
+with `AGENT_VIGIL_GATE_CLIENT_ID` before running the workflow.
 
 Only after all three environment credentials are present and the earlier
 non-`main` negative test has passed should you enable the App webhook.
