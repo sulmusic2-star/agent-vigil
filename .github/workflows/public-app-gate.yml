@@ -35,7 +35,7 @@ jobs:
         env:
           DISPATCH_SECRET: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_DISPATCH_SECRET }}
           ACTOR: ${{ github.actor }}
-          EXPECTED_ACTOR: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ACTOR }}
+          EXPECTED_ACTOR: ${{ vars.AGENT_VIGIL_CONTROL_APP_ACTOR || vars.AGENT_VIGIL_PUBLIC_APP_ACTOR }}
           DISPATCH_ENVELOPE: ${{ inputs.envelope }}
           DISPATCH_SIGNATURE: ${{ inputs.dispatchSignature }}
         run: |
@@ -57,7 +57,7 @@ jobs:
             return input.split("/").every((part) => part && !part.startsWith(".") && !part.endsWith(".lock"));
           }
           if (!e.DISPATCH_SECRET || e.DISPATCH_SECRET.length < 32) throw new Error("dispatch secret is missing or too short");
-          if (!e.EXPECTED_ACTOR || e.ACTOR !== e.EXPECTED_ACTOR) throw new Error("dispatch actor is not the Agent Vigil App");
+          if (!e.EXPECTED_ACTOR || e.ACTOR !== e.EXPECTED_ACTOR) throw new Error("dispatch actor is not the Agent Vigil control App");
           if (!/^[A-Za-z0-9_-]+$/.test(envelope) || envelope.length > 8192) throw new Error("dispatch envelope is invalid");
           if (!signature.test(e.DISPATCH_SIGNATURE ?? "")) throw new Error("dispatch signature is invalid");
           const expected = `sha256=${createHmac("sha256", e.DISPATCH_SECRET).update(envelope).digest("hex")}`;
@@ -98,10 +98,22 @@ jobs:
     outputs:
       vigil-status: ${{ steps.vigil.outputs.status }}
       receipt-hash: ${{ steps.vigil.outputs['receipt-hash'] }}
+      pr-body-sha256: ${{ steps.change-event.outputs.pr_body_sha256 }}
     steps:
+      - id: checkout-token
+        name: Mint a short-lived checkout token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ID }}
+          private-key: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_PRIVATE_KEY }}
+          owner: ${{ needs.authenticate.outputs.owner }}
+          repositories: ${{ needs.authenticate.outputs.name }}
+          permission-contents: read
+          permission-pull-requests: read
       - id: change-event
-        name: Materialize the authenticated exact-change envelope outside the checkout
+        name: Materialize trusted pull-request or merge-group evidence outside the checkout
         env:
+          APP_TOKEN: ${{ steps.checkout-token.outputs.token }}
           EVENT_KIND: ${{ needs.authenticate.outputs.event }}
           TARGET_REPOSITORY: ${{ needs.authenticate.outputs.repository }}
           DELIVERY_ID: ${{ needs.authenticate.outputs.delivery-id }}
@@ -113,34 +125,61 @@ jobs:
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
           import { appendFileSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
           import { join } from "node:path";
           const e = process.env;
+          async function request(path) {
+            const response = await fetch(`${e.GITHUB_API_URL}${path}`, {
+              headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${e.APP_TOKEN}`, "X-GitHub-Api-Version": "2026-03-10" },
+            });
+            const declared = Number(response.headers.get("content-length") ?? "0");
+            if (Number.isFinite(declared) && declared > 1048576) throw new Error("GitHub pull-request response is too large");
+            const body = await response.text();
+            if (Buffer.byteLength(body) > 1048576) throw new Error("GitHub pull-request response is too large");
+            if (!response.ok) throw new Error(`GitHub API ${response.status}: ${body.slice(0, 256)}`);
+            return JSON.parse(body);
+          }
           const root = realpathSync(e.RUNNER_TEMP);
           const stat = lstatSync(root);
           if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("runner temporary directory is not a real directory");
           const path = join(root, `agent-vigil-public-app-${e.DELIVERY_ID}.json`);
-          const baseRef = e.BASE_REF.startsWith("refs/") ? e.BASE_REF : `refs/heads/${e.BASE_REF}`;
-          const headRef = e.HEAD_REF || `refs/pull/${e.PR_NUMBER}/head`;
-          const event = {
-            action: "checks_requested",
-            source_event: e.EVENT_KIND,
-            repository: { full_name: e.TARGET_REPOSITORY },
-            merge_group: { base_sha: e.BASE_SHA, head_sha: e.HEAD_SHA, base_ref: baseRef, head_ref: headRef },
-          };
+          let prBodySha256 = "";
+          let event;
+          if (e.EVENT_KIND === "pull_request") {
+            const pull = await request(`/repos/${e.TARGET_REPOSITORY}/pulls/${e.PR_NUMBER}`);
+            if (pull?.state !== "open" || String(pull?.number) !== e.PR_NUMBER
+              || pull?.base?.repo?.full_name !== e.TARGET_REPOSITORY
+              || pull?.base?.sha !== e.BASE_SHA || pull?.head?.sha !== e.HEAD_SHA || pull?.base?.ref !== e.BASE_REF
+              || typeof pull?.user?.login !== "string" || !pull.user.login
+              || (pull?.body !== null && pull?.body !== undefined && typeof pull.body !== "string")) {
+              throw new Error("live pull-request evidence does not match the signed exact-change envelope");
+            }
+            event = {
+              action: "synchronize",
+              source_event: "pull_request",
+              repository: { full_name: e.TARGET_REPOSITORY },
+              pull_request: {
+                number: pull.number,
+                user: { login: pull.user.login },
+                body: pull.body ?? "",
+                base: { sha: pull.base.sha, ref: pull.base.ref },
+                head: { sha: pull.head.sha, ref: pull.head.ref },
+              },
+            };
+            prBodySha256 = createHash("sha256").update(pull.body ?? "", "utf8").digest("hex");
+          } else {
+            const baseRef = e.BASE_REF.startsWith("refs/") ? e.BASE_REF : `refs/heads/${e.BASE_REF}`;
+            event = {
+              action: "checks_requested",
+              source_event: "merge_group",
+              repository: { full_name: e.TARGET_REPOSITORY },
+              merge_group: { base_sha: e.BASE_SHA, head_sha: e.HEAD_SHA, base_ref: baseRef, head_ref: e.HEAD_REF },
+            };
+          }
           writeFileSync(path, `${JSON.stringify(event)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
-          appendFileSync(e.GITHUB_OUTPUT, `path=${path}\n`);
+          appendFileSync(e.GITHUB_OUTPUT, `path=${path}\npr_body_sha256=${prBodySha256}\n`);
           NODE
-      - id: checkout-token
-        name: Mint a short-lived checkout token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ID }}
-          private-key: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_PRIVATE_KEY }}
-          owner: ${{ needs.authenticate.outputs.owner }}
-          repositories: ${{ needs.authenticate.outputs.name }}
-          permission-contents: read
-          permission-pull-requests: read
       - name: Select the exact trusted host Node.js runtime
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -172,8 +211,9 @@ jobs:
         name: Run the independent exact-commit gate
         uses: sulmusic2-star/agent-vigil@9e0fe19af9972e5d7f7b6d0e82516ca5c94c60b4 # reviewed workflow-dispatch runtime bytes
         with:
-          mode: merge-group
-          merge-group-event: ${{ steps.change-event.outputs.path }}
+          mode: ${{ needs.authenticate.outputs.event == 'pull_request' && 'maintainer' || 'merge-group' }}
+          pull-request-event: ${{ needs.authenticate.outputs.event == 'pull_request' && steps.change-event.outputs.path || '' }}
+          merge-group-event: ${{ needs.authenticate.outputs.event == 'merge_group' && steps.change-event.outputs.path || '' }}
           repo: .
           base: ${{ needs.authenticate.outputs.base-sha }}
           head: ${{ needs.authenticate.outputs.head-sha }}
@@ -224,9 +264,11 @@ jobs:
           EVIDENCE_RESULT: ${{ needs.evidence.result }}
           VIGIL_STATUS: ${{ needs.evidence.outputs.vigil-status }}
           RECEIPT_HASH: ${{ needs.evidence.outputs.receipt-hash }}
+          EXPECTED_PR_BODY_SHA256: ${{ needs.evidence.outputs.pr-body-sha256 }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
           const e = process.env;
           async function request(path, options = {}) {
             const response = await fetch(`${e.GITHUB_API_URL}${path}`, {
@@ -240,7 +282,11 @@ jobs:
           let current = false;
           if (e.EVENT_KIND === "pull_request") {
             const pull = await request(`/repos/${e.TARGET_REPOSITORY}/pulls/${e.PR_NUMBER}`);
-            current = pull?.state === "open" && pull?.base?.sha === e.BASE_SHA && pull?.head?.sha === e.HEAD_SHA;
+            const body = pull?.body ?? "";
+            const bodyCurrent = /^[0-9a-f]{64}$/.test(e.EXPECTED_PR_BODY_SHA256 ?? "")
+              && typeof body === "string"
+              && createHash("sha256").update(body, "utf8").digest("hex") === e.EXPECTED_PR_BODY_SHA256;
+            current = pull?.state === "open" && pull?.base?.sha === e.BASE_SHA && pull?.head?.sha === e.HEAD_SHA && bodyCurrent;
           } else {
             try {
               const ref = e.HEAD_REF.replace(/^refs\//, "");
@@ -251,7 +297,7 @@ jobs:
           const receiptValid = /^sha256:[0-9a-f]{64}$/.test(e.RECEIPT_HASH ?? "");
           const status = current && e.EVIDENCE_RESULT === "success" && e.VIGIL_STATUS === "PASS" && receiptValid
             ? "PASS"
-            : e.VIGIL_STATUS === "FAIL" ? "FAIL" : "NOT CHECKED";
+            : current && e.VIGIL_STATUS === "FAIL" ? "FAIL" : "NOT CHECKED";
           const conclusion = status === "PASS" ? "success" : "failure";
           const summary = status === "PASS"
             ? "Independent verification passed for the exact current commit."
