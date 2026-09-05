@@ -36,3 +36,10 @@ that result establishes.
 The product claim is intentionally narrow: these cases show that the project
 can publish its own failures with exact revisions and keep them as regression
 controls. They do not establish a market-wide false-verdict rate.
+
+## Open staging regression
+
+[A good new test hid an emptied old test](cases/04-mixed-change-false-pass.md)
+records a planted mixed-change failure that the staging App missed. Its local
+fix is not yet a published release. This case is separate from the three-case
+historical replay above.

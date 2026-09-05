@@ -1,25 +1,25 @@
-# Install Agent Vigil v0.24.3 without npm
+# Install Agent Vigil v0.24.4 without npm
 
-This guide describes the v0.24.3 package. Check its release page and checksum
+This guide describes the v0.24.4 package. Check its release page and checksum
 before installation. A missing download or failed checksum must stop the install.
 
 ## Verify the GitHub package
 
-Open the [v0.24.3 release page](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.24.3). Do not continue unless it contains both
-`sulmusic-agent-vigil-0.24.3.tgz` and
-`sulmusic-agent-vigil-0.24.3.tgz.sha256`.
+Open the [v0.24.4 release page](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.24.4). Do not continue unless it contains both
+`sulmusic-agent-vigil-0.24.4.tgz` and
+`sulmusic-agent-vigil-0.24.4.tgz.sha256`.
 
 ```bash
 curl -fLO \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz && \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz && \
 curl -fLO \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz.sha256 && \
-shasum -a 256 -c sulmusic-agent-vigil-0.24.3.tgz.sha256 && \
-npx --yes ./sulmusic-agent-vigil-0.24.3.tgz protect --repo .
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz.sha256 && \
+shasum -a 256 -c sulmusic-agent-vigil-0.24.4.tgz.sha256 && \
+npx --yes ./sulmusic-agent-vigil-0.24.4.tgz protect --repo .
 ```
 
 A successful `protect` run prints a `doctor` command that uses this same
-immutable v0.24.3 GitHub package. It does not depend on npm publication.
+immutable v0.24.4 GitHub package. It does not depend on npm publication.
 
 ## One setup pull request
 
@@ -39,7 +39,7 @@ The automatic path recognizes a narrow root Node/npm layout. Other toolchains
 use the immutable common runner and an explicit command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
@@ -54,8 +54,8 @@ needs dependencies preinstalled.
 Check this exact version, not the registry's moving `latest` tag:
 
 ```bash
-npm view @sulmusic/agent-vigil@0.24.3 version
-npm view @sulmusic/agent-vigil@0.24.3 dist.integrity
+npm view @sulmusic/agent-vigil@0.24.4 version
+npm view @sulmusic/agent-vigil@0.24.4 dist.integrity
 ```
 
 If npm cannot find that version, use the verified GitHub download above instead.
