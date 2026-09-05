@@ -17,11 +17,13 @@
       ".agent-vigil.json",
       "action.yml",
       "dist/cli.js",
+      "dist/run-telemetry-worker.js",
       "package.json",
       "package-lock.json",
       "npm-shrinkwrap.json",
       ".npmrc",
       "tsconfig*.json",
+      "scripts/build_cli.mjs",
       "test/package-surface.test.ts",
       "test-hosted/repository-contract.test.ts"
     ],

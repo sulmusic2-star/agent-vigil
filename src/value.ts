@@ -4,7 +4,7 @@ import { canonical, type ReportStatus, type TrustReport } from "./report.ts";
 import type { SessionUsage } from "./transcript.ts";
 import type { TrajectoryMetrics } from "./authority.ts";
 
-export type CostSource = "provider-billed" | "subscription-allocated" | "user-estimated";
+export type CostSource = "provider-billed" | "provider-exported" | "subscription-allocated" | "user-estimated";
 export type MaintainerDisposition = "accepted" | "dismissed" | "changes-requested" | "unreviewed";
 export type ChangeOutcome = "merged" | "closed" | "reverted" | "hotfixed" | "incident-linked" | "unknown";
 export type ValueVerdict = "POSITIVE" | "NEGATIVE" | "INCONCLUSIVE";

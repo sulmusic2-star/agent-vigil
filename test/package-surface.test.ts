@@ -243,6 +243,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/CONTINUITY_LAB.md",
     "docs/CONTINUITY_STAPLE.md",
     "docs/CONTROL_PROOF.md",
+    "docs/EXACT_COST_EVIDENCE.md",
     "docs/GITHUB_MARKER.md",
     "docs/GITHUB_OUTCOME_EVIDENCE.md",
     "docs/GUARD_COMPATIBILITY.md",
@@ -258,10 +259,12 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/HOSTED_OUTCOME_PRICING.md",
     "docs/OUTCOME_MANDATES.md",
     "docs/PROOF_COMMENT.md",
+    "docs/PROTECTED_RUN.md",
     "docs/PUBLIC_PR_RECEIPT.md",
     "docs/PUBLIC_RELEASE_POLICY.md",
     "docs/RECEIPT_DELTAS.md",
     "docs/RECEIPTS.md",
+    "docs/RUN_AUTOPSY.md",
     "docs/TERRAFORM_PLAN_GATE.md",
     "docs/TEST_INTEGRITY_GUARD.md",
     "docs/THREAT_MODEL.md",
@@ -306,9 +309,11 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/policy.schema.json",
     "docs/portable-receipt-v1.schema.json",
     "docs/public-pr-receipt-v1.schema.json",
+    "docs/protected-run-v1.schema.json",
     "docs/outcome-mandate-v0.1.schema.json",
     "docs/outcome-receipt-v0.1.schema.json",
     "docs/receipt-v2.schema.json",
+    "docs/run-autopsy-v1.schema.json",
     "docs/signed-control-proof-v1.schema.json",
     "docs/upgrade-canary-v1.schema.json",
     "docs/upgrade-config-v1.schema.json",
@@ -347,6 +352,7 @@ test("npm package surface excludes internal product and commercial working docum
   const packedPaths = packedPackagePaths();
   assert.equal(new Set(packedPaths).size, packedPaths.length, "npm pack manifest paths must be unique");
   assert.ok(packedPaths.includes("DISCLOSURE"), "DISCLOSURE must be at the root of the concrete npm package");
+  assert.ok(packedPaths.includes("dist/run-telemetry-worker.js"), "the protected-run telemetry worker must ship with the CLI");
   for (const packedPath of packedPaths) {
     assert.ok(
       packedPath === "package.json" || files.some((entry) => manifestEntryCoversPath(entry, packedPath)),
@@ -404,6 +410,8 @@ test("repository protection runs one direct offline test contract after bounded 
   assert.ok((policy.maintainer?.protectedPaths as string[]).includes(".agent-vigil.json"));
   assert.ok((policy.maintainer?.protectedPaths as string[]).includes(".github/workflows/**"));
   assert.ok((policy.maintainer?.protectedPaths as string[]).includes("dist/cli.js"));
+  assert.ok((policy.maintainer?.protectedPaths as string[]).includes("dist/run-telemetry-worker.js"));
+  assert.ok((policy.maintainer?.protectedPaths as string[]).includes("scripts/build_cli.mjs"));
   assert.ok((policy.maintainer?.protectedPaths as string[]).includes("test/package-surface.test.ts"));
 });
 
@@ -449,6 +457,33 @@ test("candidate CI never masquerades as trusted Agent Vigil evidence", () => {
   assert.match(ci, /AGENT_VIGIL_REQUIRE_REAL_DOCKER:\s*"true"/);
   assert.match(ci, /node@sha256:[0-9a-f]{64}/);
   assert.match(ci, /docker image inspect/);
+  assert.match(ci, /Run protected group regression under a non-reaping PID 1/);
+  assert.match(ci, /docker exec --env AGENT_VIGIL_REQUIRE_LINUX_THREAD_FIXTURE=true "\$container"/);
+  assert.match(ci, /a zombie process leader cannot hide a runnable worker thread/);
+  const containmentPattern = ci.match(/--test-name-pattern="([^"]+)"/)?.[1];
+  assert.ok(containmentPattern, "candidate CI declares its focused Linux containment pattern");
+  const containmentNames = containmentPattern.split("|");
+  assert.deepEqual([...containmentNames].sort(), [
+    "wall limit terminates an ordinary descendant",
+    "a leader cannot leave an ordinary same-group descendant",
+    "a zombie process leader cannot hide a runnable worker thread",
+    "changing Linux task membership is not accepted as zombie-only",
+    "hidepid-inaccessible processes require a stable pre-launch identity",
+  ].sort(), "candidate CI must retain every required containment test exactly once");
+  const runSupervisorTests = readFileSync(new URL("run-supervisor.test.ts", import.meta.url), "utf8");
+  const runSupervisorTestNames = [...runSupervisorTests.matchAll(/(?:nodeTest|test)\("([^"]+)"/g)]
+    .map((match) => match[1]);
+  for (const pattern of containmentNames) {
+    assert.ok(
+      runSupervisorTestNames.some((name) => new RegExp(pattern).test(name)),
+      `candidate CI containment pattern matches no test: ${pattern}`,
+    );
+  }
+  assert.match(
+    ci,
+    /- name: Exercise the packed package\n\s+if: matrix\.node == 20 \|\| matrix\.node == 22\n\s+run: npm run test:package/,
+    "the minimum supported Node runtime exercises the generated package worker",
+  );
   const portability = ci.match(/\n  portability:\n([\s\S]*?)(?=\n  [a-z][a-z-]*:\n)/)?.[1];
   assert.ok(portability, "candidate CI retains its portability job");
   const textContract = portability.indexOf("git config --global core.autocrlf false");
@@ -516,7 +551,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "b6b170178ebf803f29480dd19f68af29bc2f33935add6077330db49f9560097d",
+    "control-proof-weekly.yml": "cfeecd8e3cacbb33317a1fbec619e71051cbc5f894ad6ba59632a2c80db9843a",
     "publish.yml": "42717f1fd22395db0c7bae200161430ae12639032b4fc3379994443bb1ca54af",
   };
 
@@ -808,21 +843,34 @@ test("reviewed self pin and source-dist identity are a visible release gate", (c
   const runtimeCommit = selfReferences[0];
   execFileSync("git", ["cat-file", "-e", `${runtimeCommit}^{commit}`], { cwd: ROOT, stdio: "pipe" });
   execFileSync("git", ["merge-base", "--is-ancestor", runtimeCommit, "HEAD"], { cwd: ROOT, stdio: "pipe" });
-  execFileSync("git", ["diff", "--quiet", runtimeCommit, "--", "action.yml", "src", "dist/cli.js"], { cwd: ROOT, stdio: "pipe" });
+  execFileSync("git", [
+    "diff", "--quiet", runtimeCommit, "--",
+    "action.yml", "src", "dist/cli.js", "dist/run-telemetry-worker.js", "scripts/build_cli.mjs", "package.json",
+  ], { cwd: ROOT, stdio: "pipe" });
 
   const temporary = mkdtempSync(join(tmpdir(), "agent-vigil-package-surface-"));
-  const rebuilt = join(temporary, "cli.js");
   buildSync({
-    entryPoints: [join(ROOT, "src", "cli.ts")],
+    entryPoints: {
+      cli: join(ROOT, "src", "cli.ts"),
+      "run-telemetry-worker": join(ROOT, "src", "run-telemetry-worker.ts"),
+    },
     bundle: true,
     platform: "node",
     format: "esm",
     target: "node20",
-    outfile: rebuilt,
+    outdir: temporary,
+    entryNames: "[name]",
+    define: { __AGENT_VIGIL_BUILD_SHA__: JSON.stringify("") },
     logLevel: "silent",
   });
   const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
-  assert.equal(sha256(join(ROOT, "dist", "cli.js")), sha256(rebuilt), "dist/cli.js must be the deterministic bundle of the pinned source");
+  for (const filename of ["cli.js", "run-telemetry-worker.js"]) {
+    assert.equal(
+      sha256(join(ROOT, "dist", filename)),
+      sha256(join(temporary, filename)),
+      `dist/${filename} must be the deterministic bundle of the pinned source`,
+    );
+  }
 });
 
 test("CodeQL scans maintained source while excluding deterministic bundles and hostile fixtures", () => {

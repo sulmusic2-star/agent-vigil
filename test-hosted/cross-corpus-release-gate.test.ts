@@ -83,7 +83,7 @@ test("the committed benchmark ledger states its current quality and review burde
   assert.equal(real.schemaVersion, 2);
   assert.equal(real.source.commit, frozenSha);
   assert.equal(real.source.corpusTree, FROZEN_CROSS_CORPUS_GATE.source.realPrTree);
-  assert.equal(real.presumedClean.prsWithAdvisories, 99);
+  assert.equal(real.presumedClean.prsWithAdvisories, 100);
   assert.equal(real.presumedClean.incompleteStaticAudits, 9);
   assert.equal(real.arbiterAgreedTrueCheats.anyAdvisory, 4);
   assert.equal(real.arbiterAgreedTrueCheats.exactCategoryAdvisory, 2);

@@ -19,7 +19,7 @@ export type SessionToolCall = {
   input: string;
   output?: string;
   isError?: boolean;
-  timestamp?: string;
+  timestamp?: string | number;
   sequence: number;
 };
 
@@ -46,7 +46,7 @@ export type LoadedTranscript = {
   usage?: SessionUsage;
 };
 
-const MAX_TRANSCRIPT_BYTES = 50 * 1024 * 1024;
+export const MAX_TRANSCRIPT_BYTES = 50 * 1024 * 1024;
 
 function readBounded(path: string): string {
   return readRegularUtf8(path, MAX_TRANSCRIPT_BYTES, "transcript");
@@ -107,39 +107,94 @@ function textFromBlocks(content: unknown): string[] {
   return out;
 }
 
-function nonNegativeNumber(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+function tokenCounter(value: unknown, field: string): number {
+  if (value === undefined) return 0;
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`invalid token usage counter ${field}`);
+  }
+  return value as number;
+}
+
+function tokenSum(values: number[], field: string): number {
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (!Number.isSafeInteger(total)) throw new Error(`invalid token usage aggregate ${field}`);
+  return total;
 }
 
 type UsageCounters = Omit<SessionUsage, "source" | "accounting" | "modelIds" | "recordsObserved" | "accountedUnits">;
+type UsageCounterSemantics = "cache-additive" | "cache-inclusive";
 
-function usageCounters(value: Record<string, unknown>): UsageCounters {
-  const inputTokens = nonNegativeNumber(value.input_tokens);
-  const cachedInputTokens = nonNegativeNumber(value.cached_input_tokens ?? value.cache_read_input_tokens);
-  const cacheWriteInputTokens = nonNegativeNumber(value.cache_write_input_tokens ?? value.cache_creation_input_tokens);
-  const outputTokens = nonNegativeNumber(value.output_tokens);
-  const reasoningOutputTokens = nonNegativeNumber(value.reasoning_output_tokens);
-  const reportedTotal = nonNegativeNumber(value.total_tokens);
-  return {
+function aliasedTokenCounter(value: Record<string, unknown>, primary: string, alias: string): number {
+  const hasPrimary = Object.prototype.hasOwnProperty.call(value, primary);
+  const hasAlias = Object.prototype.hasOwnProperty.call(value, alias);
+  const primaryValue = tokenCounter(value[primary], primary);
+  const aliasValue = tokenCounter(value[alias], alias);
+  if (hasPrimary && hasAlias && primaryValue !== aliasValue) {
+    throw new Error(`token usage counters ${primary} and ${alias} contradict`);
+  }
+  return hasPrimary ? primaryValue : aliasValue;
+}
+
+function validateUsageTotal(counters: UsageCounters, semantics: UsageCounterSemantics): UsageCounters {
+  const calculatedTotal = tokenSum(
+    semantics === "cache-inclusive"
+      ? [counters.inputTokens, counters.outputTokens]
+      : [counters.inputTokens, counters.cachedInputTokens, counters.cacheWriteInputTokens, counters.outputTokens],
+    "total_tokens",
+  );
+  if (counters.totalTokens < calculatedTotal) {
+    throw new Error("token usage total_tokens contradicts its component counters");
+  }
+  return counters;
+}
+
+function usageCounters(value: Record<string, unknown>, semantics: UsageCounterSemantics = "cache-additive"): UsageCounters {
+  const recognizedFields = [
+    "input_tokens",
+    "cached_input_tokens",
+    "cache_read_input_tokens",
+    "cache_write_input_tokens",
+    "cache_creation_input_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+    "total_tokens",
+  ];
+  if (!recognizedFields.some((field) => Object.prototype.hasOwnProperty.call(value, field))) {
+    throw new Error("token usage record contains no recognized counters");
+  }
+  const inputTokens = tokenCounter(value.input_tokens, "input_tokens");
+  const cachedInputTokens = aliasedTokenCounter(value, "cached_input_tokens", "cache_read_input_tokens");
+  const cacheWriteInputTokens = aliasedTokenCounter(value, "cache_write_input_tokens", "cache_creation_input_tokens");
+  const outputTokens = tokenCounter(value.output_tokens, "output_tokens");
+  const reasoningOutputTokens = tokenCounter(value.reasoning_output_tokens, "reasoning_output_tokens");
+  const reportedTotal = tokenCounter(value.total_tokens, "total_tokens");
+  const calculatedTotal = tokenSum(
+    semantics === "cache-inclusive"
+      ? [inputTokens, outputTokens]
+      : [inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens],
+    "total_tokens",
+  );
+  const hasReportedTotal = Object.prototype.hasOwnProperty.call(value, "total_tokens");
+  return validateUsageTotal({
     inputTokens,
     cachedInputTokens,
     cacheWriteInputTokens,
     outputTokens,
     reasoningOutputTokens,
-    totalTokens: reportedTotal || inputTokens + cachedInputTokens + cacheWriteInputTokens + outputTokens,
-  };
+    totalTokens: hasReportedTotal ? reportedTotal : calculatedTotal,
+  }, semantics);
 }
 
 function maxUsage(left: UsageCounters | undefined, right: UsageCounters): UsageCounters {
   if (!left) return right;
-  return {
+  return validateUsageTotal({
     inputTokens: Math.max(left.inputTokens, right.inputTokens),
     cachedInputTokens: Math.max(left.cachedInputTokens, right.cachedInputTokens),
     cacheWriteInputTokens: Math.max(left.cacheWriteInputTokens, right.cacheWriteInputTokens),
     outputTokens: Math.max(left.outputTokens, right.outputTokens),
     reasoningOutputTokens: Math.max(left.reasoningOutputTokens, right.reasoningOutputTokens),
     totalTokens: Math.max(left.totalTokens, right.totalTokens),
-  };
+  }, "cache-additive");
 }
 
 function parseClaude(rows: any[], transcriptSha256: string): LoadedTranscript {
@@ -186,12 +241,12 @@ function parseClaude(rows: any[], transcriptSha256: string): LoadedTranscript {
     }
   }
   const usage = [...usageByMessage.values()].reduce<UsageCounters>((total, item) => ({
-    inputTokens: total.inputTokens + item.inputTokens,
-    cachedInputTokens: total.cachedInputTokens + item.cachedInputTokens,
-    cacheWriteInputTokens: total.cacheWriteInputTokens + item.cacheWriteInputTokens,
-    outputTokens: total.outputTokens + item.outputTokens,
-    reasoningOutputTokens: total.reasoningOutputTokens + item.reasoningOutputTokens,
-    totalTokens: total.totalTokens + item.totalTokens,
+    inputTokens: tokenSum([total.inputTokens, item.inputTokens], "input_tokens"),
+    cachedInputTokens: tokenSum([total.cachedInputTokens, item.cachedInputTokens], "cached_input_tokens"),
+    cacheWriteInputTokens: tokenSum([total.cacheWriteInputTokens, item.cacheWriteInputTokens], "cache_write_input_tokens"),
+    outputTokens: tokenSum([total.outputTokens, item.outputTokens], "output_tokens"),
+    reasoningOutputTokens: tokenSum([total.reasoningOutputTokens, item.reasoningOutputTokens], "reasoning_output_tokens"),
+    totalTokens: tokenSum([total.totalTokens, item.totalTokens], "total_tokens"),
   }), { inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 });
   return {
     narrative: messages.slice(-8).join("\n\n"),
@@ -226,7 +281,7 @@ function parseCodex(rows: any[], transcriptSha256: string): LoadedTranscript {
       const total = row?.payload?.info?.total_token_usage;
       if (total && typeof total === "object") {
         usageRecords += 1;
-        const candidate = usageCounters(total);
+        const candidate = usageCounters(total, "cache-inclusive");
         if (!cumulativeUsage || candidate.totalTokens >= cumulativeUsage.totalTokens) cumulativeUsage = candidate;
       }
     }
@@ -418,8 +473,7 @@ function parseOpenCode(data: any, transcriptSha256: string): LoadedTranscript {
   };
 }
 
-export function loadTranscript(path: string): LoadedTranscript {
-  const raw = readBounded(path);
+export function parseTranscript(raw: string, path = "transcript.jsonl"): LoadedTranscript {
   const transcriptSha256 = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
   if (/\.aider\.chat\.history\.md$/i.test(path)) {
     return { narrative: raw, assistantMessages: [raw], toolCalls: [], format: "aider", transcriptSha256 };
@@ -479,6 +533,10 @@ export function loadTranscript(path: string): LoadedTranscript {
   if (format === "gemini-cli") return parseGemini(rows, transcriptSha256);
   if (format === "github-copilot-cli") return parseCopilot(rows, transcriptSha256);
   return format === "codex" ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
+}
+
+export function loadTranscript(path: string): LoadedTranscript {
+  return parseTranscript(readBounded(path), path);
 }
 
 const PATH_EXISTS_RES = [

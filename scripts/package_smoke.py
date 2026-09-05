@@ -273,9 +273,76 @@ def main() -> int:
         demo_value = json.loads(continuity_demo.stdout)
         if [step.get("result") for step in demo_value.get("steps", [])] != ["PASS", "CURRENT", "REVOKED", "REVOKED", "CURRENT"]:
             raise RuntimeError(f"packed continuity demonstration is incorrect: {continuity_demo.stdout}\n{continuity_demo.stderr}")
+        autopsy_help = run([str(vigil), "autopsy", "--help"], consumer)
+        if "vigil autopsy [<transcript.jsonl>]" not in autopsy_help.stdout or "required for EARNED" not in autopsy_help.stdout:
+            raise RuntimeError(f"packed autopsy CLI help is incomplete: {autopsy_help.stdout}\n{autopsy_help.stderr}")
+        autopsy_transcript = lab / "packed-autopsy.jsonl"
+        autopsy_output = lab / "packed-autopsy-output.json"
+        autopsy_transcript.write_text("\n".join([
+            json.dumps({"type": "system", "conversationId": "12345678-1234-1234-1234-123456789abc"}),
+            json.dumps({"type": "assistant", "message": {"content": "private package-smoke prompt"}}),
+            json.dumps({"type": "tool_call", "subtype": "started", "call_id": "one", "tool_call": {"shellToolCall": {"args": {"command": "npm test"}}}}),
+            json.dumps({"type": "tool_call", "subtype": "completed", "call_id": "one", "tool_call": {"shellToolCall": {"result": "ok"}}}),
+        ]) + "\n")
+        autopsy_check = run([
+            str(vigil), "autopsy", str(autopsy_transcript), "--format", "json", "--output", str(autopsy_output),
+        ], consumer, check=False)
+        autopsy_record = json.loads(autopsy_output.read_text())
+        if autopsy_check.returncode != 2 or autopsy_record.get("decision") != "NOT_CHECKED":
+            raise RuntimeError(f"packed autopsy did not fail closed without evidence: {autopsy_check.stdout}\n{autopsy_check.stderr}")
+        if autopsy_record.get("privacy") != {
+            "localOnly": True, "transcriptIncluded": False, "promptIncluded": False, "providerExportIncluded": False
+        } or "private package-smoke prompt" in autopsy_output.read_text():
+            raise RuntimeError("packed autopsy disclosed transcript content or emitted the wrong privacy contract")
         node = shutil.which("node")
         if not node:
             raise RuntimeError("node executable is unavailable for the packed guard compatibility check")
+        protected_help = run([str(vigil), "run", "--help"], consumer)
+        if "vigil run --time-limit <duration>" not in protected_help.stdout or "--budget-usd refuses" not in protected_help.stdout:
+            raise RuntimeError(f"packed protected-run CLI help is incomplete: {protected_help.stdout}\n{protected_help.stderr}")
+        protected_output = lab / "packed-protected-run.json"
+        protected_check = run([
+            str(vigil), "run", "--time-limit", "2s", "--output", str(protected_output),
+            "--", node, "-e", "process.exit(0)", "private package-smoke argument",
+        ], consumer)
+        protected_record = json.loads(protected_output.read_text())
+        if protected_check.returncode != 0 or protected_record.get("state") != "EXITED":
+            raise RuntimeError(f"packed protected run did not preserve a normal exit: {protected_check.stdout}\n{protected_check.stderr}")
+        if protected_record.get("outcome") != {"commandCompletion": "OBSERVED_ONLY", "economicResult": "NOT_CHECKED"}:
+            raise RuntimeError("packed protected run overstated its observed outcome")
+        if protected_record.get("process", {}).get("processGroupTerminationConfirmed") is not True:
+            raise RuntimeError("packed protected run did not confirm the ordinary process-group boundary")
+        if "private package-smoke argument" in protected_output.read_text() or protected_output.stat().st_mode & 0o777 != 0o600:
+            raise RuntimeError("packed protected run disclosed argv or wrote a non-private receipt")
+        telemetry_output = lab / "packed-protected-telemetry.json"
+        telemetry_capture = lab / "packed-protected-telemetry.jsonl"
+        telemetry_rows = "\n".join([
+            json.dumps({"type": "session_meta", "payload": {"id": "run"}}),
+            json.dumps({"type": "response_item", "payload": {
+                "type": "function_call", "call_id": "one", "name": "exec_command", "arguments": "{}"
+            }}),
+        ]) + "\n"
+        telemetry_check = run([
+            str(vigil), "run", "--time-limit", "2s", "--max-tool-calls", "0",
+            "--capture-jsonl", str(telemetry_capture), "--output", str(telemetry_output),
+            "--", node, "-e", f"process.stdout.write({json.dumps(telemetry_rows)})",
+        ], consumer, check=False)
+        telemetry_record = json.loads(telemetry_output.read_text())
+        if telemetry_check.returncode != 124 or telemetry_record.get("stop", {}).get("code") != "TOOL_CALL_LIMIT":
+            raise RuntimeError(f"packed protected run did not execute its telemetry worker: {telemetry_check.stdout}\n{telemetry_check.stderr}")
+        if telemetry_record.get("telemetry", {}).get("toolCalls") != 1 or not telemetry_capture.exists():
+            raise RuntimeError("packed protected run telemetry worker omitted its bounded observation or capture")
+        stopped_output = lab / "packed-protected-stop.json"
+        stopped_check = run([
+            str(vigil), "run", "--time-limit", "250ms", "--termination-grace", "100ms",
+            "--output", str(stopped_output), "--", node, "-e",
+            "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)",
+        ], consumer, check=False)
+        stopped_record = json.loads(stopped_output.read_text())
+        if stopped_check.returncode != 124 or stopped_record.get("state") != "STOPPED" or stopped_record.get("stop", {}).get("code") != "TIME_LIMIT":
+            raise RuntimeError(f"packed protected run did not stop at its wall limit: {stopped_check.stdout}\n{stopped_check.stderr}")
+        if stopped_record.get("process", {}).get("killSent") is not True or stopped_record.get("process", {}).get("processGroupTerminationConfirmed") is not True:
+            raise RuntimeError("packed protected run did not escalate and confirm process-group termination")
         guard_script = lab / "guard-control.mjs"
         guard_args = lab / "guard-args.json"
         guard_policy = lab / "guard-policy.json"
@@ -413,6 +480,12 @@ def main() -> int:
             "continuityHelpExit": continuity_help.returncode,
             "continuityDemoExit": continuity_demo.returncode,
             "continuityLibrary": library_result,
+            "autopsyHelpExit": autopsy_help.returncode,
+            "autopsyMissingEvidenceExit": autopsy_check.returncode,
+            "protectedRunHelpExit": protected_help.returncode,
+            "protectedRunExit": protected_check.returncode,
+            "protectedRunTelemetryExit": telemetry_check.returncode,
+            "protectedRunStopExit": stopped_check.returncode,
             "guardCompatibilityExit": guard_check.returncode,
             "guardDeploymentState": guard_receipt["deployment"]["state"],
             "liveHostRouteExit": route_check.returncode,

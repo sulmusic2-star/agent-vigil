@@ -5,6 +5,11 @@ export type RegularFileSnapshot = {
   absolutePath: string;
   bytes: Buffer;
   mode: number;
+  device: bigint;
+  inode: bigint;
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
   /** Descriptor-bound identity and security metadata for replacement detection. */
   identity: string;
 };
@@ -49,6 +54,11 @@ export function readRegularFileSnapshot(requestedPath: string, maximumBytes: num
       absolutePath,
       bytes,
       mode: Number(opened.mode & 0o7777n),
+      device: opened.dev,
+      inode: opened.ino,
+      size: opened.size,
+      mtimeNs: opened.mtimeNs,
+      ctimeNs: opened.ctimeNs,
       identity: [
         opened.dev,
         opened.ino,

@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
 import {
+  close,
   closeSync,
   constants,
   fchmodSync,
   fstatSync,
+  fsync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -12,6 +14,7 @@ import {
   realpathSync,
   renameSync,
   unlinkSync,
+  write,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, normalize, parse, relative, resolve, sep, win32 } from "node:path";
@@ -123,11 +126,8 @@ function openPrivateTemporaryFile(parent: string): { descriptor: number; path: s
  * the destination directory ACL.
  */
 export function writePrivateFileAtomic(destination: string, content: string): void {
-  const requested = resolve(destination);
-  const parent = resolveSafeParent(requested);
-  const target = join(parent, basename(requested));
-  assertReplaceableDestination(target);
-
+  const target = validatePrivateFileDestination(destination);
+  const parent = dirname(target);
   let descriptor: number | undefined;
   let temporaryPath: string | undefined;
   let failure: unknown;
@@ -164,6 +164,15 @@ export function writePrivateFileAtomic(destination: string, content: string): vo
     }
   }
   if (failure !== undefined) throw failure;
+}
+
+/** Validate an atomic private-file destination without creating or replacing it. */
+export function validatePrivateFileDestination(destination: string): string {
+  const requested = resolve(destination);
+  const parent = resolveSafeParent(requested);
+  const target = join(parent, basename(requested));
+  assertReplaceableDestination(target);
+  return target;
 }
 
 /**
@@ -242,6 +251,147 @@ export function writePrivateFileExclusive(destination: string, content: string):
     }
   }
   if (failure !== undefined) throw failure;
+}
+
+export type PrivateFileSink = {
+  path: string;
+  write: (bytes: Buffer) => Promise<void>;
+  close: () => Promise<void>;
+  abort: (error: unknown) => void;
+};
+
+export type AsyncDescriptorSink = {
+  queuedBytes: () => number;
+  write: (bytes: Buffer) => Promise<void>;
+  flush: () => Promise<void>;
+  abort: (error: unknown) => void;
+};
+
+function writeBuffer(descriptor: number, bytes: Buffer, abortReason?: () => unknown | undefined): Promise<void> {
+  return new Promise((resolveWrite, rejectWrite) => {
+    const writeNext = (offset: number): void => {
+      const aborted = abortReason?.();
+      if (aborted !== undefined) {
+        rejectWrite(aborted);
+        return;
+      }
+      if (offset === bytes.length) {
+        resolveWrite();
+        return;
+      }
+      write(descriptor, bytes, offset, bytes.length - offset, null, (error, written) => {
+        if (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "EAGAIN" || code === "EWOULDBLOCK") {
+            setTimeout(() => writeNext(offset), 10);
+            return;
+          }
+          rejectWrite(error);
+          return;
+        }
+        if (written <= 0) {
+          rejectWrite(new Error("Output descriptor write made no progress"));
+          return;
+        }
+        writeNext(offset + written);
+      });
+    };
+    writeNext(0);
+  });
+}
+
+function flushDescriptor(descriptor: number): Promise<void> {
+  return new Promise((resolveFlush, rejectFlush) => {
+    fsync(descriptor, (error) => error ? rejectFlush(error) : resolveFlush());
+  });
+}
+
+function closeDescriptor(descriptor: number): Promise<void> {
+  return new Promise((resolveClose, rejectClose) => {
+    close(descriptor, (error) => error ? rejectClose(error) : resolveClose());
+  });
+}
+
+/**
+ * Queue writes to an existing descriptor without blocking the caller's event
+ * loop. The descriptor remains owned by the caller and is never closed here.
+ */
+export function createAsyncDescriptorSink(descriptor: number): AsyncDescriptorSink {
+  if (!Number.isSafeInteger(descriptor) || descriptor < 0) {
+    throw new Error("Output descriptor must be a non-negative integer");
+  }
+  let pending = Promise.resolve();
+  let queuedByteCount = 0;
+  let abortError: unknown | undefined;
+  return {
+    queuedBytes: () => queuedByteCount,
+    write(bytes: Buffer): Promise<void> {
+      const copy = Buffer.from(bytes);
+      queuedByteCount += copy.length;
+      const operation = pending
+        .then(() => writeBuffer(descriptor, copy, () => abortError))
+        .finally(() => { queuedByteCount -= copy.length; });
+      pending = operation;
+      return operation;
+    },
+    flush: () => pending,
+    abort(error: unknown): void {
+      abortError ??= error;
+    },
+  };
+}
+
+/**
+ * Open a new owner-only regular file for bounded streaming output. The caller
+ * must close the sink; close flushes the file before releasing its descriptor.
+ */
+export function createPrivateFileSink(destination: string): PrivateFileSink {
+  const requested = resolve(destination);
+  const parent = resolveSafeParent(requested);
+  const target = join(parent, basename(requested));
+  const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+  const descriptor = openSync(
+    target,
+    constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | noFollow,
+    0o600,
+  );
+  let accepting = true;
+  let pending = Promise.resolve();
+  let closePromise: Promise<void> | undefined;
+  let abortError: unknown | undefined;
+  try {
+    fchmodSync(descriptor, 0o600);
+  } catch (error) {
+    closeSync(descriptor);
+    try { unlinkSync(target); } catch { /* Preserve the original failure. */ }
+    throw error;
+  }
+  return {
+    path: target,
+    write(bytes: Buffer): Promise<void> {
+      if (!accepting) return Promise.reject(new Error(`Private output is already closed: ${target}`));
+      const copy = Buffer.from(bytes);
+      const operation = pending.then(() => writeBuffer(descriptor, copy, () => abortError));
+      pending = operation;
+      return operation;
+    },
+    close(): Promise<void> {
+      if (closePromise) return closePromise;
+      accepting = false;
+      closePromise = (async () => {
+        let failure: unknown;
+        try { await pending; } catch (error) { failure = error; }
+        try { await flushDescriptor(descriptor); } catch (error) { failure ??= error; }
+        try { await closeDescriptor(descriptor); } catch (error) { failure ??= error; }
+        if (failure !== undefined) throw failure;
+      })();
+      return closePromise;
+    },
+    abort(error: unknown): void {
+      abortError ??= error instanceof Error ? error : new Error(String(error));
+      accepting = false;
+    },
+  };
 }
 
 export function appendPrivateFileAtomic(destination: string, content: string): void {

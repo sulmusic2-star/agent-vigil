@@ -76,6 +76,55 @@ test("Claude usage deduplicates streamed assistant message IDs using final maxim
   });
 });
 
+test("Claude usage rejects conflicting aliases and incoherent deduplicated snapshots", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-claude-usage-conflict-"));
+  const transcript = join(root, "claude.jsonl");
+  const assistant = (usage: Record<string, number>) => ({
+    type: "assistant",
+    message: {
+      id: "m1",
+      model: "claude-test",
+      content: [{ type: "text", text: "working" }],
+      usage,
+    },
+  });
+
+  writeFileSync(transcript, JSON.stringify(assistant({
+    input_tokens: 1,
+    cached_input_tokens: 0,
+    cache_read_input_tokens: 1_000,
+    output_tokens: 0,
+    total_tokens: 1,
+  })));
+  assert.throws(() => loadTranscript(transcript), /cached_input_tokens and cache_read_input_tokens contradict/);
+
+  writeFileSync(transcript, JSON.stringify(assistant({
+    input_tokens: 1,
+    cache_write_input_tokens: 0,
+    cache_creation_input_tokens: 1_000,
+    output_tokens: 0,
+    total_tokens: 1,
+  })));
+  assert.throws(() => loadTranscript(transcript), /cache_write_input_tokens and cache_creation_input_tokens contradict/);
+
+  writeFileSync(transcript, JSON.stringify(assistant({
+    input_tokens: 1,
+    cached_input_tokens: 2,
+    cache_read_input_tokens: 2,
+    cache_write_input_tokens: 3,
+    cache_creation_input_tokens: 3,
+    output_tokens: 4,
+    total_tokens: 10,
+  })));
+  assert.equal(loadTranscript(transcript).usage?.totalTokens, 10);
+
+  writeFileSync(transcript, [
+    assistant({ input_tokens: 100, output_tokens: 1, total_tokens: 101 }),
+    assistant({ input_tokens: 1, output_tokens: 100, total_tokens: 101 }),
+  ].map((row) => JSON.stringify(row)).join("\n"));
+  assert.throws(() => loadTranscript(transcript), /total_tokens contradicts its component counters/);
+});
+
 test("Codex usage selects the greatest cumulative session snapshot", () => {
   const { loaded } = fixture();
   assert.deepEqual(loaded.usage, {
@@ -91,6 +140,37 @@ test("Codex usage selects the greatest cumulative session snapshot", () => {
     recordsObserved: 2,
     accountedUnits: 1,
   });
+});
+
+test("Codex usage validates totals without double-counting detail counters", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-codex-usage-total-"));
+  const transcript = join(root, "codex.jsonl");
+  const session = { type: "session_meta", payload: { id: "session" } };
+  const row = (totalTokens?: number) => ({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        total_token_usage: {
+          input_tokens: 1_000,
+          cached_input_tokens: 900,
+          cache_write_input_tokens: 0,
+          output_tokens: 50,
+          reasoning_output_tokens: 40,
+          total_tokens: totalTokens,
+        },
+      },
+    },
+  });
+
+  writeFileSync(transcript, `${[session, row(1_050)].map((item) => JSON.stringify(item)).join("\n")}\n`);
+  assert.equal(loadTranscript(transcript).usage?.totalTokens, 1_050);
+
+  writeFileSync(transcript, `${[session, row()].map((item) => JSON.stringify(item)).join("\n")}\n`);
+  assert.equal(loadTranscript(transcript).usage?.totalTokens, 1_050);
+
+  writeFileSync(transcript, `${[session, row(1_049)].map((item) => JSON.stringify(item)).join("\n")}\n`);
+  assert.throws(() => loadTranscript(transcript), /total_tokens contradicts its component counters/);
 });
 
 test("value CLI produces a positive evidence-hashed card with budget and outcome", () => {
@@ -190,10 +270,15 @@ test("value CLI refuses tampered receipts and mismatched transcripts", () => {
 });
 
 test("value CLI rejects ambiguous cost inputs and invalid enums", () => {
-  const { receipt } = fixture();
+  const { root, receipt } = fixture();
+  const arbitraryEvidence = join(root, "arbitrary-cost.txt");
+  writeFileSync(arbitraryEvidence, "self-declared cost\n");
   assert.equal(run(["value", receipt, "--cost-usd", "1.00"]), 2);
   assert.equal(run(["value", receipt, "--cost-source", "provider-billed"]), 2);
   assert.equal(run(["value", receipt, "--cost-usd", "-1", "--cost-source", "provider-billed"]), 2);
+  assert.equal(run([
+    "value", receipt, "--cost-usd", "1", "--cost-source", "provider-exported", "--cost-evidence", arbitraryEvidence,
+  ]), 2);
   assert.equal(run(["value", receipt, "--outcome", "amazing"]), 2);
   assert.equal(run(["value", receipt, "--unknown", "x"]), 2);
 });

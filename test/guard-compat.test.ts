@@ -51,7 +51,10 @@ if (capture) appendFileSync(capture, JSON.stringify({
 }) + "\\n");
 if (mode === "mutate" && mutation) writeFileSync(mutation, "changed\\n");
 if (mode === "hang") await new Promise((resolve) => setTimeout(resolve, 10_000));
-if (mode === "oversize") { process.stdout.write("x".repeat(100_000)); process.exit(0); }
+if (mode === "oversize") {
+  await new Promise((resolve) => process.stdout.write("x".repeat(100_000), resolve));
+  process.exit(0);
+}
 if (mode === "invalid") { process.stdout.write("{bad json"); process.exit(0); }
 if (mode === "text") { process.stdout.write("no decision"); process.exit(0); }
 if (mode === "empty") process.exit(0);
