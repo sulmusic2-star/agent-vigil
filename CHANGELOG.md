@@ -20,6 +20,19 @@
   or changed inaccessible entries, and exercise containment under a deliberately
   non-reaping container PID 1.
 
+## 0.24.3 - 2026-09-04
+
+- Stop protection setup before writing files when no test command is found,
+  rather than reporting readiness with a placeholder that fails the next step.
+- Extend the packed install rehearsal through commit and `doctor`, and require
+  repositories without test commands to be rejected without partial setup.
+
+- Keep packaged install instructions valid before and after publication, with
+  exact-version checks and a separate link to live distribution status.
+- Stop the GitHub download sequence if either download or checksum fails.
+- Rehearse the packed README's npm command in an empty repository without
+  credentials, using a local registry that serves the actual release tarball.
+
 ## 0.24.2 - 2026-09-04
 
 - Install the reviewed public App control workflow on the default branch so the

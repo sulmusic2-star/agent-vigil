@@ -3270,7 +3270,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash6 } from "node:crypto";
-var VERSION = "0.24.2";
+var VERSION = "0.24.3";
 var CLAIM_KINDS = [
   "tests_pass",
   "file_changed",
@@ -7492,6 +7492,9 @@ function initRepository(repo, force = false, portableSignerKeyId, profile = "def
   const result5 = { created: [], kept: [] };
   const inferred = hostedContract.testCommand;
   const mode = profile === "maintainer" || profile === "protect" ? "maintainer" : profile === "authority" ? "authority" : portableSignerKeyId ? "portable" : "transcript";
+  if (mode === "maintainer" && !inferred) {
+    throw new Error("No test command found. Add tests with a supported command, or choose a runner with --runner common --test-cmd <command>. No setup files were written.");
+  }
   const defaultPolicy = policyTemplate(inferred, portableSignerKeyId);
   const authorityPolicy = defaultPolicy.replace('"transcript": ".agent-vigil/session.md"', '"transcript": ".agent-vigil/session.jsonl"');
   const protectCommands = profile === "protect" ? inferProtectCommands(root, inferred) : void 0;
@@ -22315,7 +22318,7 @@ ${outcomeUsage()}`);
 }
 
 // src/adoption.ts
-var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz";
+var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz";
 function releasedDoctorCommand() {
   return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
 }

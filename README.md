@@ -18,17 +18,22 @@ merge?**
 
 ## Add it to a repository
 
-Install the published v0.24.2 package:
+This page describes v0.24.3. Check that exact version is available, then install it:
 
 ```bash
-npx --yes --package=@sulmusic/agent-vigil@0.24.2 agent-vigil protect --repo .
+npm view @sulmusic/agent-vigil@0.24.3 version && \
+  npx --yes --package=@sulmusic/agent-vigil@0.24.3 agent-vigil protect --repo .
 ```
 
-For an immutable, checksum-verifiable install, use the matching GitHub release:
+Prefer a download? First follow the [checksum instructions](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+for this version. The matching GitHub package can also be run directly:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz protect --repo .
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz protect --repo .
 ```
+
+If no test command is found, installation stops without writing setup files.
+Add tests or choose an explicit runner as described below.
 
 The command finds the repository's test setup, runs a disposable red/green
 rehearsal, and writes the setup files. Commit those files and open one setup
@@ -57,7 +62,7 @@ claimed and observed test counts, findings, and reproduction command.
 
 ### Verify the distribution channel
 
-This packaged README describes v0.24.2; it is not a claim that v0.24.2 remains
+This packaged README describes v0.24.3; it is not a claim that v0.24.3 remains
 the newest release. The live, machine-readable channel record is
 [`docs/public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
 
@@ -65,11 +70,11 @@ Verify the registry before installation:
 
 ```bash
 npm view @sulmusic/agent-vigil version
-npm view @sulmusic/agent-vigil@0.24.2 dist.integrity
+npm view @sulmusic/agent-vigil@0.24.3 dist.integrity
 ```
 
-All six public workflows for this release pin the reviewed runtime commit
-`8df4ae8c7349c526d18fb1df67e87a5da68a820d`. For the checksum-first download
+The six repository workflows in this source checkout pin runtime commit
+`b6d71134d9cb74b31b0398497b8a6278c35f985d`. For the checksum-first download
 and an explicit non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 ## What it checks
@@ -96,7 +101,7 @@ The generated Node/npm path is automatic. Python, Rust, Go, Java, Ruby, PHP,
 test command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz protect --repo . \
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```

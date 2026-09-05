@@ -1,6 +1,6 @@
 # Hosted evidence security contract
 
-**Applies to:** Agent Vigil v0.24.2 `init` and `protect` workflows
+**Applies to:** Agent Vigil v0.24.3 `init` and `protect` workflows
 
 Agent Vigil's generated hosted lane checks one GitHub pull-request head under a
 base-owned policy. It is intentionally narrower than the local CLI.
@@ -11,15 +11,17 @@ base-owned policy. It is intentionally narrower than the local CLI.
 node dist/cli.js protect
 ```
 
-The immutable v0.24.2 package contains the preceding documentation snapshot:
-it labels this contract v0.24.1, and its packaged README retains the v0.24.2
-pre-publication disclosure. It does not contain this post-release wording. The
-v0.24.2 runtime and package were
-verified separately. Download that package without npm credentials and verify
-its checksum:
+The v0.24.3 package retains the preceding security-contract document, headed
+v0.24.2. This live document extends that contract to v0.24.3; the signing and
+isolation boundaries below are unchanged. Its packaged README and installation
+guide describe v0.24.3. The setup fix additionally stops before writing files
+when no test command is found.
+
+Follow the [checksum-first installation guide](INSTALL_WITHOUT_NPM_ACCOUNT.md)
+before using the immutable package:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.2/sulmusic-agent-vigil-0.24.2.tgz doctor
+npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.3/sulmusic-agent-vigil-0.24.3.tgz doctor
 ```
 
 `protect` selects the immutable reviewed public Action commit and writes it into
@@ -97,22 +99,31 @@ contain a compromised Docker daemon or host.
 
 ## Supported hosted repositories
 
-Generated hosted execution supports:
+`protect` and `init --profile maintainer` require a test command. A repository
+without one, including a plain Git repository, is rejected before any setup
+files are written.
 
-- a plain repository with no inferred non-Node test toolchain; or
-- a root Node/npm repository whose test command is one bounded direct
-  `node --test` invocation.
-
-The command can come from `package.json` `scripts.test` or from the explicit
-`agentVigil.hostedTestCommand` field. The override is still restricted to the
-same direct `node --test` grammar. A root `package-lock.json` or
+The automatic path supports a root Node/npm repository whose test command is
+one bounded direct `node --test` invocation. The command can come from
+`package.json` `scripts.test` or `agentVigil.hostedTestCommand`; both use the
+same restricted grammar. A root `package-lock.json` or
 `npm-shrinkwrap.json` permits the exact setup command above.
 
-The generator fails closed for unsupported toolchains, pnpm, Yarn, Bun,
+The automatic path fails closed for unsupported toolchains, pnpm, Yarn, Bun,
 repository `.npmrc` files, nested-package-only layouts, unsafe setup symlinks,
 Git submodules, indirect test runners, shell composition, Node preload or
-loader flags, and unbounded path or option forms. Use the local CLI or build a
-separately reviewed external workflow for those repositories.
+loader flags, and unbounded path or option forms.
+
+For supported alternative toolchains, supply an explicit command with
+`--runner common --test-cmd <command>` or select another digest-pinned runner.
+The command must use the bounded direct-runner grammar, and the image must
+already contain its dependencies. This path allows no custom setup or
+test-time network access; it still rejects submodules and unsafe setup
+symlinks. See [compatibility and runner requirements](COMPATIBILITY.md).
+
+The transcript and authority profiles of `init` can scaffold a plain Git
+repository without a test command. Those setup files do not prove that tests ran
+or that a merge check is required.
 
 The local CLI supports more test ecosystems, but it executes selected commands
 with the local process's host privileges. A detached Git worktree protects Git
