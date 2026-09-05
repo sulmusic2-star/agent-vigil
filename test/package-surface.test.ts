@@ -551,7 +551,7 @@ test("workflow permissions and privileged steps are exact fail-closed contracts"
     ],
   };
   const expectedPrivilegedWorkflowDigests: Record<string, string> = {
-    "control-proof-weekly.yml": "5db704047bda0e5bd1cd445a92a264f1d8aacfb36ce146a937225374336bc68c",
+    "control-proof-weekly.yml": "75fcf8c240193d2a0ae943d992726c39e2875ba8c461dbc9ccd082a16a0b8eae",
     "publish.yml": "42717f1fd22395db0c7bae200161430ae12639032b4fc3379994443bb1ca54af",
   };
 
