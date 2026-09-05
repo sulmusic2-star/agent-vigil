@@ -639,7 +639,9 @@ test("automated review retains its deadline when a descendant holds the output p
         assert.equal(isAlive(pid), false, `holder PID ${pid} remained alive after cleanup`);
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      // Windows can briefly retain the exited helper's working-directory handle.
+      // Retry only deletion, never the deadline or process-exit assertions above.
+      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   }
 });
