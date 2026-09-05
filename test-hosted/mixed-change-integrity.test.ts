@@ -9,8 +9,8 @@ import { checkIntegrity } from "../src/detectors/reality.ts";
 import { routeIntegrity } from "../src/integrity-policy.ts";
 import { remediationFor } from "../src/remediation.ts";
 
-const before = "test('total', () => { assert.equal(total([2, 3]), 5); });";
-const empty = "test('total', () => { /* test removed */ });";
+const before = "test('total', () => { assert.equal(total([2, 3]), 5); });"; // vigil:detector-pattern (literal regression input, not a registered test)
+const empty = "test('total', () => { /* test removed */ });"; // vigil:detector-pattern (literal regression input, not a registered test)
 
 for (const [label, callback] of [
   ["comment-only", "() => { /* deliberately empty */ }"],
@@ -26,7 +26,7 @@ for (const [label, callback] of [
   ["bare return", "() => { return; }"],
 ]) {
   test(`full-file inspection blocks a newly ${label} callback`, () => {
-    const findings = checkEmptyTestBodies("test/index.test.js", before, `test('total', ${callback});`);
+    const findings = checkEmptyTestBodies("test/index.test.js", before, `test('total', ${callback});`); // vigil:detector-pattern (literal regression input, not a registered test)
     assert.equal(findings.length, 1);
     assert.equal(findings[0].ruleId, "test-empty-added");
     assert.equal(routeIntegrity(findings, "calibrated").results[0].verdict, "contradicted");
@@ -34,18 +34,18 @@ for (const [label, callback] of [
 }
 
 for (const [label, source] of [
-  ["helper delegation", "test('total', () => { checkTotal(); });"],
-  ["expression callback", "test('total', () => checkTotal());"],
-  ["returned helper", "test('total', () => { return checkTotal(); });"],
-  ["default parameter behavior", "test('total', (t = checkTotal()) => {});"],
-  ["dynamic template behavior", "test('total', () => { `${checkTotal()}`; });"],
-  ["strings", 'const example = "test(\'total\', () => {})";'],
-  ["templates", 'const example = `test("total", () => {})`;'],
-  ["comments", '/* test("total", () => {}) */'],
-  ["regular expression", 'const pattern = /test("total", () => {})/;'],
-  ["unrelated method", "obj.test('total', () => {});"],
-  ["unrelated nested method", "a.b.test('total', () => {});"],
-  ["non-function argument", "test('total', checkTotal);"],
+  ["helper delegation", "test('total', () => { checkTotal(); });"], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["expression callback", "test('total', () => checkTotal());"], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["returned helper", "test('total', () => { return checkTotal(); });"], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["default parameter behavior", "test('total', (t = checkTotal()) => {});"], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["dynamic template behavior", "test('total', () => { `${checkTotal()}`; });"], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["strings", 'const example = "test(\'total\', () => {})";'], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["templates", 'const example = `test("total", () => {})`;'], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["comments", '/* test("total", () => {}) */'], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["regular expression", 'const pattern = /test("total", () => {})/;'], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["unrelated method", "obj.test('total', () => {});"], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["unrelated nested method", "a.b.test('total', () => {});"], // vigil:detector-pattern (literal regression input, not a registered test)
+  ["non-function argument", "test('total', checkTotal);"], // vigil:detector-pattern (literal regression input, not a registered test)
 ]) {
   test(`full-file inspection does not mistake ${label} for an empty test`, () => {
     assert.deepEqual(checkEmptyTestBodies("test/index.test.js", "", source), []);
@@ -53,7 +53,7 @@ for (const [label, source] of [
 }
 
 test("same-file additions and duplicate names cannot offset an emptied callback", () => {
-  for (const addition of ["test('new feature', () => { assert.ok(difference()); });", before]) {
+  for (const addition of ["test('new feature', () => { assert.ok(difference()); });", before]) { // vigil:detector-pattern (literal regression input, not a registered test)
     const checks = checkEmptyTestBodies("index.test.js", before, `${empty}\n${addition}`);
     assert.equal(checks.filter((check) => check.ruleId === "test-empty-added").length, 1);
   }
@@ -63,8 +63,8 @@ test("same-file additions and duplicate names cannot offset an emptied callback"
 
 test("literal test names, options, subtests, and common test modifiers are inspected", () => {
   for (const source of [
-    "it('total', () => {});", "test(`total`, () => {});", "test('total', {timeout: 100}, () => {});",
-    "test.only('total', () => {});", "it['skip']('total', () => {});", "t.test('total', () => {});",
+    "it('total', () => {});", "test(`total`, () => {});", "test('total', {timeout: 100}, () => {});", // vigil:detector-pattern (literal regression input, not a registered test)
+    "test.only('total', () => {});", "it['skip']('total', () => {});", "t.test('total', () => {});", // vigil:detector-pattern (literal regression input, not a registered test)
   ]) assert.equal(checkEmptyTestBodies("index.test.mjs", before, source)[0]?.ruleId, "test-empty-added", source);
   assert.equal(checkEmptyTestBodies("index.test.cjs", "", "const test = require('node:test');\ntest('cjs', () => {});")[0]?.ruleId, "test-empty-added");
 });
@@ -77,7 +77,7 @@ test("a repeated title cannot exchange an empty and a meaningful body and still 
   assert.equal(checks[0]?.verdict, "unverifiable");
   assert.equal(checks[0]?.blocksPass, true);
   assert.match(remediationFor("test-body-ambiguous"), /distinct names/);
-  for (const reference of ["test('total', () => checkTotal());", "test('total', checkTotal);"]) {
+  for (const reference of ["test('total', () => checkTotal());", "test('total', checkTotal);"]) { // vigil:detector-pattern (literal regression input, not a registered test)
     const result = checkEmptyTestBodies("index.test.js", `${empty}\n${reference}`, `${reference}\n${empty}`);
     assert.equal(result[0]?.ruleId, "test-body-ambiguous");
   }
@@ -99,7 +99,7 @@ test("moving a pre-existing empty test byte-for-byte does not introduce an empty
 });
 
 test("unparseable JavaScript is missing evidence, not an empty clean scan", () => {
-  for (const [base, head] of [[before, "test("], ["test(", before], [before, "(".repeat(20_000)]]) {
+  for (const [base, head] of [[before, "test("], ["test(", before], [before, "(".repeat(20_000)]]) { // vigil:detector-pattern (literal regression input, not a registered test)
     const checks = checkEmptyTestBodies("index.test.js", base, head);
     assert.equal(checks[0].verdict, "unverifiable");
     assert.equal(checks[0].blocksPass, true);
@@ -112,7 +112,7 @@ test("unparseable JavaScript is missing evidence, not an empty clean scan", () =
 test("this narrow check does not claim support for TypeScript, JSX, or dynamic test names", () => {
   assert.deepEqual(checkEmptyTestBodies("index.test.ts", before, empty), []);
   assert.deepEqual(checkEmptyTestBodies("index.test.jsx", before, empty), []);
-  assert.deepEqual(checkEmptyTestBodies("index.test.js", before, "test(name, () => {});"), []);
+  assert.deepEqual(checkEmptyTestBodies("index.test.js", before, "test(name, () => {});"), []); // vigil:detector-pattern (literal regression input, not a registered test)
 });
 
 test("ordinary CI stays green for the mixed change, but exact-SHA and worktree integrity block it", () => {
