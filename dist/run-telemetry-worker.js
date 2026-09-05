@@ -7,7 +7,7 @@ import { existsSync, lstatSync as lstatSync3 } from "node:fs";
 import { resolve as resolve3 } from "node:path";
 
 // src/authority.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash } from "node:crypto";
 import { isAbsolute, normalize, relative, resolve as resolve2, win32 } from "node:path";
 import { lstatSync as lstatSync2, realpathSync } from "node:fs";
 
@@ -73,129 +73,338 @@ function readRegularFileSnapshot(requestedPath, maximumBytes, label = "input") {
   }
 }
 
-// src/candidate-command.ts
-var MAX_WRAPPER_CAPTURE_BYTES = 3 * 1024 * 1024;
-var TIMEOUT_MARKER = "[agent-vigil-command-timeout]";
-var ABNORMAL_MARKER = "[agent-vigil-command-abnormal]";
-var COMMAND_WRAPPER = String.raw`
-const { execFile, spawn } = require("node:child_process");
-const { writeSync } = require("node:fs");
-const command = process.argv[1];
-const timeout = Number(process.argv[2]);
-const windows = process.platform === "win32";
-const shell = windows ? (process.env.ComSpec || "cmd.exe") : "/bin/sh";
-// POSIX shells synthesize and export PWD even when their own environment was
-// created with env -i. Remove it before candidate code starts so the hosted
-// sandbox contract remains the exact explicit allowlist.
-// Match Node's own cmd.exe normalization: /s removes the outer quote pair,
-// leaving command-owned quotes intact, while verbatim argv prevents libuv's
-// C-runtime escaping from rewriting those quotes into syntax cmd cannot parse.
-const shellArgs = windows ? ["/d", "/s", "/c", '"' + command + '"'] : ["-c", "unset PWD\n" + command];
-// Retain the child-owned pipes until EOF so a descendant that inherits them
-// remains tied to this wrapper's timeout. Buffer under the outer verifier's
-// maxBuffer, then synchronously forward complete bytes after the child closes;
-// JavaScript stream re-piping can drop the final test summary on Windows.
-const child = spawn(shell, shellArgs, {
-  env: process.env,
-  // POSIX needs a detached process group for the negative-PID kill below.
-  // On Windows, taskkill /T already terminates the process tree; detaching cmd
-  // lets it return before the candidate console program has actually exited.
-  detached: !windows,
-  stdio: ["ignore", "pipe", "pipe"],
-  windowsVerbatimArguments: windows,
-});
-const captureLimit = ${MAX_WRAPPER_CAPTURE_BYTES};
-const stdoutChunks = [];
-const stderrChunks = [];
-let capturedBytes = 0;
-let timedOut = false;
-let terminating = false;
-let finished = false;
-const writeAll = (fd, chunks) => {
-  for (const chunk of chunks) {
-    let offset = 0;
-    while (offset < chunk.length) {
-      const written = writeSync(fd, chunk, offset, chunk.length - offset);
-      if (written <= 0) throw new Error("candidate output descriptor stopped accepting bytes");
-      offset += written;
-    }
-  }
-};
-const finish = (code, marker = "") => {
-  if (finished) return;
-  finished = true;
-  clearTimeout(timer);
+// src/authority.ts
+var ACTION_CLASSES = [
+  "repository_read",
+  "repository_write",
+  "test_execute",
+  "build_execute",
+  "dependency_install",
+  "network_read",
+  "credential_access",
+  "destructive_filesystem",
+  "git_commit",
+  "git_push",
+  "pull_request_write",
+  "release_publish",
+  "deploy",
+  "external_write",
+  "task_create",
+  "unknown_effect"
+];
+var MAX_CONTRACT_BYTES = 1024 * 1024;
+var ACTION_SET = new Set(ACTION_CLASSES);
+function inputObject(call) {
   try {
-    writeAll(1, stdoutChunks);
-    writeAll(2, stderrChunks);
-    if (marker) writeAll(2, [Buffer.from(marker + "\\n")]);
-    // Setting exitCode lets the wrapper's own descriptors settle. Calling
-    // process.exit() here can discard the final test summary on Windows.
-    process.exitCode = code;
+    const parsed = JSON.parse(call.input);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : void 0;
   } catch {
-    process.exitCode = 125;
+    return void 0;
   }
-};
-const terminateTree = (code, marker) => {
-  if (terminating || finished) return;
-  terminating = true;
-  clearTimeout(timer);
-  const stopCapture = () => {
-    child.stdout.destroy();
-    child.stderr.destroy();
+}
+function commandText(call) {
+  const input = inputObject(call);
+  for (const key of ["cmd", "command", "script"]) {
+    if (typeof input?.[key] === "string") return input[key];
+  }
+  if (/exec|bash|shell|terminal|command/i.test(call.name)) return call.input;
+  return void 0;
+}
+var RESOURCE_KEY = /^(?:path|paths|file|files|file_path|filepath|filename|target|source|directory|dir|cwd|workdir|root|repo|repository)$/i;
+var CREDENTIAL_RESOURCE = /(?:^|[\\/._-])(?:\.env|\.ssh|\.aws|\.gnupg|credentials?|secrets?|tokens?|id_(?:rsa|ed25519)|keychain|private[_-]?key|api[_-]?key|npmrc|netrc)(?:$|[\\/._-])/i;
+function patchResourcePaths(raw) {
+  return [...raw.matchAll(/^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/gm)].map((match) => match[1].trim()).filter(Boolean);
+}
+function toolResourcePaths(call) {
+  const paths = [];
+  const parsed = inputObject(call);
+  const visit = (value, key = "", depth = 0) => {
+    if (depth > 3) return;
+    if (typeof value === "string") {
+      if (RESOURCE_KEY.test(key)) paths.push(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      if (RESOURCE_KEY.test(key)) {
+        for (const item of value) if (typeof item === "string") paths.push(item);
+      } else {
+        for (const item of value) visit(item, key, depth + 1);
+      }
+      return;
+    }
+    if (value && typeof value === "object") {
+      for (const [childKey, child] of Object.entries(value)) visit(child, childKey, depth + 1);
+    }
   };
-  if (windows) {
-    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => {
-      stopCapture();
-      finish(code, marker);
-    });
-  } else {
-    try { process.kill(-child.pid, "SIGKILL"); } catch {}
-    setTimeout(() => {
-      stopCapture();
-      finish(code, marker);
-    }, 50);
-  }
-};
-const capture = (stream, chunks) => {
-  stream.on("data", (value) => {
-    if (terminating || finished) return;
-    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-    const remaining = captureLimit - capturedBytes;
-    if (remaining > 0) {
-      const kept = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
-      chunks.push(kept);
-      capturedBytes += kept.length;
+  if (parsed) visit(parsed);
+  if (/apply[_-]?patch/i.test(call.name)) paths.push(...patchResourcePaths(call.input));
+  if (!parsed && paths.length === 0 && !call.input.includes("\n") && call.input.trim().length <= 1024) {
+    const fallback = call.input.trim();
+    let validJson = false;
+    try {
+      JSON.parse(fallback);
+      validJson = true;
+    } catch {
     }
-    if (chunk.length > remaining) {
-      terminateTree(125, "${ABNORMAL_MARKER} output exceeded " + captureLimit + " bytes");
-    }
-  });
-  stream.on("error", (error) => {
-    terminateTree(125, "${ABNORMAL_MARKER} output capture failed: " + error.message);
-  });
-};
-capture(child.stdout, stdoutChunks);
-capture(child.stderr, stderrChunks);
-const timer = setTimeout(() => {
-  timedOut = true;
-  terminateTree(124, "${TIMEOUT_MARKER}");
-}, timeout);
-child.on("error", (error) => {
-  finish(125, "${ABNORMAL_MARKER} " + error.message);
-});
-child.on("close", (code, signal) => {
-  if (timedOut || terminating || finished) return;
-  if (signal || code === null) {
-    finish(125, "${ABNORMAL_MARKER} signal=" + (signal || "unknown"));
-    return;
+    if (!validJson) paths.push(fallback);
   }
-  finish(code);
-});
-`;
+  return [...new Set(paths.filter(Boolean))];
+}
+function resourcePathIsRepoBound(path, repo, relativeTo) {
+  if (!path || path.includes("\0") || path.includes("\n") || path.includes("\r") || /^[a-z][a-z0-9+.-]*:\/\//i.test(path)) return false;
+  if (/[*?\[\]{}()]/.test(path)) return false;
+  if (!repo) {
+    const clean = normalize(path).replaceAll("\\", "/");
+    return !isAbsolute(path) && !win32.isAbsolute(path) && clean !== ".." && !clean.startsWith("../");
+  }
+  let root;
+  try {
+    root = realpathSync(repo);
+  } catch {
+    return false;
+  }
+  const lexicalRoot = resolve2(repo);
+  const base = relativeTo ? resolve2(relativeTo) : root;
+  const absolute = isAbsolute(path) ? resolve2(path) : win32.isAbsolute(path) ? "" : resolve2(base, path);
+  if (!absolute) return false;
+  let fromRoot = relative(root, absolute);
+  if (fromRoot === ".." || fromRoot.startsWith("../") || isAbsolute(fromRoot)) {
+    const fromLexicalRoot = relative(lexicalRoot, absolute);
+    if (fromLexicalRoot === ".." || fromLexicalRoot.startsWith("../") || isAbsolute(fromLexicalRoot)) return false;
+    fromRoot = fromLexicalRoot;
+  }
+  const segments = fromRoot.split(/[\\/]/).filter(Boolean);
+  let cursor = root;
+  for (const [index, segment] of segments.entries()) {
+    if (segment === "..") return false;
+    cursor = resolve2(cursor, segment);
+    try {
+      const entry = lstatSync2(cursor);
+      if (entry.isSymbolicLink()) return false;
+    } catch (error) {
+      if (error.code === "ENOENT") return index === segments.length - 1;
+      return false;
+    }
+  }
+  return true;
+}
+function ambiguousShellSyntax(command) {
+  return /[<>`'"\\]|\$\(|\$\{|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|\n|\r/.test(command) || /(^|[^&])&([^&]|$)/.test(command);
+}
+function shellHasUnboundPath(command, repo, workingDirectory) {
+  const tokens = command.trim().split(/\s+/).slice(1).map((token) => token.replace(/^["']|["']$/g, ""));
+  return tokens.some((token) => {
+    if (!token || /^[a-z][a-z0-9+.-]*:\/\//i.test(token)) return false;
+    if (token.startsWith("-") && !token.includes("=")) {
+      return !/^(?:-[A-Za-z]|--[A-Za-z][A-Za-z0-9-]*)$/.test(token);
+    }
+    const candidate = (token.startsWith("-") && token.includes("=") ? token.slice(token.indexOf("=") + 1) : token).replace(/^["']|["']$/g, "");
+    if (!candidate) return false;
+    if (/[*?]/.test(candidate)) return true;
+    return !resourcePathIsRepoBound(candidate, repo, workingDirectory);
+  });
+}
+function commandWorkingDirectory(call, repo) {
+  const input = inputObject(call);
+  const selected = input?.workdir ?? input?.cwd;
+  if (selected === void 0) return { path: repo, unsafe: false };
+  if (typeof selected !== "string" || !repo || !resourcePathIsRepoBound(selected, repo)) {
+    return { unsafe: true };
+  }
+  let root;
+  try {
+    root = realpathSync(repo);
+  } catch {
+    return { unsafe: true };
+  }
+  return { path: isAbsolute(selected) ? resolve2(selected) : resolve2(root, selected), unsafe: false };
+}
+function browserActionWords(input) {
+  if (!input) return "";
+  const words = [];
+  const visit = (value, key = "", depth = 0) => {
+    if (depth > 3) return;
+    words.push(key.toLowerCase());
+    if (typeof value === "string" && /^(?:action|command|method|op|operation|fn|kind|type|verb|event)$/i.test(key)) words.push(value.toLowerCase());
+    else if (Array.isArray(value)) for (const item of value) visit(item, key, depth + 1);
+    else if (value && typeof value === "object") for (const [childKey, child] of Object.entries(value)) visit(child, childKey, depth + 1);
+  };
+  visit(input);
+  return words.join(" ");
+}
+function splitShellCommands(command) {
+  const out = [];
+  let current = "";
+  let quote;
+  let escaped = false;
+  let substitutionDepth = 0;
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index];
+    const next = command[index + 1];
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      current += char;
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      current += char;
+      if (char === quote) quote = void 0;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "$" && next === "(") {
+      substitutionDepth += 1;
+      current += "$";
+      continue;
+    }
+    if (char === ")" && substitutionDepth > 0) {
+      substitutionDepth -= 1;
+      current += char;
+      continue;
+    }
+    const separator = substitutionDepth === 0 && (char === "\n" || char === ";" || char === "|" || char === "&");
+    if (separator) {
+      if (current.trim()) out.push(current.trim());
+      current = "";
+      if (char === "|" && next === "|" || char === "&" && next === "&") index += 1;
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) out.push(current.trim());
+  return out;
+}
+function classesForCommand(raw, repo, workingDirectory) {
+  const command = raw.trim().replace(/^(?:sudo\s+|env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)+)+/, "");
+  const classes = /* @__PURE__ */ new Set();
+  const add = (...items) => items.forEach((item) => classes.add(item));
+  if (/^(?:ls|pwd|cat|head|tail|grep|rg|find|stat|wc|diff|jq|sed\s+(?!.*(?:-i|--in-place))|git\s+(?:status|diff|log|show|rev-parse|ls-files|remote\s+-v)\b)/i.test(command)) add("repository_read");
+  if (/^(?:node\s+--test\b|(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|check|lint|typecheck|smoke|verify)|exec\s+.*test)|pytest\b|python\s+-m\s+pytest\b|go\s+test\b|cargo\s+test\b|dotnet\s+test\b|mvn\s+test\b|gradle\s+test\b|make\s+(?:test|check|verify)\b)/i.test(command)) add("test_execute");
+  if (/^(?:npm|pnpm|yarn|bun)\s+(?:run\s+build|build)|^(?:cargo|go|dotnet|mvn|gradle|make)\s+build\b/i.test(command)) add("build_execute");
+  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:i|install|add|ci)\b|pipx?\s+install\b|python\s+-m\s+pip\s+install\b|uv\s+(?:add|sync|pip\s+install)\b|brew\s+install\b|apt(?:-get)?\s+install\b|dnf\s+install\b|gem\s+install\b)/i.test(command)) add("dependency_install");
+  if (/^(?:rm|rmdir|del|erase|trash)\b|\bgit\s+(?:clean|reset\s+--hard)\b/i.test(command)) add("destructive_filesystem");
+  if (/^git\s+commit\b/i.test(command)) add("git_commit");
+  if (/^git\s+push\b/i.test(command)) add("git_push");
+  if (/^gh\s+pr\s+(?:create|merge|close|comment|edit|review)\b/i.test(command)) add("pull_request_write");
+  if (/^(?:gh\s+release\s+(?:create|upload|edit|delete)|npm\s+publish|cargo\s+publish|twine\s+upload)\b/i.test(command)) add("release_publish");
+  if (/^(?:vercel|netlify|wrangler\s+deploy|flyctl\s+deploy|gcloud\s+(?:run\s+deploy|app\s+deploy)|aws\s+.*deploy|kubectl\s+(?:apply|delete|rollout)|helm\s+(?:install|upgrade|uninstall)|terraform\s+apply)\b/i.test(command)) add("deploy");
+  if (/^(?:curl|wget)\b/i.test(command)) {
+    add("network_read");
+    if (/(?:\s-X\s*(?:POST|PUT|PATCH|DELETE)\b|--request\s+(?:POST|PUT|PATCH|DELETE)\b|--data(?:-\w+)?\b|-d\s|-F(?:\s|=)|--form(?:-string)?\b|-T(?:\s|=)|--upload-file\b|--json\b|--post-data\b|--post-file\b|--method\s+(?!GET\b)|--body-(?:data|file)\b)/i.test(command)) add("external_write");
+    if (/(?:\s-o(?:\s|=)|--output\b|\s-O(?:\s|$)|--remote-name\b|--output-document\b|--cookie-jar\b)/i.test(command)) add("unknown_effect");
+    if (/(?:authorization|--netrc\b|(?:^|\s)-(?:u|b)(?:\s|=)|--user\b|--cookie\b)/i.test(command)) add("credential_access");
+    add("unknown_effect");
+  }
+  if (/^(?:gh\s+(?:issue|api)\s+.*(?:comment|create|edit|delete)|mail|sendmail|osascript\s+.*mail)\b/i.test(command)) add("external_write");
+  if (/(?:\.env\b|\.ssh\/|credentials?|api[_-]?key|token|secret|keychain|security\s+find-generic-password)/i.test(command)) add("credential_access");
+  if (/^(?:git\s+(?:add|checkout|switch|restore|mv|rm)|mkdir|touch|cp|mv|sed\s+.*(?:-i|--in-place)|tee\b|printf\b.*>|echo\b.*>)\b/i.test(command)) add("repository_write");
+  if (/^(?:sh|bash|zsh|cmd|powershell|pwsh)\s+(?:-c|\/c)\b|\beval\b/i.test(command)) add("unknown_effect");
+  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:test|run|exec)\b|make\b)/i.test(command) || /(?:^|\s)(?:xargs|parallel)\b|(?:^|\s)-(?:exec|execdir|ok|okdir)\b/i.test(command) || /^(?:sed|find)\b/i.test(command)) add("unknown_effect");
+  if (/^find\b.*(?:^|\s)-delete(?:\s|$)/i.test(command)) add("destructive_filesystem");
+  if (/^node\s+--test\b.*(?:^|\s)--test-reporter-destination(?:=|\s)/i.test(command) || /^git\s+(?:diff|log|show)\b.*(?:^|\s)--output(?:=|\s)/i.test(command)) add("unknown_effect");
+  if (/^rg\b.*(?:^|\s)--(?:pre|hostname-bin)(?:=|\s)/i.test(command)) add("unknown_effect");
+  if (ambiguousShellSyntax(raw) || shellHasUnboundPath(command, repo, workingDirectory)) add("unknown_effect");
+  if (!classes.size) add("unknown_effect");
+  return [...classes];
+}
+function classifyToolCall(call, repo) {
+  const name = call.name.toLowerCase();
+  const adapter = name.split("__").filter(Boolean).at(-1) ?? name;
+  const classes = /* @__PURE__ */ new Set();
+  const add = (...items) => items.forEach((item) => classes.add(item));
+  const command = commandText(call);
+  if (command !== void 0) {
+    const workingDirectory = commandWorkingDirectory(call, repo);
+    for (const segment of splitShellCommands(command)) {
+      for (const item of classesForCommand(segment, repo, workingDirectory.path)) classes.add(item);
+    }
+    if (workingDirectory.unsafe) add("unknown_effect");
+    if (ambiguousShellSyntax(command)) add("unknown_effect");
+  } else if (/^(?:create_thread|spawn_agent|delegate)$/.test(adapter)) add("task_create");
+  else if (/^(?:apply[_-]?patch|write[_-]?file|edit[_-]?file|create[_-]?file|delete[_-]?file|write|edit)$/.test(adapter)) {
+    add("repository_write");
+    const paths = toolResourcePaths(call);
+    if (paths.length === 0 || paths.some((path) => !resourcePathIsRepoBound(path, repo))) add("unknown_effect");
+  } else if (/^(?:read[_-]?file|read[_-]?text|glob|grep|search_files|list_files|view_image|read)$/.test(adapter)) {
+    add("repository_read");
+    const parsed = inputObject(call);
+    const paths = toolResourcePaths(call);
+    const pathRequired = /^(?:read[_-]?file|read[_-]?text|view_image|read)$/.test(adapter);
+    if (!parsed && paths.length === 0 || pathRequired && paths.length === 0 || paths.some((path) => !resourcePathIsRepoBound(path, repo))) add("unknown_effect");
+    if (/^(?:glob|grep|search_files)$/.test(adapter)) add("unknown_effect");
+  } else if (/^(?:web(?:_run)?|fetch|search_query|open_url|browser|chrome|computer_use)$/.test(adapter)) {
+    add("network_read");
+    const parsed = inputObject(call);
+    const words = `${name} ${browserActionWords(parsed)}`;
+    const safeWebBatchKeys = /* @__PURE__ */ new Set(["search_query", "image_query", "open", "find", "screenshot", "finance", "weather", "sports", "time", "response_length"]);
+    if (/click|submit|fill|type|press|upload|download|execute|evaluate|javascript|drag|select/.test(words)) add("unknown_effect");
+    if (/submit|upload|post|send|comment|delete|edit|create/.test(words)) add("external_write");
+    if (/browser|chrome|computer_use/.test(name)) add("unknown_effect");
+    if (/web/.test(name) && parsed && Object.keys(parsed).some((key) => !safeWebBatchKeys.has(key))) add("unknown_effect");
+    if (!/(?:search|search_query|fetch|open_url|screenshot|find|read|get|query)/.test(words)) add("unknown_effect");
+    if (!parsed && !/search|fetch|open_url/.test(name)) add("unknown_effect");
+  } else if (/^(?:send(?:_email|_message)?|email|message|comment|post|submit)$/.test(adapter)) add("external_write");
+  else add("unknown_effect");
+  if (name !== adapter) add("unknown_effect");
+  const namedSideEffect = /(?:^|[_-])(?:delete|remove|rm|unlink|destroy|truncate|write|edit|publish|release|deploy|upload|submit|send|email|message|comment|post|push|merge|click)(?:$|[_-])/.test(name);
+  const classifiedSideEffect = [...classes].some((item) => [
+    "repository_write",
+    "external_write",
+    "release_publish",
+    "deploy",
+    "pull_request_write",
+    "git_push",
+    "destructive_filesystem"
+  ].includes(item));
+  if (namedSideEffect && !classifiedSideEffect) add("unknown_effect");
+  if (/credential|secret|keychain|token/.test(name) || (classes.has("repository_read") || classes.has("repository_write")) && CREDENTIAL_RESOURCE.test(call.input)) add("credential_access");
+  const identityInput = command ?? call.input;
+  return {
+    toolCallId: call.id,
+    toolName: call.name,
+    sequence: call.sequence,
+    classes: [...classes],
+    summary: command ? command.slice(0, 240).replace(/\s+/g, " ") : call.input.slice(0, 240).replace(/\s+/g, " "),
+    identitySha256: `sha256:${createHash("sha256").update(`${call.name}\0${identityInput}`).digest("hex")}`,
+    completed: call.output !== void 0,
+    failed: call.isError === true
+  };
+}
+function classifyTranscriptActions(transcript, repo) {
+  return transcript.toolCalls.map((call) => classifyToolCall(call, repo));
+}
+function analyzeTrajectory(actions) {
+  const identities = /* @__PURE__ */ new Map();
+  let failureStreak = 0;
+  let maxFailureStreak = 0;
+  for (const action of actions) {
+    identities.set(action.identitySha256, (identities.get(action.identitySha256) ?? 0) + 1);
+    failureStreak = action.failed ? failureStreak + 1 : 0;
+    maxFailureStreak = Math.max(maxFailureStreak, failureStreak);
+  }
+  const counts = [...identities.values()];
+  const progressClasses = /* @__PURE__ */ new Set(["repository_write", "test_execute", "build_execute", "git_commit"]);
+  return {
+    toolCalls: actions.length,
+    failedToolCalls: actions.filter((action) => action.failed).length,
+    maxIdenticalToolCalls: counts.length ? Math.max(...counts) : 0,
+    repeatedActionGroups: counts.filter((count) => count > 1).length,
+    maxConsecutiveFailedToolCalls: maxFailureStreak,
+    progressBearingActions: actions.filter((action) => action.classes.some((item) => progressClasses.has(item))).length
+  };
+}
 
 // src/transcript.ts
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 var MAX_TRANSCRIPT_BYTES = 50 * 1024 * 1024;
 function safeJson(text) {
   try {
@@ -586,7 +795,7 @@ function parseOpenCode(data, transcriptSha256) {
   };
 }
 function parseTranscript(raw, path = "transcript.jsonl") {
-  const transcriptSha256 = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
+  const transcriptSha256 = `sha256:${createHash2("sha256").update(raw).digest("hex")}`;
   if (/\.aider\.chat\.history\.md$/i.test(path)) {
     return { narrative: raw, assistantMessages: [raw], toolCalls: [], format: "aider", transcriptSha256 };
   }
@@ -632,344 +841,6 @@ function parseTranscript(raw, path = "transcript.jsonl") {
   if (format === "gemini-cli") return parseGemini(rows, transcriptSha256);
   if (format === "github-copilot-cli") return parseCopilot(rows, transcriptSha256);
   return format === "codex" ? parseCodex(rows, transcriptSha256) : parseClaude(rows, transcriptSha256);
-}
-
-// src/detectors/agentic.ts
-var MAX_FILE_BYTES = 1024 * 1024;
-
-// src/detectors/reality.ts
-var INTEGRITY_CHANGED_PATHS_MAX_BUFFER = 1024 * 1024;
-var INTEGRITY_DIFF_MAX_BUFFER = 8 * 1024 * 1024;
-var INTEGRITY_TEST_BLOB_MAX_BUFFER = 4 * 1024 * 1024;
-
-// src/authority.ts
-var ACTION_CLASSES = [
-  "repository_read",
-  "repository_write",
-  "test_execute",
-  "build_execute",
-  "dependency_install",
-  "network_read",
-  "credential_access",
-  "destructive_filesystem",
-  "git_commit",
-  "git_push",
-  "pull_request_write",
-  "release_publish",
-  "deploy",
-  "external_write",
-  "task_create",
-  "unknown_effect"
-];
-var MAX_CONTRACT_BYTES = 1024 * 1024;
-var ACTION_SET = new Set(ACTION_CLASSES);
-function inputObject(call) {
-  try {
-    const parsed = JSON.parse(call.input);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function commandText(call) {
-  const input = inputObject(call);
-  for (const key of ["cmd", "command", "script"]) {
-    if (typeof input?.[key] === "string") return input[key];
-  }
-  if (/exec|bash|shell|terminal|command/i.test(call.name)) return call.input;
-  return void 0;
-}
-var RESOURCE_KEY = /^(?:path|paths|file|files|file_path|filepath|filename|target|source|directory|dir|cwd|workdir|root|repo|repository)$/i;
-var CREDENTIAL_RESOURCE = /(?:^|[\\/._-])(?:\.env|\.ssh|\.aws|\.gnupg|credentials?|secrets?|tokens?|id_(?:rsa|ed25519)|keychain|private[_-]?key|api[_-]?key|npmrc|netrc)(?:$|[\\/._-])/i;
-function patchResourcePaths(raw) {
-  return [...raw.matchAll(/^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/gm)].map((match) => match[1].trim()).filter(Boolean);
-}
-function toolResourcePaths(call) {
-  const paths = [];
-  const parsed = inputObject(call);
-  const visit = (value, key = "", depth = 0) => {
-    if (depth > 3) return;
-    if (typeof value === "string") {
-      if (RESOURCE_KEY.test(key)) paths.push(value);
-      return;
-    }
-    if (Array.isArray(value)) {
-      if (RESOURCE_KEY.test(key)) {
-        for (const item of value) if (typeof item === "string") paths.push(item);
-      } else {
-        for (const item of value) visit(item, key, depth + 1);
-      }
-      return;
-    }
-    if (value && typeof value === "object") {
-      for (const [childKey, child] of Object.entries(value)) visit(child, childKey, depth + 1);
-    }
-  };
-  if (parsed) visit(parsed);
-  if (/apply[_-]?patch/i.test(call.name)) paths.push(...patchResourcePaths(call.input));
-  if (!parsed && paths.length === 0 && !call.input.includes("\n") && call.input.trim().length <= 1024) {
-    const fallback = call.input.trim();
-    let validJson = false;
-    try {
-      JSON.parse(fallback);
-      validJson = true;
-    } catch {
-    }
-    if (!validJson) paths.push(fallback);
-  }
-  return [...new Set(paths.filter(Boolean))];
-}
-function resourcePathIsRepoBound(path, repo, relativeTo) {
-  if (!path || path.includes("\0") || path.includes("\n") || path.includes("\r") || /^[a-z][a-z0-9+.-]*:\/\//i.test(path)) return false;
-  if (/[*?\[\]{}()]/.test(path)) return false;
-  if (!repo) {
-    const clean = normalize(path).replaceAll("\\", "/");
-    return !isAbsolute(path) && !win32.isAbsolute(path) && clean !== ".." && !clean.startsWith("../");
-  }
-  let root;
-  try {
-    root = realpathSync(repo);
-  } catch {
-    return false;
-  }
-  const lexicalRoot = resolve2(repo);
-  const base = relativeTo ? resolve2(relativeTo) : root;
-  const absolute = isAbsolute(path) ? resolve2(path) : win32.isAbsolute(path) ? "" : resolve2(base, path);
-  if (!absolute) return false;
-  let fromRoot = relative(root, absolute);
-  if (fromRoot === ".." || fromRoot.startsWith("../") || isAbsolute(fromRoot)) {
-    const fromLexicalRoot = relative(lexicalRoot, absolute);
-    if (fromLexicalRoot === ".." || fromLexicalRoot.startsWith("../") || isAbsolute(fromLexicalRoot)) return false;
-    fromRoot = fromLexicalRoot;
-  }
-  const segments = fromRoot.split(/[\\/]/).filter(Boolean);
-  let cursor = root;
-  for (const [index, segment] of segments.entries()) {
-    if (segment === "..") return false;
-    cursor = resolve2(cursor, segment);
-    try {
-      const entry = lstatSync2(cursor);
-      if (entry.isSymbolicLink()) return false;
-    } catch (error) {
-      if (error.code === "ENOENT") return index === segments.length - 1;
-      return false;
-    }
-  }
-  return true;
-}
-function ambiguousShellSyntax(command) {
-  return /[<>`'"\\]|\$\(|\$\{|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|\n|\r/.test(command) || /(^|[^&])&([^&]|$)/.test(command);
-}
-function shellHasUnboundPath(command, repo, workingDirectory) {
-  const tokens = command.trim().split(/\s+/).slice(1).map((token) => token.replace(/^["']|["']$/g, ""));
-  return tokens.some((token) => {
-    if (!token || /^[a-z][a-z0-9+.-]*:\/\//i.test(token)) return false;
-    if (token.startsWith("-") && !token.includes("=")) {
-      return !/^(?:-[A-Za-z]|--[A-Za-z][A-Za-z0-9-]*)$/.test(token);
-    }
-    const candidate = (token.startsWith("-") && token.includes("=") ? token.slice(token.indexOf("=") + 1) : token).replace(/^["']|["']$/g, "");
-    if (!candidate) return false;
-    if (/[*?]/.test(candidate)) return true;
-    return !resourcePathIsRepoBound(candidate, repo, workingDirectory);
-  });
-}
-function commandWorkingDirectory(call, repo) {
-  const input = inputObject(call);
-  const selected = input?.workdir ?? input?.cwd;
-  if (selected === void 0) return { path: repo, unsafe: false };
-  if (typeof selected !== "string" || !repo || !resourcePathIsRepoBound(selected, repo)) {
-    return { unsafe: true };
-  }
-  let root;
-  try {
-    root = realpathSync(repo);
-  } catch {
-    return { unsafe: true };
-  }
-  return { path: isAbsolute(selected) ? resolve2(selected) : resolve2(root, selected), unsafe: false };
-}
-function browserActionWords(input) {
-  if (!input) return "";
-  const words = [];
-  const visit = (value, key = "", depth = 0) => {
-    if (depth > 3) return;
-    words.push(key.toLowerCase());
-    if (typeof value === "string" && /^(?:action|command|method|op|operation|fn|kind|type|verb|event)$/i.test(key)) words.push(value.toLowerCase());
-    else if (Array.isArray(value)) for (const item of value) visit(item, key, depth + 1);
-    else if (value && typeof value === "object") for (const [childKey, child] of Object.entries(value)) visit(child, childKey, depth + 1);
-  };
-  visit(input);
-  return words.join(" ");
-}
-function splitShellCommands(command) {
-  const out = [];
-  let current = "";
-  let quote;
-  let escaped = false;
-  let substitutionDepth = 0;
-  for (let index = 0; index < command.length; index++) {
-    const char = command[index];
-    const next = command[index + 1];
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-    if (char === "\\" && quote !== "'") {
-      current += char;
-      escaped = true;
-      continue;
-    }
-    if (quote) {
-      current += char;
-      if (char === quote) quote = void 0;
-      continue;
-    }
-    if (char === "'" || char === '"' || char === "`") {
-      quote = char;
-      current += char;
-      continue;
-    }
-    if (char === "$" && next === "(") {
-      substitutionDepth += 1;
-      current += "$";
-      continue;
-    }
-    if (char === ")" && substitutionDepth > 0) {
-      substitutionDepth -= 1;
-      current += char;
-      continue;
-    }
-    const separator = substitutionDepth === 0 && (char === "\n" || char === ";" || char === "|" || char === "&");
-    if (separator) {
-      if (current.trim()) out.push(current.trim());
-      current = "";
-      if (char === "|" && next === "|" || char === "&" && next === "&") index += 1;
-      continue;
-    }
-    current += char;
-  }
-  if (current.trim()) out.push(current.trim());
-  return out;
-}
-function classesForCommand(raw, repo, workingDirectory) {
-  const command = raw.trim().replace(/^(?:sudo\s+|env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)+)+/, "");
-  const classes = /* @__PURE__ */ new Set();
-  const add = (...items) => items.forEach((item) => classes.add(item));
-  if (/^(?:ls|pwd|cat|head|tail|grep|rg|find|stat|wc|diff|jq|sed\s+(?!.*(?:-i|--in-place))|git\s+(?:status|diff|log|show|rev-parse|ls-files|remote\s+-v)\b)/i.test(command)) add("repository_read");
-  if (/^(?:node\s+--test\b|(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+(?:test|check|lint|typecheck|smoke|verify)|exec\s+.*test)|pytest\b|python\s+-m\s+pytest\b|go\s+test\b|cargo\s+test\b|dotnet\s+test\b|mvn\s+test\b|gradle\s+test\b|make\s+(?:test|check|verify)\b)/i.test(command)) add("test_execute");
-  if (/^(?:npm|pnpm|yarn|bun)\s+(?:run\s+build|build)|^(?:cargo|go|dotnet|mvn|gradle|make)\s+build\b/i.test(command)) add("build_execute");
-  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:i|install|add|ci)\b|pipx?\s+install\b|python\s+-m\s+pip\s+install\b|uv\s+(?:add|sync|pip\s+install)\b|brew\s+install\b|apt(?:-get)?\s+install\b|dnf\s+install\b|gem\s+install\b)/i.test(command)) add("dependency_install");
-  if (/^(?:rm|rmdir|del|erase|trash)\b|\bgit\s+(?:clean|reset\s+--hard)\b/i.test(command)) add("destructive_filesystem");
-  if (/^git\s+commit\b/i.test(command)) add("git_commit");
-  if (/^git\s+push\b/i.test(command)) add("git_push");
-  if (/^gh\s+pr\s+(?:create|merge|close|comment|edit|review)\b/i.test(command)) add("pull_request_write");
-  if (/^(?:gh\s+release\s+(?:create|upload|edit|delete)|npm\s+publish|cargo\s+publish|twine\s+upload)\b/i.test(command)) add("release_publish");
-  if (/^(?:vercel|netlify|wrangler\s+deploy|flyctl\s+deploy|gcloud\s+(?:run\s+deploy|app\s+deploy)|aws\s+.*deploy|kubectl\s+(?:apply|delete|rollout)|helm\s+(?:install|upgrade|uninstall)|terraform\s+apply)\b/i.test(command)) add("deploy");
-  if (/^(?:curl|wget)\b/i.test(command)) {
-    add("network_read");
-    if (/(?:\s-X\s*(?:POST|PUT|PATCH|DELETE)\b|--request\s+(?:POST|PUT|PATCH|DELETE)\b|--data(?:-\w+)?\b|-d\s|-F(?:\s|=)|--form(?:-string)?\b|-T(?:\s|=)|--upload-file\b|--json\b|--post-data\b|--post-file\b|--method\s+(?!GET\b)|--body-(?:data|file)\b)/i.test(command)) add("external_write");
-    if (/(?:\s-o(?:\s|=)|--output\b|\s-O(?:\s|$)|--remote-name\b|--output-document\b|--cookie-jar\b)/i.test(command)) add("unknown_effect");
-    if (/(?:authorization|--netrc\b|(?:^|\s)-(?:u|b)(?:\s|=)|--user\b|--cookie\b)/i.test(command)) add("credential_access");
-    add("unknown_effect");
-  }
-  if (/^(?:gh\s+(?:issue|api)\s+.*(?:comment|create|edit|delete)|mail|sendmail|osascript\s+.*mail)\b/i.test(command)) add("external_write");
-  if (/(?:\.env\b|\.ssh\/|credentials?|api[_-]?key|token|secret|keychain|security\s+find-generic-password)/i.test(command)) add("credential_access");
-  if (/^(?:git\s+(?:add|checkout|switch|restore|mv|rm)|mkdir|touch|cp|mv|sed\s+.*(?:-i|--in-place)|tee\b|printf\b.*>|echo\b.*>)\b/i.test(command)) add("repository_write");
-  if (/^(?:sh|bash|zsh|cmd|powershell|pwsh)\s+(?:-c|\/c)\b|\beval\b/i.test(command)) add("unknown_effect");
-  if (/^(?:(?:npm|pnpm|yarn|bun)\s+(?:test|run|exec)\b|make\b)/i.test(command) || /(?:^|\s)(?:xargs|parallel)\b|(?:^|\s)-(?:exec|execdir|ok|okdir)\b/i.test(command) || /^(?:sed|find)\b/i.test(command)) add("unknown_effect");
-  if (/^find\b.*(?:^|\s)-delete(?:\s|$)/i.test(command)) add("destructive_filesystem");
-  if (/^node\s+--test\b.*(?:^|\s)--test-reporter-destination(?:=|\s)/i.test(command) || /^git\s+(?:diff|log|show)\b.*(?:^|\s)--output(?:=|\s)/i.test(command)) add("unknown_effect");
-  if (/^rg\b.*(?:^|\s)--(?:pre|hostname-bin)(?:=|\s)/i.test(command)) add("unknown_effect");
-  if (ambiguousShellSyntax(raw) || shellHasUnboundPath(command, repo, workingDirectory)) add("unknown_effect");
-  if (!classes.size) add("unknown_effect");
-  return [...classes];
-}
-function classifyToolCall(call, repo) {
-  const name = call.name.toLowerCase();
-  const adapter = name.split("__").filter(Boolean).at(-1) ?? name;
-  const classes = /* @__PURE__ */ new Set();
-  const add = (...items) => items.forEach((item) => classes.add(item));
-  const command = commandText(call);
-  if (command !== void 0) {
-    const workingDirectory = commandWorkingDirectory(call, repo);
-    for (const segment of splitShellCommands(command)) {
-      for (const item of classesForCommand(segment, repo, workingDirectory.path)) classes.add(item);
-    }
-    if (workingDirectory.unsafe) add("unknown_effect");
-    if (ambiguousShellSyntax(command)) add("unknown_effect");
-  } else if (/^(?:create_thread|spawn_agent|delegate)$/.test(adapter)) add("task_create");
-  else if (/^(?:apply[_-]?patch|write[_-]?file|edit[_-]?file|create[_-]?file|delete[_-]?file|write|edit)$/.test(adapter)) {
-    add("repository_write");
-    const paths = toolResourcePaths(call);
-    if (paths.length === 0 || paths.some((path) => !resourcePathIsRepoBound(path, repo))) add("unknown_effect");
-  } else if (/^(?:read[_-]?file|read[_-]?text|glob|grep|search_files|list_files|view_image|read)$/.test(adapter)) {
-    add("repository_read");
-    const parsed = inputObject(call);
-    const paths = toolResourcePaths(call);
-    const pathRequired = /^(?:read[_-]?file|read[_-]?text|view_image|read)$/.test(adapter);
-    if (!parsed && paths.length === 0 || pathRequired && paths.length === 0 || paths.some((path) => !resourcePathIsRepoBound(path, repo))) add("unknown_effect");
-    if (/^(?:glob|grep|search_files)$/.test(adapter)) add("unknown_effect");
-  } else if (/^(?:web(?:_run)?|fetch|search_query|open_url|browser|chrome|computer_use)$/.test(adapter)) {
-    add("network_read");
-    const parsed = inputObject(call);
-    const words = `${name} ${browserActionWords(parsed)}`;
-    const safeWebBatchKeys = /* @__PURE__ */ new Set(["search_query", "image_query", "open", "find", "screenshot", "finance", "weather", "sports", "time", "response_length"]);
-    if (/click|submit|fill|type|press|upload|download|execute|evaluate|javascript|drag|select/.test(words)) add("unknown_effect");
-    if (/submit|upload|post|send|comment|delete|edit|create/.test(words)) add("external_write");
-    if (/browser|chrome|computer_use/.test(name)) add("unknown_effect");
-    if (/web/.test(name) && parsed && Object.keys(parsed).some((key) => !safeWebBatchKeys.has(key))) add("unknown_effect");
-    if (!/(?:search|search_query|fetch|open_url|screenshot|find|read|get|query)/.test(words)) add("unknown_effect");
-    if (!parsed && !/search|fetch|open_url/.test(name)) add("unknown_effect");
-  } else if (/^(?:send(?:_email|_message)?|email|message|comment|post|submit)$/.test(adapter)) add("external_write");
-  else add("unknown_effect");
-  if (name !== adapter) add("unknown_effect");
-  const namedSideEffect = /(?:^|[_-])(?:delete|remove|rm|unlink|destroy|truncate|write|edit|publish|release|deploy|upload|submit|send|email|message|comment|post|push|merge|click)(?:$|[_-])/.test(name);
-  const classifiedSideEffect = [...classes].some((item) => [
-    "repository_write",
-    "external_write",
-    "release_publish",
-    "deploy",
-    "pull_request_write",
-    "git_push",
-    "destructive_filesystem"
-  ].includes(item));
-  if (namedSideEffect && !classifiedSideEffect) add("unknown_effect");
-  if (/credential|secret|keychain|token/.test(name) || (classes.has("repository_read") || classes.has("repository_write")) && CREDENTIAL_RESOURCE.test(call.input)) add("credential_access");
-  const identityInput = command ?? call.input;
-  return {
-    toolCallId: call.id,
-    toolName: call.name,
-    sequence: call.sequence,
-    classes: [...classes],
-    summary: command ? command.slice(0, 240).replace(/\s+/g, " ") : call.input.slice(0, 240).replace(/\s+/g, " "),
-    identitySha256: `sha256:${createHash2("sha256").update(`${call.name}\0${identityInput}`).digest("hex")}`,
-    completed: call.output !== void 0,
-    failed: call.isError === true
-  };
-}
-function classifyTranscriptActions(transcript, repo) {
-  return transcript.toolCalls.map((call) => classifyToolCall(call, repo));
-}
-function analyzeTrajectory(actions) {
-  const identities = /* @__PURE__ */ new Map();
-  let failureStreak = 0;
-  let maxFailureStreak = 0;
-  for (const action of actions) {
-    identities.set(action.identitySha256, (identities.get(action.identitySha256) ?? 0) + 1);
-    failureStreak = action.failed ? failureStreak + 1 : 0;
-    maxFailureStreak = Math.max(maxFailureStreak, failureStreak);
-  }
-  const counts = [...identities.values()];
-  const progressClasses = /* @__PURE__ */ new Set(["repository_write", "test_execute", "build_execute", "git_commit"]);
-  return {
-    toolCalls: actions.length,
-    failedToolCalls: actions.filter((action) => action.failed).length,
-    maxIdenticalToolCalls: counts.length ? Math.max(...counts) : 0,
-    repeatedActionGroups: counts.filter((count) => count > 1).length,
-    maxConsecutiveFailedToolCalls: maxFailureStreak,
-    progressBearingActions: actions.filter((action) => action.classes.some((item) => progressClasses.has(item))).length
-  };
 }
 
 // src/run-telemetry.ts

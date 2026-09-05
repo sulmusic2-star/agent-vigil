@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.24.4 - 2026-09-05
+
+- Inspect complete JavaScript test bodies so unrelated new assertions cannot
+  hide a test that was emptied. Report repeated-name ambiguity as NOT CHECKED.
+- Preserve exact test moves and distinguish literal regression examples from
+  executable tests. Add 30 adversarial cases for the mixed-change failure.
+- Keep repository verification and the JavaScript parser out of the telemetry
+  worker, with a regression test for its bundled dependencies.
+- Give the observer success fixture a realistic timing window and separately
+  prove that a timed-out host cannot pass or authorize deployment. Production
+  deadlines and verification rules are unchanged.
+- Retain failed coverage evidence without automatic retries or lower coverage
+  floors, and test unsupported coverage explicitly on older Node versions.
+
 - Add `vigil run`, a POSIX process-group circuit breaker with a mandatory wall
   limit, optional fail-closed JSONL trajectory limits, and private self-hashed
   receipts that keep correctness, exact cost, and economic value `NOT_CHECKED`.

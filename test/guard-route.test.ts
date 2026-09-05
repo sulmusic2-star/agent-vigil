@@ -34,8 +34,9 @@ type Fixture = {
 };
 
 const ROUTE_TEST_TIMEOUT_MS = 30_000;
+const OBSERVER_TEST_DURATION_MS = 15_000;
 
-function fixture(mode: "pass" | "extra" | "bypass-deny" | "same-id" | "unavailable" | "mutate-config" | "mutate-ordinary" | "mutate-policy" | "require-user-environment" = "pass"): Fixture {
+function fixture(mode: "pass" | "extra" | "bypass-deny" | "same-id" | "unavailable" | "delayed" | "mutate-config" | "mutate-ordinary" | "mutate-policy" | "require-user-environment" = "pass"): Fixture {
   const root = mkdtempSync(join(tmpdir(), "vigil-live-route-test-"));
   const profile = join(root, "profile");
   const ordinaryHome = join(root, "ordinary-home");
@@ -51,6 +52,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 const mode = ${JSON.stringify(mode)};
 if (mode === "unavailable") process.exit(1);
+if (mode === "delayed") Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10_000);
 if (mode === "require-user-environment" && (process.env.USER !== "route-user" || process.env.LOGNAME !== "route-logname")) process.exit(1);
 const hook = process.env.AGENT_VIGIL_ROUTE_HOOK_PATH;
 const allow = process.env.AGENT_VIGIL_ROUTE_ALLOW_COMMAND;
@@ -103,6 +105,7 @@ async function waitForPath(path: string, timeoutMs = 5_000): Promise<void> {
 }
 
 function waitForExit(child: ReturnType<typeof spawn>, timeoutMs = 10_000): Promise<number | null> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(child.exitCode);
   return new Promise((resolveExit, reject) => {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
@@ -113,7 +116,7 @@ function waitForExit(child: ReturnType<typeof spawn>, timeoutMs = 10_000): Promi
   });
 }
 
-function run(selected: Fixture, host: "claude" | "codex" = "codex"): GuardRouteReport {
+function run(selected: Fixture, host: "claude" | "codex" = "codex", timeoutMs = ROUTE_TEST_TIMEOUT_MS): GuardRouteReport {
   return runGuardRoute({
     host,
     hostVersion: host === "codex" ? "0.149.1-fixture" : "2.1.245-fixture",
@@ -122,7 +125,7 @@ function run(selected: Fixture, host: "claude" | "codex" = "codex"): GuardRouteR
     vigilVersion: "test",
     nonce: "0123456789abcdef0123456789abcdef",
     generatedAt: "2026-08-25T16:00:00.000Z",
-    timeoutMs: ROUTE_TEST_TIMEOUT_MS,
+    timeoutMs,
   });
 }
 
@@ -226,7 +229,7 @@ test("a separately running observer sees the exact allow effect from the routed 
       "--runner-node", process.execPath,
       "--challenge-key", challengePrivate, "--observer-key", observerPrivate,
       "--challenge-output", challengeOutput, "--observation-output", observationOutput,
-      "--ready-output", readyOutput, "--duration-ms", "5000",
+      "--ready-output", readyOutput, "--duration-ms", String(OBSERVER_TEST_DURATION_MS),
     ];
     observer = spawn(process.execPath, observerArgs, { stdio: ["ignore", "pipe", "pipe"] });
     let observerStderr = "";
@@ -241,13 +244,15 @@ test("a separately running observer sees the exact allow effect from the routed 
       profileHome: selected.profile,
       vigilVersion: "test",
       generatedAt: new Date().toISOString(),
-      timeoutMs: 3_000,
+      // This success fixture checks signed effects, not three-second machine performance.
+      // A separate delayed-host test below proves that actual timeouts cannot pass.
+      timeoutMs: 10_000,
       environmentStatement: statement,
       environmentPublicKeyPath: environmentPublic,
       externalChallengeEnvelope: challengeEnvelope,
       externalChallengePublicKey: readFileSync(challengePublic),
     });
-    assert.equal(route.status, "PASS");
+    assert.equal(route.status, "PASS", JSON.stringify({ route, observerStderr }, null, 2));
     assert.equal(route.challengePack.id, "agent-vigil-external-network-route/v1");
     assert.deepEqual(route.challenges.map((item) => item.observedExecution), [true, false]);
     assert.ok(route.completedAt);
@@ -256,7 +261,7 @@ test("a separately running observer sees the exact allow effect from the routed 
     assert.ok(route.challenges.every((item) => item.observedAt
       && Date.parse(item.observedAt) >= Date.parse(opened.challenge.issuedAt)
       && Date.parse(item.observedAt) <= Date.parse(opened.challenge.expiresAt)));
-    const exit = await waitForExit(observer);
+    const exit = await waitForExit(observer, OBSERVER_TEST_DURATION_MS + 5_000);
     assert.equal(exit, 0, observerStderr);
     const observationEnvelope = JSON.parse(readFileSync(observationOutput, "utf8"));
     const { observation } = openGuardControlObservation(observationEnvelope, readFileSync(observerPublic));
@@ -379,6 +384,19 @@ test("a host that exits before any routed call is inconclusive, never a route pa
     assert.equal(report.status, "INCONCLUSIVE");
     assert.equal(report.summary.routedCalls, 0);
     assert.ok(report.deployment.reasonCodes.includes("HOST_UNAVAILABLE_BEFORE_ROUTE"));
+    assert.equal(report.nextGate.state, "BLOCKED");
+  } finally { selected.cleanup(); }
+});
+
+test("a timed-out host cannot pass or authorize deployment", { skip: unsupportedWindows }, () => {
+  const selected = fixture("delayed");
+  try {
+    const report = run(selected, "codex", 1_000);
+    assert.equal(report.host.process.process, "TIMED_OUT");
+    assert.equal(report.status, "INCONCLUSIVE");
+    assert.equal(report.summary.routedCalls, 0);
+    assert.ok(report.challenges.every((item) => !item.observedExecution));
+    assert.equal(report.deployment.state, "HOLD");
     assert.equal(report.nextGate.state, "BLOCKED");
   } finally { selected.cleanup(); }
 });

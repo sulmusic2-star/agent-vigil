@@ -123,7 +123,7 @@ test("wall limit escalates to SIGKILL when the child ignores SIGTERM", async () 
   }));
   assert.equal(result.exitCode, 124);
   assert.equal(result.receipt.state, "STOPPED");
-  assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
+  assert.equal(result.receipt.stop?.code, "TIME_LIMIT", JSON.stringify(result.receipt));
   assert.equal(result.receipt.process.termSent, true);
   assert.equal(result.receipt.process.killSent, true);
   assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
@@ -162,7 +162,7 @@ nodeTest("a zombie process leader cannot hide a runnable worker thread", {
     processGroupId = result.receipt.process.processGroupId;
     assert.equal(result.exitCode, 124);
     assert.equal(result.receipt.state, "STOPPED");
-    assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
+    assert.equal(result.receipt.stop?.code, "TIME_LIMIT", JSON.stringify(result.receipt));
     assert.equal(result.receipt.process.termSent, true);
     assert.equal(result.receipt.process.killSent, true);
     assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
@@ -492,7 +492,7 @@ test("wall limit remains live during post-launch executable verification", async
     timeLimitMs: 100,
     terminationGraceMs: 50,
   }));
-  assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
+  assert.equal(result.receipt.stop?.code, "TIME_LIMIT", JSON.stringify(result.receipt));
   assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
   assert.ok(Date.now() - startedAt < 1_500, "verification must not postpone deadline enforcement");
 });
@@ -1101,7 +1101,7 @@ test("wall limit terminates an ordinary descendant in the same process group", a
     terminationGraceMs: 100,
   }));
   const descendantPid = Number(readFileSync(pidPath, "utf8"));
-  assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
+  assert.equal(result.receipt.stop?.code, "TIME_LIMIT", JSON.stringify(result.receipt));
   assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
   assert.equal(await waitForPidToStopExecuting(descendantPid), true);
 });
@@ -1524,7 +1524,7 @@ test("malformed token counters cannot satisfy a requested token cap", async () =
       telemetryGraceMs: 5_000,
       transcript: { path: transcript, transport: "supervisor-captured-stdout" },
     }));
-    assert.equal(result.exitCode, 124, label);
+    assert.equal(result.exitCode, 124, JSON.stringify({ label, receipt: result.receipt }));
     assert.equal(result.receipt.state, "STOPPED", label);
     assert.equal(result.receipt.stop?.code, "TELEMETRY_UNREADABLE", label);
     assert.equal(result.receipt.telemetry?.parserStatus, "UNREADABLE", label);
@@ -1553,7 +1553,7 @@ test("large transcript parsing cannot delay wall-limit enforcement", { timeout: 
     telemetryGraceMs: 1_000,
     transcript: { path: transcript, transport: "external-file" },
   }));
-  assert.equal(result.receipt.stop?.code, "TIME_LIMIT");
+  assert.equal(result.receipt.stop?.code, "TIME_LIMIT", JSON.stringify(result.receipt));
   assert.ok(result.receipt.stop!.observed! >= 150 && result.receipt.stop!.observed! < 750);
   assert.equal(result.receipt.process.processGroupTerminationConfirmed, true);
 });
@@ -1590,7 +1590,7 @@ test("completed write evidence resets the no-progress clock once", async () => {
     trajectoryLimits: { noProgressMs: 250 },
     transcript: { path: transcript, transport: "supervisor-captured-stdout" },
   }));
-  assert.equal(result.receipt.stop?.code, "NO_PROGRESS");
+  assert.equal(result.receipt.stop?.code, "NO_PROGRESS", JSON.stringify(result.receipt));
   assert.equal(result.receipt.telemetry?.completedProgressActions, 1);
   assert.ok(result.receipt.elapsedMs >= 350);
   assert.ok(result.receipt.elapsedMs < 1_500);
@@ -1609,7 +1609,7 @@ test("a completed read does not reset the no-progress clock", async () => {
     trajectoryLimits: { noProgressMs: 250 },
     transcript: { path: transcript, transport: "supervisor-captured-stdout" },
   }));
-  assert.equal(result.receipt.stop?.code, "NO_PROGRESS");
+  assert.equal(result.receipt.stop?.code, "NO_PROGRESS", JSON.stringify(result.receipt));
   assert.equal(result.receipt.telemetry?.completedProgressActions, 0);
 });
 
@@ -1631,8 +1631,8 @@ for (const scenario of [
       trajectoryLimits: scenario.limits,
       transcript: { path: transcript, transport: "supervisor-captured-stdout" },
     }));
-    assert.equal(result.exitCode, 124);
-    assert.equal(result.receipt.stop?.code, scenario.code);
+    assert.equal(result.exitCode, 124, JSON.stringify(result.receipt));
+    assert.equal(result.receipt.stop?.code, scenario.code, JSON.stringify(result.receipt));
     assert.equal(result.receipt.stop?.observed, 2);
     assert.equal(result.receipt.stop?.limit, 1);
   });

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, normalize, relative, resolve, win32 } from "node:path";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { collectDiffEvidence, pathMatches } from "./maintainer.ts";
+import { collectDiffEvidence, pathMatches } from "./diff-evidence.ts";
 import { canonical, type CheckResult, type ClaimKind, type Verdict } from "./report.ts";
 import type { LoadedTranscript, SessionToolCall } from "./transcript.ts";
 import { trustedGit } from "./trusted-git.ts";
