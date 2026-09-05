@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.24.4 - 2026-09-05
+
+- Inspect complete JavaScript test bodies so unrelated new assertions cannot
+  hide a test that was emptied. Report repeated-name ambiguity as NOT CHECKED.
+- Preserve exact test moves and distinguish literal regression examples from
+  executable tests. Add 30 adversarial cases for the mixed-change failure.
+- Retain failed coverage evidence without automatic retries or lower coverage
+  floors, and test unsupported coverage explicitly on older Node versions.
+
 ## 0.24.3 - 2026-09-04
 
 - Stop protection setup before writing files when no test command is found,
