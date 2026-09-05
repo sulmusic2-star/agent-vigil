@@ -162,6 +162,8 @@ commands.
 
 ## Evidence and limits
 
+- [Protected local agent runs](docs/PROTECTED_RUN.md)
+- [Local run autopsy](docs/RUN_AUTOPSY.md)
 - [Frozen and comparative benchmarks](docs/BENCHMARKS.md)
 - [Scoped competitor comparison](docs/COMPETITOR_COMPARISON.md)
 - [Published failure corpus](proof/README.md)

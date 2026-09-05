@@ -43,7 +43,7 @@ jobs:
         if: matrix.node == 22
         run: npm run review:public
       - name: Exercise the packed package
-        if: matrix.node == 22
+        if: matrix.node == 20 || matrix.node == 22
         run: npm run test:package
       - name: Replay public historical failures
         if: matrix.node == 22
@@ -114,3 +114,19 @@ jobs:
         env:
           AGENT_VIGIL_REQUIRE_REAL_DOCKER: "true"
         run: node --import tsx --test test/action-runtime-security.test.ts
+      - name: Run protected group regression under a non-reaping PID 1
+        env:
+          CANDIDATE_IMAGE: node@sha256:46e94f8cf91baab69a2deb3153e74eeffd73c20c7cc1d8432f5b96469eaa0322
+        run: |
+          set -euo pipefail
+          container="agent-vigil-zombie-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker run --detach --name "$container" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
+            --workdir /workspace \
+            "$CANDIDATE_IMAGE" sleep 300 >/dev/null
+          cleanup() { docker rm -f "$container" >/dev/null; }
+          trap cleanup EXIT
+          docker exec --env AGENT_VIGIL_REQUIRE_LINUX_THREAD_FIXTURE=true "$container" \
+            node --import tsx --test --test-concurrency=1 \
+            --test-name-pattern="wall limit terminates an ordinary descendant|a leader cannot leave an ordinary same-group descendant|a zombie process leader cannot hide a runnable worker thread|changing Linux task membership is not accepted as zombie-only|hidepid-inaccessible processes require a stable pre-launch identity" \
+            test/run-supervisor.test.ts

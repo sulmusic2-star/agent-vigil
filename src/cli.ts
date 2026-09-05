@@ -112,6 +112,9 @@ import {
 } from "./guard-environment.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
 import { releasedDoctorCommand, releasedProtectCommand } from "./adoption.ts";
+import { buildCursorExactCostEvidence, validateExactCostEvidence, type ExactCostEvidence } from "./cost-evidence.ts";
+import { runAutopsyCommand } from "./autopsy-cli.ts";
+import { runProtectedRunCommand } from "./run-cli.ts";
 
 type Options = {
   transcript?: string;
@@ -178,6 +181,9 @@ Usage:
 \n${outcomeUsage()}
   vigil compare <before-receipt.json> <after-receipt.json> [--format text|json] [--output <path>]
   vigil github-evidence --event <event.json> [GitHub API exports] [--output <path>]
+  vigil cost-evidence cursor --transcript <session.jsonl> --usage-export <cursor-usage.json> [--output <path>]
+  vigil autopsy [<transcript.jsonl>] [--receipt <receipt.json> --public-key <public.pem>] [options]
+  vigil run --time-limit <duration> [trajectory options] -- <executable> [arguments...]
   vigil value <receipt.json> [--transcript <session.jsonl>] [--cost-usd <amount>] [options]
   vigil compare-value <card.json>... [--format text|json|html] [--output <path>]
   vigil audit <change.diff> [--strict] [--format <kind>] [--output <path>] [--sarif <path>]
@@ -214,7 +220,7 @@ Value options:
   --transcript <path>    Bind supported token usage to the receipt digest
   --github-evidence <p>  Import a hash-verified normalized GitHub evidence bundle
   --cost-usd <amount>    Attributed task cost; requires --cost-source
-  --cost-source <kind>   provider-billed, subscription-allocated, or user-estimated
+  --cost-source <kind>   provider-billed, provider-exported, subscription-allocated, or user-estimated
   --cost-evidence <path> Hash a local billing artifact without copying its contents
   --budget-usd <amount>  Predeclared task budget for WITHIN / EXCEEDED status
   --review-minutes <n>   Explicit human review duration
@@ -245,6 +251,8 @@ merges, every new pull request gets one result:
   NOT CHECKED  No decision because required evidence is missing.
 
 Useful commands:
+  vigil autopsy              Review whether a local agent run earned its cost
+  vigil run                  Stop a local agent command at declared limits
   vigil protect              Add Agent Vigil to the current repository
   vigil doctor               Check the setup
   vigil check <pull-request> Check a public GitHub pull request
@@ -1381,8 +1389,8 @@ function parseValueArgs(args: string[]): ValueCliOptions {
   const format = values.get("--format") ?? "text";
   if (!new Set(["text", "json", "markdown", "html"]).has(format)) throw new Error("value --format must be text, json, markdown, or html");
   const costSource = values.get("--cost-source");
-  if (costSource && !new Set(["provider-billed", "subscription-allocated", "user-estimated"]).has(costSource)) {
-    throw new Error("value --cost-source must be provider-billed, subscription-allocated, or user-estimated");
+  if (costSource && !new Set(["provider-billed", "provider-exported", "subscription-allocated", "user-estimated"]).has(costSource)) {
+    throw new Error("value --cost-source must be provider-billed, provider-exported, subscription-allocated, or user-estimated");
   }
   const disposition = values.get("--disposition");
   if (disposition && !new Set(["accepted", "dismissed", "changes-requested", "unreviewed"]).has(disposition)) {
@@ -1449,7 +1457,30 @@ function runValue(args: string[]): number {
       const evidence = readBoundedFile(resolve(path), 64 * 1024 * 1024, label);
       return `sha256:${createHash("sha256").update(evidence).digest("hex")}`;
     };
-    const costEvidenceSha256 = evidenceHash(options.costEvidence, "cost evidence");
+    let costEvidenceSha256: string | undefined;
+    let exactCost: ExactCostEvidence | undefined;
+    if (options.costEvidence) {
+      const costEvidence = readBoundedFile(resolve(options.costEvidence), 64 * 1024 * 1024, "cost evidence");
+      costEvidenceSha256 = `sha256:${createHash("sha256").update(costEvidence).digest("hex")}`;
+      try {
+        const parsed = JSON.parse(costEvidence.toString("utf8"));
+        if (parsed?.schemaVersion === "agent-vigil-exact-cost-evidence/v1") exactCost = validateExactCostEvidence(parsed);
+      } catch (error) {
+        if (costEvidence.toString("utf8").includes("agent-vigil-exact-cost-evidence/v1")) throw error;
+      }
+    }
+    if (exactCost && exactCost.transcriptSha256 !== report.transcriptSha256) {
+      throw new Error("exact cost evidence is bound to a different transcript");
+    }
+    if (exactCost && options.costUsd !== undefined && Math.abs(options.costUsd - exactCost.amountUsd) > 1e-9) {
+      throw new Error("--cost-usd contradicts the exact cost evidence amount");
+    }
+    if (exactCost && options.costSource !== undefined && options.costSource !== "provider-exported") {
+      throw new Error("--cost-source contradicts provider-exported exact cost evidence");
+    }
+    if (options.costSource === "provider-exported" && !exactCost) {
+      throw new Error("--cost-source provider-exported requires validated exact cost evidence");
+    }
     const github = options.githubEvidence ? loadGitHubEvidence(resolve(options.githubEvidence)) : undefined;
     const inferredDisposition = options.disposition ?? github?.inference.disposition;
     const inferredOutcome = options.outcome ?? github?.inference.outcome;
@@ -1469,8 +1500,8 @@ function runValue(args: string[]): number {
       values: {
         taskClass: options.taskClass,
         budgetUsd: options.budgetUsd,
-        costUsd: options.costUsd,
-        costSource: options.costSource,
+        costUsd: options.costUsd ?? exactCost?.amountUsd,
+        costSource: options.costSource ?? (exactCost ? "provider-exported" : undefined),
         costEvidenceSha256,
         reviewMinutes: options.reviewMinutes,
         disposition: inferredDisposition,
@@ -1499,6 +1530,35 @@ function runValue(args: string[]): number {
     if (options.output) writePrivateFileAtomic(resolve(options.output), rendered);
     else process.stdout.write(rendered);
     return card.valueVerdict === "POSITIVE" ? 0 : card.valueVerdict === "NEGATIVE" ? 1 : 2;
+  } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
+}
+
+function runCostEvidence(args: string[]): number {
+  try {
+    if (args[1] !== "cursor") throw new Error("cost-evidence currently supports: cursor");
+    const transcript = optionValue(args, "--transcript");
+    const usageExport = optionValue(args, "--usage-export");
+    const output = optionValue(args, "--output");
+    if (!transcript || !usageExport) throw new Error("cost-evidence cursor requires --transcript and --usage-export");
+    const allowed = new Set(["--transcript", "--usage-export", "--output"]);
+    const seen = new Set<string>();
+    for (let index = 2; index < args.length; index += 2) {
+      if (!allowed.has(args[index])) throw new Error(`unknown cost-evidence argument: ${args[index]}`);
+      if (args[index + 1] === undefined || args[index + 1].startsWith("--")) throw new Error(`${args[index]} requires a value`);
+      if (seen.has(args[index])) throw new Error(`${args[index]} may be supplied only once`);
+      seen.add(args[index]);
+    }
+    const transcriptPath = resolve(transcript);
+    const usageExportPath = resolve(usageExport);
+    if (output && new Set([transcriptPath, usageExportPath]).has(resolve(output))) throw new Error("cost-evidence output must not replace an input file");
+    const evidence = buildCursorExactCostEvidence({
+      transcript: readBoundedRegularFile(transcriptPath, 50 * 1024 * 1024, "Cursor transcript"),
+      usageExport: readBoundedRegularFile(usageExportPath, 64 * 1024 * 1024, "Cursor usage export"),
+    });
+    const rendered = `${JSON.stringify(evidence, null, 2)}\n`;
+    if (output) writePrivateFileAtomic(resolve(output), rendered);
+    else process.stdout.write(rendered);
+    return 0;
   } catch (error) { console.error(`agent-vigil: ${(error as Error).message}`); return 2; }
 }
 
@@ -1775,6 +1835,11 @@ export function run(argv = process.argv.slice(2)): number {
   }
   if (argv.includes("--help-all")) { console.log(advancedUsage()); return 0; }
   if (argv[0] === "demo") return runDemo(run);
+  if (argv[0] === "autopsy") return runAutopsyCommand(argv.slice(1));
+  if (argv[0] === "run") {
+    console.error("agent-vigil: vigil run is asynchronous; invoke it through the command-line executable");
+    return 2;
+  }
   if (argv[0] === "continuity") return runContinuityCommand(argv.slice(1));
   if (argv[0] === "upgrade") return runUpgradeCommand(argv.slice(1));
   if (argv[0] === "protect") return runProtect(argv);
@@ -1806,6 +1871,7 @@ export function run(argv = process.argv.slice(2)): number {
   if (argv[0] === "notary") return runNotary(argv);
   if (argv[0] === "compare") return runCompare(argv);
   if (argv[0] === "github-evidence") return runGitHubEvidence(argv);
+  if (argv[0] === "cost-evidence") return runCostEvidence(argv);
   if (argv[0] === "value") return runValue(argv);
   if (argv[0] === "compare-value") return runCompareValue(argv);
   if (argv[0] === "audit") return runAudit(argv);
@@ -1940,5 +2006,7 @@ if (isMainModule()) {
       process.exit(2);
     }
     void runPublicPrReceiptCommand(argv.slice(1), { toolVersion: VERSION, toolCommit: pin.sha }).then((code) => process.exit(code));
+  } else if (argv[0] === "run") {
+    void runProtectedRunCommand(argv.slice(1)).then((code) => process.exit(code));
   } else process.exit(run(argv));
 }

@@ -15,6 +15,10 @@ and compares retained cards by task class. See
 [GitHub outcome evidence](GITHUB_OUTCOME_EVIDENCE.md) and
 [task-matched value comparisons](VALUE_COMPARISONS.md).
 
+The next-cycle [exact cost evidence](EXACT_COST_EVIDENCE.md) adapter can bind a
+Cursor usage export to the transcript and fill the exported amount without
+manual re-entry.
+
 ## Example
 
 ```bash
@@ -71,6 +75,7 @@ cache pricing, negotiated rates, routing, and changing model prices make that
 conversion ambiguous. Cost therefore requires an explicit source:
 
 - `provider-billed`
+- `provider-exported` (the imported export is hash-bound but not authenticated by the provider)
 - `subscription-allocated`
 - `user-estimated`
 
@@ -96,5 +101,7 @@ artifact is hashed into the card.
 
 This version creates one task card, closes GitHub run/PR outcomes through a
 separate observer, and aggregates verified cards locally by task class,
-adapter, and model set. Automatic provider billing import, hard budget
-interruption, hosted analytics, and organizational policy are not implemented.
+adapter, and model set. The next-cycle Cursor adapter imports a local usage
+export but does not authenticate it with Cursor. Direct provider API
+attestation, hard budget interruption, hosted analytics, and organizational
+policy are not implemented.

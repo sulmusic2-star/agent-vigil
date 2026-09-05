@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "tool": {
     "name": "agent-vigil",
-    "version": "0.23.4"
+    "version": "0.24.1"
   },
   "source": {
     "repository": "https://github.com/moonrunnerkc/swarm-orchestrator",
@@ -18,15 +18,15 @@
   },
   "presumedClean": {
     "prs": 232,
-    "prsWithAdvisories": 99,
-    "advisoryPrRate": 0.4267,
+    "prsWithAdvisories": 100,
+    "advisoryPrRate": 0.431,
     "heuristicHardBlocks": 0,
     "incompleteStaticAudits": 9,
     "incompleteStaticAuditRate": 0.0388,
     "rules": {
       "assertion-drop": 7,
       "error-swallowed": 8,
-      "no-op-code-change": 8,
+      "no-op-code-change": 9,
       "render-gate-hidden-character": 4,
       "stale-refactor-caller": 14,
       "subject-mocked": 7,

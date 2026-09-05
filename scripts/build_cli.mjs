@@ -6,11 +6,15 @@ if (commit && !/^[0-9a-f]{40}$/.test(commit)) {
 }
 
 await build({
-  entryPoints: ["src/cli.ts"],
+  entryPoints: {
+    cli: "src/cli.ts",
+    "run-telemetry-worker": "src/run-telemetry-worker.ts",
+  },
   bundle: true,
   platform: "node",
   format: "esm",
   target: "node20",
-  outfile: "dist/cli.js",
+  outdir: "dist",
+  entryNames: "[name]",
   define: { __AGENT_VIGIL_BUILD_SHA__: JSON.stringify(commit) },
 });

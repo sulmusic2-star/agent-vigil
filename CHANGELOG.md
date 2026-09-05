@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Add `vigil run`, a POSIX process-group circuit breaker with a mandatory wall
+  limit, optional fail-closed JSONL trajectory limits, and private self-hashed
+  receipts that keep correctness, exact cost, and economic value `NOT_CHECKED`.
+- Keep deadline and signal enforcement independent from transcript parsing with
+  a monotonic supervisor clock and packaged telemetry worker; enforce malformed
+  or incomplete requested telemetry immediately when the observed command exits.
+- Reject malformed counters, conflicting counter aliases, and totals that are
+  internally contradictory before or after streamed-record deduplication, and
+  return a supervisor error when final process-group termination cannot be
+  confirmed.
+- Distinguish Linux zombie-only process groups from executable descendants,
+  including runnable threads hidden behind a zombie thread-group leader; require
+  stable repeated task-membership snapshots before confirming termination,
+  avoid poisoning those snapshots with unchanged `hidepid`-inaccessible
+  processes proven to predate the detached session while failing closed for new
+  or changed inaccessible entries, and exercise containment under a deliberately
+  non-reaping container PID 1.
+- Bound final telemetry responses and worker shutdown so stalled responses
+  produce a supervisor-error receipt instead of an indefinite shutdown wait.
+- Bound pre-launch telemetry initialization and allow supervisor signals to
+  interrupt readiness without launching the protected command.
+
 ## 0.24.3 - 2026-09-04
 
 - Stop protection setup before writing files when no test command is found,
@@ -52,7 +74,6 @@
 - Add the centrally operated public App worker and control workflow template for exact-head pull-request and merge-queue checks without customer-managed keys or Workers. The public service remains inactive until live outside acceptance.
 - Publish a neutral identical-diff comparison against Swarm with complete rows, bounded statistics, source commits, and explicit limits; no universal-superiority or revenue claim is made.
 - Add a two-commit release-assembly verifier that restricts protected release paths, rebuilds every distributed file, and binds all public Action pins to the reviewed runtime commit.
-
 - Accept GitHub App private keys in either unencrypted RSA PKCS#1 or PKCS#8
   format and normalize them in memory before Web Crypto import.
 - Scope the protected pull-request App token to the target repository instead
