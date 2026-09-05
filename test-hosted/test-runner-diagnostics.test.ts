@@ -9,6 +9,10 @@ import { fileURLToPath } from "node:url";
 const runner = new URL("../scripts/run_tests.mjs", import.meta.url).href;
 const modules = fileURLToPath(new URL("../node_modules", import.meta.url));
 const shard = "coverage-999999999-1000000000000-0.json";
+const help = spawnSync(process.execPath, ["--help"], { encoding: "utf8", timeout: 10_000 });
+assert.equal(help.status, 0, help.stderr);
+const supportsCoverageThresholds = help.stdout.includes("--test-coverage-lines");
+const needsCoverageThresholds = { skip: supportsCoverageThresholds ? false : "This Node lacks the coverage-floor flags; the CI coverage job runs Node 22." };
 
 function exercise(mode: "pass" | "assertion" | "empty" | "truncated" | "low-coverage", coverage = true) {
   const root = mkdtempSync(join(tmpdir(), "vigil-runner-regression-"));
@@ -59,6 +63,14 @@ process.exitCode = result.exitCode;
     const marker = result.stdout.split("\n").find((line) => line.startsWith("RUNNER_RESULT="));
     assert.ok(marker, result.stdout + result.stderr);
     const details = JSON.parse(marker.slice("RUNNER_RESULT=".length));
+    if (coverage && !supportsCoverageThresholds) {
+      assert.notEqual(result.status, 0, "unsupported coverage must not silently omit thresholds");
+      assert.match(result.stderr, /bad option.*test-coverage/);
+      assert.equal(existsSync(join(root, "attempts.txt")), false, "unsupported coverage must not run weaker tests");
+      assert.equal(existsSync(details.runRoot), true);
+      assert.match(result.stderr, /No automatic retry/);
+      return;
+    }
     assert.ok(existsSync(join(root, "attempts.txt")), result.stdout + result.stderr);
     assert.equal(readFileSync(join(root, "attempts.txt"), "utf8"), "attempt\n", "a failed run must never silently retry");
     assert.equal(result.status, details.exitCode);
@@ -82,9 +94,10 @@ process.exitCode = result.exitCode;
   }
 }
 
-test("successful coverage keeps its thresholds and cleans temporary evidence", () => exercise("pass"));
-test("an assertion failure stays failed and is not retried", () => exercise("assertion"));
-test("a green test suite below the coverage floor still fails", () => exercise("low-coverage"));
-test("an empty V8 shard stays failed and is retained unchanged", () => exercise("empty"));
-test("a truncated V8 shard stays failed and is retained unchanged", () => exercise("truncated"));
+test("successful coverage keeps its thresholds and cleans temporary evidence", needsCoverageThresholds, () => exercise("pass"));
+test("an assertion failure stays failed and is not retried", () => exercise("assertion", false));
+test("a green test suite below the coverage floor still fails", needsCoverageThresholds, () => exercise("low-coverage"));
+test("an empty V8 shard stays failed and is retained unchanged", needsCoverageThresholds, () => exercise("empty"));
+test("a truncated V8 shard stays failed and is retained unchanged", needsCoverageThresholds, () => exercise("truncated"));
 test("ordinary successful tests still clean their temporary files", () => exercise("pass", false));
+test("older Node rejects unsupported coverage rather than dropping the floors", { skip: supportsCoverageThresholds }, () => exercise("pass"));
