@@ -23375,6 +23375,7 @@ var RunTelemetryMonitor = class {
     const error = new Error("telemetry worker closed before completing its request");
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    this.worker.unref();
     await this.worker.terminate();
   }
   handleMessage(message) {
@@ -23417,6 +23418,8 @@ var POLL_INTERVAL_MS = 100;
 var STDOUT_STREAM_DRAIN_WAIT_MS = 1e3;
 var CAPTURE_FLUSH_WAIT_MS = 5e3;
 var STDOUT_RELAY_FLUSH_WAIT_MS = 1e3;
+var TELEMETRY_FINAL_WAIT_MS = 5e3;
+var TELEMETRY_CLOSE_WAIT_MS = 1e3;
 var MAX_STDOUT_RELAY_QUEUE_BYTES = 1024 * 1024;
 function sha2568(value) {
   return `sha256:${createHash31("sha256").update(value).digest("hex")}`;
@@ -23717,7 +23720,7 @@ function settlementWithin(promise, milliseconds) {
     };
     const timer = setTimeout(() => finish({ status: "timed-out" }), milliseconds);
     void promise.then(
-      () => finish({ status: "fulfilled" }),
+      (value) => finish({ status: "fulfilled", value }),
       (error) => finish({ status: "rejected", error })
     );
   });
@@ -24144,10 +24147,26 @@ async function executeProtectedRun(input) {
       }
     }
     if (telemetry) {
-      if (telemetryPollInFlight) await telemetryPollInFlight;
-      const finalTelemetry = await telemetry.poll(exitObservedAtMonotonicMs ?? monotonicNowMs(), true, true);
-      latestTelemetry = finalTelemetry.observation;
-      if (finalTelemetry.breach) requestStop(stopFromBreach(finalTelemetry.breach));
+      if (telemetryPollInFlight) {
+        const pendingPoll = await settlementWithin(telemetryPollInFlight, TELEMETRY_FINAL_WAIT_MS);
+        if (pendingPoll.status !== "fulfilled") {
+          throw pendingPoll.status === "rejected" ? pendingPoll.error : new Error("In-flight telemetry did not finish before the safety deadline");
+        }
+      }
+      const finalTelemetry = await settlementWithin(
+        telemetry.poll(exitObservedAtMonotonicMs ?? monotonicNowMs(), true, true),
+        TELEMETRY_FINAL_WAIT_MS
+      );
+      if (finalTelemetry.status !== "fulfilled") {
+        throw finalTelemetry.status === "rejected" ? finalTelemetry.error : new Error("Final telemetry did not finish before the safety deadline");
+      }
+      latestTelemetry = finalTelemetry.value.observation;
+      if (finalTelemetry.value.breach) requestStop(stopFromBreach(finalTelemetry.value.breach));
+      const telemetryClose = await settlementWithin(telemetry.close(), TELEMETRY_CLOSE_WAIT_MS);
+      telemetry = void 0;
+      if (telemetryClose.status !== "fulfilled") {
+        throw telemetryClose.status === "rejected" ? telemetryClose.error : new Error("Telemetry worker did not close before the safety deadline");
+      }
     }
     if (stopRequest) await stopHandledPromise;
     const finishedAtMs = Date.now();
@@ -24230,10 +24249,7 @@ async function executeProtectedRun(input) {
       } catch {
       }
     }
-    try {
-      await telemetry?.close();
-    } catch {
-    }
+    if (telemetry) await settleWithin(telemetry.close(), TELEMETRY_CLOSE_WAIT_MS);
   }
 }
 

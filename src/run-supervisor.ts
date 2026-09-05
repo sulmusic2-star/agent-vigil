@@ -37,6 +37,8 @@ const POLL_INTERVAL_MS = 100;
 const STDOUT_STREAM_DRAIN_WAIT_MS = 1_000;
 const CAPTURE_FLUSH_WAIT_MS = 5_000;
 const STDOUT_RELAY_FLUSH_WAIT_MS = 1_000;
+const TELEMETRY_FINAL_WAIT_MS = 5_000;
+const TELEMETRY_CLOSE_WAIT_MS = 1_000;
 const MAX_STDOUT_RELAY_QUEUE_BYTES = 1024 * 1024;
 
 export type ProtectedRunStopCode =
@@ -492,15 +494,15 @@ function settleWithin(promise: Promise<unknown>, milliseconds: number): Promise<
   });
 }
 
-type TimedSettlement =
-  | { status: "fulfilled" }
+type TimedSettlement<T> =
+  | { status: "fulfilled"; value: T }
   | { status: "rejected"; error: unknown }
   | { status: "timed-out" };
 
-function settlementWithin(promise: Promise<unknown>, milliseconds: number): Promise<TimedSettlement> {
+function settlementWithin<T>(promise: Promise<T>, milliseconds: number): Promise<TimedSettlement<T>> {
   return new Promise((resolveSettlement) => {
     let settled = false;
-    const finish = (result: TimedSettlement): void => {
+    const finish = (result: TimedSettlement<T>): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -508,7 +510,7 @@ function settlementWithin(promise: Promise<unknown>, milliseconds: number): Prom
     };
     const timer = setTimeout(() => finish({ status: "timed-out" }), milliseconds);
     void promise.then(
-      () => finish({ status: "fulfilled" }),
+      (value) => finish({ status: "fulfilled", value }),
       (error: unknown) => finish({ status: "rejected", error }),
     );
   });
@@ -973,10 +975,29 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
       }
     }
     if (telemetry) {
-      if (telemetryPollInFlight) await telemetryPollInFlight;
-      const finalTelemetry = await telemetry.poll(exitObservedAtMonotonicMs ?? monotonicNowMs(), true, true);
-      latestTelemetry = finalTelemetry.observation;
-      if (finalTelemetry.breach) requestStop(stopFromBreach(finalTelemetry.breach));
+      if (telemetryPollInFlight) {
+        const pendingPoll = await settlementWithin(telemetryPollInFlight, TELEMETRY_FINAL_WAIT_MS);
+        if (pendingPoll.status !== "fulfilled") {
+          throw pendingPoll.status === "rejected" ? pendingPoll.error
+            : new Error("In-flight telemetry did not finish before the safety deadline");
+        }
+      }
+      const finalTelemetry = await settlementWithin(
+        telemetry.poll(exitObservedAtMonotonicMs ?? monotonicNowMs(), true, true),
+        TELEMETRY_FINAL_WAIT_MS,
+      );
+      if (finalTelemetry.status !== "fulfilled") {
+        throw finalTelemetry.status === "rejected" ? finalTelemetry.error
+          : new Error("Final telemetry did not finish before the safety deadline");
+      }
+      latestTelemetry = finalTelemetry.value.observation;
+      if (finalTelemetry.value.breach) requestStop(stopFromBreach(finalTelemetry.value.breach));
+      const telemetryClose = await settlementWithin(telemetry.close(), TELEMETRY_CLOSE_WAIT_MS);
+      telemetry = undefined;
+      if (telemetryClose.status !== "fulfilled") {
+        throw telemetryClose.status === "rejected" ? telemetryClose.error
+          : new Error("Telemetry worker did not close before the safety deadline");
+      }
     }
     if (stopRequest) await stopHandledPromise;
     const finishedAtMs = Date.now();
@@ -1055,6 +1076,6 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     } else {
       try { await sink?.close(); } catch { /* A receipt still reports the supervisor failure path. */ }
     }
-    try { await telemetry?.close(); } catch { /* The receipt already captures worker failures. */ }
+    if (telemetry) await settleWithin(telemetry.close(), TELEMETRY_CLOSE_WAIT_MS);
   }
 }

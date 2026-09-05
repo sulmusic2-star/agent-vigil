@@ -454,6 +454,7 @@ export class RunTelemetryMonitor {
     const error = new Error("telemetry worker closed before completing its request");
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    this.worker.unref();
     await this.worker.terminate();
   }
 

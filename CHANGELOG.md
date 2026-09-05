@@ -19,6 +19,8 @@
   processes proven to predate the detached session while failing closed for new
   or changed inaccessible entries, and exercise containment under a deliberately
   non-reaping container PID 1.
+- Bound final telemetry responses and worker shutdown so stalled responses
+  produce a supervisor-error receipt instead of an indefinite shutdown wait.
 
 ## 0.24.3 - 2026-09-04
 

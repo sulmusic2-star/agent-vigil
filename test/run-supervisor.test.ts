@@ -1337,6 +1337,93 @@ test("captured JSONL stops at the first exceeded tool-call limit and stays priva
   assert.doesNotMatch(JSON.stringify(result.receipt), /private argument|session_meta|exec_command/);
 });
 
+function assertStalledTelemetryShutdown(mode: "in-flight" | "final" | "close"): void {
+  const directory = root();
+  const transcriptPath = join(directory, "external.jsonl");
+  const receiptPath = join(directory, "receipt.json");
+  const pidPath = join(directory, "child.pid");
+  const interceptedPath = join(directory, "intercepted.json");
+  writeFileSync(transcriptPath, "");
+  const runCliUrl = new URL("../src/run-cli.ts", import.meta.url).href;
+  const script = `
+    (async () => {
+    const { Worker } = await import("node:worker_threads");
+    const { writeFileSync } = await import("node:fs");
+    const postMessage = Worker.prototype.postMessage;
+    const terminate = Worker.prototype.terminate;
+    let intercepted = false;
+    Worker.prototype.postMessage = function(message, ...args) {
+      if (message.kind === "poll" && (
+        ${JSON.stringify(mode)} === "in-flight" ||
+        (${JSON.stringify(mode)} === "final" && message.terminal)
+      )) {
+        intercepted = true;
+        return;
+      }
+      return postMessage.call(this, message, ...args);
+    };
+    if (${JSON.stringify(mode)} === "close") {
+      Worker.prototype.terminate = function() {
+        intercepted = true;
+        return new Promise(() => {});
+      };
+    }
+    const { runProtectedRunCommand } = await import(${JSON.stringify(runCliUrl)});
+    const environment = { ...process.env };
+    delete environment.NODE_V8_COVERAGE;
+    const code = await runProtectedRunCommand([
+      "--transcript", ${JSON.stringify(transcriptPath)},
+      "--time-limit", "250ms", "--termination-grace", "100ms",
+      "--output", ${JSON.stringify(receiptPath)},
+      "--", process.execPath, "-e",
+      "require('node:fs').writeFileSync(process.argv[1], String(process.pid));setInterval(()=>{},1000)",
+      ${JSON.stringify(pidPath)},
+    ], environment);
+    writeFileSync(${JSON.stringify(interceptedPath)}, JSON.stringify({ intercepted }));
+    Worker.prototype.postMessage = postMessage;
+    Worker.prototype.terminate = terminate;
+    process.exitCode = code;
+    })().catch((error) => { console.error(error); process.exitCode = 1; });
+  `;
+  try {
+    const result = spawnSync(process.execPath, ["--import", "tsx", "-e", script], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: coverageHarnessEnvironment(),
+      timeout: 9_000,
+      killSignal: "SIGKILL",
+    });
+    assert.equal(result.error, undefined, `${mode}: ${result.stderr}`);
+    assert.equal(result.status, 125, `${mode}: ${result.stderr}`);
+    assert.equal(JSON.parse(readFileSync(interceptedPath, "utf8")).intercepted, true);
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    assert.equal(receipt.state, "ERROR");
+    assert.equal(receipt.stop?.code, "SUPERVISOR_ERROR");
+    assert.equal(receipt.process.processGroupTerminationConfirmed, true);
+    assert.equal(recomputeProtectedRunHash(receipt), receipt.receiptHash);
+    assert.equal(pidCanExecute(Number(readFileSync(pidPath, "utf8"))), false);
+  } finally {
+    if (existsSync(pidPath)) {
+      const pid = Number(readFileSync(pidPath, "utf8"));
+      if (pidCanExecute(pid)) {
+        try { process.kill(-pid, "SIGKILL"); } catch { /* Best-effort fixture cleanup. */ }
+      }
+    }
+  }
+}
+
+test("a stalled in-flight telemetry poll cannot prevent the final receipt", { timeout: 12_000 }, () => {
+  assertStalledTelemetryShutdown("in-flight");
+});
+
+test("a stalled final telemetry poll cannot prevent the final receipt", { timeout: 12_000 }, () => {
+  assertStalledTelemetryShutdown("final");
+});
+
+test("a stalled telemetry worker close cannot prevent the final receipt or CLI exit", { timeout: 12_000 }, () => {
+  assertStalledTelemetryShutdown("close");
+});
+
 test("final buffered telemetry rejects a fast command that already crossed its cap", async () => {
   const directory = root();
   const transcript = join(directory, "fast.jsonl");

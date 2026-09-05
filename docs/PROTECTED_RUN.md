@@ -63,6 +63,12 @@ pre-run calls and token count become the baseline. Replacement, deletion,
 truncation, or rewriting after launch stops the run with
 `TELEMETRY_INTEGRITY`.
 
+Shutdown allows at most five seconds for an outstanding telemetry response and
+five seconds for the final response, followed by one second for worker closure.
+A timeout returns `ERROR`/`125` instead of treating incomplete telemetry as a
+successful final observation. These are supervisor wait bounds, not a guarantee
+that the operating system can interrupt stalled filesystem I/O.
+
 ## Limit semantics
 
 - A declared maximum permits exactly that value and stops on the next observed
