@@ -37,6 +37,7 @@ const POLL_INTERVAL_MS = 100;
 const STDOUT_STREAM_DRAIN_WAIT_MS = 1_000;
 const CAPTURE_FLUSH_WAIT_MS = 5_000;
 const STDOUT_RELAY_FLUSH_WAIT_MS = 1_000;
+const TELEMETRY_READY_WAIT_MS = 5_000;
 const TELEMETRY_FINAL_WAIT_MS = 5_000;
 const TELEMETRY_CLOSE_WAIT_MS = 1_000;
 const MAX_STDOUT_RELAY_QUEUE_BYTES = 1024 * 1024;
@@ -750,7 +751,14 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
         telemetryGraceMs: input.telemetryGraceMs,
         startedAtMs: startedAtMonotonicMs,
       });
-      await telemetry.ready();
+      const telemetryReady = await settlementWithin(
+        Promise.race([telemetry.ready(), stopPromise]),
+        TELEMETRY_READY_WAIT_MS,
+      );
+      if (telemetryReady.status !== "fulfilled") {
+        throw telemetryReady.status === "rejected" ? telemetryReady.error
+          : new Error("Telemetry worker did not initialize before the safety deadline");
+      }
     }
 
     const preLaunchStop = getStopRequest();

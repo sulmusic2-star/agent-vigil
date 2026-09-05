@@ -21,6 +21,8 @@
   non-reaping container PID 1.
 - Bound final telemetry responses and worker shutdown so stalled responses
   produce a supervisor-error receipt instead of an indefinite shutdown wait.
+- Bound pre-launch telemetry initialization and allow supervisor signals to
+  interrupt readiness without launching the protected command.
 
 ## 0.24.3 - 2026-09-04
 

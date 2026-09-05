@@ -1337,7 +1337,7 @@ test("captured JSONL stops at the first exceeded tool-call limit and stays priva
   assert.doesNotMatch(JSON.stringify(result.receipt), /private argument|session_meta|exec_command/);
 });
 
-function assertStalledTelemetryShutdown(mode: "in-flight" | "final" | "close"): void {
+function assertStalledTelemetryShutdown(mode: "ready" | "ready-signal" | "in-flight" | "final" | "close"): void {
   const directory = root();
   const transcriptPath = join(directory, "external.jsonl");
   const receiptPath = join(directory, "receipt.json");
@@ -1351,7 +1351,16 @@ function assertStalledTelemetryShutdown(mode: "in-flight" | "final" | "close"): 
     const { writeFileSync } = await import("node:fs");
     const postMessage = Worker.prototype.postMessage;
     const terminate = Worker.prototype.terminate;
+    const emit = Worker.prototype.emit;
     let intercepted = false;
+    Worker.prototype.emit = function(event, ...args) {
+      if (event === "message" && args[0]?.kind === "ready" && ${JSON.stringify(mode)}.startsWith("ready")) {
+        intercepted = true;
+        if (${JSON.stringify(mode)} === "ready-signal") setImmediate(() => process.emit("SIGINT"));
+        return false;
+      }
+      return emit.call(this, event, ...args);
+    };
     Worker.prototype.postMessage = function(message, ...args) {
       if (message.kind === "poll" && (
         ${JSON.stringify(mode)} === "in-flight" ||
@@ -1382,6 +1391,7 @@ function assertStalledTelemetryShutdown(mode: "in-flight" | "final" | "close"): 
     writeFileSync(${JSON.stringify(interceptedPath)}, JSON.stringify({ intercepted }));
     Worker.prototype.postMessage = postMessage;
     Worker.prototype.terminate = terminate;
+    Worker.prototype.emit = emit;
     process.exitCode = code;
     })().catch((error) => { console.error(error); process.exitCode = 1; });
   `;
@@ -1394,14 +1404,20 @@ function assertStalledTelemetryShutdown(mode: "in-flight" | "final" | "close"): 
       killSignal: "SIGKILL",
     });
     assert.equal(result.error, undefined, `${mode}: ${result.stderr}`);
-    assert.equal(result.status, 125, `${mode}: ${result.stderr}`);
+    assert.equal(result.status, mode === "ready-signal" ? 130 : 125, `${mode}: ${result.stderr}`);
     assert.equal(JSON.parse(readFileSync(interceptedPath, "utf8")).intercepted, true);
     const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
-    assert.equal(receipt.state, "ERROR");
-    assert.equal(receipt.stop?.code, "SUPERVISOR_ERROR");
+    assert.equal(receipt.state, mode === "ready-signal" ? "STOPPED" : "ERROR");
+    assert.equal(receipt.stop?.code, mode === "ready-signal" ? "SUPERVISOR_SIGNAL" : "SUPERVISOR_ERROR");
     assert.equal(receipt.process.processGroupTerminationConfirmed, true);
     assert.equal(recomputeProtectedRunHash(receipt), receipt.receiptHash);
-    assert.equal(pidCanExecute(Number(readFileSync(pidPath, "utf8"))), false);
+    if (mode.startsWith("ready")) {
+      assert.equal(existsSync(pidPath), false);
+      assert.equal(receipt.process.leaderPid, undefined);
+      if (mode === "ready-signal") assert.equal(receipt.stop.signal, "SIGINT");
+    } else {
+      assert.equal(pidCanExecute(Number(readFileSync(pidPath, "utf8"))), false);
+    }
   } finally {
     if (existsSync(pidPath)) {
       const pid = Number(readFileSync(pidPath, "utf8"));
@@ -1411,6 +1427,14 @@ function assertStalledTelemetryShutdown(mode: "in-flight" | "final" | "close"): 
     }
   }
 }
+
+test("a stalled telemetry baseline cannot prevent an error receipt before launch", { timeout: 12_000 }, () => {
+  assertStalledTelemetryShutdown("ready");
+});
+
+test("a signal interrupts stalled telemetry initialization before launch", { timeout: 12_000 }, () => {
+  assertStalledTelemetryShutdown("ready-signal");
+});
 
 test("a stalled in-flight telemetry poll cannot prevent the final receipt", { timeout: 12_000 }, () => {
   assertStalledTelemetryShutdown("in-flight");
