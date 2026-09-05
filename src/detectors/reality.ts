@@ -8,6 +8,7 @@ import type { SessionToolCall } from "../transcript.ts";
 import { toolCallFingerprint } from "../transcript.ts";
 import { escapeRegExpLiteral } from "../regex.ts";
 import { checkAgenticPatches, checkAgenticRepository, type AgenticPatch } from "./agentic.ts";
+import { checkEmptyTestBodies } from "./test-bodies.ts";
 
 const completedCandidateSetups = new Set<string>();
 // Integrity evidence is held in memory; oversized output is a blocking evidence gap, never an empty/clean scan.
@@ -1151,11 +1152,15 @@ export function checkIntegrity(repo: string, base: string, head: string): CheckR
   let headTests = 0;
   const deletedTestFiles: Array<{ path: string; identity: string }> = [];
   const addedTestFiles: Array<{ path: string; identity: string }> = [];
+  const emptyTestPaths = new Set<string>();
   for (const path of [...paths].filter(isTestPath)) {
     const before = readIntegrityTreeBlob(repo, base, path);
     if (!before.ok) return [unreadableIntegrityResult("changed test baseline available for integrity review", before.evidence, "integrity-unreadable")];
     const after = head === "WORKTREE" ? readIntegrityWorktreeBlob(repo, path) : readIntegrityTreeBlob(repo, head, path);
     if (!after.ok) return [unreadableIntegrityResult("changed test candidate available for integrity review", after.evidence, "integrity-unreadable")];
+    const bodyChecks = checkEmptyTestBodies(path, before.value, after.value);
+    if (bodyChecks.some((check) => check.ruleId === "test-empty-added")) emptyTestPaths.add(path);
+    results.push(...bodyChecks);
     const oldCount = countTests(before.value);
     const newCount = countTests(after.value);
     baselineTests += oldCount;
@@ -1207,7 +1212,12 @@ export function checkIntegrity(repo: string, base: string, head: string): CheckR
     return [unreadableIntegrityResult("untracked worktree evidence is readable", untracked.error, "integrity-unreadable")];
   }
   const patches = [...parsed.patches, ...untracked.patches].filter((patch) => !exactTestMovePaths.has(patch.path));
-  results.push(...checkIntegrityPatches(patches));
+  const patchResults = checkIntegrityPatches(patches);
+  // Full-file findings already explain the empty callback. Avoid repeating a
+  // weaker aggregate assertion-count warning or a second empty-test warning.
+  results.push(...patchResults.filter((result) => ![...emptyTestPaths].some((path) =>
+    (result.ruleId === "test-empty-added" && result.evidence.startsWith(`${path} adds `))
+    || (result.ruleId === "assertion-drop" && result.evidence.startsWith(`${path} removes `)))));
   results.push(...checkAgenticPatches(patches));
   results.push(...checkAgenticRepository(repo, base, head, paths, patches));
 
