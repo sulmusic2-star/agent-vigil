@@ -64,6 +64,10 @@ names, or every way to make a nonempty test meaningless. It does not establish
 that every changed behavior has an adequate test. The original three-case
 historical replay and diff-only calibration do not test this new full-file path.
 
+When repeated titles make it unclear whether an old empty body replaced a
+meaningful one, the result is NOT CHECKED. Distinct test names remove that
+ambiguity. Moving an existing test byte-for-byte does not introduce a new finding.
+
 Before reopening the trial: review the source and dependency change, build a
 new immutable release identity, rerun the good and broken heads through the
 staging App, and verify that the public package and Action use that fix.

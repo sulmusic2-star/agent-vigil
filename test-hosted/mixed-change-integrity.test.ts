@@ -69,6 +69,35 @@ test("literal test names, options, subtests, and common test modifiers are inspe
   assert.equal(checkEmptyTestBodies("index.test.cjs", "", "const test = require('node:test');\ntest('cjs', () => {});")[0]?.ruleId, "test-empty-added");
 });
 
+test("a repeated title cannot exchange an empty and a meaningful body and still look clean", () => {
+  const base = `describe('old placeholder', () => { ${empty} });\ndescribe('real behavior', () => { ${before} });`;
+  const head = `describe('old placeholder', () => { ${before} });\ndescribe('real behavior', () => { ${empty} });`;
+  const checks = checkEmptyTestBodies("index.test.js", base, head);
+  assert.equal(checks[0]?.ruleId, "test-body-ambiguous");
+  assert.equal(checks[0]?.verdict, "unverifiable");
+  assert.equal(checks[0]?.blocksPass, true);
+  assert.match(remediationFor("test-body-ambiguous"), /distinct names/);
+  for (const reference of ["test('total', () => checkTotal());", "test('total', checkTotal);"]) {
+    const result = checkEmptyTestBodies("index.test.js", `${empty}\n${reference}`, `${reference}\n${empty}`);
+    assert.equal(result[0]?.ruleId, "test-body-ambiguous");
+  }
+});
+
+test("moving a pre-existing empty test byte-for-byte does not introduce an empty test", () => {
+  const root = mkdtempSync(join(tmpdir(), "vigil-empty-test-move-"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  try {
+    git("init", "-q"); git("config", "user.name", "Vigil Test"); git("config", "user.email", "vigil@example.test");
+    writeFileSync(join(root, "old.test.js"), empty);
+    git("add", "."); git("commit", "-qm", "existing placeholder");
+    const base = git("rev-parse", "HEAD");
+    git("mv", "old.test.js", "new.test.js"); git("commit", "-qm", "exact move");
+    const checks = checkIntegrity(root, base, git("rev-parse", "HEAD"));
+    assert.equal(checks.some((check) => check.ruleId === "test-empty-added"), false, JSON.stringify(checks));
+    assert.equal(checks.find((check) => check.ruleId === "test-file-replaced")?.verdict, "verified");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("unparseable JavaScript is missing evidence, not an empty clean scan", () => {
   for (const [base, head] of [[before, "test("], ["test(", before], [before, "(".repeat(20_000)]]) {
     const checks = checkEmptyTestBodies("index.test.js", base, head);
