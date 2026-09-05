@@ -247,7 +247,7 @@ test("a separately running observer sees the exact allow effect from the routed 
       externalChallengeEnvelope: challengeEnvelope,
       externalChallengePublicKey: readFileSync(challengePublic),
     });
-    assert.equal(route.status, "PASS");
+    assert.equal(route.status, "PASS", JSON.stringify({ route, observerStderr }, null, 2));
     assert.equal(route.challengePack.id, "agent-vigil-external-network-route/v1");
     assert.deepEqual(route.challenges.map((item) => item.observedExecution), [true, false]);
     assert.ok(route.completedAt);
