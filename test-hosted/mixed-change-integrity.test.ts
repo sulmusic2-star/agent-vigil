@@ -139,7 +139,7 @@ test("ordinary CI stays green for the mixed change, but exact-SHA and worktree i
     writeFileSync(join(root, "test/index.test.js"), imports + empty);
     const environment = { ...process.env };
     delete environment.NODE_TEST_CONTEXT;
-    const ordinary = spawnSync(process.execPath, ["--test"], { cwd: root, env: environment, encoding: "utf8", timeout: 10_000 });
+    const ordinary = spawnSync(process.execPath, ["--test", "--test-reporter=tap"], { cwd: root, env: environment, encoding: "utf8", timeout: 10_000 });
     assert.equal(ordinary.status, 0, ordinary.stdout + ordinary.stderr);
     assert.match(ordinary.stdout, /# pass 2/);
     git("add", "."); git("commit", "-qm", "broken total with its test emptied");
