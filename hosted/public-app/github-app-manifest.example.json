@@ -16,6 +16,7 @@
     "pull_requests": "read"
   },
   "default_events": [
+    "check_run",
     "deployment_protection_rule",
     "merge_group",
     "pull_request"
