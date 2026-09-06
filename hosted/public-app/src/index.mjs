@@ -3,6 +3,9 @@ const MAX_GITHUB_RESPONSE_BYTES = 64 * 1024;
 const AUTHORIZATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const WEBHOOK_REDELIVERY_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const CHECK_COMPLETION_TIMEOUT_MS = 60 * 60 * 1000;
+const GITHUB_REQUEST_TIMEOUT_MS = 15_000;
+const DELIVERY_RETRY_MS = 30_000;
+const MAX_DELIVERY_FAILURES = 3;
 const SHA = /^[0-9a-f]{40}$/;
 const DELIVERY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -468,13 +471,18 @@ async function readStreamBounded(stream, limit, label) {
 }
 
 async function github(path, token, options = {}) {
-  const response = await fetch(`https://api.github.com${path}`, {
-    ...options,
-    headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`, "user-agent": "agent-vigil-public-app/1", "x-github-api-version": "2026-03-10", ...options.headers },
-  });
-  const body = new TextDecoder().decode(await readStreamBounded(response.body, MAX_GITHUB_RESPONSE_BYTES, "GitHub response"));
-  if (!response.ok) throw new Error(`GitHub API ${response.status} for ${path}: ${body.slice(0, 256)}`);
-  return body ? JSON.parse(body) : undefined;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error("GitHub request timed out")), GITHUB_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`https://api.github.com${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token}`, "user-agent": "agent-vigil-public-app/1", "x-github-api-version": "2026-03-10", ...options.headers },
+    });
+    const body = new TextDecoder().decode(await readStreamBounded(response.body, MAX_GITHUB_RESPONSE_BYTES, "GitHub response"));
+    if (!response.ok) throw new Error(`GitHub API ${response.status} for ${path}: ${body.slice(0, 256)}`);
+    return body ? JSON.parse(body) : undefined;
+  } finally { clearTimeout(timer); }
 }
 
 async function installationToken(appId, privateKey, id, permissions) {
@@ -488,53 +496,43 @@ async function installationToken(appId, privateKey, id, permissions) {
   return result.token;
 }
 
-async function queueCheckAndDispatch(env, value) {
-  const targetToken = await installationToken(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY, value.installationId, { checks: "write", contents: "read", pull_requests: "read" });
-  const [owner, repository] = value.repository.split("/");
-  const check = await github(`/repos/${owner}/${repository}/check-runs`, targetToken, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      name: "Agent Vigil",
-      head_sha: value.headSha,
-      status: "queued",
-      external_id: `${value.event}:${value.deliveryId}:${value.headSha}`,
-      output: { title: "NOT CHECKED", summary: "Agent Vigil is waiting for the independent exact-commit verification run." },
-    }),
-  });
-  if (!POSITIVE_INTEGER.test(String(check?.id ?? ""))) throw new Error("GitHub did not return a check run ID");
-  const dispatched = { ...value, checkRunId: String(check.id) };
-  try {
-    const controlToken = await installationToken(env.CONTROL_APP_ID, env.CONTROL_APP_PRIVATE_KEY, env.CONTROL_INSTALLATION_ID, { actions: "write" });
-    const [controlOwner, controlRepository] = env.CONTROL_REPOSITORY.split("/");
-    await github(`/repos/${controlOwner}/${controlRepository}/actions/workflows/${encodeURIComponent(env.CONTROL_WORKFLOW)}/dispatches`, controlToken, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ref: env.CONTROL_REF,
-        inputs: { envelope: dispatchEnvelope(dispatched), dispatchSignature: await dispatchSignature(env.DISPATCH_SECRET, dispatched) },
-      }),
-    });
-  } catch (error) {
-    try {
-      await github(`/repos/${owner}/${repository}/check-runs/${check.id}`, targetToken, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          status: "completed",
-          conclusion: "failure",
-          output: {
-            title: "NOT CHECKED",
-            summary: "The independent verification run did not start. Push or reopen the pull request to retry.",
-          },
-        }),
-      });
-    } catch (completionError) {
-      console.error(JSON.stringify({ event: "public_app_check_completion_failed", message: String(completionError), check_run_id: String(check.id) }));
+function checkExternalId(target) {
+  return `${target.event}:${target.deliveryId}:${target.headSha}`;
+}
+
+function sameDelivery(left, right) {
+  return ["deliveryId", "repository", "installationId", "event", "number", "baseSha", "headSha", "baseRef", "headRef"]
+    .every((key) => left?.[key] === right?.[key]);
+}
+
+function ownsCheck(check, target, appId) {
+  return check?.head_sha === target.headSha && check?.external_id === checkExternalId(target)
+    && String(check?.app?.id) === appId && check?.name === "Agent Vigil"
+    && Number.isSafeInteger(check.id) && check.id > 0;
+}
+
+// A lost POST response is not permission to create or execute a second time.
+// Search a bounded complete set; ambiguity must stay NOT CHECKED.
+async function recoverCreatedCheck(env, target, token) {
+  const matches = [];
+  let expectedCount;
+  for (let page = 1; page <= 5; page++) {
+    const result = await github(`/repos/${target.repository}/commits/${target.headSha}/check-runs?check_name=Agent%20Vigil&filter=all&app_id=${env.GITHUB_APP_ID}&per_page=10&page=${page}`, token);
+    if (!Array.isArray(result?.check_runs) || !Number.isSafeInteger(result.total_count) || result.total_count < 0 || result.total_count > 50) {
+      throw new Error("check recovery listing is incomplete");
     }
-    throw error;
+    if ((expectedCount !== undefined && expectedCount !== result.total_count)
+      || result.check_runs.length !== Math.min(10, result.total_count - (page - 1) * 10)) {
+      throw new Error("check recovery listing changed or is incomplete");
+    }
+    expectedCount = result.total_count;
+    matches.push(...result.check_runs.filter((check) => ownsCheck(check, target, env.GITHUB_APP_ID)));
+    if (page * 10 >= result.total_count) {
+      if (matches.length !== 1) throw new Error("check recovery is missing or ambiguous");
+      return matches[0];
+    }
   }
-  return dispatched;
+  throw new Error("check recovery listing is incomplete");
 }
 
 function assertConfiguration(env) {
@@ -599,67 +597,136 @@ function hasJsonContentType(request) {
 
 export class DeliveryLedger {
   constructor(state, env) { this.state = state; this.env = env; }
+  async save(dispatch, target, wakeAt) {
+    await this.state.storage.transaction(async (tx) => {
+      await tx.put("dispatch", { ...dispatch, wake_at: wakeAt });
+      await tx.put("target", target);
+      await tx.setAlarm(wakeAt);
+    });
+  }
   async fetch(request) {
     if (request.method !== "POST") return json(405, { error: "method not allowed" });
     const value = await request.json();
-    const prior = await this.state.storage.get("dispatch");
-    if (prior?.status === "dispatched" || prior?.status === "pending" || prior?.status === "retained") return json(202, prior);
-    await this.state.storage.put("dispatch", { status: "pending", delivery_id: value.deliveryId });
-    try {
-      const dispatched = await queueCheckAndDispatch(this.env, value);
-      const result = { status: "dispatched", delivery_id: value.deliveryId, check_run_id: dispatched.checkRunId };
-      await this.state.storage.put("dispatch", result);
-      await this.state.storage.put("target", dispatched);
-      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + CHECK_COMPLETION_TIMEOUT_MS);
+    return this.state.storage.transaction(async (tx) => {
+      const prior = await tx.get("dispatch");
+      const target = await tx.get("target");
+      if (prior && (prior.delivery_id !== value.deliveryId || (target && !sameDelivery(target, value)))) {
+        return json(409, { error: "delivery identity changed" });
+      }
+      if (prior && !["pending", "failed"].includes(prior.status)) return json(202, prior);
+      const now = Date.now();
+      // Old pending/failed records may already have created a check. Only reconcile them.
+      const result = { status: prior ? "creating" : "queued", delivery_id: value.deliveryId,
+        recovery_only: Boolean(prior), accepted_at: now, deadline_at: now + CHECK_COMPLETION_TIMEOUT_MS, failures: 0, wake_at: now + 1 };
+      await tx.put("dispatch", result);
+      await tx.put("target", value);
+      await tx.setAlarm(result.wake_at);
       return json(202, result);
-    } catch (error) {
-      await this.state.storage.put("dispatch", { status: "failed", delivery_id: value.deliveryId });
-      throw error;
+    });
+  }
+  async retain(dispatch, target, terminalStatus) {
+    await this.save({ ...dispatch, status: "retained", terminal_status: terminalStatus }, target, Date.now() + WEBHOOK_REDELIVERY_RETENTION_MS);
+    if (terminalStatus === "needs_operator") {
+      console.error(JSON.stringify({ event: "public_app_delivery_needs_operator", delivery_id: dispatch.delivery_id,
+        repository: target?.repository, check_run_id: target?.checkRunId, stage: dispatch.status }));
     }
   }
   async alarm() {
-    const dispatch = await this.state.storage.get("dispatch");
-    const target = await this.state.storage.get("target");
-    if (dispatch?.status === "retained") {
-      await this.state.storage.deleteAll();
-      return;
-    }
-    if (dispatch?.status !== "dispatched" || !target || target.checkRunId !== dispatch.check_run_id) {
-      await this.state.storage.deleteAll();
-      return;
+    let dispatch = await this.state.storage.get("dispatch");
+    let target = await this.state.storage.get("target");
+    if (!dispatch) return;
+    // At-least-once alarm delivery must not run a later phase before its deadline.
+    if (dispatch.wake_at > Date.now()) { await this.state.storage.setAlarm(dispatch.wake_at); return; }
+    if (dispatch.status === "retained") { await this.state.storage.deleteAll(); return; }
+    if (!target || dispatch.delivery_id !== target.deliveryId) {
+      await this.retain(dispatch, target ?? null, "needs_operator"); return;
     }
     try {
+      if (dispatch.status === "dispatching") {
+        // The control workflow may already be running. Do not dispatch it twice.
+        dispatch = { ...dispatch, status: "dispatched" };
+        await this.save(dispatch, target, dispatch.deadline_at);
+        return;
+      }
+      if (["queued", "creating", "check_created"].includes(dispatch.status)) {
+        if (Date.now() >= dispatch.deadline_at && dispatch.status !== "creating") {
+          if (!target.checkRunId) { await this.retain(dispatch, target, "needs_operator"); return; }
+          dispatch = { ...dispatch, status: "dispatched" };
+        } else {
+          if (dispatch.status !== "check_created") {
+            const token = await installationToken(this.env.GITHUB_APP_ID, this.env.GITHUB_APP_PRIVATE_KEY, target.installationId, { checks: "write", contents: "read", pull_requests: "read" });
+            let checkRunId;
+            if (dispatch.status === "creating") {
+              const recovered = await recoverCreatedCheck(this.env, target, token);
+              checkRunId = String(recovered.id);
+              if (recovered.status === "completed" || dispatch.recovery_only) {
+                target = { ...target, checkRunId };
+                dispatch = { ...dispatch, status: "dispatched", check_run_id: checkRunId, failures: 0 };
+                if (recovered.status === "completed") await this.retain(dispatch, target, "completed");
+                else await this.save(dispatch, target, dispatch.deadline_at);
+                return;
+              }
+            } else {
+              dispatch = { ...dispatch, status: "creating", failures: 0 };
+              await this.save(dispatch, target, Date.now() + DELIVERY_RETRY_MS);
+              const check = await github(`/repos/${target.repository}/check-runs`, token, {
+                method: "POST", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ name: "Agent Vigil", head_sha: target.headSha, status: "queued",
+                  external_id: checkExternalId(target),
+                  output: { title: "NOT CHECKED", summary: "Waiting for the independent check of this commit." } }),
+              });
+              if (!Number.isSafeInteger(check?.id) || check.id <= 0) throw new Error("GitHub did not return a check run ID");
+              checkRunId = String(check.id);
+            }
+            target = { ...target, checkRunId };
+            dispatch = { ...dispatch, status: "check_created", check_run_id: checkRunId, failures: 0 };
+            await this.save(dispatch, target, Date.now() + DELIVERY_RETRY_MS);
+          }
+          if (Date.now() >= dispatch.deadline_at) {
+            dispatch = { ...dispatch, status: "dispatched" };
+            await this.save(dispatch, target, Date.now() + 1); return;
+          }
+          const token = await installationToken(this.env.CONTROL_APP_ID, this.env.CONTROL_APP_PRIVATE_KEY, this.env.CONTROL_INSTALLATION_ID, { actions: "write" });
+          const body = JSON.stringify({ ref: this.env.CONTROL_REF,
+            inputs: { envelope: dispatchEnvelope(target), dispatchSignature: await dispatchSignature(this.env.DISPATCH_SECRET, target) } });
+          dispatch = { ...dispatch, status: "dispatching", failures: 0 };
+          await this.save(dispatch, target, Date.now() + DELIVERY_RETRY_MS);
+          await github(`/repos/${this.env.CONTROL_REPOSITORY}/actions/workflows/${encodeURIComponent(this.env.CONTROL_WORKFLOW)}/dispatches`, token, {
+            method: "POST", headers: { "content-type": "application/json" }, body,
+          });
+          await this.save({ ...dispatch, status: "dispatched" }, target, dispatch.deadline_at);
+          return;
+        }
+      }
+      if (dispatch.status !== "dispatched" || !target.checkRunId || target.checkRunId !== dispatch.check_run_id) {
+        await this.retain(dispatch, target, "needs_operator"); return;
+      }
       const token = await installationToken(this.env.GITHUB_APP_ID, this.env.GITHUB_APP_PRIVATE_KEY, target.installationId, { checks: "write" });
-      const [owner, repository] = target.repository.split("/");
-      const path = `/repos/${owner}/${repository}/check-runs/${target.checkRunId}`;
+      const path = `/repos/${target.repository}/check-runs/${target.checkRunId}`;
       const check = await github(path, token);
-      const expectedExternalId = `${target.event}:${target.deliveryId}:${target.headSha}`;
-      if (String(check?.id ?? "") !== target.checkRunId || check?.head_sha !== target.headSha || check?.external_id !== expectedExternalId) {
+      if (!ownsCheck(check, target, this.env.GITHUB_APP_ID) || String(check.id) !== target.checkRunId) {
         throw new Error("queued check identity no longer matches the signed dispatch");
       }
       if (check.status !== "completed") {
         await github(path, token, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            status: "completed",
-            conclusion: "failure",
-            output: {
-              title: "NOT CHECKED",
-              summary: "The independent verification did not finish within one hour. Push or reopen the pull request to retry.",
-            },
-          }),
+          method: "PATCH", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: "completed", conclusion: "failure",
+            output: { title: "NOT CHECKED", summary: "The independent verification did not finish within one hour. No passing result was received. Agent Vigil's operator must inspect this delivery before retrying it." } }),
         });
       }
-      await this.state.storage.put("dispatch", {
-        ...dispatch,
-        status: "retained",
-        terminal_status: check.status === "completed" ? "completed" : "timed_out",
-      });
-      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + WEBHOOK_REDELIVERY_RETENTION_MS);
-    } catch (error) {
-      console.error(JSON.stringify({ event: "public_app_check_timeout_failed", message: String(error), check_run_id: target.checkRunId }));
-      if (this.state.storage.setAlarm) await this.state.storage.setAlarm(Date.now() + CHECK_COMPLETION_TIMEOUT_MS);
+      await this.retain(dispatch, target, check.status === "completed" ? "completed" : "timed_out");
+    } catch {
+      // Read the durable stage, not an in-memory guess about a possibly committed write.
+      dispatch = await this.state.storage.get("dispatch");
+      target = await this.state.storage.get("target");
+      const failures = (dispatch.failures ?? 0) + 1;
+      if (dispatch.status !== "dispatching" && failures >= MAX_DELIVERY_FAILURES) {
+        if (dispatch.status === "check_created") {
+          await this.save({ ...dispatch, status: "dispatched", failures: 0 }, target, Math.max(Date.now() + 1, dispatch.deadline_at));
+        } else { await this.retain({ ...dispatch, failures }, target, "needs_operator"); }
+      } else {
+        await this.save({ ...dispatch, failures }, target, Date.now() + DELIVERY_RETRY_MS * failures);
+      }
     }
   }
 }
