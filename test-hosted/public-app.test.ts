@@ -305,6 +305,7 @@ test("delivery ledger creates one queued App check and dispatches the internal c
       async get(key: string) { return stored.get(key); },
       async put(key: string, value: any) { stored.set(key, value); },
       async setAlarm(value: number) { alarms.push(value); },
+      async transaction(fn: any) { return fn(this); },
     } }, {
       GITHUB_APP_ID: "1001",
       GITHUB_APP_PRIVATE_KEY: pem,
@@ -323,6 +324,9 @@ test("delivery ledger creates one queued App check and dispatches the internal c
       body: JSON.stringify(value),
     }));
     assert.equal(response.status, 202);
+    assert.equal(calls.length, 0);
+    stored.get("dispatch").wake_at = 0;
+    await ledger.alarm();
     assert.equal(calls.filter((call) => call.url.endsWith("/check-runs")).length, 1);
     assert.equal(calls.filter((call) => call.url.includes("/dispatches")).length, 1);
     const dispatch = calls.find((call) => call.url.includes("/dispatches"))?.body;
@@ -335,8 +339,8 @@ test("delivery ledger creates one queued App check and dispatches the internal c
     const tokenBodies = calls.filter((call) => call.url.includes("/access_tokens")).map((call) => call.body);
     assert.deepEqual(tokenBodies[0].permissions, { checks: "write", contents: "read", pull_requests: "read" });
     assert.deepEqual(tokenBodies[1].permissions, { actions: "write" });
-    assert.equal(alarms.length, 1);
-    assert.ok(alarms[0] > Date.now());
+    assert.ok(alarms.length >= 2);
+    assert.equal(alarms.at(-1), stored.get("dispatch").deadline_at);
 
     const replay = await ledger.fetch(new Request("https://ledger.internal/dispatch", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value),
@@ -364,7 +368,7 @@ test("delivery ledger fails a check closed when the control workflow never compl
     if (url.includes("/access_tokens")) return new Response(JSON.stringify({ token: `token-${"x".repeat(24)}` }), { status: 201 });
     if (url.endsWith("/check-runs/34567") && init?.method === "PATCH") return new Response(JSON.stringify({ id: 34567 }), { status: 200 });
     if (url.endsWith("/check-runs/34567")) return new Response(JSON.stringify({
-      id: 34567,
+      id: 34567, name: "Agent Vigil", app: { id: 1001 },
       head_sha: headSha,
       external_id: `pull_request:${deliveryId}:${headSha}`,
       status: "queued",
@@ -376,6 +380,7 @@ test("delivery ledger fails a check closed when the control workflow never compl
       async get(key: string) { return stored.get(key); },
       async put(key: string, item: any) { stored.set(key, item); },
       async setAlarm(item: number) { alarms.push(item); },
+      async transaction(fn: any) { return fn(this); },
       async deleteAll() { stored.clear(); },
     } };
     const ledger = new DeliveryLedger(state, { GITHUB_APP_ID: "1001", GITHUB_APP_PRIVATE_KEY: pem });
@@ -387,6 +392,7 @@ test("delivery ledger fails a check closed when the control workflow never compl
     assert.equal(stored.get("dispatch")?.status, "retained");
     assert.equal(stored.get("dispatch")?.terminal_status, "timed_out");
     assert.equal(alarms.length, 1);
+    stored.get("dispatch").wake_at = 0;
     await ledger.alarm();
     assert.equal(stored.size, 0);
   } finally { globalThis.fetch = originalFetch; }
@@ -407,7 +413,7 @@ test("delivery ledger preserves a completed App check during timeout cleanup", a
     methods.push(init?.method);
     if (url.includes("/access_tokens")) return new Response(JSON.stringify({ token: `token-${"x".repeat(24)}` }), { status: 201 });
     if (url.endsWith("/check-runs/34567")) return new Response(JSON.stringify({
-      id: 34567,
+      id: 34567, name: "Agent Vigil", app: { id: 1001 },
       head_sha: headSha,
       external_id: `pull_request:${deliveryId}:${headSha}`,
       status: "completed",
@@ -419,48 +425,12 @@ test("delivery ledger preserves a completed App check during timeout cleanup", a
       async get(key: string) { return stored.get(key); },
       async put(key: string, item: any) { stored.set(key, item); },
       async setAlarm() {},
+      async transaction(fn: any) { return fn(this); },
       async deleteAll() { stored.clear(); },
     } }, { GITHUB_APP_ID: "1001", GITHUB_APP_PRIVATE_KEY: pem });
     await ledger.alarm();
     assert.equal(methods.includes("PATCH"), false);
     assert.equal(stored.get("dispatch")?.terminal_status, "completed");
-  } finally { globalThis.fetch = originalFetch; }
-});
-
-test("a control dispatch failure completes the queued check as blocking NOT CHECKED", async () => {
-  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-  const calls: Array<{ url: string; method?: string; body?: any }> = [];
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-    calls.push({ url, method: init?.method, body });
-    if (url.includes("/access_tokens")) return new Response(JSON.stringify({ token: `token-${calls.length}-${"x".repeat(24)}` }), { status: 201 });
-    if (url.endsWith("/check-runs")) return new Response(JSON.stringify({ id: 34567 }), { status: 201 });
-    if (url.includes("/dispatches")) return new Response(JSON.stringify({ message: "dispatch unavailable" }), { status: 503 });
-    if (url.endsWith("/check-runs/34567") && init?.method === "PATCH") return new Response(JSON.stringify({ id: 34567 }), { status: 200 });
-    throw new Error(`unexpected fetch ${url}`);
-  }) as typeof fetch;
-  try {
-    let stored: any;
-    const ledger = new DeliveryLedger({ storage: {
-      async get() { return stored; },
-      async put(_key: string, value: any) { stored = value; },
-    } }, {
-      GITHUB_APP_ID: "1001", GITHUB_APP_PRIVATE_KEY: pem,
-      CONTROL_APP_ID: "1002", CONTROL_APP_PRIVATE_KEY: pem,
-      CONTROL_INSTALLATION_ID: "1003", CONTROL_REPOSITORY: "sulmusic2-star/agent-vigil",
-      CONTROL_WORKFLOW: "public-app-gate.yml", CONTROL_REF: "main", DISPATCH_SECRET: secret,
-    });
-    await assert.rejects(() => ledger.fetch(new Request("https://ledger.internal/dispatch", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify(parsePullRequestPayload(pullPayload(), deliveryId)),
-    })), /GitHub API 503/);
-    const completion = calls.find((call) => call.url.endsWith("/check-runs/34567"));
-    assert.equal(completion?.body?.conclusion, "failure");
-    assert.equal(completion?.body?.output?.title, "NOT CHECKED");
-    assert.equal(stored.status, "failed");
   } finally { globalThis.fetch = originalFetch; }
 });
 

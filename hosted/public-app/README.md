@@ -1,8 +1,9 @@
 # Agent Vigil public App
 
-This is the centrally operated installation path. A repository owner installs
-one GitHub App and selects repositories. They do not deploy a Worker, create a
-key, or copy Agent Vigil secrets into a repository.
+This is the implementation for a centrally operated App, not a claim that the
+managed service is ready to buy. The intended customer installs one GitHub App
+and selects repositories. They do not deploy a Worker, create a key, or copy
+Agent Vigil secrets into a repository.
 
 The App receives signed `pull_request`, `merge_group`, and
 `deployment_protection_rule` webhooks, creates the
@@ -23,11 +24,47 @@ deployment returns HTTP 503 and must not receive a GitHub webhook.
 ## Customer path
 
 1. Install the App and choose repositories.
-2. Confirm the base-owned test setup in the generated setup pull request.
+2. Prepare and review the repository's test configuration. The App has read-only
+   access to repository contents: it does **not** create a setup pull request.
+   This step still requires the repository owner or an authorized operator.
 3. Open a normal code pull request.
 4. Read `PASS`, `FAIL`, or `NOT CHECKED`.
 5. For deployment control, enable Agent Vigil as a protection rule on the
    selected GitHub environment.
+
+Installation alone does not make this a required check. The repository owner
+must configure the ruleset and expected App identity, then prove that a missing
+or failed check actually prevents merging. Until that path is tested without
+operator assistance, do not describe setup as a complete one-click service.
+
+## Interrupted check deliveries
+
+For PR and merge-queue webhooks, the App saves the job and an alarm in one
+Durable Object transaction before returning HTTP 202. The webhook response does
+not wait for GitHub API calls. Each API call has a 15-second timeout, including its
+response body. This follows [GitHub's webhook guidance](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks).
+
+- Temporary failures before a remote write can be retried without another commit.
+- A lost check-creation response is looked up by commit, delivery and owning App.
+  Recovery examines at most 50 matching-name checks. Missing or ambiguous results
+  need operator help; the App does not blindly create a replacement.
+- A lost workflow-dispatch response is not retried: the workflow may already be
+  running. Its existing check remains pending until a result arrives or the
+  one-hour deadline is reached.
+- A check still unfinished at that deadline is marked `NOT CHECKED` / failure.
+  A result observed completed is left alone. This is not an atomic lock against
+  a concurrent GitHub update; the late-completion race still needs hosted testing.
+- Three consecutive failed operations in a stage stop automatic retries and
+  record an operator-help event. A known check that could not be dispatched is
+  still watched until its deadline. Records remain for three days.
+
+These recovery paths are not a pager or an operator console. Alerts, authorized
+manual recovery, and the response commitment still need to be connected and
+tested before anyone buys a managed service. Old `pending` or `failed` deliveries
+without a target need a signed GitHub redelivery to supply it; they are reconciled
+without redispatching possibly executed work. No new pass result is issued by
+the recovery code. Deployment-protection callbacks use their separate existing
+flow and are not covered by this queue change.
 
 ## Two deployment gates
 
