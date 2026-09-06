@@ -1,7 +1,11 @@
 # Install Agent Vigil v0.24.4 without npm
 
+For the currently available release, use the
+[public installation page](https://sulmusic2-star.github.io/agent-vigil/#install).
+
 This guide describes the v0.24.4 package. Check its release page and checksum
 before installation. A missing download or failed checksum must stop the install.
+Availability is not implied. Use the public installation page if these assets are unavailable.
 
 ## Verify the GitHub package
 
@@ -15,7 +19,7 @@ curl -fLO \
 curl -fLO \
   https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz.sha256 && \
 shasum -a 256 -c sulmusic-agent-vigil-0.24.4.tgz.sha256 && \
-npx --yes ./sulmusic-agent-vigil-0.24.4.tgz protect --repo .
+npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect --repo .
 ```
 
 A successful `protect` run prints a `doctor` command that uses this same
@@ -39,7 +43,7 @@ The automatic path recognizes a narrow root Node/npm layout. Other toolchains
 use the immutable common runner and an explicit command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz protect --repo . \
+npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```
@@ -51,15 +55,9 @@ needs dependencies preinstalled.
 
 ## If you prefer npm
 
-Check this exact version, not the registry's moving `latest` tag:
-
-```bash
-npm view @sulmusic/agent-vigil@0.24.4 version
-npm view @sulmusic/agent-vigil@0.24.4 dist.integrity
-```
-
-If npm cannot find that version, use the verified GitHub download above instead.
-GitHub and npm are separate publication steps. The current channel record lives
+Use the public installation page for its verified npm command. An available
+GitHub download does not establish npm availability, and a source version does
+not establish either. The current channel record lives
 on the default branch in
 [`public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
 This packaged guide is not a live publication report.

@@ -1,4 +1,4 @@
-"""Run the packed README's install against a loopback registry serving the real tarball.
+"""Exercise the documented local tarball install and a separate loopback npm install.
 
 This tests prepublication packages, not public registry availability.
 """
@@ -9,7 +9,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shlex
 import subprocess
 import tarfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,9 +16,9 @@ from threading import Thread
 from urllib.parse import unquote
 
 try:
-    from .package_docs import install_command, package_document_failures
+    from .package_docs import package_document_failures
 except ImportError:
-    from package_docs import install_command, package_document_failures
+    from package_docs import package_document_failures
 
 
 def anonymous_environment() -> dict[str, str]:
@@ -121,14 +120,17 @@ def anonymous_package_install(tarball: Path, lab: Path, action_sha: str) -> dict
         observed = run(['npm', 'view', f'@sulmusic/agent-vigil@{version}', 'version']).strip()
         if observed != version:
             raise RuntimeError('anonymous registry returned a different version')
-        # The validator checked this exact command in the packed README.
-        output = run(shlex.split(install_command(version)) + ['--action-sha', action_sha])
+        npm_prefix = ['npx', '--yes', f'--package=@sulmusic/agent-vigil@{version}', 'agent-vigil']
+        if run(npm_prefix + ['--version']).strip() != version:
+            raise RuntimeError('anonymous npm installation selected a different package')
+        # The README runs the verified local artifact; npm is a separate channel probe.
+        prefix = ['npx', '--yes', f'--package={tarball.resolve()}', 'agent-vigil']
+        output = run(prefix + ['protect', '--repo', '.', '--action-sha', action_sha])
         if 'PASS' not in output or 'FAIL' not in output:
             raise RuntimeError('anonymous protect did not demonstrate both rehearsal outcomes')
         workflow = (consumer / '.github/workflows/agent-vigil.yml').read_text()
         if f'sulmusic2-star/agent-vigil@{action_sha}' not in workflow:
             raise RuntimeError('anonymous protect wrote an incorrect Action pin')
-        prefix = ['npx', '--yes', f'--package=@sulmusic/agent-vigil@{version}', 'agent-vigil']
         run(prefix + ['doctor', '--repo', '.'], expected_exit=2)
         run(['git', 'add', '.'])
         run(['git', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'install controls'])
@@ -149,7 +151,8 @@ def anonymous_package_install(tarball: Path, lab: Path, action_sha: str) -> dict
         if not any(path == '/package.tgz' for path, _ in requests):
             raise RuntimeError('anonymous npx did not download the actual packed tarball')
         return {'version': version, 'registry': 'loopback fixture, not public publication',
-                'packedDocs': 'PASS', 'protect': 'PASS', 'committedDoctor': 'PASS',
+                'packedDocs': 'PASS', 'localTarballInstall': 'PASS', 'npmVersionProbe': 'PASS',
+                'protect': 'PASS', 'committedDoctor': 'PASS',
                 'missingTestCommand': 'BLOCKED before writing files', 'authenticatedRequests': 0,
                 'tarballSha256': hashlib.sha256(body).hexdigest()}
     finally:

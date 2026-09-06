@@ -95,7 +95,8 @@ test("the released package and public channels keep explicit version identities"
   assert.equal(installState.npm_registry.observed_version, "0.24.4");
   assert.equal(installState.npm_registry.target_version, "0.24.4");
   assert.equal(installState.npm_registry.target_published, true);
-  assert.match(readme, /--package=@sulmusic\/agent-vigil@0\.24\.4 agent-vigil protect --repo \./);
+  assert.match(readme, /npx --yes --package=\.\/sulmusic-agent-vigil-0\.24\.4\.tgz agent-vigil protect --repo \./);
+  assert.doesNotMatch(readme, /@sulmusic\/agent-vigil/);
   assert.doesNotMatch(readme, /source release candidate/);
   assert.match(readme, /--runner common/);
   assert.doesNotMatch(readme, /node dist\/cli\.js protect --action-sha/);

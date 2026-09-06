@@ -53,7 +53,7 @@ test("the public install state keeps GitHub and npm publication separate", () =>
 test("the five-minute guide preserves one complete value path", () => {
   const guide = readFileSync(new URL("../docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", import.meta.url), "utf8");
   const orderedSteps = [
-    "sulmusic-agent-vigil-0.24.4.tgz protect",
+    "sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect",
     "One setup pull request",
     "PASS",
     "FAIL",

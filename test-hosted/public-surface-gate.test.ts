@@ -2,6 +2,32 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
+test("packaged instructions reject npm specs for both current and future versions", () => {
+  const probe = spawnSync("python3", ["-c", String.raw`
+import json
+from pathlib import Path
+from scripts.package_docs import package_document_failures
+version = json.loads(Path('package.json').read_text())['version']
+readme = Path('README.md').read_text()
+guide = Path('docs/INSTALL_WITHOUT_NPM_ACCOUNT.md').read_text()
+for target in [version, '99.0.0']:
+    current_readme = readme.replace(version, target)
+    current_guide = guide.replace(version, target)
+    for command in [
+        'npm view @sulmusic/agent-vigil@' + target + ' version',
+        'npx --yes --package=@sulmusic/agent-vigil@' + target + ' agent-vigil protect --repo .',
+        'npx --yes @sulmusic/agent-vigil@latest protect --repo .',
+    ]:
+        for bad_readme, bad_guide in [
+            (current_readme + '\n' + command, current_guide),
+            (current_readme, current_guide + '\n' + command),
+        ]:
+            failures = package_document_failures(target, bad_readme, bad_guide)
+            assert any('npm' in failure for failure in failures), (target, command, failures)
+`], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+});
+
 test("anonymous npm consumers ignore inherited credentials and proxies", () => {
   const probe = spawnSync("python3", ["-c", String.raw`
 import os
@@ -33,8 +59,11 @@ assert package_document_failures(version, readme, guide) == []
 # Immutable instructions stay valid before and after publication.
 assert package_document_failures('99.0.0', readme.replace(version, '99.0.0'), guide.replace(version, '99.0.0')) == []
 mutations = [
-    (readme.replace('&&', ';'), guide),
-    (readme.replace('@sulmusic/agent-vigil@' + version, '@sulmusic/agent-vigil@latest'), guide),
+    (readme.replace('https://sulmusic2-star.github.io/agent-vigil/#install', '#'), guide),
+    (readme.replace('npx --yes --package=./', 'npx --yes https://example.invalid/'), guide),
+    (readme.replace('npx --yes --package=./', 'npx --yes ./'), guide),
+    (readme.replace('Availability is not implied.', 'Availability is guaranteed.'), guide),
+    (readme.replace('npx --yes --package=./sulmusic-agent-vigil-' + version, 'npx --yes --package=./sulmusic-agent-vigil-0.1.0'), guide),
     (readme.replace('releases/download/v' + version, 'releases/download/v0.1.0'), guide),
     (readme.replace('docs/INSTALL_WITHOUT_NPM_ACCOUNT.md', 'docs/obsolete.md'), guide),
     (readme + '\nInstall the published v' + version + ' package:', guide),
@@ -43,6 +72,8 @@ mutations = [
     (readme, guide.replace('.tgz.sha256 &&', '.tgz.sha256;')),
     (readme, guide.replace('sulmusic-agent-vigil-' + version, 'sulmusic-agent-vigil-0.1.0')),
     (readme, guide.replace('https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json', '#')),
+    (readme, guide.replace('https://sulmusic2-star.github.io/agent-vigil/#install', '#')),
+    (readme, guide.replace('Availability is not implied.', 'Availability is guaranteed.')),
     (readme, guide + '\nnpm view @sulmusic/agent-vigil version'),
 ]
 for index, (bad_readme, bad_guide) in enumerate(mutations):
@@ -88,7 +119,7 @@ with tempfile.TemporaryDirectory() as temporary:
         for name in ['package.json', 'README.md', 'docs/INSTALL_WITHOUT_NPM_ACCOUNT.md']:
             text = Path(name).read_text()
             if name == 'README.md':
-                text = text.replace('@sulmusic/agent-vigil@' + version, '@sulmusic/agent-vigil@0.1.0')
+                text = text.replace('sulmusic-agent-vigil-' + version, 'sulmusic-agent-vigil-0.1.0')
             payload = text.encode()
             entry = tarfile.TarInfo('package/' + name)
             entry.size = len(payload)
