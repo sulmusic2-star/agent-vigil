@@ -9059,7 +9059,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash6 } from "node:crypto";
-var VERSION = "0.24.4";
+var VERSION = "0.25.0";
 var CLAIM_KINDS = [
   "tests_pass",
   "file_changed",

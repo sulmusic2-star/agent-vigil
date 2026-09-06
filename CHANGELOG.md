@@ -2,10 +2,24 @@
 
 ## Unreleased
 
+## 0.25.0 - Unreleased
+
 - Run printed setup and doctor commands through the current local Node and CLI,
   retaining the selected repository without downloading another package. Keep
   public acquisition guidance on the installation page, quote POSIX/PowerShell
   paths literally, and retain the verified-archive fallback for removed caches.
+- Keep packaged installation instructions separate from the verified public
+  release. Verify downloads before local tarball execution and exercise both
+  the documented archive path and the printed local CLI handoff.
+- Preserve the App delivery-recovery and maintainer-rerun fixes already merged
+  on main. This package assembly does not deploy or activate the hosted App.
+- Include the protected-run controls and complete test-body integrity fixes
+  from the reconciled v0.24.4 source. Detection and supervisor behavior are
+  unchanged; the functional change is limited to CLI onboarding commands.
+- Protected runs cover ordinary macOS/Linux process groups, not hostile-workload
+  isolation or Windows process-tree guarantees. Dollar-budget requests refuse
+  before launch. Receipts do not establish correctness, acceptance, exact billing,
+  or economic value.
 
 ## 0.24.4 - 2026-09-05
 
