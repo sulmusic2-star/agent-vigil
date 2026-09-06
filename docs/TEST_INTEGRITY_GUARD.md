@@ -43,6 +43,12 @@ It records lower-confidence findings as advisories:
 
 Use `--strict` only after calibrating every enabled rule on the repository. It makes every static finding blocking.
 
+No-op advice is deliberately narrow. JavaScript/TypeScript checks preserve
+literal contents and token boundaries. Python, Ruby and Go recognize an
+unchanged simple `return` followed by that language's comment delimiter; they
+do not borrow JavaScript comment rules or ignore indentation. This is not
+whole-program equivalence checking.
+
 ## What was deliberately left out
 
 The check does not execute candidate source merely to compare behavior. It
@@ -50,11 +56,19 @@ does not contact a public package registry during the default gate. Those two
 prototype ideas can hang, leak data, run hostile code, or misread private
 registry setups. Agent Vigil keeps the default scan offline and limited to the
 selected Git change. The existing no-op and suppression checks already cover
-the useful part of the proposed Python-only Null Compile check.
+some comment-only changes, without claiming compiler-backed equivalence.
 
 ## What PASS means
 
 PASS means the selected diff contained none of the blocking patterns under this policy. It does not prove that the tests cover the intended behavior or that the application is correct. The full Agent Vigil gate combines this scan with exact-commit execution, protected policy, change limits, differential tests, and retained evidence.
+
+In particular, a candidate can rewrite expected answers to match a bug without
+triggering a static rule. The local `vigil demo --ci` includes that known miss
+alongside a self-comparing assertion that Vigil catches. It also runs the
+original tests on the changed implementation: those independent expectations
+catch both regressions. Properly configured CI can provide this protection too.
+An intended behavior change needs an explicit decision about the original
+contract; failing an old test alone does not prove the new behavior is wrong.
 
 ## Why the two levels exist
 
