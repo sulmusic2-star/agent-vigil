@@ -115,6 +115,7 @@ import { localCliCommand } from "./adoption.ts";
 import { buildCursorExactCostEvidence, validateExactCostEvidence, type ExactCostEvidence } from "./cost-evidence.ts";
 import { runAutopsyCommand } from "./autopsy-cli.ts";
 import { runProtectedRunCommand } from "./run-cli.ts";
+import { runRegressionCommand } from "./regression-cli.ts";
 
 type Options = {
   transcript?: string;
@@ -141,6 +142,7 @@ function advancedUsage(): string {
 Usage:
   vigil <transcript.jsonl|summary.md> [options]
   vigil demo
+  vigil regression --help
   vigil init --action-sha <40-hex> [--repo <path>] [--force] [--runner common|--runner-image <digest> --test-cmd <command>] [--portable --public-key <path>]
   vigil init --profile maintainer --action-sha <40-hex> [--repo <path>] [--force]
   vigil init --profile authority --action-sha <40-hex> [--repo <path>] [--force]
@@ -1839,6 +1841,7 @@ export function run(argv = process.argv.slice(2)): number {
     return 0;
   }
   if (argv.includes("--help-all")) { console.log(advancedUsage()); return 0; }
+  if (argv[0] === "regression") return runRegressionCommand(argv.slice(1), import.meta.url);
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "autopsy") return runAutopsyCommand(argv.slice(1));
   if (argv[0] === "run") {
