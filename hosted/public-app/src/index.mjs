@@ -207,6 +207,26 @@ export function parseMergeGroupPayload(payload, deliveryId) {
   return { ...common, event: "merge_group", number: "", baseSha, headSha, baseRef, headRef };
 }
 
+export function parseCheckRerequestPayload(payload, deliveryId, appId) {
+  if (payload?.action !== "rerequested") throw new Error("check_run action is not a verification trigger");
+  const common = commonIdentity(payload, deliveryId);
+  const check = payload?.check_run;
+  const parts = typeof check?.external_id === "string" ? check.external_id.split(":") : [];
+  if (check?.name !== "Agent Vigil" || String(check?.app?.id) !== appId
+    || !Number.isSafeInteger(check?.id) || check.id < 1 || !SHA.test(check?.head_sha ?? "")
+    || parts.length !== 3 || !["pull_request", "merge_group"].includes(parts[0])
+    || !DELIVERY.test(parts[1]) || parts[2] !== check.head_sha || parts[1].toLowerCase() === deliveryId.toLowerCase()) {
+    throw new Error("rerequest check identity is invalid");
+  }
+  const sender = payload?.sender;
+  if (sender?.type !== "User" || !Number.isSafeInteger(sender.id) || sender.id < 1
+    || typeof sender.login !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(sender.login)) {
+    throw new Error("rerequest sender is invalid");
+  }
+  return { ...common, event: "check_run", headSha: check.head_sha, originalDeliveryId: parts[1],
+    originalCheckRunId: String(check.id), senderLogin: sender.login, senderId: String(sender.id) };
+}
+
 export function parseDeploymentProtectionPayload(payload, deliveryId) {
   if (payload?.action !== "requested") throw new Error("deployment protection rule action is not requested");
   const common = commonIdentity(payload, deliveryId);
@@ -501,7 +521,8 @@ function checkExternalId(target) {
 }
 
 function sameDelivery(left, right) {
-  return ["deliveryId", "repository", "installationId", "event", "number", "baseSha", "headSha", "baseRef", "headRef"]
+  return ["deliveryId", "repository", "installationId", "event", "number", "baseSha", "headSha", "baseRef", "headRef",
+    "originalDeliveryId", "originalCheckRunId", "senderLogin", "senderId"]
     .every((key) => left?.[key] === right?.[key]);
 }
 
@@ -533,6 +554,41 @@ async function recoverCreatedCheck(env, target, token) {
     }
   }
   throw new Error("check recovery listing is incomplete");
+}
+
+class RerequestRejected extends Error {}
+
+async function currentRerequestTarget(env, request, source, token) {
+  const permission = await github(`/repos/${request.repository}/collaborators/${encodeURIComponent(request.senderLogin)}/permission`, token);
+  if (!["admin", "write"].includes(permission?.permission) || String(permission?.user?.id) !== request.senderId
+    || permission?.user?.login?.toLowerCase() !== request.senderLogin.toLowerCase()) {
+    throw new RerequestRejected("write_access_required");
+  }
+  const check = await github(`/repos/${request.repository}/check-runs/${request.originalCheckRunId}`, token);
+  if (!ownsCheck(check, source, env.GITHUB_APP_ID) || String(check.id) !== request.originalCheckRunId
+    || check.status !== "completed" || check.conclusion !== "failure" || check.output?.title !== "NOT CHECKED") {
+    throw new RerequestRejected("check_is_not_a_completed_not_checked_result");
+  }
+  if (source.event === "pull_request") {
+    const pull = await github(`/repos/${request.repository}/pulls/${source.number}`, token);
+    if (pull?.state !== "open" || pull.merged !== false || pull.draft !== false || String(pull.number) !== source.number
+      || pull.base?.repo?.full_name?.toLowerCase() !== request.repository.toLowerCase()
+      || pull.head?.sha !== source.headSha || pull.base?.ref !== source.baseRef) {
+      throw new RerequestRejected("pull_request_changed_or_is_not_open");
+    }
+    return parsePullRequestPayload({ action: "synchronize", number: pull.number, pull_request: pull,
+      repository: { full_name: request.repository }, installation: { id: request.installationId } }, request.deliveryId);
+  }
+  if (source.event !== "merge_group") throw new RerequestRejected("unsupported_original_event");
+  for (const [ref, sha] of [[source.headRef, source.headSha], [source.baseRef, source.baseSha]]) {
+    const result = await github(`/repos/${request.repository}/git/ref/${ref.slice("refs/".length).split("/").map(encodeURIComponent).join("/")}`, token);
+    if (result?.ref !== ref || result.object?.type !== "commit" || result.object?.sha !== sha) {
+      throw new RerequestRejected("merge_queue_commit_changed");
+    }
+  }
+  return parseMergeGroupPayload({ action: "checks_requested", repository: { full_name: request.repository },
+    installation: { id: request.installationId }, merge_group: { head_ref: source.headRef, base_ref: source.baseRef,
+      head_sha: source.headSha, base_sha: source.baseSha } }, request.deliveryId);
 }
 
 function assertConfiguration(env) {
@@ -607,22 +663,63 @@ export class DeliveryLedger {
   async fetch(request) {
     if (request.method !== "POST") return json(405, { error: "method not allowed" });
     const value = await request.json();
+    const path = new URL(request.url).pathname;
+    // These routes are reachable only through the Worker binding, never its public router.
+    if (path === "/retry-source" || path === "/retry-claim") return this.retrySource(value, path === "/retry-claim");
     return this.state.storage.transaction(async (tx) => {
       const prior = await tx.get("dispatch");
       const target = await tx.get("target");
-      if (prior && (prior.delivery_id !== value.deliveryId || (target && !sameDelivery(target, value)))) {
+      const identity = await tx.get("request") ?? target;
+      if (prior && (prior.delivery_id !== value.deliveryId || (identity && !sameDelivery(identity, value)))) {
         return json(409, { error: "delivery identity changed" });
       }
       if (prior && !["pending", "failed"].includes(prior.status)) return json(202, prior);
       const now = Date.now();
       // Old pending/failed records may already have created a check. Only reconcile them.
-      const result = { status: prior ? "creating" : "queued", delivery_id: value.deliveryId,
+      const result = { status: prior ? "creating" : value.event === "check_run" ? "retry_queued" : "queued", delivery_id: value.deliveryId,
         recovery_only: Boolean(prior), accepted_at: now, deadline_at: now + CHECK_COMPLETION_TIMEOUT_MS, failures: 0, wake_at: now + 1 };
       await tx.put("dispatch", result);
       await tx.put("target", value);
+      if (value.event === "check_run") await tx.put("request", value);
       await tx.setAlarm(result.wake_at);
       return json(202, result);
     });
+  }
+  async retrySource(request, claim) {
+    return this.state.storage.transaction(async (tx) => {
+      const dispatch = await tx.get("dispatch"), target = await tx.get("target");
+      if (!target || !["dispatched", "retained"].includes(dispatch?.status)
+        || (dispatch.status === "retained" && dispatch.wake_at <= Date.now())
+        || !["pull_request", "merge_group"].includes(target.event)
+        || target.deliveryId !== request.originalDeliveryId || dispatch.delivery_id !== target.deliveryId
+        || target.checkRunId !== request.originalCheckRunId || dispatch.check_run_id !== target.checkRunId
+        || target.repository !== request.repository || target.installationId !== request.installationId || target.headSha !== request.headSha) {
+        return json(409, { error: "original_delivery_missing_or_changed" });
+      }
+      const prior = await tx.get("retry_claim");
+      if (prior && prior.deliveryId !== request.deliveryId) return json(409, { error: "retry_already_requested" });
+      if (claim) {
+        await tx.put("retry_claim", { deliveryId: request.deliveryId, senderId: request.senderId, requestedAt: Date.now() });
+      }
+      return json(200, { target });
+    });
+  }
+  async prepareRerequest(dispatch, request) {
+    if (Date.now() >= dispatch.deadline_at) throw new RerequestRejected("retry_request_expired");
+    const id = this.env.DELIVERY_LEDGER.idFromName(request.originalDeliveryId.toLowerCase());
+    const original = this.env.DELIVERY_LEDGER.get(id);
+    const options = { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) };
+    const response = await original.fetch("https://ledger.internal/retry-source", options);
+    if (response.status === 409) throw new RerequestRejected("original_delivery_missing_or_changed");
+    if (!response.ok) throw new Error("original delivery lookup unavailable");
+    const { target: source } = await response.json();
+    const token = await installationToken(this.env.GITHUB_APP_ID, this.env.GITHUB_APP_PRIVATE_KEY, request.installationId, { checks: "write", contents: "read", pull_requests: "read" });
+    const target = await currentRerequestTarget(this.env, request, source, token);
+    const claimed = await original.fetch("https://ledger.internal/retry-claim", options);
+    if (claimed.status === 409) throw new RerequestRejected("retry_already_requested_or_original_expired");
+    if (!claimed.ok) throw new Error("retry claim unavailable");
+    await this.save({ ...dispatch, status: "queued", failures: 0, retry_of: request.originalCheckRunId,
+      requested_by: request.senderId }, target, Date.now() + 1);
   }
   async retain(dispatch, target, terminalStatus) {
     await this.save({ ...dispatch, status: "retained", terminal_status: terminalStatus }, target, Date.now() + WEBHOOK_REDELIVERY_RETENTION_MS);
@@ -642,6 +739,10 @@ export class DeliveryLedger {
       await this.retain(dispatch, target ?? null, "needs_operator"); return;
     }
     try {
+      if (dispatch.status === "retry_queued") {
+        await this.prepareRerequest(dispatch, target);
+        return;
+      }
       if (dispatch.status === "dispatching") {
         // The control workflow may already be running. Do not dispatch it twice.
         dispatch = { ...dispatch, status: "dispatched" };
@@ -711,14 +812,19 @@ export class DeliveryLedger {
         await github(path, token, {
           method: "PATCH", headers: { "content-type": "application/json" },
           body: JSON.stringify({ status: "completed", conclusion: "failure",
-            output: { title: "NOT CHECKED", summary: "The independent verification did not finish within one hour. No passing result was received. Agent Vigil's operator must inspect this delivery before retrying it." } }),
+            output: { title: "NOT CHECKED", summary: "The independent verification did not finish within one hour. No passing result was received. A repository maintainer can select Re-run on this check to request fresh verification. If it fails again, contact Agent Vigil's operator." } }),
         });
       }
       await this.retain(dispatch, target, check.status === "completed" ? "completed" : "timed_out");
-    } catch {
+    } catch (error) {
       // Read the durable stage, not an in-memory guess about a possibly committed write.
       dispatch = await this.state.storage.get("dispatch");
       target = await this.state.storage.get("target");
+      if (error instanceof RerequestRejected) {
+        await this.retain({ ...dispatch, rejection_reason: error.message }, target, "retry_rejected");
+        console.warn(JSON.stringify({ event: "public_app_retry_rejected", delivery_id: dispatch.delivery_id, reason: error.message }));
+        return;
+      }
       const failures = (dispatch.failures ?? 0) + 1;
       if (dispatch.status !== "dispatching" && failures >= MAX_DELIVERY_FAILURES) {
         if (dispatch.status === "check_created") {
@@ -897,7 +1003,7 @@ export default {
     if (url.pathname !== "/github/webhook" || request.method !== "POST") return json(404, { error: "not found" });
     try {
       const event = request.headers.get("x-github-event") ?? "";
-      if (event !== "pull_request" && event !== "merge_group" && event !== "deployment_protection_rule") return json(202, { status: "ignored" });
+      if (!["pull_request", "merge_group", "deployment_protection_rule", "check_run"].includes(event)) return json(202, { status: "ignored" });
       if (event === "deployment_protection_rule") assertDeploymentConfiguration(env);
       else assertConfiguration(env);
       if (!hasJsonContentType(request)) return json(415, { error: "GitHub webhook must be application/json" });
@@ -912,7 +1018,8 @@ export default {
       catch { return json(400, { error: "invalid webhook JSON" }); }
       let value;
       try {
-        value = event === "pull_request" ? parsePullRequestPayload(payload, deliveryId)
+        value = event === "check_run" ? parseCheckRerequestPayload(payload, deliveryId, env.GITHUB_APP_ID)
+          : event === "pull_request" ? parsePullRequestPayload(payload, deliveryId)
           : event === "merge_group" ? parseMergeGroupPayload(payload, deliveryId)
             : parseDeploymentProtectionPayload(payload, deliveryId);
       }

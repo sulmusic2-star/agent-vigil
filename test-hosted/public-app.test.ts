@@ -757,7 +757,7 @@ test("missing authorization rejects deployment and callback failure is never rec
 test("public App manifest and control workflow keep customer setup to one App installation", () => {
   const manifest = JSON.parse(readFileSync("hosted/public-app/github-app-manifest.example.json", "utf8"));
   assert.equal(manifest.public, true);
-  assert.deepEqual(manifest.default_events.sort(), ["deployment_protection_rule", "merge_group", "pull_request"]);
+  assert.deepEqual(manifest.default_events.sort(), ["check_run", "deployment_protection_rule", "merge_group", "pull_request"]);
   assert.equal(manifest.default_permissions.actions, "read");
   assert.equal(manifest.default_permissions.checks, "write");
   assert.equal(manifest.default_permissions.merge_queues, "read");
