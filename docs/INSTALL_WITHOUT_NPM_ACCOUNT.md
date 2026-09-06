@@ -22,15 +22,22 @@ shasum -a 256 -c sulmusic-agent-vigil-0.24.4.tgz.sha256 && \
 npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect --repo .
 ```
 
-A successful `protect` run prints a `doctor` command that uses this same
-immutable v0.24.4 GitHub package. It does not depend on npm publication.
+Keep the verified archive and its checksum file for the follow-up check. Both
+steps use this same immutable v0.24.4 GitHub package, without npm publication.
+Keep these downloaded files out of your Git commits.
 
 ## One setup pull request
 
 `protect` writes the policy and workflows, then runs a disposable rehearsal.
 Review the generated files, commit them, and open one setup pull request. After
-that setup merges, run the printed `doctor` command. Then open a normal code
-pull request. The check says:
+that setup merges, run this local command. Use it instead of any remote
+`doctor` hint printed by the CLI, which would fetch another copy:
+
+```bash
+npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil doctor --repo .
+```
+
+Then open a normal code pull request. The check says:
 
 - `PASS` — ready to merge under the base-owned policy;
 - `FAIL` — do not merge yet;

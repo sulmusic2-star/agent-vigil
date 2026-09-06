@@ -39,7 +39,7 @@ Add tests or choose an explicit runner as described below.
 
 The command finds the repository's test setup, runs a disposable red/green
 rehearsal, and writes the setup files. Commit those files and open one setup
-pull request. After it merges, the printed `doctor` command uses the same
+pull request. After it merges, use the guide's local `doctor` command with the same
 package version selected above. Then open a normal code pull request and read
 one result:
 

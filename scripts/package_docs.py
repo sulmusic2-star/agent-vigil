@@ -20,6 +20,7 @@ def package_document_failures(version: str, readme: str, guide: str) -> list[str
     asset = f"sulmusic-agent-vigil-{version}.tgz"
     url = f"https://github.com/sulmusic2-star/agent-vigil/releases/download/v{version}/{asset}"
     install = f"npx --yes --package=./{asset} agent-vigil protect --repo ."
+    doctor = f"npx --yes --package=./{asset} agent-vigil doctor --repo ."
     common = install + ' --runner common --test-cmd "python3 -m pytest -q"'
     checksum_block = (
         f"curl -fLO \\\n  {url} && \\\ncurl -fLO \\\n  {url}.sha256 && \\\nshasum -a 256 -c {asset}.sha256 && \\\n{install}"
@@ -31,17 +32,22 @@ def package_document_failures(version: str, readme: str, guide: str) -> list[str
     ])
     expected_blocks = {
         "README.md": [install, common, "vigil check https://github.com/OWNER/REPOSITORY/pull/123", repository_check],
-        "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md": [checksum_block, common],
+        "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md": [checksum_block, doctor, common],
     }
-    expected_commands = [shlex.split(install), shlex.split(common)]
+    expected_commands = {label: [shlex.split(command) for command in commands] for label, commands in {
+        "README.md": [install, common],
+        "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md": [install, doctor, common],
+    }.items()}
     for label, text in [("README.md", readme), ("docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", guide)]:
         logical = shell_lines(text)
         # Packaged instructions have a closed set of executable examples.
         # Do not interpret Bash expansion or accept newly introduced programs.
         if "$" in logical:
             failures.append(f"{label}: shell expansion and dollar-prefixed quoting are unsupported")
+        if re.search(r"^(?:[ \t]*>|[ \t]{4,}\S)|^[ \t]*(?:[-+*]|\d+[.)])\s+.*(?:```|~~~)|<(?:pre|script|code)\b", logical, re.M | re.I):
+            failures.append(f"{label}: nested, indented, or raw HTML executable examples are unsupported")
         blocks = re.findall(r"^```([^\n]*)\n(.*?)\n```[ \t]*$", logical, re.M | re.S)
-        fences = re.findall(r"^[ \t]{0,3}(?:```|~~~)", logical, re.M)
+        fences = re.findall(r"^(?:[ \t]*>[ \t]*)*[ \t]*(?:```|~~~)", logical, re.M)
         if len(fences) != 2 * len(blocks) or any(language not in ("bash", "text") for language, _ in blocks):
             failures.append(f"{label}: unsupported or malformed fenced example")
         executable_blocks = [body for language, body in blocks if language in ("bash", "sh", "shell", "")]
@@ -60,7 +66,7 @@ def package_document_failures(version: str, readme: str, guide: str) -> list[str
             failures.append(f"{label}: embeds a circular release identity instead of the checksum asset")
         if re.search(r"@sulmusic/agent-vigil\b", text):
             failures.append(f"{label}: npm package specs belong on the verified public installation page")
-        # These documents deliberately offer only two reviewed command shapes.
+        # These documents deliberately offer a small set of reviewed commands.
         # Decode shell quoting before deciding which tokens invoke npx.
         commands = []
         for line in logical.splitlines():
@@ -74,7 +80,7 @@ def package_document_failures(version: str, readme: str, guide: str) -> list[str
             for index, token in enumerate(tokens):
                 if token == "npx":
                     commands.append(tokens[index:])
-        if commands != expected_commands:
+        if commands != expected_commands[label]:
             failures.append(f"{label}: extra or unsupported package execution outside the reviewed install sequence")
         for tag, filename in re.findall(r"releases/(?:download|tag)/v([0-9]+\.[0-9]+\.[0-9]+)(?:/sulmusic-agent-vigil-([0-9]+\.[0-9]+\.[0-9]+)\.tgz)?", text):
             if tag != version or (filename and filename != version):

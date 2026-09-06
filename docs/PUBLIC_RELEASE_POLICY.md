@@ -17,7 +17,8 @@ reviewed or approved the page.
   specs. Their npm instructions live on the verified public installation page.
   Executable packaged examples use a closed set of reviewed literal command
   blocks; shell expansion, dollar-prefixed quoting, and extra executable blocks
-  are unsupported. This wording gate is not an arbitrary-shell sandbox.
+  are unsupported. Examples must be top-level Bash fences, without Markdown
+  containers, indented code, or raw HTML. This wording gate is not an arbitrary-shell sandbox.
   Packaged instructions must not embed temporary publication status. Every other
   public command stays bound to the latest verified release. The gate rejects
   stale candidate records after a release is promoted.

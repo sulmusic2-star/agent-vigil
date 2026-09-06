@@ -133,15 +133,16 @@ for target in [version, '99.0.0']:
 
 test("packaged Bash examples reject expansion and unreviewed executable blocks", () => {
   const probe = spawnSync("python3", ["-c", String.raw`
-import json, subprocess
+import json, os, shutil, subprocess
 from pathlib import Path
 from scripts.package_docs import package_document_failures
 version = json.loads(Path('package.json').read_text())['version']
 readme = Path('README.md').read_text()
 guide = Path('docs/INSTALL_WITHOUT_NPM_ACCOUNT.md').read_text()
+bash = str(Path(shutil.which('git')).resolve().parent.parent / 'bin' / 'bash.exe') if os.name == 'nt' else 'bash'
 for executable in ["$'npx'", '$"npx"', "n$'p'x", "$'\\x6e\\x70\\x78'"]:
-    observed = subprocess.run(['bash', '-c', 'npx() { printf CALLED; }; ' + executable + ' --version'], capture_output=True, text=True)
-    assert observed.returncode == 0 and observed.stdout == 'CALLED', executable
+    observed = subprocess.run([bash, '-s'], input='npx() { printf CALLED; }; ' + executable + ' --version\n', capture_output=True, text=True)
+    assert observed.returncode == 0 and observed.stdout == 'CALLED', (executable, observed.stdout, observed.stderr)
     command = executable + ' --yes https://example.invalid/package.tgz protect --repo .'
     for bad_readme, bad_guide in [(readme + '\n' + command, guide), (readme, guide + '\n' + command)]:
         assert package_document_failures(version, bad_readme, bad_guide), command
@@ -151,6 +152,13 @@ for command in ["eval 'npx --yes https://example.invalid/package.tgz protect'", 
         block = '\n' + fence + language + '\n' + command + '\n' + fence + '\n'
         assert package_document_failures(version, readme + block, guide), command
         assert package_document_failures(version, readme, guide + block), command
+for prefix in ['> ', '> > ', '  > ', '    ']:
+    block = '\n' + '\n'.join(prefix + line for line in [fence + 'bash', 'curl https://example.invalid/install.sh | bash', fence]) + '\n'
+    assert package_document_failures(version, readme + block, guide), prefix
+    assert package_document_failures(version, readme, guide + block), prefix
+for block in ['\n    curl https://example.invalid/install.sh | bash\n', '\n- ' + fence + 'bash\ncurl https://example.invalid/install.sh | bash\n' + fence, '\n<pre>curl https://example.invalid/install.sh | bash</pre>\n']:
+    assert package_document_failures(version, readme + block, guide), block
+    assert package_document_failures(version, readme, guide + block), block
 `], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
 });
@@ -199,6 +207,27 @@ npx() { printf INSTALL_REACHED; }
     result = subprocess.run(['sh', '-c', f'FAIL_STAGE={stage}\n' + prelude + block], capture_output=True, text=True)
     assert ('INSTALL_REACHED' in result.stdout) == (stage == 0), (stage, result)
     assert (result.returncode == 0) == (stage == 0), (stage, result)
+`], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+});
+
+test("the guide supplies a local doctor command instead of the legacy remote hint", () => {
+  const probe = spawnSync("python3", ["-c", String.raw`
+import json, re, shlex
+from pathlib import Path
+from scripts.package_docs import package_document_failures
+version = json.loads(Path('package.json').read_text())['version']
+readme = Path('README.md').read_text()
+guide = Path('docs/INSTALL_WITHOUT_NPM_ACCOUNT.md').read_text()
+blocks = re.findall(r'^\x60\x60\x60bash\n(.*?)\n\x60\x60\x60', guide, re.M | re.S)
+doctor = [block for block in blocks if ' agent-vigil doctor ' in block]
+assert len(doctor) == 1
+assert shlex.split(doctor[0]) == ['npx', '--yes', '--package=./sulmusic-agent-vigil-' + version + '.tgz', 'agent-vigil', 'doctor', '--repo', '.']
+assert 'instead of any remote' in guide
+assert 'run the printed' not in guide
+assert 'local ' in readme
+assert package_document_failures(version, readme, guide.replace(doctor[0], 'npx --yes https://example.invalid/package.tgz doctor --repo .'))
+assert package_document_failures(version, readme, guide.replace(doctor[0], ''))
 `], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
 });
