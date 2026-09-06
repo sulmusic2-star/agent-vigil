@@ -86,6 +86,56 @@ assert install_reference_failures('website', live + '\n@sulmusic/agent-vigil@0.2
   assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
 });
 
+test("continued remote commands cannot bypass packaged installation checks", () => {
+  const probe = spawnSync("python3", ["-c", String.raw`
+import json
+from pathlib import Path
+from scripts.package_docs import package_document_failures
+version = json.loads(Path('package.json').read_text())['version']
+readme = Path('README.md').read_text()
+guide = Path('docs/INSTALL_WITHOUT_NPM_ACCOUNT.md').read_text()
+for target in [version, '99.0.0']:
+    current_readme = readme.replace(version, target)
+    current_guide = guide.replace(version, target)
+    url = 'https://github.com/sulmusic2-star/agent-vigil/releases/download/v' + target + '/sulmusic-agent-vigil-' + target + '.tgz'
+    for newline in ['\n', '\r\n']:
+        for indent in ['', '  ', '\t']:
+            command = 'npx --yes ' + '\\' + newline + indent + url + ' protect --repo .'
+            for bad_readme, bad_guide in [(current_readme + '\n' + command, current_guide), (current_readme, current_guide + '\n' + command)]:
+                assert package_document_failures(target, bad_readme, bad_guide), repr(command)
+`], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+});
+
+test("extra local installs cannot bypass the guide checksum sequence", () => {
+  const probe = spawnSync("python3", ["-c", String.raw`
+import json
+from pathlib import Path
+from scripts.package_docs import package_document_failures
+version = json.loads(Path('package.json').read_text())['version']
+readme = Path('README.md').read_text()
+guide = Path('docs/INSTALL_WITHOUT_NPM_ACCOUNT.md').read_text()
+for target in [version, '99.0.0']:
+    current_readme = readme.replace(version, target)
+    current_guide = guide.replace(version, target)
+    command = 'npx --yes --package=./sulmusic-agent-vigil-' + target + '.tgz agent-vigil protect --repo .'
+    for extra in [command, command.replace('--yes ', '--yes ' + '\\\n  '), command.replace('--package=./', '--package="./').replace('.tgz agent', '.tgz" agent')]:
+        for bad in [extra + '\n' + current_guide, current_guide + '\n' + extra, current_guide.replace('curl -fLO', extra + '\n' + 'curl -fLO', 1)]:
+            assert package_document_failures(target, current_readme, bad), repr(extra)
+    # Normal shell continuation and CRLF do not change the approved commands.
+    wrapped_readme = current_readme.replace('npx --yes ', 'npx --yes ' + '\\\n  ')
+    wrapped_guide = current_guide.replace('npx --yes ', 'npx --yes ' + '\\\n  ')
+    assert package_document_failures(target, wrapped_readme, wrapped_guide) == []
+    assert package_document_failures(target, wrapped_readme.replace('\n', '\r\n'), wrapped_guide.replace('\n', '\r\n')) == []
+    # Moving the alternate runner above verification is not an approved sequence.
+    start = current_guide.index('npx --yes', current_guide.index('## Non-Node repositories'))
+    end = current_guide.index('\n\x60\x60\x60', start)
+    moved = current_guide[start:end] + '\n' + current_guide[:start] + current_guide[end:]
+    assert package_document_failures(target, current_readme, moved)
+`], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+});
+
 test("the checksum sequence never installs after a download or verification fails", () => {
   const probe = spawnSync("python3", ["-c", String.raw`
 from pathlib import Path
