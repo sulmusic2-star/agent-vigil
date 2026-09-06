@@ -107,6 +107,30 @@ for target in [version, '99.0.0']:
   assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
 });
 
+test("shell quoting and escaping cannot hide package invocations", () => {
+  const probe = spawnSync("python3", ["-c", String.raw`
+import json, subprocess
+from pathlib import Path
+from scripts.package_docs import package_document_failures
+version = json.loads(Path('package.json').read_text())['version']
+readme = Path('README.md').read_text()
+guide = Path('docs/INSTALL_WITHOUT_NPM_ACCOUNT.md').read_text()
+for target in [version, '99.0.0']:
+    current_readme = readme.replace(version, target)
+    current_guide = guide.replace(version, target)
+    url = 'https://github.com/sulmusic2-star/agent-vigil/releases/download/v' + target + '/sulmusic-agent-vigil-' + target + '.tgz'
+    for executable in ['n\\px', 'n""px', "'np'x", '"npx"']:
+        # These are actual shell spellings of npx, not merely text lookalikes.
+        observed = subprocess.run(['sh', '-c', 'npx() { printf CALLED; }; ' + executable + ' --version'], capture_output=True, text=True)
+        assert observed.returncode == 0 and observed.stdout == 'CALLED', executable
+        for args in [' --yes ' + url + ' protect --repo .', ' --yes --package=./sulmusic-agent-vigil-' + target + '.tgz agent-vigil protect --repo .']:
+            command = executable + args
+            for bad_readme, bad_guide in [(current_readme + '\n' + command, current_guide), (current_readme, command + '\n' + current_guide)]:
+                assert package_document_failures(target, bad_readme, bad_guide), command
+`], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+});
+
 test("extra local installs cannot bypass the guide checksum sequence", () => {
   const probe = spawnSync("python3", ["-c", String.raw`
 import json

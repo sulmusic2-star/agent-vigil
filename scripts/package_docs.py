@@ -37,14 +37,20 @@ def package_document_failures(version: str, readme: str, guide: str) -> list[str
             failures.append(f"{label}: embeds a circular release identity instead of the checksum asset")
         if re.search(r"@sulmusic/agent-vigil\b", text):
             failures.append(f"{label}: npm package specs belong on the verified public installation page")
-        if re.search(r"\bnpx\s+[^\n]*https?://", logical):
-            failures.append(f"{label}: execute the local checksum-verified package, not a fresh remote download")
         # These documents deliberately offer only two reviewed command shapes.
-        # Check every invocation, not merely the presence of one safe example.
-        try:
-            commands = [shlex.split(match.group()) for match in re.finditer(r"\bnpx\b[^\n`]*", logical)]
-        except ValueError:
-            commands = []
+        # Decode shell quoting before deciding which tokens invoke npx.
+        commands = []
+        for line in logical.splitlines():
+            try:
+                lexer = shlex.shlex(line, posix=True, punctuation_chars="();<>|&`")
+                lexer.whitespace_split = True
+                tokens = list(lexer)
+            except ValueError:
+                # Prose can contain unmatched apostrophes; it is not a shell command.
+                continue
+            for index, token in enumerate(tokens):
+                if token == "npx":
+                    commands.append(tokens[index:])
         if commands != expected_commands:
             failures.append(f"{label}: extra or unsupported package execution outside the reviewed install sequence")
         for tag, filename in re.findall(r"releases/(?:download|tag)/v([0-9]+\.[0-9]+\.[0-9]+)(?:/sulmusic-agent-vigil-([0-9]+\.[0-9]+\.[0-9]+)\.tgz)?", text):
