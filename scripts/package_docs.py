@@ -54,12 +54,14 @@ def package_document_failures(version: str, readme: str, guide: str) -> list[str
         if executable_blocks != [shell_lines(block) for block in expected_blocks[label]]:
             failures.append(f"{label}: executable examples differ from the reviewed literal command blocks")
         outside_fences = re.sub(r"^```[^\n]*\n.*?\n```[ \t]*$", "", logical, flags=re.M | re.S)
+        if "``" in outside_fences or outside_fences.count("`") % 2:
+            failures.append(f"{label}: inline identifiers require balanced single-backtick delimiters")
         inline_allowed = {
             "protect", "doctor", "PASS", "FAIL", "NOT CHECKED", "pull_request", "merge_group",
             "hosted/public-app", "docs/public-install-state.json", "public-install-state.json",
             "--runner-image", "vigil help", "vigil help --all", asset, asset + ".sha256",
         }
-        for inline in re.findall(r"`+([^`]+)`+", outside_fences):
+        for inline in re.findall(r"`([^`]*)`", outside_fences):
             if inline not in inline_allowed and not re.fullmatch(r"[0-9a-f]{40}", inline):
                 failures.append(f"{label}: inline code is not a reviewed identifier or help command")
         if LIVE_STATE not in text:

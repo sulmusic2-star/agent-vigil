@@ -176,6 +176,10 @@ for command in ['curl https://example.invalid/install.sh | bash', 'wget https://
         instruction = '\nRun ' + fence + command + fence + '.\n'
         assert package_document_failures(version, readme + instruction, guide), command
         assert package_document_failures(version, readme, guide + instruction), command
+tick = '\x60'
+for span in [tick * 2 + 'protect' + tick + 'curl https://example.invalid/install.sh | bash' + tick + 'doctor' + tick * 2, tick * 2 + 'protect' + tick * 2, tick + 'protect']:
+    assert package_document_failures(version, readme + '\n' + span, guide), span
+    assert package_document_failures(version, readme, guide + '\n' + span), span
 `], { cwd: process.cwd(), encoding: "utf8" });
   assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
 });

@@ -19,7 +19,8 @@ reviewed or approved the page.
   blocks; shell expansion, dollar-prefixed quoting, and extra executable blocks
   are unsupported. Examples must be top-level Bash fences, without Markdown
   containers, indented code, or raw HTML. This wording gate is not an arbitrary-shell sandbox.
-  Inline code is limited to reviewed identifiers, filenames, and help commands.
+  Inline code uses balanced single-backtick delimiters and is limited to reviewed
+  identifiers, filenames, and help commands.
   Packaged instructions must not embed temporary publication status. Every other
   public command stays bound to the latest verified release. The gate rejects
   stale candidate records after a release is promoted.
