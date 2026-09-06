@@ -21,9 +21,14 @@ It does **not** import Jest, Vitest or arbitrary `node --test` suites, install
 dependencies, run build scripts, start databases or make network requests.
 Keep your existing CI for those jobs.
 
-## Try it from this source checkout
+## Choose the copy you are running
 
-After `npm ci --ignore-scripts && npm run build`:
+For a source checkout, first run `npm ci --ignore-scripts && npm run build`.
+For an extracted preview archive, the CLI is already compiled. Do not run
+`npm run build` in the archive: its source build files are not included.
+Neither copy installs a required GitHub check.
+
+From that checkout or extracted package directory:
 
 ```bash
 node dist/cli.js regression doctor
