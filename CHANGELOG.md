@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Run printed setup and doctor commands through the current local Node and CLI,
+  retaining the selected repository without downloading another package. Keep
+  public acquisition guidance on the installation page, quote POSIX/PowerShell
+  paths literally, and retain the verified-archive fallback for removed caches.
+
 ## 0.24.4 - 2026-09-05
 
 - Inspect complete JavaScript test bodies so unrelated new assertions cannot

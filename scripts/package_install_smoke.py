@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import tarfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -138,6 +139,25 @@ def anonymous_package_install(tarball: Path, lab: Path, action_sha: str) -> dict
         workflow = (consumer / '.github/workflows/agent-vigil.yml').read_text()
         if f'sulmusic2-star/agent-vigil@{action_sha}' not in workflow:
             raise RuntimeError('anonymous protect wrote an incorrect Action pin')
+        printed = re.search(r'^After it merges, run this command:\n  ([^\r\n]+)', output, re.M)
+        if not printed:
+            raise RuntimeError('protect did not print a local doctor command')
+        printed_doctor = shlex.split(printed[1])
+        node = shutil.which('node')
+        if (len(printed_doctor) != 5 or node is None
+                or Path(printed_doctor[0]).resolve() != Path(node).resolve()
+                or printed_doctor[2:4] != ['doctor', '--repo']
+                or Path(printed_doctor[4]).resolve() != consumer.resolve()):
+            raise RuntimeError('printed doctor must use the local Node, CLI, and exact repository')
+        with tarfile.open(tarball, 'r:gz') as archive:
+            bundled_cli = archive.extractfile('package/dist/cli.js')
+            assert bundled_cli is not None
+            if hashlib.sha256(Path(printed_doctor[1]).read_bytes()).digest() != hashlib.sha256(bundled_cli.read()).digest():
+                raise RuntimeError('printed doctor selects different runtime bytes')
+        prior_requests = list(requests)
+        run(printed_doctor, expected_exit=2, cwd=lab)
+        if requests != prior_requests:
+            raise RuntimeError('printed pre-commit doctor accessed the registry')
         doctor_blocks = [block for block in re.findall(r'^```bash\n(.*?)\n```', guide, re.M | re.S)
                          if ' agent-vigil doctor ' in block]
         if len(doctor_blocks) != 1:
@@ -149,6 +169,10 @@ def anonymous_package_install(tarball: Path, lab: Path, action_sha: str) -> dict
         doctor = run(doctor_command)
         if '0 failure(s)' not in doctor:
             raise RuntimeError('the committed install did not complete the doctor handoff')
+        prior_requests = list(requests)
+        printed_result = run(printed_doctor, cwd=lab)
+        if '0 failure(s)' not in printed_result or requests != prior_requests:
+            raise RuntimeError('printed committed doctor failed or accessed the registry')
         missing = lab / 'no-test-command'
         missing.mkdir()
         run(['git', 'init', '-q'], cwd=missing)
@@ -165,6 +189,8 @@ def anonymous_package_install(tarball: Path, lab: Path, action_sha: str) -> dict
         return {'version': version, 'registry': 'loopback fixture, not public publication',
                 'packedDocs': 'PASS', 'localTarballInstall': 'PASS', 'npmVersionProbe': 'PASS',
                 'protect': 'PASS', 'committedDoctor': 'PASS', 'doctorCommandSource': 'packed guide',
+                'printedDoctor': 'PASS', 'printedDoctorRuntime': 'matches packed CLI SHA-256',
+                'printedDoctorRegistryRequests': 0,
                 'missingTestCommand': 'BLOCKED before writing files', 'authenticatedRequests': 0,
                 'tarballSha256': hashlib.sha256(body).hexdigest()}
     finally:

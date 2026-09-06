@@ -232,7 +232,7 @@ npx() { printf INSTALL_REACHED; }
   assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
 });
 
-test("the guide supplies a local doctor command instead of the legacy remote hint", () => {
+test("the guide retains the verified archive command if the printed cached path disappears", () => {
   const probe = spawnSync("python3", ["-c", String.raw`
 import json, re, shlex
 from pathlib import Path
@@ -244,7 +244,9 @@ blocks = re.findall(r'^\x60\x60\x60bash\n(.*?)\n\x60\x60\x60', guide, re.M | re.
 doctor = [block for block in blocks if ' agent-vigil doctor ' in block]
 assert len(doctor) == 1
 assert shlex.split(doctor[0]) == ['npx', '--yes', '--package=./sulmusic-agent-vigil-' + version + '.tgz', 'agent-vigil', 'doctor', '--repo', '.']
-assert 'instead of any remote' in guide
+assert 'if npm removes the' in guide
+assert 'cached CLI path' in guide
+assert 'PowerShell' in guide
 assert 'run the printed' not in guide
 assert 'local ' in readme
 assert package_document_failures(version, readme, guide.replace(doctor[0], 'npx --yes https://example.invalid/package.tgz doctor --repo .'))

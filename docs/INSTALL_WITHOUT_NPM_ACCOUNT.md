@@ -30,8 +30,9 @@ Keep these downloaded files out of your Git commits.
 
 `protect` writes the policy and workflows, then runs a disposable rehearsal.
 Review the generated files, commit them, and open one setup pull request. After
-that setup merges, run this local command. Use it instead of any remote
-`doctor` hint printed by the CLI, which would fetch another copy:
+that setup merges, run this local command. It remains usable if npm removes the
+cached CLI path in the printed command. Printed commands use the local runtime;
+on Windows, run those commands in PowerShell.
 
 ```bash
 npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil doctor --repo .

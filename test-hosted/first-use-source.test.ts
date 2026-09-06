@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { localCliCommand } from "../src/adoption.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -16,7 +17,8 @@ function run(args: string[]) {
 test("the source CLI gives a new user one start command and one decision vocabulary", () => {
   const first = run([]);
   assert.equal(first.status, 0, first.stderr);
-  assert.match(first.stdout, /npx --yes https:\/\/github\.com\/sulmusic2-star\/agent-vigil\/releases\/download\/v0\.24\.4\/sulmusic-agent-vigil-0\.24\.4\.tgz protect --repo \./);
+  assert.ok(first.stdout.includes(localCliCommand("protect", new URL("../src/cli.ts", import.meta.url).href)));
+  assert.doesNotMatch(first.stdout, /npx --yes|releases\/download\//);
   assert.match(first.stdout, /PASS\s+Ready to merge\./);
   assert.match(first.stdout, /FAIL\s+Do not merge yet\./);
   assert.match(first.stdout, /NOT CHECKED\s+No decision because required evidence is missing\./);
