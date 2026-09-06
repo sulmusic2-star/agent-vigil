@@ -12,7 +12,7 @@ node dist/cli.js protect
 ```
 
 The v0.24.4 package retains the preceding security-contract document, headed
-v0.24.2. This live document extends that contract to v0.24.4; the signing and
+v0.24.3. This live document extends that contract to v0.24.4; the signing and
 isolation boundaries below are unchanged. Its packaged README and installation
 guide describe v0.24.4. The setup fix additionally stops before writing files
 when no test command is found.

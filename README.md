@@ -18,18 +18,20 @@ merge?**
 
 ## Add it to a repository
 
-This page describes v0.24.4. Check that exact version is available, then install it:
+For the currently available release, use the
+[public installation page](https://sulmusic2-star.github.io/agent-vigil/#install).
+It stays on the verified public version, independently of this source checkout.
+
+### Install this exact package
+
+This page describes v0.24.4. Its exact
+[GitHub download](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz)
+must pass the [checksum instructions](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
+before use. Availability is not implied. Use the public installation page if
+these assets are unavailable. After verification, run the local package:
 
 ```bash
-npm view @sulmusic/agent-vigil@0.24.4 version && \
-  npx --yes --package=@sulmusic/agent-vigil@0.24.4 agent-vigil protect --repo .
-```
-
-Prefer a download? First follow the [checksum instructions](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
-for this version. The matching GitHub package can also be run directly:
-
-```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz protect --repo .
+npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect --repo .
 ```
 
 If no test command is found, installation stops without writing setup files.
@@ -37,7 +39,7 @@ Add tests or choose an explicit runner as described below.
 
 The command finds the repository's test setup, runs a disposable red/green
 rehearsal, and writes the setup files. Commit those files and open one setup
-pull request. After it merges, the printed `doctor` command uses the same
+pull request. After it merges, use the guide's local `doctor` command with the same
 package version selected above. Then open a normal code pull request and read
 one result:
 
@@ -65,13 +67,6 @@ claimed and observed test counts, findings, and reproduction command.
 This packaged README describes v0.24.4; it is not a claim that v0.24.4 remains
 the newest release. The live, machine-readable channel record is
 [`docs/public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
-
-Verify the registry before installation:
-
-```bash
-npm view @sulmusic/agent-vigil version
-npm view @sulmusic/agent-vigil@0.24.4 dist.integrity
-```
 
 The five repository workflows and the hosted App workflow template pin runtime commit
 `3f9f7fca8b36848ab90b187578a4220c5bae73ad`. For the checksum-first download
@@ -101,7 +96,7 @@ The generated Node/npm path is automatic. Python, Rust, Go, Java, Ruby, PHP,
 test command:
 
 ```bash
-npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz protect --repo . \
+npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```

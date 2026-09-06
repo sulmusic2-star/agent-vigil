@@ -9,12 +9,21 @@ reviewed or approved the page.
 
 - The source package version and latest public GitHub release match, unless an
   exact, strictly newer source candidate records both GitHub and npm as
-  unpublished. The packed README and bundled install guide may show that
-  candidate's immutable GitHub asset path only with the required candidate
-  disclosure and the current verified release beside it. Candidate npm specs
-  remain forbidden. Every other public command stays bound to the latest
-  verified release. The gate rejects stale candidate disclosures after a
-  release is promoted.
+  unpublished. The packed README and bundled install guide direct new users
+  to the verified public installation page before showing their own version's
+  immutable GitHub asset path. They must state that availability is not implied,
+  require successful downloads and checksum verification, and execute the local
+  verified package. Packaged npm specs remain forbidden, including candidate
+  specs. Their npm instructions live on the verified public installation page.
+  Executable packaged installation examples use a closed set of reviewed literal command
+  blocks; shell expansion, dollar-prefixed quoting, and extra executable blocks
+  are unsupported. Examples must be top-level Bash fences, without Markdown
+  containers, indented code, or raw HTML. This wording gate is not an arbitrary-shell sandbox.
+  Inline code uses balanced single-backtick delimiters and is limited to reviewed
+  identifiers, filenames, and help commands.
+  Packaged instructions must not embed temporary publication status. Every other
+  public command stays bound to the latest verified release. The gate rejects
+  stale candidate records after a release is promoted.
 - Public installation commands identify the immutable release asset and its
   verified SHA-256 digest.
 - GitHub release and npm registry states remain separate.
