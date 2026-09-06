@@ -10,6 +10,7 @@ const workflow = readFileSync(".github/workflows/public-app-gate.yml", "utf8");
 const scripts = [...workflow.matchAll(/node --input-type=module <<'NODE'\n([\s\S]*?)          NODE/g)].map((m) => m[1].replace(/^          /gm, ""));
 const digest = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
 const sha = "1".repeat(40), head = "2".repeat(40);
+const runtime = workflow.match(/uses: sulmusic2-star\/agent-vigil@([0-9a-f]{40})/)?.[1];
 function fixture(t: any) {
   const root = mkdtempSync(join(tmpdir(), "vigil-workflow-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -17,7 +18,7 @@ function fixture(t: any) {
   const receipt = JSON.stringify({ transcriptSha256: `sha256:${digest(event)}`, base: sha, head, vigilVersion: "0.24.4" });
   const files: Record<string,string> = { EVENT_PATH: event, REPORT_PATH: receipt, CARD_PATH: "{}", SARIF_PATH: "{}" };
   const env: Record<string,string> = { PATH: process.env.PATH!, RUNNER_TEMP: root, GITHUB_OUTPUT: join(root, "outputs"),
-    TARGET_REPOSITORY: "test/repo", BASE_SHA: sha, HEAD_SHA: head, EVENT_KIND: "pull_request", APP_TOKEN: "fake-token", GITHUB_API_URL: "https://api.github.test" };
+    REVIEWED_RUNTIME_SHA: runtime!, TARGET_REPOSITORY: "test/repo", BASE_SHA: sha, HEAD_SHA: head, EVENT_KIND: "pull_request", APP_TOKEN: "fake-token", GITHUB_API_URL: "https://api.github.test" };
   for (const [key, content] of Object.entries(files)) { env[key] = join(root, key); writeFileSync(env[key], content); }
   return { root, event, receipt, env };
 }
@@ -30,7 +31,8 @@ test("workflow is one reviewed template, v2 only, with no direct result PATCH or
   assert.equal(scripts.length, 4);
   const action = workflow.match(/uses: (sulmusic2-star\/agent-vigil@[0-9a-f]{40})/)?.[1];
   assert.ok(action);
-  assert.ok(workflow.includes(`Action runtime: ${action}`), "replay guide must identify the runtime actually used");
+  assert.equal([...workflow.matchAll(/sulmusic2-star\/agent-vigil@[0-9a-f]{40}/g)].length, 1, "release assembly requires one Action reference");
+  assert.equal(workflow.match(/REVIEWED_RUNTIME_SHA: ([0-9a-f]{40})/)?.[1], runtime, "replay guide must identify the runtime actually used");
   assert.equal(workflow, readFileSync("hosted/public-app/control-workflow.yml", "utf8"));
   assert.match(scripts[0], /value.schema !== "agent-vigil-public-app-v2"/);
   const publisher = workflow.slice(workflow.indexOf("  publish:"));
@@ -58,14 +60,16 @@ test("export includes exact original bytes and checked hashes without rewriting 
   assert.equal(sums.length, 5);
   for (const line of sums) { const [hash, name] = line.split("  "); assert.equal(digest(readFileSync(join(root, name))), hash); }
   assert.match(readFileSync(join(root, "REPRODUCE.md"), "utf8"), /not an offline hermetic replay/);
+  assert.ok(readFileSync(join(root, "REPRODUCE.md"), "utf8").includes(`Action runtime commit: ${runtime}`));
 });
-for (const failure of ["private", "unknown", "http", "hash", "base", "symlink", "large"]) {
+for (const failure of ["private", "unknown", "http", "hash", "base", "symlink", "large", "runtime"]) {
   test(`export refuses ${failure} rather than producing a plausible incomplete packet`, (t) => {
     const f = fixture(t); let prefix = publicFetch;
     if (failure === "private") prefix = 'globalThis.fetch = async () => Response.json({ full_name: "test/repo", private: true, visibility: "private" });';
     if (failure === "unknown") prefix = 'globalThis.fetch = async () => Response.json({ full_name: "test/repo" });';
     if (failure === "http") prefix = 'globalThis.fetch = async () => new Response("denied", {status:403});';
     if (failure === "hash") writeFileSync(f.env.EVENT_PATH, "different event");
+    if (failure === "runtime") f.env.REVIEWED_RUNTIME_SHA = "not-a-sha";
     if (failure === "base") f.env.BASE_SHA = "3".repeat(40);
     if (failure === "symlink") { const link = join(f.root, "linked"); symlinkSync(f.env.EVENT_PATH, link); f.env.EVENT_PATH = link; }
     if (failure === "large") writeFileSync(f.env.EVENT_PATH, "x".repeat(262145));

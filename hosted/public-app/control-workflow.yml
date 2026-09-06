@@ -241,6 +241,7 @@ jobs:
           EVENT_KIND: ${{ needs.authenticate.outputs.event }}
           BASE_SHA: ${{ needs.authenticate.outputs.base-sha }}
           HEAD_SHA: ${{ needs.authenticate.outputs.head-sha }}
+          REVIEWED_RUNTIME_SHA: 3e5d5278043f3fbeba7bc1a96d7354df44f4551e
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
@@ -248,6 +249,7 @@ jobs:
           import { constants, openSync, fstatSync, readSync, closeSync, mkdtempSync, realpathSync, writeFileSync, appendFileSync } from "node:fs";
           import { join } from "node:path";
           const e = process.env;
+          if (!/^[0-9a-f]{40}$/.test(e.REVIEWED_RUNTIME_SHA ?? "")) throw new Error("Reviewed runtime SHA is missing or invalid.");
           const response = await fetch(`${e.GITHUB_API_URL}/repos/${e.TARGET_REPOSITORY}`, {
             headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${e.APP_TOKEN}` },
             signal: AbortSignal.timeout(15000), redirect: "error",
@@ -285,7 +287,7 @@ jobs:
             "Review the source and trusted policy before executing candidate code. Use an isolated environment.",
             "From the exact repository checkout, use the reviewed Vigil runtime identified below:", "",
             `vigil ${mode} ${flag} /absolute/path/to/github-event.json --repo . --base ${e.BASE_SHA} --head ${e.HEAD_SHA} --policy .agent-vigil.json --policy-ref ${e.BASE_SHA}`,
-            "", "Action runtime: sulmusic2-star/agent-vigil@3e5d5278043f3fbeba7bc1a96d7354df44f4551e",
+            "", `Action runtime commit: ${e.REVIEWED_RUNTIME_SHA}`,
             `Recorded CLI version: ${receipt.vigilVersion}`, `Source: https://github.com/${e.TARGET_REPOSITORY}`,
             "", "No source checkout, installed dependencies or complete Docker image is bundled.",
             "This retains the missing input; it is not an offline hermetic replay, signed receipt, or live merge authorization.",
