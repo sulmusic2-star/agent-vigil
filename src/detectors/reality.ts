@@ -7,6 +7,7 @@ import { trustedGitOptional } from "../trusted-git.ts";
 import type { SessionToolCall } from "../transcript.ts";
 import { toolCallFingerprint } from "../transcript.ts";
 import { escapeRegExpLiteral } from "../regex.ts";
+import { tokenizer } from "acorn";
 import { checkAgenticPatches, checkAgenticRepository, type AgenticPatch } from "./agentic.ts";
 import { checkEmptyTestBodies } from "./test-bodies.ts";
 
@@ -1349,12 +1350,19 @@ function cleanIntegrityResult(pathCount: number, contributesToPass = false): Che
   };
 }
 
-function normalizedCodeLine(line: string): string {
-  return line
-    .replace(/\/\/.*$/, "")
-    .replace(/\/\*.*?\*\//g, "")
-    .replace(/\s+/g, "")
-    .replace(/[;,]$/, "");
+function normalizedCodeLine(line: string): string | undefined {
+  // Lex comments rather than deleting `//` inside URLs, strings, or regexes.
+  // Preserve token boundaries and literal bytes. Incomplete lines are not
+  // evidence of a no-op; this advisory does not prove behavioral equivalence.
+  try {
+    const tokens = tokenizer(line, { ecmaVersion: "latest", sourceType: "module" });
+    const values: Array<[string, string]> = [];
+    for (let token = tokens.getToken(); token.type.label !== "eof"; token = tokens.getToken()) {
+      values.push([token.type.label, line.slice(token.start, token.end)]);
+    }
+    if (values.at(-1)?.[0] === ";") values.pop();
+    return values.length ? JSON.stringify(values) : "";
+  } catch { return undefined; }
 }
 
 function isStandaloneCommentLine(line: string): boolean {
@@ -1368,6 +1376,61 @@ function isStandaloneCommentLine(line: string): boolean {
     || /^#(?:\s|TODO\b|FIXME\b)/i.test(value);
 }
 
+function suppressionInComment(path: string, line: string, pattern: RegExp): boolean {
+  if (!/\.[cm]?[jt]sx?$/i.test(path)) return pattern.test(line);
+  const comments: string[] = [];
+  try {
+    const tokens = tokenizer(line, {
+      ecmaVersion: "latest", sourceType: "module",
+      onComment: (_block, text) => { comments.push(text); },
+    });
+    while (tokens.getToken().type.label !== "eof") { /* consume to collect comments */ }
+    return comments.some(comment => pattern.test(comment));
+  } catch {
+    // A partial hunk can begin inside a block comment. Preserve the advisory
+    // when lexical context is uncertain rather than silently clearing it.
+    return pattern.test(line);
+  }
+}
+
+function unchangedReturnWithComment(path: string, before: string, after: string): boolean {
+  // A deliberately small cross-language rule, not a JS lexer applied to other
+  // languages. Preserve Python indentation and every byte of the return.
+  const delimiter = /\.(?:py|rb)$/i.test(path) ? "#" : /\.go$/i.test(path) ? "//" : undefined;
+  if (!delimiter) return false;
+  const code = before.trimEnd();
+  if (!/^[\t ]*return(?:[\t ]+(?:[A-Za-z_][\w]*|\d+))?;?$/.test(code) || !after.startsWith(code)) return false;
+  const rest = after.slice(code.length);
+  return /^[\t ]+/.test(rest) && rest.trimStart().startsWith(delimiter);
+}
+
+function addedDeclarationsByPath(patches: FilePatch[], functionsOnly: boolean): Map<string, Set<string>> {
+  const output = new Map<string, Set<string>>();
+  // Match declaration lines, not quoted documentation or a call to a symbol.
+  // Hunk headers are not part of added source. Keep paths distinct: another
+  // file's same-named declaration does not repair the original module.
+  const pattern = functionsOnly
+    ? /^[\t ]*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm
+    : /^[\t ]*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|const|let|var)\s+([A-Za-z_$][\w$]*)/gm;
+  for (const patch of patches) {
+    const names = output.get(patch.path) ?? new Set<string>();
+    const source = patch.added.join("\n");
+    try {
+      // Keep token positions/newlines but mask comments and literal text,
+      // including multiline template examples containing declaration lines.
+      const visible = source.replace(/[^\n\r]/g, " ").split("");
+      const tokens = tokenizer(source, { ecmaVersion: "latest", sourceType: "module" });
+      for (let token = tokens.getToken(); token.type.label !== "eof"; token = tokens.getToken()) {
+        if (["string", "regexp", "template"].includes(token.type.label)) continue;
+        for (let index = token.start; index < token.end; index++) visible[index] = source[index];
+      }
+      for (const match of visible.join("").matchAll(pattern)) names.add(match[1]);
+    } catch { /* incomplete added syntax does not prove a retained declaration */ }
+    output.set(patch.path, names);
+  }
+  return output;
+}
+
 function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
   const results: CheckResult[] = [];
   const checks: Array<[string, RegExp, string, (patch: FilePatch) => boolean]> = [
@@ -1378,11 +1441,14 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
     ["statically unreachable branch introduced", /\bif\s*\(\s*(?:false|0)\s*\)/i, "dead-branch-added", (patch) => !isDocumentationPath(patch.path)], // vigil:detector-pattern
   ];
   for (const [subject, regex, ruleId, inScope] of checks) {
-    const line = patches.filter(inScope).flatMap((patch) => patch.added).find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
+    const line = patches.filter(inScope).flatMap((patch) => patch.added.filter(candidate =>
+      ruleId !== "suppression-added" || suppressionInComment(patch.path, candidate, regex)))
+      .find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
     if (line) results.push(finding(subject, line.trim().slice(0, 220), ruleId));
   }
 
   const implementationPatches = patches.filter((patch) => !isDocumentationPath(patch.path));
+  const retainedDeclarations = addedDeclarationsByPath(implementationPatches, false);
   const changedLines = implementationPatches.flatMap((patch) => [...patch.added, ...patch.removed]);
   if (changedLines.length > 0
     && implementationPatches.some((patch) => patch.added.some((line) => isStandaloneCommentLine(line) && line.trim() !== ""))
@@ -1410,7 +1476,7 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
     const addedNames = new Set([...added.matchAll(declarationPattern)].map((match) => match[1]));
     const candidateText = [...patch.added, ...patch.context].join("\n");
     for (const oldName of removedNames) {
-      if (addedNames.has(oldName)) continue;
+      if (addedNames.has(oldName) || retainedDeclarations.get(patch.path)?.has(oldName)) continue;
       const oldReference = new RegExp(`\\b${escapeRegExpLiteral(oldName)}\\s*\\(`);
       if (oldReference.test(candidateText)) {
         results.push(finding("removed or renamed symbol leaves an old caller", `${patch.path} removes the declaration of ${oldName} while ${oldName} is still called`, "stale-refactor-caller"));
@@ -1466,21 +1532,29 @@ function checkIntegrityPatches(patches: FilePatch[]): CheckResult[] {
         results.push(finding("test replaces the subject with a self-fulfilling mock", `${patch.path} adds a value-producing local mock in the assertion path`, "subject-mocked"));
       }
     }
-    const removedCode = patch.removed.map(normalizedCodeLine).filter(Boolean);
-    const addedCode = patch.added.map(normalizedCodeLine).filter(Boolean);
-    if (removedCode.length === 1 && addedCode.length === 1 && removedCode[0] === addedCode[0] && patch.removed[0] !== patch.added[0]) {
-      results.push(finding("code change is behaviorally empty after comment and whitespace normalization", `${patch.path}: ${patch.added[0].trim().slice(0, 180)}`, "no-op-code-change"));
+    const removedTokens = patch.removed.map(normalizedCodeLine);
+    const addedTokens = patch.added.map(normalizedCodeLine);
+    const removedCode = removedTokens.filter(Boolean);
+    const addedCode = addedTokens.filter(Boolean);
+    if (/\.[cm]?[jt]sx?$/i.test(patch.path) && !removedTokens.includes(undefined) && !addedTokens.includes(undefined)
+      && removedCode.length === 1 && addedCode.length === 1 && removedCode[0] === addedCode[0] && patch.removed[0] !== patch.added[0]) {
+      results.push(finding("changed line keeps the same JavaScript or TypeScript tokens", `${patch.path}: ${patch.added[0].trim().slice(0, 180)}`, "no-op-code-change"));
+    }
+    if (patch.removed.length === 1 && patch.added.length === 1
+      && unchangedReturnWithComment(patch.path, patch.removed[0], patch.added[0])) {
+      results.push(finding("simple return is unchanged; only a trailing comment was added", `${patch.path}: ${patch.added[0].trim().slice(0, 180)}`, "no-op-code-change"));
     }
   }
 
   const crossFileFunctionPattern = /\b(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g;
+  const retainedFunctions = addedDeclarationsByPath(implementationPatches, true);
   const remainingChangedText = implementationPatches.flatMap((patch) => [...patch.added, ...patch.context]).join("\n");
   for (const patch of implementationPatches) {
     const removedNames = [...patch.removed.join("\n").matchAll(crossFileFunctionPattern)].map((match) => match[1]);
     const addedNames = new Set([...patch.added.join("\n").matchAll(crossFileFunctionPattern)].map((match) => match[1]));
     if (!addedNames.size) continue;
     for (const oldName of removedNames) {
-      if (addedNames.has(oldName)) continue;
+      if (addedNames.has(oldName) || retainedFunctions.get(patch.path)?.has(oldName)) continue;
       const oldCall = new RegExp(`\\b${escapeRegExpLiteral(oldName)}\\s*\\(`);
       if (oldCall.test(remainingChangedText) && !results.some((result) => result.ruleId === "stale-refactor-caller")) {
         results.push(finding("removed or renamed symbol leaves an old caller", `${patch.path} removes ${oldName} while another changed-file context still calls it`, "stale-refactor-caller"));
