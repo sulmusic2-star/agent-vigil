@@ -17,6 +17,8 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_TEXT = [
+    ROOT / "docs/PROTECTED_REGRESSIONS.md",
+    ROOT / "docs/protected-regressions.html",
     ROOT / "README.md",
     ROOT / "docs/index.html",
     ROOT / "docs/check.html",
@@ -26,6 +28,7 @@ PUBLIC_TEXT = [
     ROOT / "docs/NOTARY_APP.md",
 ]
 PUBLIC_HTML = [
+    ROOT / "docs/protected-regressions.html",
     ROOT / "docs/index.html",
     ROOT / "docs/check.html",
     ROOT / "docs/assets/agent-value-card-demo.html",

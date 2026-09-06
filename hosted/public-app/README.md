@@ -23,7 +23,9 @@ deployment returns HTTP 503 and must not receive a GitHub webhook.
 
 ## Customer path
 
-1. Install the App and choose repositories.
+1. For the current controlled trial, install the App and choose a **public** repository.
+   Private and internal repositories are refused before event materialization or
+   candidate execution. Do not make private code public to use this trial.
 2. Prepare and review the repository's test configuration. The App has read-only
    access to repository contents: it does **not** create a setup pull request.
    This step still requires the repository owner or an authorized operator.
@@ -51,9 +53,16 @@ response body. This follows [GitHub's webhook guidance](https://docs.github.com/
 - A lost workflow-dispatch response is not retried: the workflow may already be
   running. Its existing check remains pending until a result arrives or the
   one-hour deadline is reached.
-- A check still unfinished at that deadline is marked `NOT CHECKED` / failure.
-  A result observed completed is left alone. This is not an atomic lock against
-  a concurrent GitHub update; the late-completion race still needs hosted testing.
+- New v2 deliveries have one result writer: the Worker. The protected workflow
+  sends a domain-separated HMAC-authenticated result to `/github/check-result`;
+  it no longer mints a Checks-write token or directly completes the check.
+- The durable record selects a timely result or a one-hour timeout before any
+  result write. A conflicting or late reply cannot replace that selection.
+  Current PR body, refs and commits are checked again before the result is sealed.
+  Lost responses are reconciled against the same check, not a new verification.
+- Pre-migration v1 checks retain their legacy completion behavior. Drain their
+  workflows before claiming the single-writer deployment is fully active.
+  Local tests are not a hosted concurrency or migration proof.
 - Three consecutive failed operations in a stage stop automatic retries and
   record an operator-help event. A known check that could not be dispatched is
   still watched until its deadline. Records remain for three days.
@@ -63,8 +72,8 @@ recovery beyond the automatic and Re-run paths, and the response commitment
 still need to be connected and tested before anyone buys a managed service.
 Old `pending` or `failed` deliveries
 without a target need a signed GitHub redelivery to supply it; they are reconciled
-without redispatching possibly executed work. No new pass result is issued by
-the recovery code. Deployment-protection callbacks use their separate existing
+without redispatching possibly executed work. Recovery alone never issues a pass;
+the v2 publisher requires the protected workflow result and current change identity. Deployment-protection callbacks use their separate existing
 flow and are not covered by this queue change.
 
 ## Retry without pushing another commit
@@ -100,6 +109,38 @@ repository permissions. [GitHub check-run events](https://docs.github.com/en/web
 Local tests are not proof that GitHub's required-check UI behaves correctly when
 an older workflow completes late. Staging replay and a protected test-repository
 drill are still required before offering this as a managed service.
+
+## Evidence downloads and privacy
+
+For a public trial, the artifact includes the unchanged receipt, Value Card,
+SARIF, exact GitHub event input, checksums and reproduction instructions. The
+input must match the receipt's transcript hash and base/head SHAs. Visibility
+is checked before materialization and again before export. Missing, private or
+unknown visibility stops the job instead of uploading customer evidence.
+
+This is not a private-repository retention service. Public visibility checks
+cannot recall already downloaded artifacts if the owner later makes the repo
+private. Explain that limit before installation. The packet does not contain a
+source checkout, installed dependencies or a complete Docker image; it is not an
+offline hermetic replay or a portable signed attestation. Reproduction can run
+code: use reviewed sources in an isolated environment, never an operator's
+credential-bearing workstation.
+
+## Deploy the result protocol together
+
+Set the protected GitHub environment variable `AGENT_VIGIL_PUBLIC_APP_ORIGIN`
+to the exact HTTPS staging or production origin; never accept a callback URL
+from a candidate or workflow-dispatch input. No new secret is required: the
+publisher uses the existing dispatch secret with a different signing context.
+The workflow accepts v2 envelopes only. The Worker records v2 on new jobs and
+rejects v2 callbacks for legacy jobs.
+
+Rollout requires the reviewed workflow and Worker together. A missing origin,
+old workflow or old Worker must stay NOT CHECKED rather than fall back to a
+direct check write. Drain old runs, prove PASS/FAIL/NOT CHECKED, interrupt and
+redeliver requests, test a same-check timeout/result race, and exercise rollback
+in staging before production. Existing v1 jobs are not retroactively race-free.
+No deployment or environment change is implied by these source changes.
 
 ## Two deployment gates
 

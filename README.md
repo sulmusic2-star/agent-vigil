@@ -7,14 +7,17 @@
 **Agent Vigil is an independent merge check for AI-assisted pull requests.**
 
 It runs the test and evidence policy from the base branch against the exact
-proposed commit. A missing run, stale result, changed policy, weaker test, or
-contradictory claim cannot appear as a pass.
+proposed commit. It blocks missing required evidence, stale results, and the
+test-weakening patterns its policy covers. It does not catch every bad change
+or replace your tests and code review.
 
 Review tools look for likely bugs. Agent Vigil answers a different question:
 **did this exact change produce the evidence your repository requires before
 merge?**
 
 ![Agent Vigil illustrative evidence-gate demo](docs/assets/agent-vigil-demo.gif)
+
+Try the [local protected-regression preview](docs/PROTECTED_REGRESSIONS.md) to keep selected expected answers outside a proposed change. It does not install a required check.
 
 ## Add it to a repository
 
