@@ -223,8 +223,9 @@ for (const lost of ["network", "http-503", "checkpoint"] as const) {
   });
 }
 
-test("completed results are preserved, retained against replay, and cleaned only when due", async (t) => {
+test("legacy completed results are preserved, retained against replay, and cleaned only when due", async (t) => {
   const h = harness(t); await h.queue(); await h.next(); h.check.status = "completed";
+  h.data.get("dispatch").protocol = 1; // A pre-migration workflow may still own this check.
   await h.next(); await h.queue();
   assert.equal(h.data.get("dispatch").terminal_status, "completed");
   assert.equal(h.calls.filter((c) => c.method === "PATCH").length, 0);
