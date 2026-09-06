@@ -427,12 +427,21 @@ function addedImportNames(patches: AgenticPatch[]): Set<string> {
   for (const patch of patches) {
     for (const line of patch.added) {
       if (isDetectorPatternLine(line)) continue;
-      const python = /^(?:\s*)(?:from|import)\s+([A-Za-z_][\w.-]*)/.exec(line)?.[1];
-      const javascript = /(?:\bfrom\s*|\brequire\s*\(|\bimport\s*\()\s*["']([^"']+)["']/.exec(line)?.[1];
+      // A JS default binding such as `import test from 'node:test'` is not
+      // a Python package named "test". Do not mix language grammars.
+      const python = /\.pyi?$/i.test(patch.path)
+        ? /^(?:\s*)(?:from|import)\s+([A-Za-z_][\w.-]*)/.exec(line)?.[1]
+        : undefined;
+      const javascript = /\.[cm]?[jt]sx?$/i.test(patch.path)
+        ? /(?:\bfrom\s*|\brequire\s*\(|\bimport\s*\()\s*["']([^"']+)["']/.exec(line)?.[1]
+        : undefined;
       const requirement = /(?:^|\/)(?:requirements[^/]*\.txt|constraints[^/]*\.txt)$/i.test(patch.path)
         ? /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(line)?.[1]
         : undefined;
-      for (const raw of [python, javascript, requirement]) addName(raw);
+      // These are standard-library imports, not evidence of adding a registry
+      // dependency. Explicit requirements/manifest entries remain inspected.
+      if (python && !["http", "urllib"].includes(python.split(".")[0])) addName(python);
+      for (const raw of [javascript, requirement]) addName(raw);
     }
   }
   return names;
