@@ -259,6 +259,7 @@ test("npm package surface excludes internal product and commercial working docum
     "docs/HOSTED_OUTCOME_PRICING.md",
     "docs/OUTCOME_MANDATES.md",
     "docs/PROOF_COMMENT.md",
+    "docs/PROTECTED_REGRESSIONS.md",
     "docs/PROTECTED_RUN.md",
     "docs/PUBLIC_PR_RECEIPT.md",
     "docs/PUBLIC_RELEASE_POLICY.md",
