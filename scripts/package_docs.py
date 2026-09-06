@@ -21,9 +21,32 @@ def package_document_failures(version: str, readme: str, guide: str) -> list[str
     url = f"https://github.com/sulmusic2-star/agent-vigil/releases/download/v{version}/{asset}"
     install = f"npx --yes --package=./{asset} agent-vigil protect --repo ."
     common = install + ' --runner common --test-cmd "python3 -m pytest -q"'
+    checksum_block = (
+        f"curl -fLO \\\n  {url} && \\\ncurl -fLO \\\n  {url}.sha256 && \\\nshasum -a 256 -c {asset}.sha256 && \\\n{install}"
+    )
+    repository_check = "\n".join([
+        "git clone https://github.com/sulmusic2-star/agent-vigil.git",
+        "cd agent-vigil", "npm ci", "npm run typecheck", "npm run build",
+        "npm test", "npm run test:hosted", "npm run test:package",
+    ])
+    expected_blocks = {
+        "README.md": [install, common, "vigil check https://github.com/OWNER/REPOSITORY/pull/123", repository_check],
+        "docs/INSTALL_WITHOUT_NPM_ACCOUNT.md": [checksum_block, common],
+    }
     expected_commands = [shlex.split(install), shlex.split(common)]
     for label, text in [("README.md", readme), ("docs/INSTALL_WITHOUT_NPM_ACCOUNT.md", guide)]:
         logical = shell_lines(text)
+        # Packaged instructions have a closed set of executable examples.
+        # Do not interpret Bash expansion or accept newly introduced programs.
+        if "$" in logical:
+            failures.append(f"{label}: shell expansion and dollar-prefixed quoting are unsupported")
+        blocks = re.findall(r"^```([^\n]*)\n(.*?)\n```[ \t]*$", logical, re.M | re.S)
+        fences = re.findall(r"^[ \t]{0,3}(?:```|~~~)", logical, re.M)
+        if len(fences) != 2 * len(blocks) or any(language not in ("bash", "text") for language, _ in blocks):
+            failures.append(f"{label}: unsupported or malformed fenced example")
+        executable_blocks = [body for language, body in blocks if language in ("bash", "sh", "shell", "")]
+        if executable_blocks != [shell_lines(block) for block in expected_blocks[label]]:
+            failures.append(f"{label}: executable examples differ from the reviewed literal command blocks")
         if LIVE_STATE not in text:
             failures.append(f"{label}: missing live channel record link")
         if PUBLIC_INSTALL not in text or text.index(PUBLIC_INSTALL) > text.find(url):
@@ -63,9 +86,6 @@ def package_document_failures(version: str, readme: str, guide: str) -> list[str
             failures.append(f"{label}: missing this version's GitHub package URL")
     if install not in shell_lines(readme):
         failures.append("README.md: installation must use this exact downloaded package")
-    checksum_block = (
-        f"curl -fLO \\\n  {url} && \\\ncurl -fLO \\\n  {url}.sha256 && \\\nshasum -a 256 -c {asset}.sha256 && \\\nnpx --yes --package=./{asset} agent-vigil protect --repo ."
-    )
     normalized_guide = shell_lines(guide)
     normalized_block = shell_lines(checksum_block)
     block_start = normalized_guide.find(normalized_block)

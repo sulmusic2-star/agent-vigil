@@ -131,6 +131,30 @@ for target in [version, '99.0.0']:
   assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
 });
 
+test("packaged Bash examples reject expansion and unreviewed executable blocks", () => {
+  const probe = spawnSync("python3", ["-c", String.raw`
+import json, subprocess
+from pathlib import Path
+from scripts.package_docs import package_document_failures
+version = json.loads(Path('package.json').read_text())['version']
+readme = Path('README.md').read_text()
+guide = Path('docs/INSTALL_WITHOUT_NPM_ACCOUNT.md').read_text()
+for executable in ["$'npx'", '$"npx"', "n$'p'x", "$'\\x6e\\x70\\x78'"]:
+    observed = subprocess.run(['bash', '-c', 'npx() { printf CALLED; }; ' + executable + ' --version'], capture_output=True, text=True)
+    assert observed.returncode == 0 and observed.stdout == 'CALLED', executable
+    command = executable + ' --yes https://example.invalid/package.tgz protect --repo .'
+    for bad_readme, bad_guide in [(readme + '\n' + command, guide), (readme, guide + '\n' + command)]:
+        assert package_document_failures(version, bad_readme, bad_guide), command
+fence = '\x60' * 3
+for command in ["eval 'npx --yes https://example.invalid/package.tgz protect'", "python3 -c 'print(1)'", "np$(printf x) --version", "$(printf npx) --version"]:
+    for language in ['bash', 'sh', 'shell', '']:
+        block = '\n' + fence + language + '\n' + command + '\n' + fence + '\n'
+        assert package_document_failures(version, readme + block, guide), command
+        assert package_document_failures(version, readme, guide + block), command
+`], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+});
+
 test("extra local installs cannot bypass the guide checksum sequence", () => {
   const probe = spawnSync("python3", ["-c", String.raw`
 import json

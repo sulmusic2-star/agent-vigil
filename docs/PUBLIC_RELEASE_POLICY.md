@@ -15,6 +15,9 @@ reviewed or approved the page.
   require successful downloads and checksum verification, and execute the local
   verified package. Packaged npm specs remain forbidden, including candidate
   specs. Their npm instructions live on the verified public installation page.
+  Executable packaged examples use a closed set of reviewed literal command
+  blocks; shell expansion, dollar-prefixed quoting, and extra executable blocks
+  are unsupported. This wording gate is not an arbitrary-shell sandbox.
   Packaged instructions must not embed temporary publication status. Every other
   public command stays bound to the latest verified release. The gate rejects
   stale candidate records after a release is promoted.
