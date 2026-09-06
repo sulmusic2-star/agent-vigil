@@ -1,29 +1,29 @@
-# Install Agent Vigil v0.24.4 without npm
+# Install Agent Vigil v0.25.0 without npm
 
 For the currently available release, use the
 [public installation page](https://sulmusic2-star.github.io/agent-vigil/#install).
 
-This guide describes the v0.24.4 package. Check its release page and checksum
+This guide describes the v0.25.0 package. Check its release page and checksum
 before installation. A missing download or failed checksum must stop the install.
 Availability is not implied. Use the public installation page if these assets are unavailable.
 
 ## Verify the GitHub package
 
-Open the [v0.24.4 release page](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.24.4). Do not continue unless it contains both
-`sulmusic-agent-vigil-0.24.4.tgz` and
-`sulmusic-agent-vigil-0.24.4.tgz.sha256`.
+Open the [v0.25.0 release page](https://github.com/sulmusic2-star/agent-vigil/releases/tag/v0.25.0). Do not continue unless it contains both
+`sulmusic-agent-vigil-0.25.0.tgz` and
+`sulmusic-agent-vigil-0.25.0.tgz.sha256`.
 
 ```bash
 curl -fLO \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz && \
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.25.0/sulmusic-agent-vigil-0.25.0.tgz && \
 curl -fLO \
-  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz.sha256 && \
-shasum -a 256 -c sulmusic-agent-vigil-0.24.4.tgz.sha256 && \
-npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect --repo .
+  https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.25.0/sulmusic-agent-vigil-0.25.0.tgz.sha256 && \
+shasum -a 256 -c sulmusic-agent-vigil-0.25.0.tgz.sha256 && \
+npx --yes --package=./sulmusic-agent-vigil-0.25.0.tgz agent-vigil protect --repo .
 ```
 
 Keep the verified archive and its checksum file for the follow-up check. Both
-steps use this same immutable v0.24.4 GitHub package, without npm publication.
+steps use this same immutable v0.25.0 GitHub package, without npm publication.
 Keep these downloaded files out of your Git commits.
 
 ## One setup pull request
@@ -35,7 +35,7 @@ cached CLI path in the printed command. Printed commands use the local runtime;
 on Windows, run those commands in PowerShell.
 
 ```bash
-npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil doctor --repo .
+npx --yes --package=./sulmusic-agent-vigil-0.25.0.tgz agent-vigil doctor --repo .
 ```
 
 Then open a normal code pull request. The check says:
@@ -51,7 +51,7 @@ The automatic path recognizes a narrow root Node/npm layout. Other toolchains
 use the immutable common runner and an explicit command:
 
 ```bash
-npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect --repo . \
+npx --yes --package=./sulmusic-agent-vigil-0.25.0.tgz agent-vigil protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```

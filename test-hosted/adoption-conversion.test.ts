@@ -14,7 +14,7 @@ test("the public entry point gives one install path, one result, and an honest A
   const publicInstall = "https://sulmusic2-star.github.io/agent-vigil/#install";
   assert.ok(readme.includes(publicInstall));
   assert.ok(readme.indexOf(publicInstall) < readme.indexOf("### Install this exact package"));
-  assert.match(readme, /npx --yes --package=\.\/sulmusic-agent-vigil-0\.24\.4\.tgz agent-vigil protect --repo \./);
+  assert.match(readme, /npx --yes --package=\.\/sulmusic-agent-vigil-0\.25\.0\.tgz agent-vigil protect --repo \./);
   assert.doesNotMatch(readme, /@sulmusic\/agent-vigil/);
   assert.match(readme, /Availability is not implied/);
   assert.doesNotMatch(readme, /source release candidate/);

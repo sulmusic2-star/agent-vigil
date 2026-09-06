@@ -84,23 +84,23 @@ test("the released package and public channels keep explicit version identities"
   const changelog = readFileSync("CHANGELOG.md", "utf8");
   const installState = JSON.parse(readFileSync("docs/public-install-state.json", "utf8"));
 
-  assert.equal(manifest.version, "0.24.4");
+  assert.equal(manifest.version, "0.25.0");
   assert.equal(lock.version, manifest.version);
   assert.equal(lock.packages[""].version, manifest.version);
-  assert.match(report, /VERSION = "0\.24\.4"/);
+  assert.match(report, /VERSION = "0\.25\.0"/);
   assert.doesNotMatch(setup, /generated v0\.22\.0 hosted workflow/);
   assert.equal(installState.latest_github_release.version, "0.24.4");
   assert.equal(installState.latest_github_release.commit, "29d3a6c8ac4f48baaa3f1702fdd9d297c6d328ee");
-  assert.equal(installState.source_release_candidate, undefined);
+  assert.deepEqual(installState.source_release_candidate, { version: "0.25.0", github_release_published: false, npm_published: false });
   assert.equal(installState.npm_registry.observed_version, "0.24.4");
   assert.equal(installState.npm_registry.target_version, "0.24.4");
   assert.equal(installState.npm_registry.target_published, true);
-  assert.match(readme, /npx --yes --package=\.\/sulmusic-agent-vigil-0\.24\.4\.tgz agent-vigil protect --repo \./);
+  assert.match(readme, /npx --yes --package=\.\/sulmusic-agent-vigil-0\.25\.0\.tgz agent-vigil protect --repo \./);
   assert.doesNotMatch(readme, /@sulmusic\/agent-vigil/);
   assert.doesNotMatch(readme, /source release candidate/);
   assert.match(readme, /--runner common/);
   assert.doesNotMatch(readme, /node dist\/cli\.js protect --action-sha/);
-  assert.match(readme, /releases\/download\/v0\.24\.4\/sulmusic-agent-vigil-0\.24\.4\.tgz/);
+  assert.match(readme, /releases\/download\/v0\.25\.0\/sulmusic-agent-vigil-0\.25\.0\.tgz/);
   assert.doesNotMatch(readme, /@sulmusic\/agent-vigil@0\.23\.2/);
   assert.match(changelog, /^## Unreleased$/m);
   assertBefore(
