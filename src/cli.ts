@@ -111,7 +111,7 @@ import {
   loadGuardPolicyFilesManifest,
 } from "./guard-environment.ts";
 import { outcomeUsage, runMandateCommand, runOutcomeReceiptCommand } from "./outcome-cli.ts";
-import { releasedDoctorCommand, releasedProtectCommand } from "./adoption.ts";
+import { localCliCommand } from "./adoption.ts";
 import { buildCursorExactCostEvidence, validateExactCostEvidence, type ExactCostEvidence } from "./cost-evidence.ts";
 import { runAutopsyCommand } from "./autopsy-cli.ts";
 import { runProtectedRunCommand } from "./run-cli.ts";
@@ -240,8 +240,10 @@ function usage(): string {
 
 Check an AI-assisted pull request before it merges.
 
-Start here:
-  ${releasedProtectCommand()}
+Start here${process.platform === "win32" ? " (PowerShell)" : ""}:
+  ${localCliCommand("protect", import.meta.url)}
+
+Public installation guide: https://sulmusic2-star.github.io/agent-vigil/#install
 
 Then commit the generated setup files and open a setup pull request. After it
 merges, every new pull request gets one result:
@@ -965,6 +967,7 @@ function runProtect(args: string[]): number {
   try {
     validateCommandArgs(args, "protect", ["--repo", "--action-sha", "--runner", "--runner-image", "--test-cmd"], ["--force", "--attest"]);
     const repo = resolve(optionValue(args, "--repo") ?? ".");
+    const doctorCommand = localCliCommand("doctor", import.meta.url, repo);
     if (args.includes("--attest")) throw new Error("protect --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
     const selectedPin = defaultActionPin();
     const actionSha = optionValue(args, "--action-sha") ?? selectedPin.sha;
@@ -988,7 +991,9 @@ function runProtect(args: string[]): number {
       }
       console.log("\nSetup: READY — not running in GitHub yet.");
       console.log("\nNext: commit the generated files and open one setup pull request.");
-      console.log(`After it merges, run \`${releasedDoctorCommand()}\`, then open a normal code pull request.`);
+      console.log(`After it merges, run this command${process.platform === "win32" ? " (PowerShell)" : ""}:\n  ${doctorCommand}`);
+      console.log("This uses the same local CLI. If its cached path is removed, use the verified-archive command in the installation guide.");
+      console.log("Then open a normal code pull request.");
       console.log("That pull request will show PASS, FAIL, or NOT CHECKED. Making the result a protected merge requirement still needs the Agent Vigil App.");
       return 0;
     }

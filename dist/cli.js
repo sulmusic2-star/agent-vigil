@@ -4,7 +4,7 @@
 import { createHash as createHash32 } from "node:crypto";
 import { existsSync as existsSync15, readFileSync as readFileSync17, realpathSync as realpathSync23, statSync as statSync8 } from "node:fs";
 import { dirname as dirname12, isAbsolute as isAbsolute19, join as join24, relative as relative16, resolve as resolve43 } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/transcript.ts
 import { createHash } from "node:crypto";
@@ -9059,7 +9059,7 @@ function checkCompletion(claims, repo, base, head, prior) {
 
 // src/report.ts
 import { createHash as createHash6 } from "node:crypto";
-var VERSION = "0.24.4";
+var VERSION = "0.25.0";
 var CLAIM_KINDS = [
   "tests_pass",
   "file_changed",
@@ -28111,12 +28111,18 @@ ${outcomeUsage()}`);
 }
 
 // src/adoption.ts
-var RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz";
-function releasedDoctorCommand() {
-  return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
+import { fileURLToPath } from "node:url";
+function formatLocalCommand(args, platform4 = process.platform) {
+  if (!args.length || args.some((arg) => /[\u0000-\u001f\u007f-\u009f]/.test(arg))) {
+    throw new Error("local command paths must not contain control characters");
+  }
+  if (platform4 === "win32") return "& " + args.map((arg) => `'${arg.replaceAll("'", "''")}'`).join(" ");
+  return args.map((arg) => /^[A-Za-z0-9_./:=+-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
 }
-function releasedProtectCommand() {
-  return `npx --yes ${RELEASE_PACKAGE} protect --repo .`;
+function localCliCommand(command, cliUrl, repo = ".") {
+  const cliPath = fileURLToPath(cliUrl);
+  const loader = cliPath.endsWith(".ts") ? ["--import", import.meta.resolve("tsx")] : [];
+  return formatLocalCommand([process.execPath, ...loader, cliPath, command, "--repo", repo]);
 }
 
 // src/cost-evidence.ts
@@ -30379,8 +30385,10 @@ function usage6() {
 
 Check an AI-assisted pull request before it merges.
 
-Start here:
-  ${releasedProtectCommand()}
+Start here${process.platform === "win32" ? " (PowerShell)" : ""}:
+  ${localCliCommand("protect", import.meta.url)}
+
+Public installation guide: https://sulmusic2-star.github.io/agent-vigil/#install
 
 Then commit the generated setup files and open a setup pull request. After it
 merges, every new pull request gets one result:
@@ -31179,6 +31187,7 @@ function runProtect(args) {
   try {
     validateCommandArgs(args, "protect", ["--repo", "--action-sha", "--runner", "--runner-image", "--test-cmd"], ["--force", "--attest"]);
     const repo = resolve43(optionValue(args, "--repo") ?? ".");
+    const doctorCommand = localCliCommand("doctor", import.meta.url, repo);
     if (args.includes("--attest")) throw new Error("protect --attest is disabled for candidate-executing workflows until a separately controlled signer is available");
     const selectedPin = defaultActionPin();
     const actionSha = optionValue(args, "--action-sha") ?? selectedPin.sha;
@@ -31210,7 +31219,10 @@ ${renderProtectRehearsal(rehearsal)}`);
       }
       console.log("\nSetup: READY \u2014 not running in GitHub yet.");
       console.log("\nNext: commit the generated files and open one setup pull request.");
-      console.log(`After it merges, run \`${releasedDoctorCommand()}\`, then open a normal code pull request.`);
+      console.log(`After it merges, run this command${process.platform === "win32" ? " (PowerShell)" : ""}:
+  ${doctorCommand}`);
+      console.log("This uses the same local CLI. If its cached path is removed, use the verified-archive command in the installation guide.");
+      console.log("Then open a normal code pull request.");
       console.log("That pull request will show PASS, FAIL, or NOT CHECKED. Making the result a protected merge requirement still needs the Agent Vigil App.");
       return 0;
     }
@@ -32286,7 +32298,7 @@ ${usage6()}`);
 function isMainModule() {
   if (!process.argv[1]) return false;
   try {
-    return realpathSync23(process.argv[1]) === realpathSync23(fileURLToPath(import.meta.url));
+    return realpathSync23(process.argv[1]) === realpathSync23(fileURLToPath2(import.meta.url));
   } catch {
     return false;
   }

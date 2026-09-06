@@ -24,14 +24,14 @@ It stays on the verified public version, independently of this source checkout.
 
 ### Install this exact package
 
-This page describes v0.24.4. Its exact
-[GitHub download](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz)
+This page describes v0.25.0. Its exact
+[GitHub download](https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.25.0/sulmusic-agent-vigil-0.25.0.tgz)
 must pass the [checksum instructions](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md)
 before use. Availability is not implied. Use the public installation page if
 these assets are unavailable. After verification, run the local package:
 
 ```bash
-npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect --repo .
+npx --yes --package=./sulmusic-agent-vigil-0.25.0.tgz agent-vigil protect --repo .
 ```
 
 If no test command is found, installation stops without writing setup files.
@@ -64,12 +64,12 @@ claimed and observed test counts, findings, and reproduction command.
 
 ### Verify the distribution channel
 
-This packaged README describes v0.24.4; it is not a claim that v0.24.4 remains
+This packaged README describes v0.25.0; it is not a claim that v0.25.0 remains
 the newest release. The live, machine-readable channel record is
 [`docs/public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
 
 The five repository workflows and the hosted App workflow template pin runtime commit
-`3f9f7fca8b36848ab90b187578a4220c5bae73ad`. For the checksum-first download
+`3e5d5278043f3fbeba7bc1a96d7354df44f4551e`. For the checksum-first download
 and an explicit non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 ## What it checks
@@ -96,7 +96,7 @@ The generated Node/npm path is automatic. Python, Rust, Go, Java, Ruby, PHP,
 test command:
 
 ```bash
-npx --yes --package=./sulmusic-agent-vigil-0.24.4.tgz agent-vigil protect --repo . \
+npx --yes --package=./sulmusic-agent-vigil-0.25.0.tgz agent-vigil protect --repo . \
   --runner common \
   --test-cmd "python3 -m pytest -q"
 ```

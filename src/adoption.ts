@@ -1,6 +1,7 @@
+import { fileURLToPath } from "node:url";
+
 const REPOSITORY_PART = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
 const ADOPTION_FORM = "https://github.com/sulmusic2-star/agent-vigil/issues/new?template=adopter-feedback.yml";
-const RELEASE_PACKAGE = "https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz";
 
 export function githubRepositorySlug(remote: string | undefined): string | undefined {
   if (!remote || /[\u0000-\u001f\u007f-\u009f]/.test(remote)) return undefined;
@@ -31,10 +32,17 @@ export function adoptionRegistrationUrl(slug?: string): string {
   return slug ? `${ADOPTION_FORM}&title=${encodeURIComponent(`[adoption] ${slug}`)}` : ADOPTION_FORM;
 }
 
-export function releasedDoctorCommand(): string {
-  return `npx --yes ${RELEASE_PACKAGE} doctor --repo .`;
+export function formatLocalCommand(args: string[], platform: NodeJS.Platform = process.platform): string {
+  if (!args.length || args.some((arg) => /[\u0000-\u001f\u007f-\u009f]/.test(arg))) {
+    throw new Error("local command paths must not contain control characters");
+  }
+  if (platform === "win32") return "& " + args.map((arg) => `'${arg.replaceAll("'", "''")}'`).join(" ");
+  return args.map((arg) => /^[A-Za-z0-9_./:=+-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
 }
 
-export function releasedProtectCommand(): string {
-  return `npx --yes ${RELEASE_PACKAGE} protect --repo .`;
+export function localCliCommand(command: "protect" | "doctor", cliUrl: string, repo = "."): string {
+  const cliPath = fileURLToPath(cliUrl);
+  // Source checkouts need their local loader; distributed bundles have no loader dependency.
+  const loader = cliPath.endsWith(".ts") ? ["--import", import.meta.resolve("tsx")] : [];
+  return formatLocalCommand([process.execPath, ...loader, cliPath, command, "--repo", repo]);
 }

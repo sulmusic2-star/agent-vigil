@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adoptionRegistrationUrl, githubRepositorySlug, releasedDoctorCommand, releasedProtectCommand, workflowBadge } from "../src/adoption.ts";
+import { adoptionRegistrationUrl, formatLocalCommand, githubRepositorySlug, localCliCommand, workflowBadge } from "../src/adoption.ts";
 
 test("GitHub repository identity accepts common exact remotes", () => {
   for (const remote of [
@@ -33,12 +33,26 @@ test("badge and registration links contain only validated repository identity", 
   );
   assert.match(adoptionRegistrationUrl("example/project"), /title=%5Badoption%5D%20example%2Fproject$/);
   assert.throws(() => workflowBadge("example/project/extra"));
-  assert.equal(
-    releasedDoctorCommand(),
-    "npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz doctor --repo .",
-  );
-  assert.equal(
-    releasedProtectCommand(),
-    "npx --yes https://github.com/sulmusic2-star/agent-vigil/releases/download/v0.24.4/sulmusic-agent-vigil-0.24.4.tgz protect --repo .",
-  );
+});
+
+test("local handoffs never acquire another package", () => {
+  for (const command of ["doctor", "protect"] as const) {
+    const value = localCliCommand(command, new URL("../dist/cli.js", import.meta.url).href);
+    assert.ok(value.includes(command));
+    assert.ok(value.includes("cli.js"));
+    assert.doesNotMatch(value, /npx|https:|--import|agent-vigil@/);
+  }
+});
+
+test("local commands quote POSIX and PowerShell arguments literally", () => {
+  assert.equal(formatLocalCommand(["/node", "/path with ' quote/$() `tick`;&/cli.js", "doctor", "--repo", ""], "linux"),
+    "/node '/path with '\\'' quote/$() `tick`;&/cli.js' doctor --repo ''");
+  assert.equal(formatLocalCommand(["C:\\Program Files\\node.exe", "D:\\user's $() `tick`;&\\cli.js", "doctor", "--repo", ""], "win32"),
+    "& 'C:\\Program Files\\node.exe' 'D:\\user''s $() `tick`;&\\cli.js' 'doctor' '--repo' ''");
+  for (const platform of ["linux", "win32"] as const) {
+    for (const control of ["\n", "\r", "\0", "\u001b", "\u0085"]) {
+      assert.throws(() => formatLocalCommand(["node", "path" + control], platform), /control characters/);
+    }
+    assert.throws(() => formatLocalCommand([], platform), /control characters/);
+  }
 });
