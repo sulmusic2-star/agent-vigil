@@ -23,6 +23,7 @@ import type { TrustReport } from "./report.ts";
 import { renderMarkdown, renderResultMarkdown, renderResultText, renderText, toSarif, writeOutputs } from "./output.ts";
 import { buildReportResultView, renderResultViewHtml } from "./result-view.ts";
 import { runDemo } from "./demo.ts";
+import { runCiDemoCommand } from "./demo-ci.ts";
 import { loadPolicy } from "./config.ts";
 import { doctorRepository, initRepository, OFFICIAL_COMMON_RUNNER_IMAGE, renderDoctor, type HostedRunnerOverride } from "./setup.ts";
 import { generateSigningKey, publicKeyId, signReport, verifyReport } from "./signature.ts";
@@ -260,7 +261,7 @@ Useful commands:
   vigil protect              Add Agent Vigil to the current repository
   vigil doctor               Check the setup
   vigil check <pull-request> Check a public GitHub pull request
-  vigil demo                 See a safe local example
+  vigil demo --ci            Compare Vigil with passing tests
 
 Advanced commands: vigil help --all`;
 }
@@ -1842,6 +1843,7 @@ export function run(argv = process.argv.slice(2)): number {
   }
   if (argv.includes("--help-all")) { console.log(advancedUsage()); return 0; }
   if (argv[0] === "regression") return runRegressionCommand(argv.slice(1), import.meta.url);
+  if (argv[0] === "demo" && argv[1] === "--ci") return runCiDemoCommand(argv.slice(2));
   if (argv[0] === "demo") return runDemo(run);
   if (argv[0] === "autopsy") return runAutopsyCommand(argv.slice(1));
   if (argv[0] === "run") {
