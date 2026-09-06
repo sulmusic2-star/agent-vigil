@@ -5,7 +5,7 @@ managed service is ready to buy. The intended customer installs one GitHub App
 and selects repositories. They do not deploy a Worker, create a key, or copy
 Agent Vigil secrets into a repository.
 
-The App receives signed `pull_request`, `merge_group`, and
+The App receives signed `pull_request`, `merge_group`, `check_run`, and
 `deployment_protection_rule` webhooks, creates the
 `Agent Vigil` check on the exact head commit, and dispatches the trusted
 `public-app-gate.yml` workflow in the Agent Vigil control repository. Customer
@@ -58,13 +58,48 @@ response body. This follows [GitHub's webhook guidance](https://docs.github.com/
   record an operator-help event. A known check that could not be dispatched is
   still watched until its deadline. Records remain for three days.
 
-These recovery paths are not a pager or an operator console. Alerts, authorized
-manual recovery, and the response commitment still need to be connected and
-tested before anyone buys a managed service. Old `pending` or `failed` deliveries
+These recovery paths are not a pager or an operator console. Attended alerts,
+recovery beyond the automatic and Re-run paths, and the response commitment
+still need to be connected and tested before anyone buys a managed service.
+Old `pending` or `failed` deliveries
 without a target need a signed GitHub redelivery to supply it; they are reconciled
 without redispatching possibly executed work. No new pass result is issued by
 the recovery code. Deployment-protection callbacks use their separate existing
 flow and are not covered by this queue change.
+
+## Retry without pushing another commit
+
+The local candidate handles GitHub's **Re-run** request for a completed
+`NOT CHECKED` failure. Once this code is deployed and its hosted checks pass, a
+repository maintainer can request another independent run from the check UI.
+The customer does not need a Worker key or a terminal command.
+
+Before starting, the App reads GitHub's current repository permission for the
+requester and checks the original result's owning App, delivery ID and commit.
+Only a user with `write` or `admin` permission can retry. For a PR, it requires
+the same head commit on an open, non-draft PR and uses the current base commit.
+For a merge queue, both original refs must still point to the exact queued
+commits. The trusted control workflow performs its existing identity checks
+again before reporting a result.
+
+One original check can create only one retry, even if two Re-run webhooks arrive
+together. The new run gets its own check and signed dispatch. The recovery code
+does not change the old result into a pass. A running check, a `PASS`, or a real
+`FAIL` finding cannot be overridden through this recovery path.
+
+This requires the original delivery record, normally retained for three days.
+Expired records, stale commits, insufficient permissions and duplicate requests
+are rejected without creating a new check. Rejections are retained and logged
+as `public_app_retry_rejected`; they do not yet have an attended support flow
+or a separate customer notification. If the new check is also `NOT CHECKED`,
+use that new check when retrying, rather than repeatedly selecting the old one.
+
+The manifest documents `check_run`. GitHub says Apps with Checks write access
+already receive these events, so this implementation does not request broader
+repository permissions. [GitHub check-run events](https://docs.github.com/en/webhooks/webhook-events-and-payloads#check_run)
+Local tests are not proof that GitHub's required-check UI behaves correctly when
+an older workflow completes late. Staging replay and a protected test-repository
+drill are still required before offering this as a managed service.
 
 ## Two deployment gates
 
