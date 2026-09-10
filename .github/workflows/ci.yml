@@ -30,6 +30,8 @@ jobs:
           package-manager-cache: false
       - name: Install without lifecycle scripts
         run: npm ci --ignore-scripts
+      - name: Check release contracts before expensive work
+        run: node --import tsx --test --test-concurrency=1 test/package-surface.test.ts
       - name: Type-check
         run: npm run typecheck
       - name: Build the candidate bundle
@@ -78,6 +80,8 @@ jobs:
           package-manager-cache: false
       - name: Install without lifecycle scripts
         run: npm ci --ignore-scripts
+      - name: Check release contracts before expensive work
+        run: node --import tsx --test --test-concurrency=1 test/package-surface.test.ts
       - name: Type-check
         run: npm run typecheck
       - name: Build the candidate bundle
