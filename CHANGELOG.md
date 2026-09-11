@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Pause protected-run output until both the private capture and terminal writes
+  finish. A slow consumer no longer overflows the relay queue for a finite run.
+  Output failures, capture limits and deadlines still stop the command.
+- Bind release validation to the requested clean checkout and committed bundles;
+  rebuilding a local file cannot hide different committed release bytes.
+- Run the release verifier's npm build through Node or the Windows command
+  wrapper as appropriate. Keep build failures and invalid launchers as failures.
+
 ## 0.25.0 - Unreleased
 
 - Run printed setup and doctor commands through the current local Node and CLI,
@@ -14,8 +22,8 @@
 - Preserve the App delivery-recovery and maintainer-rerun fixes already merged
   on main. This package assembly does not deploy or activate the hosted App.
 - Include the protected-run controls and complete test-body integrity fixes
-  from the reconciled v0.24.4 source. Detection and supervisor behavior are
-  unchanged; the functional change is limited to CLI onboarding commands.
+  from the reconciled v0.24.4 source. Detection behavior is unchanged; supervisor output handling is corrected
+  as described above, alongside the CLI onboarding changes.
 - Protected runs cover ordinary macOS/Linux process groups, not hostile-workload
   isolation or Windows process-tree guarantees. Dollar-budget requests refuse
   before launch. Receipts do not establish correctness, acceptance, exact billing,

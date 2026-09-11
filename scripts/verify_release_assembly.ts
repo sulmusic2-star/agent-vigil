@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 const SHA = /^[0-9a-f]{40}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
@@ -90,6 +90,24 @@ function files(root: string, directory = root): string[] {
 
 function verifyReproducibleDist(repo: string, head: string): void {
   const root = resolve(repo);
+  if (one(root, ["rev-parse", "HEAD"]) !== head) throw new Error("checkout HEAD must equal the requested release head");
+  if (one(root, ["status", "--porcelain=v1", "--untracked-files=all"])) throw new Error("release working tree contains changed or untracked files");
+  // Capture the committed artifact hashes before rebuilding. A repaired local
+  // bundle must never stand in for different bytes in the release commit.
+  const committed = new Map<string, string>();
+  const entries = String(git(root, ["ls-tree", "-r", "-z", head, "--", "dist"])).split("\0").filter(Boolean);
+  for (const entry of entries) {
+    const match = /^(100644|100755) blob ([0-9a-f]{40})\tdist\/(.+)$/.exec(entry);
+    if (!match) throw new Error("committed dist entries must be regular Git blobs");
+    const bytes = git(root, ["cat-file", "blob", match[2]], "buffer") as Buffer;
+    committed.set(match[3], createHash("sha256").update(bytes).digest("hex"));
+  }
+  const trackedDist = [...committed.keys()].sort();
+  if (!trackedDist.length) throw new Error("release commit has no dist files");
+  if (files(join(root, "dist")).join("\n") !== trackedDist.join("\n")) throw new Error("working dist file list differs from the committed release");
+  for (const path of trackedDist) {
+    if (sha256(join(root, "dist", path)) !== committed.get(path)) throw new Error(`working dist/${path} differs from the committed release`);
+  }
   const modules = join(root, "node_modules");
   if (!statSync(modules).isDirectory()) throw new Error("node_modules is required for the local reproducible-build check");
   const temporary = mkdtempSync(join(tmpdir(), "agent-vigil-release-assembly-"));
@@ -97,12 +115,26 @@ function verifyReproducibleDist(repo: string, head: string): void {
     const archive = git(root, ["archive", "--format=tar", head], "buffer") as Buffer;
     execFileSync("tar", ["-xf", "-", "-C", temporary], { input: archive, maxBuffer: 128 * 1024 * 1024 });
     cpSync(modules, join(temporary, "node_modules"), { recursive: true, dereference: true });
-    execFileSync("npm", ["run", "build"], { cwd: temporary, stdio: "pipe", timeout: 180_000, maxBuffer: 32 * 1024 * 1024 });
-    const trackedDist = files(join(root, "dist"));
+    const buildOptions = { cwd: temporary, stdio: "pipe" as const, timeout: 180_000, maxBuffer: 32 * 1024 * 1024 };
+    const npmCli = process.env.npm_execpath;
+    if (npmCli !== undefined) {
+      if (!isAbsolute(npmCli) || !statSync(npmCli, { throwIfNoEntry: false })?.isFile()) {
+        throw new Error("npm_execpath must name an existing absolute npm CLI file");
+      }
+      // npm scripts provide their CLI path. Execute it through the same Node
+      // runtime so Windows never tries to launch npm.cmd as a native binary.
+      execFileSync(process.execPath, [npmCli, "run", "build"], buildOptions);
+    } else if (process.platform === "win32") {
+      // Direct verifier calls may not have npm_execpath. Only this fixed command
+      // enters cmd.exe; repository paths and other inputs are not interpolated.
+      execFileSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "npm run build"], buildOptions);
+    } else {
+      execFileSync("npm", ["run", "build"], buildOptions);
+    }
     const rebuiltDist = files(join(temporary, "dist"));
     if (trackedDist.join("\n") !== rebuiltDist.join("\n")) throw new Error("tracked and rebuilt dist file lists differ");
     for (const path of trackedDist) {
-      if (sha256(join(root, "dist", path)) !== sha256(join(temporary, "dist", path))) {
+      if (committed.get(path) !== sha256(join(temporary, "dist", path))) {
         throw new Error(`dist/${path} is not the deterministic output of the reviewed source`);
       }
     }
@@ -137,8 +169,11 @@ export function verifyReleaseAssembly(options: { repo: string; base: string; run
     throw new Error("action, source, or dist changed after the reviewed runtime commit");
   }
   for (const path of SELF_PIN_FILES) {
-    const references = [...blob(repo, options.head, path).matchAll(/sulmusic2-star\/agent-vigil@([0-9a-f]{40})/g)].map((match) => match[1]);
+    const workflow = blob(repo, options.head, path);
+    const references = [...workflow.matchAll(/sulmusic2-star\/agent-vigil@([0-9a-f]{40})/g)].map((match) => match[1]);
     if (references.length !== 1 || references[0] !== options.runtime) throw new Error(`${path} must pin the reviewed runtime commit exactly once`);
+    const replay = [...workflow.matchAll(/^\s*REVIEWED_RUNTIME_SHA:\s*([^\r\n]+)$/gm)].map(match => match[1]);
+    if (replay.length > 1 || replay.some(sha => sha !== options.runtime)) throw new Error(`${path} replay runtime must match its reviewed Action pin`);
   }
   verifyReproducibleDist(repo, options.head);
 }

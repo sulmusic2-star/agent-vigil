@@ -42,7 +42,7 @@ jobs:
       - id: outcome
         name: Observe the post-run outcome without signing
         # This exact runtime must match the reviewed evidence runtime above.
-        uses: sulmusic2-star/agent-vigil@3e5d5278043f3fbeba7bc1a96d7354df44f4551e
+        uses: sulmusic2-star/agent-vigil@a5565e60993d66cd4d73bd2007a8c918f5410f7a
         with:
           mode: outcome
           outcome-receipt: .agent-vigil-prior/agent-vigil-report.json
