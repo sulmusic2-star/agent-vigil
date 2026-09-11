@@ -29792,11 +29792,12 @@ async function executeProtectedRun(input) {
     if (child.stdout) {
       const capturedStdout = child.stdout;
       let captureWritesInFlight = 0;
+      let relayWritesInFlight = 0;
       let captureFailed = false;
       let relayFailed = false;
       stdoutRelay = createAsyncDescriptorSink(process.stdout.fd);
       const resumeCapturedStdout = () => {
-        if (captureWritesInFlight === 0) capturedStdout.resume();
+        if (captureWritesInFlight === 0 && relayWritesInFlight === 0) capturedStdout.resume();
       };
       stdoutDonePromise = new Promise((resolveStdout) => {
         capturedStdout.once("end", resolveStdout);
@@ -29834,10 +29835,15 @@ async function executeProtectedRun(input) {
               stdoutRelay.abort(error);
               requestOutputFailure(error);
             } else {
+              relayWritesInFlight += 1;
+              capturedStdout.pause();
               void stdoutRelay.write(bytes).catch((error) => {
                 relayFailed = true;
                 stdoutRelay.abort(error);
                 requestOutputFailure(error);
+              }).finally(() => {
+                relayWritesInFlight -= 1;
+                resumeCapturedStdout();
               });
             }
           }

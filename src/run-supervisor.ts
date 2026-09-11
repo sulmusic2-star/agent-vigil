@@ -820,11 +820,12 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
     if (child.stdout) {
       const capturedStdout = child.stdout;
       let captureWritesInFlight = 0;
+      let relayWritesInFlight = 0;
       let captureFailed = false;
       let relayFailed = false;
       stdoutRelay = createAsyncDescriptorSink(process.stdout.fd);
       const resumeCapturedStdout = (): void => {
-        if (captureWritesInFlight === 0) capturedStdout.resume();
+        if (captureWritesInFlight === 0 && relayWritesInFlight === 0) capturedStdout.resume();
       };
       stdoutDonePromise = new Promise((resolveStdout) => {
         capturedStdout.once("end", resolveStdout);
@@ -862,10 +863,17 @@ export async function executeProtectedRun(input: ProtectedRunInput): Promise<Pro
               stdoutRelay!.abort(error);
               requestOutputFailure(error);
             } else {
+              // A slow terminal must backpressure the producer, not outrun the
+              // relay queue while the private capture keeps up.
+              relayWritesInFlight += 1;
+              capturedStdout.pause();
               void stdoutRelay!.write(bytes).catch((error: unknown) => {
                 relayFailed = true;
                 stdoutRelay!.abort(error);
                 requestOutputFailure(error);
+              }).finally(() => {
+                relayWritesInFlight -= 1;
+                resumeCapturedStdout();
               });
             }
           }
