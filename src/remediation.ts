@@ -1,5 +1,6 @@
 export function remediationFor(ruleId?: string): string {
   const fixes: Record<string, string> = {
+    "test-code-context-unchecked": "Check whether the quoted code is evaluated, passed to a helper, or written into a test file. Vigil cannot clear this hold automatically; adding a claim will not clear it.",
     "test-count": "Run the configured test command without truncating its output, then report the observed passing count exactly; use `vigil doctor` to inspect command selection.",
     "tests-pass": "Run `vigil doctor`, configure policy `testCommand` when inference is absent, and preserve the fresh runner's complete output.",
     "file-changed": "Inspect `git diff --name-only <base>..<head>`, pass those exact SHAs, then correct the claimed path.",

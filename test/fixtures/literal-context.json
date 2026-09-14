@@ -1,0 +1,222 @@
+{
+  "scope": "Classification regressions, not independent savings comparisons. Every quoted occurrence remains blocking NOT CHECKED; no literal exemption.",
+  "parent": "d92e690ece82c619970c0cb24bb85f6d5dd1a3a9",
+  "cases": [
+    {
+      "id": "literal-skip",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nconst example=\"test.skip('example',()=>{})\";\n",
+      "rule": "test-skip-added",
+      "expected": "unchecked",
+      "native": false
+    },
+    {
+      "id": "comment-skip",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n// test.skip(\"example\",()=>{})\n",
+      "rule": "test-skip-added",
+      "expected": "unchecked",
+      "native": false
+    },
+    {
+      "id": "real-skip",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\ntest.skip(\"real\",()=>assert.equal(1+1,2));\n",
+      "rule": "test-skip-added",
+      "expected": "contradicted",
+      "native": true
+    },
+    {
+      "id": "literal-constant",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nconst example=\"assert.ok(true)\";\n",
+      "rule": "test-oracle-constant",
+      "expected": "unchecked",
+      "native": false
+    },
+    {
+      "id": "real-constant",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nassert.ok(true);\n",
+      "rule": "test-oracle-constant",
+      "expected": "contradicted",
+      "native": false
+    },
+    {
+      "id": "real-string-oracle",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nexpect(\"x\").toBe(\"x\");\n",
+      "rule": "test-oracle-constant",
+      "expected": "contradicted",
+      "native": false
+    },
+    {
+      "id": "literal-unreachable",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nconst example=\"if(false)\";\nassert.equal(2+2,4);\n",
+      "rule": "oracle-falsify",
+      "expected": "unchecked",
+      "native": false
+    },
+    {
+      "id": "real-unreachable",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nif(false){assert.equal(2+2,4);}\n",
+      "rule": "oracle-falsify",
+      "expected": "contradicted",
+      "native": false
+    },
+    {
+      "id": "literal-swallow",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nconst example=\"try { assert.equal(2+2,4); } catch {}\";\n",
+      "rule": "oracle-falsify",
+      "expected": "unchecked",
+      "native": false
+    },
+    {
+      "id": "real-swallow",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\ntry { assert.equal(2+2,4); } catch {}\n",
+      "rule": "oracle-falsify",
+      "expected": "contradicted",
+      "native": false
+    },
+    {
+      "id": "template-interpolation",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nconst example=`${test.skip(\"real\",()=>assert.equal(2+2,4))}`;\n",
+      "rule": "test-skip-added",
+      "expected": "contradicted",
+      "native": true
+    },
+    {
+      "id": "template-quasi",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nconst example=`test.skip(\"example\",()=>{})\nmore text`;\n",
+      "rule": "test-skip-added",
+      "expected": "unchecked",
+      "native": false
+    },
+    {
+      "id": "mixed-same-line",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nconst example=\"test.skip('example')\"; test.skip(\"real\",()=>assert.equal(2+2,4));\n",
+      "rule": "test-skip-added",
+      "expected": "contradicted",
+      "native": true
+    },
+    {
+      "id": "markdown-inline",
+      "path": "docs/TEST_GUIDE.md",
+      "before": "# Test examples\n",
+      "after": "# Test examples\nAn example `test.skip(...)` is quoted here.\n",
+      "rule": "test-skip-added",
+      "expected": "unchecked",
+      "native": false
+    },
+    {
+      "id": "markdown-fence",
+      "path": "docs/TEST_GUIDE.md",
+      "before": "# Test examples\n",
+      "after": "# Test examples\n```js\ntest.skip(\"real\",()=>assert.equal(2+2,4));\n```\n",
+      "rule": "test-skip-added",
+      "expected": "contradicted",
+      "native": false
+    },
+    {
+      "id": "text-executable",
+      "path": "test/context.txt",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\ntest.skip(\"real\",()=>assert.equal(2+2,4));\n",
+      "rule": "test-skip-added",
+      "expected": "contradicted",
+      "native": true
+    },
+    {
+      "id": "ts-regex-trap",
+      "path": "test/context.test.ts",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nfunction f():number {return 1;} /\"/; test.skip(\"real\",()=>assert.equal(2+2,4)); /\"/;\n",
+      "rule": "test-skip-added",
+      "expected": "contradicted",
+      "native": true
+    },
+    {
+      "id": "jsx-trap",
+      "path": "test/context.test.tsx",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nconst x = <div>\"{test.skip(\"real\",()=>assert.equal(2+2,4))}\"</div>;\n",
+      "rule": "test-skip-added",
+      "expected": "contradicted",
+      "native": false
+    },
+    {
+      "id": "invalid-syntax",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nconst x = \"unfinished; test.skip(\"real\",()=>assert.equal(2+2,4));\n",
+      "rule": "test-skip-added",
+      "expected": "contradicted",
+      "native": false
+    },
+    {
+      "id": "eval",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\neval(\"test.skip('real',()=>assert.equal(2+2,4))\");\n",
+      "rule": "test-skip-added",
+      "expected": "unchecked",
+      "native": true
+    },
+    {
+      "id": "eval-alias",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nglobalThis.test=test; const run=globalThis[\"ev\"+\"al\"];run(\"test.skip('real',()=>{})\");\n",
+      "rule": "test-skip-added",
+      "expected": "unchecked",
+      "native": true
+    },
+    {
+      "id": "tagged-function",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nglobalThis.test=test; Function`test.skip(\"real\",()=>{})`();\n",
+      "rule": "test-skip-added",
+      "expected": "unchecked",
+      "native": true
+    },
+    {
+      "id": "imported-evaluator",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nglobalThis.test=test; import {run} from \"../evaluate.mjs\"; run(\"test.skip('real',()=>{})\");\n",
+      "rule": "test-skip-added",
+      "expected": "unchecked",
+      "native": true
+    },
+    {
+      "id": "generated-file",
+      "path": "test/context.test.mjs",
+      "before": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\n",
+      "after": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('baseline',()=>assert.equal(2+2,4));\nimport {writeFileSync} from \"node:fs\";writeFileSync(new URL(\"./generated.mjs\",import.meta.url),\"import test from 'node:test'; test.skip('real',()=>{});\");await import(\"./generated.mjs\");\n",
+      "rule": "test-skip-added",
+      "expected": "unchecked",
+      "native": true
+    }
+  ]
+}
