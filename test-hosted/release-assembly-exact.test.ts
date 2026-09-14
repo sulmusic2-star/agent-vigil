@@ -16,7 +16,10 @@ function fixture(t: any, built = 'expected\n', committed = built, linkedBuild = 
   write('build.cjs',`require('node:fs').writeFileSync('dist/cli.js',${JSON.stringify(built)});`);
   if(linkedBuild) {
     write('node_modules/compiler/bin/cli.cjs',"require('../lib/build.cjs');\n");
-    write('node_modules/compiler/lib/build.cjs',`require('node:fs').writeFileSync('dist/cli.js',${JSON.stringify(built)});`);
+    write('node_modules/compiler/lib/build.cjs',`const fs=require('node:fs'); const assert=require('node:assert/strict');
+assert.equal(fs.lstatSync('node_modules/.bin/compiler').isSymbolicLink(),true);
+assert.equal(fs.readlinkSync('node_modules/.bin/compiler'),'../compiler/bin/cli.cjs');
+fs.writeFileSync('dist/cli.js',${JSON.stringify(built)});`);
     mkdirSync(join(repo,'node_modules/.bin'));
     symlinkSync('../compiler/bin/cli.cjs',join(repo,'node_modules/.bin/compiler'));
   }
@@ -44,6 +47,17 @@ for(const target of ['../../build.cjs','absolute'])test(`dependency links cannot
 });
 test('cyclic dependency links cannot enter an independent build',{skip:process.platform==='win32'},t=>{
  const f=fixture(t);symlinkSync('second',join(f.repo,'node_modules/first'));symlinkSync('first',join(f.repo,'node_modules/second'));
+ assert.throws(()=>verifyReleaseAssembly(f),/dependency links must resolve/);
+});
+test('a symlinked dependency root cannot enter an independent build',{skip:process.platform==='win32'},t=>{
+ const f=fixture(t);rmSync(join(f.repo,'node_modules'),{recursive:true});mkdirSync(join(f.repo,'real-modules'));
+ symlinkSync('real-modules',join(f.repo,'node_modules'));
+ // Ignore only this disposable dependency root; committed release inputs stay fixed.
+ f.write('.git/info/exclude','real-modules/\nnode_modules\n');
+ assert.throws(()=>verifyReleaseAssembly(f),/node_modules must be a real directory/);
+});
+test('a broken internal dependency link cannot enter an independent build',{skip:process.platform==='win32'},t=>{
+ const f=fixture(t);symlinkSync('missing',join(f.repo,'node_modules/broken'));
  assert.throws(()=>verifyReleaseAssembly(f),/dependency links must resolve/);
 });
 function withNpmCli(value: string | undefined, check: () => void): void {
