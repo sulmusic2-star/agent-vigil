@@ -1708,13 +1708,13 @@ function dependencyMap(content) {
   if (!content) return /* @__PURE__ */ new Set();
   try {
     const parsed = JSON.parse(content);
-    const names = /* @__PURE__ */ new Set();
+    const names2 = /* @__PURE__ */ new Set();
     for (const key2 of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
       const value = parsed[key2];
       if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      for (const name2 of Object.keys(value)) names.add(name2.toLowerCase());
+      for (const name2 of Object.keys(value)) names2.add(name2.toLowerCase());
     }
-    return names;
+    return names2;
   } catch {
     return void 0;
   }
@@ -1739,11 +1739,11 @@ function editDistance(left, right) {
   return row[right.length];
 }
 function addedImportNames(patches) {
-  const names = /* @__PURE__ */ new Set();
+  const names2 = /* @__PURE__ */ new Set();
   const addName = (raw) => {
     if (!raw || raw.startsWith(".") || raw.startsWith("/") || raw.startsWith("node:") || raw.includes("://") || raw.startsWith("@")) return;
     const name2 = raw.split(/[/.]/)[0].toLowerCase().replaceAll("_", "-");
-    if (/^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) names.add(name2);
+    if (/^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) names2.add(name2);
   };
   for (const patch of patches) {
     for (const line of patch.added) {
@@ -1754,7 +1754,7 @@ function addedImportNames(patches) {
       for (const raw of [python, javascript, requirement]) addName(raw);
     }
   }
-  return names;
+  return names2;
 }
 function freshDependencyChecks(repo, base, head, changed, patches) {
   const added = addedImportNames(patches);
@@ -7673,6 +7673,224 @@ function checkEmptyTestBodies(path, before, after) {
   }];
 }
 
+// src/detectors/git-patch-path.ts
+var escapes = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+var names = new Map(Object.entries(escapes).map(([name2, value]) => [value, name2]));
+function relativePath(path) {
+  return !!path && !path.includes("\0") && !path.includes("\uFFFD") && path.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+function decodeGitPatchPath(token) {
+  if (!token.startsWith('"')) {
+    return token && !/[\u0000-\u001f\u007f"\\\ufffd]/u.test(token) ? token : void 0;
+  }
+  if (token.length < 2 || !token.endsWith('"')) return void 0;
+  const bytes = [];
+  for (let i = 1; i < token.length - 1; i++) {
+    const char = token[i];
+    if (char === "\\") {
+      const escaped = token[++i];
+      if (i >= token.length - 1) return void 0;
+      if (Object.hasOwn(escapes, escaped)) bytes.push(escapes[escaped]);
+      else {
+        const octal = token.slice(i, i + 3);
+        if (!/^[0-3][0-7]{2}$/.test(octal) || i + 3 > token.length - 1) return void 0;
+        bytes.push(parseInt(octal, 8));
+        i += 2;
+      }
+    } else {
+      if (char === '"' || /[\u0000-\u001f\u007f]/u.test(char)) return void 0;
+      const point = token.codePointAt(i);
+      if (point >= 55296 && point <= 57343) return void 0;
+      bytes.push(...Buffer.from(String.fromCodePoint(point), "utf8"));
+      if (point > 65535) i++;
+    }
+  }
+  try {
+    const path = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Uint8Array.from(bytes));
+    return path && !path.includes("\0") && !path.includes("\uFFFD") ? path : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function patchHeaderPath(marker2, prefix) {
+  const token = marker2.endsWith("	") ? marker2.slice(0, -1) : marker2;
+  if (token === "/dev/null") return "";
+  const decoded = decodeGitPatchPath(token);
+  return decoded?.startsWith(prefix) && relativePath(decoded.slice(2)) ? decoded.slice(2) : void 0;
+}
+function patchRenamePath(marker2) {
+  const decoded = decodeGitPatchPath(marker2);
+  return decoded && relativePath(decoded) ? decoded : void 0;
+}
+function quoted(path, quoteHigh) {
+  let value = '"';
+  for (const char of path) {
+    const point = char.codePointAt(0);
+    if (names.has(point)) value += "\\" + names.get(point);
+    else if (point < 32 || point === 127 || quoteHigh && point >= 128) {
+      for (const byte of Buffer.from(char, "utf8")) value += "\\" + byte.toString(8).padStart(3, "0");
+    } else value += char;
+  }
+  return value + '"';
+}
+function forms(path) {
+  return [.../* @__PURE__ */ new Set([
+    quoted(path, true),
+    quoted(path, false),
+    .../[\u0000-\u001f\u007f"\\\ufffd]/u.test(path) ? [] : [path]
+  ])];
+}
+function patchDiffIdentityMatches(header, oldPath, newPath) {
+  if (!relativePath(oldPath) || !relativePath(newPath)) return false;
+  return forms("a/" + oldPath).some((oldForm) => forms("b/" + newPath).some((newForm) => header === `diff --git ${oldForm} ${newForm}`));
+}
+
+// src/detectors/literal-test-parameterization.ts
+import { posix } from "node:path";
+var MAX_BYTES = 1024 * 1024;
+var OMIT = /* @__PURE__ */ new Set(["start", "end", "loc", "raw"]);
+function scalar(node) {
+  return !!node && (node.type === "Literal" && (node.value === null || typeof node.value === "string" || typeof node.value === "boolean" || typeof node.value === "number" && Number.isFinite(node.value)) || node.type === "UnaryExpression" && ["-", "+"].includes(node.operator) && node.argument.type === "Literal" && typeof node.argument.value === "number" && Number.isFinite(node.argument.value));
+}
+function canonical(value, bindings = /* @__PURE__ */ new Map(), propertyName = false) {
+  if (Array.isArray(value)) return value.map((item2) => canonical(item2, bindings));
+  if (!value || typeof value !== "object") return value;
+  if (value.type === "Identifier" && !propertyName && bindings.has(value.name)) return canonical(bindings.get(value.name));
+  const result5 = {};
+  for (const key2 of Object.keys(value).sort()) {
+    if (OMIT.has(key2)) continue;
+    result5[key2] = canonical(value[key2], bindings, value.type === "MemberExpression" && !value.computed && key2 === "property");
+  }
+  return result5;
+}
+function pureArgument(node, functions) {
+  if (scalar(node)) return true;
+  if (node.type === "CallExpression") return !node.optional && node.callee.type === "Identifier" && functions.has(node.callee.name) && node.arguments.every((argument) => pureArgument(argument, functions));
+  return false;
+}
+function pureFunction(node) {
+  if (!["FunctionDeclaration", "ArrowFunctionExpression"].includes(node.type) || node.async || node.generator || !node.params.every((p) => p.type === "Identifier")) return false;
+  const names2 = new Set(node.params.map((p) => p.name));
+  const body = node.body.type === "BlockStatement" && node.body.body.length === 1 && node.body.body[0].type === "ReturnStatement" ? node.body.body[0].argument : node.body;
+  const expression = (value) => !!value && (scalar(value) || value.type === "Identifier" && names2.has(value.name) || value.type === "BinaryExpression" && ["+", "-", "*", "/", "%", "**", "===", "!==", "<", "<=", ">", ">="].includes(value.operator) && expression(value.left) && expression(value.right));
+  return expression(body);
+}
+function pureExports(source2) {
+  if (source2.length > MAX_BYTES) return void 0;
+  const tree = parse3(source2, { ecmaVersion: "latest", sourceType: "module" });
+  const exports = /* @__PURE__ */ new Set();
+  for (const node of tree.body) {
+    if (node.type !== "ExportNamedDeclaration" || node.source || node.specifiers.length || !node.declaration) return void 0;
+    const d = node.declaration;
+    if (d.type === "FunctionDeclaration" && d.id && pureFunction(d)) exports.add(d.id.name);
+    else if (d.type === "VariableDeclaration" && d.kind === "const" && d.declarations.length === 1) {
+      const item2 = d.declarations[0];
+      if (item2.id.type !== "Identifier" || !item2.init || !pureFunction(item2.init)) return void 0;
+      exports.add(item2.id.name);
+    } else return void 0;
+  }
+  return exports;
+}
+function importBindings(program, path, readDependency) {
+  let testName = "", assertName = "";
+  const functions = /* @__PURE__ */ new Set();
+  const imports = program.body.filter((node) => node.type === "ImportDeclaration");
+  if (imports.length > 8) return void 0;
+  for (const node of imports) {
+    const source2 = node.source.value;
+    if (source2 === "node:test" && node.specifiers.length === 1 && !testName) {
+      const s = node.specifiers[0];
+      if (s.type !== "ImportDefaultSpecifier" && !(s.type === "ImportSpecifier" && s.imported.name === "test")) return void 0;
+      testName = s.local.name;
+    } else if (source2 === "node:assert/strict" && node.specifiers.length === 1 && !assertName && node.specifiers[0].type === "ImportDefaultSpecifier") {
+      assertName = node.specifiers[0].local.name;
+    } else {
+      if (typeof source2 !== "string" || !/^\.{1,2}\/[A-Za-z0-9_./-]+\.m?js$/.test(source2) || !readDependency || !node.specifiers.length) return void 0;
+      const modulePath = posix.normalize(posix.join(posix.dirname(path), source2));
+      if (modulePath.startsWith("../") || posix.isAbsolute(modulePath)) return void 0;
+      const text8 = readDependency(modulePath);
+      if (text8 === void 0) return void 0;
+      const exports = pureExports(text8);
+      if (!exports) return void 0;
+      for (const s of node.specifiers) {
+        if (s.type !== "ImportSpecifier" || !exports.has(s.imported.name)) return void 0;
+        functions.add(s.local.name);
+      }
+    }
+  }
+  return testName && assertName ? { testName, assertName, functions } : void 0;
+}
+function titleIsPure(node, bindings) {
+  return node.type === "Literal" && typeof node.value === "string" || node.type === "TemplateLiteral" && node.expressions.every((part) => scalar(part) || part.type === "Identifier" && bindings.has(part.name));
+}
+function registration(statement, imports, bindings = /* @__PURE__ */ new Map()) {
+  const { testName, assertName, functions } = imports;
+  if (statement.type !== "ExpressionStatement" || statement.expression.type !== "CallExpression") return void 0;
+  const call = statement.expression;
+  if (call.optional || call.callee.type !== "Identifier" || call.callee.name !== testName || call.arguments.length !== 2) return void 0;
+  const [title, callback] = call.arguments;
+  if (!titleIsPure(title, bindings) || callback.type !== "ArrowFunctionExpression" || callback.params.length !== 0 || callback.async) return void 0;
+  const body = canonical(callback.body, bindings);
+  if (body.type !== "CallExpression" || body.optional || body.arguments.length !== 2 || body.callee.type !== "MemberExpression" || body.callee.computed || body.callee.optional || body.callee.object.type !== "Identifier" || body.callee.object.name !== assertName || body.callee.property.type !== "Identifier" || !["equal", "strictEqual"].includes(body.callee.property.name) || !body.arguments.every((arg) => pureArgument(arg, functions))) return void 0;
+  return { registration: testName, callback: body };
+}
+function expanded(program, imports) {
+  const { testName } = imports;
+  const statements = [];
+  let loops = 0;
+  for (const node of program.body) {
+    if (node.type !== "ForOfStatement") {
+      if (node.type === "ImportDeclaration") statements.push(canonical(node));
+      else {
+        const call = registration(node, imports);
+        if (!call) return void 0;
+        statements.push(call);
+      }
+      continue;
+    }
+    if (node.await || node.left.type !== "VariableDeclaration" || node.left.kind !== "const" || node.left.declarations.length !== 1) return void 0;
+    const declaration = node.left.declarations[0];
+    if (declaration.init || declaration.id.type !== "ArrayPattern" || !declaration.id.elements.length || !declaration.id.elements.every((item2) => item2?.type === "Identifier")) return void 0;
+    const names2 = declaration.id.elements.map((item2) => item2.name);
+    if (new Set(names2).size !== names2.length || names2.includes(testName)) return void 0;
+    if (node.right.type !== "ArrayExpression" || node.right.elements.length < 1 || node.right.elements.length > 200) return void 0;
+    const body = node.body.type === "BlockStatement" && node.body.body.length === 1 ? node.body.body[0] : node.body;
+    for (const row of node.right.elements) {
+      if (!row || row.type !== "ArrayExpression" || row.elements.length !== names2.length || !row.elements.every(scalar)) return void 0;
+      const bindings = new Map(names2.map((name2, i) => [name2, row.elements[i]]));
+      const call = registration(body, imports, bindings);
+      if (!call) return void 0;
+      statements.push(call);
+    }
+    loops++;
+  }
+  return { statements, loops };
+}
+function preservesLiteralTestParameterization(path, before, after, testCommand, readDependency) {
+  if (!/\.(?:m?js)$/.test(path) || before.length > MAX_BYTES || after.length > MAX_BYTES || process.env.NODE_OPTIONS?.trim()) return false;
+  if (!testCommand || /[^\x20-\x7e\t]/.test(testCommand)) return false;
+  const args = testCommand.trim().split(/[ \t]+/);
+  if (args[0] !== "node" || args[1] !== "--test") return false;
+  const selections = args.slice(2).filter((arg) => !/^--test-(?:reporter=tap|concurrency=[1-9][0-9]*)$/.test(arg));
+  if (!selections.length || selections.some((arg) => !/^[A-Za-z0-9_.\/*-]+\.[cm]?js$/.test(arg) || arg.includes("**"))) return false;
+  const selected = selections.some((arg) => {
+    if (arg.includes("*") && path.split("/").some((part) => part.startsWith("."))) return false;
+    const pattern = arg.replace(/^\.\//, "").split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*");
+    return new RegExp("^" + pattern + "$").test(path);
+  });
+  if (!selected) return false;
+  try {
+    const left = parse3(before, { ecmaVersion: "latest", sourceType: "module" });
+    const right = parse3(after, { ecmaVersion: "latest", sourceType: "module" });
+    const imports = importBindings(left, path, readDependency);
+    if (!imports) return false;
+    const a = expanded(left, imports), b = expanded(right, imports);
+    return !!a && !!b && a.loops === 0 && b.loops > 0 && JSON.stringify(a.statements) === JSON.stringify(b.statements);
+  } catch {
+    return false;
+  }
+}
+
 // src/detectors/reality.ts
 var completedCandidateSetups = /* @__PURE__ */ new Set();
 var INTEGRITY_CHANGED_PATHS_MAX_BUFFER = 1024 * 1024;
@@ -8434,14 +8652,10 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
   let oldLinesRemaining = 0;
   let newLinesRemaining = 0;
   const invalid = (detail) => ({ patches, referencedPaths, invalidHeader: detail });
-  const headerPath = (marker2, prefix) => {
-    if (marker2 === "/dev/null") return "";
-    return marker2.startsWith(prefix) ? marker2.slice(2) : void 0;
-  };
   const finishFile = () => {
     if (!diffHeaderLine) return void 0;
     if (headerState === "paired" && hadHunkForFile) return void 0;
-    if (repositoryAwareRenames && headerState === "none" && similarityIndex === 100 && renameFrom && renameTo && !modeMetadata && diffHeaderLine === `diff --git a/${renameFrom} b/${renameTo}`) {
+    if (repositoryAwareRenames && headerState === "none" && similarityIndex === 100 && renameFrom && renameTo && !modeMetadata && patchDiffIdentityMatches(diffHeaderLine, renameFrom, renameTo)) {
       referencedPaths.add(renameFrom);
       referencedPaths.add(renameTo);
       return void 0;
@@ -8507,9 +8721,9 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
         return invalid(`rename metadata is not permitted in a raw or partially parsed diff at input line ${index + 1}`);
       }
       const from = line.startsWith("rename from ");
-      const path = line.slice(from ? 12 : 10);
-      if (!path || path.startsWith('"') || (from ? renameFrom : renameTo)) {
-        return invalid(`unsupported, quoted, or duplicate rename metadata at input line ${index + 1}`);
+      const path = patchRenamePath(line.slice(from ? 12 : 10));
+      if (!path || (from ? renameFrom : renameTo)) {
+        return invalid(`unsupported or duplicate rename metadata at input line ${index + 1}`);
       }
       if (from) renameFrom = path;
       else renameTo = path;
@@ -8522,8 +8736,8 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
       if (!diffHeaderLine || headerState !== "none") {
         return invalid(`old path header must follow exactly one unconsumed diff --git header at input line ${index + 1}`);
       }
-      const parsed = headerPath(line.slice(4), "a/");
-      if (parsed === void 0) return invalid(`unsupported or quoted unified-diff old path header: ${line.slice(4, 164)}`);
+      const parsed = patchHeaderPath(line.slice(4), "a/");
+      if (parsed === void 0) return invalid(`unsupported unified-diff old path header: ${line.slice(4, 164)}`);
       current2 = [];
       currentPath = "";
       oldPath = parsed;
@@ -8534,8 +8748,8 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
     if (line.startsWith("+++ ")) {
       const marker2 = line.slice(4);
       if (headerState !== "old") return invalid(`new path header has no single preceding old path header at input line ${index + 1}`);
-      const parsed = headerPath(marker2, "b/");
-      if (parsed === void 0) return invalid(`unsupported or quoted unified-diff path header: ${marker2.slice(0, 160)}`);
+      const parsed = patchHeaderPath(marker2, "b/");
+      if (parsed === void 0) return invalid(`unsupported unified-diff path header: ${marker2.slice(0, 160)}`);
       if (oldPath && parsed && oldPath !== parsed) {
         if (!repositoryAwareRenames || renameFrom !== oldPath || renameTo !== parsed || similarityIndex === void 0) {
           return invalid(`renamed unified-diff paths require exact repository-aware identity and cannot be audited as raw text`);
@@ -8546,7 +8760,7 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
       if (diffHeaderLine) {
         const identity2 = oldPath || parsed;
         const destination = parsed || oldPath;
-        if (diffHeaderLine !== `diff --git a/${identity2} b/${destination}`) {
+        if (!patchDiffIdentityMatches(diffHeaderLine, identity2, destination)) {
           return invalid(`diff --git identity does not match its exact old/new path headers`);
         }
       }
@@ -8619,7 +8833,7 @@ function countTests(content) {
   ];
   return patterns.reduce((sum, regex) => sum + [...content.matchAll(regex)].length, 0);
 }
-function checkIntegrity(repo, base, head) {
+function checkIntegrity(repo, base, head, execution = {}) {
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
   const rawPaths = trustedGitOptional(repo, ["diff", "--find-renames", "--name-status", "-z", ...diffRange], INTEGRITY_CHANGED_PATHS_MAX_BUFFER);
   if (rawPaths === void 0) {
@@ -8687,14 +8901,20 @@ function checkIntegrity(repo, base, head) {
   const addedTestFiles = [];
   const emptyTestPaths = /* @__PURE__ */ new Set();
   const fullTestBodyChecks = [];
+  let literalParameterization = false;
   for (const path of [...paths].filter(isTestPath2)) {
     const before = readIntegrityTreeBlob(repo, base, path);
     if (!before.ok) return [unreadableIntegrityResult("changed test baseline available for integrity review", before.evidence, "integrity-unreadable")];
     const after = head === "WORKTREE" ? readIntegrityWorktreeBlob(repo, path) : readIntegrityTreeBlob(repo, head, path);
     if (!after.ok) return [unreadableIntegrityResult("changed test candidate available for integrity review", after.evidence, "integrity-unreadable")];
     fullTestBodyChecks.push({ path, checks: checkEmptyTestBodies(path, before.value, after.value) });
-    const oldCount = countTests(before.value);
-    const newCount = countTests(after.value);
+    const oldCount = isTestPath2(path) ? countTests(before.value) : 0;
+    const parameterized = head !== "WORKTREE" && oldCount > 0 && paths.size === 1 && isTestPath2(path) && preservesLiteralTestParameterization(path, before.value, after.value, execution.testCommand, (dependency) => {
+      const blob = readIntegrityTreeBlob(repo, base, dependency);
+      return blob.ok ? blob.value : void 0;
+    });
+    const newCount = parameterized ? oldCount : isTestPath2(path) ? countTests(after.value) : 0;
+    literalParameterization ||= parameterized;
     baselineTests += oldCount;
     headTests += newCount;
     if (before.value && !after.value) deletedTestFiles.push({ path, identity: before.identity });
@@ -8703,6 +8923,13 @@ function checkIntegrity(repo, base, head) {
   if (headTests < baselineTests) {
     results.push(finding3("test surface shrank", `recognized test definitions across changed test files fell from ${baselineTests} to ${headTests}`, "test-count-drop"));
   }
+  if (literalParameterization) results.push({
+    claim: { kind: "integrity", quote: "full-file literal test parameterization check", subject: "recognized test callback expressions are preserved" },
+    verdict: "verified",
+    ruleId: "test-parameterization-preserved",
+    contributesToPass: false,
+    evidence: "One JavaScript test file replaces direct node:test registrations with literal rows in the same order and unchanged strict assertion expressions. Imported helpers are unchanged, restricted arithmetic functions; a plain unfiltered Node test command selects this file. Test titles may differ. Required execution still decides whether tests pass; this is not coverage proof."
+  });
   const consumedAddedTests = /* @__PURE__ */ new Set();
   const exactTestMovePaths = /* @__PURE__ */ new Set();
   const unmatchedDeletedTests = deletedTestFiles.filter((deleted) => {
@@ -8747,7 +8974,7 @@ function checkIntegrity(repo, base, head) {
     results.push(...checks);
   }
   const patchResults = checkIntegrityPatches(patches);
-  results.push(...patchResults.filter((result5) => ![...emptyTestPaths].some((path) => result5.ruleId === "test-empty-added" && result5.evidence.startsWith(`${path} adds `) || result5.ruleId === "assertion-drop" && result5.evidence.startsWith(`${path} removes `))));
+  results.push(...patchResults.filter((result5) => result5.ruleId !== "test-count-drop" && !(literalParameterization && result5.ruleId === "assertion-drop") && ![...emptyTestPaths].some((path) => result5.ruleId === "test-empty-added" && result5.evidence.startsWith(`${path} adds `) || result5.ruleId === "assertion-drop" && result5.evidence.startsWith(`${path} removes `))));
   results.push(...checkAgenticPatches(patches));
   results.push(...checkAgenticRepository(repo, base, head, paths, patches));
   if (!results.length) {
@@ -9100,11 +9327,11 @@ var TRANSCRIPT_FORMATS = [
 ];
 var VERDICTS = ["verified", "contradicted", "unverifiable"];
 var REPORT_STATUSES = ["PASS", "FAIL", "INCONCLUSIVE"];
-function canonical(value) {
+function canonical2(value) {
   if (value === void 0) return "null";
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(canonical2).join(",")}]`;
   if (value && typeof value === "object") {
-    const entries = Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key2, item2]) => `${JSON.stringify(key2)}:${canonical(item2)}`);
+    const entries = Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key2, item2]) => `${JSON.stringify(key2)}:${canonical2(item2)}`);
     return `{${entries.join(",")}}`;
   }
   return JSON.stringify(value);
@@ -9344,7 +9571,7 @@ function buildReport(input) {
     base: input.base,
     head: input.head,
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    receiptHash: `sha256:${createHash6("sha256").update(canonical(receiptPayload2)).digest("hex")}`,
+    receiptHash: `sha256:${createHash6("sha256").update(canonical2(receiptPayload2)).digest("hex")}`,
     repository: input.repository ?? {},
     reproduction: input.reproduction ?? "unavailable",
     results: input.results,
@@ -9369,7 +9596,7 @@ function recomputeReceiptHash(value) {
     summary: report.summary,
     policy: report.policy
   };
-  return `sha256:${createHash6("sha256").update(canonical(payload)).digest("hex")}`;
+  return `sha256:${createHash6("sha256").update(canonical2(payload)).digest("hex")}`;
 }
 
 // src/remediation.ts
@@ -9725,7 +9952,7 @@ function sha256(value) {
   return `sha256:${createHash7("sha256").update(value).digest("hex")}`;
 }
 function canonicalSha256(value) {
-  return sha256(canonical(value));
+  return sha256(canonical2(value));
 }
 function readBoundedRegularFile(path, maximumBytes, label) {
   const absolute = resolve6(path);
@@ -9889,7 +10116,7 @@ var ADAPTERS = /* @__PURE__ */ new Set(["generic", "a2a", "ap2", "x402", "erc-80
 var MAX_OUTCOME_JSON_BYTES = 2 * 1024 * 1024;
 var MAX_OUTCOME_KEY_BYTES = 64 * 1024;
 function digest3(value) {
-  return `sha256:${createHash9("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash9("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function requireObjectKeys(value, label, allowed2) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -10221,7 +10448,7 @@ function validateReceiptShape(input) {
   const expectedVerdict = overallVerdict(receipt.checks);
   if (receipt.verdict !== expectedVerdict) throw new Error(`receipt verdict ${receipt.verdict} disagrees with its checks (${expectedVerdict})`);
   const expectedReasonCodes = reasonCodes(receipt.checks);
-  if (canonical(receipt.reasonCodes) !== canonical(expectedReasonCodes)) throw new Error("receipt reasonCodes disagree with its checks");
+  if (canonical2(receipt.reasonCodes) !== canonical2(expectedReasonCodes)) throw new Error("receipt reasonCodes disagree with its checks");
   requireObjectKeys(receipt.sourceEvidence, "sourceEvidence", ["type", "reportHash", "base", "head", "status", "signerKeyId"]);
   if (receipt.sourceEvidence?.type !== "agent-vigil/trust-report") throw new Error("source evidence type is unsupported");
   requireSha(receipt.sourceEvidence.reportHash, "sourceEvidence.reportHash");
@@ -10639,11 +10866,11 @@ function resolveSafeParent(requested) {
       if (!trustedRootAlias) {
         throw new Error(`Refusing to traverse symbolic-link output parent: ${next}`);
       }
-      const canonical3 = realpathSync4(next);
-      if (!lstatSync6(canonical3).isDirectory()) {
+      const canonical4 = realpathSync4(next);
+      if (!lstatSync6(canonical4).isDirectory()) {
         throw new Error(`Refusing to traverse non-directory output parent: ${next}`);
       }
-      current2 = canonical3;
+      current2 = canonical4;
       continue;
     }
     if (!status.isDirectory()) {
@@ -11122,11 +11349,11 @@ import { createHash as createHash10 } from "node:crypto";
 import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
 import { isAbsolute as isAbsolute6, normalize as normalize2, resolve as resolve8, win32 as win322 } from "node:path";
 var DEFAULT_POLICY_FILE = ".agent-vigil.json";
-function canonical2(value) {
+function canonical3(value) {
   if (value === void 0) return "null";
-  if (Array.isArray(value)) return `[${value.map(canonical2).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(canonical3).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key2, item2]) => `${JSON.stringify(key2)}:${canonical2(item2)}`).join(",")}}`;
+    return `{${Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key2, item2]) => `${JSON.stringify(key2)}:${canonical3(item2)}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -11289,7 +11516,7 @@ function loadPolicy(repo, requested, ref2) {
     return {
       gitPath: clean,
       ref: ref2,
-      sha256: `sha256:${createHash10("sha256").update(canonical2(value2)).digest("hex")}`,
+      sha256: `sha256:${createHash10("sha256").update(canonical3(value2)).digest("hex")}`,
       value: value2
     };
   }
@@ -11297,13 +11524,13 @@ function loadPolicy(repo, requested, ref2) {
   if (!existsSync4(candidate)) {
     if (requested) throw new Error(`policy not found: ${candidate}`);
     const value2 = { schemaVersion: 1 };
-    return { sha256: `sha256:${createHash10("sha256").update(canonical2(value2)).digest("hex")}`, value: value2 };
+    return { sha256: `sha256:${createHash10("sha256").update(canonical3(value2)).digest("hex")}`, value: value2 };
   }
   const raw = readFileSync3(candidate, "utf8");
   const value = parsePolicy(raw, candidate);
   return {
     path: candidate,
-    sha256: `sha256:${createHash10("sha256").update(canonical2(value)).digest("hex")}`,
+    sha256: `sha256:${createHash10("sha256").update(canonical3(value)).digest("hex")}`,
     value
   };
 }
@@ -11566,11 +11793,11 @@ function loadAuthorityContract(repo, requested, ref2) {
     }
     if (Buffer.byteLength(raw) > MAX_CONTRACT_BYTES) throw new Error(`authority contract exceeds ${MAX_CONTRACT_BYTES} bytes`);
     const value2 = parseContract(raw, `${ref2}:${clean}`);
-    return { value: value2, sha256: `sha256:${createHash11("sha256").update(canonical(value2)).digest("hex")}`, source: `${clean}@${ref2}`, gitPath: clean, ref: ref2 };
+    return { value: value2, sha256: `sha256:${createHash11("sha256").update(canonical2(value2)).digest("hex")}`, source: `${clean}@${ref2}`, gitPath: clean, ref: ref2 };
   }
   const path = resolve9(repo, requested);
   const value = parseContract(readRegularUtf8(path, MAX_CONTRACT_BYTES, "authority contract"), path);
-  return { value, sha256: `sha256:${createHash11("sha256").update(canonical(value)).digest("hex")}`, source: relative4(repo, path) || requested, path };
+  return { value, sha256: `sha256:${createHash11("sha256").update(canonical2(value)).digest("hex")}`, source: relative4(repo, path) || requested, path };
 }
 function inputObject(call) {
   try {
@@ -13094,7 +13321,7 @@ import {
 } from "node:crypto";
 var SHA2564 = /^sha256:[0-9a-f]{64}$/;
 function digest4(value) {
-  return `sha256:${createHash12("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash12("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function payloadOf(receipt) {
   const { portableHash: _hash, signature: _signature, ...payload } = receipt;
@@ -13303,7 +13530,7 @@ function buildPortableGateReport(receipt, options) {
   const testClaim = { kind: "tests_pass", quote: "trusted policy verification passes in independent CI", subject: "trusted policy test command" };
   results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand, void 0, base, head));
   results.push(...checkWorkspaceMutation(repo, exactHead && relativeReceipt ? [relativeReceipt] : [], head));
-  const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+  const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand: policy.value.testCommand }), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
   const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative6(repo, policy.path) : void 0;
@@ -14050,7 +14277,7 @@ function compareReceipts(beforeValue, afterValue) {
     unchangedChecks,
     notes
   };
-  return { ...unsigned, deltaHash: `sha256:${createHash13("sha256").update(canonical(unsigned)).digest("hex")}` };
+  return { ...unsigned, deltaHash: `sha256:${createHash13("sha256").update(canonical2(unsigned)).digest("hex")}` };
 }
 function renderReceiptDelta(delta) {
   const lines = [
@@ -14077,7 +14304,7 @@ import { relative as relative8, resolve as resolve13 } from "node:path";
 
 // src/authority-plan.ts
 import { createHash as createHash14, createHmac } from "node:crypto";
-import { posix } from "node:path";
+import { posix as posix2 } from "node:path";
 
 // node_modules/smol-toml/dist/date.js
 var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
@@ -14760,7 +14987,7 @@ function sha2562(value) {
   return `sha256:${createHash14("sha256").update(value).digest("hex")}`;
 }
 function authorityComparisonToken(value) {
-  return `hmac-sha256:${createHmac("sha256", "agent-vigil-authority-comparison-v1").update(canonical(value)).digest("hex")}`;
+  return `hmac-sha256:${createHmac("sha256", "agent-vigil-authority-comparison-v1").update(canonical2(value)).digest("hex")}`;
 }
 function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
@@ -14943,13 +15170,13 @@ function validatePolicy3(input) {
   };
 }
 function loadAuthorityPlanPolicy(repo, base, path = ".agent-vigil-authority-plan.json") {
-  const clean = posix.normalize(path.replace(/^\.\//, ""));
+  const clean = posix2.normalize(path.replace(/^\.\//, ""));
   if (!clean || clean === ".." || clean.startsWith("../") || clean.startsWith("/") || path.includes("\\") || path.includes(":")) {
     throw new Error("authority plan policy path must stay inside the repository");
   }
   const raw = readGitFileOptional(repo, base, clean);
   if (raw === void 0) {
-    return { value: DEFAULT_POLICY, source: "built-in default", sha256: sha2562(canonical(DEFAULT_POLICY)) };
+    return { value: DEFAULT_POLICY, source: "built-in default", sha256: sha2562(canonical2(DEFAULT_POLICY)) };
   }
   let parsed;
   try {
@@ -14958,7 +15185,7 @@ function loadAuthorityPlanPolicy(repo, base, path = ".agent-vigil-authority-plan
     throw new Error(`authority plan policy at ${base}:${clean} is not valid JSON`);
   }
   const value = validatePolicy3(parsed);
-  return { value, source: `${clean}@${base}`, sha256: sha2562(canonical(value)) };
+  return { value, source: `${clean}@${base}`, sha256: sha2562(canonical2(value)) };
 }
 function parseConfig(raw, format) {
   const source2 = raw.charCodeAt(0) === 65279 ? raw.slice(1) : raw;
@@ -15973,7 +16200,7 @@ function extractCodex(path, parsed) {
   return out;
 }
 function profileDigest(profile) {
-  return sha2562(canonical(profile));
+  return sha2562(canonical2(profile));
 }
 function discoverAuthorityProfile(repo, ref2) {
   const internal = {
@@ -16081,7 +16308,7 @@ function makeDelta(change, disposition, before, after) {
   const representative = after ?? before;
   const beforeSafe = before ? publicAtom(before) : void 0;
   const afterSafe = after ? publicAtom(after) : void 0;
-  const identity2 = canonical({ change, key: representative.semanticKey, before: beforeSafe, after: afterSafe, ruleId: disposition.ruleId });
+  const identity2 = canonical2({ change, key: representative.semanticKey, before: beforeSafe, after: afterSafe, ruleId: disposition.ruleId });
   const identitySha256 = sha2562(identity2);
   return {
     id: `delta:${createHash14("sha256").update(identity2).digest("hex").slice(0, 20)}`,
@@ -16178,7 +16405,7 @@ function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
     }
   }
   const deltas = rawDeltas.map((delta) => applyAuthorityPlanPolicy(delta, policy.value));
-  const gaps = [...before.gaps, ...after.gaps].filter((gap, index, all) => all.findIndex((item2) => canonical(item2) === canonical(gap)) === index).sort((a, b) => `${a.sourcePath}:${a.locator}`.localeCompare(`${b.sourcePath}:${b.locator}`));
+  const gaps = [...before.gaps, ...after.gaps].filter((gap, index, all) => all.findIndex((item2) => canonical2(item2) === canonical2(gap)) === index).sort((a, b) => `${a.sourcePath}:${a.locator}`.localeCompare(`${b.sourcePath}:${b.locator}`));
   const blocking = deltas.filter((item2) => item2.disposition === "BLOCK").length;
   const uncertainties = rawDeltas.filter((item2) => item2.disposition === "HOLD").length + gaps.length;
   const holds = deltas.filter((item2) => item2.disposition === "HOLD").length + (policy.value.allowUnknownChanges ? 0 : gaps.length);
@@ -16234,7 +16461,7 @@ function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
       "Recognized secret-bearing values and sensitive permission scopes are omitted; repository-controlled names and labels can still be sensitive."
     ]
   };
-  return { ...payload, planSha256: sha2562(canonical(payload)) };
+  return { ...payload, planSha256: sha2562(canonical2(payload)) };
 }
 function marker(delta) {
   if (delta.change === "ADDED") return "+";
@@ -16444,7 +16671,7 @@ function buildMergeGroupReport(options) {
   };
   results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand, void 0, base, head));
   results.push(...checkWorkspaceMutation(repo, inputs, head));
-  const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+  const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand: policy.value.testCommand }), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
   const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative8(repo, policy.path) : void 0;
@@ -16494,7 +16721,7 @@ function validAsOf(value) {
 }
 function cardPayload(card) {
   const { generatedAt: _generatedAt, ...evidence } = card;
-  return canonical(evidence);
+  return canonical2(evidence);
 }
 function recomputeValueCardHash(card) {
   const { cardHash: _cardHash, ...withoutHash } = card;
@@ -16856,7 +17083,7 @@ function validateIncident(value) {
 }
 function payloadWithoutHash(bundle) {
   const { generatedAt: _generatedAt, ...evidence } = bundle;
-  return canonical(evidence);
+  return canonical2(evidence);
 }
 function recomputeGitHubEvidenceHash(bundle) {
   const { evidenceHash: _hash, ...withoutHash } = bundle;
@@ -17402,12 +17629,12 @@ function trustedRegularFileInside(repositoryPath, filePath, label) {
   if (status.isSymbolicLink() || !status.isFile()) {
     throw new Error(`${label} must be a regular non-symbolic-link file`);
   }
-  const canonical3 = realpathSync7(requested);
-  const canonicalRel = relative9(repository3, canonical3);
+  const canonical4 = realpathSync7(requested);
+  const canonicalRel = relative9(repository3, canonical4);
   if (canonicalRel === ".." || canonicalRel.startsWith(`..${sep8}`)) {
     throw new Error(`${label} resolved outside the repository`);
   }
-  return canonical3;
+  return canonical4;
 }
 function trustedDirectoryInside(repositoryPath, directoryPath, label) {
   const requestedRepository = resolve16(repositoryPath);
@@ -17427,12 +17654,12 @@ function trustedDirectoryInside(repositoryPath, directoryPath, label) {
       throw new Error(`${label} and its parents must be regular directories without symbolic links`);
     }
   }
-  const canonical3 = realpathSync7(requested);
-  const canonicalRel = relative9(repository3, canonical3);
+  const canonical4 = realpathSync7(requested);
+  const canonicalRel = relative9(repository3, canonical4);
   if (canonicalRel === ".." || canonicalRel.startsWith(`..${sep8}`)) {
     throw new Error(`${label} resolved outside the repository`);
   }
-  return canonical3;
+  return canonical4;
 }
 function loadUpgradeConfig(path) {
   return validateUpgradeConfig(readBoundedJson2(path, 256 * 1024, "upgrade config"));
@@ -17536,7 +17763,7 @@ function inspectArtifactTree(root) {
   };
   visit(canonicalRoot);
   return {
-    treeSha256: hash(canonical(entries)),
+    treeSha256: hash(canonical2(entries)),
     fileCount: entries.length,
     totalBytes
   };
@@ -17565,7 +17792,7 @@ function inspectTarget(directory, component) {
     return {
       field,
       count: capabilityCount(value),
-      sha256: hash(canonical({ present: value !== void 0, value: value ?? null }))
+      sha256: hash(canonical2({ present: value !== void 0, value: value ?? null }))
     };
   });
   return {
@@ -18098,7 +18325,7 @@ function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase,
   } catch {
     return { state: "HOLD", reason: "canary returned malformed or unbounded JSON" };
   }
-  const observationSha256 = digest5(canonical(document.observations));
+  const observationSha256 = digest5(canonical2(document.observations));
   return {
     state: document.outcome,
     observationSha256,
@@ -18107,7 +18334,7 @@ function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase,
   };
 }
 function commandDigest(canary) {
-  return digest5(canonical(canary.command));
+  return digest5(canonical2(canary.command));
 }
 
 // src/upgrade/receipt.ts
@@ -18121,17 +18348,17 @@ function hash2(value) {
   return `sha256:${createHash21("sha256").update(value).digest("hex")}`;
 }
 function publicCanaryPseudonym(receiptNonce, privateCanaryId) {
-  return hash2(canonical({
+  return hash2(canonical2({
     domain: "agent-vigil-public-canary-id/v1",
     receiptNonce,
     privateCanaryId
   }));
 }
 function configDigest(config) {
-  return hash2(canonical(config));
+  return hash2(canonical2(config));
 }
 function receiptPayload(receipt) {
-  return canonical(receipt);
+  return canonical2(receipt);
 }
 function finalizeReceipt(receipt) {
   return { ...receipt, receiptHash: hash2(receiptPayload(receipt)) };
@@ -18234,7 +18461,7 @@ function runUpgradeEvaluation(input) {
     );
   }
   const config = configCheckpoint.config;
-  if (suppliedConfig && canonical(suppliedConfig) !== canonical(config)) {
+  if (suppliedConfig && canonical2(suppliedConfig) !== canonical2(config)) {
     return holdReceipt(
       suppliedConfig,
       unevaluatedContainment(),
@@ -18330,7 +18557,7 @@ function runUpgradeEvaluation(input) {
     const configAfter = readConfigCheckpoint(input.repository, input.configPath);
     if (configAfter.path !== configCheckpoint.path || configAfter.identity !== configCheckpoint.identity) {
       mutationReason = "upgrade config moved or was replaced while the evaluation was running";
-    } else if (canonical(configAfter.config) !== canonical(config)) {
+    } else if (canonical2(configAfter.config) !== canonical2(config)) {
       mutationReason = "upgrade config changed while the evaluation was running";
     }
   } catch (error) {
@@ -18340,9 +18567,9 @@ function runUpgradeEvaluation(input) {
     const currentAfter = inspectTarget(input.currentDirectory, config.component);
     const candidateAfter = inspectTarget(input.candidateDirectory, config.component);
     const harnessAfter = inspectArtifactTree(canaryDirectory);
-    if (!mutationReason && canonical(currentAfter) !== canonical(current2)) mutationReason = "current artifact changed while the evaluation was running";
-    else if (!mutationReason && canonical(candidateAfter) !== canonical(candidate)) mutationReason = "candidate artifact changed while the evaluation was running";
-    else if (!mutationReason && canonical(harnessAfter) !== canonical(canaryHarness)) mutationReason = "canary harness changed while the evaluation was running";
+    if (!mutationReason && canonical2(currentAfter) !== canonical2(current2)) mutationReason = "current artifact changed while the evaluation was running";
+    else if (!mutationReason && canonical2(candidateAfter) !== canonical2(candidate)) mutationReason = "candidate artifact changed while the evaluation was running";
+    else if (!mutationReason && canonical2(harnessAfter) !== canonical2(canaryHarness)) mutationReason = "canary harness changed while the evaluation was running";
   } catch (error) {
     if (!mutationReason) mutationReason = `evaluation inputs could not be re-inventoried: ${error.message}`;
   }
@@ -18385,7 +18612,7 @@ function publicCapability(field) {
   return PUBLIC_CAPABILITIES.has(leaf) ? leaf : "other";
 }
 function publicEntryPayload(entry) {
-  return canonical(entry);
+  return canonical2(entry);
 }
 function createPublicCompatibilityEntry(receipt, privateKeyPath) {
   if (recomputeUpgradeReceiptHash(receipt) !== receipt.receiptHash) throw new Error("private upgrade receipt hash is invalid");
@@ -18853,8 +19080,8 @@ function assertDistinctOutputs(paths) {
 function pathIdentities(path) {
   const requested = resolve20(path);
   const identities = [outputIdentity(requested)];
-  const canonical3 = realpathSync12(requested);
-  const canonicalIdentity = outputIdentity(canonical3);
+  const canonical4 = realpathSync12(requested);
+  const canonicalIdentity = outputIdentity(canonical4);
   if (!identities.includes(canonicalIdentity)) identities.push(canonicalIdentity);
   return identities;
 }
@@ -19121,7 +19348,7 @@ function git8(repo, args, env) {
   }).trim();
 }
 function digest6(value) {
-  return `sha256:${createHash22("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash22("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function safeError(error, redactions = []) {
   let message = error instanceof Error ? error.message : String(error);
@@ -19474,7 +19701,7 @@ function validateControlProof(value) {
     limits
   };
   const { receiptHash: _receiptHash, ...payload } = parsed;
-  if (sha2564(canonical(payload)) !== receiptHash) throw new Error("control proof content does not match receiptHash");
+  if (sha2564(canonical2(payload)) !== receiptHash) throw new Error("control proof content does not match receiptHash");
   return parsed;
 }
 function loadControlProof(path) {
@@ -19488,7 +19715,7 @@ function loadControlProof(path) {
   return { proof: validateControlProof(parsed), bytes, fileSha256: sha2564(bytes) };
 }
 function challengeSetSha256(proof) {
-  return sha2564(canonical(proof.challenges.map(({ id, expected, actual, passed }) => ({ id, expected, actual, passed }))));
+  return sha2564(canonical2(proof.challenges.map(({ id, expected, actual, passed }) => ({ id, expected, actual, passed }))));
 }
 function buildControlProofPredicate(path) {
   const { proof, fileSha256: fileSha2562 } = loadControlProof(path);
@@ -19559,7 +19786,7 @@ function verifyGhControlProofAttestationOutput(path, ghOutput) {
     if (subjectOk && predicateOk) matched = statement.predicate;
   }
   const { receiptHash: _receiptHash, ...payload } = proof;
-  const proofHashValid = sha2564(canonical(payload)) === proof.receiptHash;
+  const proofHashValid = sha2564(canonical2(payload)) === proof.receiptHash;
   return {
     valid: proofHashValid && subjectDigestValid && predicateValid && Boolean(matched),
     proofHashValid,
@@ -19941,7 +20168,7 @@ import {
 import { readFileSync as readFileSync12 } from "node:fs";
 var SIGNED_CONTROL_PROOF_SCHEMA = "control-proof/signed-challenge-v1";
 function digest7(value) {
-  return `sha256:${createHash24("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash24("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function record4(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -19949,7 +20176,7 @@ function record4(value, label) {
 }
 function exactKeys6(value, keys, label) {
   const expected = [...keys].sort();
-  if (canonical(Object.keys(value).sort()) !== canonical(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
+  if (canonical2(Object.keys(value).sort()) !== canonical2(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
 }
 function text2(value, label, maximum = 200) {
   if (typeof value !== "string" || !value.trim() || value.length > maximum || /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value)) {
@@ -20113,7 +20340,7 @@ var CONTROL_POLICY_PACKS = {
   ]
 };
 function digest8(value) {
-  return `sha256:${createHash25("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash25("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function record5(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -20122,7 +20349,7 @@ function record5(value, label) {
 function exactKeys7(value, keys, label) {
   const expected = [...keys].sort();
   const actual = Object.keys(value).sort();
-  if (canonical(actual) !== canonical(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
+  if (canonical2(actual) !== canonical2(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
 }
 function text3(value, label, maximum = 200) {
   if (typeof value !== "string" || !value.trim() || value.length > maximum || /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value)) {
@@ -20492,9 +20719,9 @@ function ensurePrivateDirectory2(requested, mustBeNew = false) {
       if (status.isSymbolicLink()) {
         const trustedRootAlias = index === 0 && status.uid === rootStatus.uid && (rootStatus.mode & 18) === 0;
         if (!trustedRootAlias) throw new Error("continuity directory may not traverse a symbolic link");
-        const canonical3 = realpathSync15(next);
-        if (!lstatSync18(canonical3).isDirectory()) throw new Error("continuity directory parent is not a directory");
-        current2 = canonical3;
+        const canonical4 = realpathSync15(next);
+        if (!lstatSync18(canonical4).isDirectory()) throw new Error("continuity directory parent is not a directory");
+        current2 = canonical4;
         continue;
       }
       if (!status.isDirectory()) throw new Error("continuity directory path contains a non-directory entry");
@@ -20537,17 +20764,17 @@ function subjectFor(report) {
   };
 }
 function rootHash(report) {
-  return sha256(`${ROOT_DOMAIN}${canonical(report)}`);
+  return sha256(`${ROOT_DOMAIN}${canonical2(report)}`);
 }
 function unsignedEventPayload(event2) {
   const { eventHash: _eventHash, signature: _signature, ...payload } = event2;
   return payload;
 }
 function computeEventHash(event2) {
-  return sha256(`${EVENT_DOMAIN}${event2.predecessorHash}${canonical(unsignedEventPayload(event2))}`);
+  return sha256(`${EVENT_DOMAIN}${event2.predecessorHash}${canonical2(unsignedEventPayload(event2))}`);
 }
 function sameSubject(left, right) {
-  return canonical(left) === canonical(right);
+  return canonical2(left) === canonical2(right);
 }
 function tip(sequence, eventHash, updatedAt) {
   return { schemaVersion: "agent-vigil-continuity-tip/v1", sequence, eventHash, updatedAt };
@@ -20556,7 +20783,7 @@ function validateTip(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("continuity tip must be an object");
   const selected = value;
   const keys = Object.keys(selected).sort();
-  if (canonical(keys) !== canonical(["eventHash", "schemaVersion", "sequence", "updatedAt"])) {
+  if (canonical2(keys) !== canonical2(["eventHash", "schemaVersion", "sequence", "updatedAt"])) {
     throw new Error("continuity tip has unsupported or missing fields");
   }
   if (selected.schemaVersion !== "agent-vigil-continuity-tip/v1") throw new Error("unsupported continuity tip schema");
@@ -20641,7 +20868,7 @@ function readChainFiles(chainDirectory) {
   }
   if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("continuity chain must be a regular directory, not a symbolic link");
   const entries = readdirSync3(directory).sort();
-  if (canonical(entries) !== canonical(["events", "receipt.json", "root.json", "tip.json"])) throw new Error("continuity chain directory contains unsupported or missing entries");
+  if (canonical2(entries) !== canonical2(["events", "receipt.json", "root.json", "tip.json"])) throw new Error("continuity chain directory contains unsupported or missing entries");
   const eventsDirectory = join12(directory, "events");
   const eventsStatus = lstatSync18(eventsDirectory);
   if (eventsStatus.isSymbolicLink() || !eventsStatus.isDirectory()) throw new Error("continuity events must be stored in a regular directory");
@@ -21127,7 +21354,7 @@ function appendIdempotently(chain, draft, signingKeyPath) {
   const existing = verified.events.find((event2) => event2.source.deliveryIdHash === draft.source.deliveryIdHash);
   if (existing) {
     const signatureMatches = signingKeyPath ? existing.signature?.keyId === draft.source.issuer : existing.signature === null;
-    if (canonical(storedDraft(existing)) !== canonical(draft) || !signatureMatches) {
+    if (canonical2(storedDraft(existing)) !== canonical2(draft) || !signatureMatches) {
       throw new Error("the GitHub delivery ID was already recorded with different evidence");
     }
     return publicReceipt(existing, false);
@@ -21529,7 +21756,7 @@ var MAX_ARGUMENT_LENGTH = 4096;
 var MAX_OUTPUT_BYTES = 64 * 1024;
 var DEFAULT_TIMEOUT_MS = 5e3;
 function digest9(value) {
-  const body = Buffer.isBuffer(value) ? value : typeof value === "string" ? Buffer.from(value, "utf8") : Buffer.from(canonical(value), "utf8");
+  const body = Buffer.isBuffer(value) ? value : typeof value === "string" ? Buffer.from(value, "utf8") : Buffer.from(canonical2(value), "utf8");
   return `sha256:${createHash26("sha256").update(body).digest("hex")}`;
 }
 var guardDigest = digest9;
@@ -22012,7 +22239,7 @@ function safePath(value, label) {
   return selected;
 }
 function envelope(payloadType, payload, signer) {
-  const bytes = Buffer.from(canonical(payload), "utf8");
+  const bytes = Buffer.from(canonical2(payload), "utf8");
   return {
     payloadType,
     payload: bytes.toString("base64"),
@@ -22345,14 +22572,14 @@ function validateGuardControlObservation(value) {
     denyRequests: validated.events.filter((event2) => event2.route === "DENY").length,
     unexpectedRequests: validated.events.filter((event2) => event2.route === "UNEXPECTED").length
   };
-  if (canonical(counts) !== canonical(validated.summary)) throw new Error("control observation summary does not match events");
+  if (canonical2(counts) !== canonical2(validated.summary)) throw new Error("control observation summary does not match events");
   if (Date.parse(validated.closedAt) < Date.parse(validated.openedAt)) {
     throw new Error("control observation closedAt precedes openedAt");
   }
   const eventsInWindow = validated.events.every((event2) => Date.parse(event2.observedAt) >= Date.parse(validated.openedAt) && Date.parse(event2.observedAt) <= Date.parse(validated.closedAt));
   const exactPass = counts.allowRequests === 1 && counts.denyRequests === 0 && counts.unexpectedRequests === 0 && eventsInWindow && validated.events.every((event2) => event2.method === "POST" && event2.bodySha256 === guardDigest(CANARY_BODY));
   if (validated.status === "PASS" !== exactPass) throw new Error("control observation PASS does not match events");
-  if (validated.status === "PASS" && canonical(validated.reasonCodes) !== canonical(["EXPECTED_EXTERNAL_EFFECTS_OBSERVED"])) {
+  if (validated.status === "PASS" && canonical2(validated.reasonCodes) !== canonical2(["EXPECTED_EXTERNAL_EFFECTS_OBSERVED"])) {
     throw new Error("passing control observation has invalid reason codes");
   }
   return validated;
@@ -22415,7 +22642,7 @@ function validateGuardControlIsolationAttestation(value) {
   if (validated.isolationHash !== hashWithout(validated, "isolationHash")) {
     throw new Error("control isolation hash is invalid");
   }
-  if (validated.status === "PASS" && canonical(validated.reasonCodes) !== canonical(["DISTINCT_UID_IMMUTABLE_STATE_AUTHENTICATED_MONITOR"])) {
+  if (validated.status === "PASS" && canonical2(validated.reasonCodes) !== canonical2(["DISTINCT_UID_IMMUTABLE_STATE_AUTHENTICATED_MONITOR"])) {
     throw new Error("passing control isolation attestation has invalid reason codes");
   }
   return validated;
@@ -22502,7 +22729,7 @@ function validateGuardControlAdmission(value) {
   if (validated.decision === "APPROVE" && new Set(Object.values(validated.trust)).size !== Object.keys(validated.trust).length) {
     throw new Error("approved control admission trust roots must be distinct");
   }
-  if (validated.decision === "APPROVE" && canonical(validated.reasonCodes) !== canonical(["EXACT_CONTROL_ADMISSION_PROVEN"])) {
+  if (validated.decision === "APPROVE" && canonical2(validated.reasonCodes) !== canonical2(["EXACT_CONTROL_ADMISSION_PROVEN"])) {
     throw new Error("approved control admission reason codes are invalid");
   }
   return validated;
@@ -23130,8 +23357,8 @@ function pathEntryExists(path) {
 }
 function ordinaryConfiguration(host) {
   const base = host === "codex" ? join16(process.env.HOME ?? "", ".codex") : join16(process.env.HOME ?? "", ".claude");
-  const names = host === "codex" ? ["config.toml", "hooks.json"] : ["settings.json", "settings.local.json"];
-  return names.map((name2) => {
+  const names2 = host === "codex" ? ["config.toml", "hooks.json"] : ["settings.json", "settings.local.json"];
+  return names2.map((name2) => {
     const path = join16(base, name2);
     const label = `${host} ordinary ${name2}`;
     return pathEntryExists(path) ? { label, path, identity: hashGuardFile(path, label) } : { label, path };
@@ -23238,7 +23465,7 @@ function runGuardRoute(input) {
   writeFileSync9(hookPath, source2, { mode: 448 });
   chmodSync6(hookPath, 448);
   writeFileSync9(hookLogPath, "", { mode: 384 });
-  writeFileSync9(policyPath, `${canonical(routePolicy(nonce, allow.command, deny.command))}
+  writeFileSync9(policyPath, `${canonical2(routePolicy(nonce, allow.command, deny.command))}
 `, { mode: 384 });
   const command = `${shellQuote(process.execPath)} ${shellQuote(hookPath)}`;
   const configPath = join16(profile.profileHome, input.host === "codex" ? "hooks.json" : "settings.json");
@@ -24579,9 +24806,9 @@ function repositoryRoot2(path) {
   } catch {
     throw new Error("--repo must name a Git repository");
   }
-  const canonical3 = realpathSync19(root);
-  if (!lstatSync23(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
-  return canonical3;
+  const canonical4 = realpathSync19(root);
+  if (!lstatSync23(canonical4).isDirectory()) throw new Error("Git repository root is not a directory");
+  return canonical4;
 }
 function ensureSafeParent(root, target2) {
   const relative17 = target2.slice(root.length).split(sep16).filter(Boolean).slice(0, -1);
@@ -26041,7 +26268,7 @@ function validatePublicPrReceipt(value) {
 }
 function buildPublicPrReceipt(snapshot, rawUrl, options) {
   const unsigned = unsignedReceipt(snapshot, rawUrl, options);
-  return validatePublicPrReceipt({ ...unsigned, receiptHash: sha2567(canonical(unsigned)) });
+  return validatePublicPrReceipt({ ...unsigned, receiptHash: sha2567(canonical2(unsigned)) });
 }
 function signPublicPrReceipt(receipt, privateKeyPath) {
   const selectedReceipt2 = validatePublicPrReceipt(receipt);
@@ -26062,7 +26289,7 @@ function signPublicPrReceipt(receipt, privateKeyPath) {
 }
 function recomputePublicPrReceiptHash(receipt) {
   const { receiptHash: _receiptHash, signature: _signature, ...unsigned } = receipt;
-  return sha2567(canonical(unsigned));
+  return sha2567(canonical2(unsigned));
 }
 function verifyPublicPrReceipt(receipt) {
   let selectedReceipt2;
@@ -26394,7 +26621,7 @@ function loadGuardRouteEnvelope(path) {
 var MAX_ROUTE_AGE_MS = 24 * 60 * 60 * 1e3;
 var GUARD_ROUTE_DIFF_SCHEMA = "agent-vigil-guard-route-diff/v1";
 function same(left, right) {
-  return canonical(left) === canonical(right);
+  return canonical2(left) === canonical2(right);
 }
 function controlBinding(report) {
   if (report.challengePack.id === "agent-vigil-external-network-route/v1") {
@@ -26442,10 +26669,10 @@ function classify2(candidate) {
   if (candidate.status === "INCONCLUSIVE") return "NOT_CHECKED";
   const allow = candidate.challenges.find((item2) => item2.id === "allow-route");
   const deny = candidate.challenges.find((item2) => item2.id === "deny-route");
-  const expanded = deny.actualDecision === "ALLOW" || deny.observedExecution;
+  const expanded2 = deny.actualDecision === "ALLOW" || deny.observedExecution;
   const reduced = allow.actualDecision === "DENY" || allow.actualDecision === "DEFER" || allow.actualDecision === "ALLOW" && !allow.observedExecution;
-  if (expanded && reduced) return "MIXED";
-  if (expanded) return "EXPANDED";
+  if (expanded2 && reduced) return "MIXED";
+  if (expanded2) return "EXPANDED";
   if (reduced) return "REDUCED";
   return candidate.status === "PASS" ? "UNCHANGED" : "NOT_CHECKED";
 }
@@ -27270,7 +27497,7 @@ function hashWithout2(value, key2) {
   return guardDigest(copy);
 }
 function signAuthorization(value, signer) {
-  const bytes = Buffer.from(canonical(value), "utf8");
+  const bytes = Buffer.from(canonical2(value), "utf8");
   return {
     payloadType: GUARD_DEPLOYMENT_AUTHORIZATION_PAYLOAD,
     payload: bytes.toString("base64"),
@@ -28141,7 +28368,7 @@ function record7(value, label) {
 }
 function exactKeys15(value, expected, label) {
   const actual = Object.keys(value).sort();
-  if (canonical(actual) !== canonical([...expected].sort())) throw new Error(`${label} fields must be exactly: ${[...expected].sort().join(", ")}`);
+  if (canonical2(actual) !== canonical2([...expected].sort())) throw new Error(`${label} fields must be exactly: ${[...expected].sort().join(", ")}`);
 }
 function safeSessionId(value) {
   if (typeof value !== "string" || value.length < 8 || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value)) {
@@ -28182,7 +28409,7 @@ function chargeMicocents(value) {
   return microcents;
 }
 function evidencePayload(value) {
-  return canonical(value);
+  return canonical2(value);
 }
 function timezoneQualifiedTimestamp(value, label) {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value);
@@ -28345,7 +28572,7 @@ function buildCursorExactCostEvidence(input) {
       event: event2,
       conversationId,
       timestamp: cursorEventTimestamp(event2.timestamp),
-      fingerprint: hash3(canonical(event2))
+      fingerprint: hash3(canonical2(event2))
     };
   });
   if (new Set(normalized.map((item2) => item2.fingerprint)).size !== normalized.length) {
@@ -28458,7 +28685,7 @@ function normalizedUsage(usage7) {
 }
 function autopsyPayload(record8) {
   const { generatedAt: _generatedAt, ...evidence } = record8;
-  return canonical(evidence);
+  return canonical2(evidence);
 }
 function buildRunAutopsy(input) {
   if (!SHA2568.test(input.transcript.transcriptSha256)) throw new Error("transcript digest is invalid");
@@ -29624,7 +29851,7 @@ function buildReceipt(input) {
     outcome: { commandCompletion: "OBSERVED_ONLY", economicResult: "NOT_CHECKED" },
     evidenceBoundary: receiptBoundary(input.run)
   };
-  return { ...payload, receiptHash: sha2568(canonical(payload)) };
+  return { ...payload, receiptHash: sha2568(canonical2(payload)) };
 }
 async function executeProtectedRun(input) {
   if (process.platform === "win32") throw new Error("vigil run currently requires POSIX process-group controls (macOS or Linux)");
@@ -31295,7 +31522,7 @@ function runMaintainer(args) {
       }
       results.push(...checkWorkspaceMutation(repo, inputs, head));
     }
-    const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+    const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand: policy.value.testCommand }), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     const rawEvent = readFileSync17(eventPath);
@@ -32048,7 +32275,7 @@ function runAuthority(args) {
         }], repo, testCommand, void 0, base, head));
       }
       results.push(...checkWorkspaceMutation(repo, inputs, head));
-      const integrity = routeIntegrity(checkIntegrity(repo, base, head), verificationPolicy.value.integrityMode ?? "advisory");
+      const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand }), verificationPolicy.value.integrityMode ?? "advisory");
       results.push(...integrity.results);
       advisories.push(...integrity.advisories);
     }
@@ -32248,7 +32475,7 @@ ${usage6()}`);
     results.push(...checkRunClaims(runClaims, loaded.toolCalls));
     results.push(...checkStepRepetition(loaded.toolCalls));
     const integrity = routeIntegrity([
-      ...checkIntegrity(repo, base, head),
+      ...checkIntegrity(repo, base, head, { testCommand: testCmd }),
       ...checkOutOfDagReads(repo, base, head, loaded.toolCalls)
     ], policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
