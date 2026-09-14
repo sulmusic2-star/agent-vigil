@@ -1396,502 +1396,6 @@ function escapeRegExpLiteral(value) {
 import { createHash as createHash4 } from "node:crypto";
 import { closeSync as closeSync3, constants as constants3, existsSync as existsSync2, fstatSync as fstatSync3, lstatSync as lstatSync3, openSync as openSync3, readSync as readSync3, realpathSync as realpathSync2 } from "node:fs";
 import { resolve as resolve4, sep as sep2 } from "node:path";
-var MAX_FILE_BYTES = 1024 * 1024;
-function gitOptional(repo, args) {
-  return trustedGitOptional(repo, args, 34 * 1024 * 1024);
-}
-function finding(subject, evidence, ruleId) {
-  return {
-    claim: { kind: "integrity", quote: "automatic agent-authored-change check", subject },
-    verdict: "contradicted",
-    evidence,
-    ruleId,
-    contributesToPass: false
-  };
-}
-function isTestPath(path) {
-  return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|\.cy|_test)\.[^.]+$/i.test(path);
-}
-function isGeneratedOrVendorPath(path) {
-  return /^(?:node_modules|vendor|dist|build|coverage|\.git)\//.test(path);
-}
-function isInstructionPath(path) {
-  return /(?:^|\/)(?:AGENTS|CLAUDE|GEMINI)\.md$/i.test(path) || /(?:^|\/)\.cursorrules$/i.test(path) || /(?:^|\/)\.github\/copilot-instructions\.md$/i.test(path);
-}
-function isDocumentationPath(path) {
-  return /^(?:docs?|examples?)\//i.test(path) || /(?:^|\/)(?:README|CHANGELOG|CONTRIBUTING|SECURITY|LICENSE)(?:\.[^/]*)?$/i.test(path) || /\.(?:md|mdx|rst|txt)$/i.test(path);
-}
-function isSourcePath(path) {
-  return /\.(?:[cm]?[jt]sx?|py|rb|php|java|kt|kts|go|rs|swift|cs|c|cc|cpp|h|hpp)$/i.test(path) && !isTestPath(path) && !isGeneratedOrVendorPath(path);
-}
-function isDetectorPatternLine(line) {
-  return line.includes("vigil:detector-pattern");
-}
-function readRefFileResult(repo, ref2, path) {
-  if (path.includes(":")) return { state: "unreadable", evidence: `${path} contains an unsupported Git path separator` };
-  if (ref2 === "WORKTREE") {
-    const realRoot = realpathSync2(resolve4(repo));
-    const candidate = resolve4(realRoot, path);
-    if (candidate !== realRoot && !candidate.startsWith(`${realRoot}${sep2}`)) {
-      return { state: "unreadable", evidence: `${path} escapes the repository boundary` };
-    }
-    if (!existsSync2(candidate)) return { state: "missing" };
-    let descriptor;
-    try {
-      const relative17 = candidate.slice(realRoot.length + 1).split(sep2).filter(Boolean);
-      let cursor = realRoot;
-      for (let index = 0; index < relative17.length; index += 1) {
-        cursor = resolve4(cursor, relative17[index]);
-        const stat = lstatSync3(cursor);
-        if (stat.isSymbolicLink() || (index < relative17.length - 1 ? !stat.isDirectory() : !stat.isFile())) {
-          return { state: "unreadable", evidence: `${path} is not a regular no-symlink worktree file` };
-        }
-      }
-      const expected = lstatSync3(candidate);
-      if (expected.size > MAX_FILE_BYTES) {
-        return { state: "unreadable", evidence: `${path} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
-      }
-      const noFollow = typeof constants3.O_NOFOLLOW === "number" ? constants3.O_NOFOLLOW : 0;
-      const nonBlock = typeof constants3.O_NONBLOCK === "number" ? constants3.O_NONBLOCK : 0;
-      descriptor = openSync3(candidate, constants3.O_RDONLY | noFollow | nonBlock);
-      const opened = fstatSync3(descriptor);
-      if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeMs !== expected.mtimeMs || opened.ctimeMs !== expected.ctimeMs) {
-        return { state: "unreadable", evidence: `${path} changed while being opened` };
-      }
-      const content2 = Buffer.alloc(opened.size);
-      let offset2 = 0;
-      while (offset2 < content2.length) {
-        const count3 = readSync3(descriptor, content2, offset2, content2.length - offset2, offset2);
-        if (count3 === 0) break;
-        offset2 += count3;
-      }
-      const after = fstatSync3(descriptor);
-      const finalPath = lstatSync3(candidate);
-      if (offset2 !== content2.length || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size || finalPath.mtimeMs !== opened.mtimeMs || finalPath.ctimeMs !== opened.ctimeMs) {
-        return { state: "unreadable", evidence: `${path} changed while being read` };
-      }
-      return { state: "readable", content: content2.toString("utf8") };
-    } catch {
-      return { state: "unreadable", evidence: `${path} could not be read from the worktree` };
-    } finally {
-      if (descriptor !== void 0) closeSync3(descriptor);
-    }
-  }
-  const listed = gitOptional(repo, ["ls-tree", "--name-only", "-z", ref2, "--", path]);
-  if (listed === void 0) return { state: "unreadable", evidence: `Git could not determine whether ${path} exists at ${ref2}` };
-  if (!listed.split("\0").includes(path)) return { state: "missing" };
-  const sizeText = gitOptional(repo, ["cat-file", "-s", `${ref2}:${path}`]);
-  const size = Number(sizeText?.trim());
-  if (!Number.isFinite(size) || size < 0) return { state: "unreadable", evidence: `${path} size at ${ref2} could not be verified` };
-  if (size > MAX_FILE_BYTES) return { state: "unreadable", evidence: `${path} at ${ref2} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
-  const content = gitOptional(repo, ["show", `${ref2}:${path}`]);
-  return content === void 0 ? { state: "unreadable", evidence: `${path} at ${ref2} could not be read` } : { state: "readable", content };
-}
-function readRefFile(repo, ref2, path) {
-  const result5 = readRefFileResult(repo, ref2, path);
-  return result5.state === "readable" ? result5.content : void 0;
-}
-function unreadableRepositoryCheck(path, reads) {
-  const unreadable = reads.find((read) => read.state === "unreadable");
-  if (!unreadable) return void 0;
-  return {
-    claim: { kind: "integrity", quote: "automatic agent-authored-change check", subject: "repository-aware evidence is readable" },
-    verdict: "unverifiable",
-    evidence: `${path}: ${unreadable.evidence}`,
-    ruleId: "integrity-unreadable",
-    contributesToPass: false,
-    blocksPass: true
-  };
-}
-function dangerousUnicodeFinding(patch) {
-  const bidiOrTag = /[\u202A-\u202E\u2066-\u2069\u{E0000}-\u{E007F}]/u;
-  for (let index = 0; index < patch.added.length; index++) {
-    const line = patch.added[index];
-    if (isDetectorPatternLine(line)) continue;
-    if (bidiOrTag.test(line)) {
-      return finding(
-        "hidden Unicode control added",
-        `${patch.path}, changed line ${index + 1}: a bidirectional or tag control character was added; the character is intentionally omitted from this receipt`,
-        "render-gate"
-      );
-    }
-  }
-  return void 0;
-}
-function hiddenUnicodeAdvisory(patch) {
-  const hidden = /[\u200B\u200C\u200D\u200E\u200F\u2060\uFEFF\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
-  for (let index = 0; index < patch.added.length; index++) {
-    const line = patch.added[index];
-    if (isDetectorPatternLine(line)) continue;
-    if (hidden.test(line)) {
-      return finding(
-        "invisible or rendering-sensitive Unicode added",
-        `${patch.path}, changed line ${index + 1}: a zero-width, direction-mark, or variation-selector character was added; review the raw bytes. The character is intentionally omitted from this receipt`,
-        "render-gate-hidden-character"
-      );
-    }
-  }
-  return void 0;
-}
-function mixedScriptFinding(patch) {
-  const identifier2 = /[\p{L}_$][\p{L}\p{N}_$]*/gu;
-  for (let lineIndex = 0; lineIndex < patch.added.length; lineIndex++) {
-    const line = patch.added[lineIndex];
-    if (isDetectorPatternLine(line)) continue;
-    for (const match of line.matchAll(identifier2)) {
-      const token = match[0];
-      const latin = new RegExp("\\p{Script=Latin}", "u").test(token);
-      const cyrillic = new RegExp("\\p{Script=Cyrillic}", "u").test(token);
-      const greek = new RegExp("\\p{Script=Greek}", "u").test(token);
-      if (Number(latin) + Number(cyrillic) + Number(greek) > 1) {
-        return finding(
-          "mixed-script token added",
-          `${patch.path}, changed line ${lineIndex + 1}: one identifier-like token mixes Latin, Cyrillic, or Greek characters; inspect the spelling before accepting it`,
-          "render-gate-mixed-script"
-        );
-      }
-    }
-  }
-  return void 0;
-}
-function oracleFalsifyFinding(patch) {
-  if (!isTestPath(patch.path)) return void 0;
-  const added = patch.added.filter((line) => !isDetectorPatternLine(line)).join("\n");
-  const swallowedPythonAssertion = /try\s*:[\s\S]{0,1200}\bassert\b[\s\S]{0,1200}except\s+AssertionError\s*:\s*(?:pass|\.\.\.)/m;
-  const swallowedJavaScriptAssertion = /try\s*\{[\s\S]{0,1200}\b(?:expect|assert)\b[\s\S]{0,1200}\}\s*catch\s*(?:\([^)]*\))?\s*\{\s*\}/m;
-  const unreachableAssertion = /\bif\s*(?:\(\s*(?:false|0)\s*\)|(?:False|0)\s*:)[\s\S]{0,1000}\b(?:expect|assert)\b/m;
-  if (swallowedPythonAssertion.test(added) || swallowedJavaScriptAssertion.test(added)) {
-    return finding(
-      "test assertion failure is swallowed",
-      `${patch.path}: a changed test catches and discards its own assertion failure`,
-      "oracle-falsify"
-    );
-  }
-  if (unreachableAssertion.test(added)) {
-    return finding(
-      "test assertion is statically unreachable",
-      `${patch.path}: a changed test places an assertion under a constant-false branch`,
-      "oracle-falsify"
-    );
-  }
-  return void 0;
-}
-function ghostLoaderFinding(patch) {
-  const path = patch.path.toLowerCase();
-  const added = patch.added.filter((line) => !isDetectorPatternLine(line)).join("\n");
-  if (/(?:^|\/)conftest\.py$/.test(path) && /pytest_collection_modifyitems/.test(added) && /(?:items\s*\[:\]\s*=|items\.remove\s*\(|\bitems\s*=\s*\[|deselected|pytest_deselected)/.test(added)) {
-    return finding(
-      "test discovery filter added",
-      `${patch.path}: the changed pytest collection hook can remove collected tests`,
-      "ghost-loader"
-    );
-  }
-  if (/(?:pytest\.ini|pyproject\.toml|setup\.cfg|tox\.ini)$/.test(path) && /(?:addopts|pytest\.ini_options)[\s\S]{0,800}(?:--deselect|--ignore(?:=|\s)|(?:^|\s)-k(?:\s|=)|-p\s+no:|--continue-on-collection-errors)/m.test(added)) {
-    return finding(
-      "test discovery exclusion added",
-      `${patch.path}: changed pytest options can omit tests from collection or continue after collection errors`,
-      "ghost-loader"
-    );
-  }
-  return void 0;
-}
-function harnessGuardFinding(patch) {
-  if (isGeneratedOrVendorPath(patch.path) || isDocumentationPath(patch.path)) return void 0;
-  for (let index = 0; index < patch.added.length; index++) {
-    const line = patch.added[index];
-    if (isDetectorPatternLine(line)) continue;
-    if (/\bcontinue-on-error\s*:\s*true\b|\bset\s+\+e\b|\bif\s*:\s*false\b/i.test(line)) {
-      return finding(
-        "verification harness made non-blocking",
-        `${patch.path}, changed line ${index + 1}: the harness can ignore a failed step or disable it outright`,
-        "verification-bypass"
-      );
-    }
-  }
-  return void 0;
-}
-function suppressionReceiptFinding(patch) {
-  if (isGeneratedOrVendorPath(patch.path) || isDocumentationPath(patch.path)) return void 0;
-  for (let index = 0; index < patch.added.length; index++) {
-    const line = patch.added[index];
-    if (isDetectorPatternLine(line)) continue;
-    if (/\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) {
-      return finding(
-        "compiler, linter, or type suppression added",
-        `${patch.path}, changed line ${index + 1}: a new diagnostic suppression requires review`,
-        "suppression-added"
-      );
-    }
-  }
-  return void 0;
-}
-function checkAgenticPatches(patches) {
-  const results = [];
-  const seen = /* @__PURE__ */ new Set();
-  const add = (patch, result5) => {
-    if (!result5) return;
-    const key2 = `${patch.path}:${result5.ruleId ?? result5.claim.subject}`;
-    if (seen.has(key2)) return;
-    seen.add(key2);
-    results.push(result5);
-  };
-  for (const patch of patches) {
-    if (isGeneratedOrVendorPath(patch.path)) continue;
-    if (isSourcePath(patch.path) || isInstructionPath(patch.path)) {
-      add(patch, dangerousUnicodeFinding(patch));
-      add(patch, hiddenUnicodeAdvisory(patch));
-      add(patch, mixedScriptFinding(patch));
-    }
-    for (const check2 of [oracleFalsifyFinding, ghostLoaderFinding, harnessGuardFinding, suppressionReceiptFinding]) {
-      add(patch, check2(patch));
-    }
-  }
-  return results;
-}
-function distinctiveReturnLiterals(patches) {
-  const candidates = [];
-  const literalPattern = /\breturn\s+(?<literal>(?:["'][^"'\n]{6,80}["'])|(?:-?\d+(?:\.\d+)?))\s*[;,]?\s*(?:\/\/.*|#.*)?$/;
-  for (const patch of patches.filter((item2) => isSourcePath(item2.path))) {
-    for (let index = 0; index < patch.added.length; index++) {
-      const raw = patch.added[index].match(literalPattern)?.groups?.literal;
-      if (!raw) continue;
-      const unquoted = /^["']/.test(raw) ? raw.slice(1, -1) : raw;
-      const numeric = Number(unquoted);
-      if (Number.isFinite(numeric)) {
-        if (Math.abs(numeric) < 1e4 || numeric % 1e3 === 0) continue;
-      } else if (/^(?:success|failure|unknown|default|example|test value|not found)$/i.test(unquoted)) {
-        continue;
-      }
-      candidates.push({
-        raw,
-        digest: createHash4("sha256").update(raw).digest("hex").slice(0, 12),
-        path: patch.path,
-        changedLine: index + 1
-      });
-    }
-  }
-  return candidates;
-}
-function grepRefPaths(repo, ref2, needle) {
-  const args = ref2 === "WORKTREE" ? ["grep", "-l", "-z", "-F", "-e", needle, "--"] : ["grep", "-l", "-z", "-F", "-e", needle, ref2, "--"];
-  const raw = gitOptional(repo, args) ?? "";
-  const prefix = ref2 === "WORKTREE" ? "" : `${ref2}:`;
-  return raw.split("\0").filter(Boolean).map((path) => prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path).filter((path) => path && !path.includes(":")).slice(0, 500);
-}
-function unchangedAssertion(repo, ref2, changed, needle) {
-  for (const path of grepRefPaths(repo, ref2, needle).filter((item2) => isTestPath(item2) && !changed.has(item2))) {
-    const content = readRefFile(repo, ref2, path);
-    if (content === void 0) continue;
-    const lineIndex = content.split("\n").findIndex((line) => line.includes(needle) && /\b(?:expect|assert|should)\b/i.test(line));
-    if (lineIndex >= 0) return `${path}:${lineIndex + 1}`;
-  }
-  return void 0;
-}
-function oracleEchoChecks(repo, base, head, changed, patches) {
-  if ([...changed].some(isTestPath)) return [];
-  const candidates = distinctiveReturnLiterals(patches);
-  if (!candidates.length) return [];
-  const results = [];
-  for (const candidate of candidates.slice(0, 20)) {
-    if (grepRefPaths(repo, base, candidate.raw).some(isSourcePath)) continue;
-    const assertion = unchangedAssertion(repo, head, changed, candidate.raw);
-    if (!assertion) continue;
-    results.push(finding(
-      "implementation echoes a pre-existing test oracle",
-      `${candidate.path}, changed line ${candidate.changedLine}, directly returns literal sha256:${candidate.digest}; unchanged assertion ${assertion} contains the same literal. The literal value is intentionally omitted`,
-      "oracle-echo"
-    ));
-  }
-  return results;
-}
-function dependencyMap(content) {
-  if (!content) return /* @__PURE__ */ new Set();
-  try {
-    const parsed = JSON.parse(content);
-    const names2 = /* @__PURE__ */ new Set();
-    for (const key2 of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
-      const value = parsed[key2];
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      for (const name2 of Object.keys(value)) names2.add(name2.toLowerCase());
-    }
-    return names2;
-  } catch {
-    return void 0;
-  }
-}
-function editDistance(left, right) {
-  if (Math.abs(left.length - right.length) > 1) return 2;
-  if (left.length === right.length) {
-    for (let index = 0; index < left.length - 1; index++) {
-      if (left[index] !== right[index] && left[index] === right[index + 1] && left[index + 1] === right[index] && left.slice(0, index) === right.slice(0, index) && left.slice(index + 2) === right.slice(index + 2)) return 1;
-    }
-  }
-  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= left.length; i++) {
-    let previous = row[0];
-    row[0] = i;
-    for (let j = 1; j <= right.length; j++) {
-      const old = row[j];
-      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (left[i - 1] === right[j - 1] ? 0 : 1));
-      previous = old;
-    }
-  }
-  return row[right.length];
-}
-function addedImportNames(patches) {
-  const names2 = /* @__PURE__ */ new Set();
-  const addName = (raw) => {
-    if (!raw || raw.startsWith(".") || raw.startsWith("/") || raw.startsWith("node:") || raw.includes("://") || raw.startsWith("@")) return;
-    const name2 = raw.split(/[/.]/)[0].toLowerCase().replaceAll("_", "-");
-    if (/^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) names2.add(name2);
-  };
-  for (const patch of patches) {
-    for (const line of patch.added) {
-      if (isDetectorPatternLine(line)) continue;
-      const python = /^(?:\s*)(?:from|import)\s+([A-Za-z_][\w.-]*)/.exec(line)?.[1];
-      const javascript = /(?:\bfrom\s*|\brequire\s*\(|\bimport\s*\()\s*["']([^"']+)["']/.exec(line)?.[1];
-      const requirement = /(?:^|\/)(?:requirements[^/]*\.txt|constraints[^/]*\.txt)$/i.test(patch.path) ? /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(line)?.[1] : void 0;
-      for (const raw of [python, javascript, requirement]) addName(raw);
-    }
-  }
-  return names2;
-}
-function freshDependencyChecks(repo, base, head, changed, patches) {
-  const added = addedImportNames(patches);
-  if (changed.has("package.json")) {
-    const beforeRead = readRefFileResult(repo, base, "package.json");
-    const afterRead = readRefFileResult(repo, head, "package.json");
-    const unreadable = unreadableRepositoryCheck("package.json", [beforeRead, afterRead]);
-    if (unreadable) return [unreadable];
-    const before = dependencyMap(beforeRead.state === "readable" ? beforeRead.content : "");
-    const after = dependencyMap(afterRead.state === "readable" ? afterRead.content : "");
-    if (!before || !after) {
-      return [unreadableRepositoryCheck("package.json", [{ state: "unreadable", evidence: "changed dependency manifest is not valid JSON" }])];
-    }
-    for (const name2 of after) {
-      if (!before.has(name2) && /^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) added.add(name2);
-    }
-  }
-  const popular = [
-    "aiohttp",
-    "anthropic",
-    "axios",
-    "boto3",
-    "certifi",
-    "chalk",
-    "click",
-    "commander",
-    "cryptography",
-    "django",
-    "dotenv",
-    "eslint",
-    "express",
-    "fastapi",
-    "flask",
-    "httpx",
-    "jest",
-    "lodash",
-    "matplotlib",
-    "next",
-    "numpy",
-    "openai",
-    "pandas",
-    "pillow",
-    "prettier",
-    "pydantic",
-    "pytest",
-    "pyyaml",
-    "react",
-    "redis",
-    "requests",
-    "rollup",
-    "scipy",
-    "selenium",
-    "sqlalchemy",
-    "svelte",
-    "tensorflow",
-    "torch",
-    "transformers",
-    "typescript",
-    "urllib3",
-    "vite",
-    "vue",
-    "webpack",
-    "yargs",
-    "zod"
-  ];
-  const results = [];
-  for (const name2 of added) {
-    const neighbor = popular.find((known) => known !== name2 && editDistance(known, name2) === 1);
-    if (!neighbor) continue;
-    results.push(finding(
-      "new import or dependency resembles a common package name",
-      `${name2} is newly imported or declared and is one edit from ${neighbor}; this offline check does not claim the package is malicious or verify registry ownership`,
-      "fresh-dep"
-    ));
-  }
-  return results;
-}
-function coverageFloor(content) {
-  if (!content) return void 0;
-  const values = [
-    ...[...content.matchAll(/--(?:cov-)?fail-under(?:=|\s+)(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1])),
-    ...[...content.matchAll(/minimum[_-]?coverage\s*[:=]\s*(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1])),
-    ...[...content.matchAll(/coverageThreshold[^\n]{0,160}?(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1]))
-  ].filter(Number.isFinite);
-  return values.length ? Math.min(...values) : void 0;
-}
-function loweredCoverageChecks(repo, base, head, changed) {
-  for (const path of changed) {
-    if (!/(?:^|\/)(?:package\.json|pyproject\.toml|pytest\.ini|setup\.cfg|tox\.ini|.*ya?ml|.*json)$/i.test(path)) continue;
-    const beforeRead = readRefFileResult(repo, base, path);
-    const afterRead = readRefFileResult(repo, head, path);
-    const unreadable = unreadableRepositoryCheck(path, [beforeRead, afterRead]);
-    if (unreadable) return [unreadable];
-    const before = coverageFloor(beforeRead.state === "readable" ? beforeRead.content : void 0);
-    const after = coverageFloor(afterRead.state === "readable" ? afterRead.content : void 0);
-    if (before !== void 0 && (after === void 0 || after < before)) {
-      return [finding(
-        "coverage requirement lowered",
-        after === void 0 ? `${path}: the recognized minimum coverage floor of ${before} was removed` : `${path}: the recognized minimum coverage floor fell from ${before} to ${after}`,
-        "coverage-weakened"
-      )];
-    }
-  }
-  return [];
-}
-function checkAgenticRepository(repo, base, head, changedPaths2, patches) {
-  const changed = new Set(changedPaths2);
-  return [
-    ...oracleEchoChecks(repo, base, head, changed, patches),
-    ...freshDependencyChecks(repo, base, head, changed, patches),
-    ...loweredCoverageChecks(repo, base, head, changed)
-  ];
-}
-function isAncestor(repo, commit2, ref2) {
-  return trustedGitOptional(repo, ["merge-base", "--is-ancestor", commit2, ref2]) !== void 0;
-}
-function checkOutOfDagReads(repo, base, head, toolCalls) {
-  const findings = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const call of toolCalls) {
-    if (!/\bgit\s+(?:show|diff|cat-file|checkout|cherry-pick|log)\b/i.test(call.input)) continue;
-    for (const match of call.input.matchAll(/\b[0-9a-f]{7,40}\b/gi)) {
-      const supplied = match[0];
-      const commit2 = gitOptional(repo, ["rev-parse", "--verify", `${supplied}^{commit}`])?.trim();
-      if (!commit2 || seen.has(commit2)) continue;
-      seen.add(commit2);
-      if (isAncestor(repo, commit2, base)) continue;
-      if (head !== "WORKTREE" && isAncestor(repo, commit2, head)) continue;
-      findings.push(finding(
-        "out-of-change-history commit was read",
-        `tool call ${call.sequence + 1} references ${commit2.slice(0, 12)}, which is outside the selected base-to-head history. Retrieval is observed; origin, copying, and causation are not inferred`,
-        "leak-gate"
-      ));
-    }
-  }
-  return findings;
-}
 
 // node_modules/acorn/dist/acorn.mjs
 var astralIdentifierCodes = [509, 0, 227, 0, 150, 4, 294, 9, 1368, 2, 2, 1, 6, 3, 41, 2, 5, 0, 166, 1, 574, 3, 9, 9, 7, 9, 32, 4, 318, 1, 78, 5, 71, 10, 50, 3, 123, 2, 54, 14, 32, 10, 3, 1, 11, 3, 46, 10, 8, 0, 46, 9, 7, 2, 37, 13, 2, 9, 6, 1, 45, 0, 13, 2, 49, 13, 9, 3, 2, 11, 83, 11, 7, 0, 3, 0, 158, 11, 6, 9, 7, 3, 56, 1, 2, 6, 3, 1, 3, 2, 10, 0, 11, 1, 3, 6, 4, 4, 68, 8, 2, 0, 3, 0, 2, 3, 2, 4, 2, 0, 15, 1, 83, 17, 10, 9, 5, 0, 82, 19, 13, 9, 214, 6, 3, 8, 28, 1, 83, 16, 16, 9, 82, 12, 9, 9, 7, 19, 58, 14, 5, 9, 243, 14, 166, 9, 71, 5, 2, 1, 3, 3, 2, 0, 2, 1, 13, 9, 120, 6, 3, 6, 4, 0, 29, 9, 41, 6, 2, 3, 9, 0, 10, 10, 47, 15, 199, 7, 137, 9, 54, 7, 2, 7, 17, 9, 57, 21, 2, 13, 123, 5, 4, 0, 2, 1, 2, 6, 2, 0, 9, 9, 49, 4, 2, 1, 2, 4, 9, 9, 55, 9, 266, 3, 10, 1, 2, 0, 49, 6, 4, 4, 14, 10, 5350, 0, 7, 14, 11465, 27, 2343, 9, 87, 9, 39, 4, 60, 6, 26, 9, 535, 9, 470, 0, 2, 54, 8, 3, 82, 0, 12, 1, 19628, 1, 4178, 9, 519, 45, 3, 22, 543, 4, 4, 5, 9, 7, 3, 6, 31, 3, 149, 2, 1418, 49, 513, 54, 5, 49, 9, 0, 15, 0, 23, 4, 2, 14, 1361, 6, 2, 16, 3, 6, 2, 1, 2, 4, 101, 0, 161, 6, 10, 9, 357, 0, 62, 13, 499, 13, 245, 1, 2, 9, 233, 0, 3, 0, 8, 1, 6, 0, 475, 6, 110, 6, 6, 9, 4759, 9, 787719, 239];
@@ -7590,6 +7094,656 @@ function parse3(input, options) {
   return Parser.parse(input, options);
 }
 
+// src/detectors/test-code-context.ts
+import * as nodeModule from "node:module";
+function readFileCodeContext(path, source2) {
+  if (!/\.(?:[cm]?[jt]s|md|txt)$/i.test(path) || !source2 || Buffer.byteLength(source2, "utf8") > 1024 * 1024 || /[\0\ufffd]/u.test(source2) || /\.[jt]sx$/i.test(path)) return void 0;
+  let parsedSource = source2;
+  function parseStrict() {
+    for (const sourceType of ["module", "script"]) {
+      const comments = [];
+      try {
+        const tree = parse3(parsedSource, {
+          ecmaVersion: "latest",
+          sourceType,
+          allowReturnOutsideFunction: sourceType === "script",
+          onComment: (_block, _text, start, end) => comments.push({ start, end })
+        });
+        return { tree, comments };
+      } catch {
+      }
+    }
+    return void 0;
+  }
+  let parsed = parseStrict();
+  if (!parsed && /\.[cm]?ts$/i.test(path)) {
+    const strip = nodeModule.stripTypeScriptTypes;
+    if (typeof strip === "function") {
+      try {
+        parsedSource = strip(source2, { mode: "strip" });
+        parsed = parseStrict();
+      } catch {
+      }
+    }
+  }
+  const ranges = [];
+  if (parsed) {
+    ranges.push(...parsed.comments);
+    const stack = [parsed.tree];
+    let visited = 0;
+    while (stack.length) {
+      if (++visited > 2e5) return void 0;
+      const node = stack.pop();
+      if (node.type === "Literal" && (typeof node.value === "string" || node.regex) || node.type === "TemplateElement") ranges.push({ start: node.start, end: node.end });
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) {
+          for (const child of value) if (child && typeof child.type === "string") stack.push(child);
+        } else if (value && typeof value === "object" && "type" in value && typeof value.type === "string") {
+          stack.push(value);
+        }
+      }
+    }
+    if (parsedSource.length !== source2.length || ranges.some(({ start, end }) => source2.slice(start, end) !== parsedSource.slice(start, end))) return void 0;
+  } else if (/\.md$/i.test(path) && /^#{1,6} /m.test(source2)) {
+    let offset3 = 0;
+    let fence;
+    for (const line of source2.split("\n")) {
+      const marker2 = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (fence) {
+        if (marker2 && marker2[1][0] === fence.character && marker2[1].length >= fence.length && /^[ \t\r]*$/.test(marker2[2])) fence = void 0;
+      } else if (marker2) {
+        fence = { character: marker2[1][0], length: marker2[1].length };
+      } else if (/<!--|<\/?[A-Za-z][^>]*>/.test(line)) {
+        return void 0;
+      } else if (!/^(?: {4}|\t)/.test(line) && !/[<>]/.test(line) && !/``/.test(line)) {
+        for (const match of line.matchAll(/`[^`\r\n]+`/g)) ranges.push({ start: offset3 + match.index, end: offset3 + match.index + match[0].length });
+      }
+      offset3 += line.length + 1;
+    }
+  } else return void 0;
+  const lines = source2.split("\n");
+  const starts = [];
+  let offset2 = 0;
+  for (const line of lines) {
+    starts.push(offset2);
+    offset2 += line.length + 1;
+  }
+  ranges.sort((a, b) => a.start - b.start);
+  return { ranges, lines, starts };
+}
+function bindAddedCodeContext(context, added, numbers) {
+  if (!context || !numbers || numbers.length !== added.length) return void 0;
+  const offsets = [];
+  for (let index = 0; index < added.length; index++) {
+    const line = numbers[index];
+    if (!Number.isSafeInteger(line) || line < 1 || index > 0 && line <= numbers[index - 1] || context.lines[line - 1] !== added[index]) return void 0;
+    offsets.push(context.starts[line - 1]);
+  }
+  return { ranges: context.ranges, offsets };
+}
+function findTestCodeMatches(patch, patterns, triggerOnly = false) {
+  const entries = patch.added.flatMap((text8, index) => text8.includes("vigil:detector-pattern") ? [] : [{ text: text8, index }]);
+  const lines = entries.map(({ text: text8 }) => text8);
+  const starts = [];
+  let offset2 = 0;
+  for (const line of lines) {
+    starts.push(offset2);
+    offset2 += line.length + 1;
+  }
+  const added = lines.join("\n");
+  function location(position) {
+    let low = 0, high = starts.length - 1;
+    while (low <= high) {
+      const mid = low + high >>> 1;
+      if (starts[mid] <= position) low = mid + 1;
+      else high = mid - 1;
+    }
+    if (high < 0 || position >= starts[high] + lines[high].length) return void 0;
+    return { line: high, column: position - starts[high] };
+  }
+  let quoted2;
+  let direct;
+  for (const pattern of patterns) {
+    const regex = new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, "") + "g");
+    let match;
+    while ((match = regex.exec(added)) !== null) {
+      if (triggerOnly || !match[0].length) regex.lastIndex = match.index + Math.max(1, /^\w+/.exec(match[0])?.[0].length ?? 1);
+      const first = location(match.index);
+      const last = location(match.index + (triggerOnly ? /^\w+/.exec(match[0])?.[0].length ?? match[0].length : match[0].length) - 1);
+      let inQuotedText = false;
+      const context = patch.codeContext;
+      if (context && first && last) {
+        const start = context.offsets[entries[first.line].index] + first.column;
+        const end = context.offsets[entries[last.line].index] + last.column + 1;
+        let low = 0, high = context.ranges.length - 1;
+        while (low <= high) {
+          const mid = low + high >>> 1;
+          if (context.ranges[mid].start <= start) low = mid + 1;
+          else high = mid - 1;
+        }
+        inQuotedText = high >= 0 && context.ranges[high].end >= end;
+      }
+      const result5 = { quoted: inQuotedText, line: first ? entries[first.line].index + 1 : 1, text: match[0] };
+      if (!inQuotedText) direct ??= result5;
+      else quoted2 ??= result5;
+      if (direct && quoted2) return [direct, quoted2];
+    }
+  }
+  return [direct, quoted2].filter((value) => value !== void 0);
+}
+function uncheckedTestCode(path, ruleId) {
+  return {
+    claim: { kind: "integrity", quote: "exact-file test-code context check", subject: "quoted test code needs an execution check" },
+    verdict: "unverifiable",
+    ruleId: "test-code-context-unchecked",
+    contributesToPass: false,
+    blocksPass: true,
+    evidence: `${path}: ${ruleId} matched quoted text or a comment, not a direct operation at that location. The text may still be executed by a helper or generated file. Check that execution path before clearing this hold; this is not proof that a test was weakened or that the change is safe.`
+  };
+}
+
+// src/detectors/agentic.ts
+var MAX_FILE_BYTES = 1024 * 1024;
+function gitOptional(repo, args) {
+  return trustedGitOptional(repo, args, 34 * 1024 * 1024);
+}
+function finding(subject, evidence, ruleId) {
+  return {
+    claim: { kind: "integrity", quote: "automatic agent-authored-change check", subject },
+    verdict: "contradicted",
+    evidence,
+    ruleId,
+    contributesToPass: false
+  };
+}
+function isTestPath(path) {
+  return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|\.cy|_test)\.[^.]+$/i.test(path);
+}
+function isGeneratedOrVendorPath(path) {
+  return /^(?:node_modules|vendor|dist|build|coverage|\.git)\//.test(path);
+}
+function isInstructionPath(path) {
+  return /(?:^|\/)(?:AGENTS|CLAUDE|GEMINI)\.md$/i.test(path) || /(?:^|\/)\.cursorrules$/i.test(path) || /(?:^|\/)\.github\/copilot-instructions\.md$/i.test(path);
+}
+function isDocumentationPath(path) {
+  return /^(?:docs?|examples?)\//i.test(path) || /(?:^|\/)(?:README|CHANGELOG|CONTRIBUTING|SECURITY|LICENSE)(?:\.[^/]*)?$/i.test(path) || /\.(?:md|mdx|rst|txt)$/i.test(path);
+}
+function isSourcePath(path) {
+  return /\.(?:[cm]?[jt]sx?|py|rb|php|java|kt|kts|go|rs|swift|cs|c|cc|cpp|h|hpp)$/i.test(path) && !isTestPath(path) && !isGeneratedOrVendorPath(path);
+}
+function isDetectorPatternLine(line) {
+  return line.includes("vigil:detector-pattern");
+}
+function readRefFileResult(repo, ref2, path) {
+  if (path.includes(":")) return { state: "unreadable", evidence: `${path} contains an unsupported Git path separator` };
+  if (ref2 === "WORKTREE") {
+    const realRoot = realpathSync2(resolve4(repo));
+    const candidate = resolve4(realRoot, path);
+    if (candidate !== realRoot && !candidate.startsWith(`${realRoot}${sep2}`)) {
+      return { state: "unreadable", evidence: `${path} escapes the repository boundary` };
+    }
+    if (!existsSync2(candidate)) return { state: "missing" };
+    let descriptor;
+    try {
+      const relative17 = candidate.slice(realRoot.length + 1).split(sep2).filter(Boolean);
+      let cursor = realRoot;
+      for (let index = 0; index < relative17.length; index += 1) {
+        cursor = resolve4(cursor, relative17[index]);
+        const stat = lstatSync3(cursor);
+        if (stat.isSymbolicLink() || (index < relative17.length - 1 ? !stat.isDirectory() : !stat.isFile())) {
+          return { state: "unreadable", evidence: `${path} is not a regular no-symlink worktree file` };
+        }
+      }
+      const expected = lstatSync3(candidate);
+      if (expected.size > MAX_FILE_BYTES) {
+        return { state: "unreadable", evidence: `${path} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
+      }
+      const noFollow = typeof constants3.O_NOFOLLOW === "number" ? constants3.O_NOFOLLOW : 0;
+      const nonBlock = typeof constants3.O_NONBLOCK === "number" ? constants3.O_NONBLOCK : 0;
+      descriptor = openSync3(candidate, constants3.O_RDONLY | noFollow | nonBlock);
+      const opened = fstatSync3(descriptor);
+      if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeMs !== expected.mtimeMs || opened.ctimeMs !== expected.ctimeMs) {
+        return { state: "unreadable", evidence: `${path} changed while being opened` };
+      }
+      const content2 = Buffer.alloc(opened.size);
+      let offset2 = 0;
+      while (offset2 < content2.length) {
+        const count3 = readSync3(descriptor, content2, offset2, content2.length - offset2, offset2);
+        if (count3 === 0) break;
+        offset2 += count3;
+      }
+      const after = fstatSync3(descriptor);
+      const finalPath = lstatSync3(candidate);
+      if (offset2 !== content2.length || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size || finalPath.mtimeMs !== opened.mtimeMs || finalPath.ctimeMs !== opened.ctimeMs) {
+        return { state: "unreadable", evidence: `${path} changed while being read` };
+      }
+      return { state: "readable", content: content2.toString("utf8") };
+    } catch {
+      return { state: "unreadable", evidence: `${path} could not be read from the worktree` };
+    } finally {
+      if (descriptor !== void 0) closeSync3(descriptor);
+    }
+  }
+  const listed = gitOptional(repo, ["ls-tree", "--name-only", "-z", ref2, "--", path]);
+  if (listed === void 0) return { state: "unreadable", evidence: `Git could not determine whether ${path} exists at ${ref2}` };
+  if (!listed.split("\0").includes(path)) return { state: "missing" };
+  const sizeText = gitOptional(repo, ["cat-file", "-s", `${ref2}:${path}`]);
+  const size = Number(sizeText?.trim());
+  if (!Number.isFinite(size) || size < 0) return { state: "unreadable", evidence: `${path} size at ${ref2} could not be verified` };
+  if (size > MAX_FILE_BYTES) return { state: "unreadable", evidence: `${path} at ${ref2} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
+  const content = gitOptional(repo, ["show", `${ref2}:${path}`]);
+  return content === void 0 ? { state: "unreadable", evidence: `${path} at ${ref2} could not be read` } : { state: "readable", content };
+}
+function readRefFile(repo, ref2, path) {
+  const result5 = readRefFileResult(repo, ref2, path);
+  return result5.state === "readable" ? result5.content : void 0;
+}
+function unreadableRepositoryCheck(path, reads) {
+  const unreadable = reads.find((read) => read.state === "unreadable");
+  if (!unreadable) return void 0;
+  return {
+    claim: { kind: "integrity", quote: "automatic agent-authored-change check", subject: "repository-aware evidence is readable" },
+    verdict: "unverifiable",
+    evidence: `${path}: ${unreadable.evidence}`,
+    ruleId: "integrity-unreadable",
+    contributesToPass: false,
+    blocksPass: true
+  };
+}
+function dangerousUnicodeFinding(patch) {
+  const bidiOrTag = /[\u202A-\u202E\u2066-\u2069\u{E0000}-\u{E007F}]/u;
+  for (let index = 0; index < patch.added.length; index++) {
+    const line = patch.added[index];
+    if (isDetectorPatternLine(line)) continue;
+    if (bidiOrTag.test(line)) {
+      return finding(
+        "hidden Unicode control added",
+        `${patch.path}, changed line ${index + 1}: a bidirectional or tag control character was added; the character is intentionally omitted from this receipt`,
+        "render-gate"
+      );
+    }
+  }
+  return void 0;
+}
+function hiddenUnicodeAdvisory(patch) {
+  const hidden = /[\u200B\u200C\u200D\u200E\u200F\u2060\uFEFF\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
+  for (let index = 0; index < patch.added.length; index++) {
+    const line = patch.added[index];
+    if (isDetectorPatternLine(line)) continue;
+    if (hidden.test(line)) {
+      return finding(
+        "invisible or rendering-sensitive Unicode added",
+        `${patch.path}, changed line ${index + 1}: a zero-width, direction-mark, or variation-selector character was added; review the raw bytes. The character is intentionally omitted from this receipt`,
+        "render-gate-hidden-character"
+      );
+    }
+  }
+  return void 0;
+}
+function mixedScriptFinding(patch) {
+  const identifier2 = /[\p{L}_$][\p{L}\p{N}_$]*/gu;
+  for (let lineIndex = 0; lineIndex < patch.added.length; lineIndex++) {
+    const line = patch.added[lineIndex];
+    if (isDetectorPatternLine(line)) continue;
+    for (const match of line.matchAll(identifier2)) {
+      const token = match[0];
+      const latin = new RegExp("\\p{Script=Latin}", "u").test(token);
+      const cyrillic = new RegExp("\\p{Script=Cyrillic}", "u").test(token);
+      const greek = new RegExp("\\p{Script=Greek}", "u").test(token);
+      if (Number(latin) + Number(cyrillic) + Number(greek) > 1) {
+        return finding(
+          "mixed-script token added",
+          `${patch.path}, changed line ${lineIndex + 1}: one identifier-like token mixes Latin, Cyrillic, or Greek characters; inspect the spelling before accepting it`,
+          "render-gate-mixed-script"
+        );
+      }
+    }
+  }
+  return void 0;
+}
+function oracleFalsifyFindings(patch) {
+  if (!isTestPath(patch.path)) return [];
+  const results = [];
+  const swallowedPythonAssertion = /try\s*:[\s\S]{0,1200}\bassert\b[\s\S]{0,1200}except\s+AssertionError\s*:\s*(?:pass|\.\.\.)/m;
+  const swallowedJavaScriptAssertion = /try\s*\{[\s\S]{0,1200}\b(?:expect|assert)\b[\s\S]{0,1200}\}\s*catch\s*(?:\([^)]*\))?\s*\{\s*\}/m;
+  const unreachableAssertion = /\bif\s*(?:\(\s*(?:false|0)\s*\)|(?:False|0)\s*:)[\s\S]{0,1000}\b(?:expect|assert)\b/m;
+  const swallowed = findTestCodeMatches(patch, [swallowedPythonAssertion, swallowedJavaScriptAssertion], true);
+  const unreachable = findTestCodeMatches(patch, [unreachableAssertion], true);
+  if (swallowed.some((match) => !match.quoted)) {
+    results.push(finding(
+      "test assertion failure is swallowed",
+      `${patch.path}: a changed test catches and discards its own assertion failure`,
+      "oracle-falsify"
+    ));
+  }
+  if (unreachable.some((match) => !match.quoted)) {
+    results.push(finding(
+      "test assertion is statically unreachable",
+      `${patch.path}: a changed test places an assertion under a constant-false branch`,
+      "oracle-falsify"
+    ));
+  }
+  if ([...swallowed, ...unreachable].some((match) => match.quoted)) results.push(uncheckedTestCode(patch.path, "oracle-falsify"));
+  return results;
+}
+function ghostLoaderFinding(patch) {
+  const path = patch.path.toLowerCase();
+  const added = patch.added.filter((line) => !isDetectorPatternLine(line)).join("\n");
+  if (/(?:^|\/)conftest\.py$/.test(path) && /pytest_collection_modifyitems/.test(added) && /(?:items\s*\[:\]\s*=|items\.remove\s*\(|\bitems\s*=\s*\[|deselected|pytest_deselected)/.test(added)) {
+    return finding(
+      "test discovery filter added",
+      `${patch.path}: the changed pytest collection hook can remove collected tests`,
+      "ghost-loader"
+    );
+  }
+  if (/(?:pytest\.ini|pyproject\.toml|setup\.cfg|tox\.ini)$/.test(path) && /(?:addopts|pytest\.ini_options)[\s\S]{0,800}(?:--deselect|--ignore(?:=|\s)|(?:^|\s)-k(?:\s|=)|-p\s+no:|--continue-on-collection-errors)/m.test(added)) {
+    return finding(
+      "test discovery exclusion added",
+      `${patch.path}: changed pytest options can omit tests from collection or continue after collection errors`,
+      "ghost-loader"
+    );
+  }
+  return void 0;
+}
+function harnessGuardFinding(patch) {
+  if (isGeneratedOrVendorPath(patch.path) || isDocumentationPath(patch.path)) return void 0;
+  for (let index = 0; index < patch.added.length; index++) {
+    const line = patch.added[index];
+    if (isDetectorPatternLine(line)) continue;
+    if (/\bcontinue-on-error\s*:\s*true\b|\bset\s+\+e\b|\bif\s*:\s*false\b/i.test(line)) {
+      return finding(
+        "verification harness made non-blocking",
+        `${patch.path}, changed line ${index + 1}: the harness can ignore a failed step or disable it outright`,
+        "verification-bypass"
+      );
+    }
+  }
+  return void 0;
+}
+function suppressionReceiptFinding(patch) {
+  if (isGeneratedOrVendorPath(patch.path) || isDocumentationPath(patch.path)) return void 0;
+  for (let index = 0; index < patch.added.length; index++) {
+    const line = patch.added[index];
+    if (isDetectorPatternLine(line)) continue;
+    if (/\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) {
+      return finding(
+        "compiler, linter, or type suppression added",
+        `${patch.path}, changed line ${index + 1}: a new diagnostic suppression requires review`,
+        "suppression-added"
+      );
+    }
+  }
+  return void 0;
+}
+function checkAgenticPatches(patches) {
+  const results = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = (patch, result5) => {
+    if (!result5) return;
+    const key2 = `${patch.path}:${result5.ruleId ?? result5.claim.subject}`;
+    if (seen.has(key2)) return;
+    seen.add(key2);
+    results.push(result5);
+  };
+  for (const patch of patches) {
+    if (isGeneratedOrVendorPath(patch.path)) continue;
+    if (isSourcePath(patch.path) || isInstructionPath(patch.path)) {
+      add(patch, dangerousUnicodeFinding(patch));
+      add(patch, hiddenUnicodeAdvisory(patch));
+      add(patch, mixedScriptFinding(patch));
+    }
+    for (const result5 of oracleFalsifyFindings(patch)) add(patch, result5);
+    for (const check2 of [ghostLoaderFinding, harnessGuardFinding, suppressionReceiptFinding]) {
+      add(patch, check2(patch));
+    }
+  }
+  return results;
+}
+function distinctiveReturnLiterals(patches) {
+  const candidates = [];
+  const literalPattern = /\breturn\s+(?<literal>(?:["'][^"'\n]{6,80}["'])|(?:-?\d+(?:\.\d+)?))\s*[;,]?\s*(?:\/\/.*|#.*)?$/;
+  for (const patch of patches.filter((item2) => isSourcePath(item2.path))) {
+    for (let index = 0; index < patch.added.length; index++) {
+      const raw = patch.added[index].match(literalPattern)?.groups?.literal;
+      if (!raw) continue;
+      const unquoted = /^["']/.test(raw) ? raw.slice(1, -1) : raw;
+      const numeric = Number(unquoted);
+      if (Number.isFinite(numeric)) {
+        if (Math.abs(numeric) < 1e4 || numeric % 1e3 === 0) continue;
+      } else if (/^(?:success|failure|unknown|default|example|test value|not found)$/i.test(unquoted)) {
+        continue;
+      }
+      candidates.push({
+        raw,
+        digest: createHash4("sha256").update(raw).digest("hex").slice(0, 12),
+        path: patch.path,
+        changedLine: index + 1
+      });
+    }
+  }
+  return candidates;
+}
+function grepRefPaths(repo, ref2, needle) {
+  const args = ref2 === "WORKTREE" ? ["grep", "-l", "-z", "-F", "-e", needle, "--"] : ["grep", "-l", "-z", "-F", "-e", needle, ref2, "--"];
+  const raw = gitOptional(repo, args) ?? "";
+  const prefix = ref2 === "WORKTREE" ? "" : `${ref2}:`;
+  return raw.split("\0").filter(Boolean).map((path) => prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path).filter((path) => path && !path.includes(":")).slice(0, 500);
+}
+function unchangedAssertion(repo, ref2, changed, needle) {
+  for (const path of grepRefPaths(repo, ref2, needle).filter((item2) => isTestPath(item2) && !changed.has(item2))) {
+    const content = readRefFile(repo, ref2, path);
+    if (content === void 0) continue;
+    const lineIndex = content.split("\n").findIndex((line) => line.includes(needle) && /\b(?:expect|assert|should)\b/i.test(line));
+    if (lineIndex >= 0) return `${path}:${lineIndex + 1}`;
+  }
+  return void 0;
+}
+function oracleEchoChecks(repo, base, head, changed, patches) {
+  if ([...changed].some(isTestPath)) return [];
+  const candidates = distinctiveReturnLiterals(patches);
+  if (!candidates.length) return [];
+  const results = [];
+  for (const candidate of candidates.slice(0, 20)) {
+    if (grepRefPaths(repo, base, candidate.raw).some(isSourcePath)) continue;
+    const assertion = unchangedAssertion(repo, head, changed, candidate.raw);
+    if (!assertion) continue;
+    results.push(finding(
+      "implementation echoes a pre-existing test oracle",
+      `${candidate.path}, changed line ${candidate.changedLine}, directly returns literal sha256:${candidate.digest}; unchanged assertion ${assertion} contains the same literal. The literal value is intentionally omitted`,
+      "oracle-echo"
+    ));
+  }
+  return results;
+}
+function dependencyMap(content) {
+  if (!content) return /* @__PURE__ */ new Set();
+  try {
+    const parsed = JSON.parse(content);
+    const names2 = /* @__PURE__ */ new Set();
+    for (const key2 of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      const value = parsed[key2];
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      for (const name2 of Object.keys(value)) names2.add(name2.toLowerCase());
+    }
+    return names2;
+  } catch {
+    return void 0;
+  }
+}
+function editDistance(left, right) {
+  if (Math.abs(left.length - right.length) > 1) return 2;
+  if (left.length === right.length) {
+    for (let index = 0; index < left.length - 1; index++) {
+      if (left[index] !== right[index] && left[index] === right[index + 1] && left[index + 1] === right[index] && left.slice(0, index) === right.slice(0, index) && left.slice(index + 2) === right.slice(index + 2)) return 1;
+    }
+  }
+  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i++) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const old = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (left[i - 1] === right[j - 1] ? 0 : 1));
+      previous = old;
+    }
+  }
+  return row[right.length];
+}
+function addedImportNames(patches) {
+  const names2 = /* @__PURE__ */ new Set();
+  const addName = (raw) => {
+    if (!raw || raw.startsWith(".") || raw.startsWith("/") || raw.startsWith("node:") || raw.includes("://") || raw.startsWith("@")) return;
+    const name2 = raw.split(/[/.]/)[0].toLowerCase().replaceAll("_", "-");
+    if (/^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) names2.add(name2);
+  };
+  for (const patch of patches) {
+    for (const line of patch.added) {
+      if (isDetectorPatternLine(line)) continue;
+      const python = /^(?:\s*)(?:from|import)\s+([A-Za-z_][\w.-]*)/.exec(line)?.[1];
+      const javascript = /(?:\bfrom\s*|\brequire\s*\(|\bimport\s*\()\s*["']([^"']+)["']/.exec(line)?.[1];
+      const requirement = /(?:^|\/)(?:requirements[^/]*\.txt|constraints[^/]*\.txt)$/i.test(patch.path) ? /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(line)?.[1] : void 0;
+      for (const raw of [python, javascript, requirement]) addName(raw);
+    }
+  }
+  return names2;
+}
+function freshDependencyChecks(repo, base, head, changed, patches) {
+  const added = addedImportNames(patches);
+  if (changed.has("package.json")) {
+    const beforeRead = readRefFileResult(repo, base, "package.json");
+    const afterRead = readRefFileResult(repo, head, "package.json");
+    const unreadable = unreadableRepositoryCheck("package.json", [beforeRead, afterRead]);
+    if (unreadable) return [unreadable];
+    const before = dependencyMap(beforeRead.state === "readable" ? beforeRead.content : "");
+    const after = dependencyMap(afterRead.state === "readable" ? afterRead.content : "");
+    if (!before || !after) {
+      return [unreadableRepositoryCheck("package.json", [{ state: "unreadable", evidence: "changed dependency manifest is not valid JSON" }])];
+    }
+    for (const name2 of after) {
+      if (!before.has(name2) && /^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) added.add(name2);
+    }
+  }
+  const popular = [
+    "aiohttp",
+    "anthropic",
+    "axios",
+    "boto3",
+    "certifi",
+    "chalk",
+    "click",
+    "commander",
+    "cryptography",
+    "django",
+    "dotenv",
+    "eslint",
+    "express",
+    "fastapi",
+    "flask",
+    "httpx",
+    "jest",
+    "lodash",
+    "matplotlib",
+    "next",
+    "numpy",
+    "openai",
+    "pandas",
+    "pillow",
+    "prettier",
+    "pydantic",
+    "pytest",
+    "pyyaml",
+    "react",
+    "redis",
+    "requests",
+    "rollup",
+    "scipy",
+    "selenium",
+    "sqlalchemy",
+    "svelte",
+    "tensorflow",
+    "torch",
+    "transformers",
+    "typescript",
+    "urllib3",
+    "vite",
+    "vue",
+    "webpack",
+    "yargs",
+    "zod"
+  ];
+  const results = [];
+  for (const name2 of added) {
+    const neighbor = popular.find((known) => known !== name2 && editDistance(known, name2) === 1);
+    if (!neighbor) continue;
+    results.push(finding(
+      "new import or dependency resembles a common package name",
+      `${name2} is newly imported or declared and is one edit from ${neighbor}; this offline check does not claim the package is malicious or verify registry ownership`,
+      "fresh-dep"
+    ));
+  }
+  return results;
+}
+function coverageFloor(content) {
+  if (!content) return void 0;
+  const values = [
+    ...[...content.matchAll(/--(?:cov-)?fail-under(?:=|\s+)(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1])),
+    ...[...content.matchAll(/minimum[_-]?coverage\s*[:=]\s*(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1])),
+    ...[...content.matchAll(/coverageThreshold[^\n]{0,160}?(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1]))
+  ].filter(Number.isFinite);
+  return values.length ? Math.min(...values) : void 0;
+}
+function loweredCoverageChecks(repo, base, head, changed) {
+  for (const path of changed) {
+    if (!/(?:^|\/)(?:package\.json|pyproject\.toml|pytest\.ini|setup\.cfg|tox\.ini|.*ya?ml|.*json)$/i.test(path)) continue;
+    const beforeRead = readRefFileResult(repo, base, path);
+    const afterRead = readRefFileResult(repo, head, path);
+    const unreadable = unreadableRepositoryCheck(path, [beforeRead, afterRead]);
+    if (unreadable) return [unreadable];
+    const before = coverageFloor(beforeRead.state === "readable" ? beforeRead.content : void 0);
+    const after = coverageFloor(afterRead.state === "readable" ? afterRead.content : void 0);
+    if (before !== void 0 && (after === void 0 || after < before)) {
+      return [finding(
+        "coverage requirement lowered",
+        after === void 0 ? `${path}: the recognized minimum coverage floor of ${before} was removed` : `${path}: the recognized minimum coverage floor fell from ${before} to ${after}`,
+        "coverage-weakened"
+      )];
+    }
+  }
+  return [];
+}
+function checkAgenticRepository(repo, base, head, changedPaths2, patches) {
+  const changed = new Set(changedPaths2);
+  return [
+    ...oracleEchoChecks(repo, base, head, changed, patches),
+    ...freshDependencyChecks(repo, base, head, changed, patches),
+    ...loweredCoverageChecks(repo, base, head, changed)
+  ];
+}
+function isAncestor(repo, commit2, ref2) {
+  return trustedGitOptional(repo, ["merge-base", "--is-ancestor", commit2, ref2]) !== void 0;
+}
+function checkOutOfDagReads(repo, base, head, toolCalls) {
+  const findings = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const call of toolCalls) {
+    if (!/\bgit\s+(?:show|diff|cat-file|checkout|cherry-pick|log)\b/i.test(call.input)) continue;
+    for (const match of call.input.matchAll(/\b[0-9a-f]{7,40}\b/gi)) {
+      const supplied = match[0];
+      const commit2 = gitOptional(repo, ["rev-parse", "--verify", `${supplied}^{commit}`])?.trim();
+      if (!commit2 || seen.has(commit2)) continue;
+      seen.add(commit2);
+      if (isAncestor(repo, commit2, base)) continue;
+      if (head !== "WORKTREE" && isAncestor(repo, commit2, head)) continue;
+      findings.push(finding(
+        "out-of-change-history commit was read",
+        `tool call ${call.sequence + 1} references ${commit2.slice(0, 12)}, which is outside the selected base-to-head history. Retrieval is observed; origin, copying, and causation are not inferred`,
+        "leak-gate"
+      ));
+    }
+  }
+  return findings;
+}
+
 // src/detectors/test-bodies.ts
 function isTestCall(node) {
   const callee = node.callee;
@@ -8651,6 +8805,7 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
   let inHunk = false;
   let oldLinesRemaining = 0;
   let newLinesRemaining = 0;
+  let newLineNumber = 0;
   const invalid = (detail) => ({ patches, referencedPaths, invalidHeader: detail });
   const finishFile = () => {
     if (!diffHeaderLine) return void 0;
@@ -8675,7 +8830,11 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
     if (inHunk && current2.length) {
       if (line.startsWith("+")) {
         if (newLinesRemaining === 0) return invalid(`hunk has more added lines than declared at input line ${index + 1}`);
-        for (const patch of current2) patch.added.push(line.slice(1));
+        for (const patch of current2) {
+          patch.added.push(line.slice(1));
+          patch.addedLineNumbers.push(newLineNumber);
+        }
+        newLineNumber += 1;
         newLinesRemaining -= 1;
       } else if (line.startsWith("-")) {
         if (oldLinesRemaining === 0) return invalid(`hunk has more removed lines than declared at input line ${index + 1}`);
@@ -8686,6 +8845,7 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
         for (const patch of current2) patch.context.push(line.slice(1));
         oldLinesRemaining -= 1;
         newLinesRemaining -= 1;
+        newLineNumber += 1;
       } else {
         return invalid(`hunk contains an unprefixed or premature header line at input line ${index + 1}`);
       }
@@ -8773,13 +8933,14 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
     }
     if (line.startsWith("@@ ")) {
       if (!currentPath || headerState !== "paired") return invalid(`hunk header has no exact paired changed path at input line ${index + 1}`);
-      const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+      const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (!hunk) return invalid(`malformed unified-diff hunk header at input line ${index + 1}`);
       const patchPaths = oldPath && oldPath !== currentPath ? [oldPath, currentPath] : [currentPath];
-      current2 = patchPaths.map((path) => ({ path, added: [], removed: [], context: [] }));
+      current2 = patchPaths.map((path) => ({ path, added: [], removed: [], context: [], addedLineNumbers: [] }));
       patches.push(...current2);
       oldLinesRemaining = hunk[1] === void 0 ? 1 : Number(hunk[1]);
-      newLinesRemaining = hunk[2] === void 0 ? 1 : Number(hunk[2]);
+      newLinesRemaining = hunk[3] === void 0 ? 1 : Number(hunk[3]);
+      newLineNumber = Number(hunk[2]);
       inHunk = true;
       hadHunkForFile = true;
       continue;
@@ -8901,12 +9062,14 @@ function checkIntegrity(repo, base, head, execution = {}) {
   const addedTestFiles = [];
   const emptyTestPaths = /* @__PURE__ */ new Set();
   const fullTestBodyChecks = [];
+  const fileCodeContexts = /* @__PURE__ */ new Map();
   let literalParameterization = false;
   for (const path of [...paths].filter(isTestPath2)) {
     const before = readIntegrityTreeBlob(repo, base, path);
     if (!before.ok) return [unreadableIntegrityResult("changed test baseline available for integrity review", before.evidence, "integrity-unreadable")];
     const after = head === "WORKTREE" ? readIntegrityWorktreeBlob(repo, path) : readIntegrityTreeBlob(repo, head, path);
     if (!after.ok) return [unreadableIntegrityResult("changed test candidate available for integrity review", after.evidence, "integrity-unreadable")];
+    if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head)) fileCodeContexts.set(path, readFileCodeContext(path, after.value));
     fullTestBodyChecks.push({ path, checks: checkEmptyTestBodies(path, before.value, after.value) });
     const oldCount = isTestPath2(path) ? countTests(before.value) : 0;
     const parameterized = head !== "WORKTREE" && oldCount > 0 && paths.size === 1 && isTestPath2(path) && preservesLiteralTestParameterization(path, before.value, after.value, execution.testCommand, (dependency) => {
@@ -8968,6 +9131,7 @@ function checkIntegrity(repo, base, head, execution = {}) {
     return [unreadableIntegrityResult("untracked worktree evidence is readable", untracked.error, "integrity-unreadable")];
   }
   const patches = [...parsed.patches, ...untracked.patches].filter((patch) => !exactTestMovePaths.has(patch.path));
+  for (const patch of patches) patch.codeContext = bindAddedCodeContext(fileCodeContexts.get(patch.path), patch.added, patch.addedLineNumbers);
   for (const { path, checks } of fullTestBodyChecks) {
     if (exactTestMovePaths.has(path)) continue;
     if (checks.some((check2) => check2.ruleId === "test-empty-added")) emptyTestPaths.add(path);
@@ -9106,8 +9270,15 @@ function checkIntegrityPatches(patches) {
     // vigil:detector-pattern
   ];
   for (const [subject, regex, ruleId, inScope] of checks) {
-    const line = patches.filter(inScope).flatMap((patch) => patch.added).find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
-    if (line) results.push(finding2(subject, line.trim().slice(0, 220), ruleId));
+    if (ruleId === "test-skip-added") {
+      const matches = patches.filter(inScope).flatMap((patch) => findTestCodeMatches(patch, [regex]).map((match) => ({ patch, match })));
+      const direct = matches.find(({ match }) => !match.quoted);
+      if (direct) results.push(finding2(subject, direct.patch.added[direct.match.line - 1].trim().slice(0, 220), ruleId));
+      for (const path of new Set(matches.filter(({ match }) => match.quoted).map(({ patch }) => patch.path))) results.push(uncheckedTestCode(path, ruleId));
+    } else {
+      const line = patches.filter(inScope).flatMap((patch) => patch.added).find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
+      if (line) results.push(finding2(subject, line.trim().slice(0, 220), ruleId));
+    }
   }
   const implementationPatches = patches.filter((patch) => !isDocumentationPath2(patch.path));
   const changedLines = implementationPatches.flatMap((patch) => [...patch.added, ...patch.removed]);
@@ -9154,9 +9325,18 @@ function checkIntegrityPatches(patches) {
           "assertion-drop"
         ));
       }
-      if (/\bexpect\s*\(\s*(true|false|null|undefined|["'][^"']*["']|\d+)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual)\s*\(\s*\1\s*\)/s.test(added) || /\bassert(?:\.ok)?\s*\(\s*true\s*\)/.test(added) || /\bassert\.(?:equal|strictEqual)\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\)/.test(added) || /\bassert\s+True\b/.test(added) || /\b(?:assertTrue|Assert\.True)\s*\(\s*true\s*\)/.test(added) || /\bassertEqual\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\bassert_eq!\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\b(?:assertEquals|Assert\.Equal)\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added)) {
-        results.push(finding2("constant or self-equal test oracle introduced", `${patch.path} adds an assertion that is true without exercising the candidate behavior`, "test-oracle-constant"));
-      }
+      const constantOracles = findTestCodeMatches(patch, [
+        /\bexpect\s*\(\s*(true|false|null|undefined|["'][^"']*["']|\d+)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual)\s*\(\s*\1\s*\)/s,
+        /\bassert(?:\.ok)?\s*\(\s*true\s*\)/,
+        /\bassert\.(?:equal|strictEqual)\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\)/,
+        /\bassert\s+True\b/,
+        /\b(?:assertTrue|Assert\.True)\s*\(\s*true\s*\)/,
+        /\bassertEqual\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/,
+        /\bassert_eq!\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/,
+        /\b(?:assertEquals|Assert\.Equal)\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/
+      ]);
+      if (constantOracles.some((match) => match.quoted)) results.push(uncheckedTestCode(patch.path, "test-oracle-constant"));
+      if (constantOracles.some((match) => !match.quoted)) results.push(finding2("constant or self-equal test oracle introduced", `${patch.path} adds an assertion that is true without exercising the candidate behavior`, "test-oracle-constant"));
       if (/\b(?:page\.)?evaluate\s*\(|\baddInitScript\s*\(|\bevaluateOnNewDocument\s*\(/.test(added) && /\b(?:document\.|window\.|localStorage\.|sessionStorage\.|Object\.defineProperty)/.test(added)) {
         results.push(finding2("browser test mutates runtime state before judging behavior", `${patch.path} adds browser-side state mutation inside an evaluation hook; review whether the test repairs the application it is meant to test`, "test-runtime-patch"));
       }
@@ -9602,6 +9782,7 @@ function recomputeReceiptHash(value) {
 // src/remediation.ts
 function remediationFor(ruleId) {
   const fixes = {
+    "test-code-context-unchecked": "Check whether the quoted code is evaluated, passed to a helper, or written into a test file. Vigil cannot clear this hold automatically; adding a claim will not clear it.",
     "test-count": "Run the configured test command without truncating its output, then report the observed passing count exactly; use `vigil doctor` to inspect command selection.",
     "tests-pass": "Run `vigil doctor`, configure policy `testCommand` when inference is absent, and preserve the fresh runner's complete output.",
     "file-changed": "Inspect `git diff --name-only <base>..<head>`, pass those exact SHAs, then correct the claimed path.",
@@ -10709,7 +10890,7 @@ function mainCause(findings, verdict, head) {
   return `All required checks passed at ${safe(head.slice(0, 12))}.`;
 }
 function primaryResultFinding(findings) {
-  return findings.find((finding3) => finding3.state === "FAILED") ?? findings.find((finding3) => finding3.state === "NOT_CHECKED");
+  return findings.find((finding3) => finding3.state === "FAILED") ?? findings.find((finding3) => finding3.state === "NOT_CHECKED" && finding3.id === "test-code-context-unchecked") ?? findings.find((finding3) => finding3.state === "NOT_CHECKED");
 }
 function buildReportResultView(value, options = {}) {
   const report = validateReportForResult(value);
