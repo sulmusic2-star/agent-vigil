@@ -36,9 +36,22 @@ fs.writeFileSync('dist/cli.js',${JSON.stringify(built)});`);
   const head=commit('pin');
   return {repo,base,runtime,head,version:'1.0.1',git,write,commit};
 }
-test('release identity accepts a clean exact-commit deterministic fixture',t=>verifyReleaseAssembly(fixture(t)));
+function verifyFixture(t: { diagnostic(message: string): void }, f: Parameters<typeof verifyReleaseAssembly>[0]): void {
+  try { verifyReleaseAssembly(f); }
+  catch (error) {
+    // TAP's default error summary can omit useful child-process output.
+    // These disposable fixtures contain no account credentials or user code.
+    const failure = error as { status?: number | null; signal?: string | null; stdout?: string | Buffer; stderr?: string | Buffer };
+    if (failure && (failure.stdout !== undefined || failure.stderr !== undefined)) {
+      t.diagnostic(JSON.stringify({ buildFailure: true, status: failure.status ?? null, signal: failure.signal ?? null,
+        stdout: String(failure.stdout ?? ''), stderr: String(failure.stderr ?? '') }));
+    }
+    throw error; // Diagnostics must never turn a failed build into acceptance.
+  }
+}
+test('release identity accepts a clean exact-commit deterministic fixture',t=>verifyFixture(t,fixture(t)));
 test('independent rebuild preserves package-relative npm bin links',{skip:process.platform==='win32'},t=>{
- verifyReleaseAssembly(fixture(t,'expected\n','expected\n',true));
+ verifyFixture(t,fixture(t,'expected\n','expected\n',true));
 });
 for(const target of ['../../build.cjs','absolute'])test(`dependency links cannot escape the copied tree: ${target}`,{skip:process.platform==='win32'},t=>{
  const f=fixture(t);mkdirSync(join(f.repo,'node_modules/.bin'));
@@ -86,8 +99,11 @@ process.exit(child.error||child.signal?1:child.status??1);`);
 test('a failing selected npm CLI preserves its nonzero exit instead of passing the release',t=>{
  const f=fixture(t);const tools=mkdtempSync(join(tmpdir(),'vigil-npm-failure-'));
  t.after(()=>rmSync(tools,{recursive:true,force:true}));const cli=join(tools,'npm-cli.js');
- writeFileSync(cli,'process.exit(7);');
- withNpmCli(cli,()=>assert.throws(()=>verifyReleaseAssembly(f),(error:any)=>error.status===7));
+ writeFileSync(cli,'process.stdout.write("build stdout marker");process.stderr.write("build stderr marker");process.exit(7);');
+ const diagnostics: string[] = [];
+ withNpmCli(cli,()=>assert.throws(()=>verifyFixture({ diagnostic: message => diagnostics.push(message) },f),(error:any)=>error.status===7));
+ assert.equal(diagnostics.length,1);
+ assert.deepEqual(JSON.parse(diagnostics[0]),{ buildFailure:true, status:7, signal:null, stdout:'build stdout marker', stderr:'build stderr marker' });
 });
 for(const invalid of ['relative','missing']) {
  test(`an invalid ${invalid} npm CLI is rejected without falling back`,t=>{
