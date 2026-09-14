@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { cpSync, lstatSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const SHA = /^[0-9a-f]{40}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
@@ -88,6 +88,33 @@ function files(root: string, directory = root): string[] {
   return output.sort();
 }
 
+function copyBuildDependencies(modules: string, destination: string): void {
+  if (!lstatSync(modules).isDirectory()) throw new Error("node_modules must be a real directory for the independent build");
+  const root = realpathSync(modules);
+  const inside = (path: string) => path === root || path.startsWith(root + sep);
+  const inspect = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        const target = readlinkSync(path);
+        if (isAbsolute(target) || !inside(resolve(dirname(path), target))) {
+          throw new Error("dependency links must stay inside node_modules and use relative targets");
+        }
+        let resolved: string;
+        try { resolved = realpathSync(path); }
+        catch { throw new Error("dependency links must resolve without a cycle or missing target"); }
+        if (!inside(resolved)) throw new Error("dependency links must stay inside node_modules");
+      } else if (entry.isDirectory()) inspect(path);
+      else if (!entry.isFile()) throw new Error("build dependencies contain a non-regular entry");
+    }
+  };
+  inspect(root);
+  // npm's .bin entries commonly link to scripts with package-relative requires.
+  // Dereferencing them relocates the script and breaks those requires. Preserve
+  // only the validated internal relative links, including their exact text.
+  cpSync(root, destination, { recursive: true, dereference: false, verbatimSymlinks: true });
+}
+
 function verifyReproducibleDist(repo: string, head: string): void {
   const root = resolve(repo);
   if (one(root, ["rev-parse", "HEAD"]) !== head) throw new Error("checkout HEAD must equal the requested release head");
@@ -114,7 +141,7 @@ function verifyReproducibleDist(repo: string, head: string): void {
   try {
     const archive = git(root, ["archive", "--format=tar", head], "buffer") as Buffer;
     execFileSync("tar", ["-xf", "-", "-C", temporary], { input: archive, maxBuffer: 128 * 1024 * 1024 });
-    cpSync(modules, join(temporary, "node_modules"), { recursive: true, dereference: true });
+    copyBuildDependencies(modules, join(temporary, "node_modules"));
     const buildOptions = { cwd: temporary, stdio: "pipe" as const, timeout: 180_000, maxBuffer: 32 * 1024 * 1024 };
     const npmCli = process.env.npm_execpath;
     if (npmCli !== undefined) {
