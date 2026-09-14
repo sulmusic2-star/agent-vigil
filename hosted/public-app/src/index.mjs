@@ -1,3 +1,5 @@
+import { parseCheckResult, sameCheckResult, verifyCheckResultSignature, resultOutput } from "./check-result.mjs";
+
 const MAX_WEBHOOK_BYTES = 256 * 1024;
 const MAX_GITHUB_RESPONSE_BYTES = 64 * 1024;
 const AUTHORIZATION_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -410,9 +412,9 @@ export function canonicalDispatch(value) {
   ].join("\n");
 }
 
-export function dispatchEnvelope(value) {
+export function dispatchEnvelope(value, protocol = 1) {
   const payload = {
-    schema: "agent-vigil-public-app-v1",
+    schema: protocol === 2 ? "agent-vigil-public-app-v2" : "agent-vigil-public-app-v1",
     deliveryId: value.deliveryId,
     event: value.event,
     repository: value.repository,
@@ -427,8 +429,8 @@ export function dispatchEnvelope(value) {
   return base64Url(new TextEncoder().encode(JSON.stringify(payload)));
 }
 
-export async function dispatchSignature(secret, value) {
-  return `sha256=${bytesToHex(await hmac(secret, new TextEncoder().encode(dispatchEnvelope(value))))}`;
+export async function dispatchSignature(secret, value, protocol = 1) {
+  return `sha256=${bytesToHex(await hmac(secret, new TextEncoder().encode(dispatchEnvelope(value, protocol))))}`;
 }
 
 function derLength(length) {
@@ -655,6 +657,11 @@ export class DeliveryLedger {
   constructor(state, env) { this.state = state; this.env = env; }
   async save(dispatch, target, wakeAt) {
     await this.state.storage.transaction(async (tx) => {
+      // A callback can arrive while the workflow-dispatch response is in flight.
+      // Its durable wakeup must not be replaced by the original one-hour alarm.
+      if (dispatch.status === "dispatched" && !dispatch.failures && await tx.get("proposal")) {
+        wakeAt = Math.min(wakeAt, Date.now() + 1);
+      }
       await tx.put("dispatch", { ...dispatch, wake_at: wakeAt });
       await tx.put("target", target);
       await tx.setAlarm(wakeAt);
@@ -666,6 +673,8 @@ export class DeliveryLedger {
     const path = new URL(request.url).pathname;
     // These routes are reachable only through the Worker binding, never its public router.
     if (path === "/retry-source" || path === "/retry-claim") return this.retrySource(value, path === "/retry-claim");
+    if (path === "/result") return this.acceptResult(parseCheckResult(value));
+    if (path !== "/dispatch") return json(404, { error: "not found" });
     return this.state.storage.transaction(async (tx) => {
       const prior = await tx.get("dispatch");
       const target = await tx.get("target");
@@ -677,6 +686,7 @@ export class DeliveryLedger {
       const now = Date.now();
       // Old pending/failed records may already have created a check. Only reconcile them.
       const result = { status: prior ? "creating" : value.event === "check_run" ? "retry_queued" : "queued", delivery_id: value.deliveryId,
+        protocol: prior ? 1 : 2,
         recovery_only: Boolean(prior), accepted_at: now, deadline_at: now + CHECK_COMPLETION_TIMEOUT_MS, failures: 0, wake_at: now + 1 };
       await tx.put("dispatch", result);
       await tx.put("target", value);
@@ -684,6 +694,74 @@ export class DeliveryLedger {
       await tx.setAlarm(result.wake_at);
       return json(202, result);
     });
+  }
+  async acceptResult(result) {
+    return this.state.storage.transaction(async (tx) => {
+      const dispatch = await tx.get("dispatch"), target = await tx.get("target");
+      if (!dispatch || dispatch.protocol !== 2 || !["dispatching", "dispatched", "retained"].includes(dispatch.status)
+        || ["deliveryId", "repository", "installationId", "baseSha", "headSha", "checkRunId"].some((key) => result[key] !== target?.[key])
+        || dispatch.check_run_id !== target.checkRunId) return json(409, { error: "result does not match an active delivery" });
+      const proposal = await tx.get("proposal"), decision = await tx.get("decision");
+      if (proposal && !sameCheckResult(proposal, result)) return json(409, { error: "a different result is already recorded" });
+      if (dispatch.status === "retained") {
+        if (dispatch.wake_at <= Date.now() || dispatch.terminal_status === "needs_operator") return json(409, { error: "delivery needs operator attention or has expired" });
+        return proposal && decision ? json(200, { status: "published", verdict: decision.verdict }) : json(409, { error: "delivery already ended" });
+      }
+      if (!proposal && (decision || Date.now() >= dispatch.deadline_at)) return json(409, { error: "verification deadline has passed" });
+      if (!proposal) {
+        await tx.put("proposal", result);
+        await tx.put("dispatch", { ...dispatch, wake_at: Date.now() + 1 });
+        await tx.setAlarm(Date.now() + 1);
+      }
+      return json(202, { status: "accepted", verdict: decision?.verdict ?? result.verdict });
+    });
+  }
+  async publishResult(dispatch, target) {
+    // Choose the proposal OR timeout transactionally, before any remote write.
+    // Only this alarm writes the v2 check. Retries always use the same decision.
+    let decision = await this.state.storage.transaction(async (tx) => {
+      const prior = await tx.get("decision");
+      if (prior) return prior;
+      const proposal = await tx.get("proposal");
+      if (!proposal && Date.now() < dispatch.deadline_at) return null;
+      const selected = { verdict: proposal?.verdict ?? "NOT CHECKED", proposal: proposal ?? null, sealed: false };
+      await tx.put("decision", selected);
+      return selected;
+    });
+    if (!decision) { await this.save(dispatch, target, dispatch.deadline_at); return; }
+    const token = await installationToken(this.env.GITHUB_APP_ID, this.env.GITHUB_APP_PRIVATE_KEY, target.installationId,
+      { checks: "write", contents: "read", pull_requests: "read" });
+    const path = `/repos/${target.repository}/check-runs/${target.checkRunId}`;
+    const check = await github(path, token);
+    if (!ownsCheck(check, target, this.env.GITHUB_APP_ID) || String(check.id) !== target.checkRunId) throw new Error("result check identity changed");
+    if (!decision.sealed) {
+      let current = false;
+      if (decision.proposal && decision.verdict !== "NOT CHECKED" && target.event === "pull_request") {
+        const pull = await github(`/repos/${target.repository}/pulls/${target.number}`, token);
+        const body = pull?.body ?? "";
+        current = pull?.state === "open" && pull.merged === false && pull.draft === false
+          && String(pull.number) === target.number && pull.base?.repo?.full_name === target.repository
+          && pull.base.sha === target.baseSha && pull.base.ref === target.baseRef && pull.head?.sha === target.headSha
+          && typeof body === "string" && (await sha256(body)) === `sha256:${decision.proposal.prBodySha256}`;
+      } else if (decision.proposal && decision.verdict !== "NOT CHECKED" && target.event === "merge_group") {
+        const refs = await Promise.all([target.baseRef, target.headRef].map((ref) =>
+          github(`/repos/${target.repository}/git/ref/${ref.replace(/^refs\//, "")}`, token)));
+        current = refs.every((ref, i) => ref?.object?.type === "commit" && ref.object.sha === [target.baseSha, target.headSha][i]);
+      }
+      decision = { ...decision, verdict: current ? decision.verdict : "NOT CHECKED", sealed: true };
+      await this.state.storage.put("decision", decision);
+    }
+    const output = resultOutput(decision.verdict);
+    const patch = { status: "completed", conclusion: decision.verdict === "PASS" ? "success" : "failure", output,
+      ...(decision.proposal ? { details_url: `https://github.com/${this.env.CONTROL_REPOSITORY}/actions/runs/${decision.proposal.runId}` } : {}) };
+    if (check.status === "completed") {
+      // Reconcile a lost PATCH response, but never overwrite another completed result.
+      if (check.conclusion !== patch.conclusion || check.output?.title !== output.title || check.output?.summary !== output.summary
+        || (patch.details_url && check.details_url !== patch.details_url)) throw new Error("completed check differs from the durable decision");
+    } else {
+      await github(path, token, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
+    }
+    await this.retain(dispatch, target, decision.proposal ? "completed" : "timed_out");
   }
   async retrySource(request, claim) {
     return this.state.storage.transaction(async (tx) => {
@@ -789,7 +867,7 @@ export class DeliveryLedger {
           }
           const token = await installationToken(this.env.CONTROL_APP_ID, this.env.CONTROL_APP_PRIVATE_KEY, this.env.CONTROL_INSTALLATION_ID, { actions: "write" });
           const body = JSON.stringify({ ref: this.env.CONTROL_REF,
-            inputs: { envelope: dispatchEnvelope(target), dispatchSignature: await dispatchSignature(this.env.DISPATCH_SECRET, target) } });
+            inputs: { envelope: dispatchEnvelope(target, dispatch.protocol), dispatchSignature: await dispatchSignature(this.env.DISPATCH_SECRET, target, dispatch.protocol) } });
           dispatch = { ...dispatch, status: "dispatching", failures: 0 };
           await this.save(dispatch, target, Date.now() + DELIVERY_RETRY_MS);
           await github(`/repos/${this.env.CONTROL_REPOSITORY}/actions/workflows/${encodeURIComponent(this.env.CONTROL_WORKFLOW)}/dispatches`, token, {
@@ -802,6 +880,7 @@ export class DeliveryLedger {
       if (dispatch.status !== "dispatched" || !target.checkRunId || target.checkRunId !== dispatch.check_run_id) {
         await this.retain(dispatch, target, "needs_operator"); return;
       }
+      if (dispatch.protocol === 2) { await this.publishResult(dispatch, target); return; }
       const token = await installationToken(this.env.GITHUB_APP_ID, this.env.GITHUB_APP_PRIVATE_KEY, target.installationId, { checks: "write" });
       const path = `/repos/${target.repository}/check-runs/${target.checkRunId}`;
       const check = await github(path, token);
@@ -957,6 +1036,22 @@ export class DeploymentAuthorizationLedger {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/github/check-result" && request.method === "POST") {
+      try {
+        assertConfiguration(env);
+        if (!hasJsonContentType(request)) return json(415, { error: "result must be application/json" });
+        const body = await readBoundedBody(request);
+        if (body.length > 4096) return json(413, { error: "result is too large" });
+        if (!(await verifyCheckResultSignature(env.DISPATCH_SECRET, body, request.headers.get("x-agent-vigil-result-signature") ?? ""))) {
+          return json(401, { error: "invalid result signature" });
+        }
+        const result = parseCheckResult(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)));
+        const id = env.DELIVERY_LEDGER.idFromName(result.deliveryId.toLowerCase());
+        return await env.DELIVERY_LEDGER.get(id).fetch("https://ledger.internal/result", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(result),
+        });
+      } catch { return json(400, { error: "result could not be accepted; retry the same signed result" }); }
+    }
     if (url.pathname === "/health") {
       try {
         await assertReadyConfiguration(env);
