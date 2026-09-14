@@ -9,6 +9,8 @@ import { toolCallFingerprint } from "../transcript.ts";
 import { escapeRegExpLiteral } from "../regex.ts";
 import { checkAgenticPatches, checkAgenticRepository, type AgenticPatch } from "./agentic.ts";
 import { checkEmptyTestBodies } from "./test-bodies.ts";
+import { patchHeaderPath, patchRenamePath, patchDiffIdentityMatches } from "./git-patch-path.ts";
+import { preservesLiteralTestParameterization } from "./literal-test-parameterization.ts";
 
 const completedCandidateSetups = new Set<string>();
 // Integrity evidence is held in memory; oversized output is a blocking evidence gap, never an empty/clean scan.
@@ -893,10 +895,6 @@ function parseFilePatches(diff: string, repositoryAwareRenames = false): ParsedF
   let oldLinesRemaining = 0;
   let newLinesRemaining = 0;
   const invalid = (detail: string): ParsedFilePatches => ({ patches, referencedPaths, invalidHeader: detail });
-  const headerPath = (marker: string, prefix: "a/" | "b/"): string | undefined => {
-    if (marker === "/dev/null") return "";
-    return marker.startsWith(prefix) ? marker.slice(2) : undefined;
-  };
   const finishFile = (): string | undefined => {
     if (!diffHeaderLine) return undefined;
     if (headerState === "paired" && hadHunkForFile) return undefined;
@@ -906,7 +904,7 @@ function parseFilePatches(diff: string, repositoryAwareRenames = false): ParsedF
       && renameFrom
       && renameTo
       && !modeMetadata
-      && diffHeaderLine === `diff --git a/${renameFrom} b/${renameTo}`) {
+      && patchDiffIdentityMatches(diffHeaderLine, renameFrom, renameTo)) {
       referencedPaths.add(renameFrom);
       referencedPaths.add(renameTo);
       return undefined;
@@ -972,9 +970,9 @@ function parseFilePatches(diff: string, repositoryAwareRenames = false): ParsedF
         return invalid(`rename metadata is not permitted in a raw or partially parsed diff at input line ${index + 1}`);
       }
       const from = line.startsWith("rename from ");
-      const path = line.slice(from ? 12 : 10);
-      if (!path || path.startsWith('"') || (from ? renameFrom : renameTo)) {
-        return invalid(`unsupported, quoted, or duplicate rename metadata at input line ${index + 1}`);
+      const path = patchRenamePath(line.slice(from ? 12 : 10));
+      if (!path || (from ? renameFrom : renameTo)) {
+        return invalid(`unsupported or duplicate rename metadata at input line ${index + 1}`);
       }
       if (from) renameFrom = path;
       else renameTo = path;
@@ -987,8 +985,8 @@ function parseFilePatches(diff: string, repositoryAwareRenames = false): ParsedF
       if (!diffHeaderLine || headerState !== "none") {
         return invalid(`old path header must follow exactly one unconsumed diff --git header at input line ${index + 1}`);
       }
-      const parsed = headerPath(line.slice(4), "a/");
-      if (parsed === undefined) return invalid(`unsupported or quoted unified-diff old path header: ${line.slice(4, 164)}`);
+      const parsed = patchHeaderPath(line.slice(4), "a/");
+      if (parsed === undefined) return invalid(`unsupported unified-diff old path header: ${line.slice(4, 164)}`);
       current = [];
       currentPath = "";
       oldPath = parsed;
@@ -999,8 +997,8 @@ function parseFilePatches(diff: string, repositoryAwareRenames = false): ParsedF
     if (line.startsWith("+++ ")) {
       const marker = line.slice(4);
       if (headerState !== "old") return invalid(`new path header has no single preceding old path header at input line ${index + 1}`);
-      const parsed = headerPath(marker, "b/");
-      if (parsed === undefined) return invalid(`unsupported or quoted unified-diff path header: ${marker.slice(0, 160)}`);
+      const parsed = patchHeaderPath(marker, "b/");
+      if (parsed === undefined) return invalid(`unsupported unified-diff path header: ${marker.slice(0, 160)}`);
       if (oldPath && parsed && oldPath !== parsed) {
         if (!repositoryAwareRenames || renameFrom !== oldPath || renameTo !== parsed || similarityIndex === undefined) {
           return invalid(`renamed unified-diff paths require exact repository-aware identity and cannot be audited as raw text`);
@@ -1011,7 +1009,7 @@ function parseFilePatches(diff: string, repositoryAwareRenames = false): ParsedF
       if (diffHeaderLine) {
         const identity = oldPath || parsed;
         const destination = parsed || oldPath;
-        if (diffHeaderLine !== `diff --git a/${identity} b/${destination}`) {
+        if (!patchDiffIdentityMatches(diffHeaderLine, identity, destination)) {
           return invalid(`diff --git identity does not match its exact old/new path headers`);
         }
       }
@@ -1087,7 +1085,7 @@ function countTests(content: string): number {
   return patterns.reduce((sum, regex) => sum + [...content.matchAll(regex)].length, 0);
 }
 
-export function checkIntegrity(repo: string, base: string, head: string): CheckResult[] {
+export function checkIntegrity(repo: string, base: string, head: string, execution: { testCommand?: string } = {}): CheckResult[] {
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
   const rawPaths = trustedGitOptional(repo, ["diff", "--find-renames", "--name-status", "-z", ...diffRange], INTEGRITY_CHANGED_PATHS_MAX_BUFFER);
   if (rawPaths === undefined) {
@@ -1154,14 +1152,21 @@ export function checkIntegrity(repo: string, base: string, head: string): CheckR
   const addedTestFiles: Array<{ path: string; identity: string }> = [];
   const emptyTestPaths = new Set<string>();
   const fullTestBodyChecks: Array<{ path: string; checks: CheckResult[] }> = [];
+  let literalParameterization = false;
   for (const path of [...paths].filter(isTestPath)) {
     const before = readIntegrityTreeBlob(repo, base, path);
     if (!before.ok) return [unreadableIntegrityResult("changed test baseline available for integrity review", before.evidence, "integrity-unreadable")];
     const after = head === "WORKTREE" ? readIntegrityWorktreeBlob(repo, path) : readIntegrityTreeBlob(repo, head, path);
     if (!after.ok) return [unreadableIntegrityResult("changed test candidate available for integrity review", after.evidence, "integrity-unreadable")];
     fullTestBodyChecks.push({ path, checks: checkEmptyTestBodies(path, before.value, after.value) });
-    const oldCount = countTests(before.value);
-    const newCount = countTests(after.value);
+    const oldCount = isTestPath(path) ? countTests(before.value) : 0;
+    const parameterized = head !== "WORKTREE" && oldCount > 0 && paths.size === 1 && isTestPath(path)
+      && preservesLiteralTestParameterization(path, before.value, after.value, execution.testCommand, (dependency) => {
+        const blob = readIntegrityTreeBlob(repo, base, dependency);
+        return blob.ok ? blob.value : undefined;
+      });
+    const newCount = parameterized ? oldCount : isTestPath(path) ? countTests(after.value) : 0;
+    literalParameterization ||= parameterized;
     baselineTests += oldCount;
     headTests += newCount;
     if (before.value && !after.value) deletedTestFiles.push({ path, identity: before.identity });
@@ -1170,6 +1175,11 @@ export function checkIntegrity(repo: string, base: string, head: string): CheckR
   if (headTests < baselineTests) {
     results.push(finding("test surface shrank", `recognized test definitions across changed test files fell from ${baselineTests} to ${headTests}`, "test-count-drop"));
   }
+  if (literalParameterization) results.push({
+    claim: { kind: "integrity", quote: "full-file literal test parameterization check", subject: "recognized test callback expressions are preserved" },
+    verdict: "verified", ruleId: "test-parameterization-preserved", contributesToPass: false,
+    evidence: "One JavaScript test file replaces direct node:test registrations with literal rows in the same order and unchanged strict assertion expressions. Imported helpers are unchanged, restricted arithmetic functions; a plain unfiltered Node test command selects this file. Test titles may differ. Required execution still decides whether tests pass; this is not coverage proof.",
+  });
   const consumedAddedTests = new Set<number>();
   const exactTestMovePaths = new Set<string>();
   const unmatchedDeletedTests = deletedTestFiles.filter((deleted) => {
@@ -1217,9 +1227,13 @@ export function checkIntegrity(repo: string, base: string, head: string): CheckR
     results.push(...checks);
   }
   const patchResults = checkIntegrityPatches(patches);
+  // Complete blobs already supplied the definition counts. Partial hunk line
+  // counts must not contradict them or duplicate the same count-loss finding.
   // Full-file findings already explain the empty callback. Avoid repeating a
   // weaker aggregate assertion-count warning or a second empty-test warning.
-  results.push(...patchResults.filter((result) => ![...emptyTestPaths].some((path) =>
+  results.push(...patchResults.filter((result) => result.ruleId !== "test-count-drop"
+    && !(literalParameterization && result.ruleId === "assertion-drop")
+    && ![...emptyTestPaths].some((path) =>
     (result.ruleId === "test-empty-added" && result.evidence.startsWith(`${path} adds `))
     || (result.ruleId === "assertion-drop" && result.evidence.startsWith(`${path} removes `)))));
   results.push(...checkAgenticPatches(patches));
@@ -1540,7 +1554,7 @@ export function checkIntegrityDiff(diff: string): CheckResult[] {
   }
   // A raw Git patch can bind a rename without consulting the repository when
   // all four identities agree: diff --git, rename from/to, and ---/+++.
-  // parseFilePatches still rejects quoted, copied, dissimilar, incomplete, or
+  // parseFilePatches still rejects malformed quoting, copied, dissimilar, incomplete, or
   // mismatched metadata, so enabling exact rename parsing does not turn an
   // ambiguous patch into verified evidence.
   const parsed = parseFilePatches(diff, true);

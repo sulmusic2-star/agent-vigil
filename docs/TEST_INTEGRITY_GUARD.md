@@ -56,6 +56,34 @@ the useful part of the proposed Python-only Null Compile check.
 
 PASS means the selected diff contained none of the blocking patterns under this policy. It does not prove that the tests cover the intended behavior or that the application is correct. The full Agent Vigil gate combines this scan with exact-commit execution, protected policy, change limits, differential tests, and retained evidence.
 
+## Valid changes should not look like broken tests
+
+Spaces and valid UTF-8 characters in Git filenames are supported, including
+Git's quoted path format. Malformed quoting, invalid UTF-8 and mismatched path
+headers still prevent a pass. Decoded paths must match Git's exact changed-file
+list; the scan does not guess or normalize one filename into another.
+
+A filename extension does not establish whether a test runs. Node can execute
+CommonJS tests stored in `.txt` files when explicitly selected. Skip and deletion
+checks therefore remain active for test assets. An example `test.skip(...)` in
+a plain-text fixture can still cause a conservative finding; that known false
+alarm is unresolved, rather than hidden by an unsafe extension exception.
+
+The full verification commands recognize one deliberately narrow refactor:
+replacing direct `node:test` registrations with literal parameter rows in one
+JavaScript file. The rows must preserve the strict assertion expressions and
+their order. Imported helpers must be unchanged arithmetic functions, with no
+setup statements or side effects. A plain Node test command must explicitly
+select the file without name filters or preloads. Hidden files require an exact
+literal selection; wildcard-based recognition refuses hidden paths. Dynamic tables, other test
+frameworks, wrappers, or accompanying implementation changes keep the ordinary
+conservative result. A source-only `test-integrity` scan has no execution
+context and does not apply this exception. Mutable `WORKTREE` inspection also
+keeps the conservative result; baseline helper bytes do not bind a dirty runtime.
+
+This recognition removes a misleading static count warning. It does not prove
+coverage, accept weaker assertions, or replace the required test run.
+
 ## Why the two levels exist
 
 Agent Vigil previously measured static findings on 232 presumed-clean merged pull requests and found enough review burden that all-static blocking would be irresponsible. Calibrated mode blocks the narrow patterns that directly make a test unable to distinguish failure. Other patterns stay visible until a repository has its own precision record.
