@@ -69,7 +69,7 @@ the newest release. The live, machine-readable channel record is
 [`docs/public-install-state.json`](https://github.com/sulmusic2-star/agent-vigil/blob/main/docs/public-install-state.json).
 
 The five repository workflows and the hosted App workflow template pin runtime commit
-`99756698f4126142a836979cf8805f41c00b431c`. For the checksum-first download
+`c7255cc6ace6ca5f273a55ff2cc6d1f0d01dbcae`. For the checksum-first download
 and an explicit non-Node runner, use the [installation guide](docs/INSTALL_WITHOUT_NPM_ACCOUNT.md).
 
 ## What it checks

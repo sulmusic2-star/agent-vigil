@@ -158,7 +158,7 @@ test("weekly dogfood signs and retains its control proof without a private key",
   assert.doesNotMatch(workflow, /^\s*node-version:\s*22\s*$/m);
   const vigilPins = [...workflow.matchAll(/^\s*uses:\s*sulmusic2-star\/agent-vigil@([^\s#]+)/gm)]
     .map((match) => match[1]);
-  assert.deepEqual(vigilPins, ["99756698f4126142a836979cf8805f41c00b431c"]);
+  assert.deepEqual(vigilPins, ["c7255cc6ace6ca5f273a55ff2cc6d1f0d01dbcae"]);
   assert.match(workflow, /mode:\s*prove/);
   assert.match(workflow, /attest:\s*false/);
   assert.doesNotMatch(workflow, /npm\s|dist\/cli\.js|control-certificate|control-corpus|control-policy|control-status/);
