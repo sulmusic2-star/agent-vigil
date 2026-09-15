@@ -548,105 +548,116 @@ test("a normal child exit is not relabeled as a timeout by slow identity verific
   assert.equal(observed.receipt.command.executableIdentityStable, true);
 });
 
-test("slow capture persistence cannot delay wall-limit enforcement", { timeout: 8_000 }, () => {
-  const directory = root();
-  const transcript = join(directory, "slow-capture.jsonl");
-  const resultPath = join(directory, "result.json");
-  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
-  const row = `${JSON.stringify({ type: "session_meta", payload: { id: "run" } })}\n`;
-  const harness = `(async () => {
-    const fs = (await import("node:fs")).default;
-    const { syncBuiltinESMExports } = await import("node:module");
-    const originalWrite = fs.write;
-    fs.write = (...args) => setTimeout(() => originalWrite(...args), 400);
-    syncBuiltinESMExports();
-    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
-    const protectedEnvironment = { ...process.env };
-    delete protectedEnvironment.NODE_V8_COVERAGE;
-    try {
-      const result = await executeProtectedRun({
-        executable: process.execPath,
-        args: ["-e", ${JSON.stringify(`process.stdout.write(${JSON.stringify(row)});process.on('SIGTERM',()=>{});setInterval(()=>{},1000)`) }],
-        cwd: process.cwd(),
-        environment: protectedEnvironment,
-        timeLimitMs: 100,
-        terminationGraceMs: 50,
-        trajectoryLimits: {},
-        telemetryGraceMs: 200,
-        transcript: { path: ${JSON.stringify(transcript)}, transport: "supervisor-captured-stdout" },
-      });
-      fs.writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));
-    } finally {
-      fs.write = originalWrite;
-      syncBuiltinESMExports();
-    }
-  })().catch((error) => { console.error(error); process.exitCode = 1; });`;
-  const result = spawnSync(process.execPath, ["--import", "tsx", "-e", harness], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    env: coverageHarnessEnvironment(),
-    stdio: ["ignore", "ignore", "pipe"],
-    timeout: 5_000,
-  });
-  assert.equal(result.error, undefined);
-  assert.equal(result.status, 0, result.stderr);
-  const observed = JSON.parse(readFileSync(resultPath, "utf8")) as ProtectedRunResult;
-  assert.equal(observed.receipt.stop?.code, "TIME_LIMIT");
-  assert.ok(observed.receipt.stop!.observed! >= 100 && observed.receipt.stop!.observed! < 300);
-  assert.equal(observed.receipt.process.processGroupTerminationConfirmed, true);
-  assert.equal(readFileSync(transcript, "utf8"), row);
-});
+type OutputFixtureMode = "cold" | "prepared-capture" | "prepared-relay" | "native-capture" | "native-relay";
 
-test("slow stdout relay cannot delay wall-limit enforcement", { timeout: 8_000 }, () => {
+function assertOutputDeadline(mode: OutputFixtureMode): void {
   const directory = root();
-  const transcript = join(directory, "slow-relay.jsonl");
-  const resultPath = join(directory, "result.json");
-  const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
-  const row = `${JSON.stringify({ type: "session_meta", payload: { id: "run" } })}\n`;
-  const harness = `(async () => {
-    const fs = (await import("node:fs")).default;
-    const { syncBuiltinESMExports } = await import("node:module");
-    const originalWrite = fs.write;
-    fs.write = (descriptor, ...args) => descriptor === 1
-      ? setTimeout(() => originalWrite(descriptor, ...args), 400)
-      : originalWrite(descriptor, ...args);
-    syncBuiltinESMExports();
-    const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
-    const protectedEnvironment = { ...process.env };
-    delete protectedEnvironment.NODE_V8_COVERAGE;
-    try {
-      const result = await executeProtectedRun({
-        executable: process.execPath,
-        args: ["-e", ${JSON.stringify(`process.stdout.write(${JSON.stringify(row)});process.on('SIGTERM',()=>{});setInterval(()=>{},1000)`) }],
-        cwd: process.cwd(),
-        environment: protectedEnvironment,
-        timeLimitMs: 100,
-        terminationGraceMs: 50,
-        trajectoryLimits: {},
-        telemetryGraceMs: 200,
-        transcript: { path: ${JSON.stringify(transcript)}, transport: "supervisor-captured-stdout" },
-      });
-      fs.writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));
-    } finally {
-      fs.write = originalWrite;
-      syncBuiltinESMExports();
-    }
-  })().catch((error) => { console.error(error); process.exitCode = 1; });`;
-  const result = spawnSync(process.execPath, ["--import", "tsx", "-e", harness], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    env: coverageHarnessEnvironment(),
-    stdio: ["ignore", "ignore", "pipe"],
-    timeout: 5_000,
+  const fixture = fileURLToPath(new URL("fixtures/output-deadline.cjs", import.meta.url));
+  const run = spawnSync(process.execPath, ["--import", "tsx", fixture, mode, directory], {
+    cwd: process.cwd(), encoding: "utf8", env: coverageHarnessEnvironment(),
+    timeout: 5_000, killSignal: "SIGKILL",
   });
-  assert.equal(result.error, undefined);
-  assert.equal(result.status, 0, result.stderr);
-  const observed = JSON.parse(readFileSync(resultPath, "utf8")) as ProtectedRunResult;
-  assert.equal(observed.receipt.stop?.code, "TIME_LIMIT");
-  assert.ok(observed.receipt.stop!.observed! >= 100 && observed.receipt.stop!.observed! < 300);
-  assert.equal(observed.receipt.process.processGroupTerminationConfirmed, true);
-  assert.equal(readFileSync(transcript, "utf8"), row);
+  const diagnostics = existsSync(join(directory, "result.json"))
+    ? readFileSync(join(directory, "result.json"), "utf8") : "fixture did not write its result";
+  assert.equal(run.error, undefined, diagnostics);
+  assert.equal(run.status, 0, run.stderr + diagnostics);
+  const { result: observed, events, watchdogFired, failure } = JSON.parse(diagnostics) as {
+    result: ProtectedRunResult;
+    events: { name: string; ms: number; pendingMs?: number; capture?: boolean; descriptor?: number; error?: string | null; pid?: number; code?: number | null; signal?: string | null }[];
+    watchdogFired: boolean; failure?: string;
+  };
+  const named = (name: string) => events.filter(event => event.name === name);
+  const at = (name: string) => {
+    assert.equal(named(name).length, 1, name + ": " + diagnostics);
+    return events.indexOf(named(name)[0]!);
+  };
+  assert.equal(failure, undefined, diagnostics);
+  assert.equal(watchdogFired, false, diagnostics);
+  for (const name of ["fixture-cleanup", "write-failed"]) assert.equal(named(name).length, 0, diagnostics);
+  assert.ok(at("native-created") < at("native-spawn"));
+  assert.ok(at("supervisor-spawn") < at("native-exit"));
+  assert.ok(at("native-exit") < at("supervisor-returned"));
+  const nativeCreated = events[at("native-created")]!;
+  const nativeExit = events[at("native-exit")]!;
+  assert.ok(Number.isSafeInteger(nativeCreated.pid) && nativeCreated.pid! > 0, diagnostics);
+  assert.equal(events[at("supervisor-spawn")]!.pid, nativeCreated.pid, diagnostics);
+  assert.equal(observed.receipt.process.leaderPid, nativeCreated.pid, diagnostics);
+  assert.equal(observed.receipt.process.processGroupId, nativeCreated.pid, diagnostics);
+  assert.equal(observed.receipt.process.exitCode, nativeExit.code, diagnostics);
+  assert.equal(observed.receipt.process.exitSignal, nativeExit.signal, diagnostics);
+  assert.equal(observed.receipt.process.processGroupTerminationConfirmed, true, diagnostics);
+  assert.equal(recomputeProtectedRunHash(observed.receipt), observed.receipt.receiptHash);
+  const prepared = mode.startsWith("prepared-");
+  if (prepared || mode === "cold") {
+    assert.equal(observed.exitCode, 124, diagnostics);
+    assert.equal(observed.receipt.state, "STOPPED", diagnostics);
+    assert.equal(observed.receipt.stop?.code, "TIME_LIMIT", diagnostics);
+    assert.equal(observed.receipt.stop!.limit, 100);
+    assert.ok(observed.receipt.stop!.observed! >= 100 && observed.receipt.stop!.observed! < 300, diagnostics);
+    assert.equal(observed.receipt.process.termSent, true, diagnostics);
+    assert.ok(at("supervisor-SIGTERM") < at("native-exit"));
+    assert.ok(events[at("supervisor-SIGTERM")]!.ms - events[at("supervisor-spawn")]!.ms < 300, diagnostics);
+  } else {
+    assert.equal(observed.exitCode, 0, diagnostics);
+    assert.equal(observed.receipt.state, "EXITED", diagnostics);
+    assert.equal(observed.receipt.stop, undefined, diagnostics);
+    assert.equal(observed.receipt.process.exitCode, 0, diagnostics);
+    assert.equal(observed.receipt.process.exitSignal, null, diagnostics);
+    assert.equal(observed.receipt.command.executableIdentityStable, true, diagnostics);
+    assert.equal(named("supervisor-SIGTERM").length, 0, diagnostics);
+  }
+  if (prepared) {
+    assert.ok(at("native-spawn") < at("row-ready"));
+    assert.ok(at("row-ready") < at("supervisor-spawn"));
+    assert.ok(at("supervisor-spawn") < at("replayed-spawn"));
+    assert.equal(observed.receipt.process.killSent, true, diagnostics);
+    assert.equal(observed.receipt.process.exitSignal, "SIGKILL", diagnostics);
+    assert.ok(at("supervisor-SIGTERM") < at("supervisor-SIGKILL"));
+    assert.ok(at("supervisor-SIGKILL") < at("native-exit"));
+    for (const pending of named("write-pending")) assert.ok(events.indexOf(pending) < at("supervisor-SIGTERM"), diagnostics);
+  } else {
+    assert.equal(named("replayed-spawn").length, 0, diagnostics);
+    assert.equal(named("row-ready").length, 0, diagnostics);
+  }
+  if (mode === "cold") {
+    assert.equal(named("write-pending").length, 0, diagnostics);
+  } else {
+    assert.ok(named("write-pending").length > 0, "the intended write must actually be pending: " + diagnostics);
+    assert.equal(named("write-pending").length, named("write-released").length, diagnostics);
+    assert.equal(named("write-pending").length, named("write-completed").length, diagnostics);
+    for (const pending of named("write-pending")) {
+      assert.equal(pending.capture, mode.endsWith("-capture"), diagnostics);
+      assert.equal(pending.descriptor === 1, mode.endsWith("-relay"), diagnostics);
+    }
+    for (const released of named("write-released")) {
+      assert.ok(released.pendingMs! >= 400, diagnostics);
+      assert.ok(at("native-exit") < events.indexOf(released), diagnostics);
+    }
+    for (const completed of named("write-completed")) {
+      assert.equal(completed.error, null, diagnostics);
+      assert.ok(events.indexOf(completed) < at("supervisor-returned"), diagnostics);
+    }
+  }
+  const expected = mode === "cold" ? "" : `${JSON.stringify({ type: "session_meta", payload: { id: "run" } })}\n`;
+  assert.equal(readFileSync(join(directory, "transcript.jsonl"), "utf8"), expected, diagnostics);
+  assert.equal(run.stdout, expected, "relay must preserve the same exact bytes: " + diagnostics);
+}
+
+// A fresh child need not emit anything within 100 ms. Keep its native launch
+// deadline separate from the prepared-child pending-write seams below.
+test("native launch enforces the 100 ms deadline before delayed first output", { timeout: 8_000 }, () => {
+  assertOutputDeadline("cold");
 });
+for (const channel of ["capture", "relay"] as const) {
+  test(`prepared-child ${channel} write stays pending across the 100 ms deadline`, { timeout: 8_000 }, () => {
+    assertOutputDeadline(`prepared-${channel}`);
+  });
+  // These controls keep the real spawn, argv/env, prelaunch hash and pipes.
+  // They require exact output after slow persistence, not a first byte <100 ms.
+  test(`native launch preserves exact output through a slow ${channel} write`, { timeout: 8_000 }, () => {
+    assertOutputDeadline(`native-${channel}`);
+  });
+}
 
 test("stdout relay retries transient EAGAIN backpressure", { timeout: 8_000 }, () => {
   const directory = root();
@@ -970,26 +981,74 @@ test("an interrupted post-launch executable verification remains explicitly not 
   assert.equal(recomputeProtectedRunHash(observed.receipt), observed.receipt.receiptHash);
 });
 
-test("a signal after child exit keeps interrupted executable verification not checked", () => {
+function assertSignalAfterChildExit(completionDelayMs: number): void {
   const supervisorUrl = new URL("../src/run-supervisor.ts", import.meta.url).href;
   const script = `
     const { executeProtectedRun } = await import(${JSON.stringify(supervisorUrl)});
+    const childProcess = (await import("node:child_process")).default;
+    const { syncBuiltinESMExports } = await import("node:module");
     const { open } = await import("node:fs/promises");
     const sample = await open(process.execPath, "r");
     const fileHandlePrototype = Object.getPrototypeOf(sample);
     await sample.close();
     const originalRead = fileHandlePrototype.read;
+    const originalSpawn = childProcess.spawn;
+    const events = [];
+    let ownedChild;
+    let watchdogFired = false;
+    let rejectFixture;
+    const fixtureFailure = new Promise((_, reject) => { rejectFixture = reject; });
+    // It can fire before the first read; every awaited gate also observes it.
+    fixtureFailure.catch(() => {});
+    const watchdog = setTimeout(() => {
+      watchdogFired = true;
+      events.push("fixture-watchdog");
+      rejectFixture(new Error("post-exit fixture did not establish its required events"));
+    }, 3_000);
+    let observeExit;
+    const childExited = new Promise(resolve => { observeExit = resolve; });
+    let observeSignal;
+    const signalDelivered = new Promise(resolve => { observeSignal = resolve; });
+    const onSignal = () => { events.push("signal-delivered"); observeSignal(); };
+    process.once("SIGINT", onSignal);
+    childProcess.spawn = (...args) => {
+      const child = originalSpawn(...args);
+      if (args[2]?.detached) {
+        ownedChild = child;
+        child.once("exit", (code, signal) => {
+          events.push("child-exit");
+          observeExit({ code, signal });
+        });
+        child.once("error", rejectFixture);
+      }
+      return child;
+    };
+    syncBuiltinESMExports();
     const protectedEnvironment = { ...process.env };
     delete protectedEnvironment.NODE_V8_COVERAGE;
+    let interrupt;
+    let interruptRequested = false;
     fileHandlePrototype.read = async function (...args) {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      events.push("verification-read-pending");
+      // Hold the real read open until the real child exits. A fixed timer could
+      // interrupt startup instead, which would not exercise post-exit handling.
+      const exit = await Promise.race([childExited, fixtureFailure]);
+      if (exit.code === 0 && exit.signal === null && !interruptRequested) {
+        interruptRequested = true;
+        interrupt = setImmediate(() => {
+          events.push("signal-sent");
+          process.kill(process.pid, "SIGINT");
+        });
+        await Promise.race([signalDelivered, fixtureFailure]);
+      }
+      events.push("verification-read-released");
       return originalRead.apply(this, args);
     };
-    const interrupt = setTimeout(() => process.kill(process.pid, "SIGINT"), 200);
+    let result;
     try {
-      const result = await executeProtectedRun({
+      result = await executeProtectedRun({
         executable: process.execPath,
-        args: ["-e", "process.exit(0)"],
+        args: ["-e", "setTimeout(() => process.exit(0), " + ${completionDelayMs} + ")"],
         cwd: process.cwd(),
         environment: protectedEnvironment,
         timeLimitMs: 2_000,
@@ -997,28 +1056,59 @@ test("a signal after child exit keeps interrupted executable verification not ch
         trajectoryLimits: {},
         telemetryGraceMs: 200,
       });
-      process.stdout.write(JSON.stringify(result));
     } finally {
-      clearTimeout(interrupt);
+      clearTimeout(watchdog);
+      clearImmediate(interrupt);
+      rejectFixture(new Error("fixture finished"));
+      process.off("SIGINT", onSignal);
       fileHandlePrototype.read = originalRead;
+      childProcess.spawn = originalSpawn;
+      syncBuiltinESMExports();
+      if (ownedChild?.pid && ownedChild.exitCode === null && ownedChild.signalCode === null) {
+        events.push("fixture-cleanup");
+        try { process.kill(-ownedChild.pid, "SIGKILL"); }
+        catch (error) { if (error.code !== "ESRCH") throw error; }
+      }
     }
+    process.stdout.write(JSON.stringify({ result, events, watchdogFired }));
   `;
   const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
     cwd: process.cwd(),
     encoding: "utf8",
     env: coverageHarnessEnvironment(),
     timeout: 5_000,
+    killSignal: "SIGKILL",
   });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0, result.stderr);
-  const observed = JSON.parse(result.stdout) as ProtectedRunResult;
+  const { result: observed, events, watchdogFired } = JSON.parse(result.stdout) as {
+    result: ProtectedRunResult; events: string[]; watchdogFired: boolean;
+  };
+  assert.equal(watchdogFired, false, "the fixture watchdog is a failure, not a successful interruption");
+  assert.equal(events.includes("fixture-cleanup"), false, "fixture cleanup cannot stand in for supervisor termination");
+  for (const event of ["child-exit", "verification-read-pending", "signal-sent", "signal-delivered", "verification-read-released"]) {
+    assert.equal(events.filter(value => value === event).length, 1, event);
+  }
+  assert.ok(events.indexOf("child-exit") < events.indexOf("signal-sent"));
+  assert.ok(events.indexOf("verification-read-pending") < events.indexOf("signal-sent"));
+  assert.ok(events.indexOf("signal-sent") < events.indexOf("signal-delivered"));
+  assert.ok(events.indexOf("signal-delivered") < events.indexOf("verification-read-released"));
   assert.equal(observed.exitCode, 130);
   assert.equal(observed.receipt.state, "STOPPED");
   assert.equal(observed.receipt.stop?.code, "SUPERVISOR_SIGNAL");
   assert.equal(observed.receipt.stop?.signal, "SIGINT");
   assert.equal(observed.receipt.process.exitCode, 0, "the child must have exited before verification was interrupted");
+  assert.equal(observed.receipt.process.exitSignal, null);
   assert.equal(observed.receipt.command.executableIdentityStable, "NOT_CHECKED");
   assert.equal(recomputeProtectedRunHash(observed.receipt), observed.receipt.receiptHash);
+}
+
+test("a signal after child exit keeps interrupted executable verification not checked", () => {
+  assertSignalAfterChildExit(0);
+});
+
+test("post-exit interruption waits for a child whose completion outlasts the old signal timer", () => {
+  assertSignalAfterChildExit(400);
 });
 
 test("wall limit is not extended when the wall clock moves backward", () => {
