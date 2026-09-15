@@ -80,5 +80,6 @@ export function remediationFor(ruleId?: string): string {
     "authority-hook": "Remove the new hook or approve its exact hashed command identity in the base revision policy.",
     "authority-setting-unknown": "Upgrade the adapter or remove the unrecognized setting change; use a separately reviewed base-policy exception only after inspecting its effect.",
   };
-  return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
+  const id = ruleId ?? "";
+  return Object.hasOwn(fixes, id) ? fixes[id] : "Provide objective evidence or remove the unsupported claim.";
 }

@@ -31,7 +31,7 @@ function report(results: CheckResult[], base = "a".repeat(40)) {
   });
 }
 
-test("proof comment is deterministic, single-marker, and aggregate-only", () => {
+test("proof comment is deterministic, single-marker, and does not expose private evidence", () => {
   const receipt = report([
     check("differential-test", "verified", "differential_test"),
     check("differential-base-fail", "contradicted", "differential_test", "SECRET_DETAIL"),

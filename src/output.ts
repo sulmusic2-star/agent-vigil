@@ -9,6 +9,7 @@ import {
   type ResultView,
 } from "./result-view.ts";
 import { appendPrivateFileAtomic, writePrivateFileAtomic } from "./safe-output.ts";
+import { publicResultLines } from "./public-result.ts";
 import { markdownCodeSpan } from "./markdown.ts";
 
 export { remediationFor } from "./remediation.ts";
@@ -77,9 +78,9 @@ export function renderResultMarkdown(view: ResultView, options: { aggregateOnly?
     "",
     `**${markdownText(view.consequence)}**`,
     "",
-    options.aggregateOnly
-      ? `Result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}`
-      : `**Reason:** ${markdownText(view.mainCause)}`,
+    ...(options.aggregateOnly
+      ? publicResultLines(view)
+      : [`**Reason:** ${markdownText(view.mainCause)}`]),
   ];
   if (!options.aggregateOnly && primary) {
     const location = primary.location ? ` at ${markdownCodeSpan(`${primary.location.file}${primary.location.line ? `:${primary.location.line}` : ""}`)}` : "";

@@ -2,6 +2,7 @@ import type { CheckResult } from "./report.ts";
 import { buildReportResultView, validateReportForResult } from "./result-view.ts";
 import { verifyReport } from "./signature.ts";
 import { terminalSafe } from "./upgrade/presentation.ts";
+import { publicResultLines } from "./public-result.ts";
 import { markdownCodeSpan } from "./markdown.ts";
 
 export const PROOF_COMMENT_MARKER = "<!-- agent-vigil-proof-comment:v1 -->";
@@ -53,7 +54,6 @@ export function renderProofComment(value: unknown, options: ProofCommentOptions 
     : "absent; content hash only";
   const url = verifiedUrl(options.verifyUrl);
   const detailFacts = [
-    `Checks: Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}  `,
     `Candidate-only regression checks: ${differentialEarned} verified  `,
     `Changed regression checks that also passed on base: ${differentialAlsoPassedBase}  `,
     `Integrity-control contradictions: ${integrityChanges}  `,
@@ -66,13 +66,11 @@ export function renderProofComment(value: unknown, options: ProofCommentOptions 
     "",
     `**${view.consequence}**`,
     "",
-    view.counts.failed
-      ? `${view.counts.failed} required check(s) failed.`
-      : view.counts.notChecked
-        ? `${view.counts.notChecked} required check(s) did not run.`
-        : "All required checks passed.",
+    `Checks: Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}`,
     "",
-    "Open the retained receipt for the reason, evidence, and exact reproduce command.",
+    ...publicResultLines(view),
+    "",
+    "Private evidence, file locations and the recorded reproduce command stay in the retained receipt.",
     ...(url ? ["", `[Verify this receipt](${url.replace(/[()]/g, (character) => `\\${character}`)})`] : []),
     "",
     "<details><summary>Receipt details</summary>",

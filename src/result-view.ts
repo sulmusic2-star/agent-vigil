@@ -81,7 +81,7 @@ function outcomeState(verdict: OutcomeVerdict): ResultState {
 function consequence(verdict: ReportStatus): string {
   if (verdict === "PASS") return "Ready to merge.";
   if (verdict === "FAIL") return "Do not merge yet.";
-  return "No merge decision: a required check did not run.";
+  return "No merge decision: required verification is incomplete.";
 }
 
 function safe(value: string): string {

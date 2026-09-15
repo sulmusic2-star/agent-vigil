@@ -126,7 +126,7 @@ test("a claim cannot add a false Markdown verdict heading", () => {
   assert.match(markdown, /\*\*Reason:\*\* ### Agent Vigil: PASS/);
   const summary = renderDecisionCard(report);
   assert.doesNotMatch(summary, /private\/test\/path|secret-looking|private\/candidate|private-secret|Reproduce:|Evidence:|Fix:/);
-  assert.match(summary, /Result: 1 required check\(s\) failed\./);
+  assert.match(summary, /\*\*Why:\*\* Test verification failed\./);
 });
 
 test("report renderers and SARIF reject malformed and stale receipts", () => {
