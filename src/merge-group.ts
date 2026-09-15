@@ -111,7 +111,7 @@ export function buildMergeGroupReport(options: MergeGroupOptions): TrustReport {
   };
   results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand, undefined, base, head));
   results.push(...checkWorkspaceMutation(repo, inputs, head));
-  const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+  const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand: policy.value.testCommand }), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
 

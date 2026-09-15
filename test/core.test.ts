@@ -421,7 +421,7 @@ test("integrity scan forces text patches despite candidate diff attributes", () 
   assert.equal(result?.verdict, "contradicted");
 });
 
-test("integrity scan fails closed on Git-quoted changed paths", () => {
+test("integrity scan binds Git-quoted changed paths and detects their unsafe content", () => {
   const repo = initRepo(); mkdirSync(join(repo, "src"));
   // Backslash is a valid POSIX filename byte but a Windows path separator.
   // A non-ASCII name remains portable while still forcing Git quoting there.
@@ -429,11 +429,9 @@ test("integrity scan fails closed on Git-quoted changed paths", () => {
   const path = join(repo, "src", process.platform === "win32" ? "evil-é.ts" : "evil\\name.ts");
   writeFileSync(path, "return value;\n"); commit(repo, "quoted path baseline");
   writeFileSync(path, "if (false) return fallback;\nreturn value;\n"); commit(repo, "quoted path change");
-  const result = checkIntegrity(repo, "HEAD~1", "HEAD")[0];
-  assert.equal(result.ruleId, "diff-unparseable");
-  assert.equal(result.verdict, "unverifiable");
-  assert.equal(result.blocksPass, true);
-  assert.match(result.evidence, /quoted unified-diff (?:old )?path header/);
+  const results = checkIntegrity(repo, "HEAD~1", "HEAD");
+  assert.equal(results.some((result) => result.ruleId === "diff-unparseable"), false);
+  assert.ok(results.some((result) => result.ruleId === "dead-branch-added" && result.verdict === "contradicted"));
 });
 
 test("integrity scan size-checks required worktree test blobs before reading", () => {
@@ -522,7 +520,7 @@ test("static diff audit is inconclusive for non-diff input", () => {
   assert.equal(result.blocksPass, true);
 });
 
-test("static diff audit rejects quoted path headers it cannot bind exactly", () => {
+test("static diff audit binds valid quoted headers and inspects their content", () => {
   const result = checkIntegrityDiff([
     'diff --git "a/src/evil\\\\name.ts" "b/src/evil\\\\name.ts"',
     '--- "a/src/evil\\\\name.ts"',
@@ -532,8 +530,8 @@ test("static diff audit rejects quoted path headers it cannot bind exactly", () 
     "+if (false) return fallback;",
     "",
   ].join("\n"))[0];
-  assert.equal(result.ruleId, "diff-unparseable");
-  assert.equal(result.blocksPass, true);
+  assert.equal(result.ruleId, "dead-branch-added");
+  assert.equal(result.verdict, "contradicted");
 });
 
 test("static diff audit accepts an exactly bound content-changing rename", () => {
@@ -570,7 +568,7 @@ test("static diff audit rejects ambiguous or unsupported rename metadata", () =>
   const mismatched = [...base];
   mismatched[3] = "rename to src/other.ts";
   const quoted = [...base];
-  quoted[2] = 'rename from "src/refactor.ts"';
+  quoted[2] = 'rename from "src/other.ts"';
   const copied = [...base];
   copied[2] = "copy from src/refactor.ts";
   for (const diff of [mismatched, quoted, copied]) {

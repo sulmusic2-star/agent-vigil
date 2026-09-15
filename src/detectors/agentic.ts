@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
+import { findTestCodeMatches, uncheckedTestCode, type AddedCodeContext } from "./test-code-context.ts";
 import type { CheckResult } from "../report.ts";
 import type { SessionToolCall } from "../transcript.ts";
 import { trustedGitOptional } from "../trusted-git.ts";
@@ -10,6 +11,8 @@ export type AgenticPatch = {
   added: string[];
   removed: string[];
   context: string[];
+  addedLineNumbers?: number[];
+  codeContext?: AddedCodeContext;
 };
 
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -202,27 +205,30 @@ function mixedScriptFinding(patch: AgenticPatch): CheckResult | undefined {
   return undefined;
 }
 
-function oracleFalsifyFinding(patch: AgenticPatch): CheckResult | undefined {
-  if (!isTestPath(patch.path)) return undefined;
-  const added = patch.added.filter((line) => !isDetectorPatternLine(line)).join("\n");
+function oracleFalsifyFindings(patch: AgenticPatch): CheckResult[] {
+  if (!isTestPath(patch.path)) return [];
+  const results: CheckResult[] = [];
   const swallowedPythonAssertion = /try\s*:[\s\S]{0,1200}\bassert\b[\s\S]{0,1200}except\s+AssertionError\s*:\s*(?:pass|\.\.\.)/m;
   const swallowedJavaScriptAssertion = /try\s*\{[\s\S]{0,1200}\b(?:expect|assert)\b[\s\S]{0,1200}\}\s*catch\s*(?:\([^)]*\))?\s*\{\s*\}/m;
   const unreachableAssertion = /\bif\s*(?:\(\s*(?:false|0)\s*\)|(?:False|0)\s*:)[\s\S]{0,1000}\b(?:expect|assert)\b/m;
-  if (swallowedPythonAssertion.test(added) || swallowedJavaScriptAssertion.test(added)) {
-    return finding(
+  const swallowed = findTestCodeMatches(patch, [swallowedPythonAssertion, swallowedJavaScriptAssertion], true);
+  const unreachable = findTestCodeMatches(patch, [unreachableAssertion], true);
+  if (swallowed.some(match => !match.quoted)) {
+    results.push(finding(
       "test assertion failure is swallowed",
       `${patch.path}: a changed test catches and discards its own assertion failure`,
       "oracle-falsify",
-    );
+    ));
   }
-  if (unreachableAssertion.test(added)) {
-    return finding(
+  if (unreachable.some(match => !match.quoted)) {
+    results.push(finding(
       "test assertion is statically unreachable",
       `${patch.path}: a changed test places an assertion under a constant-false branch`,
       "oracle-falsify",
-    );
+    ));
   }
-  return undefined;
+  if ([...swallowed, ...unreachable].some(match => match.quoted)) results.push(uncheckedTestCode(patch.path, "oracle-falsify"));
+  return results;
 }
 
 function ghostLoaderFinding(patch: AgenticPatch): CheckResult | undefined {
@@ -302,7 +308,8 @@ export function checkAgenticPatches(patches: AgenticPatch[]): CheckResult[] {
       add(patch, hiddenUnicodeAdvisory(patch));
       add(patch, mixedScriptFinding(patch));
     }
-    for (const check of [oracleFalsifyFinding, ghostLoaderFinding, harnessGuardFinding, suppressionReceiptFinding]) {
+    for (const result of oracleFalsifyFindings(patch)) add(patch, result);
+    for (const check of [ghostLoaderFinding, harnessGuardFinding, suppressionReceiptFinding]) {
       add(patch, check(patch));
     }
   }

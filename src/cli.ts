@@ -1055,7 +1055,7 @@ function runMaintainer(args: string[]): number {
       }
       results.push(...checkWorkspaceMutation(repo, inputs, head));
     }
-    const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+    const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand: policy.value.testCommand }), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     const rawEvent = readFileSync(eventPath);
@@ -1777,7 +1777,7 @@ function runAuthority(args: string[]): number {
         }], repo, testCommand, undefined, base, head));
       }
       results.push(...checkWorkspaceMutation(repo, inputs, head));
-      const integrity = routeIntegrity(checkIntegrity(repo, base, head), verificationPolicy.value.integrityMode ?? "advisory");
+      const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand }), verificationPolicy.value.integrityMode ?? "advisory");
       results.push(...integrity.results);
       advisories.push(...integrity.advisories);
     }
@@ -1943,7 +1943,7 @@ export function run(argv = process.argv.slice(2)): number {
     results.push(...checkRunClaims(runClaims, loaded.toolCalls));
     results.push(...checkStepRepetition(loaded.toolCalls));
     const integrity = routeIntegrity([
-      ...checkIntegrity(repo, base, head),
+      ...checkIntegrity(repo, base, head, { testCommand: testCmd }),
       ...checkOutOfDagReads(repo, base, head, loaded.toolCalls),
     ], policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);

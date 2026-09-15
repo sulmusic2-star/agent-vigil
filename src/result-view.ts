@@ -226,6 +226,7 @@ function mainCause(findings: ResultFinding[], verdict: ReportStatus, head: strin
 
 export function primaryResultFinding(findings: ResultFinding[]): ResultFinding | undefined {
   return findings.find((finding) => finding.state === "FAILED")
+    ?? findings.find((finding) => finding.state === "NOT_CHECKED" && finding.id === "test-code-context-unchecked")
     ?? findings.find((finding) => finding.state === "NOT_CHECKED");
 }
 

@@ -1396,502 +1396,6 @@ function escapeRegExpLiteral(value) {
 import { createHash as createHash4 } from "node:crypto";
 import { closeSync as closeSync3, constants as constants3, existsSync as existsSync2, fstatSync as fstatSync3, lstatSync as lstatSync3, openSync as openSync3, readSync as readSync3, realpathSync as realpathSync2 } from "node:fs";
 import { resolve as resolve4, sep as sep2 } from "node:path";
-var MAX_FILE_BYTES = 1024 * 1024;
-function gitOptional(repo, args) {
-  return trustedGitOptional(repo, args, 34 * 1024 * 1024);
-}
-function finding(subject, evidence, ruleId) {
-  return {
-    claim: { kind: "integrity", quote: "automatic agent-authored-change check", subject },
-    verdict: "contradicted",
-    evidence,
-    ruleId,
-    contributesToPass: false
-  };
-}
-function isTestPath(path) {
-  return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|\.cy|_test)\.[^.]+$/i.test(path);
-}
-function isGeneratedOrVendorPath(path) {
-  return /^(?:node_modules|vendor|dist|build|coverage|\.git)\//.test(path);
-}
-function isInstructionPath(path) {
-  return /(?:^|\/)(?:AGENTS|CLAUDE|GEMINI)\.md$/i.test(path) || /(?:^|\/)\.cursorrules$/i.test(path) || /(?:^|\/)\.github\/copilot-instructions\.md$/i.test(path);
-}
-function isDocumentationPath(path) {
-  return /^(?:docs?|examples?)\//i.test(path) || /(?:^|\/)(?:README|CHANGELOG|CONTRIBUTING|SECURITY|LICENSE)(?:\.[^/]*)?$/i.test(path) || /\.(?:md|mdx|rst|txt)$/i.test(path);
-}
-function isSourcePath(path) {
-  return /\.(?:[cm]?[jt]sx?|py|rb|php|java|kt|kts|go|rs|swift|cs|c|cc|cpp|h|hpp)$/i.test(path) && !isTestPath(path) && !isGeneratedOrVendorPath(path);
-}
-function isDetectorPatternLine(line) {
-  return line.includes("vigil:detector-pattern");
-}
-function readRefFileResult(repo, ref2, path) {
-  if (path.includes(":")) return { state: "unreadable", evidence: `${path} contains an unsupported Git path separator` };
-  if (ref2 === "WORKTREE") {
-    const realRoot = realpathSync2(resolve4(repo));
-    const candidate = resolve4(realRoot, path);
-    if (candidate !== realRoot && !candidate.startsWith(`${realRoot}${sep2}`)) {
-      return { state: "unreadable", evidence: `${path} escapes the repository boundary` };
-    }
-    if (!existsSync2(candidate)) return { state: "missing" };
-    let descriptor;
-    try {
-      const relative17 = candidate.slice(realRoot.length + 1).split(sep2).filter(Boolean);
-      let cursor = realRoot;
-      for (let index = 0; index < relative17.length; index += 1) {
-        cursor = resolve4(cursor, relative17[index]);
-        const stat = lstatSync3(cursor);
-        if (stat.isSymbolicLink() || (index < relative17.length - 1 ? !stat.isDirectory() : !stat.isFile())) {
-          return { state: "unreadable", evidence: `${path} is not a regular no-symlink worktree file` };
-        }
-      }
-      const expected = lstatSync3(candidate);
-      if (expected.size > MAX_FILE_BYTES) {
-        return { state: "unreadable", evidence: `${path} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
-      }
-      const noFollow = typeof constants3.O_NOFOLLOW === "number" ? constants3.O_NOFOLLOW : 0;
-      const nonBlock = typeof constants3.O_NONBLOCK === "number" ? constants3.O_NONBLOCK : 0;
-      descriptor = openSync3(candidate, constants3.O_RDONLY | noFollow | nonBlock);
-      const opened = fstatSync3(descriptor);
-      if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeMs !== expected.mtimeMs || opened.ctimeMs !== expected.ctimeMs) {
-        return { state: "unreadable", evidence: `${path} changed while being opened` };
-      }
-      const content2 = Buffer.alloc(opened.size);
-      let offset2 = 0;
-      while (offset2 < content2.length) {
-        const count3 = readSync3(descriptor, content2, offset2, content2.length - offset2, offset2);
-        if (count3 === 0) break;
-        offset2 += count3;
-      }
-      const after = fstatSync3(descriptor);
-      const finalPath = lstatSync3(candidate);
-      if (offset2 !== content2.length || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size || finalPath.mtimeMs !== opened.mtimeMs || finalPath.ctimeMs !== opened.ctimeMs) {
-        return { state: "unreadable", evidence: `${path} changed while being read` };
-      }
-      return { state: "readable", content: content2.toString("utf8") };
-    } catch {
-      return { state: "unreadable", evidence: `${path} could not be read from the worktree` };
-    } finally {
-      if (descriptor !== void 0) closeSync3(descriptor);
-    }
-  }
-  const listed = gitOptional(repo, ["ls-tree", "--name-only", "-z", ref2, "--", path]);
-  if (listed === void 0) return { state: "unreadable", evidence: `Git could not determine whether ${path} exists at ${ref2}` };
-  if (!listed.split("\0").includes(path)) return { state: "missing" };
-  const sizeText = gitOptional(repo, ["cat-file", "-s", `${ref2}:${path}`]);
-  const size = Number(sizeText?.trim());
-  if (!Number.isFinite(size) || size < 0) return { state: "unreadable", evidence: `${path} size at ${ref2} could not be verified` };
-  if (size > MAX_FILE_BYTES) return { state: "unreadable", evidence: `${path} at ${ref2} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
-  const content = gitOptional(repo, ["show", `${ref2}:${path}`]);
-  return content === void 0 ? { state: "unreadable", evidence: `${path} at ${ref2} could not be read` } : { state: "readable", content };
-}
-function readRefFile(repo, ref2, path) {
-  const result5 = readRefFileResult(repo, ref2, path);
-  return result5.state === "readable" ? result5.content : void 0;
-}
-function unreadableRepositoryCheck(path, reads) {
-  const unreadable = reads.find((read) => read.state === "unreadable");
-  if (!unreadable) return void 0;
-  return {
-    claim: { kind: "integrity", quote: "automatic agent-authored-change check", subject: "repository-aware evidence is readable" },
-    verdict: "unverifiable",
-    evidence: `${path}: ${unreadable.evidence}`,
-    ruleId: "integrity-unreadable",
-    contributesToPass: false,
-    blocksPass: true
-  };
-}
-function dangerousUnicodeFinding(patch) {
-  const bidiOrTag = /[\u202A-\u202E\u2066-\u2069\u{E0000}-\u{E007F}]/u;
-  for (let index = 0; index < patch.added.length; index++) {
-    const line = patch.added[index];
-    if (isDetectorPatternLine(line)) continue;
-    if (bidiOrTag.test(line)) {
-      return finding(
-        "hidden Unicode control added",
-        `${patch.path}, changed line ${index + 1}: a bidirectional or tag control character was added; the character is intentionally omitted from this receipt`,
-        "render-gate"
-      );
-    }
-  }
-  return void 0;
-}
-function hiddenUnicodeAdvisory(patch) {
-  const hidden = /[\u200B\u200C\u200D\u200E\u200F\u2060\uFEFF\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
-  for (let index = 0; index < patch.added.length; index++) {
-    const line = patch.added[index];
-    if (isDetectorPatternLine(line)) continue;
-    if (hidden.test(line)) {
-      return finding(
-        "invisible or rendering-sensitive Unicode added",
-        `${patch.path}, changed line ${index + 1}: a zero-width, direction-mark, or variation-selector character was added; review the raw bytes. The character is intentionally omitted from this receipt`,
-        "render-gate-hidden-character"
-      );
-    }
-  }
-  return void 0;
-}
-function mixedScriptFinding(patch) {
-  const identifier2 = /[\p{L}_$][\p{L}\p{N}_$]*/gu;
-  for (let lineIndex = 0; lineIndex < patch.added.length; lineIndex++) {
-    const line = patch.added[lineIndex];
-    if (isDetectorPatternLine(line)) continue;
-    for (const match of line.matchAll(identifier2)) {
-      const token = match[0];
-      const latin = new RegExp("\\p{Script=Latin}", "u").test(token);
-      const cyrillic = new RegExp("\\p{Script=Cyrillic}", "u").test(token);
-      const greek = new RegExp("\\p{Script=Greek}", "u").test(token);
-      if (Number(latin) + Number(cyrillic) + Number(greek) > 1) {
-        return finding(
-          "mixed-script token added",
-          `${patch.path}, changed line ${lineIndex + 1}: one identifier-like token mixes Latin, Cyrillic, or Greek characters; inspect the spelling before accepting it`,
-          "render-gate-mixed-script"
-        );
-      }
-    }
-  }
-  return void 0;
-}
-function oracleFalsifyFinding(patch) {
-  if (!isTestPath(patch.path)) return void 0;
-  const added = patch.added.filter((line) => !isDetectorPatternLine(line)).join("\n");
-  const swallowedPythonAssertion = /try\s*:[\s\S]{0,1200}\bassert\b[\s\S]{0,1200}except\s+AssertionError\s*:\s*(?:pass|\.\.\.)/m;
-  const swallowedJavaScriptAssertion = /try\s*\{[\s\S]{0,1200}\b(?:expect|assert)\b[\s\S]{0,1200}\}\s*catch\s*(?:\([^)]*\))?\s*\{\s*\}/m;
-  const unreachableAssertion = /\bif\s*(?:\(\s*(?:false|0)\s*\)|(?:False|0)\s*:)[\s\S]{0,1000}\b(?:expect|assert)\b/m;
-  if (swallowedPythonAssertion.test(added) || swallowedJavaScriptAssertion.test(added)) {
-    return finding(
-      "test assertion failure is swallowed",
-      `${patch.path}: a changed test catches and discards its own assertion failure`,
-      "oracle-falsify"
-    );
-  }
-  if (unreachableAssertion.test(added)) {
-    return finding(
-      "test assertion is statically unreachable",
-      `${patch.path}: a changed test places an assertion under a constant-false branch`,
-      "oracle-falsify"
-    );
-  }
-  return void 0;
-}
-function ghostLoaderFinding(patch) {
-  const path = patch.path.toLowerCase();
-  const added = patch.added.filter((line) => !isDetectorPatternLine(line)).join("\n");
-  if (/(?:^|\/)conftest\.py$/.test(path) && /pytest_collection_modifyitems/.test(added) && /(?:items\s*\[:\]\s*=|items\.remove\s*\(|\bitems\s*=\s*\[|deselected|pytest_deselected)/.test(added)) {
-    return finding(
-      "test discovery filter added",
-      `${patch.path}: the changed pytest collection hook can remove collected tests`,
-      "ghost-loader"
-    );
-  }
-  if (/(?:pytest\.ini|pyproject\.toml|setup\.cfg|tox\.ini)$/.test(path) && /(?:addopts|pytest\.ini_options)[\s\S]{0,800}(?:--deselect|--ignore(?:=|\s)|(?:^|\s)-k(?:\s|=)|-p\s+no:|--continue-on-collection-errors)/m.test(added)) {
-    return finding(
-      "test discovery exclusion added",
-      `${patch.path}: changed pytest options can omit tests from collection or continue after collection errors`,
-      "ghost-loader"
-    );
-  }
-  return void 0;
-}
-function harnessGuardFinding(patch) {
-  if (isGeneratedOrVendorPath(patch.path) || isDocumentationPath(patch.path)) return void 0;
-  for (let index = 0; index < patch.added.length; index++) {
-    const line = patch.added[index];
-    if (isDetectorPatternLine(line)) continue;
-    if (/\bcontinue-on-error\s*:\s*true\b|\bset\s+\+e\b|\bif\s*:\s*false\b/i.test(line)) {
-      return finding(
-        "verification harness made non-blocking",
-        `${patch.path}, changed line ${index + 1}: the harness can ignore a failed step or disable it outright`,
-        "verification-bypass"
-      );
-    }
-  }
-  return void 0;
-}
-function suppressionReceiptFinding(patch) {
-  if (isGeneratedOrVendorPath(patch.path) || isDocumentationPath(patch.path)) return void 0;
-  for (let index = 0; index < patch.added.length; index++) {
-    const line = patch.added[index];
-    if (isDetectorPatternLine(line)) continue;
-    if (/\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) {
-      return finding(
-        "compiler, linter, or type suppression added",
-        `${patch.path}, changed line ${index + 1}: a new diagnostic suppression requires review`,
-        "suppression-added"
-      );
-    }
-  }
-  return void 0;
-}
-function checkAgenticPatches(patches) {
-  const results = [];
-  const seen = /* @__PURE__ */ new Set();
-  const add = (patch, result5) => {
-    if (!result5) return;
-    const key2 = `${patch.path}:${result5.ruleId ?? result5.claim.subject}`;
-    if (seen.has(key2)) return;
-    seen.add(key2);
-    results.push(result5);
-  };
-  for (const patch of patches) {
-    if (isGeneratedOrVendorPath(patch.path)) continue;
-    if (isSourcePath(patch.path) || isInstructionPath(patch.path)) {
-      add(patch, dangerousUnicodeFinding(patch));
-      add(patch, hiddenUnicodeAdvisory(patch));
-      add(patch, mixedScriptFinding(patch));
-    }
-    for (const check2 of [oracleFalsifyFinding, ghostLoaderFinding, harnessGuardFinding, suppressionReceiptFinding]) {
-      add(patch, check2(patch));
-    }
-  }
-  return results;
-}
-function distinctiveReturnLiterals(patches) {
-  const candidates = [];
-  const literalPattern = /\breturn\s+(?<literal>(?:["'][^"'\n]{6,80}["'])|(?:-?\d+(?:\.\d+)?))\s*[;,]?\s*(?:\/\/.*|#.*)?$/;
-  for (const patch of patches.filter((item2) => isSourcePath(item2.path))) {
-    for (let index = 0; index < patch.added.length; index++) {
-      const raw = patch.added[index].match(literalPattern)?.groups?.literal;
-      if (!raw) continue;
-      const unquoted = /^["']/.test(raw) ? raw.slice(1, -1) : raw;
-      const numeric = Number(unquoted);
-      if (Number.isFinite(numeric)) {
-        if (Math.abs(numeric) < 1e4 || numeric % 1e3 === 0) continue;
-      } else if (/^(?:success|failure|unknown|default|example|test value|not found)$/i.test(unquoted)) {
-        continue;
-      }
-      candidates.push({
-        raw,
-        digest: createHash4("sha256").update(raw).digest("hex").slice(0, 12),
-        path: patch.path,
-        changedLine: index + 1
-      });
-    }
-  }
-  return candidates;
-}
-function grepRefPaths(repo, ref2, needle) {
-  const args = ref2 === "WORKTREE" ? ["grep", "-l", "-z", "-F", "-e", needle, "--"] : ["grep", "-l", "-z", "-F", "-e", needle, ref2, "--"];
-  const raw = gitOptional(repo, args) ?? "";
-  const prefix = ref2 === "WORKTREE" ? "" : `${ref2}:`;
-  return raw.split("\0").filter(Boolean).map((path) => prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path).filter((path) => path && !path.includes(":")).slice(0, 500);
-}
-function unchangedAssertion(repo, ref2, changed, needle) {
-  for (const path of grepRefPaths(repo, ref2, needle).filter((item2) => isTestPath(item2) && !changed.has(item2))) {
-    const content = readRefFile(repo, ref2, path);
-    if (content === void 0) continue;
-    const lineIndex = content.split("\n").findIndex((line) => line.includes(needle) && /\b(?:expect|assert|should)\b/i.test(line));
-    if (lineIndex >= 0) return `${path}:${lineIndex + 1}`;
-  }
-  return void 0;
-}
-function oracleEchoChecks(repo, base, head, changed, patches) {
-  if ([...changed].some(isTestPath)) return [];
-  const candidates = distinctiveReturnLiterals(patches);
-  if (!candidates.length) return [];
-  const results = [];
-  for (const candidate of candidates.slice(0, 20)) {
-    if (grepRefPaths(repo, base, candidate.raw).some(isSourcePath)) continue;
-    const assertion = unchangedAssertion(repo, head, changed, candidate.raw);
-    if (!assertion) continue;
-    results.push(finding(
-      "implementation echoes a pre-existing test oracle",
-      `${candidate.path}, changed line ${candidate.changedLine}, directly returns literal sha256:${candidate.digest}; unchanged assertion ${assertion} contains the same literal. The literal value is intentionally omitted`,
-      "oracle-echo"
-    ));
-  }
-  return results;
-}
-function dependencyMap(content) {
-  if (!content) return /* @__PURE__ */ new Set();
-  try {
-    const parsed = JSON.parse(content);
-    const names = /* @__PURE__ */ new Set();
-    for (const key2 of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
-      const value = parsed[key2];
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      for (const name2 of Object.keys(value)) names.add(name2.toLowerCase());
-    }
-    return names;
-  } catch {
-    return void 0;
-  }
-}
-function editDistance(left, right) {
-  if (Math.abs(left.length - right.length) > 1) return 2;
-  if (left.length === right.length) {
-    for (let index = 0; index < left.length - 1; index++) {
-      if (left[index] !== right[index] && left[index] === right[index + 1] && left[index + 1] === right[index] && left.slice(0, index) === right.slice(0, index) && left.slice(index + 2) === right.slice(index + 2)) return 1;
-    }
-  }
-  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= left.length; i++) {
-    let previous = row[0];
-    row[0] = i;
-    for (let j = 1; j <= right.length; j++) {
-      const old = row[j];
-      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (left[i - 1] === right[j - 1] ? 0 : 1));
-      previous = old;
-    }
-  }
-  return row[right.length];
-}
-function addedImportNames(patches) {
-  const names = /* @__PURE__ */ new Set();
-  const addName = (raw) => {
-    if (!raw || raw.startsWith(".") || raw.startsWith("/") || raw.startsWith("node:") || raw.includes("://") || raw.startsWith("@")) return;
-    const name2 = raw.split(/[/.]/)[0].toLowerCase().replaceAll("_", "-");
-    if (/^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) names.add(name2);
-  };
-  for (const patch of patches) {
-    for (const line of patch.added) {
-      if (isDetectorPatternLine(line)) continue;
-      const python = /^(?:\s*)(?:from|import)\s+([A-Za-z_][\w.-]*)/.exec(line)?.[1];
-      const javascript = /(?:\bfrom\s*|\brequire\s*\(|\bimport\s*\()\s*["']([^"']+)["']/.exec(line)?.[1];
-      const requirement = /(?:^|\/)(?:requirements[^/]*\.txt|constraints[^/]*\.txt)$/i.test(patch.path) ? /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(line)?.[1] : void 0;
-      for (const raw of [python, javascript, requirement]) addName(raw);
-    }
-  }
-  return names;
-}
-function freshDependencyChecks(repo, base, head, changed, patches) {
-  const added = addedImportNames(patches);
-  if (changed.has("package.json")) {
-    const beforeRead = readRefFileResult(repo, base, "package.json");
-    const afterRead = readRefFileResult(repo, head, "package.json");
-    const unreadable = unreadableRepositoryCheck("package.json", [beforeRead, afterRead]);
-    if (unreadable) return [unreadable];
-    const before = dependencyMap(beforeRead.state === "readable" ? beforeRead.content : "");
-    const after = dependencyMap(afterRead.state === "readable" ? afterRead.content : "");
-    if (!before || !after) {
-      return [unreadableRepositoryCheck("package.json", [{ state: "unreadable", evidence: "changed dependency manifest is not valid JSON" }])];
-    }
-    for (const name2 of after) {
-      if (!before.has(name2) && /^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) added.add(name2);
-    }
-  }
-  const popular = [
-    "aiohttp",
-    "anthropic",
-    "axios",
-    "boto3",
-    "certifi",
-    "chalk",
-    "click",
-    "commander",
-    "cryptography",
-    "django",
-    "dotenv",
-    "eslint",
-    "express",
-    "fastapi",
-    "flask",
-    "httpx",
-    "jest",
-    "lodash",
-    "matplotlib",
-    "next",
-    "numpy",
-    "openai",
-    "pandas",
-    "pillow",
-    "prettier",
-    "pydantic",
-    "pytest",
-    "pyyaml",
-    "react",
-    "redis",
-    "requests",
-    "rollup",
-    "scipy",
-    "selenium",
-    "sqlalchemy",
-    "svelte",
-    "tensorflow",
-    "torch",
-    "transformers",
-    "typescript",
-    "urllib3",
-    "vite",
-    "vue",
-    "webpack",
-    "yargs",
-    "zod"
-  ];
-  const results = [];
-  for (const name2 of added) {
-    const neighbor = popular.find((known) => known !== name2 && editDistance(known, name2) === 1);
-    if (!neighbor) continue;
-    results.push(finding(
-      "new import or dependency resembles a common package name",
-      `${name2} is newly imported or declared and is one edit from ${neighbor}; this offline check does not claim the package is malicious or verify registry ownership`,
-      "fresh-dep"
-    ));
-  }
-  return results;
-}
-function coverageFloor(content) {
-  if (!content) return void 0;
-  const values = [
-    ...[...content.matchAll(/--(?:cov-)?fail-under(?:=|\s+)(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1])),
-    ...[...content.matchAll(/minimum[_-]?coverage\s*[:=]\s*(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1])),
-    ...[...content.matchAll(/coverageThreshold[^\n]{0,160}?(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1]))
-  ].filter(Number.isFinite);
-  return values.length ? Math.min(...values) : void 0;
-}
-function loweredCoverageChecks(repo, base, head, changed) {
-  for (const path of changed) {
-    if (!/(?:^|\/)(?:package\.json|pyproject\.toml|pytest\.ini|setup\.cfg|tox\.ini|.*ya?ml|.*json)$/i.test(path)) continue;
-    const beforeRead = readRefFileResult(repo, base, path);
-    const afterRead = readRefFileResult(repo, head, path);
-    const unreadable = unreadableRepositoryCheck(path, [beforeRead, afterRead]);
-    if (unreadable) return [unreadable];
-    const before = coverageFloor(beforeRead.state === "readable" ? beforeRead.content : void 0);
-    const after = coverageFloor(afterRead.state === "readable" ? afterRead.content : void 0);
-    if (before !== void 0 && (after === void 0 || after < before)) {
-      return [finding(
-        "coverage requirement lowered",
-        after === void 0 ? `${path}: the recognized minimum coverage floor of ${before} was removed` : `${path}: the recognized minimum coverage floor fell from ${before} to ${after}`,
-        "coverage-weakened"
-      )];
-    }
-  }
-  return [];
-}
-function checkAgenticRepository(repo, base, head, changedPaths2, patches) {
-  const changed = new Set(changedPaths2);
-  return [
-    ...oracleEchoChecks(repo, base, head, changed, patches),
-    ...freshDependencyChecks(repo, base, head, changed, patches),
-    ...loweredCoverageChecks(repo, base, head, changed)
-  ];
-}
-function isAncestor(repo, commit2, ref2) {
-  return trustedGitOptional(repo, ["merge-base", "--is-ancestor", commit2, ref2]) !== void 0;
-}
-function checkOutOfDagReads(repo, base, head, toolCalls) {
-  const findings = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const call of toolCalls) {
-    if (!/\bgit\s+(?:show|diff|cat-file|checkout|cherry-pick|log)\b/i.test(call.input)) continue;
-    for (const match of call.input.matchAll(/\b[0-9a-f]{7,40}\b/gi)) {
-      const supplied = match[0];
-      const commit2 = gitOptional(repo, ["rev-parse", "--verify", `${supplied}^{commit}`])?.trim();
-      if (!commit2 || seen.has(commit2)) continue;
-      seen.add(commit2);
-      if (isAncestor(repo, commit2, base)) continue;
-      if (head !== "WORKTREE" && isAncestor(repo, commit2, head)) continue;
-      findings.push(finding(
-        "out-of-change-history commit was read",
-        `tool call ${call.sequence + 1} references ${commit2.slice(0, 12)}, which is outside the selected base-to-head history. Retrieval is observed; origin, copying, and causation are not inferred`,
-        "leak-gate"
-      ));
-    }
-  }
-  return findings;
-}
 
 // node_modules/acorn/dist/acorn.mjs
 var astralIdentifierCodes = [509, 0, 227, 0, 150, 4, 294, 9, 1368, 2, 2, 1, 6, 3, 41, 2, 5, 0, 166, 1, 574, 3, 9, 9, 7, 9, 32, 4, 318, 1, 78, 5, 71, 10, 50, 3, 123, 2, 54, 14, 32, 10, 3, 1, 11, 3, 46, 10, 8, 0, 46, 9, 7, 2, 37, 13, 2, 9, 6, 1, 45, 0, 13, 2, 49, 13, 9, 3, 2, 11, 83, 11, 7, 0, 3, 0, 158, 11, 6, 9, 7, 3, 56, 1, 2, 6, 3, 1, 3, 2, 10, 0, 11, 1, 3, 6, 4, 4, 68, 8, 2, 0, 3, 0, 2, 3, 2, 4, 2, 0, 15, 1, 83, 17, 10, 9, 5, 0, 82, 19, 13, 9, 214, 6, 3, 8, 28, 1, 83, 16, 16, 9, 82, 12, 9, 9, 7, 19, 58, 14, 5, 9, 243, 14, 166, 9, 71, 5, 2, 1, 3, 3, 2, 0, 2, 1, 13, 9, 120, 6, 3, 6, 4, 0, 29, 9, 41, 6, 2, 3, 9, 0, 10, 10, 47, 15, 199, 7, 137, 9, 54, 7, 2, 7, 17, 9, 57, 21, 2, 13, 123, 5, 4, 0, 2, 1, 2, 6, 2, 0, 9, 9, 49, 4, 2, 1, 2, 4, 9, 9, 55, 9, 266, 3, 10, 1, 2, 0, 49, 6, 4, 4, 14, 10, 5350, 0, 7, 14, 11465, 27, 2343, 9, 87, 9, 39, 4, 60, 6, 26, 9, 535, 9, 470, 0, 2, 54, 8, 3, 82, 0, 12, 1, 19628, 1, 4178, 9, 519, 45, 3, 22, 543, 4, 4, 5, 9, 7, 3, 6, 31, 3, 149, 2, 1418, 49, 513, 54, 5, 49, 9, 0, 15, 0, 23, 4, 2, 14, 1361, 6, 2, 16, 3, 6, 2, 1, 2, 4, 101, 0, 161, 6, 10, 9, 357, 0, 62, 13, 499, 13, 245, 1, 2, 9, 233, 0, 3, 0, 8, 1, 6, 0, 475, 6, 110, 6, 6, 9, 4759, 9, 787719, 239];
@@ -7590,6 +7094,656 @@ function parse3(input, options) {
   return Parser.parse(input, options);
 }
 
+// src/detectors/test-code-context.ts
+import * as nodeModule from "node:module";
+function readFileCodeContext(path, source2) {
+  if (!/\.(?:[cm]?[jt]s|md|txt)$/i.test(path) || !source2 || Buffer.byteLength(source2, "utf8") > 1024 * 1024 || /[\0\ufffd]/u.test(source2) || /\.[jt]sx$/i.test(path)) return void 0;
+  let parsedSource = source2;
+  function parseStrict() {
+    for (const sourceType of ["module", "script"]) {
+      const comments = [];
+      try {
+        const tree = parse3(parsedSource, {
+          ecmaVersion: "latest",
+          sourceType,
+          allowReturnOutsideFunction: sourceType === "script",
+          onComment: (_block, _text, start, end) => comments.push({ start, end })
+        });
+        return { tree, comments };
+      } catch {
+      }
+    }
+    return void 0;
+  }
+  let parsed = parseStrict();
+  if (!parsed && /\.[cm]?ts$/i.test(path)) {
+    const strip = nodeModule.stripTypeScriptTypes;
+    if (typeof strip === "function") {
+      try {
+        parsedSource = strip(source2, { mode: "strip" });
+        parsed = parseStrict();
+      } catch {
+      }
+    }
+  }
+  const ranges = [];
+  if (parsed) {
+    ranges.push(...parsed.comments);
+    const stack = [parsed.tree];
+    let visited = 0;
+    while (stack.length) {
+      if (++visited > 2e5) return void 0;
+      const node = stack.pop();
+      if (node.type === "Literal" && (typeof node.value === "string" || node.regex) || node.type === "TemplateElement") ranges.push({ start: node.start, end: node.end });
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) {
+          for (const child of value) if (child && typeof child.type === "string") stack.push(child);
+        } else if (value && typeof value === "object" && "type" in value && typeof value.type === "string") {
+          stack.push(value);
+        }
+      }
+    }
+    if (parsedSource.length !== source2.length || ranges.some(({ start, end }) => source2.slice(start, end) !== parsedSource.slice(start, end))) return void 0;
+  } else if (/\.md$/i.test(path) && /^#{1,6} /m.test(source2)) {
+    let offset3 = 0;
+    let fence;
+    for (const line of source2.split("\n")) {
+      const marker2 = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (fence) {
+        if (marker2 && marker2[1][0] === fence.character && marker2[1].length >= fence.length && /^[ \t\r]*$/.test(marker2[2])) fence = void 0;
+      } else if (marker2) {
+        fence = { character: marker2[1][0], length: marker2[1].length };
+      } else if (/<!--|<\/?[A-Za-z][^>]*>/.test(line)) {
+        return void 0;
+      } else if (!/^(?: {4}|\t)/.test(line) && !/[<>]/.test(line) && !/``/.test(line)) {
+        for (const match of line.matchAll(/`[^`\r\n]+`/g)) ranges.push({ start: offset3 + match.index, end: offset3 + match.index + match[0].length });
+      }
+      offset3 += line.length + 1;
+    }
+  } else return void 0;
+  const lines = source2.split("\n");
+  const starts = [];
+  let offset2 = 0;
+  for (const line of lines) {
+    starts.push(offset2);
+    offset2 += line.length + 1;
+  }
+  ranges.sort((a, b) => a.start - b.start);
+  return { ranges, lines, starts };
+}
+function bindAddedCodeContext(context, added, numbers) {
+  if (!context || !numbers || numbers.length !== added.length) return void 0;
+  const offsets = [];
+  for (let index = 0; index < added.length; index++) {
+    const line = numbers[index];
+    if (!Number.isSafeInteger(line) || line < 1 || index > 0 && line <= numbers[index - 1] || context.lines[line - 1] !== added[index]) return void 0;
+    offsets.push(context.starts[line - 1]);
+  }
+  return { ranges: context.ranges, offsets };
+}
+function findTestCodeMatches(patch, patterns, triggerOnly = false) {
+  const entries = patch.added.flatMap((text8, index) => text8.includes("vigil:detector-pattern") ? [] : [{ text: text8, index }]);
+  const lines = entries.map(({ text: text8 }) => text8);
+  const starts = [];
+  let offset2 = 0;
+  for (const line of lines) {
+    starts.push(offset2);
+    offset2 += line.length + 1;
+  }
+  const added = lines.join("\n");
+  function location(position) {
+    let low = 0, high = starts.length - 1;
+    while (low <= high) {
+      const mid = low + high >>> 1;
+      if (starts[mid] <= position) low = mid + 1;
+      else high = mid - 1;
+    }
+    if (high < 0 || position >= starts[high] + lines[high].length) return void 0;
+    return { line: high, column: position - starts[high] };
+  }
+  let quoted2;
+  let direct;
+  for (const pattern of patterns) {
+    const regex = new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, "") + "g");
+    let match;
+    while ((match = regex.exec(added)) !== null) {
+      if (triggerOnly || !match[0].length) regex.lastIndex = match.index + Math.max(1, /^\w+/.exec(match[0])?.[0].length ?? 1);
+      const first = location(match.index);
+      const last = location(match.index + (triggerOnly ? /^\w+/.exec(match[0])?.[0].length ?? match[0].length : match[0].length) - 1);
+      let inQuotedText = false;
+      const context = patch.codeContext;
+      if (context && first && last) {
+        const start = context.offsets[entries[first.line].index] + first.column;
+        const end = context.offsets[entries[last.line].index] + last.column + 1;
+        let low = 0, high = context.ranges.length - 1;
+        while (low <= high) {
+          const mid = low + high >>> 1;
+          if (context.ranges[mid].start <= start) low = mid + 1;
+          else high = mid - 1;
+        }
+        inQuotedText = high >= 0 && context.ranges[high].end >= end;
+      }
+      const result5 = { quoted: inQuotedText, line: first ? entries[first.line].index + 1 : 1, text: match[0] };
+      if (!inQuotedText) direct ??= result5;
+      else quoted2 ??= result5;
+      if (direct && quoted2) return [direct, quoted2];
+    }
+  }
+  return [direct, quoted2].filter((value) => value !== void 0);
+}
+function uncheckedTestCode(path, ruleId) {
+  return {
+    claim: { kind: "integrity", quote: "exact-file test-code context check", subject: "quoted test code needs an execution check" },
+    verdict: "unverifiable",
+    ruleId: "test-code-context-unchecked",
+    contributesToPass: false,
+    blocksPass: true,
+    evidence: `${path}: ${ruleId} matched quoted text or a comment, not a direct operation at that location. The text may still be executed by a helper or generated file. Check that execution path before clearing this hold; this is not proof that a test was weakened or that the change is safe.`
+  };
+}
+
+// src/detectors/agentic.ts
+var MAX_FILE_BYTES = 1024 * 1024;
+function gitOptional(repo, args) {
+  return trustedGitOptional(repo, args, 34 * 1024 * 1024);
+}
+function finding(subject, evidence, ruleId) {
+  return {
+    claim: { kind: "integrity", quote: "automatic agent-authored-change check", subject },
+    verdict: "contradicted",
+    evidence,
+    ruleId,
+    contributesToPass: false
+  };
+}
+function isTestPath(path) {
+  return /(^|\/)(test|tests|__tests__|spec)(\/|$)|(^|\/)test_[^/]+\.[^.]+$|(?:\.test|\.spec|\.cy|_test)\.[^.]+$/i.test(path);
+}
+function isGeneratedOrVendorPath(path) {
+  return /^(?:node_modules|vendor|dist|build|coverage|\.git)\//.test(path);
+}
+function isInstructionPath(path) {
+  return /(?:^|\/)(?:AGENTS|CLAUDE|GEMINI)\.md$/i.test(path) || /(?:^|\/)\.cursorrules$/i.test(path) || /(?:^|\/)\.github\/copilot-instructions\.md$/i.test(path);
+}
+function isDocumentationPath(path) {
+  return /^(?:docs?|examples?)\//i.test(path) || /(?:^|\/)(?:README|CHANGELOG|CONTRIBUTING|SECURITY|LICENSE)(?:\.[^/]*)?$/i.test(path) || /\.(?:md|mdx|rst|txt)$/i.test(path);
+}
+function isSourcePath(path) {
+  return /\.(?:[cm]?[jt]sx?|py|rb|php|java|kt|kts|go|rs|swift|cs|c|cc|cpp|h|hpp)$/i.test(path) && !isTestPath(path) && !isGeneratedOrVendorPath(path);
+}
+function isDetectorPatternLine(line) {
+  return line.includes("vigil:detector-pattern");
+}
+function readRefFileResult(repo, ref2, path) {
+  if (path.includes(":")) return { state: "unreadable", evidence: `${path} contains an unsupported Git path separator` };
+  if (ref2 === "WORKTREE") {
+    const realRoot = realpathSync2(resolve4(repo));
+    const candidate = resolve4(realRoot, path);
+    if (candidate !== realRoot && !candidate.startsWith(`${realRoot}${sep2}`)) {
+      return { state: "unreadable", evidence: `${path} escapes the repository boundary` };
+    }
+    if (!existsSync2(candidate)) return { state: "missing" };
+    let descriptor;
+    try {
+      const relative17 = candidate.slice(realRoot.length + 1).split(sep2).filter(Boolean);
+      let cursor = realRoot;
+      for (let index = 0; index < relative17.length; index += 1) {
+        cursor = resolve4(cursor, relative17[index]);
+        const stat = lstatSync3(cursor);
+        if (stat.isSymbolicLink() || (index < relative17.length - 1 ? !stat.isDirectory() : !stat.isFile())) {
+          return { state: "unreadable", evidence: `${path} is not a regular no-symlink worktree file` };
+        }
+      }
+      const expected = lstatSync3(candidate);
+      if (expected.size > MAX_FILE_BYTES) {
+        return { state: "unreadable", evidence: `${path} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
+      }
+      const noFollow = typeof constants3.O_NOFOLLOW === "number" ? constants3.O_NOFOLLOW : 0;
+      const nonBlock = typeof constants3.O_NONBLOCK === "number" ? constants3.O_NONBLOCK : 0;
+      descriptor = openSync3(candidate, constants3.O_RDONLY | noFollow | nonBlock);
+      const opened = fstatSync3(descriptor);
+      if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.mtimeMs !== expected.mtimeMs || opened.ctimeMs !== expected.ctimeMs) {
+        return { state: "unreadable", evidence: `${path} changed while being opened` };
+      }
+      const content2 = Buffer.alloc(opened.size);
+      let offset2 = 0;
+      while (offset2 < content2.length) {
+        const count3 = readSync3(descriptor, content2, offset2, content2.length - offset2, offset2);
+        if (count3 === 0) break;
+        offset2 += count3;
+      }
+      const after = fstatSync3(descriptor);
+      const finalPath = lstatSync3(candidate);
+      if (offset2 !== content2.length || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || finalPath.isSymbolicLink() || !finalPath.isFile() || finalPath.dev !== opened.dev || finalPath.ino !== opened.ino || finalPath.size !== opened.size || finalPath.mtimeMs !== opened.mtimeMs || finalPath.ctimeMs !== opened.ctimeMs) {
+        return { state: "unreadable", evidence: `${path} changed while being read` };
+      }
+      return { state: "readable", content: content2.toString("utf8") };
+    } catch {
+      return { state: "unreadable", evidence: `${path} could not be read from the worktree` };
+    } finally {
+      if (descriptor !== void 0) closeSync3(descriptor);
+    }
+  }
+  const listed = gitOptional(repo, ["ls-tree", "--name-only", "-z", ref2, "--", path]);
+  if (listed === void 0) return { state: "unreadable", evidence: `Git could not determine whether ${path} exists at ${ref2}` };
+  if (!listed.split("\0").includes(path)) return { state: "missing" };
+  const sizeText = gitOptional(repo, ["cat-file", "-s", `${ref2}:${path}`]);
+  const size = Number(sizeText?.trim());
+  if (!Number.isFinite(size) || size < 0) return { state: "unreadable", evidence: `${path} size at ${ref2} could not be verified` };
+  if (size > MAX_FILE_BYTES) return { state: "unreadable", evidence: `${path} at ${ref2} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)} MiB repository-aware evidence limit` };
+  const content = gitOptional(repo, ["show", `${ref2}:${path}`]);
+  return content === void 0 ? { state: "unreadable", evidence: `${path} at ${ref2} could not be read` } : { state: "readable", content };
+}
+function readRefFile(repo, ref2, path) {
+  const result5 = readRefFileResult(repo, ref2, path);
+  return result5.state === "readable" ? result5.content : void 0;
+}
+function unreadableRepositoryCheck(path, reads) {
+  const unreadable = reads.find((read) => read.state === "unreadable");
+  if (!unreadable) return void 0;
+  return {
+    claim: { kind: "integrity", quote: "automatic agent-authored-change check", subject: "repository-aware evidence is readable" },
+    verdict: "unverifiable",
+    evidence: `${path}: ${unreadable.evidence}`,
+    ruleId: "integrity-unreadable",
+    contributesToPass: false,
+    blocksPass: true
+  };
+}
+function dangerousUnicodeFinding(patch) {
+  const bidiOrTag = /[\u202A-\u202E\u2066-\u2069\u{E0000}-\u{E007F}]/u;
+  for (let index = 0; index < patch.added.length; index++) {
+    const line = patch.added[index];
+    if (isDetectorPatternLine(line)) continue;
+    if (bidiOrTag.test(line)) {
+      return finding(
+        "hidden Unicode control added",
+        `${patch.path}, changed line ${index + 1}: a bidirectional or tag control character was added; the character is intentionally omitted from this receipt`,
+        "render-gate"
+      );
+    }
+  }
+  return void 0;
+}
+function hiddenUnicodeAdvisory(patch) {
+  const hidden = /[\u200B\u200C\u200D\u200E\u200F\u2060\uFEFF\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
+  for (let index = 0; index < patch.added.length; index++) {
+    const line = patch.added[index];
+    if (isDetectorPatternLine(line)) continue;
+    if (hidden.test(line)) {
+      return finding(
+        "invisible or rendering-sensitive Unicode added",
+        `${patch.path}, changed line ${index + 1}: a zero-width, direction-mark, or variation-selector character was added; review the raw bytes. The character is intentionally omitted from this receipt`,
+        "render-gate-hidden-character"
+      );
+    }
+  }
+  return void 0;
+}
+function mixedScriptFinding(patch) {
+  const identifier2 = /[\p{L}_$][\p{L}\p{N}_$]*/gu;
+  for (let lineIndex = 0; lineIndex < patch.added.length; lineIndex++) {
+    const line = patch.added[lineIndex];
+    if (isDetectorPatternLine(line)) continue;
+    for (const match of line.matchAll(identifier2)) {
+      const token = match[0];
+      const latin = new RegExp("\\p{Script=Latin}", "u").test(token);
+      const cyrillic = new RegExp("\\p{Script=Cyrillic}", "u").test(token);
+      const greek = new RegExp("\\p{Script=Greek}", "u").test(token);
+      if (Number(latin) + Number(cyrillic) + Number(greek) > 1) {
+        return finding(
+          "mixed-script token added",
+          `${patch.path}, changed line ${lineIndex + 1}: one identifier-like token mixes Latin, Cyrillic, or Greek characters; inspect the spelling before accepting it`,
+          "render-gate-mixed-script"
+        );
+      }
+    }
+  }
+  return void 0;
+}
+function oracleFalsifyFindings(patch) {
+  if (!isTestPath(patch.path)) return [];
+  const results = [];
+  const swallowedPythonAssertion = /try\s*:[\s\S]{0,1200}\bassert\b[\s\S]{0,1200}except\s+AssertionError\s*:\s*(?:pass|\.\.\.)/m;
+  const swallowedJavaScriptAssertion = /try\s*\{[\s\S]{0,1200}\b(?:expect|assert)\b[\s\S]{0,1200}\}\s*catch\s*(?:\([^)]*\))?\s*\{\s*\}/m;
+  const unreachableAssertion = /\bif\s*(?:\(\s*(?:false|0)\s*\)|(?:False|0)\s*:)[\s\S]{0,1000}\b(?:expect|assert)\b/m;
+  const swallowed = findTestCodeMatches(patch, [swallowedPythonAssertion, swallowedJavaScriptAssertion], true);
+  const unreachable = findTestCodeMatches(patch, [unreachableAssertion], true);
+  if (swallowed.some((match) => !match.quoted)) {
+    results.push(finding(
+      "test assertion failure is swallowed",
+      `${patch.path}: a changed test catches and discards its own assertion failure`,
+      "oracle-falsify"
+    ));
+  }
+  if (unreachable.some((match) => !match.quoted)) {
+    results.push(finding(
+      "test assertion is statically unreachable",
+      `${patch.path}: a changed test places an assertion under a constant-false branch`,
+      "oracle-falsify"
+    ));
+  }
+  if ([...swallowed, ...unreachable].some((match) => match.quoted)) results.push(uncheckedTestCode(patch.path, "oracle-falsify"));
+  return results;
+}
+function ghostLoaderFinding(patch) {
+  const path = patch.path.toLowerCase();
+  const added = patch.added.filter((line) => !isDetectorPatternLine(line)).join("\n");
+  if (/(?:^|\/)conftest\.py$/.test(path) && /pytest_collection_modifyitems/.test(added) && /(?:items\s*\[:\]\s*=|items\.remove\s*\(|\bitems\s*=\s*\[|deselected|pytest_deselected)/.test(added)) {
+    return finding(
+      "test discovery filter added",
+      `${patch.path}: the changed pytest collection hook can remove collected tests`,
+      "ghost-loader"
+    );
+  }
+  if (/(?:pytest\.ini|pyproject\.toml|setup\.cfg|tox\.ini)$/.test(path) && /(?:addopts|pytest\.ini_options)[\s\S]{0,800}(?:--deselect|--ignore(?:=|\s)|(?:^|\s)-k(?:\s|=)|-p\s+no:|--continue-on-collection-errors)/m.test(added)) {
+    return finding(
+      "test discovery exclusion added",
+      `${patch.path}: changed pytest options can omit tests from collection or continue after collection errors`,
+      "ghost-loader"
+    );
+  }
+  return void 0;
+}
+function harnessGuardFinding(patch) {
+  if (isGeneratedOrVendorPath(patch.path) || isDocumentationPath(patch.path)) return void 0;
+  for (let index = 0; index < patch.added.length; index++) {
+    const line = patch.added[index];
+    if (isDetectorPatternLine(line)) continue;
+    if (/\bcontinue-on-error\s*:\s*true\b|\bset\s+\+e\b|\bif\s*:\s*false\b/i.test(line)) {
+      return finding(
+        "verification harness made non-blocking",
+        `${patch.path}, changed line ${index + 1}: the harness can ignore a failed step or disable it outright`,
+        "verification-bypass"
+      );
+    }
+  }
+  return void 0;
+}
+function suppressionReceiptFinding(patch) {
+  if (isGeneratedOrVendorPath(patch.path) || isDocumentationPath(patch.path)) return void 0;
+  for (let index = 0; index < patch.added.length; index++) {
+    const line = patch.added[index];
+    if (isDetectorPatternLine(line)) continue;
+    if (/\/\/\s*nolint\b|@SuppressWarnings\b|#\s*pragma\s+warning\s+disable\b|#\s*rubocop\s*:\s*disable\b|#\s*pyright\s*:\s*ignore\b/i.test(line)) {
+      return finding(
+        "compiler, linter, or type suppression added",
+        `${patch.path}, changed line ${index + 1}: a new diagnostic suppression requires review`,
+        "suppression-added"
+      );
+    }
+  }
+  return void 0;
+}
+function checkAgenticPatches(patches) {
+  const results = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = (patch, result5) => {
+    if (!result5) return;
+    const key2 = `${patch.path}:${result5.ruleId ?? result5.claim.subject}`;
+    if (seen.has(key2)) return;
+    seen.add(key2);
+    results.push(result5);
+  };
+  for (const patch of patches) {
+    if (isGeneratedOrVendorPath(patch.path)) continue;
+    if (isSourcePath(patch.path) || isInstructionPath(patch.path)) {
+      add(patch, dangerousUnicodeFinding(patch));
+      add(patch, hiddenUnicodeAdvisory(patch));
+      add(patch, mixedScriptFinding(patch));
+    }
+    for (const result5 of oracleFalsifyFindings(patch)) add(patch, result5);
+    for (const check2 of [ghostLoaderFinding, harnessGuardFinding, suppressionReceiptFinding]) {
+      add(patch, check2(patch));
+    }
+  }
+  return results;
+}
+function distinctiveReturnLiterals(patches) {
+  const candidates = [];
+  const literalPattern = /\breturn\s+(?<literal>(?:["'][^"'\n]{6,80}["'])|(?:-?\d+(?:\.\d+)?))\s*[;,]?\s*(?:\/\/.*|#.*)?$/;
+  for (const patch of patches.filter((item2) => isSourcePath(item2.path))) {
+    for (let index = 0; index < patch.added.length; index++) {
+      const raw = patch.added[index].match(literalPattern)?.groups?.literal;
+      if (!raw) continue;
+      const unquoted = /^["']/.test(raw) ? raw.slice(1, -1) : raw;
+      const numeric = Number(unquoted);
+      if (Number.isFinite(numeric)) {
+        if (Math.abs(numeric) < 1e4 || numeric % 1e3 === 0) continue;
+      } else if (/^(?:success|failure|unknown|default|example|test value|not found)$/i.test(unquoted)) {
+        continue;
+      }
+      candidates.push({
+        raw,
+        digest: createHash4("sha256").update(raw).digest("hex").slice(0, 12),
+        path: patch.path,
+        changedLine: index + 1
+      });
+    }
+  }
+  return candidates;
+}
+function grepRefPaths(repo, ref2, needle) {
+  const args = ref2 === "WORKTREE" ? ["grep", "-l", "-z", "-F", "-e", needle, "--"] : ["grep", "-l", "-z", "-F", "-e", needle, ref2, "--"];
+  const raw = gitOptional(repo, args) ?? "";
+  const prefix = ref2 === "WORKTREE" ? "" : `${ref2}:`;
+  return raw.split("\0").filter(Boolean).map((path) => prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path).filter((path) => path && !path.includes(":")).slice(0, 500);
+}
+function unchangedAssertion(repo, ref2, changed, needle) {
+  for (const path of grepRefPaths(repo, ref2, needle).filter((item2) => isTestPath(item2) && !changed.has(item2))) {
+    const content = readRefFile(repo, ref2, path);
+    if (content === void 0) continue;
+    const lineIndex = content.split("\n").findIndex((line) => line.includes(needle) && /\b(?:expect|assert|should)\b/i.test(line));
+    if (lineIndex >= 0) return `${path}:${lineIndex + 1}`;
+  }
+  return void 0;
+}
+function oracleEchoChecks(repo, base, head, changed, patches) {
+  if ([...changed].some(isTestPath)) return [];
+  const candidates = distinctiveReturnLiterals(patches);
+  if (!candidates.length) return [];
+  const results = [];
+  for (const candidate of candidates.slice(0, 20)) {
+    if (grepRefPaths(repo, base, candidate.raw).some(isSourcePath)) continue;
+    const assertion = unchangedAssertion(repo, head, changed, candidate.raw);
+    if (!assertion) continue;
+    results.push(finding(
+      "implementation echoes a pre-existing test oracle",
+      `${candidate.path}, changed line ${candidate.changedLine}, directly returns literal sha256:${candidate.digest}; unchanged assertion ${assertion} contains the same literal. The literal value is intentionally omitted`,
+      "oracle-echo"
+    ));
+  }
+  return results;
+}
+function dependencyMap(content) {
+  if (!content) return /* @__PURE__ */ new Set();
+  try {
+    const parsed = JSON.parse(content);
+    const names2 = /* @__PURE__ */ new Set();
+    for (const key2 of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      const value = parsed[key2];
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      for (const name2 of Object.keys(value)) names2.add(name2.toLowerCase());
+    }
+    return names2;
+  } catch {
+    return void 0;
+  }
+}
+function editDistance(left, right) {
+  if (Math.abs(left.length - right.length) > 1) return 2;
+  if (left.length === right.length) {
+    for (let index = 0; index < left.length - 1; index++) {
+      if (left[index] !== right[index] && left[index] === right[index + 1] && left[index + 1] === right[index] && left.slice(0, index) === right.slice(0, index) && left.slice(index + 2) === right.slice(index + 2)) return 1;
+    }
+  }
+  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i++) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const old = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (left[i - 1] === right[j - 1] ? 0 : 1));
+      previous = old;
+    }
+  }
+  return row[right.length];
+}
+function addedImportNames(patches) {
+  const names2 = /* @__PURE__ */ new Set();
+  const addName = (raw) => {
+    if (!raw || raw.startsWith(".") || raw.startsWith("/") || raw.startsWith("node:") || raw.includes("://") || raw.startsWith("@")) return;
+    const name2 = raw.split(/[/.]/)[0].toLowerCase().replaceAll("_", "-");
+    if (/^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) names2.add(name2);
+  };
+  for (const patch of patches) {
+    for (const line of patch.added) {
+      if (isDetectorPatternLine(line)) continue;
+      const python = /^(?:\s*)(?:from|import)\s+([A-Za-z_][\w.-]*)/.exec(line)?.[1];
+      const javascript = /(?:\bfrom\s*|\brequire\s*\(|\bimport\s*\()\s*["']([^"']+)["']/.exec(line)?.[1];
+      const requirement = /(?:^|\/)(?:requirements[^/]*\.txt|constraints[^/]*\.txt)$/i.test(patch.path) ? /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(line)?.[1] : void 0;
+      for (const raw of [python, javascript, requirement]) addName(raw);
+    }
+  }
+  return names2;
+}
+function freshDependencyChecks(repo, base, head, changed, patches) {
+  const added = addedImportNames(patches);
+  if (changed.has("package.json")) {
+    const beforeRead = readRefFileResult(repo, base, "package.json");
+    const afterRead = readRefFileResult(repo, head, "package.json");
+    const unreadable = unreadableRepositoryCheck("package.json", [beforeRead, afterRead]);
+    if (unreadable) return [unreadable];
+    const before = dependencyMap(beforeRead.state === "readable" ? beforeRead.content : "");
+    const after = dependencyMap(afterRead.state === "readable" ? afterRead.content : "");
+    if (!before || !after) {
+      return [unreadableRepositoryCheck("package.json", [{ state: "unreadable", evidence: "changed dependency manifest is not valid JSON" }])];
+    }
+    for (const name2 of after) {
+      if (!before.has(name2) && /^[a-z0-9][a-z0-9-]{1,213}$/.test(name2)) added.add(name2);
+    }
+  }
+  const popular = [
+    "aiohttp",
+    "anthropic",
+    "axios",
+    "boto3",
+    "certifi",
+    "chalk",
+    "click",
+    "commander",
+    "cryptography",
+    "django",
+    "dotenv",
+    "eslint",
+    "express",
+    "fastapi",
+    "flask",
+    "httpx",
+    "jest",
+    "lodash",
+    "matplotlib",
+    "next",
+    "numpy",
+    "openai",
+    "pandas",
+    "pillow",
+    "prettier",
+    "pydantic",
+    "pytest",
+    "pyyaml",
+    "react",
+    "redis",
+    "requests",
+    "rollup",
+    "scipy",
+    "selenium",
+    "sqlalchemy",
+    "svelte",
+    "tensorflow",
+    "torch",
+    "transformers",
+    "typescript",
+    "urllib3",
+    "vite",
+    "vue",
+    "webpack",
+    "yargs",
+    "zod"
+  ];
+  const results = [];
+  for (const name2 of added) {
+    const neighbor = popular.find((known) => known !== name2 && editDistance(known, name2) === 1);
+    if (!neighbor) continue;
+    results.push(finding(
+      "new import or dependency resembles a common package name",
+      `${name2} is newly imported or declared and is one edit from ${neighbor}; this offline check does not claim the package is malicious or verify registry ownership`,
+      "fresh-dep"
+    ));
+  }
+  return results;
+}
+function coverageFloor(content) {
+  if (!content) return void 0;
+  const values = [
+    ...[...content.matchAll(/--(?:cov-)?fail-under(?:=|\s+)(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1])),
+    ...[...content.matchAll(/minimum[_-]?coverage\s*[:=]\s*(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1])),
+    ...[...content.matchAll(/coverageThreshold[^\n]{0,160}?(\d+(?:\.\d+)?)/gi)].map((match) => Number(match[1]))
+  ].filter(Number.isFinite);
+  return values.length ? Math.min(...values) : void 0;
+}
+function loweredCoverageChecks(repo, base, head, changed) {
+  for (const path of changed) {
+    if (!/(?:^|\/)(?:package\.json|pyproject\.toml|pytest\.ini|setup\.cfg|tox\.ini|.*ya?ml|.*json)$/i.test(path)) continue;
+    const beforeRead = readRefFileResult(repo, base, path);
+    const afterRead = readRefFileResult(repo, head, path);
+    const unreadable = unreadableRepositoryCheck(path, [beforeRead, afterRead]);
+    if (unreadable) return [unreadable];
+    const before = coverageFloor(beforeRead.state === "readable" ? beforeRead.content : void 0);
+    const after = coverageFloor(afterRead.state === "readable" ? afterRead.content : void 0);
+    if (before !== void 0 && (after === void 0 || after < before)) {
+      return [finding(
+        "coverage requirement lowered",
+        after === void 0 ? `${path}: the recognized minimum coverage floor of ${before} was removed` : `${path}: the recognized minimum coverage floor fell from ${before} to ${after}`,
+        "coverage-weakened"
+      )];
+    }
+  }
+  return [];
+}
+function checkAgenticRepository(repo, base, head, changedPaths2, patches) {
+  const changed = new Set(changedPaths2);
+  return [
+    ...oracleEchoChecks(repo, base, head, changed, patches),
+    ...freshDependencyChecks(repo, base, head, changed, patches),
+    ...loweredCoverageChecks(repo, base, head, changed)
+  ];
+}
+function isAncestor(repo, commit2, ref2) {
+  return trustedGitOptional(repo, ["merge-base", "--is-ancestor", commit2, ref2]) !== void 0;
+}
+function checkOutOfDagReads(repo, base, head, toolCalls) {
+  const findings = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const call of toolCalls) {
+    if (!/\bgit\s+(?:show|diff|cat-file|checkout|cherry-pick|log)\b/i.test(call.input)) continue;
+    for (const match of call.input.matchAll(/\b[0-9a-f]{7,40}\b/gi)) {
+      const supplied = match[0];
+      const commit2 = gitOptional(repo, ["rev-parse", "--verify", `${supplied}^{commit}`])?.trim();
+      if (!commit2 || seen.has(commit2)) continue;
+      seen.add(commit2);
+      if (isAncestor(repo, commit2, base)) continue;
+      if (head !== "WORKTREE" && isAncestor(repo, commit2, head)) continue;
+      findings.push(finding(
+        "out-of-change-history commit was read",
+        `tool call ${call.sequence + 1} references ${commit2.slice(0, 12)}, which is outside the selected base-to-head history. Retrieval is observed; origin, copying, and causation are not inferred`,
+        "leak-gate"
+      ));
+    }
+  }
+  return findings;
+}
+
 // src/detectors/test-bodies.ts
 function isTestCall(node) {
   const callee = node.callee;
@@ -7671,6 +7825,224 @@ function checkEmptyTestBodies(path, before, after) {
     contributesToPass: false,
     evidence: `${path}:${introduced[0].line}: ${introduced.length} newly empty test callback(s). Comments, literals, and bare returns do not test behavior. Adding assertions elsewhere does not replace this check.`
   }];
+}
+
+// src/detectors/git-patch-path.ts
+var escapes = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+var names = new Map(Object.entries(escapes).map(([name2, value]) => [value, name2]));
+function relativePath(path) {
+  return !!path && !path.includes("\0") && !path.includes("\uFFFD") && path.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+function decodeGitPatchPath(token) {
+  if (!token.startsWith('"')) {
+    return token && !/[\u0000-\u001f\u007f"\\\ufffd]/u.test(token) ? token : void 0;
+  }
+  if (token.length < 2 || !token.endsWith('"')) return void 0;
+  const bytes = [];
+  for (let i = 1; i < token.length - 1; i++) {
+    const char = token[i];
+    if (char === "\\") {
+      const escaped = token[++i];
+      if (i >= token.length - 1) return void 0;
+      if (Object.hasOwn(escapes, escaped)) bytes.push(escapes[escaped]);
+      else {
+        const octal = token.slice(i, i + 3);
+        if (!/^[0-3][0-7]{2}$/.test(octal) || i + 3 > token.length - 1) return void 0;
+        bytes.push(parseInt(octal, 8));
+        i += 2;
+      }
+    } else {
+      if (char === '"' || /[\u0000-\u001f\u007f]/u.test(char)) return void 0;
+      const point = token.codePointAt(i);
+      if (point >= 55296 && point <= 57343) return void 0;
+      bytes.push(...Buffer.from(String.fromCodePoint(point), "utf8"));
+      if (point > 65535) i++;
+    }
+  }
+  try {
+    const path = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Uint8Array.from(bytes));
+    return path && !path.includes("\0") && !path.includes("\uFFFD") ? path : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function patchHeaderPath(marker2, prefix) {
+  const token = marker2.endsWith("	") ? marker2.slice(0, -1) : marker2;
+  if (token === "/dev/null") return "";
+  const decoded = decodeGitPatchPath(token);
+  return decoded?.startsWith(prefix) && relativePath(decoded.slice(2)) ? decoded.slice(2) : void 0;
+}
+function patchRenamePath(marker2) {
+  const decoded = decodeGitPatchPath(marker2);
+  return decoded && relativePath(decoded) ? decoded : void 0;
+}
+function quoted(path, quoteHigh) {
+  let value = '"';
+  for (const char of path) {
+    const point = char.codePointAt(0);
+    if (names.has(point)) value += "\\" + names.get(point);
+    else if (point < 32 || point === 127 || quoteHigh && point >= 128) {
+      for (const byte of Buffer.from(char, "utf8")) value += "\\" + byte.toString(8).padStart(3, "0");
+    } else value += char;
+  }
+  return value + '"';
+}
+function forms(path) {
+  return [.../* @__PURE__ */ new Set([
+    quoted(path, true),
+    quoted(path, false),
+    .../[\u0000-\u001f\u007f"\\\ufffd]/u.test(path) ? [] : [path]
+  ])];
+}
+function patchDiffIdentityMatches(header, oldPath, newPath) {
+  if (!relativePath(oldPath) || !relativePath(newPath)) return false;
+  return forms("a/" + oldPath).some((oldForm) => forms("b/" + newPath).some((newForm) => header === `diff --git ${oldForm} ${newForm}`));
+}
+
+// src/detectors/literal-test-parameterization.ts
+import { posix } from "node:path";
+var MAX_BYTES = 1024 * 1024;
+var OMIT = /* @__PURE__ */ new Set(["start", "end", "loc", "raw"]);
+function scalar(node) {
+  return !!node && (node.type === "Literal" && (node.value === null || typeof node.value === "string" || typeof node.value === "boolean" || typeof node.value === "number" && Number.isFinite(node.value)) || node.type === "UnaryExpression" && ["-", "+"].includes(node.operator) && node.argument.type === "Literal" && typeof node.argument.value === "number" && Number.isFinite(node.argument.value));
+}
+function canonical(value, bindings = /* @__PURE__ */ new Map(), propertyName = false) {
+  if (Array.isArray(value)) return value.map((item2) => canonical(item2, bindings));
+  if (!value || typeof value !== "object") return value;
+  if (value.type === "Identifier" && !propertyName && bindings.has(value.name)) return canonical(bindings.get(value.name));
+  const result5 = {};
+  for (const key2 of Object.keys(value).sort()) {
+    if (OMIT.has(key2)) continue;
+    result5[key2] = canonical(value[key2], bindings, value.type === "MemberExpression" && !value.computed && key2 === "property");
+  }
+  return result5;
+}
+function pureArgument(node, functions) {
+  if (scalar(node)) return true;
+  if (node.type === "CallExpression") return !node.optional && node.callee.type === "Identifier" && functions.has(node.callee.name) && node.arguments.every((argument) => pureArgument(argument, functions));
+  return false;
+}
+function pureFunction(node) {
+  if (!["FunctionDeclaration", "ArrowFunctionExpression"].includes(node.type) || node.async || node.generator || !node.params.every((p) => p.type === "Identifier")) return false;
+  const names2 = new Set(node.params.map((p) => p.name));
+  const body = node.body.type === "BlockStatement" && node.body.body.length === 1 && node.body.body[0].type === "ReturnStatement" ? node.body.body[0].argument : node.body;
+  const expression = (value) => !!value && (scalar(value) || value.type === "Identifier" && names2.has(value.name) || value.type === "BinaryExpression" && ["+", "-", "*", "/", "%", "**", "===", "!==", "<", "<=", ">", ">="].includes(value.operator) && expression(value.left) && expression(value.right));
+  return expression(body);
+}
+function pureExports(source2) {
+  if (source2.length > MAX_BYTES) return void 0;
+  const tree = parse3(source2, { ecmaVersion: "latest", sourceType: "module" });
+  const exports = /* @__PURE__ */ new Set();
+  for (const node of tree.body) {
+    if (node.type !== "ExportNamedDeclaration" || node.source || node.specifiers.length || !node.declaration) return void 0;
+    const d = node.declaration;
+    if (d.type === "FunctionDeclaration" && d.id && pureFunction(d)) exports.add(d.id.name);
+    else if (d.type === "VariableDeclaration" && d.kind === "const" && d.declarations.length === 1) {
+      const item2 = d.declarations[0];
+      if (item2.id.type !== "Identifier" || !item2.init || !pureFunction(item2.init)) return void 0;
+      exports.add(item2.id.name);
+    } else return void 0;
+  }
+  return exports;
+}
+function importBindings(program, path, readDependency) {
+  let testName = "", assertName = "";
+  const functions = /* @__PURE__ */ new Set();
+  const imports = program.body.filter((node) => node.type === "ImportDeclaration");
+  if (imports.length > 8) return void 0;
+  for (const node of imports) {
+    const source2 = node.source.value;
+    if (source2 === "node:test" && node.specifiers.length === 1 && !testName) {
+      const s = node.specifiers[0];
+      if (s.type !== "ImportDefaultSpecifier" && !(s.type === "ImportSpecifier" && s.imported.name === "test")) return void 0;
+      testName = s.local.name;
+    } else if (source2 === "node:assert/strict" && node.specifiers.length === 1 && !assertName && node.specifiers[0].type === "ImportDefaultSpecifier") {
+      assertName = node.specifiers[0].local.name;
+    } else {
+      if (typeof source2 !== "string" || !/^\.{1,2}\/[A-Za-z0-9_./-]+\.m?js$/.test(source2) || !readDependency || !node.specifiers.length) return void 0;
+      const modulePath = posix.normalize(posix.join(posix.dirname(path), source2));
+      if (modulePath.startsWith("../") || posix.isAbsolute(modulePath)) return void 0;
+      const text8 = readDependency(modulePath);
+      if (text8 === void 0) return void 0;
+      const exports = pureExports(text8);
+      if (!exports) return void 0;
+      for (const s of node.specifiers) {
+        if (s.type !== "ImportSpecifier" || !exports.has(s.imported.name)) return void 0;
+        functions.add(s.local.name);
+      }
+    }
+  }
+  return testName && assertName ? { testName, assertName, functions } : void 0;
+}
+function titleIsPure(node, bindings) {
+  return node.type === "Literal" && typeof node.value === "string" || node.type === "TemplateLiteral" && node.expressions.every((part) => scalar(part) || part.type === "Identifier" && bindings.has(part.name));
+}
+function registration(statement, imports, bindings = /* @__PURE__ */ new Map()) {
+  const { testName, assertName, functions } = imports;
+  if (statement.type !== "ExpressionStatement" || statement.expression.type !== "CallExpression") return void 0;
+  const call = statement.expression;
+  if (call.optional || call.callee.type !== "Identifier" || call.callee.name !== testName || call.arguments.length !== 2) return void 0;
+  const [title, callback] = call.arguments;
+  if (!titleIsPure(title, bindings) || callback.type !== "ArrowFunctionExpression" || callback.params.length !== 0 || callback.async) return void 0;
+  const body = canonical(callback.body, bindings);
+  if (body.type !== "CallExpression" || body.optional || body.arguments.length !== 2 || body.callee.type !== "MemberExpression" || body.callee.computed || body.callee.optional || body.callee.object.type !== "Identifier" || body.callee.object.name !== assertName || body.callee.property.type !== "Identifier" || !["equal", "strictEqual"].includes(body.callee.property.name) || !body.arguments.every((arg) => pureArgument(arg, functions))) return void 0;
+  return { registration: testName, callback: body };
+}
+function expanded(program, imports) {
+  const { testName } = imports;
+  const statements = [];
+  let loops = 0;
+  for (const node of program.body) {
+    if (node.type !== "ForOfStatement") {
+      if (node.type === "ImportDeclaration") statements.push(canonical(node));
+      else {
+        const call = registration(node, imports);
+        if (!call) return void 0;
+        statements.push(call);
+      }
+      continue;
+    }
+    if (node.await || node.left.type !== "VariableDeclaration" || node.left.kind !== "const" || node.left.declarations.length !== 1) return void 0;
+    const declaration = node.left.declarations[0];
+    if (declaration.init || declaration.id.type !== "ArrayPattern" || !declaration.id.elements.length || !declaration.id.elements.every((item2) => item2?.type === "Identifier")) return void 0;
+    const names2 = declaration.id.elements.map((item2) => item2.name);
+    if (new Set(names2).size !== names2.length || names2.includes(testName)) return void 0;
+    if (node.right.type !== "ArrayExpression" || node.right.elements.length < 1 || node.right.elements.length > 200) return void 0;
+    const body = node.body.type === "BlockStatement" && node.body.body.length === 1 ? node.body.body[0] : node.body;
+    for (const row of node.right.elements) {
+      if (!row || row.type !== "ArrayExpression" || row.elements.length !== names2.length || !row.elements.every(scalar)) return void 0;
+      const bindings = new Map(names2.map((name2, i) => [name2, row.elements[i]]));
+      const call = registration(body, imports, bindings);
+      if (!call) return void 0;
+      statements.push(call);
+    }
+    loops++;
+  }
+  return { statements, loops };
+}
+function preservesLiteralTestParameterization(path, before, after, testCommand, readDependency) {
+  if (!/\.(?:m?js)$/.test(path) || before.length > MAX_BYTES || after.length > MAX_BYTES || process.env.NODE_OPTIONS?.trim()) return false;
+  if (!testCommand || /[^\x20-\x7e\t]/.test(testCommand)) return false;
+  const args = testCommand.trim().split(/[ \t]+/);
+  if (args[0] !== "node" || args[1] !== "--test") return false;
+  const selections = args.slice(2).filter((arg) => !/^--test-(?:reporter=tap|concurrency=[1-9][0-9]*)$/.test(arg));
+  if (!selections.length || selections.some((arg) => !/^[A-Za-z0-9_.\/*-]+\.[cm]?js$/.test(arg) || arg.includes("**"))) return false;
+  const selected = selections.some((arg) => {
+    if (arg.includes("*") && path.split("/").some((part) => part.startsWith("."))) return false;
+    const pattern = arg.replace(/^\.\//, "").split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*");
+    return new RegExp("^" + pattern + "$").test(path);
+  });
+  if (!selected) return false;
+  try {
+    const left = parse3(before, { ecmaVersion: "latest", sourceType: "module" });
+    const right = parse3(after, { ecmaVersion: "latest", sourceType: "module" });
+    const imports = importBindings(left, path, readDependency);
+    if (!imports) return false;
+    const a = expanded(left, imports), b = expanded(right, imports);
+    return !!a && !!b && a.loops === 0 && b.loops > 0 && JSON.stringify(a.statements) === JSON.stringify(b.statements);
+  } catch {
+    return false;
+  }
 }
 
 // src/detectors/reality.ts
@@ -8433,15 +8805,12 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
   let inHunk = false;
   let oldLinesRemaining = 0;
   let newLinesRemaining = 0;
+  let newLineNumber = 0;
   const invalid = (detail) => ({ patches, referencedPaths, invalidHeader: detail });
-  const headerPath = (marker2, prefix) => {
-    if (marker2 === "/dev/null") return "";
-    return marker2.startsWith(prefix) ? marker2.slice(2) : void 0;
-  };
   const finishFile = () => {
     if (!diffHeaderLine) return void 0;
     if (headerState === "paired" && hadHunkForFile) return void 0;
-    if (repositoryAwareRenames && headerState === "none" && similarityIndex === 100 && renameFrom && renameTo && !modeMetadata && diffHeaderLine === `diff --git a/${renameFrom} b/${renameTo}`) {
+    if (repositoryAwareRenames && headerState === "none" && similarityIndex === 100 && renameFrom && renameTo && !modeMetadata && patchDiffIdentityMatches(diffHeaderLine, renameFrom, renameTo)) {
       referencedPaths.add(renameFrom);
       referencedPaths.add(renameTo);
       return void 0;
@@ -8461,7 +8830,11 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
     if (inHunk && current2.length) {
       if (line.startsWith("+")) {
         if (newLinesRemaining === 0) return invalid(`hunk has more added lines than declared at input line ${index + 1}`);
-        for (const patch of current2) patch.added.push(line.slice(1));
+        for (const patch of current2) {
+          patch.added.push(line.slice(1));
+          patch.addedLineNumbers.push(newLineNumber);
+        }
+        newLineNumber += 1;
         newLinesRemaining -= 1;
       } else if (line.startsWith("-")) {
         if (oldLinesRemaining === 0) return invalid(`hunk has more removed lines than declared at input line ${index + 1}`);
@@ -8472,6 +8845,7 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
         for (const patch of current2) patch.context.push(line.slice(1));
         oldLinesRemaining -= 1;
         newLinesRemaining -= 1;
+        newLineNumber += 1;
       } else {
         return invalid(`hunk contains an unprefixed or premature header line at input line ${index + 1}`);
       }
@@ -8507,9 +8881,9 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
         return invalid(`rename metadata is not permitted in a raw or partially parsed diff at input line ${index + 1}`);
       }
       const from = line.startsWith("rename from ");
-      const path = line.slice(from ? 12 : 10);
-      if (!path || path.startsWith('"') || (from ? renameFrom : renameTo)) {
-        return invalid(`unsupported, quoted, or duplicate rename metadata at input line ${index + 1}`);
+      const path = patchRenamePath(line.slice(from ? 12 : 10));
+      if (!path || (from ? renameFrom : renameTo)) {
+        return invalid(`unsupported or duplicate rename metadata at input line ${index + 1}`);
       }
       if (from) renameFrom = path;
       else renameTo = path;
@@ -8522,8 +8896,8 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
       if (!diffHeaderLine || headerState !== "none") {
         return invalid(`old path header must follow exactly one unconsumed diff --git header at input line ${index + 1}`);
       }
-      const parsed = headerPath(line.slice(4), "a/");
-      if (parsed === void 0) return invalid(`unsupported or quoted unified-diff old path header: ${line.slice(4, 164)}`);
+      const parsed = patchHeaderPath(line.slice(4), "a/");
+      if (parsed === void 0) return invalid(`unsupported unified-diff old path header: ${line.slice(4, 164)}`);
       current2 = [];
       currentPath = "";
       oldPath = parsed;
@@ -8534,8 +8908,8 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
     if (line.startsWith("+++ ")) {
       const marker2 = line.slice(4);
       if (headerState !== "old") return invalid(`new path header has no single preceding old path header at input line ${index + 1}`);
-      const parsed = headerPath(marker2, "b/");
-      if (parsed === void 0) return invalid(`unsupported or quoted unified-diff path header: ${marker2.slice(0, 160)}`);
+      const parsed = patchHeaderPath(marker2, "b/");
+      if (parsed === void 0) return invalid(`unsupported unified-diff path header: ${marker2.slice(0, 160)}`);
       if (oldPath && parsed && oldPath !== parsed) {
         if (!repositoryAwareRenames || renameFrom !== oldPath || renameTo !== parsed || similarityIndex === void 0) {
           return invalid(`renamed unified-diff paths require exact repository-aware identity and cannot be audited as raw text`);
@@ -8546,7 +8920,7 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
       if (diffHeaderLine) {
         const identity2 = oldPath || parsed;
         const destination = parsed || oldPath;
-        if (diffHeaderLine !== `diff --git a/${identity2} b/${destination}`) {
+        if (!patchDiffIdentityMatches(diffHeaderLine, identity2, destination)) {
           return invalid(`diff --git identity does not match its exact old/new path headers`);
         }
       }
@@ -8559,13 +8933,14 @@ function parseFilePatches(diff, repositoryAwareRenames = false) {
     }
     if (line.startsWith("@@ ")) {
       if (!currentPath || headerState !== "paired") return invalid(`hunk header has no exact paired changed path at input line ${index + 1}`);
-      const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+      const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (!hunk) return invalid(`malformed unified-diff hunk header at input line ${index + 1}`);
       const patchPaths = oldPath && oldPath !== currentPath ? [oldPath, currentPath] : [currentPath];
-      current2 = patchPaths.map((path) => ({ path, added: [], removed: [], context: [] }));
+      current2 = patchPaths.map((path) => ({ path, added: [], removed: [], context: [], addedLineNumbers: [] }));
       patches.push(...current2);
       oldLinesRemaining = hunk[1] === void 0 ? 1 : Number(hunk[1]);
-      newLinesRemaining = hunk[2] === void 0 ? 1 : Number(hunk[2]);
+      newLinesRemaining = hunk[3] === void 0 ? 1 : Number(hunk[3]);
+      newLineNumber = Number(hunk[2]);
       inHunk = true;
       hadHunkForFile = true;
       continue;
@@ -8619,7 +8994,7 @@ function countTests(content) {
   ];
   return patterns.reduce((sum, regex) => sum + [...content.matchAll(regex)].length, 0);
 }
-function checkIntegrity(repo, base, head) {
+function checkIntegrity(repo, base, head, execution = {}) {
   const diffRange = head === "WORKTREE" ? [base] : [base, head];
   const rawPaths = trustedGitOptional(repo, ["diff", "--find-renames", "--name-status", "-z", ...diffRange], INTEGRITY_CHANGED_PATHS_MAX_BUFFER);
   if (rawPaths === void 0) {
@@ -8687,14 +9062,22 @@ function checkIntegrity(repo, base, head) {
   const addedTestFiles = [];
   const emptyTestPaths = /* @__PURE__ */ new Set();
   const fullTestBodyChecks = [];
+  const fileCodeContexts = /* @__PURE__ */ new Map();
+  let literalParameterization = false;
   for (const path of [...paths].filter(isTestPath2)) {
     const before = readIntegrityTreeBlob(repo, base, path);
     if (!before.ok) return [unreadableIntegrityResult("changed test baseline available for integrity review", before.evidence, "integrity-unreadable")];
     const after = head === "WORKTREE" ? readIntegrityWorktreeBlob(repo, path) : readIntegrityTreeBlob(repo, head, path);
     if (!after.ok) return [unreadableIntegrityResult("changed test candidate available for integrity review", after.evidence, "integrity-unreadable")];
+    if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head)) fileCodeContexts.set(path, readFileCodeContext(path, after.value));
     fullTestBodyChecks.push({ path, checks: checkEmptyTestBodies(path, before.value, after.value) });
-    const oldCount = countTests(before.value);
-    const newCount = countTests(after.value);
+    const oldCount = isTestPath2(path) ? countTests(before.value) : 0;
+    const parameterized = head !== "WORKTREE" && oldCount > 0 && paths.size === 1 && isTestPath2(path) && preservesLiteralTestParameterization(path, before.value, after.value, execution.testCommand, (dependency) => {
+      const blob = readIntegrityTreeBlob(repo, base, dependency);
+      return blob.ok ? blob.value : void 0;
+    });
+    const newCount = parameterized ? oldCount : isTestPath2(path) ? countTests(after.value) : 0;
+    literalParameterization ||= parameterized;
     baselineTests += oldCount;
     headTests += newCount;
     if (before.value && !after.value) deletedTestFiles.push({ path, identity: before.identity });
@@ -8703,6 +9086,13 @@ function checkIntegrity(repo, base, head) {
   if (headTests < baselineTests) {
     results.push(finding3("test surface shrank", `recognized test definitions across changed test files fell from ${baselineTests} to ${headTests}`, "test-count-drop"));
   }
+  if (literalParameterization) results.push({
+    claim: { kind: "integrity", quote: "full-file literal test parameterization check", subject: "recognized test callback expressions are preserved" },
+    verdict: "verified",
+    ruleId: "test-parameterization-preserved",
+    contributesToPass: false,
+    evidence: "One JavaScript test file replaces direct node:test registrations with literal rows in the same order and unchanged strict assertion expressions. Imported helpers are unchanged, restricted arithmetic functions; a plain unfiltered Node test command selects this file. Test titles may differ. Required execution still decides whether tests pass; this is not coverage proof."
+  });
   const consumedAddedTests = /* @__PURE__ */ new Set();
   const exactTestMovePaths = /* @__PURE__ */ new Set();
   const unmatchedDeletedTests = deletedTestFiles.filter((deleted) => {
@@ -8741,13 +9131,14 @@ function checkIntegrity(repo, base, head) {
     return [unreadableIntegrityResult("untracked worktree evidence is readable", untracked.error, "integrity-unreadable")];
   }
   const patches = [...parsed.patches, ...untracked.patches].filter((patch) => !exactTestMovePaths.has(patch.path));
+  for (const patch of patches) patch.codeContext = bindAddedCodeContext(fileCodeContexts.get(patch.path), patch.added, patch.addedLineNumbers);
   for (const { path, checks } of fullTestBodyChecks) {
     if (exactTestMovePaths.has(path)) continue;
     if (checks.some((check2) => check2.ruleId === "test-empty-added")) emptyTestPaths.add(path);
     results.push(...checks);
   }
   const patchResults = checkIntegrityPatches(patches);
-  results.push(...patchResults.filter((result5) => ![...emptyTestPaths].some((path) => result5.ruleId === "test-empty-added" && result5.evidence.startsWith(`${path} adds `) || result5.ruleId === "assertion-drop" && result5.evidence.startsWith(`${path} removes `))));
+  results.push(...patchResults.filter((result5) => result5.ruleId !== "test-count-drop" && !(literalParameterization && result5.ruleId === "assertion-drop") && ![...emptyTestPaths].some((path) => result5.ruleId === "test-empty-added" && result5.evidence.startsWith(`${path} adds `) || result5.ruleId === "assertion-drop" && result5.evidence.startsWith(`${path} removes `))));
   results.push(...checkAgenticPatches(patches));
   results.push(...checkAgenticRepository(repo, base, head, paths, patches));
   if (!results.length) {
@@ -8879,8 +9270,15 @@ function checkIntegrityPatches(patches) {
     // vigil:detector-pattern
   ];
   for (const [subject, regex, ruleId, inScope] of checks) {
-    const line = patches.filter(inScope).flatMap((patch) => patch.added).find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
-    if (line) results.push(finding2(subject, line.trim().slice(0, 220), ruleId));
+    if (ruleId === "test-skip-added") {
+      const matches = patches.filter(inScope).flatMap((patch) => findTestCodeMatches(patch, [regex]).map((match) => ({ patch, match })));
+      const direct = matches.find(({ match }) => !match.quoted);
+      if (direct) results.push(finding2(subject, direct.patch.added[direct.match.line - 1].trim().slice(0, 220), ruleId));
+      for (const path of new Set(matches.filter(({ match }) => match.quoted).map(({ patch }) => patch.path))) results.push(uncheckedTestCode(path, ruleId));
+    } else {
+      const line = patches.filter(inScope).flatMap((patch) => patch.added).find((candidate) => !candidate.includes("vigil:detector-pattern") && regex.test(candidate));
+      if (line) results.push(finding2(subject, line.trim().slice(0, 220), ruleId));
+    }
   }
   const implementationPatches = patches.filter((patch) => !isDocumentationPath2(patch.path));
   const changedLines = implementationPatches.flatMap((patch) => [...patch.added, ...patch.removed]);
@@ -8927,9 +9325,18 @@ function checkIntegrityPatches(patches) {
           "assertion-drop"
         ));
       }
-      if (/\bexpect\s*\(\s*(true|false|null|undefined|["'][^"']*["']|\d+)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual)\s*\(\s*\1\s*\)/s.test(added) || /\bassert(?:\.ok)?\s*\(\s*true\s*\)/.test(added) || /\bassert\.(?:equal|strictEqual)\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\)/.test(added) || /\bassert\s+True\b/.test(added) || /\b(?:assertTrue|Assert\.True)\s*\(\s*true\s*\)/.test(added) || /\bassertEqual\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\bassert_eq!\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added) || /\b(?:assertEquals|Assert\.Equal)\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/.test(added)) {
-        results.push(finding2("constant or self-equal test oracle introduced", `${patch.path} adds an assertion that is true without exercising the candidate behavior`, "test-oracle-constant"));
-      }
+      const constantOracles = findTestCodeMatches(patch, [
+        /\bexpect\s*\(\s*(true|false|null|undefined|["'][^"']*["']|\d+)\s*\)\s*\.\s*(?:toBe|toEqual|toStrictEqual)\s*\(\s*\1\s*\)/s,
+        /\bassert(?:\.ok)?\s*\(\s*true\s*\)/,
+        /\bassert\.(?:equal|strictEqual)\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*\1\s*\)/,
+        /\bassert\s+True\b/,
+        /\b(?:assertTrue|Assert\.True)\s*\(\s*true\s*\)/,
+        /\bassertEqual\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/,
+        /\bassert_eq!\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/,
+        /\b(?:assertEquals|Assert\.Equal)\s*\(\s*([A-Za-z_][\w]*)\s*,\s*\1\s*\)/
+      ]);
+      if (constantOracles.some((match) => match.quoted)) results.push(uncheckedTestCode(patch.path, "test-oracle-constant"));
+      if (constantOracles.some((match) => !match.quoted)) results.push(finding2("constant or self-equal test oracle introduced", `${patch.path} adds an assertion that is true without exercising the candidate behavior`, "test-oracle-constant"));
       if (/\b(?:page\.)?evaluate\s*\(|\baddInitScript\s*\(|\bevaluateOnNewDocument\s*\(/.test(added) && /\b(?:document\.|window\.|localStorage\.|sessionStorage\.|Object\.defineProperty)/.test(added)) {
         results.push(finding2("browser test mutates runtime state before judging behavior", `${patch.path} adds browser-side state mutation inside an evaluation hook; review whether the test repairs the application it is meant to test`, "test-runtime-patch"));
       }
@@ -9100,11 +9507,11 @@ var TRANSCRIPT_FORMATS = [
 ];
 var VERDICTS = ["verified", "contradicted", "unverifiable"];
 var REPORT_STATUSES = ["PASS", "FAIL", "INCONCLUSIVE"];
-function canonical(value) {
+function canonical2(value) {
   if (value === void 0) return "null";
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(canonical2).join(",")}]`;
   if (value && typeof value === "object") {
-    const entries = Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key2, item2]) => `${JSON.stringify(key2)}:${canonical(item2)}`);
+    const entries = Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key2, item2]) => `${JSON.stringify(key2)}:${canonical2(item2)}`);
     return `{${entries.join(",")}}`;
   }
   return JSON.stringify(value);
@@ -9344,7 +9751,7 @@ function buildReport(input) {
     base: input.base,
     head: input.head,
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    receiptHash: `sha256:${createHash6("sha256").update(canonical(receiptPayload2)).digest("hex")}`,
+    receiptHash: `sha256:${createHash6("sha256").update(canonical2(receiptPayload2)).digest("hex")}`,
     repository: input.repository ?? {},
     reproduction: input.reproduction ?? "unavailable",
     results: input.results,
@@ -9369,12 +9776,13 @@ function recomputeReceiptHash(value) {
     summary: report.summary,
     policy: report.policy
   };
-  return `sha256:${createHash6("sha256").update(canonical(payload)).digest("hex")}`;
+  return `sha256:${createHash6("sha256").update(canonical2(payload)).digest("hex")}`;
 }
 
 // src/remediation.ts
 function remediationFor(ruleId) {
   const fixes = {
+    "test-code-context-unchecked": "Check whether the quoted code is evaluated, passed to a helper, or written into a test file. Vigil cannot clear this hold automatically; adding a claim will not clear it.",
     "test-count": "Run the configured test command without truncating its output, then report the observed passing count exactly; use `vigil doctor` to inspect command selection.",
     "tests-pass": "Run `vigil doctor`, configure policy `testCommand` when inference is absent, and preserve the fresh runner's complete output.",
     "file-changed": "Inspect `git diff --name-only <base>..<head>`, pass those exact SHAs, then correct the claimed path.",
@@ -9725,7 +10133,7 @@ function sha256(value) {
   return `sha256:${createHash7("sha256").update(value).digest("hex")}`;
 }
 function canonicalSha256(value) {
-  return sha256(canonical(value));
+  return sha256(canonical2(value));
 }
 function readBoundedRegularFile(path, maximumBytes, label) {
   const absolute = resolve6(path);
@@ -9889,7 +10297,7 @@ var ADAPTERS = /* @__PURE__ */ new Set(["generic", "a2a", "ap2", "x402", "erc-80
 var MAX_OUTCOME_JSON_BYTES = 2 * 1024 * 1024;
 var MAX_OUTCOME_KEY_BYTES = 64 * 1024;
 function digest3(value) {
-  return `sha256:${createHash9("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash9("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function requireObjectKeys(value, label, allowed2) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -10221,7 +10629,7 @@ function validateReceiptShape(input) {
   const expectedVerdict = overallVerdict(receipt.checks);
   if (receipt.verdict !== expectedVerdict) throw new Error(`receipt verdict ${receipt.verdict} disagrees with its checks (${expectedVerdict})`);
   const expectedReasonCodes = reasonCodes(receipt.checks);
-  if (canonical(receipt.reasonCodes) !== canonical(expectedReasonCodes)) throw new Error("receipt reasonCodes disagree with its checks");
+  if (canonical2(receipt.reasonCodes) !== canonical2(expectedReasonCodes)) throw new Error("receipt reasonCodes disagree with its checks");
   requireObjectKeys(receipt.sourceEvidence, "sourceEvidence", ["type", "reportHash", "base", "head", "status", "signerKeyId"]);
   if (receipt.sourceEvidence?.type !== "agent-vigil/trust-report") throw new Error("source evidence type is unsupported");
   requireSha(receipt.sourceEvidence.reportHash, "sourceEvidence.reportHash");
@@ -10482,7 +10890,7 @@ function mainCause(findings, verdict, head) {
   return `All required checks passed at ${safe(head.slice(0, 12))}.`;
 }
 function primaryResultFinding(findings) {
-  return findings.find((finding3) => finding3.state === "FAILED") ?? findings.find((finding3) => finding3.state === "NOT_CHECKED");
+  return findings.find((finding3) => finding3.state === "FAILED") ?? findings.find((finding3) => finding3.state === "NOT_CHECKED" && finding3.id === "test-code-context-unchecked") ?? findings.find((finding3) => finding3.state === "NOT_CHECKED");
 }
 function buildReportResultView(value, options = {}) {
   const report = validateReportForResult(value);
@@ -10639,11 +11047,11 @@ function resolveSafeParent(requested) {
       if (!trustedRootAlias) {
         throw new Error(`Refusing to traverse symbolic-link output parent: ${next}`);
       }
-      const canonical3 = realpathSync4(next);
-      if (!lstatSync6(canonical3).isDirectory()) {
+      const canonical4 = realpathSync4(next);
+      if (!lstatSync6(canonical4).isDirectory()) {
         throw new Error(`Refusing to traverse non-directory output parent: ${next}`);
       }
-      current2 = canonical3;
+      current2 = canonical4;
       continue;
     }
     if (!status.isDirectory()) {
@@ -11122,11 +11530,11 @@ import { createHash as createHash10 } from "node:crypto";
 import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
 import { isAbsolute as isAbsolute6, normalize as normalize2, resolve as resolve8, win32 as win322 } from "node:path";
 var DEFAULT_POLICY_FILE = ".agent-vigil.json";
-function canonical2(value) {
+function canonical3(value) {
   if (value === void 0) return "null";
-  if (Array.isArray(value)) return `[${value.map(canonical2).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(canonical3).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key2, item2]) => `${JSON.stringify(key2)}:${canonical2(item2)}`).join(",")}}`;
+    return `{${Object.entries(value).filter(([, item2]) => item2 !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key2, item2]) => `${JSON.stringify(key2)}:${canonical3(item2)}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -11289,7 +11697,7 @@ function loadPolicy(repo, requested, ref2) {
     return {
       gitPath: clean,
       ref: ref2,
-      sha256: `sha256:${createHash10("sha256").update(canonical2(value2)).digest("hex")}`,
+      sha256: `sha256:${createHash10("sha256").update(canonical3(value2)).digest("hex")}`,
       value: value2
     };
   }
@@ -11297,13 +11705,13 @@ function loadPolicy(repo, requested, ref2) {
   if (!existsSync4(candidate)) {
     if (requested) throw new Error(`policy not found: ${candidate}`);
     const value2 = { schemaVersion: 1 };
-    return { sha256: `sha256:${createHash10("sha256").update(canonical2(value2)).digest("hex")}`, value: value2 };
+    return { sha256: `sha256:${createHash10("sha256").update(canonical3(value2)).digest("hex")}`, value: value2 };
   }
   const raw = readFileSync3(candidate, "utf8");
   const value = parsePolicy(raw, candidate);
   return {
     path: candidate,
-    sha256: `sha256:${createHash10("sha256").update(canonical2(value)).digest("hex")}`,
+    sha256: `sha256:${createHash10("sha256").update(canonical3(value)).digest("hex")}`,
     value
   };
 }
@@ -11566,11 +11974,11 @@ function loadAuthorityContract(repo, requested, ref2) {
     }
     if (Buffer.byteLength(raw) > MAX_CONTRACT_BYTES) throw new Error(`authority contract exceeds ${MAX_CONTRACT_BYTES} bytes`);
     const value2 = parseContract(raw, `${ref2}:${clean}`);
-    return { value: value2, sha256: `sha256:${createHash11("sha256").update(canonical(value2)).digest("hex")}`, source: `${clean}@${ref2}`, gitPath: clean, ref: ref2 };
+    return { value: value2, sha256: `sha256:${createHash11("sha256").update(canonical2(value2)).digest("hex")}`, source: `${clean}@${ref2}`, gitPath: clean, ref: ref2 };
   }
   const path = resolve9(repo, requested);
   const value = parseContract(readRegularUtf8(path, MAX_CONTRACT_BYTES, "authority contract"), path);
-  return { value, sha256: `sha256:${createHash11("sha256").update(canonical(value)).digest("hex")}`, source: relative4(repo, path) || requested, path };
+  return { value, sha256: `sha256:${createHash11("sha256").update(canonical2(value)).digest("hex")}`, source: relative4(repo, path) || requested, path };
 }
 function inputObject(call) {
   try {
@@ -13094,7 +13502,7 @@ import {
 } from "node:crypto";
 var SHA2564 = /^sha256:[0-9a-f]{64}$/;
 function digest4(value) {
-  return `sha256:${createHash12("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash12("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function payloadOf(receipt) {
   const { portableHash: _hash, signature: _signature, ...payload } = receipt;
@@ -13303,7 +13711,7 @@ function buildPortableGateReport(receipt, options) {
   const testClaim = { kind: "tests_pass", quote: "trusted policy verification passes in independent CI", subject: "trusted policy test command" };
   results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand, void 0, base, head));
   results.push(...checkWorkspaceMutation(repo, exactHead && relativeReceipt ? [relativeReceipt] : [], head));
-  const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+  const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand: policy.value.testCommand }), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
   const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative6(repo, policy.path) : void 0;
@@ -14050,7 +14458,7 @@ function compareReceipts(beforeValue, afterValue) {
     unchangedChecks,
     notes
   };
-  return { ...unsigned, deltaHash: `sha256:${createHash13("sha256").update(canonical(unsigned)).digest("hex")}` };
+  return { ...unsigned, deltaHash: `sha256:${createHash13("sha256").update(canonical2(unsigned)).digest("hex")}` };
 }
 function renderReceiptDelta(delta) {
   const lines = [
@@ -14077,7 +14485,7 @@ import { relative as relative8, resolve as resolve13 } from "node:path";
 
 // src/authority-plan.ts
 import { createHash as createHash14, createHmac } from "node:crypto";
-import { posix } from "node:path";
+import { posix as posix2 } from "node:path";
 
 // node_modules/smol-toml/dist/date.js
 var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
@@ -14760,7 +15168,7 @@ function sha2562(value) {
   return `sha256:${createHash14("sha256").update(value).digest("hex")}`;
 }
 function authorityComparisonToken(value) {
-  return `hmac-sha256:${createHmac("sha256", "agent-vigil-authority-comparison-v1").update(canonical(value)).digest("hex")}`;
+  return `hmac-sha256:${createHmac("sha256", "agent-vigil-authority-comparison-v1").update(canonical2(value)).digest("hex")}`;
 }
 function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
@@ -14943,13 +15351,13 @@ function validatePolicy3(input) {
   };
 }
 function loadAuthorityPlanPolicy(repo, base, path = ".agent-vigil-authority-plan.json") {
-  const clean = posix.normalize(path.replace(/^\.\//, ""));
+  const clean = posix2.normalize(path.replace(/^\.\//, ""));
   if (!clean || clean === ".." || clean.startsWith("../") || clean.startsWith("/") || path.includes("\\") || path.includes(":")) {
     throw new Error("authority plan policy path must stay inside the repository");
   }
   const raw = readGitFileOptional(repo, base, clean);
   if (raw === void 0) {
-    return { value: DEFAULT_POLICY, source: "built-in default", sha256: sha2562(canonical(DEFAULT_POLICY)) };
+    return { value: DEFAULT_POLICY, source: "built-in default", sha256: sha2562(canonical2(DEFAULT_POLICY)) };
   }
   let parsed;
   try {
@@ -14958,7 +15366,7 @@ function loadAuthorityPlanPolicy(repo, base, path = ".agent-vigil-authority-plan
     throw new Error(`authority plan policy at ${base}:${clean} is not valid JSON`);
   }
   const value = validatePolicy3(parsed);
-  return { value, source: `${clean}@${base}`, sha256: sha2562(canonical(value)) };
+  return { value, source: `${clean}@${base}`, sha256: sha2562(canonical2(value)) };
 }
 function parseConfig(raw, format) {
   const source2 = raw.charCodeAt(0) === 65279 ? raw.slice(1) : raw;
@@ -15973,7 +16381,7 @@ function extractCodex(path, parsed) {
   return out;
 }
 function profileDigest(profile) {
-  return sha2562(canonical(profile));
+  return sha2562(canonical2(profile));
 }
 function discoverAuthorityProfile(repo, ref2) {
   const internal = {
@@ -16081,7 +16489,7 @@ function makeDelta(change, disposition, before, after) {
   const representative = after ?? before;
   const beforeSafe = before ? publicAtom(before) : void 0;
   const afterSafe = after ? publicAtom(after) : void 0;
-  const identity2 = canonical({ change, key: representative.semanticKey, before: beforeSafe, after: afterSafe, ruleId: disposition.ruleId });
+  const identity2 = canonical2({ change, key: representative.semanticKey, before: beforeSafe, after: afterSafe, ruleId: disposition.ruleId });
   const identitySha256 = sha2562(identity2);
   return {
     id: `delta:${createHash14("sha256").update(identity2).digest("hex").slice(0, 20)}`,
@@ -16178,7 +16586,7 @@ function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
     }
   }
   const deltas = rawDeltas.map((delta) => applyAuthorityPlanPolicy(delta, policy.value));
-  const gaps = [...before.gaps, ...after.gaps].filter((gap, index, all) => all.findIndex((item2) => canonical(item2) === canonical(gap)) === index).sort((a, b) => `${a.sourcePath}:${a.locator}`.localeCompare(`${b.sourcePath}:${b.locator}`));
+  const gaps = [...before.gaps, ...after.gaps].filter((gap, index, all) => all.findIndex((item2) => canonical2(item2) === canonical2(gap)) === index).sort((a, b) => `${a.sourcePath}:${a.locator}`.localeCompare(`${b.sourcePath}:${b.locator}`));
   const blocking = deltas.filter((item2) => item2.disposition === "BLOCK").length;
   const uncertainties = rawDeltas.filter((item2) => item2.disposition === "HOLD").length + gaps.length;
   const holds = deltas.filter((item2) => item2.disposition === "HOLD").length + (policy.value.allowUnknownChanges ? 0 : gaps.length);
@@ -16234,7 +16642,7 @@ function buildAuthorityPlan(repo, base, head, _vigilVersion, policyPath) {
       "Recognized secret-bearing values and sensitive permission scopes are omitted; repository-controlled names and labels can still be sensitive."
     ]
   };
-  return { ...payload, planSha256: sha2562(canonical(payload)) };
+  return { ...payload, planSha256: sha2562(canonical2(payload)) };
 }
 function marker(delta) {
   if (delta.change === "ADDED") return "+";
@@ -16444,7 +16852,7 @@ function buildMergeGroupReport(options) {
   };
   results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand, void 0, base, head));
   results.push(...checkWorkspaceMutation(repo, inputs, head));
-  const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+  const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand: policy.value.testCommand }), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
   const policySource = policy.ref && policy.gitPath ? `${policy.gitPath}@${policy.ref}` : policy.path ? relative8(repo, policy.path) : void 0;
@@ -16494,7 +16902,7 @@ function validAsOf(value) {
 }
 function cardPayload(card) {
   const { generatedAt: _generatedAt, ...evidence } = card;
-  return canonical(evidence);
+  return canonical2(evidence);
 }
 function recomputeValueCardHash(card) {
   const { cardHash: _cardHash, ...withoutHash } = card;
@@ -16856,7 +17264,7 @@ function validateIncident(value) {
 }
 function payloadWithoutHash(bundle) {
   const { generatedAt: _generatedAt, ...evidence } = bundle;
-  return canonical(evidence);
+  return canonical2(evidence);
 }
 function recomputeGitHubEvidenceHash(bundle) {
   const { evidenceHash: _hash, ...withoutHash } = bundle;
@@ -17402,12 +17810,12 @@ function trustedRegularFileInside(repositoryPath, filePath, label) {
   if (status.isSymbolicLink() || !status.isFile()) {
     throw new Error(`${label} must be a regular non-symbolic-link file`);
   }
-  const canonical3 = realpathSync7(requested);
-  const canonicalRel = relative9(repository3, canonical3);
+  const canonical4 = realpathSync7(requested);
+  const canonicalRel = relative9(repository3, canonical4);
   if (canonicalRel === ".." || canonicalRel.startsWith(`..${sep8}`)) {
     throw new Error(`${label} resolved outside the repository`);
   }
-  return canonical3;
+  return canonical4;
 }
 function trustedDirectoryInside(repositoryPath, directoryPath, label) {
   const requestedRepository = resolve16(repositoryPath);
@@ -17427,12 +17835,12 @@ function trustedDirectoryInside(repositoryPath, directoryPath, label) {
       throw new Error(`${label} and its parents must be regular directories without symbolic links`);
     }
   }
-  const canonical3 = realpathSync7(requested);
-  const canonicalRel = relative9(repository3, canonical3);
+  const canonical4 = realpathSync7(requested);
+  const canonicalRel = relative9(repository3, canonical4);
   if (canonicalRel === ".." || canonicalRel.startsWith(`..${sep8}`)) {
     throw new Error(`${label} resolved outside the repository`);
   }
-  return canonical3;
+  return canonical4;
 }
 function loadUpgradeConfig(path) {
   return validateUpgradeConfig(readBoundedJson2(path, 256 * 1024, "upgrade config"));
@@ -17536,7 +17944,7 @@ function inspectArtifactTree(root) {
   };
   visit(canonicalRoot);
   return {
-    treeSha256: hash(canonical(entries)),
+    treeSha256: hash(canonical2(entries)),
     fileCount: entries.length,
     totalBytes
   };
@@ -17565,7 +17973,7 @@ function inspectTarget(directory, component) {
     return {
       field,
       count: capabilityCount(value),
-      sha256: hash(canonical({ present: value !== void 0, value: value ?? null }))
+      sha256: hash(canonical2({ present: value !== void 0, value: value ?? null }))
     };
   });
   return {
@@ -18098,7 +18506,7 @@ function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase,
   } catch {
     return { state: "HOLD", reason: "canary returned malformed or unbounded JSON" };
   }
-  const observationSha256 = digest5(canonical(document.observations));
+  const observationSha256 = digest5(canonical2(document.observations));
   return {
     state: document.outcome,
     observationSha256,
@@ -18107,7 +18515,7 @@ function runCanaryTrial(config, canary, targetDirectory, canaryDirectory, phase,
   };
 }
 function commandDigest(canary) {
-  return digest5(canonical(canary.command));
+  return digest5(canonical2(canary.command));
 }
 
 // src/upgrade/receipt.ts
@@ -18121,17 +18529,17 @@ function hash2(value) {
   return `sha256:${createHash21("sha256").update(value).digest("hex")}`;
 }
 function publicCanaryPseudonym(receiptNonce, privateCanaryId) {
-  return hash2(canonical({
+  return hash2(canonical2({
     domain: "agent-vigil-public-canary-id/v1",
     receiptNonce,
     privateCanaryId
   }));
 }
 function configDigest(config) {
-  return hash2(canonical(config));
+  return hash2(canonical2(config));
 }
 function receiptPayload(receipt) {
-  return canonical(receipt);
+  return canonical2(receipt);
 }
 function finalizeReceipt(receipt) {
   return { ...receipt, receiptHash: hash2(receiptPayload(receipt)) };
@@ -18234,7 +18642,7 @@ function runUpgradeEvaluation(input) {
     );
   }
   const config = configCheckpoint.config;
-  if (suppliedConfig && canonical(suppliedConfig) !== canonical(config)) {
+  if (suppliedConfig && canonical2(suppliedConfig) !== canonical2(config)) {
     return holdReceipt(
       suppliedConfig,
       unevaluatedContainment(),
@@ -18330,7 +18738,7 @@ function runUpgradeEvaluation(input) {
     const configAfter = readConfigCheckpoint(input.repository, input.configPath);
     if (configAfter.path !== configCheckpoint.path || configAfter.identity !== configCheckpoint.identity) {
       mutationReason = "upgrade config moved or was replaced while the evaluation was running";
-    } else if (canonical(configAfter.config) !== canonical(config)) {
+    } else if (canonical2(configAfter.config) !== canonical2(config)) {
       mutationReason = "upgrade config changed while the evaluation was running";
     }
   } catch (error) {
@@ -18340,9 +18748,9 @@ function runUpgradeEvaluation(input) {
     const currentAfter = inspectTarget(input.currentDirectory, config.component);
     const candidateAfter = inspectTarget(input.candidateDirectory, config.component);
     const harnessAfter = inspectArtifactTree(canaryDirectory);
-    if (!mutationReason && canonical(currentAfter) !== canonical(current2)) mutationReason = "current artifact changed while the evaluation was running";
-    else if (!mutationReason && canonical(candidateAfter) !== canonical(candidate)) mutationReason = "candidate artifact changed while the evaluation was running";
-    else if (!mutationReason && canonical(harnessAfter) !== canonical(canaryHarness)) mutationReason = "canary harness changed while the evaluation was running";
+    if (!mutationReason && canonical2(currentAfter) !== canonical2(current2)) mutationReason = "current artifact changed while the evaluation was running";
+    else if (!mutationReason && canonical2(candidateAfter) !== canonical2(candidate)) mutationReason = "candidate artifact changed while the evaluation was running";
+    else if (!mutationReason && canonical2(harnessAfter) !== canonical2(canaryHarness)) mutationReason = "canary harness changed while the evaluation was running";
   } catch (error) {
     if (!mutationReason) mutationReason = `evaluation inputs could not be re-inventoried: ${error.message}`;
   }
@@ -18385,7 +18793,7 @@ function publicCapability(field) {
   return PUBLIC_CAPABILITIES.has(leaf) ? leaf : "other";
 }
 function publicEntryPayload(entry) {
-  return canonical(entry);
+  return canonical2(entry);
 }
 function createPublicCompatibilityEntry(receipt, privateKeyPath) {
   if (recomputeUpgradeReceiptHash(receipt) !== receipt.receiptHash) throw new Error("private upgrade receipt hash is invalid");
@@ -18853,8 +19261,8 @@ function assertDistinctOutputs(paths) {
 function pathIdentities(path) {
   const requested = resolve20(path);
   const identities = [outputIdentity(requested)];
-  const canonical3 = realpathSync12(requested);
-  const canonicalIdentity = outputIdentity(canonical3);
+  const canonical4 = realpathSync12(requested);
+  const canonicalIdentity = outputIdentity(canonical4);
   if (!identities.includes(canonicalIdentity)) identities.push(canonicalIdentity);
   return identities;
 }
@@ -19121,7 +19529,7 @@ function git8(repo, args, env) {
   }).trim();
 }
 function digest6(value) {
-  return `sha256:${createHash22("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash22("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function safeError(error, redactions = []) {
   let message = error instanceof Error ? error.message : String(error);
@@ -19474,7 +19882,7 @@ function validateControlProof(value) {
     limits
   };
   const { receiptHash: _receiptHash, ...payload } = parsed;
-  if (sha2564(canonical(payload)) !== receiptHash) throw new Error("control proof content does not match receiptHash");
+  if (sha2564(canonical2(payload)) !== receiptHash) throw new Error("control proof content does not match receiptHash");
   return parsed;
 }
 function loadControlProof(path) {
@@ -19488,7 +19896,7 @@ function loadControlProof(path) {
   return { proof: validateControlProof(parsed), bytes, fileSha256: sha2564(bytes) };
 }
 function challengeSetSha256(proof) {
-  return sha2564(canonical(proof.challenges.map(({ id, expected, actual, passed }) => ({ id, expected, actual, passed }))));
+  return sha2564(canonical2(proof.challenges.map(({ id, expected, actual, passed }) => ({ id, expected, actual, passed }))));
 }
 function buildControlProofPredicate(path) {
   const { proof, fileSha256: fileSha2562 } = loadControlProof(path);
@@ -19559,7 +19967,7 @@ function verifyGhControlProofAttestationOutput(path, ghOutput) {
     if (subjectOk && predicateOk) matched = statement.predicate;
   }
   const { receiptHash: _receiptHash, ...payload } = proof;
-  const proofHashValid = sha2564(canonical(payload)) === proof.receiptHash;
+  const proofHashValid = sha2564(canonical2(payload)) === proof.receiptHash;
   return {
     valid: proofHashValid && subjectDigestValid && predicateValid && Boolean(matched),
     proofHashValid,
@@ -19941,7 +20349,7 @@ import {
 import { readFileSync as readFileSync12 } from "node:fs";
 var SIGNED_CONTROL_PROOF_SCHEMA = "control-proof/signed-challenge-v1";
 function digest7(value) {
-  return `sha256:${createHash24("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash24("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function record4(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -19949,7 +20357,7 @@ function record4(value, label) {
 }
 function exactKeys6(value, keys, label) {
   const expected = [...keys].sort();
-  if (canonical(Object.keys(value).sort()) !== canonical(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
+  if (canonical2(Object.keys(value).sort()) !== canonical2(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
 }
 function text2(value, label, maximum = 200) {
   if (typeof value !== "string" || !value.trim() || value.length > maximum || /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value)) {
@@ -20113,7 +20521,7 @@ var CONTROL_POLICY_PACKS = {
   ]
 };
 function digest8(value) {
-  return `sha256:${createHash25("sha256").update(canonical(value)).digest("hex")}`;
+  return `sha256:${createHash25("sha256").update(canonical2(value)).digest("hex")}`;
 }
 function record5(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -20122,7 +20530,7 @@ function record5(value, label) {
 function exactKeys7(value, keys, label) {
   const expected = [...keys].sort();
   const actual = Object.keys(value).sort();
-  if (canonical(actual) !== canonical(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
+  if (canonical2(actual) !== canonical2(expected)) throw new Error(`${label} fields must be exactly: ${expected.join(", ")}`);
 }
 function text3(value, label, maximum = 200) {
   if (typeof value !== "string" || !value.trim() || value.length > maximum || /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value)) {
@@ -20492,9 +20900,9 @@ function ensurePrivateDirectory2(requested, mustBeNew = false) {
       if (status.isSymbolicLink()) {
         const trustedRootAlias = index === 0 && status.uid === rootStatus.uid && (rootStatus.mode & 18) === 0;
         if (!trustedRootAlias) throw new Error("continuity directory may not traverse a symbolic link");
-        const canonical3 = realpathSync15(next);
-        if (!lstatSync18(canonical3).isDirectory()) throw new Error("continuity directory parent is not a directory");
-        current2 = canonical3;
+        const canonical4 = realpathSync15(next);
+        if (!lstatSync18(canonical4).isDirectory()) throw new Error("continuity directory parent is not a directory");
+        current2 = canonical4;
         continue;
       }
       if (!status.isDirectory()) throw new Error("continuity directory path contains a non-directory entry");
@@ -20537,17 +20945,17 @@ function subjectFor(report) {
   };
 }
 function rootHash(report) {
-  return sha256(`${ROOT_DOMAIN}${canonical(report)}`);
+  return sha256(`${ROOT_DOMAIN}${canonical2(report)}`);
 }
 function unsignedEventPayload(event2) {
   const { eventHash: _eventHash, signature: _signature, ...payload } = event2;
   return payload;
 }
 function computeEventHash(event2) {
-  return sha256(`${EVENT_DOMAIN}${event2.predecessorHash}${canonical(unsignedEventPayload(event2))}`);
+  return sha256(`${EVENT_DOMAIN}${event2.predecessorHash}${canonical2(unsignedEventPayload(event2))}`);
 }
 function sameSubject(left, right) {
-  return canonical(left) === canonical(right);
+  return canonical2(left) === canonical2(right);
 }
 function tip(sequence, eventHash, updatedAt) {
   return { schemaVersion: "agent-vigil-continuity-tip/v1", sequence, eventHash, updatedAt };
@@ -20556,7 +20964,7 @@ function validateTip(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("continuity tip must be an object");
   const selected = value;
   const keys = Object.keys(selected).sort();
-  if (canonical(keys) !== canonical(["eventHash", "schemaVersion", "sequence", "updatedAt"])) {
+  if (canonical2(keys) !== canonical2(["eventHash", "schemaVersion", "sequence", "updatedAt"])) {
     throw new Error("continuity tip has unsupported or missing fields");
   }
   if (selected.schemaVersion !== "agent-vigil-continuity-tip/v1") throw new Error("unsupported continuity tip schema");
@@ -20641,7 +21049,7 @@ function readChainFiles(chainDirectory) {
   }
   if (status.isSymbolicLink() || !status.isDirectory()) throw new Error("continuity chain must be a regular directory, not a symbolic link");
   const entries = readdirSync3(directory).sort();
-  if (canonical(entries) !== canonical(["events", "receipt.json", "root.json", "tip.json"])) throw new Error("continuity chain directory contains unsupported or missing entries");
+  if (canonical2(entries) !== canonical2(["events", "receipt.json", "root.json", "tip.json"])) throw new Error("continuity chain directory contains unsupported or missing entries");
   const eventsDirectory = join12(directory, "events");
   const eventsStatus = lstatSync18(eventsDirectory);
   if (eventsStatus.isSymbolicLink() || !eventsStatus.isDirectory()) throw new Error("continuity events must be stored in a regular directory");
@@ -21127,7 +21535,7 @@ function appendIdempotently(chain, draft, signingKeyPath) {
   const existing = verified.events.find((event2) => event2.source.deliveryIdHash === draft.source.deliveryIdHash);
   if (existing) {
     const signatureMatches = signingKeyPath ? existing.signature?.keyId === draft.source.issuer : existing.signature === null;
-    if (canonical(storedDraft(existing)) !== canonical(draft) || !signatureMatches) {
+    if (canonical2(storedDraft(existing)) !== canonical2(draft) || !signatureMatches) {
       throw new Error("the GitHub delivery ID was already recorded with different evidence");
     }
     return publicReceipt(existing, false);
@@ -21529,7 +21937,7 @@ var MAX_ARGUMENT_LENGTH = 4096;
 var MAX_OUTPUT_BYTES = 64 * 1024;
 var DEFAULT_TIMEOUT_MS = 5e3;
 function digest9(value) {
-  const body = Buffer.isBuffer(value) ? value : typeof value === "string" ? Buffer.from(value, "utf8") : Buffer.from(canonical(value), "utf8");
+  const body = Buffer.isBuffer(value) ? value : typeof value === "string" ? Buffer.from(value, "utf8") : Buffer.from(canonical2(value), "utf8");
   return `sha256:${createHash26("sha256").update(body).digest("hex")}`;
 }
 var guardDigest = digest9;
@@ -22012,7 +22420,7 @@ function safePath(value, label) {
   return selected;
 }
 function envelope(payloadType, payload, signer) {
-  const bytes = Buffer.from(canonical(payload), "utf8");
+  const bytes = Buffer.from(canonical2(payload), "utf8");
   return {
     payloadType,
     payload: bytes.toString("base64"),
@@ -22345,14 +22753,14 @@ function validateGuardControlObservation(value) {
     denyRequests: validated.events.filter((event2) => event2.route === "DENY").length,
     unexpectedRequests: validated.events.filter((event2) => event2.route === "UNEXPECTED").length
   };
-  if (canonical(counts) !== canonical(validated.summary)) throw new Error("control observation summary does not match events");
+  if (canonical2(counts) !== canonical2(validated.summary)) throw new Error("control observation summary does not match events");
   if (Date.parse(validated.closedAt) < Date.parse(validated.openedAt)) {
     throw new Error("control observation closedAt precedes openedAt");
   }
   const eventsInWindow = validated.events.every((event2) => Date.parse(event2.observedAt) >= Date.parse(validated.openedAt) && Date.parse(event2.observedAt) <= Date.parse(validated.closedAt));
   const exactPass = counts.allowRequests === 1 && counts.denyRequests === 0 && counts.unexpectedRequests === 0 && eventsInWindow && validated.events.every((event2) => event2.method === "POST" && event2.bodySha256 === guardDigest(CANARY_BODY));
   if (validated.status === "PASS" !== exactPass) throw new Error("control observation PASS does not match events");
-  if (validated.status === "PASS" && canonical(validated.reasonCodes) !== canonical(["EXPECTED_EXTERNAL_EFFECTS_OBSERVED"])) {
+  if (validated.status === "PASS" && canonical2(validated.reasonCodes) !== canonical2(["EXPECTED_EXTERNAL_EFFECTS_OBSERVED"])) {
     throw new Error("passing control observation has invalid reason codes");
   }
   return validated;
@@ -22415,7 +22823,7 @@ function validateGuardControlIsolationAttestation(value) {
   if (validated.isolationHash !== hashWithout(validated, "isolationHash")) {
     throw new Error("control isolation hash is invalid");
   }
-  if (validated.status === "PASS" && canonical(validated.reasonCodes) !== canonical(["DISTINCT_UID_IMMUTABLE_STATE_AUTHENTICATED_MONITOR"])) {
+  if (validated.status === "PASS" && canonical2(validated.reasonCodes) !== canonical2(["DISTINCT_UID_IMMUTABLE_STATE_AUTHENTICATED_MONITOR"])) {
     throw new Error("passing control isolation attestation has invalid reason codes");
   }
   return validated;
@@ -22502,7 +22910,7 @@ function validateGuardControlAdmission(value) {
   if (validated.decision === "APPROVE" && new Set(Object.values(validated.trust)).size !== Object.keys(validated.trust).length) {
     throw new Error("approved control admission trust roots must be distinct");
   }
-  if (validated.decision === "APPROVE" && canonical(validated.reasonCodes) !== canonical(["EXACT_CONTROL_ADMISSION_PROVEN"])) {
+  if (validated.decision === "APPROVE" && canonical2(validated.reasonCodes) !== canonical2(["EXACT_CONTROL_ADMISSION_PROVEN"])) {
     throw new Error("approved control admission reason codes are invalid");
   }
   return validated;
@@ -23130,8 +23538,8 @@ function pathEntryExists(path) {
 }
 function ordinaryConfiguration(host) {
   const base = host === "codex" ? join16(process.env.HOME ?? "", ".codex") : join16(process.env.HOME ?? "", ".claude");
-  const names = host === "codex" ? ["config.toml", "hooks.json"] : ["settings.json", "settings.local.json"];
-  return names.map((name2) => {
+  const names2 = host === "codex" ? ["config.toml", "hooks.json"] : ["settings.json", "settings.local.json"];
+  return names2.map((name2) => {
     const path = join16(base, name2);
     const label = `${host} ordinary ${name2}`;
     return pathEntryExists(path) ? { label, path, identity: hashGuardFile(path, label) } : { label, path };
@@ -23238,7 +23646,7 @@ function runGuardRoute(input) {
   writeFileSync9(hookPath, source2, { mode: 448 });
   chmodSync6(hookPath, 448);
   writeFileSync9(hookLogPath, "", { mode: 384 });
-  writeFileSync9(policyPath, `${canonical(routePolicy(nonce, allow.command, deny.command))}
+  writeFileSync9(policyPath, `${canonical2(routePolicy(nonce, allow.command, deny.command))}
 `, { mode: 384 });
   const command = `${shellQuote(process.execPath)} ${shellQuote(hookPath)}`;
   const configPath = join16(profile.profileHome, input.host === "codex" ? "hooks.json" : "settings.json");
@@ -24579,9 +24987,9 @@ function repositoryRoot2(path) {
   } catch {
     throw new Error("--repo must name a Git repository");
   }
-  const canonical3 = realpathSync19(root);
-  if (!lstatSync23(canonical3).isDirectory()) throw new Error("Git repository root is not a directory");
-  return canonical3;
+  const canonical4 = realpathSync19(root);
+  if (!lstatSync23(canonical4).isDirectory()) throw new Error("Git repository root is not a directory");
+  return canonical4;
 }
 function ensureSafeParent(root, target2) {
   const relative17 = target2.slice(root.length).split(sep16).filter(Boolean).slice(0, -1);
@@ -26041,7 +26449,7 @@ function validatePublicPrReceipt(value) {
 }
 function buildPublicPrReceipt(snapshot, rawUrl, options) {
   const unsigned = unsignedReceipt(snapshot, rawUrl, options);
-  return validatePublicPrReceipt({ ...unsigned, receiptHash: sha2567(canonical(unsigned)) });
+  return validatePublicPrReceipt({ ...unsigned, receiptHash: sha2567(canonical2(unsigned)) });
 }
 function signPublicPrReceipt(receipt, privateKeyPath) {
   const selectedReceipt2 = validatePublicPrReceipt(receipt);
@@ -26062,7 +26470,7 @@ function signPublicPrReceipt(receipt, privateKeyPath) {
 }
 function recomputePublicPrReceiptHash(receipt) {
   const { receiptHash: _receiptHash, signature: _signature, ...unsigned } = receipt;
-  return sha2567(canonical(unsigned));
+  return sha2567(canonical2(unsigned));
 }
 function verifyPublicPrReceipt(receipt) {
   let selectedReceipt2;
@@ -26394,7 +26802,7 @@ function loadGuardRouteEnvelope(path) {
 var MAX_ROUTE_AGE_MS = 24 * 60 * 60 * 1e3;
 var GUARD_ROUTE_DIFF_SCHEMA = "agent-vigil-guard-route-diff/v1";
 function same(left, right) {
-  return canonical(left) === canonical(right);
+  return canonical2(left) === canonical2(right);
 }
 function controlBinding(report) {
   if (report.challengePack.id === "agent-vigil-external-network-route/v1") {
@@ -26442,10 +26850,10 @@ function classify2(candidate) {
   if (candidate.status === "INCONCLUSIVE") return "NOT_CHECKED";
   const allow = candidate.challenges.find((item2) => item2.id === "allow-route");
   const deny = candidate.challenges.find((item2) => item2.id === "deny-route");
-  const expanded = deny.actualDecision === "ALLOW" || deny.observedExecution;
+  const expanded2 = deny.actualDecision === "ALLOW" || deny.observedExecution;
   const reduced = allow.actualDecision === "DENY" || allow.actualDecision === "DEFER" || allow.actualDecision === "ALLOW" && !allow.observedExecution;
-  if (expanded && reduced) return "MIXED";
-  if (expanded) return "EXPANDED";
+  if (expanded2 && reduced) return "MIXED";
+  if (expanded2) return "EXPANDED";
   if (reduced) return "REDUCED";
   return candidate.status === "PASS" ? "UNCHANGED" : "NOT_CHECKED";
 }
@@ -27270,7 +27678,7 @@ function hashWithout2(value, key2) {
   return guardDigest(copy);
 }
 function signAuthorization(value, signer) {
-  const bytes = Buffer.from(canonical(value), "utf8");
+  const bytes = Buffer.from(canonical2(value), "utf8");
   return {
     payloadType: GUARD_DEPLOYMENT_AUTHORIZATION_PAYLOAD,
     payload: bytes.toString("base64"),
@@ -28141,7 +28549,7 @@ function record7(value, label) {
 }
 function exactKeys15(value, expected, label) {
   const actual = Object.keys(value).sort();
-  if (canonical(actual) !== canonical([...expected].sort())) throw new Error(`${label} fields must be exactly: ${[...expected].sort().join(", ")}`);
+  if (canonical2(actual) !== canonical2([...expected].sort())) throw new Error(`${label} fields must be exactly: ${[...expected].sort().join(", ")}`);
 }
 function safeSessionId(value) {
   if (typeof value !== "string" || value.length < 8 || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value)) {
@@ -28182,7 +28590,7 @@ function chargeMicocents(value) {
   return microcents;
 }
 function evidencePayload(value) {
-  return canonical(value);
+  return canonical2(value);
 }
 function timezoneQualifiedTimestamp(value, label) {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value);
@@ -28345,7 +28753,7 @@ function buildCursorExactCostEvidence(input) {
       event: event2,
       conversationId,
       timestamp: cursorEventTimestamp(event2.timestamp),
-      fingerprint: hash3(canonical(event2))
+      fingerprint: hash3(canonical2(event2))
     };
   });
   if (new Set(normalized.map((item2) => item2.fingerprint)).size !== normalized.length) {
@@ -28458,7 +28866,7 @@ function normalizedUsage(usage7) {
 }
 function autopsyPayload(record8) {
   const { generatedAt: _generatedAt, ...evidence } = record8;
-  return canonical(evidence);
+  return canonical2(evidence);
 }
 function buildRunAutopsy(input) {
   if (!SHA2568.test(input.transcript.transcriptSha256)) throw new Error("transcript digest is invalid");
@@ -29624,7 +30032,7 @@ function buildReceipt(input) {
     outcome: { commandCompletion: "OBSERVED_ONLY", economicResult: "NOT_CHECKED" },
     evidenceBoundary: receiptBoundary(input.run)
   };
-  return { ...payload, receiptHash: sha2568(canonical(payload)) };
+  return { ...payload, receiptHash: sha2568(canonical2(payload)) };
 }
 async function executeProtectedRun(input) {
   if (process.platform === "win32") throw new Error("vigil run currently requires POSIX process-group controls (macOS or Linux)");
@@ -31295,7 +31703,7 @@ function runMaintainer(args) {
       }
       results.push(...checkWorkspaceMutation(repo, inputs, head));
     }
-    const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+    const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand: policy.value.testCommand }), policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);
     advisories.push(...integrity.advisories);
     const rawEvent = readFileSync17(eventPath);
@@ -32048,7 +32456,7 @@ function runAuthority(args) {
         }], repo, testCommand, void 0, base, head));
       }
       results.push(...checkWorkspaceMutation(repo, inputs, head));
-      const integrity = routeIntegrity(checkIntegrity(repo, base, head), verificationPolicy.value.integrityMode ?? "advisory");
+      const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand }), verificationPolicy.value.integrityMode ?? "advisory");
       results.push(...integrity.results);
       advisories.push(...integrity.advisories);
     }
@@ -32248,7 +32656,7 @@ ${usage6()}`);
     results.push(...checkRunClaims(runClaims, loaded.toolCalls));
     results.push(...checkStepRepetition(loaded.toolCalls));
     const integrity = routeIntegrity([
-      ...checkIntegrity(repo, base, head),
+      ...checkIntegrity(repo, base, head, { testCommand: testCmd }),
       ...checkOutOfDagReads(repo, base, head, loaded.toolCalls)
     ], policy.value.integrityMode ?? "advisory");
     results.push(...integrity.results);

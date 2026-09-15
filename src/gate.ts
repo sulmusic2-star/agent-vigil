@@ -163,7 +163,7 @@ export function buildPortableGateReport(receipt: PortableReceipt, options: GateO
   const testClaim: Claim = { kind: "tests_pass", quote: "trusted policy verification passes in independent CI", subject: "trusted policy test command" };
   results.push(...checkTestsPass([testClaim], repo, policy.value.testCommand, undefined, base, head));
   results.push(...checkWorkspaceMutation(repo, exactHead && relativeReceipt ? [relativeReceipt] : [], head));
-  const integrity = routeIntegrity(checkIntegrity(repo, base, head), policy.value.integrityMode ?? "advisory");
+  const integrity = routeIntegrity(checkIntegrity(repo, base, head, { testCommand: policy.value.testCommand }), policy.value.integrityMode ?? "advisory");
   results.push(...integrity.results);
   advisories.push(...integrity.advisories);
 
