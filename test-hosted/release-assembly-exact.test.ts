@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import test from 'node:test';
 import { verifyReleaseAssembly } from '../scripts/verify_release_assembly.ts';
 const pins = ['.github/workflows/agent-vigil.yml','.github/workflows/agent-vigil-merge-group.yml','.github/workflows/agent-vigil-outcomes.yml','.github/workflows/control-proof-weekly.yml','.github/workflows/public-app-gate.yml','hosted/public-app/control-workflow.yml'];
-function fixture(t: any, built = 'expected\n', committed = built) {
+function fixture(t: any, built = 'expected\n', committed = built, linkedBuild = false) {
   const repo = mkdtempSync(join(tmpdir(), 'vigil-release-exact-')); t.after(()=>rmSync(repo,{recursive:true,force:true}));
   const git = (...args:string[])=>execFileSync('git',['-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false',...args],{cwd:repo,encoding:'utf8',stdio:['pipe','pipe','pipe']}).trim();
   const write = (path:string, text:string)=>{mkdirSync(dirname(join(repo,path)),{recursive:true});writeFileSync(join(repo,path),text);};
@@ -14,19 +14,65 @@ function fixture(t: any, built = 'expected\n', committed = built) {
   git('init','-q','--template=');git('config','user.name','Release fixture');git('config','user.email','fixture@example.invalid');
   write('.gitignore','node_modules/\n'); mkdirSync(join(repo,'node_modules'));
   write('build.cjs',`require('node:fs').writeFileSync('dist/cli.js',${JSON.stringify(built)});`);
-  write('package.json',JSON.stringify({name:'local-release-fixture',version:'1.0.0',scripts:{build:'node build.cjs'}}));
+  if(linkedBuild) {
+    write('node_modules/compiler/bin/cli.cjs',"require('../lib/build.cjs');\n");
+    write('node_modules/compiler/lib/build.cjs',`const fs=require('node:fs'); const assert=require('node:assert/strict');
+assert.equal(fs.lstatSync('node_modules/.bin/compiler').isSymbolicLink(),true);
+assert.equal(fs.readlinkSync('node_modules/.bin/compiler'),'../compiler/bin/cli.cjs');
+fs.writeFileSync('dist/cli.js',${JSON.stringify(built)});`);
+    mkdirSync(join(repo,'node_modules/.bin'));
+    symlinkSync('../compiler/bin/cli.cjs',join(repo,'node_modules/.bin/compiler'));
+  }
+  const build = linkedBuild ? 'node node_modules/.bin/compiler' : 'node build.cjs';
+  write('package.json',JSON.stringify({name:'local-release-fixture',version:'1.0.0',scripts:{build}}));
   write('package-lock.json',JSON.stringify({version:'1.0.0',packages:{'':{version:'1.0.0'}}}));
   write('src/report.ts','export const VERSION = "1.0.0";');write('dist/cli.js',built);
   for(const path of pins) write(path,'uses: sulmusic2-star/agent-vigil@'+'1'.repeat(40)+'\n');
   const base=commit('base');
-  write('package.json',JSON.stringify({name:'local-release-fixture',version:'1.0.1',scripts:{build:'node build.cjs'}}));
+  write('package.json',JSON.stringify({name:'local-release-fixture',version:'1.0.1',scripts:{build}}));
   write('package-lock.json',JSON.stringify({version:'1.0.1',packages:{'':{version:'1.0.1'}}}));
   write('src/report.ts','export const VERSION = "1.0.1";');write('dist/cli.js',committed);
   const runtime=commit('runtime');for(const path of pins) write(path,`uses: sulmusic2-star/agent-vigil@${runtime}\n`);
   const head=commit('pin');
   return {repo,base,runtime,head,version:'1.0.1',git,write,commit};
 }
-test('release identity accepts a clean exact-commit deterministic fixture',t=>verifyReleaseAssembly(fixture(t)));
+function verifyFixture(t: { diagnostic(message: string): void }, f: Parameters<typeof verifyReleaseAssembly>[0]): void {
+  try { verifyReleaseAssembly(f); }
+  catch (error) {
+    // TAP's default error summary can omit useful child-process output.
+    // These disposable fixtures contain no account credentials or user code.
+    const failure = error as { status?: number | null; signal?: string | null; stdout?: string | Buffer; stderr?: string | Buffer };
+    if (failure && (failure.stdout !== undefined || failure.stderr !== undefined)) {
+      t.diagnostic(JSON.stringify({ buildFailure: true, status: failure.status ?? null, signal: failure.signal ?? null,
+        stdout: String(failure.stdout ?? ''), stderr: String(failure.stderr ?? '') }));
+    }
+    throw error; // Diagnostics must never turn a failed build into acceptance.
+  }
+}
+test('release identity accepts a clean exact-commit deterministic fixture',t=>verifyFixture(t,fixture(t)));
+test('independent rebuild preserves package-relative npm bin links',{skip:process.platform==='win32'},t=>{
+ verifyFixture(t,fixture(t,'expected\n','expected\n',true));
+});
+for(const target of ['../../build.cjs','absolute'])test(`dependency links cannot escape the copied tree: ${target}`,{skip:process.platform==='win32'},t=>{
+ const f=fixture(t);mkdirSync(join(f.repo,'node_modules/.bin'));
+ symlinkSync(target==='absolute'?join(f.repo,'build.cjs'):target,join(f.repo,'node_modules/.bin/escape'));
+ assert.throws(()=>verifyReleaseAssembly(f),/dependency links must stay inside/);
+});
+test('cyclic dependency links cannot enter an independent build',{skip:process.platform==='win32'},t=>{
+ const f=fixture(t);symlinkSync('second',join(f.repo,'node_modules/first'));symlinkSync('first',join(f.repo,'node_modules/second'));
+ assert.throws(()=>verifyReleaseAssembly(f),/dependency links must resolve/);
+});
+test('a symlinked dependency root cannot enter an independent build',{skip:process.platform==='win32'},t=>{
+ const f=fixture(t);rmSync(join(f.repo,'node_modules'),{recursive:true});mkdirSync(join(f.repo,'real-modules'));
+ symlinkSync('real-modules',join(f.repo,'node_modules'));
+ // Ignore only this disposable dependency root; committed release inputs stay fixed.
+ f.write('.git/info/exclude','real-modules/\nnode_modules\n');
+ assert.throws(()=>verifyReleaseAssembly(f),/node_modules must be a real directory/);
+});
+test('a broken internal dependency link cannot enter an independent build',{skip:process.platform==='win32'},t=>{
+ const f=fixture(t);symlinkSync('missing',join(f.repo,'node_modules/broken'));
+ assert.throws(()=>verifyReleaseAssembly(f),/dependency links must resolve/);
+});
 function withNpmCli(value: string | undefined, check: () => void): void {
  const original=process.env.npm_execpath;
  try {
@@ -53,8 +99,11 @@ process.exit(child.error||child.signal?1:child.status??1);`);
 test('a failing selected npm CLI preserves its nonzero exit instead of passing the release',t=>{
  const f=fixture(t);const tools=mkdtempSync(join(tmpdir(),'vigil-npm-failure-'));
  t.after(()=>rmSync(tools,{recursive:true,force:true}));const cli=join(tools,'npm-cli.js');
- writeFileSync(cli,'process.exit(7);');
- withNpmCli(cli,()=>assert.throws(()=>verifyReleaseAssembly(f),(error:any)=>error.status===7));
+ writeFileSync(cli,'process.stdout.write("build stdout marker");process.stderr.write("build stderr marker");process.exit(7);');
+ const diagnostics: string[] = [];
+ withNpmCli(cli,()=>assert.throws(()=>verifyFixture({ diagnostic: message => diagnostics.push(message) },f),(error:any)=>error.status===7));
+ assert.equal(diagnostics.length,1);
+ assert.deepEqual(JSON.parse(diagnostics[0]),{ buildFailure:true, status:7, signal:null, stdout:'build stdout marker', stderr:'build stderr marker' });
 });
 for(const invalid of ['relative','missing']) {
  test(`an invalid ${invalid} npm CLI is rejected without falling back`,t=>{
