@@ -9455,7 +9455,8 @@ function remediationFor(ruleId) {
     "authority-hook": "Remove the new hook or approve its exact hashed command identity in the base revision policy.",
     "authority-setting-unknown": "Upgrade the adapter or remove the unrecognized setting change; use a separately reviewed base-policy exception only after inspecting its effect."
   };
-  return fixes[ruleId ?? ""] ?? "Provide objective evidence or remove the unsupported claim.";
+  const id = ruleId ?? "";
+  return Object.hasOwn(fixes, id) ? fixes[id] : "Provide objective evidence or remove the unsupported claim.";
 }
 
 // src/outcome.ts
@@ -10369,7 +10370,7 @@ function outcomeState(verdict) {
 function consequence(verdict) {
   if (verdict === "PASS") return "Ready to merge.";
   if (verdict === "FAIL") return "Do not merge yet.";
-  return "No merge decision: a required check did not run.";
+  return "No merge decision: required verification is incomplete.";
 }
 function safe(value) {
   return terminalSafe(value);
@@ -10940,6 +10941,47 @@ function appendPrivateFileAtomic(destination, content) {
   writePrivateFileAtomic(target2, `${existing}${content}`);
 }
 
+// src/public-result.ts
+var PUBLIC_REASONS = /* @__PURE__ */ new Map([
+  ["tests-pass", "Test verification failed."],
+  ["test-count", "The reported passing-test count does not match the observed count."],
+  ["test-skip-added", "The check reported a new skipped or focused test."],
+  ["test-oracle-constant", "The check reported an assertion that does not test the changed behavior."],
+  ["assertion-drop", "The check reported removed test assertions."],
+  ["test-assertion-relaxed", "The check reported a weakened test assertion."],
+  ["test-code-context-unchecked", "Vigil could not determine whether quoted code changes how a test runs."],
+  ["automated-review-command", "A configured verification command did not pass."],
+  ["automated-review-setup", "The verification environment could not be set up."],
+  ["protected-path", "This change includes a file protected by the review policy."],
+  ["changed-file-budget", "This change exceeds the policy's file limit."],
+  ["changed-line-budget", "This change exceeds the policy's changed-line limit."],
+  ["completion-evidence", "Required verification evidence is missing."]
+]);
+function publicResultLines(view) {
+  if (view.verdict === "PASS") {
+    return [
+      "Required verification passed under the recorded policy.",
+      ...view.counts.notChecked ? [`${view.counts.notChecked} other ${view.counts.notChecked === 1 ? "check" : "checks"} could not be verified; this policy does not require ${view.counts.notChecked === 1 ? "it" : "them"} to pass.`] : []
+    ];
+  }
+  const finding3 = primaryResultFinding(view.findings);
+  const knownReason = finding3 && PUBLIC_REASONS.get(finding3.id);
+  if (!finding3 || !knownReason) {
+    return [
+      view.verdict === "FAIL" ? "A required check failed." : "Required verification is incomplete.",
+      "**Next:** Open the retained receipt for this check's reason and next action."
+    ];
+  }
+  const reason = finding3.state === "NOT_CHECKED" && finding3.id !== "completion-evidence" && finding3.id !== "test-code-context-unchecked" ? "This check could not be verified. That does not mean it never ran." : knownReason;
+  const counts = finding3.id === "test-count" ? [`Passing tests \u2014 claimed: ${finding3.claimedTestCount ?? "not available"}; observed: ${finding3.observedTestCount ?? "not available"}.`] : [];
+  return [
+    `**Why:** ${reason}`,
+    ...counts,
+    `**Next:** ${finding3.remediation}`,
+    ...view.counts.failed + view.counts.notChecked > 1 ? ["This is the first issue to address, not the complete list. The retained receipt contains the remaining findings."] : []
+  ];
+}
+
 // src/markdown.ts
 function markdownCodeSpan(input) {
   const value = input.replace(/[\r\n]+/g, " ");
@@ -10995,7 +11037,7 @@ function renderResultMarkdown(view, options = {}) {
     "",
     `**${markdownText(view.consequence)}**`,
     "",
-    options.aggregateOnly ? `Result: ${view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed."}` : `**Reason:** ${markdownText(view.mainCause)}`
+    ...options.aggregateOnly ? publicResultLines(view) : [`**Reason:** ${markdownText(view.mainCause)}`]
   ];
   if (!options.aggregateOnly && primary) {
     const location = primary.location ? ` at ${markdownCodeSpan(`${primary.location.file}${primary.location.line ? `:${primary.location.line}` : ""}`)}` : "";
@@ -19064,7 +19106,6 @@ function renderProofComment(value, options = {}) {
   const signature = verification2.signatureValid ? "valid embedded Ed25519 signature; signer identity is not pinned" : "absent; content hash only";
   const url = verifiedUrl(options.verifyUrl);
   const detailFacts = [
-    `Checks: Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}  `,
     `Candidate-only regression checks: ${differentialEarned} verified  `,
     `Changed regression checks that also passed on base: ${differentialAlsoPassedBase}  `,
     `Integrity-control contradictions: ${integrityChanges}  `,
@@ -19076,9 +19117,11 @@ function renderProofComment(value, options = {}) {
     "",
     `**${view.consequence}**`,
     "",
-    view.counts.failed ? `${view.counts.failed} required check(s) failed.` : view.counts.notChecked ? `${view.counts.notChecked} required check(s) did not run.` : "All required checks passed.",
+    `Checks: Failed ${view.counts.failed}, Passed ${view.counts.passed}, Not checked ${view.counts.notChecked}`,
     "",
-    "Open the retained receipt for the reason, evidence, and exact reproduce command.",
+    ...publicResultLines(view),
+    "",
+    "Private evidence, file locations and the recorded reproduce command stay in the retained receipt.",
     ...url ? ["", `[Verify this receipt](${url.replace(/[()]/g, (character) => `\\${character}`)})`] : [],
     "",
     "<details><summary>Receipt details</summary>",

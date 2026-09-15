@@ -181,7 +181,7 @@ test("human-readable renderers distinguish pass, failure, unresolved evidence, a
   assert.match(renderText(pass), /PASS/);
   assert.doesNotMatch(renderText(pass), /Missing or unresolved evidence/);
   assert.match(renderMarkdown(pass), /^### Agent Vigil: PASS/);
-  assert.match(renderDecisionCard(pass), /Result: All required checks passed\./);
+  assert.match(renderDecisionCard(pass), /Required verification passed under the recorded policy\./);
 
   const fail = mixedReport([
     result("verified", "tests-pass"),
@@ -199,23 +199,23 @@ test("human-readable renderers distinguish pass, failure, unresolved evidence, a
   assert.match(failMarkdown, /^### Agent Vigil: FAIL/);
   assert.match(failMarkdown, /\*\*Reason:\*\* coverage contract/);
   assert.match(failMarkdown, /<summary>Receipt details<\/summary>/);
-  assert.match(renderDecisionCard(fail), /Result: 1 required check\(s\) failed\./);
+  assert.match(renderDecisionCard(fail), /Checks: Failed 1/);
 
   const unresolved = mixedReport([result("unverifiable", "path-exists")]);
   assert.equal(unresolved.summary.status, "INCONCLUSIVE");
   assert.match(renderText(unresolved), /Required verification evidence is missing/);
   assert.match(renderMarkdown(unresolved), /^### Agent Vigil: NOT CHECKED/);
-  assert.match(renderDecisionCard(unresolved), /Result: 2 required check\(s\) did not run\./);
+  assert.match(renderDecisionCard(unresolved), /Checks: Failed 0 · Passed 0 · Not checked 2/);
 });
 
-test("decision card stays aggregate-only and omits reproduction details", () => {
+test("decision card keeps private findings and reproduction details out of its safe summary", () => {
   const open = Array.from({ length: 7 }, (_, index) => result(
     "contradicted",
     index === 0 ? undefined : `unknown-${index}`,
     `blocked item ${index}`,
   ));
   const card = renderDecisionCard(mixedReport(open));
-  assert.match(card, /Result: 7 required check\(s\) failed\./);
+  assert.match(card, /Checks: Failed 7/);
   assert.doesNotMatch(card, /blocked item 0/);
   assert.doesNotMatch(card, /blocked item 6/);
   assert.doesNotMatch(card, /fixture|vigil check|Reproduce/);
