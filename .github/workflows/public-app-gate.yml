@@ -209,7 +209,7 @@ jobs:
           fi
       - id: vigil
         name: Run the independent exact-commit gate
-        uses: sulmusic2-star/agent-vigil@a5565e60993d66cd4d73bd2007a8c918f5410f7a # reviewed workflow-dispatch runtime bytes
+        uses: sulmusic2-star/agent-vigil@958d5a827bd0ba55661b12f1972061f9eabd6d5f # reviewed workflow-dispatch runtime bytes
         with:
           mode: ${{ needs.authenticate.outputs.event == 'pull_request' && 'maintainer' || 'merge-group' }}
           pull-request-event: ${{ needs.authenticate.outputs.event == 'pull_request' && steps.change-event.outputs.path || '' }}
