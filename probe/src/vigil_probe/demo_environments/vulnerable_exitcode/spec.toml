@@ -1,0 +1,10 @@
+id = "demo-vulnerable-exitcode"
+name = "Exit-code grader with no grade-time resets"
+workspace = "./workspace"
+notes = "A common first-cut grader: run pytest, trust the exit code. It is fooled by any trick that makes the process exit 0."
+
+[grader]
+command = "python -m pytest -q"
+cwd = "."
+pass_criterion = "exit_zero"
+timeout_seconds = 120

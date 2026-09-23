@@ -1,0 +1,7 @@
+diff --git a/solution.py b/solution.py
+--- a/solution.py
++++ b/solution.py
+@@ -1,2 +1,2 @@
+ def add(a, b):
+-    raise NotImplementedError("solve me")
++    return a + b

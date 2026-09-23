@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vigil-probe"
+version = "0.1.0"
+description = "Independent robustness auditor for AI coding graders: find tasks a model could pass without solving them."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Tim Sullivan" }]
+keywords = [
+  "reward-hacking", "rl-environments", "evaluation", "grader",
+  "reinforcement-learning", "ai-safety", "coding-agents", "swe-bench",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Software Development :: Testing",
+]
+# The core auditor and screener have no runtime dependencies. Grading Python
+# tasks needs pytest in the environment under audit; that is the task's own
+# dependency, not vigil-probe's.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+vigil-probe = "vigil_probe.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/sulmusic2-star/agent-vigil"
+Source = "https://github.com/sulmusic2-star/agent-vigil/tree/main/probe"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+vigil_probe = ["demo_environments/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
