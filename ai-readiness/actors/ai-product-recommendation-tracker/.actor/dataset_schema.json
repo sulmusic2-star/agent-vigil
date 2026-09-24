@@ -1,0 +1,88 @@
+{
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Overview",
+            "transformation": {
+                "fields": [
+                    "question",
+                    "summary",
+                    "topRecommendation",
+                    "brands",
+                    "topSources",
+                    "answers"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "question": {
+                        "label": "Question"
+                    },
+                    "summary": {
+                        "label": "Summary"
+                    },
+                    "topRecommendation": {
+                        "label": "Most recommended"
+                    },
+                    "brands": {
+                        "label": "Tracked brands",
+                        "format": "array"
+                    },
+                    "topSources": {
+                        "label": "Sites the AI cites",
+                        "format": "array"
+                    },
+                    "answers": {
+                        "label": "Answers",
+                        "format": "object"
+                    }
+                }
+            }
+        },
+        "recommendations": {
+            "title": "Recommendations",
+            "transformation": {
+                "fields": [
+                    "question",
+                    "topRecommendations"
+                ],
+                "unwind": [
+                    "topRecommendations"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "question": {
+                        "label": "Question"
+                    },
+                    "name": {
+                        "label": "Product or brand"
+                    },
+                    "answers": {
+                        "label": "Answers listing it",
+                        "format": "number"
+                    },
+                    "share": {
+                        "label": "Share of answers",
+                        "format": "number"
+                    },
+                    "engines": {
+                        "label": "Recommended by",
+                        "format": "array"
+                    },
+                    "bestRank": {
+                        "label": "Best position",
+                        "format": "number"
+                    },
+                    "averageRank": {
+                        "label": "Average position",
+                        "format": "number"
+                    }
+                }
+            }
+        }
+    }
+}

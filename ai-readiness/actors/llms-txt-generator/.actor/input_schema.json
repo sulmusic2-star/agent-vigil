@@ -1,0 +1,45 @@
+{
+    "title": "llms.txt Generator input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "websites": {
+            "title": "Websites",
+            "type": "array",
+            "description": "Websites to generate an llms.txt for, one per line.",
+            "editor": "stringList",
+            "prefill": [
+                "www.python.org",
+                "developer.mozilla.org"
+            ]
+        },
+        "maxPages": {
+            "title": "Maximum pages per site",
+            "type": "integer",
+            "editor": "number",
+            "default": 40,
+            "minimum": 5,
+            "maximum": 200,
+            "description": "How many pages to read from the sitemap (or homepage links) when building the file. More pages means a longer file and a longer run."
+        },
+        "respectRobotsTxt": {
+            "title": "Respect robots.txt for page fetches",
+            "type": "boolean",
+            "editor": "checkbox",
+            "default": true,
+            "description": "Fetch HTML pages only when robots.txt allows this tool (token AIReadinessAudit, falling back to *). Files published for automated readers, such as robots.txt, llms.txt, sitemaps and /.well-known files, are always read."
+        },
+        "maxConcurrency": {
+            "title": "Sites checked in parallel",
+            "type": "integer",
+            "description": "How many sites to check at the same time.",
+            "editor": "number",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 50
+        }
+    },
+    "required": [
+        "websites"
+    ]
+}

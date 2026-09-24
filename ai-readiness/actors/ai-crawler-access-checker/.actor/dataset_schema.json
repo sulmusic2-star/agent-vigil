@@ -1,0 +1,47 @@
+{
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Overview",
+            "transformation": {
+                "fields": [
+                    "url",
+                    "policySummary",
+                    "actualAccessSummary",
+                    "trainingCrawlersBlocked",
+                    "searchAndAssistantCrawlersBlocked",
+                    "blocksAllBots",
+                    "hasAiSpecificRules"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "url": {
+                        "label": "Website",
+                        "format": "link"
+                    },
+                    "policySummary": {
+                        "label": "AI policy"
+                    },
+                    "actualAccessSummary": {
+                        "label": "What AI crawlers actually get"
+                    },
+                    "trainingCrawlersBlocked": {
+                        "label": "Training crawlers blocked"
+                    },
+                    "searchAndAssistantCrawlersBlocked": {
+                        "label": "Search/assistant crawlers blocked"
+                    },
+                    "blocksAllBots": {
+                        "label": "Blocks all bots"
+                    },
+                    "hasAiSpecificRules": {
+                        "label": "Has AI-specific rules"
+                    }
+                }
+            }
+        }
+    }
+}

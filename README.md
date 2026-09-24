@@ -6,6 +6,15 @@
 
 **Agent Vigil is an independent merge check for AI-assisted pull requests.**
 
+**Focus update, September 2026:** the pull-request checks described below are in
+maintenance mode, with fixes only and no new features. Active development has
+moved to two separate tools in this repository:
+[ai-readiness](ai-readiness/README.md), a set of Apify Actors that check how
+websites look to AI crawlers, assistants and agents, and
+[vigil-probe](probe/README.md), which audits the graders behind AI coding
+training environments and benchmarks for tasks a model could pass without
+solving them.
+
 It runs the test and evidence policy from the base branch against the exact
 proposed commit. A missing run, stale result, changed policy, weaker test, or
 contradictory claim cannot appear as a pass.

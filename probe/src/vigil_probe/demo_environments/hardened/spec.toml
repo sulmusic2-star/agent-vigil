@@ -1,0 +1,25 @@
+id = "demo-hardened"
+name = "Hardened grader: resets tests, config, and plugin hooks"
+workspace = "./workspace"
+topology = "fresh_container"
+notes = "Restores every path a candidate could use to forge a result, and requires a positive passed count. A reference solution proves the grader still passes real work."
+
+# Restore the tests, any test config, and any plugin hook file from the trusted
+# snapshot before grading. Because the reset also removes files the task never
+# shipped, an injected conftest.py or pytest.ini is deleted at grade time.
+reset_paths = [
+  "tests/**",
+  "conftest.py",
+  "pytest.ini",
+  "pyproject.toml",
+  "setup.cfg",
+  "tox.ini",
+]
+
+reference_solution = "./reference.patch"
+
+[grader]
+command = "python -m pytest -rA -q"
+cwd = "."
+pass_criterion = "pytest_log"
+timeout_seconds = 120

@@ -1,0 +1,39 @@
+{
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Overview",
+            "transformation": {
+                "fields": [
+                    "url",
+                    "score",
+                    "productName",
+                    "productsFound",
+                    "missing"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "url": {
+                        "label": "Product page",
+                        "format": "link"
+                    },
+                    "score": {
+                        "label": "Score"
+                    },
+                    "productName": {
+                        "label": "Product"
+                    },
+                    "productsFound": {
+                        "label": "Products found"
+                    },
+                    "missing": {
+                        "label": "Missing fields"
+                    }
+                }
+            }
+        }
+    }
+}

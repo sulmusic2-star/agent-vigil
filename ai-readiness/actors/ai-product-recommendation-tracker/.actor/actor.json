@@ -1,0 +1,18 @@
+{
+    "actorSpecification": 1,
+    "name": "ai-product-recommendation-tracker",
+    "title": "AI Product Recommendation Tracker",
+    "description": "See which products and brands ChatGPT, Perplexity, Gemini and Claude recommend for any shopping question, how often your brand appears, at what position, and which websites the AI cites. Each engine is asked several times with live web search.",
+    "version": "0.1",
+    "dockerContextDir": "../../..",
+    "dockerfile": "../../../shared/Dockerfile",
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "readme": "./README.md",
+    "storages": {
+        "dataset": "./dataset_schema.json"
+    },
+    "defaultMemoryMbytes": 512,
+    "minMemoryMbytes": 256,
+    "maxMemoryMbytes": 1024
+}

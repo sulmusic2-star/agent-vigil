@@ -1,0 +1,47 @@
+{
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Overview",
+            "transformation": {
+                "fields": [
+                    "url",
+                    "present",
+                    "valid",
+                    "errors",
+                    "warnings",
+                    "linkCount",
+                    "llmsFullTxt"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "url": {
+                        "label": "Website",
+                        "format": "link"
+                    },
+                    "present": {
+                        "label": "Has llms.txt"
+                    },
+                    "valid": {
+                        "label": "Valid"
+                    },
+                    "errors": {
+                        "label": "Errors"
+                    },
+                    "warnings": {
+                        "label": "Warnings"
+                    },
+                    "linkCount": {
+                        "label": "Links"
+                    },
+                    "llmsFullTxt": {
+                        "label": "Has llms-full.txt"
+                    }
+                }
+            }
+        }
+    }
+}

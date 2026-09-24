@@ -1,0 +1,18 @@
+{
+    "actorSpecification": 1,
+    "name": "llms-txt-validator",
+    "title": "llms.txt Validator",
+    "description": "Check whether websites publish a valid llms.txt (llmstxt.org): title, summary, link sections, HTML fallbacks and llms-full.txt. Bulk and schedulable.",
+    "version": "0.1",
+    "dockerContextDir": "../../..",
+    "dockerfile": "../../../shared/Dockerfile",
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "readme": "./README.md",
+    "storages": {
+        "dataset": "./dataset_schema.json"
+    },
+    "defaultMemoryMbytes": 256,
+    "minMemoryMbytes": 256,
+    "maxMemoryMbytes": 1024
+}
