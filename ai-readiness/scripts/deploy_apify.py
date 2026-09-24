@@ -7,7 +7,9 @@ For every folder in ai-readiness/actors/ this script:
 
 1. creates the Actor in your Apify account, or updates it if it already exists, with
    its Git source, title, descriptions, SEO text, Store categories and default run
-   options (SEO text and categories come from store-assets/listing.json);
+   options (SEO text and categories come from store-assets/listing.json). Actors that
+   need API keys (listed under "secrets" in listing.json) get the keys found in this
+   environment as secret environment variables;
 2. builds it and waits for the build to finish;
 3. runs it once with the prefilled input from its input schema and checks that the
    run succeeds with a non-empty dataset. Apify Store runs the same test every day.
@@ -33,7 +35,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -112,6 +114,13 @@ class ActorSpec:
     listing: dict[str, Any]
     test_input: dict[str, Any]
 
+    @property
+    def secret_names(self) -> list[str]:
+        return list(self.listing.get("secrets", []))
+
+    def secrets_from(self, environ: Mapping[str, str]) -> dict[str, str]:
+        return {name: environ[name].strip() for name in self.secret_names if environ.get(name, "").strip()}
+
 
 @dataclass
 class Result:
@@ -140,8 +149,17 @@ def load_actors(only: list[str] | None = None) -> list[ActorSpec]:
     return specs
 
 
-def actor_payload(spec: ActorSpec, branch: str, categories: list[str] | None = None) -> dict[str, Any]:
+def actor_payload(spec: ActorSpec, branch: str, categories: list[str] | None = None,
+                  secrets: Mapping[str, str] | None = None) -> dict[str, Any]:
     definition = spec.definition
+    version: dict[str, Any] = {
+        "versionNumber": definition["version"],
+        "sourceType": "GIT_REPO",
+        "gitRepoUrl": f"{REPO_URL}#{branch}:ai-readiness/actors/{spec.name}",
+        "buildTag": "latest",
+    }
+    if secrets:
+        version["envVars"] = [{"name": name, "value": value, "isSecret": True} for name, value in secrets.items()]
     return {
         "name": spec.name,
         "title": definition["title"],
@@ -149,12 +167,7 @@ def actor_payload(spec: ActorSpec, branch: str, categories: list[str] | None = N
         "seoTitle": spec.listing["seoTitle"],
         "seoDescription": spec.listing["seoDescription"],
         "categories": list(spec.listing["categories"] if categories is None else categories),
-        "versions": [{
-            "versionNumber": definition["version"],
-            "sourceType": "GIT_REPO",
-            "gitRepoUrl": f"{REPO_URL}#{branch}:ai-readiness/actors/{spec.name}",
-            "buildTag": "latest",
-        }],
+        "versions": [version],
         "defaultRunOptions": {
             "build": "latest",
             "memoryMbytes": definition.get("defaultMemoryMbytes", 512),
@@ -163,7 +176,8 @@ def actor_payload(spec: ActorSpec, branch: str, categories: list[str] | None = N
     }
 
 
-def upsert(api: Apify, username: str, spec: ActorSpec, branch: str, notes: list[str]) -> tuple[dict, str]:
+def upsert(api: Apify, username: str, spec: ActorSpec, branch: str, notes: list[str],
+           secrets: Mapping[str, str] | None = None) -> tuple[dict, str]:
     try:
         existing = api.request("GET", f"/acts/{username}~{spec.name}")
     except ApifyError as exc:
@@ -171,7 +185,7 @@ def upsert(api: Apify, username: str, spec: ActorSpec, branch: str, notes: list[
             raise
         existing = None
     method, path = ("PUT", f"/acts/{existing['id']}") if existing else ("POST", "/acts")
-    payload = actor_payload(spec, branch)
+    payload = actor_payload(spec, branch, secrets=secrets)
     try:
         actor = api.request(method, path, payload)
     except ApifyError as exc:
@@ -180,7 +194,7 @@ def upsert(api: Apify, username: str, spec: ActorSpec, branch: str, notes: list[
         kept = [c for c in payload["categories"] if c in DOCUMENTED_CATEGORIES]
         notes.append(f"Apify did not accept categories {payload['categories']}, so it was saved with {kept}. "
                      "Pick the closest remaining category in Console.")
-        actor = api.request(method, path, actor_payload(spec, branch, kept))
+        actor = api.request(method, path, actor_payload(spec, branch, kept, secrets))
     return actor, ("updated" if existing else "created")
 
 
@@ -217,15 +231,23 @@ def _log_tail(api: Apify, job_id: str, lines: int = 25) -> str:
 
 
 def deploy(api: Apify, specs: list[ActorSpec], branch: str, run_tests: bool = True,
-           log: Callable[[str], None] = print) -> list[Result]:
+           log: Callable[[str], None] = print, environ: Mapping[str, str] | None = None) -> list[Result]:
+    environ = os.environ if environ is None else environ
     username = api.request("GET", "/users/me")["username"]
     log(f"Apify account: {username}")
     results = []
     for spec in specs:
         result = Result(spec.name)
         results.append(result)
+        secrets = spec.secrets_from(environ)
+        missing = [name for name in spec.secret_names if name not in secrets]
+        if spec.secret_names and missing:
+            result.notes.append(
+                ("No API keys found" if not secrets else "Missing API keys") + f" ({', '.join(missing)}). "
+                "Add them as environment variables in this environment's settings and rerun; "
+                "until then the Actor skips the AI assistants they belong to.")
         try:
-            actor, result.action = upsert(api, username, spec, branch, result.notes)
+            actor, result.action = upsert(api, username, spec, branch, result.notes, secrets)
             log(f"{spec.name}: {result.action}, building from branch {branch} ...")
             job = build(api, actor["id"], spec.definition["version"])
             result.build = job["status"]
@@ -275,7 +297,8 @@ def main(argv: list[str] | None = None) -> int:
     specs = load_actors(args.only)
     if args.dry_run:
         for spec in specs:
-            print(json.dumps(actor_payload(spec, args.branch), indent=2, ensure_ascii=False))
+            masked = {name: "(secret, from this environment)" for name in spec.secrets_from(os.environ)}
+            print(json.dumps(actor_payload(spec, args.branch, secrets=masked), indent=2, ensure_ascii=False))
             print("test input:", json.dumps(spec.test_input, ensure_ascii=False), "\n")
         return 0
     token = os.environ.get("APIFY_TOKEN", "").strip()

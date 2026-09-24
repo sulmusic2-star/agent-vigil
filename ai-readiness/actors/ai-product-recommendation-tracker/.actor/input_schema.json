@@ -1,0 +1,127 @@
+{
+    "title": "AI Product Recommendation Tracker input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "questions": {
+            "title": "Shopping questions",
+            "type": "array",
+            "description": "Questions shoppers ask AI assistants, one per line, for example 'best running shoes for flat feet'. Each question is one result.",
+            "editor": "stringList",
+            "prefill": [
+                "best running shoes for flat feet",
+                "best robot vacuum for pet hair"
+            ]
+        },
+        "brands": {
+            "title": "Brands or products to track",
+            "type": "array",
+            "description": "Optional. Names to look for in every answer (for example your brand and your competitors). For each one you get how many answers mention it and its best position in the AI's list.",
+            "editor": "stringList",
+            "prefill": [
+                "Brooks",
+                "ASICS",
+                "Roborock"
+            ]
+        },
+        "engines": {
+            "title": "AI assistants",
+            "type": "array",
+            "description": "Which assistants to ask. ChatGPT uses OpenAI's API with web search, Perplexity its Sonar API, Gemini the Gemini API with Google Search, Claude Anthropic's API with web search. Each answer is charged separately.",
+            "editor": "select",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "chatgpt",
+                    "perplexity",
+                    "gemini",
+                    "claude"
+                ],
+                "enumTitles": [
+                    "ChatGPT",
+                    "Perplexity",
+                    "Gemini",
+                    "Claude"
+                ]
+            },
+            "default": [
+                "chatgpt",
+                "perplexity",
+                "gemini"
+            ]
+        },
+        "samplesPerEngine": {
+            "title": "Answers per assistant",
+            "type": "integer",
+            "description": "AI answers vary from one ask to the next, so each assistant is asked this many times per question. A product's share is the fraction of answers that list it. Each answer is charged.",
+            "editor": "number",
+            "default": 2,
+            "minimum": 1,
+            "maximum": 5
+        },
+        "country": {
+            "title": "Country",
+            "type": "string",
+            "description": "Two-letter country code the question is asked from, for example US or GB. ChatGPT, Claude and Perplexity use it for web search; the Gemini API does not take a location.",
+            "editor": "textfield",
+            "default": "US"
+        },
+        "city": {
+            "title": "City",
+            "type": "string",
+            "description": "Optional. A city for local questions such as 'best bike shop near me'. Used by ChatGPT and Claude.",
+            "editor": "textfield"
+        },
+        "reuseRecentAnswers": {
+            "title": "Reuse answers from this week",
+            "type": "boolean",
+            "description": "When the same question was asked this week (ISO week, UTC), reuse those answers instead of asking again. Results are the same for everyone who asks that week. Turn off to force new answers; the price per answer is the same either way.",
+            "editor": "checkbox",
+            "default": true
+        },
+        "includeAnswerText": {
+            "title": "Include the answers' text",
+            "type": "boolean",
+            "description": "Add each AI answer (first 4,000 characters) and its sources to the result.",
+            "editor": "checkbox",
+            "default": true
+        },
+        "maxConcurrency": {
+            "title": "Questions in parallel",
+            "type": "integer",
+            "description": "How many questions to work on at the same time.",
+            "editor": "number",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 20,
+            "sectionCaption": "Advanced"
+        },
+        "chatgptModel": {
+            "title": "OpenAI model",
+            "type": "string",
+            "description": "OpenAI model that answers with web search. Leave empty for the default (gpt-5-mini).",
+            "editor": "textfield"
+        },
+        "perplexityModel": {
+            "title": "Perplexity model",
+            "type": "string",
+            "description": "Leave empty for the default (sonar).",
+            "editor": "textfield"
+        },
+        "geminiModel": {
+            "title": "Gemini model",
+            "type": "string",
+            "description": "Leave empty for the default (gemini-2.5-flash).",
+            "editor": "textfield"
+        },
+        "claudeModel": {
+            "title": "Claude model",
+            "type": "string",
+            "description": "Leave empty for the default (claude-opus-5).",
+            "editor": "textfield"
+        }
+    },
+    "required": [
+        "questions"
+    ]
+}

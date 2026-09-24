@@ -1,21 +1,29 @@
 # Go live on Apify Store
 
-The five Actors are built, tested and documented, with Store pages, icons and prices ready. What's left needs you, because it involves your identity, your money or publishing under your name. Plan on about 30 minutes.
+The six Actors are built, tested and documented, with Store pages, icons and prices ready. What's left needs you, because it involves your identity, your money or publishing under your name. Plan on about 30 minutes.
 
 ## Your checklist
 
 1. **Create a free Apify account** at <https://console.apify.com/sign-up>. Your username appears in every Store link (`apify.com/<username>/ai-agent-readiness-audit`), so pick a short, brand-like name.
-2. **Let Claude set up the five Actors.**
+2. **Let Claude set up the six Actors.**
    1. In Apify Console, open **Settings** > **API & Integrations** and copy your API token. It has to be a full-access token, because Apify doesn't let limited tokens create Actors. You can delete it once setup is done.
    2. In this Claude environment's settings (the cloud environment menu in the session's title bar, then **Edit**), add `api.apify.com` to the allowed network domains, and add an environment variable named `APIFY_TOKEN` that holds the token. Don't paste the token into a chat.
-   3. Start a new Claude session on this repository and send: *Check out the branch `claude/amazing-babbage-ktqwpx`, then set up the ai-readiness Actors on Apify by running `python3 ai-readiness/scripts/deploy_apify.py --branch claude/amazing-babbage-ktqwpx`, and fix anything that fails.*
+   3. For the AI Product Recommendation Tracker, add its AI keys as environment variables in the same place. The setup script copies them into the Actor as secrets, and the Actor pays for AI answers with them:
+      - `OPENAI_API_KEY` from <https://platform.openai.com/api-keys> (add about $10 of credit)
+      - `PERPLEXITY_API_KEY` from <https://www.perplexity.ai/account/api> (add about $10 of credit)
+      - `GEMINI_API_KEY` from <https://aistudio.google.com/apikey> (has a free daily allowance)
+      - optional: `ANTHROPIC_API_KEY` from <https://console.anthropic.com/settings/keys>, to offer Claude answers too
 
-   Claude then creates the five Actors in your account, builds each one and runs it once with its example input. To do this step yourself instead, see [Set up the Actors by hand](#set-up-the-actors-by-hand).
+      An assistant without a key is skipped, so you can start with one or two.
+   4. Start a new Claude session on this repository and send: *Check out the branch `claude/amazing-babbage-ktqwpx`, then set up the ai-readiness Actors on Apify by running `python3 ai-readiness/scripts/deploy_apify.py --branch claude/amazing-babbage-ktqwpx`, and fix anything that fails.*
+
+   Claude then creates the six Actors in your account, builds each one and runs it once with its example input. To do this step yourself instead, see [Set up the Actors by hand](#set-up-the-actors-by-hand).
 3. **Set up payouts (once).** In any Actor's **Publishing** tab, under **Monetization**, enter your billing details and a payout method. PayPal or Wise pays out from $20; other methods from $100. Then verify your identity under **Development** > **Insights** > **Payouts**. Apify pays monthly: invoices are created on the 11th for the previous month.
 4. **Price each Actor.** In **Publishing** > **Monetization**, select **Set up monetization**, choose pay per event, and then:
    - Keep `apify-actor-start` at Apify's default price.
    - Set `apify-default-dataset-item` to the price in the table, with the event title from the table. It charges once per result. Sites that don't respond and invalid inputs aren't saved, so they aren't charged.
    - Choose `apify-default-dataset-item` as the primary event, then confirm.
+   - For the AI Product Recommendation Tracker, also add one event per AI answer, with these names, titles and prices: `chatgpt-answer` (ChatGPT answer) $0.05, `perplexity-answer` (Perplexity answer) $0.03, `gemini-answer` (Gemini answer) $0.05 and `claude-answer` (Claude answer) $0.35. The event names must match exactly, because the Actor charges them by name.
 5. **Publish each Actor.** In **Publishing**:
    - **Display information:** upload the icon from `ai-readiness/store-assets/icons/` (PNG). Check the categories and SEO text, which the setup script fills in from [Store listing text](#store-listing-text); if Apify rejected a suggested category, pick the closest one it offers.
    - **Sample output:** use the test run from step 2.
@@ -26,7 +34,7 @@ After that the Actors run without you. Apify tests each one daily with its prefi
 
 ## Set up the Actors by hand
 
-Instead of step 2, for each row in [the Actor table](#the-five-actors):
+Instead of step 2, for each row in [the Actor table](#the-six-actors):
 
 1. Go to **Development** > **My Actors** and create a new Actor.
 2. On its **Source** tab, set **Source type** to **Git repository** and paste the Git URL from the table. The repository is public, so no deploy key is needed.
@@ -34,7 +42,7 @@ Instead of step 2, for each row in [the Actor table](#the-five-actors):
 4. Select **Start** with the prefilled input. When the run finishes, the **Output** tab should show results. If it shows none, stop here and tell Claude.
 5. In **Publishing** > **Display information**, paste the SEO title and description and pick the categories from [Store listing text](#store-listing-text).
 
-## The five Actors
+## The six Actors
 
 Git URL prefix for every Actor: `https://github.com/sulmusic2-star/agent-vigil#claude/amazing-babbage-ktqwpx:ai-readiness/actors/`
 
@@ -47,8 +55,13 @@ The Actors build from the `claude/amazing-babbage-ktqwpx` branch because the pul
 | AI Crawler Access Checker | `ai-crawler-access-checker` | $0.004 | $4 | Website checked |
 | llms.txt Validator | `llms-txt-validator` | $0.003 | $3 | Website checked |
 | Product Schema Checker for AI Shopping | `product-schema-checker` | $0.003 | $3 | Product page checked |
+| AI Product Recommendation Tracker | `ai-product-recommendation-tracker` | $0.01 | $10 | Question tracked |
+
+The AI Product Recommendation Tracker also charges per AI answer (step 4). A question with the default settings uses 6 answers, 2 each from ChatGPT, Perplexity and Gemini, so a user pays about $0.27 per question.
 
 **Why these prices.** Apify's platform costs for one result are well under a cent: a few seconds of a 512 MB container at $0.20 per GB-hour, plus 1–10 MB of traffic at $0.20 per GB. You keep 80% of what users pay, minus those costs. The two cheap checkers are for people who check thousands of sites. The audit and the generator give one finished report or file per site, so they cost more.
+
+For the tracker, each new AI answer costs about 1–3 cents in API fees (a Claude answer with web search costs more, about 15–30 cents). At the prices above you keep about half of a new answer's price. An answer reused later the same week costs nothing, so you keep all 80% of its price.
 
 **Changing prices later.** Lowering a price takes effect at once. Raising one takes effect after 14 days if the Actor has paying users, and you can make one such change per Actor per month.
 
@@ -61,6 +74,7 @@ The Actors build from the `claude/amazing-babbage-ktqwpx` branch because the pul
 | AI Crawler Access Checker | SEO tools, AI | AI Crawler Checker: robots.txt vs Firewall Blocks | See which AI crawlers each site allows in robots.txt and which its firewall or CDN actually blocks: GPTBot, ClaudeBot, PerplexityBot and more. |
 | llms.txt Validator | SEO tools, Developer tools | llms.txt Validator: Check llms.txt Files in Bulk | Check whether websites publish a valid llms.txt per llmstxt.org: structure, links, summary, size and llms-full.txt. One site or thousands. |
 | Product Schema Checker for AI Shopping | E-commerce, SEO tools | Product Schema Checker for AI Shopping Agents | Score product pages on the schema.org Product data AI shopping assistants use: price, availability, GTIN, brand, reviews, shipping and returns. |
+| AI Product Recommendation Tracker | AI, E-commerce | AI Product Recommendations: ChatGPT, Perplexity, Gemini | See which products ChatGPT, Perplexity, Gemini and Claude recommend for any shopping question, your brand's share and position, and the sites they cite. |
 
 The title, short description and full Store page of each Actor come from its `.actor/actor.json` and `.actor/README.md`, so they are already filled in.
 

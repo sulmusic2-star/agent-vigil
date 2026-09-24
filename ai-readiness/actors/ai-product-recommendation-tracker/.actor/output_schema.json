@@ -1,0 +1,24 @@
+{
+    "actorOutputSchemaVersion": 1,
+    "title": "AI product recommendation output",
+    "properties": {
+        "results": {
+            "type": "string",
+            "title": "Results",
+            "description": "One item per question: what each AI assistant recommends, your brands' share and position, and the sites the AI cites.",
+            "template": "{{links.apiDefaultDatasetUrl}}/items?view=overview"
+        },
+        "recommendations": {
+            "type": "string",
+            "title": "Recommendations",
+            "description": "One row per recommended product or brand per question, with its share of answers and positions.",
+            "template": "{{links.apiDefaultDatasetUrl}}/items?view=recommendations"
+        },
+        "runSummary": {
+            "type": "string",
+            "title": "Run summary",
+            "description": "Counts, answers charged per assistant, assistants not set up, and questions that could not be answered (not charged).",
+            "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT"
+        }
+    }
+}

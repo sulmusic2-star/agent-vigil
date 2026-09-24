@@ -48,5 +48,39 @@
         "seoDescription": "Score product pages on the schema.org Product data AI shopping assistants use: price, availability, GTIN, brand, reviews, shipping and returns.",
         "pricePerResultUsd": 0.003,
         "eventTitle": "Product page checked"
+    },
+    "ai-product-recommendation-tracker": {
+        "categories": [
+            "AI",
+            "ECOMMERCE"
+        ],
+        "seoTitle": "AI Product Recommendations: ChatGPT, Perplexity, Gemini",
+        "seoDescription": "See which products ChatGPT, Perplexity, Gemini and Claude recommend for any shopping question, your brand's share and position, and the sites they cite.",
+        "pricePerResultUsd": 0.01,
+        "eventTitle": "Question tracked",
+        "answerEvents": {
+            "chatgpt-answer": {
+                "title": "ChatGPT answer",
+                "priceUsd": 0.05
+            },
+            "perplexity-answer": {
+                "title": "Perplexity answer",
+                "priceUsd": 0.03
+            },
+            "gemini-answer": {
+                "title": "Gemini answer",
+                "priceUsd": 0.05
+            },
+            "claude-answer": {
+                "title": "Claude answer",
+                "priceUsd": 0.35
+            }
+        },
+        "secrets": [
+            "OPENAI_API_KEY",
+            "PERPLEXITY_API_KEY",
+            "GEMINI_API_KEY",
+            "ANTHROPIC_API_KEY"
+        ]
     }
 }

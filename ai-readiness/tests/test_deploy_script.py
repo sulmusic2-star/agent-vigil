@@ -186,3 +186,27 @@ def test_listing_covers_every_actor_and_matches_go_live():
         assert entry["seoTitle"] in go_live and entry["seoDescription"] in go_live, name
         assert f"${entry['pricePerResultUsd']:g} |" in go_live, name
         assert (ROOT / "store-assets" / "icons" / f"{name}.png").is_file(), name
+
+
+def test_api_keys_become_secret_env_vars_and_missing_ones_are_reported(api_server, monkeypatch, capsys):
+    fake = api_server()
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-live-1")
+    monkeypatch.setenv("GEMINI_API_KEY", "g-live-2")
+    for name in ("PERPLEXITY_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    assert deploy_apify.main(["--only", "ai-product-recommendation-tracker", "--only", "llms-txt-validator",
+                              "--skip-test"]) == 0
+    bodies = {c[3]["name"]: c[3] for c in fake.calls_to("POST", "/acts")}
+    assert bodies["ai-product-recommendation-tracker"]["versions"][0]["envVars"] == [
+        {"name": "OPENAI_API_KEY", "value": "sk-live-1", "isSecret": True},
+        {"name": "GEMINI_API_KEY", "value": "g-live-2", "isSecret": True}]
+    assert "envVars" not in bodies["llms-txt-validator"]["versions"][0]  # needs no keys
+    out = capsys.readouterr().out
+    assert "Missing API keys (PERPLEXITY_API_KEY, ANTHROPIC_API_KEY)" in out and "sk-live-1" not in out
+
+
+def test_dry_run_never_prints_api_keys(monkeypatch, capsys):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-live-1")
+    assert deploy_apify.main(["--dry-run", "--only", "ai-product-recommendation-tracker"]) == 0
+    out = capsys.readouterr().out
+    assert "sk-live-1" not in out and "(secret, from this environment)" in out

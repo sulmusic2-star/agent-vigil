@@ -109,3 +109,25 @@ def test_product_actor_and_unreachable_site_not_charged(site_url, tmp_path):
 def test_monitoring_reports_changes_between_runs(site_url, tmp_path):
     first, _, log = run_actor("llms-txt-validator", {"websites": [site_url], "monitorChanges": True}, tmp_path / "a")
     assert first and first[0]["firstCheck"] is True and first[0]["changes"] == [], log
+
+
+def test_recommendation_tracker_with_canned_answers(tmp_path, monkeypatch):
+    answers = {
+        "chatgpt": [{"text": "1. **Brooks Ghost 16** – soft\n2. **Hoka Clifton 9** – light",
+                     "sources": [{"url": "https://www.runnersworld.com/a", "title": "RW"}]}],
+        "perplexity": ["- **Best overall:** Brooks Ghost 16 - great[1]\n- **Budget pick:** Saucony Ride 17"],
+        "gemini": ["### 1. Hoka Clifton 9\nok\n### 2. Brooks Ghost 16\nok"],
+    }
+    fake = tmp_path / "answers.json"
+    fake.write_text(json.dumps(answers))
+    monkeypatch.setenv("AIRECS_FAKE_ANSWERS", str(fake))
+    items, output, log = run_actor("ai-product-recommendation-tracker", {
+        "questions": ["best running shoes for beginners", "best cushioned running shoes", "  "],
+        "brands": ["Brooks", "Nike"],
+    }, tmp_path)
+    assert len(items) == 2, log
+    item = next(i for i in items if i["question"] == "best running shoes for beginners")
+    assert item["answers"]["total"] == 6 and item["topRecommendation"] == "Brooks Ghost 16"
+    assert {b["brand"]: b["mentionedIn"] for b in item["brands"]} == {"Brooks": 6, "Nike": 0}
+    assert output["saved"] == 2 and output["couldNotCheck"] == []
+    assert set(output["answersCharged"]) == {"chatgpt", "perplexity", "gemini"}

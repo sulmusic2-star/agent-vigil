@@ -20,6 +20,7 @@ USER myuser
 
 COPY --chown=myuser:myuser readiness ./readiness
 COPY --chown=myuser:myuser actorkit ./actorkit
+COPY --chown=myuser:myuser airecs ./airecs
 COPY --chown=myuser:myuser ${ACTOR_PATH_IN_DOCKER_CONTEXT} ./${ACTOR_PATH_IN_DOCKER_CONTEXT}
 
 ENV ACTOR_PATH_IN_DOCKER_CONTEXT=${ACTOR_PATH_IN_DOCKER_CONTEXT}

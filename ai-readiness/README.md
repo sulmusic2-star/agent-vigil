@@ -1,6 +1,6 @@
 # AI Readiness Actors
 
-Five [Apify](https://apify.com) Actors that check how websites look to AI crawlers, AI assistants and AI agents. They share one engine (`readiness/`) and one runtime (`actorkit/`), and they are sold on Apify Store with pay-per-result pricing.
+Six [Apify](https://apify.com) Actors about how AI crawlers, assistants and agents see the web: five check websites, and one measures which products AI assistants recommend. They share one runtime (`actorkit/`) and are sold on Apify Store with pay-per-event pricing.
 
 | Actor | What one result is | Folder |
 |---|---|---|
@@ -9,6 +9,7 @@ Five [Apify](https://apify.com) Actors that check how websites look to AI crawle
 | llms.txt Validator | Whether one website's `/llms.txt` exists and follows llmstxt.org | `actors/llms-txt-validator` |
 | llms.txt Generator | A ready-to-publish llms.txt for one website | `actors/llms-txt-generator` |
 | Product Schema Checker for AI Shopping | Product JSON-LD completeness for one product page | `actors/product-schema-checker` |
+| AI Product Recommendation Tracker | What ChatGPT, Perplexity, Gemini and Claude recommend for one shopping question, sampled several times | `actors/ai-product-recommendation-tracker` |
 
 Each Actor's `.actor/README.md` is its Store page. [GO_LIVE.md](GO_LIVE.md) lists the steps to publish and price them.
 
@@ -17,6 +18,8 @@ Each Actor's `.actor/README.md` is its Store page. [GO_LIVE.md](GO_LIVE.md) list
 ```
 readiness/   engine: fetching, robots.txt (RFC 9309), llms.txt, sitemaps, JSON-LD,
              WebMCP, discovery files, scoring; no Apify dependency
+airecs/      AI recommendation tracking: asks ChatGPT, Perplexity, Gemini and Claude
+             with web search, extracts the recommended names, caches answers per week
 actorkit/    Apify runtime: input parsing, concurrency, fair billing, change monitoring
 actors/*/    one folder per Actor: .actor/ (actor.json, schemas, README) and main.py
 shared/      the Dockerfile and requirements.txt every Actor builds from
@@ -27,7 +30,7 @@ store-assets/  Store icons (SVG sources and 512×512 PNGs) and listing text
 
 ## How the Actors behave
 
-- **Fair billing.** Each Actor charges through Apify's built-in `apify-default-dataset-item` event, one charge per dataset item. Sites that don't respond, invalid entries, pages that return an error and timeouts are not saved, so they are not charged. They are listed in the run's `OUTPUT` record instead. A run stops starting new sites when the user's spending limit is reached.
+- **Fair billing.** Each Actor charges through Apify's built-in `apify-default-dataset-item` event, one charge per dataset item. The recommendation tracker also charges one event per AI answer (`chatgpt-answer`, `perplexity-answer`, `gemini-answer`, `claude-answer`), new or reused from earlier that week. Sites that don't respond, invalid entries, pages that return an error and timeouts are not saved, so they are not charged. They are listed in the run's `OUTPUT` record instead. A run stops starting new sites when the user's spending limit is reached.
 - **Polite.** Files published for automated readers (robots.txt, llms.txt, sitemaps, `/.well-known`) are read directly. HTML pages and scripts are fetched only when robots.txt allows the `AIReadinessAudit` token. Every request has a time and size limit.
 - **Declared versus actual access.** The homepage is fetched as a browser and as each AI crawler that robots.txt allows (`readiness/bot_access.py`), to catch firewalls and CDNs that block crawlers robots.txt lets in, pages that need JavaScript to show any text, and Markdown versions for agents. Crawlers robots.txt disallows are never imitated.
 - **Redirects.** When a homepage redirects (for example `example.com` to `www.example.com`), the audit and the generator check the site it lands on and report it as `finalUrl`.
@@ -76,7 +79,7 @@ docker build -f shared/Dockerfile \
 
 ## Deploy on Apify
 
-`python3 scripts/deploy_apify.py` sets up all five Actors in an Apify account, with `APIFY_TOKEN` set: it creates or updates each one from its Git folder, fills in its SEO text and categories from `store-assets/listing.json`, builds it and test-runs it. Use `--dry-run` to see what it would send. Prices and publishing stay in Apify Console; see [GO_LIVE.md](GO_LIVE.md).
+`python3 scripts/deploy_apify.py` sets up all six Actors in an Apify account, with `APIFY_TOKEN` set: it creates or updates each one from its Git folder, fills in its SEO text and categories from `store-assets/listing.json`, passes the AI API keys it finds in the environment to the tracker as secrets, builds each Actor and test-runs it. Use `--dry-run` to see what it would send. Prices and publishing stay in Apify Console; see [GO_LIVE.md](GO_LIVE.md).
 
 Each Actor is built from this repository, with the Actor's folder as the Git source. For example:
 
@@ -86,7 +89,7 @@ https://github.com/sulmusic2-star/agent-vigil#claude/amazing-babbage-ktqwpx:ai-r
 
 The Actors build from the `claude/amazing-babbage-ktqwpx` branch for now. The pull request into `main` ([#246](https://github.com/sulmusic2-star/agent-vigil/pull/246)) is blocked by the repository's Agent Vigil gate, which only an admin can override. Once it is merged, run the setup script with `--branch main`.
 
-`actor.json` sets `dockerContextDir` to this folder and `dockerfile` to `shared/Dockerfile`. Apify passes the Actor's folder to the build as `ACTOR_PATH_IN_DOCKER_CONTEXT`, so all five Actors share one Dockerfile. See [Apify: Actor monorepos](https://docs.apify.com/platform/actors/development/deployment/source-types#actor-monorepos).
+`actor.json` sets `dockerContextDir` to this folder and `dockerfile` to `shared/Dockerfile`. Apify passes the Actor's folder to the build as `ACTOR_PATH_IN_DOCKER_CONTEXT`, so all six Actors share one Dockerfile. See [Apify: Actor monorepos](https://docs.apify.com/platform/actors/development/deployment/source-types#actor-monorepos).
 
 ## Keep the lists current
 
