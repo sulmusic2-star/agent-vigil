@@ -1,0 +1,18 @@
+{
+    "actorOutputSchemaVersion": 1,
+    "title": "AI crawler access output",
+    "properties": {
+        "results": {
+            "type": "string",
+            "title": "AI crawler access",
+            "description": "One item per website: AI policy summary and a row for every AI crawler.",
+            "template": "{{links.apiDefaultDatasetUrl}}/items?view=overview"
+        },
+        "runSummary": {
+            "type": "string",
+            "title": "Run summary",
+            "description": "Counts, plus the inputs that could not be checked and were not charged, with the reason for each.",
+            "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT"
+        }
+    }
+}

@@ -1,0 +1,57 @@
+{
+    "title": "AI Crawler Access Checker input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "websites": {
+            "title": "Websites",
+            "type": "array",
+            "description": "Domains or URLs to check, one per line (for example example.com). Each site is checked once, at its homepage.",
+            "editor": "stringList",
+            "prefill": [
+                "nytimes.com",
+                "wikipedia.org",
+                "github.com"
+            ]
+        },
+        "checkPageDirectives": {
+            "title": "Also read page-level AI tags",
+            "type": "boolean",
+            "editor": "checkbox",
+            "default": true,
+            "description": "Read noai, noindex and nosnippet from the homepage's meta robots tags and X-Robots-Tag header (one extra request per site)."
+        },
+        "extraAiAgents": {
+            "title": "Extra user-agent tokens",
+            "type": "array",
+            "editor": "stringList",
+            "description": "Optional. Crawler tokens to check in addition to the built-in list of AI crawlers (for example a new AI bot)."
+        },
+        "respectRobotsTxt": {
+            "title": "Respect robots.txt for page fetches",
+            "type": "boolean",
+            "editor": "checkbox",
+            "default": true,
+            "description": "Fetch HTML pages only when robots.txt allows this tool (token AIReadinessAudit, falling back to *). Files published for automated readers, such as robots.txt, llms.txt, sitemaps and /.well-known files, are always read."
+        },
+        "monitorChanges": {
+            "title": "Report changes since the last run",
+            "type": "boolean",
+            "editor": "checkbox",
+            "default": false,
+            "description": "Remember each site's result in your Apify account and add a 'changes' list on later runs. Use with a schedule to monitor sites weekly."
+        },
+        "maxConcurrency": {
+            "title": "Sites checked in parallel",
+            "type": "integer",
+            "description": "How many sites to check at the same time.",
+            "editor": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50
+        }
+    },
+    "required": [
+        "websites"
+    ]
+}

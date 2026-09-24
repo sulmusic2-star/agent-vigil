@@ -1,0 +1,24 @@
+{
+    "actorOutputSchemaVersion": 1,
+    "title": "Generated llms.txt output",
+    "properties": {
+        "results": {
+            "type": "string",
+            "title": "Generated llms.txt",
+            "description": "One item per website with the full llms.txt text.",
+            "template": "{{links.apiDefaultDatasetUrl}}/items?view=overview"
+        },
+        "llmsFiles": {
+            "type": "string",
+            "title": "llms.txt files",
+            "description": "One ready-to-publish llms.txt file per website, named llms-<domain>.txt.",
+            "template": "{{links.apiDefaultKeyValueStoreUrl}}/keys?collection=llmsFiles"
+        },
+        "runSummary": {
+            "type": "string",
+            "title": "Run summary",
+            "description": "Counts, plus the inputs that could not be checked and were not charged, with the reason for each.",
+            "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT"
+        }
+    }
+}

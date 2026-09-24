@@ -1,0 +1,19 @@
+{
+    "actorSpecification": 1,
+    "name": "llms-txt-generator",
+    "title": "llms.txt Generator",
+    "description": "Generate a ready-to-publish llms.txt for any website from its homepage links, sitemap and page titles. Validated against the llmstxt.org format and saved as a downloadable file.",
+    "version": "0.1",
+    "dockerContextDir": "../../..",
+    "dockerfile": "../../../shared/Dockerfile",
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "readme": "./README.md",
+    "storages": {
+        "dataset": "./dataset_schema.json",
+        "keyValueStore": "./key_value_store_schema.json"
+    },
+    "defaultMemoryMbytes": 512,
+    "minMemoryMbytes": 256,
+    "maxMemoryMbytes": 1024
+}

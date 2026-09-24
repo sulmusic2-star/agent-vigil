@@ -1,0 +1,4 @@
+# Local Apify runs and virtual environments
+storage/
+.venv/
+.pytest_cache/

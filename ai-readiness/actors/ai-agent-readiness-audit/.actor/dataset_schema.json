@@ -1,0 +1,43 @@
+{
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Overview",
+            "transformation": {
+                "fields": [
+                    "url",
+                    "score",
+                    "grade",
+                    "summary",
+                    "topFix",
+                    "partialScore"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "url": {
+                        "label": "Website",
+                        "format": "link"
+                    },
+                    "score": {
+                        "label": "Score"
+                    },
+                    "grade": {
+                        "label": "Grade"
+                    },
+                    "summary": {
+                        "label": "Summary"
+                    },
+                    "topFix": {
+                        "label": "Top fix"
+                    },
+                    "partialScore": {
+                        "label": "Partial score"
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,18 @@
+{
+    "actorSpecification": 1,
+    "name": "ai-agent-readiness-audit",
+    "title": "AI Agent Readiness Audit",
+    "description": "Score how ready a website is for AI search and AI agents (0-100) with a ranked fix list: AI crawler access, llms.txt, WebMCP tools, structured data, sitemaps and agent discovery files.",
+    "version": "0.1",
+    "dockerContextDir": "../../..",
+    "dockerfile": "../../../shared/Dockerfile",
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "readme": "./README.md",
+    "storages": {
+        "dataset": "./dataset_schema.json"
+    },
+    "defaultMemoryMbytes": 512,
+    "minMemoryMbytes": 256,
+    "maxMemoryMbytes": 1024
+}

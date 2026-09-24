@@ -1,0 +1,11 @@
+{
+    "actorKeyValueStoreSchemaVersion": 1,
+    "title": "llms.txt Generator files",
+    "collections": {
+        "llmsFiles": {
+            "title": "llms.txt files",
+            "description": "Generated llms.txt, one file per website.",
+            "keyPrefix": "llms-"
+        }
+    }
+}

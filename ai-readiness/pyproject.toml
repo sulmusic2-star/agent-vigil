@@ -1,0 +1,4 @@
+# Development settings for the ai-readiness actors. The actors themselves are
+# built on Apify from shared/Dockerfile and shared/requirements.txt.
+[tool.pytest.ini_options]
+testpaths = ["tests"]

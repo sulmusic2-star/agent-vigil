@@ -1,0 +1,18 @@
+{
+    "actorOutputSchemaVersion": 1,
+    "title": "llms.txt checks output",
+    "properties": {
+        "results": {
+            "type": "string",
+            "title": "llms.txt checks",
+            "description": "One item per website: whether llms.txt exists, whether it is valid, and its issues.",
+            "template": "{{links.apiDefaultDatasetUrl}}/items?view=overview"
+        },
+        "runSummary": {
+            "type": "string",
+            "title": "Run summary",
+            "description": "Counts, plus the inputs that could not be checked and were not charged, with the reason for each.",
+            "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT"
+        }
+    }
+}

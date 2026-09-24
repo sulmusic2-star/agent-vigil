@@ -1,0 +1,39 @@
+{
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Overview",
+            "transformation": {
+                "fields": [
+                    "url",
+                    "pagesIncluded",
+                    "draftValid",
+                    "existingLlmsTxt",
+                    "llmsTxtFileKey"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "url": {
+                        "label": "Website",
+                        "format": "link"
+                    },
+                    "pagesIncluded": {
+                        "label": "Pages included"
+                    },
+                    "draftValid": {
+                        "label": "Draft valid"
+                    },
+                    "existingLlmsTxt": {
+                        "label": "Site already has llms.txt"
+                    },
+                    "llmsTxtFileKey": {
+                        "label": "File in key-value store"
+                    }
+                }
+            }
+        }
+    }
+}

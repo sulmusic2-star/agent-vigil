@@ -1,0 +1,18 @@
+{
+    "actorOutputSchemaVersion": 1,
+    "title": "Readiness scores output",
+    "properties": {
+        "results": {
+            "type": "string",
+            "title": "Readiness scores",
+            "description": "One item per website: score, grade, ranked fixes and details for each area.",
+            "template": "{{links.apiDefaultDatasetUrl}}/items?view=overview"
+        },
+        "runSummary": {
+            "type": "string",
+            "title": "Run summary",
+            "description": "Counts, plus the inputs that could not be checked and were not charged, with the reason for each.",
+            "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT"
+        }
+    }
+}

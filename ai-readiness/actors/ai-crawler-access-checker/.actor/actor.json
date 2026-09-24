@@ -1,0 +1,18 @@
+{
+    "actorSpecification": 1,
+    "name": "ai-crawler-access-checker",
+    "title": "AI Crawler Access Checker",
+    "description": "Bulk-check which AI crawlers each website allows or blocks: GPTBot, ClaudeBot, Google-Extended, PerplexityBot, CCBot and more. Reads robots.txt, Content Signals, TDMRep and noai tags.",
+    "version": "0.1",
+    "dockerContextDir": "../../..",
+    "dockerfile": "../../../shared/Dockerfile",
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "readme": "./README.md",
+    "storages": {
+        "dataset": "./dataset_schema.json"
+    },
+    "defaultMemoryMbytes": 256,
+    "minMemoryMbytes": 256,
+    "maxMemoryMbytes": 1024
+}
