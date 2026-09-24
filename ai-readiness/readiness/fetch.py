@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 from urllib.parse import urlsplit, urlunsplit
 
-USER_AGENT = "AIReadinessAudit/0.1 (+https://github.com/sulmusic2-star/agent-vigil/tree/main/ai-readiness)"
+USER_AGENT = "AIReadinessAudit/0.1 (+https://github.com/sulmusic2-star/agent-vigil/tree/claude/amazing-babbage-ktqwpx/ai-readiness)"
 ROBOTS_TOKEN = "AIReadinessAudit"
 
 DEFAULT_TIMEOUT = 15.0

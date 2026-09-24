@@ -8,7 +8,7 @@ The five Actors are built, tested and documented, with Store pages, icons and pr
 2. **Let Claude set up the five Actors.**
    1. In Apify Console, open **Settings** > **API & Integrations** and copy your API token. It has to be a full-access token, because Apify doesn't let limited tokens create Actors. You can delete it once setup is done.
    2. In this Claude environment's settings (the cloud environment menu in the session's title bar, then **Edit**), add `api.apify.com` to the allowed network domains, and add an environment variable named `APIFY_TOKEN` that holds the token. Don't paste the token into a chat.
-   3. Start a new Claude session on this repository and send: *Set up the ai-readiness Actors on Apify by running `python3 ai-readiness/scripts/deploy_apify.py`, and fix anything that fails.*
+   3. Start a new Claude session on this repository and send: *Check out the branch `claude/amazing-babbage-ktqwpx`, then set up the ai-readiness Actors on Apify by running `python3 ai-readiness/scripts/deploy_apify.py --branch claude/amazing-babbage-ktqwpx`, and fix anything that fails.*
 
    Claude then creates the five Actors in your account, builds each one and runs it once with its example input. To do this step yourself instead, see [Set up the Actors by hand](#set-up-the-actors-by-hand).
 3. **Set up payouts (once).** In any Actor's **Publishing** tab, under **Monetization**, enter your billing details and a payout method. PayPal or Wise pays out from $20; other methods from $100. Then verify your identity under **Development** > **Insights** > **Payouts**. Apify pays monthly: invoices are created on the 11th for the previous month.
@@ -36,7 +36,9 @@ Instead of step 2, for each row in [the Actor table](#the-five-actors):
 
 ## The five Actors
 
-Git URL prefix for every Actor: `https://github.com/sulmusic2-star/agent-vigil#main:ai-readiness/actors/`
+Git URL prefix for every Actor: `https://github.com/sulmusic2-star/agent-vigil#claude/amazing-babbage-ktqwpx:ai-readiness/actors/`
+
+The Actors build from the `claude/amazing-babbage-ktqwpx` branch because the pull request into `main` ([#246](https://github.com/sulmusic2-star/agent-vigil/pull/246)) is blocked by the repository's Agent Vigil gate. If you merge it from the GitHub website, change `#claude/amazing-babbage-ktqwpx:` to `#main:`, or rerun the setup script with `--branch main`.
 
 | Actor | Git URL ends with | Price per result | Per 1,000 | Event title |
 |---|---|---|---|---|

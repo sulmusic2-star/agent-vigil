@@ -34,7 +34,7 @@ store-assets/  Store icons (SVG sources and 512×512 PNGs) and listing text
 
 ## For site owners
 
-These Actors identify themselves with the user agent `AIReadinessAudit/0.1 (+https://github.com/sulmusic2-star/agent-vigil/tree/main/ai-readiness)`. They fetch HTML pages and same-site scripts only when robots.txt allows the `AIReadinessAudit` token. To keep them off your pages, add this to robots.txt:
+These Actors identify themselves with the user agent `AIReadinessAudit/0.1 (+https://github.com/sulmusic2-star/agent-vigil/tree/claude/amazing-babbage-ktqwpx/ai-readiness)`. They fetch HTML pages and same-site scripts only when robots.txt allows the `AIReadinessAudit` token. To keep them off your pages, add this to robots.txt:
 
 ```
 User-agent: AIReadinessAudit
@@ -80,8 +80,10 @@ docker build -f shared/Dockerfile \
 Each Actor is built from this repository, with the Actor's folder as the Git source. For example:
 
 ```
-https://github.com/sulmusic2-star/agent-vigil#main:ai-readiness/actors/ai-agent-readiness-audit
+https://github.com/sulmusic2-star/agent-vigil#claude/amazing-babbage-ktqwpx:ai-readiness/actors/ai-agent-readiness-audit
 ```
+
+The Actors build from the `claude/amazing-babbage-ktqwpx` branch for now. The pull request into `main` ([#246](https://github.com/sulmusic2-star/agent-vigil/pull/246)) is blocked by the repository's Agent Vigil gate, which only an admin can override. Once it is merged, run the setup script with `--branch main`.
 
 `actor.json` sets `dockerContextDir` to this folder and `dockerfile` to `shared/Dockerfile`. Apify passes the Actor's folder to the build as `ACTOR_PATH_IN_DOCKER_CONTEXT`, so all five Actors share one Dockerfile. See [Apify: Actor monorepos](https://docs.apify.com/platform/actors/development/deployment/source-types#actor-monorepos).
 
