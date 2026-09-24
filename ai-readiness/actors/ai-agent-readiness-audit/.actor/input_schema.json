@@ -20,6 +20,12 @@
             "default": true,
             "description": "Read up to six same-site script files to detect tools registered with document.modelContext.registerTool()."
         },
+        "testCrawlerReach": {
+            "title": "Test crawler reach",
+            "type": "boolean",
+            "description": "Check what AI crawlers actually get: whether a firewall or CDN turns away AI crawlers that robots.txt allows, whether the homepage content is readable without JavaScript, and whether a Markdown version is offered.",
+            "default": true
+        },
         "extraAiAgents": {
             "title": "Extra user-agent tokens",
             "type": "array",

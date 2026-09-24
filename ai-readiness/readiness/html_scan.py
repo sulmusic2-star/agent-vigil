@@ -4,7 +4,8 @@ Collects, without executing any script:
     title, meta tags, canonical link, html lang,
     JSON-LD blocks, inline script text and external script URLs,
     forms and their fields, including WebMCP declarative attributes
-    (toolname, tooldescription, toolautosubmit, toolparamdescription).
+    (toolname, tooldescription, toolautosubmit, toolparamdescription),
+    and how much visible text the HTML carries before any script runs.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from html.parser import HTMLParser
 
 MAX_INLINE_SCRIPT_CHARS = 400_000
 MAX_LINKS = 500
+# Text inside these elements is not page content a reader sees.
+_HIDDEN_TEXT = {"script", "style", "noscript", "template", "svg", "head"}
 
 
 @dataclass
@@ -54,7 +57,14 @@ class PageScan:
     script_srcs: list[str] = field(default_factory=list)
     forms: list[Form] = field(default_factory=list)
     markdown_alternates: list[str] = field(default_factory=list)
+    license_links: list[str] = field(default_factory=list)  # <link rel="license"> hrefs
     links: list[str] = field(default_factory=list)          # <a href> values, capped
+    text_chars: int = 0              # visible text in the HTML as served, before any script runs
+    noscript_js_notice: bool = False  # a <noscript> message asking to enable JavaScript
+
+    @property
+    def script_count(self) -> int:
+        return len(self.script_srcs) + len(self.inline_scripts)
 
 
 class _Scanner(HTMLParser):
@@ -66,9 +76,14 @@ class _Scanner(HTMLParser):
         self._script_buf: list[str] = []
         self._form: Form | None = None
         self._inline_chars = 0
+        self._hidden_depth = 0
+        self._in_noscript = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = {k.lower(): v for k, v in attrs}
+        if tag in _HIDDEN_TEXT:
+            self._hidden_depth += 1
+            self._in_noscript = self._in_noscript or tag == "noscript"
         if tag == "a" and a.get("href") and len(self.scan.links) < MAX_LINKS:
             self.scan.links.append(a["href"] or "")
         elif tag == "html" and a.get("lang"):
@@ -85,6 +100,8 @@ class _Scanner(HTMLParser):
                 self.scan.canonical = a["href"]
             if "alternate" in rel and (a.get("type") or "").lower() == "text/markdown" and a.get("href"):
                 self.scan.markdown_alternates.append(a["href"] or "")
+            if "license" in rel and a.get("href"):
+                self.scan.license_links.append(a["href"] or "")
         elif tag == "script":
             stype = (a.get("type") or "").strip().lower()
             if stype == "application/ld+json":
@@ -113,6 +130,10 @@ class _Scanner(HTMLParser):
             ))
 
     def handle_endtag(self, tag: str) -> None:
+        if tag in _HIDDEN_TEXT and self._hidden_depth:
+            self._hidden_depth -= 1
+            if tag == "noscript":
+                self._in_noscript = False
         if tag == "title":
             self._in_title = False
         elif tag == "script":
@@ -132,6 +153,10 @@ class _Scanner(HTMLParser):
             self.scan.title += data
         if self._script_kind is not None:
             self._script_buf.append(data)
+        if self._in_noscript and "javascript" in data.lower():
+            self.scan.noscript_js_notice = True
+        if not self._hidden_depth and not self._in_title:
+            self.scan.text_chars += len(" ".join(data.split()))
 
 
 def scan_html(html: str) -> PageScan:

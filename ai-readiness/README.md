@@ -5,7 +5,7 @@ Five [Apify](https://apify.com) Actors that check how websites look to AI crawle
 | Actor | What one result is | Folder |
 |---|---|---|
 | AI Agent Readiness Audit | A 0–100 score, grade and ranked fixes for one website | `actors/ai-agent-readiness-audit` |
-| AI Crawler Access Checker | Which AI crawlers one website allows or blocks, and why | `actors/ai-crawler-access-checker` |
+| AI Crawler Access Checker | Which AI crawlers one website allows or blocks, in robots.txt and through its firewall | `actors/ai-crawler-access-checker` |
 | llms.txt Validator | Whether one website's `/llms.txt` exists and follows llmstxt.org | `actors/llms-txt-validator` |
 | llms.txt Generator | A ready-to-publish llms.txt for one website | `actors/llms-txt-generator` |
 | Product Schema Checker for AI Shopping | Product JSON-LD completeness for one product page | `actors/product-schema-checker` |
@@ -29,6 +29,7 @@ store-assets/  Store icons (SVG sources and 512×512 PNGs) and listing text
 
 - **Fair billing.** Each Actor charges through Apify's built-in `apify-default-dataset-item` event, one charge per dataset item. Sites that don't respond, invalid entries, pages that return an error and timeouts are not saved, so they are not charged. They are listed in the run's `OUTPUT` record instead. A run stops starting new sites when the user's spending limit is reached.
 - **Polite.** Files published for automated readers (robots.txt, llms.txt, sitemaps, `/.well-known`) are read directly. HTML pages and scripts are fetched only when robots.txt allows the `AIReadinessAudit` token. Every request has a time and size limit.
+- **Declared versus actual access.** The homepage is fetched as a browser and as each AI crawler that robots.txt allows (`readiness/bot_access.py`), to catch firewalls and CDNs that block crawlers robots.txt lets in, pages that need JavaScript to show any text, and Markdown versions for agents. Crawlers robots.txt disallows are never imitated.
 - **Redirects.** When a homepage redirects (for example `example.com` to `www.example.com`), the audit and the generator check the site it lands on and report it as `finalUrl`.
 - **Monitoring.** With **Report changes since the last run** on, results are compared with the previous run's snapshot, kept in a named key-value store, and each result lists what changed.
 

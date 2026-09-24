@@ -26,6 +26,7 @@ def snapshot(kind: str, item: dict[str, Any]) -> dict[str, Any]:
             "contentSignals": item.get("contentSignals") or {},
             "tdmReservation": item.get("tdmReservation"),
             "agents": {row["agent"]: row["status"] for row in item.get("agents") or []},
+            "turnedAway": sorted((item.get("actualAccess") or {}).get("turnedAway") or []),
         }
     if kind == "llms-check":
         return {k: item.get(k) for k in ("present", "valid", "linkCount", "errors")}
@@ -37,6 +38,8 @@ def snapshot(kind: str, item: dict[str, Any]) -> dict[str, Any]:
             "policy": (item.get("aiAccess") or {}).get("policy"),
             "llmsTxtValid": (item.get("llmsTxt") or {}).get("valid"),
             "webmcpTools": len(webmcp.get("declarativeTools") or []) + len(webmcp.get("imperativeToolNames") or []),
+            "turnedAway": sorted(((item.get("crawlerReach") or {}).get("firewall") or {}).get("turnedAway") or []),
+            "contentWithoutJavaScript": ((item.get("crawlerReach") or {}).get("contentWithoutJavaScript") or {}).get("status"),
         }
     if kind == "product":
         return {"score": item.get("score"), "missing": sorted(item.get("missing") or [])}

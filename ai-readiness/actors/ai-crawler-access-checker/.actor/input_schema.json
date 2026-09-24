@@ -21,6 +21,12 @@
             "default": true,
             "description": "Read noai, noindex and nosnippet from the homepage's meta robots tags and X-Robots-Tag header (one extra request per site)."
         },
+        "testFirewallAccess": {
+            "title": "Test what AI crawlers actually get",
+            "type": "boolean",
+            "description": "Fetch the homepage as a browser and as each AI crawler that robots.txt allows (OAI-SearchBot, ChatGPT-User, Claude-User, PerplexityBot, GPTBot, ClaudeBot), and report crawlers that a firewall or CDN blocks or challenges although robots.txt lets them in. Crawlers that robots.txt disallows are not imitated.",
+            "default": true
+        },
         "extraAiAgents": {
             "title": "Extra user-agent tokens",
             "type": "array",

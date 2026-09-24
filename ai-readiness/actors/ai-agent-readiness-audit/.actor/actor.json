@@ -2,7 +2,7 @@
     "actorSpecification": 1,
     "name": "ai-agent-readiness-audit",
     "title": "AI Agent Readiness Audit",
-    "description": "Score how ready a website is for AI search and AI agents (0-100) with a ranked fix list: AI crawler access, llms.txt, WebMCP tools, structured data, sitemaps and agent discovery files.",
+    "description": "Score how ready websites are for AI search and AI agents (0-100) with ranked fixes: AI crawler access in robots.txt and through firewalls, JavaScript-only content, structured data, WebMCP tools, llms.txt and discovery files.",
     "version": "0.1",
     "dockerContextDir": "../../..",
     "dockerfile": "../../../shared/Dockerfile",

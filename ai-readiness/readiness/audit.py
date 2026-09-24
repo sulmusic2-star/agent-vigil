@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
-from . import discovery, llms_txt, sitemap, structured_data, webmcp
+from . import bot_access, discovery, llms_txt, sitemap, structured_data, webmcp
 from .access import agent_rows, classify, has_ai_specific_rules, page_directives, wildcard_blocks_root
 from .agents import agents_with_extras
 from .fetch import Fetcher, normalize_page, normalize_site, same_host
@@ -56,7 +56,8 @@ def _with_signals(text: str, signals: dict[str, str]) -> str:
 # --- AI crawler access ------------------------------------------------------
 
 async def audit_crawler_access(fetcher: Fetcher, url: str, *, extra_agents: list[str] | tuple[str, ...] = (),
-                               check_page: bool = True, respect_robots: bool = True) -> dict[str, Any]:
+                               check_page: bool = True, respect_robots: bool = True,
+                               test_firewall: bool = True) -> dict[str, Any]:
     origin = normalize_site(url)
     if origin is None:
         return _invalid(url)
@@ -70,9 +71,14 @@ async def audit_crawler_access(fetcher: Fetcher, url: str, *, extra_agents: list
 
     directives = None
     home_resp = None
-    if check_page:
+    scan = None
+    reach = None
+    if check_page or test_firewall:
         home_resp, scan, _ = await ctx.homepage()
+    if check_page:
         directives = page_directives(scan.meta if scan else {}, home_resp.headers if home_resp else {})
+    if test_firewall and scan is not None and home_resp is not None and home_resp.ok:
+        reach = await bot_access.crawler_reach(fetcher, home_resp.final_url, robots, scan)
     tdm_resp = await fetcher.get(urljoin(origin, "/.well-known/tdmrep.json"), max_bytes=200_000)
     tdm = discovery._judge("tdmrep", tdm_resp)
     reserved, tdm_policy = discovery._tdm_from_file(tdm.data) if tdm.present else (None, None)
@@ -98,6 +104,16 @@ async def audit_crawler_access(fetcher: Fetcher, url: str, *, extra_agents: list
         "tdmReservation": reserved,
         "tdmPolicy": tdm_policy,
         "pageDirectives": directives,
+        "actualAccessSummary": reach["summary"] if reach else None,
+        "rslLicenses": robots.licenses + (scan.license_links if scan else []),
+        "actualAccess": None if reach is None else {
+            "summary": reach["summary"],
+            "edgeProvider": reach["firewall"]["edgeProvider"],
+            "turnedAway": reach["firewall"]["turnedAway"],
+            "inconclusive": reach["firewall"]["inconclusive"],
+            "fix": bot_access.firewall_fix(reach),
+        },
+        "crawlerReach": reach,
         "robotsTxt": {
             "state": robots.state,
             "httpStatus": ctx._robots_resp.status if ctx._robots_resp else None,
@@ -329,7 +345,7 @@ async def _sitemap_ok(fetcher: Fetcher, origin: str, robots_sitemaps: list[str])
 
 async def audit_readiness(fetcher: Fetcher, url: str, *, extra_agents: list[str] | tuple[str, ...] = (),
                           respect_robots: bool = True, scan_scripts: bool = True,
-                          max_scripts: int = 6) -> dict[str, Any]:
+                          max_scripts: int = 6, test_reach: bool = True) -> dict[str, Any]:
     origin = normalize_site(url)
     if origin is None:
         return _invalid(url)
@@ -354,6 +370,8 @@ async def audit_readiness(fetcher: Fetcher, url: str, *, extra_agents: list[str]
     scripts = await _same_site_scripts(ctx, scan.script_srcs, max_scripts) if (homepage_ok and scan_scripts) else []
     final_url = home.final_url if (home is not None and home.ok) else origin
     mcp = webmcp.analyze(scan, final_url=final_url, external_scripts=scripts) if homepage_ok else None
+    reach = await bot_access.crawler_reach(fetcher, final_url, robots, scan) if (homepage_ok and test_reach) else None
+    reach_rows = reach["firewall"]["agents"] if reach else []
     first_tool_issue = None
     if mcp is not None:
         for tool in mcp.declarative_tools:
@@ -388,12 +406,23 @@ async def audit_readiness(fetcher: Fetcher, url: str, *, extra_agents: list[str]
         webmcp_first_issue=first_tool_issue,
         sitemap_ok=sitemap_ok,
         agent_card=any(disc.files[k].present for k in ("a2aAgentCard", "a2aAgentCardLegacy", "aiPluginManifest")),
-        rights_declared=bool(signals) or disc.tdm_reserved is not None or disc.files["aiTxt"].present,
+        rights_declared=(bool(signals) or disc.tdm_reserved is not None or disc.files["aiTxt"].present
+                         or bool(robots.licenses) or bool(scan and scan.license_links)),
+        content_js_status=reach["contentWithoutJavaScript"]["status"] if reach else None,
+        reach_tested=bool(reach and not reach["firewall"]["inconclusive"]),
+        answering_tested=sum(1 for r in reach_rows if r["purpose"] in {"search", "user"} and r["result"] != "not-tested"),
+        answering_turned_away=reach["firewall"]["answeringCrawlersTurnedAway"] if reach else [],
+        firewall_fix=bot_access.firewall_fix(reach) if reach else None,
+        markdown_available=bool(reach and (reach["markdown"]["acceptHeader"] or reach["markdown"]["alternateLink"])),
     )
     result = compute(inputs)
-    summary_bits = [_with_signals(policy.text, signals),
-                    "llms.txt valid" if llms_report.valid else ("llms.txt has errors" if llms_report.present else "no llms.txt"),
-                    ("WebMCP tools found" if (mcp and mcp.has_tools) else "no WebMCP tools") if homepage_ok else "homepage not checked"]
+    summary_bits = [_with_signals(policy.text, signals)]
+    if reach and reach["firewall"]["turnedAway"] and not reach["firewall"]["inconclusive"]:
+        summary_bits.append("firewall turns away " + ", ".join(reach["firewall"]["turnedAway"]))
+    if reach and reach["contentWithoutJavaScript"]["status"] == "empty":
+        summary_bits.append("homepage content needs JavaScript")
+    summary_bits += ["llms.txt valid" if llms_report.valid else ("llms.txt has errors" if llms_report.present else "no llms.txt"),
+                     ("WebMCP tools found" if (mcp and mcp.has_tools) else "no WebMCP tools") if homepage_ok else "homepage not checked"]
     return {
         "url": origin,
         "finalUrl": final_url,
@@ -437,6 +466,7 @@ async def audit_readiness(fetcher: Fetcher, url: str, *, extra_agents: list[str]
         },
         "structuredData": {"types": data.types, "entities": len(data.entities), "parseErrors": data.parse_errors}
         if homepage_ok else None,
+        "crawlerReach": reach,
         "discovery": {k: {"present": v.present, "note": v.note} for k, v in disc.files.items()},
         "sitemapFound": sitemap_ok,
         "notes": ctx.notes + ([f"homepage: {home_reason}"] if home_reason and not ctx.notes else []),

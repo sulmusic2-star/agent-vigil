@@ -1,6 +1,19 @@
 # AI Crawler Access Checker
 
-See, for any list of websites, which AI crawlers each site allows or blocks: **GPTBot, ClaudeBot, Google-Extended, PerplexityBot, CCBot, Applebot-Extended, Meta-ExternalAgent, Bytespider** and more. Check one site or thousands in one run.
+See, for any list of websites, which AI crawlers each site allows or blocks, both **in robots.txt** and **in practice**: **GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, PerplexityBot, Google-Extended, CCBot, Applebot-Extended, Meta-ExternalAgent, Bytespider** and more. Check one site or thousands in one run.
+
+## Declared versus actual access
+
+A robots.txt that welcomes AI crawlers doesn't mean they get in. Firewalls, CDNs and bot-protection settings often block or challenge AI crawlers the site owner meant to allow. That quietly keeps the site out of ChatGPT, Claude and Perplexity answers.
+
+For each site, the checker fetches the homepage as a normal browser and as each AI crawler that robots.txt allows, then reports:
+
+- crawlers that get **blocked** (for example HTTP 403) or **challenged** (a bot-check page) although robots.txt allows them
+- crawlers that get a **much shorter page** than browsers do
+- the likely **CDN or firewall** in front of the site (Cloudflare, Akamai, Imperva, DataDome, Fastly and others), with the setting to check
+- **RSL licenses** (`License:` lines in robots.txt or `<link rel="license">`), the standard for licensing content to AI companies
+
+Crawlers that robots.txt disallows are never imitated. Each test request also names this tool in its user agent.
 
 ## What you get for each website
 
@@ -16,10 +29,10 @@ Crawlers are grouped by purpose: **training** (collects content for model traini
 
 ## Who uses it
 
-- **SEO and AI-search (GEO) agencies** auditing client sites before AI visibility work.
-- **Publishers and researchers** tracking how sites respond to AI crawlers.
+- **SEO and AI-search (GEO) agencies** finding clients whose firewall silently blocks AI search crawlers, before any other AI visibility work.
+- **Publishers** checking that the crawlers they block are really blocked and the ones they allow really get in, across all their sites.
 - **Data and AI teams** checking that sources permit AI use before collecting.
-- **Site owners** confirming their robots.txt says what they meant.
+- **Site owners** confirming their robots.txt and firewall say what they meant.
 
 ## Input
 
@@ -27,6 +40,7 @@ Crawlers are grouped by purpose: **training** (collects content for model traini
 {
   "websites": ["nytimes.com", "wikipedia.org", "github.com"],
   "checkPageDirectives": true,
+  "testFirewallAccess": true,
   "monitorChanges": false
 }
 ```
@@ -40,6 +54,13 @@ Domains or full URLs both work. Each site is checked at its homepage origin.
   "url": "https://shop.example/",
   "policy": "mostly-blocks-training",
   "policySummary": "Mostly blocks AI training, mostly allows AI search; declares ai-train=no, search=yes",
+  "actualAccessSummary": "Cloudflare or the site's firewall turns away PerplexityBot, although robots.txt allows them",
+  "actualAccess": {
+    "edgeProvider": "Cloudflare",
+    "turnedAway": ["PerplexityBot"],
+    "fix": "Let PerplexityBot through: in Cloudflare, check AI Crawl Control and bot settings (such as blocking AI bots or Bot Fight Mode) and allow the AI crawlers you want"
+  },
+  "rslLicenses": [],
   "trainingCrawlersBlocked": "6/10",
   "searchAndAssistantCrawlersBlocked": "0/9",
   "blocksAllBots": false,
@@ -61,7 +82,7 @@ robots.txt is parsed per **RFC 9309**: an agent uses its own group if one names 
 
 ## Monitor changes on a schedule
 
-Turn on **Report changes since the last run** and schedule the Actor weekly. Each result then includes a `changes` list, for example `agents.GPTBot: allowed → blocked`.
+Turn on **Report changes since the last run** and schedule the Actor weekly. Each result then includes a `changes` list, for example `agents.GPTBot: allowed → blocked` or `turnedAway: [] → ["ClaudeBot"]` when a firewall change starts blocking a crawler.
 
 ## Pricing
 
@@ -71,5 +92,6 @@ You pay per website checked. Sites that don't respond and invalid entries are **
 
 - The AI crawler list is maintained by hand and covers the major crawlers; add others with **Extra user-agent tokens**.
 - Some tokens, such as Google-Extended and Applebot-Extended, are control tokens: blocking them limits AI use, not search indexing.
-- This tool reports what sites declare. It does not tell you what any crawler actually does, and it is not legal advice.
+- The firewall test sends requests with each crawler's user agent from this tool's servers. Sites that verify real crawlers by IP address may treat the real crawlers differently, so a block is a strong hint, not proof. A site that blocks normal browser requests too is reported as inconclusive.
+- It does not tell you what any crawler actually does with your content, and it is not legal advice.
 - It reads robots.txt and `/.well-known` files, and fetches the homepage only when robots.txt allows the `AIReadinessAudit` token.

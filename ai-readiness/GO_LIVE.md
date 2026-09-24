@@ -56,9 +56,9 @@ The Actors build from the `claude/amazing-babbage-ktqwpx` branch because the pul
 
 | Actor | Suggested categories | SEO title | SEO description |
 |---|---|---|---|
-| AI Agent Readiness Audit | SEO tools, AI | AI Readiness Audit: Score Any Website for AI Agents | Score websites 0–100 for AI search and AI agents: AI crawler access, llms.txt, WebMCP tools, structured data and discovery files, with ranked fixes. |
+| AI Agent Readiness Audit | SEO tools, AI | AI Readiness Audit: Score Any Website for AI Agents | Score websites 0–100 for AI search and agents: firewall blocks on AI crawlers, JavaScript-only pages, structured data, WebMCP, llms.txt. Ranked fixes. |
 | llms.txt Generator | SEO tools, Developer tools | llms.txt Generator: Create llms.txt for Any Website | Generate a valid, ready-to-publish llms.txt for any website from its homepage links, sitemap and page titles. Bulk runs, downloadable files. |
-| AI Crawler Access Checker | SEO tools, AI | AI Crawler Checker: GPTBot, ClaudeBot, robots.txt | See which AI crawlers each website allows or blocks, including GPTBot, ClaudeBot, Google-Extended and PerplexityBot, with the exact robots.txt rule. |
+| AI Crawler Access Checker | SEO tools, AI | AI Crawler Checker: robots.txt vs Firewall Blocks | See which AI crawlers each site allows in robots.txt and which its firewall or CDN actually blocks: GPTBot, ClaudeBot, PerplexityBot and more. |
 | llms.txt Validator | SEO tools, Developer tools | llms.txt Validator: Check llms.txt Files in Bulk | Check whether websites publish a valid llms.txt per llmstxt.org: structure, links, summary, size and llms-full.txt. One site or thousands. |
 | Product Schema Checker for AI Shopping | E-commerce, SEO tools | Product Schema Checker for AI Shopping Agents | Score product pages on the schema.org Product data AI shopping assistants use: price, availability, GTIN, brand, reviews, shipping and returns. |
 

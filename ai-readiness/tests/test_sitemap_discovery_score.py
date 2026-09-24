@@ -97,7 +97,8 @@ def _perfect() -> ReadinessInputs:
                            llms_present=True, llms_valid=True, llms_has_summary=True, llms_has_sections=True,
                            llms_full_present=True, homepage_checked=True, jsonld_present=True, org_or_website=True,
                            has_title=True, has_meta_description=True, has_canonical=True, https=True,
-                           webmcp_tools=True, sitemap_ok=True, agent_card=True, rights_declared=True)
+                           webmcp_tools=True, sitemap_ok=True, agent_card=True, rights_declared=True,
+                           content_js_status="ok", reach_tested=True, answering_tested=4, markdown_available=True)
 
 
 def test_perfect_site_scores_100():
@@ -118,5 +119,24 @@ def test_fixes_are_ranked_by_points():
     result = compute(inputs)
     points = [f["pointsAvailable"] for f in result["fixes"]]
     assert points == sorted(points, reverse=True)
-    assert result["fixes"][0]["action"].startswith("Publish /llms.txt")
+    assert result["fixes"][0]["action"].startswith("Add schema.org JSON-LD")
     assert result["grade"] == "F"
+
+
+def test_weights_add_up_to_100_and_reach_counts():
+    from readiness.score import _checks
+    assert sum(c.points for c in _checks(_perfect())) == 100
+    inputs = _perfect()
+    inputs.content_js_status = "empty"
+    inputs.answering_turned_away = ["ClaudeBot", "PerplexityBot"]
+    inputs.firewall_fix = "Let ClaudeBot, PerplexityBot through"
+    result = compute(inputs)
+    assert result["score"] == 100 - 10 - 4 and result["areas"]["Crawler reach"]["earned"] == 6
+    assert [f["action"][:20] for f in result["fixes"][:2]] == ["Render your homepage", "Let ClaudeBot, Perpl"]
+
+
+def test_reach_checks_are_left_out_when_they_did_not_run():
+    inputs = _perfect()
+    inputs.content_js_status, inputs.reach_tested = None, False
+    result = compute(inputs)
+    assert result["partial"] and result["score"] == 100 and "Crawler reach" not in result["areas"]

@@ -63,7 +63,8 @@ class Response:
 
 
 class Fetcher(Protocol):
-    async def get(self, url: str, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Response: ...
+    async def get(self, url: str, *, max_bytes: int = DEFAULT_MAX_BYTES,
+                  headers: dict[str, str] | None = None) -> Response: ...
 
 
 _LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)$")
@@ -153,10 +154,11 @@ class HttpxFetcher:
         )
         self._slots = asyncio.Semaphore(max_concurrency)
 
-    async def get(self, url: str, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Response:
+    async def get(self, url: str, *, max_bytes: int = DEFAULT_MAX_BYTES,
+                  headers: dict[str, str] | None = None) -> Response:
         async with self._slots:
             try:
-                async with self._client.stream("GET", url) as resp:
+                async with self._client.stream("GET", url, headers=headers) as resp:
                     chunks: list[bytes] = []
                     size = 0
                     truncated = False
@@ -184,27 +186,41 @@ class FakeFetcher:
 
     ``redirects`` maps a URL to the URL it redirects to; like the real fetcher,
     redirects are followed and the response reports the final URL.
+    ``variants`` serves a different response when a request header contains a
+    value: {("user-agent", "GPTBot"): {url: (status, content_type, body)}}.
     """
 
     def __init__(self, pages: dict[str, tuple[int, str, str | bytes]] | None = None,
-                 redirects: dict[str, str] | None = None) -> None:
+                 redirects: dict[str, str] | None = None,
+                 variants: dict[tuple[str, str], dict[str, tuple[int, str, str | bytes]]] | None = None) -> None:
         # url -> (status, content_type, body)
         self.pages = pages or {}
         self.redirects = redirects or {}
+        self.variants = variants or {}
         self.requested: list[str] = []
+        self.requested_headers: list[dict[str, str]] = []
 
-    async def get(self, url: str, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Response:
+    async def get(self, url: str, *, max_bytes: int = DEFAULT_MAX_BYTES,
+                  headers: dict[str, str] | None = None) -> Response:
         self.requested.append(url)
+        sent = {k.lower(): v for k, v in (headers or {}).items()}
+        self.requested_headers.append(sent)
         final = url
         for _ in range(5):
             if final not in self.redirects:
                 break
             final = self.redirects[final]
-        if final not in self.pages:
+        pages = self.pages
+        for (name, needle), variant in self.variants.items():
+            if needle in sent.get(name.lower(), "") and final in variant:
+                pages = variant
+                break
+        if final not in pages:
             return Response(url=url, final_url=final, status=404, headers={"content-type": "text/plain"}, body=b"not found")
-        status, ctype, body = self.pages[final]
+        status, ctype, body, *extra = pages[final]  # optional 4th item: more response headers
         data = body.encode("utf-8") if isinstance(body, str) else body
         if status == 0:
             return Response(url=url, final_url=url, status=None, error="ConnectError: simulated")
-        return Response(url=url, final_url=final, status=status, headers={"content-type": ctype},
+        return Response(url=url, final_url=final, status=status,
+                        headers={"content-type": ctype, **(extra[0] if extra else {})},
                         body=data[:max_bytes], truncated=len(data) > max_bytes)

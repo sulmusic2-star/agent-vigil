@@ -1,34 +1,49 @@
 {
     "ai-agent-readiness-audit": {
-        "categories": ["SEO_TOOLS", "AI"],
+        "categories": [
+            "SEO_TOOLS",
+            "AI"
+        ],
         "seoTitle": "AI Readiness Audit: Score Any Website for AI Agents",
-        "seoDescription": "Score websites 0–100 for AI search and AI agents: AI crawler access, llms.txt, WebMCP tools, structured data and discovery files, with ranked fixes.",
+        "seoDescription": "Score websites 0–100 for AI search and agents: firewall blocks on AI crawlers, JavaScript-only pages, structured data, WebMCP, llms.txt. Ranked fixes.",
         "pricePerResultUsd": 0.02,
         "eventTitle": "Website audited"
     },
     "llms-txt-generator": {
-        "categories": ["SEO_TOOLS", "DEVELOPER_TOOLS"],
+        "categories": [
+            "SEO_TOOLS",
+            "DEVELOPER_TOOLS"
+        ],
         "seoTitle": "llms.txt Generator: Create llms.txt for Any Website",
         "seoDescription": "Generate a valid, ready-to-publish llms.txt for any website from its homepage links, sitemap and page titles. Bulk runs, downloadable files.",
         "pricePerResultUsd": 0.05,
         "eventTitle": "llms.txt generated"
     },
     "ai-crawler-access-checker": {
-        "categories": ["SEO_TOOLS", "AI"],
-        "seoTitle": "AI Crawler Checker: GPTBot, ClaudeBot, robots.txt",
-        "seoDescription": "See which AI crawlers each website allows or blocks, including GPTBot, ClaudeBot, Google-Extended and PerplexityBot, with the exact robots.txt rule.",
+        "categories": [
+            "SEO_TOOLS",
+            "AI"
+        ],
+        "seoTitle": "AI Crawler Checker: robots.txt vs Firewall Blocks",
+        "seoDescription": "See which AI crawlers each site allows in robots.txt and which its firewall or CDN actually blocks: GPTBot, ClaudeBot, PerplexityBot and more.",
         "pricePerResultUsd": 0.004,
         "eventTitle": "Website checked"
     },
     "llms-txt-validator": {
-        "categories": ["SEO_TOOLS", "DEVELOPER_TOOLS"],
+        "categories": [
+            "SEO_TOOLS",
+            "DEVELOPER_TOOLS"
+        ],
         "seoTitle": "llms.txt Validator: Check llms.txt Files in Bulk",
         "seoDescription": "Check whether websites publish a valid llms.txt per llmstxt.org: structure, links, summary, size and llms-full.txt. One site or thousands.",
         "pricePerResultUsd": 0.003,
         "eventTitle": "Website checked"
     },
     "product-schema-checker": {
-        "categories": ["ECOMMERCE", "SEO_TOOLS"],
+        "categories": [
+            "ECOMMERCE",
+            "SEO_TOOLS"
+        ],
         "seoTitle": "Product Schema Checker for AI Shopping Agents",
         "seoDescription": "Score product pages on the schema.org Product data AI shopping assistants use: price, availability, GTIN, brand, reviews, shipping and returns.",
         "pricePerResultUsd": 0.003,

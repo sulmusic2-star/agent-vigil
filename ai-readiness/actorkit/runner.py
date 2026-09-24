@@ -143,12 +143,13 @@ def _options(kind: str, raw: dict[str, Any]) -> dict[str, Any]:
     extra = [str(x) for x in (raw.get("extraAiAgents") or []) if str(x).strip()]
     if kind == "crawler-access":
         return {"extra_agents": extra, "check_page": bool(raw.get("checkPageDirectives", True)),
-                "respect_robots": respect}
+                "respect_robots": respect, "test_firewall": bool(raw.get("testFirewallAccess", True))}
     if kind == "llms-generate":
         pages = int(raw.get("maxPages", 40) or 40)
         return {"max_pages": max(1, min(pages, 200)), "respect_robots": respect}
     if kind == "readiness":
-        return {"extra_agents": extra, "respect_robots": respect, "scan_scripts": bool(raw.get("scanScripts", True))}
+        return {"extra_agents": extra, "respect_robots": respect, "scan_scripts": bool(raw.get("scanScripts", True)),
+                "test_reach": bool(raw.get("testCrawlerReach", True))}
     if kind == "product":
         return {"respect_robots": respect}
     return {}

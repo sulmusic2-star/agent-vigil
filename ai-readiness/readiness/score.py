@@ -6,14 +6,18 @@ choice, and the report says so, but it does make the site less visible in AI
 answers, which is what this score measures.
 
 Areas and points:
-    AI access and policy     25
-    llms.txt                 20
+    AI access and policy     20   (robots.txt as declared)
+    Crawler reach            20   (what crawlers actually get: firewall, JavaScript, Markdown)
+    llms.txt                 10
     Structured data & basics 25   (needs the homepage)
-    Agent actions            20   (WebMCP part needs the homepage)
+    Agent actions            15   (WebMCP part needs the homepage)
     Discovery and rights     10
 
-When the homepage cannot be fetched, checks that need it are left out and the
-score is computed over the points that could be measured (``partial``).
+Weights follow what AI systems are known to use: content they can fetch and read
+counts most; llms.txt, which few AI crawlers request, counts least.
+
+When a check cannot run (for example the homepage cannot be fetched), it is left
+out and the score is computed over the points that could be measured (``partial``).
 """
 
 from __future__ import annotations
@@ -47,6 +51,13 @@ class ReadinessInputs:
     sitemap_ok: bool = False
     agent_card: bool = False
     rights_declared: bool = False
+    # Crawler reach (bot_access.crawler_reach); None / False when it did not run.
+    content_js_status: str | None = None     # ok | thin | empty
+    reach_tested: bool = False                # firewall comparison ran and was conclusive
+    answering_tested: int = 0                 # AI search/assistant crawlers tested
+    answering_turned_away: list[str] = field(default_factory=list)
+    firewall_fix: str | None = None
+    markdown_available: bool = False
 
 
 @dataclass
@@ -61,39 +72,58 @@ class Check:
 
 def _checks(i: ReadinessInputs) -> list[Check]:
     c: list[Check] = []
-    # --- AI access and policy (25)
-    robots_pts = {"parsed": 5, "missing": 2, "unreachable": 0}.get(i.robots_state, 0)
+    # --- AI access and policy (20)
+    robots_pts = {"parsed": 4, "missing": 2, "unreachable": 0}.get(i.robots_state, 0)
     robots_fix = None
     if i.robots_state == "missing":
         robots_fix = "Publish a robots.txt so AI crawlers get explicit rules"
     elif i.robots_state == "unreachable":
         robots_fix = ("Make robots.txt reachable: when it errors, compliant crawlers "
                       "treat the whole site as off-limits")
-    c.append(Check("robots", "AI access and policy", 5, robots_pts, robots_fix))
-    c.append(Check("explicitPolicy", "AI access and policy", 8, 8 if i.explicit_ai_policy else 0,
+    c.append(Check("robots", "AI access and policy", 4, robots_pts, robots_fix))
+    c.append(Check("explicitPolicy", "AI access and policy", 6, 6 if i.explicit_ai_policy else 0,
                    None if i.explicit_ai_policy else
                    "State your AI policy: add groups for AI crawlers (for example GPTBot, ClaudeBot) "
                    "or a Content-Signal line to robots.txt"))
     frac = (i.answering_allowed / i.answering_total) if i.answering_total else 1.0
     blocked = ", ".join(i.answering_blocked_names[:4])
-    c.append(Check("answeringAccess", "AI access and policy", 12, round(12 * frac, 1),
+    c.append(Check("answeringAccess", "AI access and policy", 10, round(10 * frac, 1),
                    None if frac >= 1 else
                    f"robots.txt blocks AI search and assistant crawlers ({blocked}); "
                    "allow them if you want to appear in AI answers"))
-    # --- llms.txt (20)
+    # --- Crawler reach (20): what crawlers actually get
+    js_pts = {"ok": 10, "thin": 5, "empty": 0}.get(i.content_js_status or "", 0)
+    js_fix = None
+    if i.content_js_status == "empty":
+        js_fix = ("Render your homepage's content on the server: it is built by JavaScript, "
+                  "and most AI crawlers don't run JavaScript, so they see an almost empty page")
+    elif i.content_js_status == "thin":
+        js_fix = ("Put your main content in the HTML the server sends: most of it appears only after "
+                  "JavaScript runs, which most AI crawlers don't do")
+    c.append(Check("contentWithoutJs", "Crawler reach", 10, js_pts, js_fix,
+                   measured=i.content_js_status is not None))
+    reached = (1 - len(i.answering_turned_away) / i.answering_tested) if i.answering_tested else 1.0
+    c.append(Check("firewallAccess", "Crawler reach", 8, round(8 * reached, 1),
+                   i.firewall_fix if i.answering_turned_away else None, measured=i.reach_tested))
+    c.append(Check("markdown", "Crawler reach", 2, 2 if i.markdown_available else 0,
+                   None if i.markdown_available else
+                   "Offer a Markdown version of key pages: answer 'Accept: text/markdown' requests "
+                   "or add <link rel=\"alternate\" type=\"text/markdown\"> to the page",
+                   measured=i.content_js_status is not None))
+    # --- llms.txt (10)
     if not i.llms_present:
-        c.append(Check("llmsTxt", "llms.txt", 12, 0,
+        c.append(Check("llmsTxt", "llms.txt", 6, 0,
                        "Publish /llms.txt: an H1 title, a one-line '>' summary, and '## Section' lists of your key links"))
     else:
-        c.append(Check("llmsTxt", "llms.txt", 12, 12 if i.llms_valid else 4,
+        c.append(Check("llmsTxt", "llms.txt", 6, 6 if i.llms_valid else 2,
                        None if i.llms_valid else f"Fix /llms.txt: {i.llms_first_error or 'structure errors'}"))
-    c.append(Check("llmsSummary", "llms.txt", 3, 3 if i.llms_has_summary else 0,
+    c.append(Check("llmsSummary", "llms.txt", 2, 2 if i.llms_has_summary else 0,
                    None if (i.llms_has_summary or not i.llms_present) else
                    "Add a '> one-line summary' under the llms.txt title"))
-    c.append(Check("llmsSections", "llms.txt", 3, 3 if i.llms_has_sections else 0,
+    c.append(Check("llmsSections", "llms.txt", 1, 1 if i.llms_has_sections else 0,
                    None if (i.llms_has_sections or not i.llms_present) else
                    "Add '## Section' headings with lists of your most useful links to llms.txt"))
-    c.append(Check("llmsFull", "llms.txt", 2, 2 if i.llms_full_present else 0,
+    c.append(Check("llmsFull", "llms.txt", 1, 1 if i.llms_full_present else 0,
                    None if i.llms_full_present else
                    "Optionally publish /llms-full.txt with the full text of your key pages"))
     # --- Structured data and page basics (25), needs the homepage
@@ -112,15 +142,15 @@ def _checks(i: ReadinessInputs) -> list[Check]:
                                 ("a canonical link", i.has_canonical)) if not ok]
     c.append(Check("pageBasics", "Structured data", 5, basics,
                    ("Add " + ", ".join(missing) + " to your homepage") if missing else None, measured=home))
-    # --- Agent actions (20)
-    c.append(Check("https", "Agent actions", 6, 6 if i.https else 0,
+    # --- Agent actions (15)
+    c.append(Check("https", "Agent actions", 4, 4 if i.https else 0,
                    None if i.https else "Serve the site over HTTPS; WebMCP and many agents require it"))
-    c.append(Check("webmcp", "Agent actions", 10, 10 if i.webmcp_tools else 0,
+    c.append(Check("webmcp", "Agent actions", 8, 8 if i.webmcp_tools else 0,
                    None if i.webmcp_tools else
                    "Expose key actions (search, booking, contact) to AI agents as WebMCP tools: "
                    "add toolname and tooldescription attributes to the form", measured=home))
-    quality = 4 if (i.webmcp_tools and not i.webmcp_first_issue) else 0
-    c.append(Check("webmcpQuality", "Agent actions", 4, quality,
+    quality = 3 if (i.webmcp_tools and not i.webmcp_first_issue) else 0
+    c.append(Check("webmcpQuality", "Agent actions", 3, quality,
                    f"Improve your WebMCP tools: {i.webmcp_first_issue}" if (i.webmcp_tools and i.webmcp_first_issue) else None,
                    measured=home))
     # --- Discovery and rights (10)
@@ -131,7 +161,8 @@ def _checks(i: ReadinessInputs) -> list[Check]:
                    "If you offer an agent or API, publish an A2A agent card at /.well-known/agent-card.json"))
     c.append(Check("rights", "Discovery and rights", 2, 2 if i.rights_declared else 0,
                    None if i.rights_declared else
-                   "Declare machine-readable AI usage rights (a Content-Signal line or /.well-known/tdmrep.json)"))
+                   "Declare machine-readable AI usage rights (a Content-Signal line, an RSL license "
+                   "or /.well-known/tdmrep.json)"))
     return c
 
 

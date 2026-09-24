@@ -65,6 +65,7 @@ class RobotsTxt:
     groups: list[Group] = field(default_factory=list)
     sitemaps: list[str] = field(default_factory=list)
     global_signals: dict[str, str] = field(default_factory=dict)
+    licenses: list[str] = field(default_factory=list)  # RSL "License:" URLs
     issues: list[str] = field(default_factory=list)
     # "parsed", "missing" (4xx: allow all), "unreachable" (5xx/network: disallow all)
     state: str = "parsed"
@@ -161,6 +162,8 @@ def parse(text: str) -> RobotsTxt:
             current.rules.append(Rule(allow=(key == "allow"), pattern=value, line=number))
         elif key == "sitemap":
             robots.sitemaps.append(value)
+        elif key == "license":  # RSL (Really Simple Licensing) points at a license file
+            robots.licenses.append(value)
         elif key == "content-signal":
             target = current.signals if current is not None else robots.global_signals
             target.update(parse_signals(value))

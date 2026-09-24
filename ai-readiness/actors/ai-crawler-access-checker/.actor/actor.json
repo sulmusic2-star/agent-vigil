@@ -2,7 +2,7 @@
     "actorSpecification": 1,
     "name": "ai-crawler-access-checker",
     "title": "AI Crawler Access Checker",
-    "description": "Bulk-check which AI crawlers each website allows or blocks: GPTBot, ClaudeBot, Google-Extended, PerplexityBot, CCBot and more. Reads robots.txt, Content Signals, TDMRep and noai tags.",
+    "description": "Bulk-check which AI crawlers each website allows or blocks, in robots.txt and in practice: finds firewalls and CDNs that block GPTBot, ClaudeBot or PerplexityBot despite robots.txt. Also reads Content Signals, TDMRep, RSL licenses and noai tags.",
     "version": "0.1",
     "dockerContextDir": "../../..",
     "dockerfile": "../../../shared/Dockerfile",

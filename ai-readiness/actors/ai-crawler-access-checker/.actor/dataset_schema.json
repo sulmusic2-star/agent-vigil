@@ -8,6 +8,7 @@
                 "fields": [
                     "url",
                     "policySummary",
+                    "actualAccessSummary",
                     "trainingCrawlersBlocked",
                     "searchAndAssistantCrawlersBlocked",
                     "blocksAllBots",
@@ -23,6 +24,9 @@
                     },
                     "policySummary": {
                         "label": "AI policy"
+                    },
+                    "actualAccessSummary": {
+                        "label": "What AI crawlers actually get"
                     },
                     "trainingCrawlersBlocked": {
                         "label": "Training crawlers blocked"
