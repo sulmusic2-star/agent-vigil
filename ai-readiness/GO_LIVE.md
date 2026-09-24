@@ -1,28 +1,38 @@
 # Go live on Apify Store
 
-These steps need you: they involve your identity, your money or a click that publishes under your name. Plan on about an hour and a half the first time. Everything else is already done: the five Actors are built, tested and documented, and they have Store pages, icons and prices.
+The five Actors are built, tested and documented, with Store pages, icons and prices ready. What's left needs you, because it involves your identity, your money or publishing under your name. Plan on about 30 minutes.
 
 ## Your checklist
 
-1. **Put the code on `main`.** Open <https://github.com/sulmusic2-star/agent-vigil/compare/main...claude/amazing-babbage-ktqwpx>, select **Create pull request**, then **Merge pull request**. (Or ask Claude to open the pull request.) Apify builds each Actor from `main`.
-2. **Create a free Apify account** at <https://console.apify.com/sign-up>. Your username appears in every Store link (`apify.com/<username>/ai-agent-readiness-audit`), so pick a short, brand-like name.
-3. **Create the five Actors.** For each row in [the Actor table](#the-five-actors):
-   1. Go to **Development** > **My Actors** and create a new Actor.
-   2. On its **Source** tab, set **Source type** to **Git repository** and paste the Git URL from the table. The repository is public, so no deploy key is needed.
-   3. Select **Build**. The build takes about a minute.
-   4. Select **Start** with the prefilled input. When the run finishes, the **Output** tab should show results. If it shows none, stop here and tell Claude.
-4. **Set up payouts (once).** In any Actor's **Publishing** tab, under **Monetization**, enter your billing details and a payout method. PayPal or Wise pays out from $20; other methods from $100. Then verify your identity under **Development** > **Insights** > **Payouts**. Apify pays monthly: invoices are created on the 11th for the previous month.
-5. **Price each Actor.** In **Publishing** > **Monetization**, select **Set up monetization**, choose pay per event, and then:
+1. **Create a free Apify account** at <https://console.apify.com/sign-up>. Your username appears in every Store link (`apify.com/<username>/ai-agent-readiness-audit`), so pick a short, brand-like name.
+2. **Let Claude set up the five Actors.**
+   1. In Apify Console, open **Settings** > **API & Integrations** and copy your API token. It has to be a full-access token, because Apify doesn't let limited tokens create Actors. You can delete it once setup is done.
+   2. In this Claude environment's settings (the cloud environment menu in the session's title bar, then **Edit**), add `api.apify.com` to the allowed network domains, and add an environment variable named `APIFY_TOKEN` that holds the token. Don't paste the token into a chat.
+   3. Start a new Claude session on this repository and send: *Set up the ai-readiness Actors on Apify by running `python3 ai-readiness/scripts/deploy_apify.py`, and fix anything that fails.*
+
+   Claude then creates the five Actors in your account, builds each one and runs it once with its example input. To do this step yourself instead, see [Set up the Actors by hand](#set-up-the-actors-by-hand).
+3. **Set up payouts (once).** In any Actor's **Publishing** tab, under **Monetization**, enter your billing details and a payout method. PayPal or Wise pays out from $20; other methods from $100. Then verify your identity under **Development** > **Insights** > **Payouts**. Apify pays monthly: invoices are created on the 11th for the previous month.
+4. **Price each Actor.** In **Publishing** > **Monetization**, select **Set up monetization**, choose pay per event, and then:
    - Keep `apify-actor-start` at Apify's default price.
    - Set `apify-default-dataset-item` to the price in the table, with the event title from the table. It charges once per result. Sites that don't respond and invalid inputs aren't saved, so they aren't charged.
    - Choose `apify-default-dataset-item` as the primary event, then confirm.
-6. **Publish each Actor.** In **Publishing**:
-   - **Display information:** upload the icon from `ai-readiness/store-assets/icons/` (PNG), pick the suggested categories (or the closest ones Apify offers) and paste the SEO title and description from [Store listing text](#store-listing-text).
-   - **Sample output:** use the run from step 3.
+5. **Publish each Actor.** In **Publishing**:
+   - **Display information:** upload the icon from `ai-readiness/store-assets/icons/` (PNG). Check the categories and SEO text, which the setup script fills in from [Store listing text](#store-listing-text); if Apify rejected a suggested category, pick the closest one it offers.
+   - **Sample output:** use the test run from step 2.
    - **Actor permissions:** keep **Limited permissions**. The Actors need nothing more.
    - Select **Publish on Store**.
 
 After that the Actors run without you. Apify tests each one daily with its prefilled input and emails you if one fails three days in a row. Forward that email to Claude.
+
+## Set up the Actors by hand
+
+Instead of step 2, for each row in [the Actor table](#the-five-actors):
+
+1. Go to **Development** > **My Actors** and create a new Actor.
+2. On its **Source** tab, set **Source type** to **Git repository** and paste the Git URL from the table. The repository is public, so no deploy key is needed.
+3. Select **Build**. The build takes about a minute.
+4. Select **Start** with the prefilled input. When the run finishes, the **Output** tab should show results. If it shows none, stop here and tell Claude.
+5. In **Publishing** > **Display information**, paste the SEO title and description and pick the categories from [Store listing text](#store-listing-text).
 
 ## The five Actors
 
@@ -63,6 +73,6 @@ Two things help most once the Actors are live:
 
 ## Keeping it running
 
-- **Code changes:** Claude works on the `claude/amazing-babbage-ktqwpx` branch. Merge it into `main`, then select **Build** on the changed Actors. To rebuild automatically on every push, see [Apify: Git repository sources](https://docs.apify.com/platform/actors/development/deployment/source-types#git-repository).
+- **Code changes:** Claude makes each change on a branch and opens a pull request. The repository's Agent Vigil gate is built for changes to Agent Vigil itself: it limits a pull request to 20 files, and requires a linked issue and a change under `test-hosted/`. Pull requests for these tools don't meet those rules, so merging them into `main` needs your admin override. After a merge, rerun the setup script or select **Build** on the changed Actors. To rebuild automatically on every push, see [Apify: Git repository sources](https://docs.apify.com/platform/actors/development/deployment/source-types#git-repository).
 - **Health:** if Apify emails that an Actor is failing its daily test, forward the email to Claude. At that point the Store labels the Actor "under maintenance", and after about four more weeks of failures Apify deprecates it.
 - **Open source:** the repository is public under the MIT license, so anyone can copy the code. Your advantage is the Store listing, its reviews and keeping the checks current. To keep new code private, move `ai-readiness/` to a private repository and add a deploy key for each Actor.

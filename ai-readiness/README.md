@@ -21,7 +21,8 @@ actorkit/    Apify runtime: input parsing, concurrency, fair billing, change mon
 actors/*/    one folder per Actor: .actor/ (actor.json, schemas, README) and main.py
 shared/      the Dockerfile and requirements.txt every Actor builds from
 tests/       unit tests, plus end-to-end runs of every Actor against a local test site
-store-assets/  Store icons: SVG sources and 512×512 PNGs
+scripts/     deploy_apify.py: create, build and test the Actors through the Apify API
+store-assets/  Store icons (SVG sources and 512×512 PNGs) and listing text
 ```
 
 ## How the Actors behave
@@ -30,6 +31,17 @@ store-assets/  Store icons: SVG sources and 512×512 PNGs
 - **Polite.** Files published for automated readers (robots.txt, llms.txt, sitemaps, `/.well-known`) are read directly. HTML pages and scripts are fetched only when robots.txt allows the `AIReadinessAudit` token. Every request has a time and size limit.
 - **Redirects.** When a homepage redirects (for example `example.com` to `www.example.com`), the audit and the generator check the site it lands on and report it as `finalUrl`.
 - **Monitoring.** With **Report changes since the last run** on, results are compared with the previous run's snapshot, kept in a named key-value store, and each result lists what changed.
+
+## For site owners
+
+These Actors identify themselves with the user agent `AIReadinessAudit/0.1 (+https://github.com/sulmusic2-star/agent-vigil/tree/main/ai-readiness)`. They fetch HTML pages and same-site scripts only when robots.txt allows the `AIReadinessAudit` token. To keep them off your pages, add this to robots.txt:
+
+```
+User-agent: AIReadinessAudit
+Disallow: /
+```
+
+They still read the files that sites publish for automated tools: robots.txt, llms.txt, llms-full.txt, sitemaps and `/.well-known` files. Every request has a time and size limit. A check makes at most about 30 requests to a site. The llms.txt Generator also reads up to the number of pages its user sets: 40 by default, 200 at most.
 
 ## Develop
 
@@ -62,6 +74,8 @@ docker build -f shared/Dockerfile \
 ```
 
 ## Deploy on Apify
+
+`python3 scripts/deploy_apify.py` sets up all five Actors in an Apify account, with `APIFY_TOKEN` set: it creates or updates each one from its Git folder, fills in its SEO text and categories from `store-assets/listing.json`, builds it and test-runs it. Use `--dry-run` to see what it would send. Prices and publishing stay in Apify Console; see [GO_LIVE.md](GO_LIVE.md).
 
 Each Actor is built from this repository, with the Actor's folder as the Git source. For example:
 
