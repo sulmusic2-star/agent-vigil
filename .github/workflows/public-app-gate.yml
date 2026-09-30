@@ -70,7 +70,7 @@ jobs:
           const keys = ["schema", "deliveryId", "event", "repository", "installationId", "number", "baseSha", "headSha", "baseRef", "headRef", "checkRunId"];
           if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\n") !== [...keys].sort().join("\n")) throw new Error("dispatch envelope fields are invalid");
           if (!keys.every((key) => typeof value[key] === "string")) throw new Error("dispatch envelope values must be strings");
-          if (value.schema !== "agent-vigil-public-app-v1") throw new Error("dispatch schema is unsupported");
+          if (value.schema !== "agent-vigil-public-app-v2") throw new Error("dispatch schema is unsupported");
           if (!delivery.test(value.deliveryId) || !repository.test(value.repository)) throw new Error("delivery or repository identity is invalid");
           if (!positive.test(value.installationId) || !positive.test(value.checkRunId)) throw new Error("installation or check identity is invalid");
           if (!sha.test(value.baseSha) || !sha.test(value.headSha) || value.baseSha === value.headSha) throw new Error("commit identity is invalid");
@@ -92,6 +92,7 @@ jobs:
 
   evidence:
     name: Verify exact customer commit without App credentials
+    timeout-minutes: 45
     needs: authenticate
     runs-on: ubuntu-24.04
     environment: agent-vigil-public-app
@@ -139,6 +140,12 @@ jobs:
             if (Buffer.byteLength(body) > 1048576) throw new Error("GitHub pull-request response is too large");
             if (!response.ok) throw new Error(`GitHub API ${response.status}: ${body.slice(0, 256)}`);
             return JSON.parse(body);
+          }
+          // This shared public control repository must not retain private customer data.
+          // Private-repository service needs separate authorized retention and is not enabled here.
+          const visibility = await request(`/repos/${e.TARGET_REPOSITORY}`);
+          if (visibility?.full_name !== e.TARGET_REPOSITORY || visibility.private !== false || visibility.visibility !== "public") {
+            throw new Error("This trial supports public repositories only; no private evidence was exported.");
           }
           const root = realpathSync(e.RUNNER_TEMP);
           const stat = lstatSync(root);
@@ -221,20 +228,85 @@ jobs:
           policy-ref: ${{ needs.authenticate.outputs.base-sha }}
           isolate-candidate: true
           candidate-setup-cmd: npm ci --ignore-scripts
-      - name: Retain the customer receipt in the central control repository
+      - id: export
+        name: Prepare public trial evidence with the exact event input
         if: always() && steps.vigil.outputs.report != ''
+        env:
+          APP_TOKEN: ${{ steps.checkout-token.outputs.token }}
+          TARGET_REPOSITORY: ${{ needs.authenticate.outputs.repository }}
+          EVENT_PATH: ${{ steps.change-event.outputs.path }}
+          REPORT_PATH: ${{ steps.vigil.outputs.report }}
+          CARD_PATH: ${{ steps.vigil.outputs.value-card }}
+          SARIF_PATH: ${{ steps.vigil.outputs.sarif }}
+          EVENT_KIND: ${{ needs.authenticate.outputs.event }}
+          BASE_SHA: ${{ needs.authenticate.outputs.base-sha }}
+          HEAD_SHA: ${{ needs.authenticate.outputs.head-sha }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { constants, openSync, fstatSync, readSync, closeSync, mkdtempSync, realpathSync, writeFileSync, appendFileSync } from "node:fs";
+          import { join } from "node:path";
+          const e = process.env;
+          const response = await fetch(`${e.GITHUB_API_URL}/repos/${e.TARGET_REPOSITORY}`, {
+            headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${e.APP_TOKEN}` },
+            signal: AbortSignal.timeout(15000), redirect: "error",
+          });
+          if (!response.ok) throw new Error("Repository visibility could not be verified; no export.");
+          const visibility = await response.json();
+          if (visibility?.full_name !== e.TARGET_REPOSITORY || visibility.private !== false || visibility.visibility !== "public") {
+            throw new Error("Public trial export refused for private or unknown repository visibility.");
+          }
+          const read = (path, limit) => {
+            const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+            try {
+              const stat = fstatSync(fd);
+              if (!stat.isFile() || stat.size > limit) throw new Error("Evidence file is not a bounded regular file.");
+              const bytes = Buffer.alloc(limit + 1);
+              let total = 0, count;
+              while (total < bytes.length && (count = readSync(fd, bytes, total, bytes.length - total, null)) > 0) total += count;
+              if (total > limit) throw new Error("Evidence file grew beyond its limit.");
+              return bytes.subarray(0, total);
+            } finally { closeSync(fd); }
+          };
+          const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const event = read(e.EVENT_PATH, 262144), report = read(e.REPORT_PATH, 8388608);
+          const receipt = JSON.parse(report);
+          if (receipt.transcriptSha256 !== `sha256:${hash(event)}` || receipt.base !== e.BASE_SHA || receipt.head !== e.HEAD_SHA) {
+            throw new Error("Receipt does not match the retained event and exact commits.");
+          }
+          const root = mkdtempSync(join(realpathSync(e.RUNNER_TEMP), "vigil-public-export-"));
+          const files = { "agent-vigil-report.json": report, "github-event.json": event,
+            "agent-vigil-value-card.json": read(e.CARD_PATH, 8388608), "agent-vigil.sarif": read(e.SARIF_PATH, 8388608) };
+          const mode = e.EVENT_KIND === "pull_request" ? "maintainer" : "merge-group";
+          const flag = "--event";
+          const guide = ["# Reproduce this public trial result", "",
+            "The original receipt is unchanged. github-event.json matches its transcript SHA-256.",
+            "Review the source and trusted policy before executing candidate code. Use an isolated environment.",
+            "From the exact repository checkout, use the reviewed Vigil runtime identified below:", "",
+            `vigil ${mode} ${flag} /absolute/path/to/github-event.json --repo . --base ${e.BASE_SHA} --head ${e.HEAD_SHA} --policy .agent-vigil.json --policy-ref ${e.BASE_SHA}`,
+            "", "Action runtime: sulmusic2-star/agent-vigil@3e5d5278043f3fbeba7bc1a96d7354df44f4551e",
+            `Recorded CLI version: ${receipt.vigilVersion}`, `Source: https://github.com/${e.TARGET_REPOSITORY}`,
+            "", "No source checkout, installed dependencies or complete Docker image is bundled.",
+            "This retains the missing input; it is not an offline hermetic replay, signed receipt, or live merge authorization.",
+            "Checksums detect changed files; they do not establish trusted provenance.", ""].join("\n");
+          files["REPRODUCE.md"] = Buffer.from(guide);
+          for (const [name, bytes] of Object.entries(files)) writeFileSync(join(root, name), bytes, { flag: "wx", mode: 0o600 });
+          writeFileSync(join(root, "SHA256SUMS.txt"), Object.entries(files).map(([name, bytes]) => `${hash(bytes)}  ${name}`).join("\n") + "\n", { flag: "wx", mode: 0o600 });
+          appendFileSync(e.GITHUB_OUTPUT, `path=${root}\n`);
+          NODE
+      - name: Retain the public trial receipt and its reproduction input
+        if: always() && steps.export.outcome == 'success' && steps.export.outputs.path != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-vigil-${{ needs.authenticate.outputs.owner }}-${{ needs.authenticate.outputs.name }}-${{ needs.authenticate.outputs.head-sha }}
-          path: |
-            ${{ steps.vigil.outputs.report }}
-            ${{ steps.vigil.outputs.sarif }}
-            ${{ steps.vigil.outputs.value-card }}
+          path: ${{ steps.export.outputs.path }}
           if-no-files-found: error
           retention-days: 30
 
   publish:
     name: Publish App-owned decision
+    timeout-minutes: 10
     needs: [authenticate, evidence]
     if: always() && needs.authenticate.result == 'success'
     runs-on: ubuntu-24.04
@@ -247,12 +319,15 @@ jobs:
           private-key: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_PRIVATE_KEY }}
           owner: ${{ needs.authenticate.outputs.owner }}
           repositories: ${{ needs.authenticate.outputs.name }}
-          permission-checks: write
           permission-contents: read
           permission-pull-requests: read
-      - name: Recheck live identity and complete the queued check
+      - name: Recheck live identity and submit the result to the single writer
         env:
           APP_TOKEN: ${{ steps.token.outputs.token }}
+          RESULT_ORIGIN: ${{ vars.AGENT_VIGIL_PUBLIC_APP_ORIGIN }}
+          RESULT_SECRET: ${{ secrets.AGENT_VIGIL_PUBLIC_APP_DISPATCH_SECRET }}
+          DELIVERY_ID: ${{ needs.authenticate.outputs.delivery-id }}
+          INSTALLATION_ID: ${{ needs.authenticate.outputs.installation-id }}
           TARGET_REPOSITORY: ${{ needs.authenticate.outputs.repository }}
           EVENT_KIND: ${{ needs.authenticate.outputs.event }}
           PR_NUMBER: ${{ needs.authenticate.outputs.number }}
@@ -268,7 +343,7 @@ jobs:
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
-          import { createHash } from "node:crypto";
+          import { createHash, createHmac } from "node:crypto";
           const e = process.env;
           async function request(path, options = {}) {
             const response = await fetch(`${e.GITHUB_API_URL}${path}`, {
@@ -298,15 +373,35 @@ jobs:
           const status = current && e.EVIDENCE_RESULT === "success" && e.VIGIL_STATUS === "PASS" && receiptValid
             ? "PASS"
             : current && e.VIGIL_STATUS === "FAIL" ? "FAIL" : "NOT CHECKED";
-          const conclusion = status === "PASS" ? "success" : "failure";
-          const summary = status === "PASS"
-            ? "Independent verification passed for the exact current commit."
-            : status === "FAIL" ? "Independent verification found a blocking contradiction."
-            : "No merge decision was possible because required evidence or a current commit identity was missing.";
-          await request(`/repos/${e.TARGET_REPOSITORY}/check-runs/${e.CHECK_RUN_ID}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ status: "completed", conclusion, details_url: `${e.GITHUB_SERVER_URL}/${e.GITHUB_REPOSITORY}/actions/runs/${e.GITHUB_RUN_ID}`, output: { title: status, summary } }),
-          });
-          if (status !== "PASS") process.exitCode = 1;
+          // No Checks-write token here. Only the durable service may complete this check.
+          const origin = new URL(e.RESULT_ORIGIN);
+          if (origin.protocol !== "https:" || origin.username || origin.password || origin.port || origin.pathname !== "/" || origin.search || origin.hash) throw new Error("invalid result service origin");
+          if (!e.RESULT_SECRET || e.RESULT_SECRET.length < 32) throw new Error("missing result secret");
+          const body = JSON.stringify({ schema: "agent-vigil-check-result/v1", deliveryId: e.DELIVERY_ID,
+            repository: e.TARGET_REPOSITORY, installationId: e.INSTALLATION_ID, baseSha: e.BASE_SHA, headSha: e.HEAD_SHA,
+            checkRunId: e.CHECK_RUN_ID, runId: e.GITHUB_RUN_ID, runAttempt: e.GITHUB_RUN_ATTEMPT,
+            verdict: status, receiptHash: receiptValid ? e.RECEIPT_HASH : "", prBodySha256: e.EXPECTED_PR_BODY_SHA256 || "" });
+          const signature = `sha256=${createHmac("sha256", e.RESULT_SECRET).update("agent-vigil-check-result/v1\0").update(body).digest("hex")}`;
+          let published = false;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            let response, result;
+            try {
+              response = await fetch(new URL("/github/check-result", origin), {
+                method: "POST", redirect: "error", signal: AbortSignal.timeout(15000),
+                headers: { "content-type": "application/json", "x-agent-vigil-result-signature": signature }, body,
+              });
+              if (response.status >= 500) { await new Promise((resolve) => setTimeout(resolve, 3000)); continue; }
+              if ([200, 202].includes(response.status)) result = await response.json();
+            } catch {
+              // Retry the identical signed request, never create a new verification attempt.
+              await new Promise((resolve) => setTimeout(resolve, 3000)); continue;
+            }
+            if (![200, 202].includes(response.status)) throw new Error(`Result service refused publication (${response.status}); no direct-write fallback.`);
+            if (response.status === 200 && result.status === "published" && ["PASS", "FAIL", "NOT CHECKED"].includes(result.verdict)) {
+              if (result.verdict !== "PASS") process.exitCode = 1;
+              published = true; break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+          }
+          if (!published) throw new Error("Result publication is unconfirmed; check remains blocked until the service completes it.");
           NODE
